@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Guía Local Dolores - Turismo Filtros</title>
+<title>Guía Local Dolores - Turismo</title>
 <style>
   body {
     background: transparent;
@@ -91,9 +91,6 @@
 <body>
 
 <div id="filters">
-  <select id="filtro-rubro">
-    <option value="">-- Rubro --</option>
-  </select>
   <select id="filtro-categoria">
     <option value="">-- Categoría --</option>
   </select>
@@ -109,7 +106,6 @@
   const sheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTTPvnE6DszbG6M7h84ZAdzpRdpTvH3k5wPuVz7sQf0Oa4tpFD4sJOqjZc3H4gY9lAT7lnUQh4Tpe1C7/pub?output=csv';
 
   const listado = document.getElementById('listado');
-  const filtroRubro = document.getElementById('filtro-rubro');
   const filtroCategoria = document.getElementById('filtro-categoria');
   const filtroSubcategoria = document.getElementById('filtro-subcategoria');
   const filtroNombre = document.getElementById('filtro-nombre');
@@ -186,6 +182,52 @@
     return card;
   }
 
+  function filterData(data) {
+    const c = normalizeText(filtroCategoria.value);
+    const s = normalizeText(filtroSubcategoria.value);
+    const n = normalizeText(filtroNombre.value);
+
+    return data.filter(item => {
+      // Solo rubro1 o rubro2 = "turismo"
+      const rubro1 = normalizeText(item.rubro1);
+      const rubro2 = normalizeText(item.rubro2);
+      if(rubro1 !== 'turismo' && rubro2 !== 'turismo') return false;
+
+      const categorias = [item.categoria1, item.categoria2].map(normalizeText);
+      const subcategoria = normalizeText(item.subcategoria);
+      const nombre = normalizeText(item.nombre);
+
+      const matchCategoria = c === "" || categorias.includes(c);
+      const matchSubcategoria = s === "" || subcategoria.includes(s);
+      const matchNombre = n === "" || nombre.includes(n);
+
+      return matchCategoria && matchSubcategoria && matchNombre;
+    });
+  }
+
+  let globalData = [];
+
+  fetch(sheetUrl)
+    .then(res => res.text())
+    .then(text => {
+      globalData = csvToArray(text);
+
+      // Filtrar solo turismo para llenar opciones
+      const turismoData = globalData.filter(item => {
+        const r1 = normalizeText(item.rubro1);
+        const r2 = normalizeText(item.rubro2);
+        return r1 === 'turismo' || r2 === 'turismo';
+      });
+
+      const categorias = uniqueSorted(turismoData.flatMap(i => [i.categoria1, i.categoria2]));
+      categorias.forEach(c => filtroCategoria.appendChild(createOption(c)));
+
+      const subcategorias = uniqueSorted(turismoData.map(i => i.subcategoria));
+      subcategorias.forEach(s => filtroSubcategoria.appendChild(createOption(s)));
+
+      renderList(turismoData);
+    });
+
   function renderList(data) {
     listado.innerHTML = "";
     if(data.length === 0){
@@ -197,48 +239,7 @@
     });
   }
 
-  function filterData(data) {
-    const r = normalizeText(filtroRubro.value);
-    const c = normalizeText(filtroCategoria.value);
-    const s = normalizeText(filtroSubcategoria.value);
-    const n = normalizeText(filtroNombre.value);
-
-    return data.filter(item => {
-      const rubros = [item.rubro1, item.rubro2].map(normalizeText);
-      const categorias = [item.categoria1, item.categoria2].map(normalizeText);
-      const subcategoria = normalizeText(item.subcategoria);
-      const nombre = normalizeText(item.nombre);
-
-      const matchRubro = r === "" || rubros.includes(r);
-      const matchCategoria = c === "" || categorias.includes(c);
-      const matchSubcategoria = s === "" || subcategoria.includes(s);
-      const matchNombre = n === "" || nombre.includes(n);
-
-      return matchRubro && matchCategoria && matchSubcategoria && matchNombre;
-    });
-  }
-
-  let globalData = [];
-
-  fetch(sheetUrl)
-    .then(res => res.text())
-    .then(text => {
-      globalData = csvToArray(text);
-
-      // llenar filtros
-      const rubros = uniqueSorted(globalData.flatMap(i => [i.rubro1, i.rubro2]));
-      rubros.forEach(r => filtroRubro.appendChild(createOption(r)));
-
-      const categorias = uniqueSorted(globalData.flatMap(i => [i.categoria1, i.categoria2]));
-      categorias.forEach(c => filtroCategoria.appendChild(createOption(c)));
-
-      const subcategorias = uniqueSorted(globalData.map(i => i.subcategoria));
-      subcategorias.forEach(s => filtroSubcategoria.appendChild(createOption(s)));
-
-      renderList(globalData);
-    });
-
-  [filtroRubro, filtroCategoria, filtroSubcategoria].forEach(sel =>
+  [filtroCategoria, filtroSubcategoria].forEach(sel =>
     sel.addEventListener('change', () => {
       const filtered = filterData(globalData);
       renderList(filtered);
@@ -249,7 +250,6 @@
     const filtered = filterData(globalData);
     renderList(filtered);
   });
-
 </script>
 </body>
 </html>
