@@ -1,255 +1,153 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Guía Local Dolores - Turismo</title>
-<style>
-  body {
-    background: transparent;
-    font-family: Arial, sans-serif;
-    margin: 20px;
-    padding: 0;
-  }
-  #filters {
-    background: #f5f5f5;
-    padding: 15px;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-  }
-  select, input[type="text"] {
-    padding: 8px;
-    font-size: 1rem;
-    border: 1px solid #ccc;
-    border-radius: 5px;
-    min-width: 150px;
-  }
-  #listado {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-  }
-  .tarjeta {
-    background: #f5f5f5;
-    border-radius: 8px;
-    padding: 15px;
-    width: calc(33% - 10px);
-    box-sizing: border-box;
-    box-shadow: 0 2px 5px rgb(0 0 0 / 0.1);
-    display: flex;
-    flex-direction: column;
-  }
-  .tarjeta img {
-    max-width: 100%;
-    border-radius: 6px;
-    margin-bottom: 10px;
-    object-fit: contain;
-    max-height: 100px;
-  }
-  .tarjeta h3 {
-    margin: 0 0 6px 0;
-    font-size: 1.1rem;
-  }
-  .tarjeta p {
-    margin: 4px 0;
-    flex-grow: 1;
-  }
-  .botones {
-    margin-top: 10px;
-  }
-  .boton-mapa {
-    background-color: #0078d7;
-    color: white;
-    padding: 6px 12px;
-    border: none;
-    border-radius: 5px;
-    cursor: pointer;
-    text-decoration: none;
-    font-size: 0.9rem;
-  }
-  .boton-mapa:hover {
-    background-color: #005ea2;
-  }
-  @media (max-width: 900px) {
-    .tarjeta {
-      width: calc(50% - 10px);
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Guía Turismo</title>
+  <style>
+    body {
+      background: transparent;
+      font-family: sans-serif;
+      margin: 0;
+      padding: 1rem;
     }
-  }
-  @media (max-width: 500px) {
-    .tarjeta {
+    .buscador {
+      background: #f4f4f4;
+      padding: 1rem;
+      border-radius: 1rem;
+      margin-bottom: 1rem;
+    }
+    .filtro {
+      margin: 0.5rem 0;
       width: 100%;
     }
-    #filters {
-      flex-direction: column;
+    .tarjetas {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 1rem;
     }
-  }
-</style>
+    .tarjeta {
+      background: white;
+      border-radius: 1rem;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      padding: 1rem;
+    }
+    .tarjeta img {
+      max-width: 100%;
+      border-radius: 0.5rem;
+    }
+  </style>
 </head>
 <body>
 
-<div id="filters">
-  <select id="filtro-categoria">
-    <option value="">-- Categoría --</option>
-  </select>
-  <select id="filtro-subcategoria">
-    <option value="">-- Subcategoría --</option>
-  </select>
-  <input type="text" id="filtro-nombre" placeholder="Buscar por nombre..." />
-</div>
+  <div class="buscador">
+    <input id="filtroNombre" class="filtro" type="text" placeholder="Buscar por nombre..." />
+    <select id="filtroCategoria" class="filtro">
+      <option value="">-- Categoría --</option>
+    </select>
+    <select id="filtroSubcategoria" class="filtro">
+      <option value="">-- Subcategoría --</option>
+    </select>
+  </div>
 
-<div id="listado">Cargando datos...</div>
+  <div id="contenedor" class="tarjetas"></div>
 
-<script>
-  const sheetUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTTPvnE6DszbG6M7h84ZAdzpRdpTvH3k5wPuVz7sQf0Oa4tpFD4sJOqjZc3H4gY9lAT7lnUQh4Tpe1C7/pub?output=csv';
+  <script>
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRm3pOKXZbqGyUpaIPfI8WPtg2gcuL5Xe_WBB6j1uS-Vo3P_R5sbl4ZYHDuBrvt0Zc4q-3TPXo2Xt94/pub?output=csv";
 
-  const listado = document.getElementById('listado');
-  const filtroCategoria = document.getElementById('filtro-categoria');
-  const filtroSubcategoria = document.getElementById('filtro-subcategoria');
-  const filtroNombre = document.getElementById('filtro-nombre');
+    const contenedor = document.getElementById("contenedor");
+    const filtroNombre = document.getElementById("filtroNombre");
+    const filtroCategoria = document.getElementById("filtroCategoria");
+    const filtroSubcategoria = document.getElementById("filtroSubcategoria");
 
-  function normalizeText(text) {
-    return text ? text.toString().normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase() : "";
-  }
+    let datos = [];
 
-  function csvToArray(str, delimiter = ",") {
-    const lines = str.trim().split("\n");
-    const headers = lines.shift().split(delimiter).map(h => h.trim());
-    return lines.map(line => {
-      const values = line.split(delimiter);
-      let obj = {};
-      headers.forEach((header, i) => {
-        obj[header] = values[i] ? values[i].trim() : "";
-      });
-      return obj;
-    });
-  }
+    async function cargarCSV() {
+      const res = await fetch(CSV_URL);
+      const texto = await res.text();
+      const filas = texto.split("\n").map(f => f.split(","));
+      const encabezados = filas[0].map(h => h.trim().toLowerCase());
 
-  function uniqueSorted(arr) {
-    return [...new Set(arr.filter(a => a && a !== ""))].sort((a,b) => a.localeCompare(b));
-  }
-
-  function createOption(value) {
-    const opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    return opt;
-  }
-
-  function createCard(item) {
-    const card = document.createElement('div');
-    card.className = 'tarjeta';
-
-    if(item.logo){
-      const img = document.createElement('img');
-      img.src = item.logo;
-      img.alt = item.nombre;
-      card.appendChild(img);
-    }
-
-    const title = document.createElement('h3');
-    title.textContent = item.nombre;
-    card.appendChild(title);
-
-    if(item.descripcion){
-      const desc = document.createElement('p');
-      desc.textContent = item.descripcion;
-      card.appendChild(desc);
-    }
-
-    // Mostrar dirección y botón "Cómo llegar" SOLO si nivel = 3
-    if(item.nivel === "3") {
-      if(item.direccion){
-        const dir = document.createElement('p');
-        dir.textContent = "Dirección: " + item.direccion;
-        card.appendChild(dir);
-      }
-      if(item.maps){
-        const botones = document.createElement('div');
-        botones.className = 'botones';
-        const botonMapa = document.createElement('a');
-        botonMapa.href = item.maps;
-        botonMapa.target = "_blank";
-        botonMapa.className = 'boton-mapa';
-        botonMapa.textContent = '¿Cómo llegar?';
-        botones.appendChild(botonMapa);
-        card.appendChild(botones);
-      }
-    }
-
-    return card;
-  }
-
-  function filterData(data) {
-    const c = normalizeText(filtroCategoria.value);
-    const s = normalizeText(filtroSubcategoria.value);
-    const n = normalizeText(filtroNombre.value);
-
-    return data.filter(item => {
-      // Solo rubro1 o rubro2 = "turismo"
-      const rubro1 = normalizeText(item.rubro1);
-      const rubro2 = normalizeText(item.rubro2);
-      if(rubro1 !== 'turismo' && rubro2 !== 'turismo') return false;
-
-      const categorias = [item.categoria1, item.categoria2].map(normalizeText);
-      const subcategoria = normalizeText(item.subcategoria);
-      const nombre = normalizeText(item.nombre);
-
-      const matchCategoria = c === "" || categorias.includes(c);
-      const matchSubcategoria = s === "" || subcategoria.includes(s);
-      const matchNombre = n === "" || nombre.includes(n);
-
-      return matchCategoria && matchSubcategoria && matchNombre;
-    });
-  }
-
-  let globalData = [];
-
-  fetch(sheetUrl)
-    .then(res => res.text())
-    .then(text => {
-      globalData = csvToArray(text);
-
-      // Filtrar solo turismo para llenar opciones
-      const turismoData = globalData.filter(item => {
-        const r1 = normalizeText(item.rubro1);
-        const r2 = normalizeText(item.rubro2);
-        return r1 === 'turismo' || r2 === 'turismo';
+      datos = filas.slice(1).map(fila => {
+        const obj = {};
+        encabezados.forEach((key, i) => {
+          obj[key] = fila[i] ? fila[i].trim() : "";
+        });
+        return obj;
       });
 
-      const categorias = uniqueSorted(turismoData.flatMap(i => [i.categoria1, i.categoria2]));
-      categorias.forEach(c => filtroCategoria.appendChild(createOption(c)));
+      datos = datos
+        .filter(d => d["rubro1"].toLowerCase() === "turismo")
+        .sort((a, b) => {
+          const n1 = parseInt(b["nivel"] || 0);
+          const n2 = parseInt(a["nivel"] || 0);
+          const sn1 = parseInt(a["subnivel1"] || 0);
+          const sn2 = parseInt(b["subnivel1"] || 0);
+          return n1 - n2 || sn1 - sn2;
+        });
 
-      const subcategorias = uniqueSorted(turismoData.map(i => i.subcategoria));
-      subcategorias.forEach(s => filtroSubcategoria.appendChild(createOption(s)));
-
-      renderList(turismoData);
-    });
-
-  function renderList(data) {
-    listado.innerHTML = "";
-    if(data.length === 0){
-      listado.textContent = "No se encontraron resultados.";
-      return;
+      poblarFiltros();
+      renderizarTarjetas();
     }
-    data.forEach(item => {
-      listado.appendChild(createCard(item));
-    });
-  }
 
-  [filtroCategoria, filtroSubcategoria].forEach(sel =>
-    sel.addEventListener('change', () => {
-      const filtered = filterData(globalData);
-      renderList(filtered);
-    })
-  );
+    function poblarFiltros() {
+      const categorias = new Set();
+      const subcategorias = new Set();
+      datos.forEach(d => {
+        if (d["categoria1"]) categorias.add(d["categoria1"]);
+        if (d["subcategoria"]) subcategorias.add(d["subcategoria"]);
+      });
+      [...categorias].sort().forEach(cat => {
+        const op = document.createElement("option");
+        op.value = cat;
+        op.textContent = cat;
+        filtroCategoria.appendChild(op);
+      });
+      [...subcategorias].sort().forEach(sub => {
+        const op = document.createElement("option");
+        op.value = sub;
+        op.textContent = sub;
+        filtroSubcategoria.appendChild(op);
+      });
+    }
 
-  filtroNombre.addEventListener('input', () => {
-    const filtered = filterData(globalData);
-    renderList(filtered);
-  });
-</script>
+    function renderizarTarjetas() {
+      const nombreFiltro = filtroNombre.value.toLowerCase();
+      const categoriaFiltro = filtroCategoria.value;
+      const subcategoriaFiltro = filtroSubcategoria.value;
+
+      contenedor.innerHTML = "";
+
+      datos.forEach(d => {
+        const coincideNombre = d["nombre"].toLowerCase().includes(nombreFiltro);
+        const coincideCategoria = !categoriaFiltro || d["categoria1"] === categoriaFiltro;
+        const coincideSubcategoria = !subcategoriaFiltro || d["subcategoria"] === subcategoriaFiltro;
+
+        if (coincideNombre && coincideCategoria && coincideSubcategoria) {
+          const nivel = parseInt(d["nivel"]) || 1;
+
+          const tarjeta = document.createElement("div");
+          tarjeta.className = "tarjeta";
+          tarjeta.innerHTML = `
+            <h3>${d["nombre"]}</h3>
+            <p><strong>${d["categoria1"]} - ${d["subcategoria"]}</strong></p>
+            ${d["logo"] ? `<img src="${d["logo"]}" alt="${d["nombre"]} logo">` : ""}
+            <p>${d["descripcion"]}</p>
+            ${nivel >= 3 ? `<p><strong>Dirección:</strong> ${d["direccion"]}</p>` : ""}
+            ${nivel >= 3 && d["maps"] ? `<p><a href="${d["maps"]}" target="_blank">Cómo llegar</a></p>` : ""}
+            ${nivel >= 3 && d["puntuacion"] ? `<p><strong>Puntuación:</strong> ${d["puntuacion"]}</p>` : ""}
+          `;
+          contenedor.appendChild(tarjeta);
+        }
+      });
+    }
+
+    filtroNombre.addEventListener("input", renderizarTarjetas);
+    filtroCategoria.addEventListener("change", renderizarTarjetas);
+    filtroSubcategoria.addEventListener("change", renderizarTarjetas);
+
+    cargarCSV();
+  </script>
+
 </body>
 </html>
