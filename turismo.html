@@ -116,10 +116,12 @@
     <input type="text" id="filtro" placeholder="Buscar por nombre..." />
   </div>
   <div class="grid" id="contenedor"></div>
+
   <div id="modal" class="modal" onclick="this.style.display='none'">
     <span class="modal-close" onclick="document.getElementById('modal').style.display='none'">&times;</span>
     <div class="modal-content" id="modalImgContainer"></div>
   </div>
+
   <script>
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/1';
 
@@ -135,7 +137,9 @@
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-        const turismoData = data.filter(item => [item.rubro1, item.rubro2, item.rubro3, item.rubro4].includes('Turismo'));
+        const turismoData = data.filter(item =>
+          ['rubro1', 'rubro2', 'rubro3', 'rubro4'].some(key => item[key]?.toLowerCase().includes('turismo'))
+        );
 
         const categorias = [...new Set(turismoData.map(item => item.categoria).filter(Boolean))].sort();
         categorias.forEach(cat => {
@@ -146,65 +150,92 @@
         });
 
         const updateSubcategorias = () => {
-          const catValue = categoriaSelect.value;
+          const categoriaElegida = categoriaSelect.value;
           subcategoriaSelect.innerHTML = '<option value="">Todas las subcategorías</option>';
           subcategoriaSelect.disabled = true;
 
-          if (catValue) {
-            const subs = [...new Set(
+          if (categoriaElegida) {
+            const subcategorias = [...new Set(
               turismoData
-                .filter(i => i.categoria === catValue)
-                .flatMap(i => [i.subcategoria1, i.subcategoria2])
+                .filter(item => item.categoria === categoriaElegida)
+                .flatMap(item => [item.subcategoria1, item.subcategoria2])
                 .filter(Boolean)
             )].sort();
 
-            subs.forEach(sub => {
+            subcategorias.forEach(sub => {
               const option = document.createElement('option');
               option.value = sub;
               option.textContent = sub;
               subcategoriaSelect.appendChild(option);
             });
-            if (subs.length > 0) subcategoriaSelect.disabled = false;
+
+            if (subcategorias.length > 0) subcategoriaSelect.disabled = false;
+          }
+        };
+
+        const extraerUsuario = (url) => {
+          if (!url) return '';
+          try {
+            const u = new URL(url);
+            const parts = u.pathname.split('/').filter(Boolean);
+            return parts.length ? parts[parts.length - 1] : url;
+          } catch {
+            return url;
           }
         };
 
         const render = () => {
           const q = normalizar(filtro.value);
-          const cat = categoriaSelect.value;
-          const subcat = subcategoriaSelect.value;
+          const categoria = categoriaSelect.value;
+          const subcategoria = subcategoriaSelect.value;
 
           contenedor.innerHTML = '';
 
           turismoData
-            .filter(i => (!cat || i.categoria === cat) && (!subcat || [i.subcategoria1, i.subcategoria2].includes(subcat)) && normalizar(i.nombre).includes(q))
-            .forEach(i => {
-              const nivel = Number(i.nivel || 1);
-              const contacto = `${i.telefono ? '📞 ' + i.telefono + '<br>' : ''}${i.whatsapp ? '🟢 <a href="https://wa.me/' + i.whatsapp + '" target="_blank">' + i.whatsapp + '</a><br>' : ''}${i.direccion ? '📍 ' + i.direccion + '<br>' : ''}${i.direccion2 ? i.direccion2 + '<br>' : ''}${i.direccion3 ? i.direccion3 + '<br>' : ''}${nivel === 3 && i.maps ? '📌 <a href="' + i.maps + '" target="_blank">Cómo llegar</a><br>' : ''}${i.instagram ? '📸 Instagram: <a href="' + i.instagram + '" target="_blank">' + i.instagram + '</a><br>' : ''}${i.facebook ? '📘 Facebook: <a href="' + i.facebook + '" target="_blank">' + i.facebook + '</a><br>' : ''}${i.youtube ? '▶️ YouTube: <a href="' + i.youtube + '" target="_blank">' + i.youtube + '</a><br>' : ''}`;
+            .filter(item => {
+              if (categoria && item.categoria !== categoria) return false;
+              if (subcategoria && ![item.subcategoria1, item.subcategoria2].includes(subcategoria)) return false;
+              return normalizar(item.nombre || '').includes(q);
+            })
+            .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel)
+            .forEach(item => {
+              const nivel = Number(item.nivel || 1);
+              const contacto = `
+                ${item.telefono ? '📞 ' + item.telefono + '<br>' : ''}
+                ${item.whatsapp ? '🟢 <a href="https://wa.me/' + item.whatsapp + '" target="_blank">' + item.whatsapp + '</a><br>' : ''}
+                ${item.direccion ? '📍 ' + item.direccion + '<br>' : ''}
+                ${item.direccion2 ? item.direccion2 + '<br>' : ''}
+                ${item.direccion3 ? item.direccion3 + '<br>' : ''}
+                ${nivel === 3 && item.maps ? '📌 <a href="' + item.maps + '" target="_blank">Cómo llegar</a><br>' : ''}
+                ${item.instagram ? '📸 Instagram: <a href="' + item.instagram + '" target="_blank">' + extraerUsuario(item.instagram) + '</a><br>' : ''}
+                ${item.facebook ? '📘 Facebook: <a href="' + item.facebook + '" target="_blank">' + extraerUsuario(item.facebook) + '</a><br>' : ''}
+                ${item.youtube ? '▶️ YouTube: <a href="' + item.youtube + '" target="_blank">' + extraerUsuario(item.youtube) + '</a><br>' : ''}
+              `;
 
               const imagenes = ['img1','img2','img3','img4','img5','img6']
-                .map(k => i[k])
+                .map(key => item[key])
                 .filter(Boolean)
-                .map(url => '<img class="thumbnail" src="' + url + '" onclick="mostrarModal(\'' + url + '\')">')
-                .join('');
+                .map(url => '<img class="thumbnail" src="' + url + '" onclick="mostrarModal(\'' + url + '\')" />').join('');
 
-              const enlace = i.link ? '<div style="margin-top: 0.8rem;"><a href="' + i.link + '" target="_blank">🌐 Visita nuestro sitio web</a></div>' : '';
+              const enlace = item.link ? '<div style="margin-top: 0.8rem;"><a href="' + item.link + '" target="_blank">🌐 Visita nuestro sitio web</a></div>' : '';
 
               const div = document.createElement('div');
               div.className = 'card nivel-' + nivel;
-              div.innerHTML =
-                (i.logo ? '<img class="thumbnail" src="' + i.logo + '" onclick="mostrarModal(\'' + i.logo + '\')">' : '') +
-                '<div class="nombre">' + i.nombre + '</div>' +
-                '<div class="cat-sub">' + i.categoria + (i.subcategoria1 ? ' - ' + i.subcategoria1 : '') + '</div>' +
-                '<div class="descripcion">' + (i.descripcion || '') + '</div>' +
-                '<div>' + imagenes + '</div>' +
-                '<div class="contacto">' + contacto + '</div>' +
-                enlace;
+              div.innerHTML = `
+                ${item.logo ? '<img class="thumbnail" src="' + item.logo + '" alt="Logo" onclick="mostrarModal(\'' + item.logo + '\')" />' : ''}
+                <div class="nombre">${item.nombre}</div>
+                <div class="cat-sub">${item.categoria}${item.subcategoria1 ? ' - ' + item.subcategoria1 : ''}</div>
+                <div class="descripcion">${item.descripcion || ''}</div>
+                <div>${imagenes}</div>
+                <div class="contacto">${contacto}</div>
+                ${enlace}
+              `;
               contenedor.appendChild(div);
             });
         };
 
         window.mostrarModal = function(src) {
-          modalImgContainer.innerHTML = '<img src="' + src + '">';
+          modalImgContainer.innerHTML = '<img src="' + src + '" />';
           modal.style.display = 'block';
         }
 
