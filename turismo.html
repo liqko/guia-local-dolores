@@ -38,8 +38,6 @@
       font-size: 1.8rem;
       text-align: center;
       user-select: none;
-      background: var(--fondo-buscador);
-      padding: 0.5rem 0;
     }
     .buscador {
       display: flex;
@@ -47,11 +45,6 @@
       flex-wrap: wrap;
       margin-bottom: 0.75rem;
       justify-content: center;
-      background: var(--fondo-buscador);
-      padding: 0.5rem;
-      position: sticky;
-      top: 3.4rem; /* justo debajo del h1 */
-      z-index: 1001;
     }
     select, input {
       padding: 0.5rem 0.75rem;
@@ -95,8 +88,8 @@
 
     .card img.thumbnail {
       max-width: 100%;
-      height: 80px;
-      object-fit: contain;
+      height: 100px;
+      object-fit: cover;
       border-radius: 0.5rem;
       margin: 1rem 0;
       cursor: pointer;
@@ -260,240 +253,220 @@
         const modal = document.getElementById('modal');
         const modalImg = document.getElementById('modalImg');
 
+        // Normaliza texto para búsqueda insensible a mayúsculas y tildes
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
+        // Filtra solo anuncios que tengan "Turismo" en cualquiera de las columnas rubro1 a rubro4
         const turismoData = data.filter(item =>
           ['rubro1','rubro2','rubro3','rubro4'].some(r => item[r]?.toLowerCase() === 'turismo')
         );
 
+        // Rellenar select categorías con categorías únicas ordenadas
         const categorias = [...new Set(turismoData.map(item => item.categoria).filter(Boolean))].sort();
         categorias.forEach(cat => {
-          const opt = document.createElement('option');
-          opt.value = cat;
-          opt.textContent = cat;
-          categoriaSelect.appendChild(opt);
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          categoriaSelect.appendChild(option);
         });
 
-        let subcategorias = [];
-
-        function filtrarSubcategorias(cat) {
+        // Actualiza subcategorías basándose en la categoría seleccionada
+        const updateSubcategorias = () => {
+          const categoriaElegida = categoriaSelect.value;
           subcategoriaSelect.innerHTML = '<option value="">Todas las subcategorías</option>';
-          subcategoriaSelect.disabled = !cat;
-          if (!cat) return;
-          subcategorias = [...new Set(turismoData.filter(i => i.categoria === cat).map(i => i.subcategoria).filter(Boolean))].sort();
-          subcategorias.forEach(sub => {
-            const opt = document.createElement('option');
-            opt.value = sub;
-            opt.textContent = sub;
-            subcategoriaSelect.appendChild(opt);
-          });
-        }
+          subcategoriaSelect.disabled = true;
 
-        categoriaSelect.addEventListener('change', e => {
-          filtrarSubcategorias(e.target.value);
-          filtrarYMostrar();
-        });
+          if (categoriaElegida) {
+            // Toma subcategorías de subcategoria1 y subcategoria2 de los items con la categoría elegida
+            let subs = turismoData
+              .filter(item => item.categoria === categoriaElegida)
+              .flatMap(item => [item.subcategoria1, item.subcategoria2])
+              .filter(Boolean);
 
-        subcategoriaSelect.addEventListener('change', filtrarYMostrar);
-        filtro.addEventListener('input', filtrarYMostrar);
+            // Unificar y ordenar únicas
+            const subcategoriasUnicas = [...new Set(subs)].sort();
 
-        function abrirModal(src) {
-          modal.classList.add('show');
+            subcategoriasUnicas.forEach(sub => {
+              const option = document.createElement('option');
+              option.value = sub;
+              option.textContent = sub;
+              subcategoriaSelect.appendChild(option);
+            });
+
+            if (subcategoriasUnicas.length > 0) subcategoriaSelect.disabled = false;
+          }
+        };
+
+        // Función para mostrar imagen en modal
+        function mostrarModal(src) {
           modalImg.src = src;
+          modal.classList.add('show');
+          document.body.style.overflow = 'hidden'; // Evita scroll al abrir modal
         }
-        function cerrarModal(event) {
-          if(event.target === modal || event.target.classList.contains('modal-close')) {
+        window.mostrarModal = mostrarModal; // para usar en html
+
+        function cerrarModal(e) {
+          if (
+            e.target === modal || 
+            e.target === document.querySelector('.modal-close')
+          ) {
             modal.classList.remove('show');
             modalImg.src = '';
+            document.body.style.overflow = ''; // restaurar scroll
           }
         }
 
-        function crearImagen(src, alt, clickHandler) {
-          const img = document.createElement('img');
-          img.src = src;
-          img.alt = alt;
-          img.className = 'thumbnail';
-          img.loading = 'lazy';
-          img.draggable = false;
-          if(clickHandler) img.addEventListener('click', () => clickHandler(src));
-          return img;
-        }
+        // Renderizar tarjetas
+        const render = () => {
+          const q = normalizar(filtro.value);
+          const categoria = categoriaSelect.value;
+          const subcategoria = subcategoriaSelect.value;
 
-        // Ordenar anuncios: nivel 3 arriba, luego nivel 2, nivel 1 abajo
-        // Además agrupar por nombre único, mostrar sólo un anuncio por nombre.
-        function ordenarYUnificar(anuncios) {
-          const nivelPrioridad = { '3': 1, '2': 2, '1': 3 };
-          const vistos = new Set();
-          const filtrados = [];
-
-          anuncios.sort((a,b) => {
-            // Orden por nivel y luego por nombre alfabético
-            if(nivelPrioridad[a.nivel] !== nivelPrioridad[b.nivel]) {
-              return nivelPrioridad[a.nivel] - nivelPrioridad[b.nivel];
-            }
-            return a.nombre.localeCompare(b.nombre);
-          });
-
-          for(const anuncio of anuncios) {
-            const nombreNorm = normalizar(anuncio.nombre);
-            if(!vistos.has(nombreNorm)) {
-              vistos.add(nombreNorm);
-              filtrados.push(anuncio);
-            }
-          }
-          return filtrados;
-        }
-
-        function filtrarYMostrar() {
-          const cat = categoriaSelect.value;
-          const subcat = subcategoriaSelect.value;
-          const filtroText = normalizar(filtro.value);
-
-          let filtrados = turismoData.filter(item => {
-            let coincideCat = !cat || item.categoria === cat;
-            let coincideSub = !subcat || item.subcategoria === subcat;
-            let coincideFiltro = !filtroText || normalizar(item.nombre).includes(filtroText);
-            return coincideCat && coincideSub && coincideFiltro;
-          });
-
-          filtrados = ordenarYUnificar(filtrados);
-
-          mostrarAnuncios(filtrados);
-        }
-
-        function mostrarAnuncios(anuncios) {
           contenedor.innerHTML = '';
 
-          if (anuncios.length === 0) {
-            contenedor.innerHTML = '<p>No se encontraron resultados.</p>';
-            return;
-          }
+          turismoData
+            .filter(item => {
+              if (categoria && item.categoria !== categoria) return false;
+              if (subcategoria && ![item.subcategoria1, item.subcategoria2].includes(subcategoria)) return false;
+              return normalizar(item.nombre).includes(q);
+            })
+            .sort((a, b) => {
+              // Orden: nivel ascendente y luego subnivel ascendente
+              return (a.nivel - b.nivel) || (a.subnivel1 - b.subnivel1);
+            })
+            .forEach(item => {
+              const nivel = Number(item.nivel || 1);
 
-          for (const anuncio of anuncios) {
-            const card = document.createElement('article');
-            card.classList.add('card', `nivel-${anuncio.nivel}`);
+              // Construir bloques de info separados
 
-            // Fondo según nivel
-            if (anuncio.nivel === '2') {
-              card.style.backgroundColor = 'var(--pantone-7709c)';
-              card.style.color = '#f5f5f5';
-            } else {
-              card.style.backgroundColor = 'var(--pantone-472c)';
-              card.style.color = '#333';
-            }
-
-            // Logo y nombre
-            const logoImg = anuncio.logo?.trim() ? crearImagen(anuncio.logo.trim(), `Logo ${anuncio.nombre}`) : null;
-
-            if (logoImg) {
-              logoImg.style.maxHeight = '80px';
-              logoImg.style.marginBottom = '0.5rem';
-              card.appendChild(logoImg);
-            }
-
-            const nombreElem = document.createElement('div');
-            nombreElem.className = 'nombre';
-            nombreElem.textContent = anuncio.nombre;
-            card.appendChild(nombreElem);
-
-            // Categoría y Subcategoría
-            const catSub = document.createElement('div');
-            catSub.className = 'cat-sub';
-            catSub.textContent = `${anuncio.categoria}${anuncio.subcategoria ? ' > ' + anuncio.subcategoria : ''}`;
-            card.appendChild(catSub);
-
-            // Descripción breve
-            if (anuncio.descripcion?.trim()) {
-              const desc = document.createElement('div');
-              desc.className = 'descripcion';
-              desc.textContent = anuncio.descripcion.trim();
-              card.appendChild(desc);
-            }
-
-            // Contactos y enlaces
-            const contactos = document.createElement('div');
-            contactos.className = 'bloque contacto';
-
-            if(anuncio.telefono?.trim()) {
-              const tel = document.createElement('div');
-              tel.textContent = `Teléfono: ${anuncio.telefono.trim()}`;
-              contactos.appendChild(tel);
-            }
-
-            // WhatsApp solo nivel 2 y 3
-            if ((anuncio.nivel === '2' || anuncio.nivel === '3') && anuncio.whatsapp?.trim()) {
-              const wa = document.createElement('div');
-              wa.innerHTML = `WhatsApp: <a href="https://wa.me/${anuncio.whatsapp.trim().replace(/\D/g,'')}" target="_blank" rel="noopener">${anuncio.whatsapp.trim()}</a>`;
-              contactos.appendChild(wa);
-            }
-
-            if(anuncio.email?.trim()) {
-              const email = document.createElement('div');
-              email.innerHTML = `Email: <a href="mailto:${anuncio.email.trim()}" target="_blank" rel="noopener">${anuncio.email.trim()}</a>`;
-              contactos.appendChild(email);
-            }
-
-            if(anuncio.web?.trim()) {
-              const webLink = document.createElement('div');
-              webLink.className = 'web';
-              webLink.innerHTML = `Web: <a href="${anuncio.web.trim()}" target="_blank" rel="noopener">${anuncio.web.trim()}</a>`;
-              contactos.appendChild(webLink);
-            }
-
-            if(contactos.children.length > 0) {
-              card.appendChild(contactos);
-            }
-
-            // Redes sociales
-            if (anuncio.facebook?.trim() || anuncio.instagram?.trim()) {
-              const redes = document.createElement('div');
-              redes.className = 'bloque redes';
-              if(anuncio.facebook?.trim()) {
-                const fbLink = document.createElement('a');
-                fbLink.href = anuncio.facebook.trim();
-                fbLink.target = '_blank';
-                fbLink.rel = 'noopener';
-                fbLink.textContent = 'Facebook';
-                redes.appendChild(fbLink);
-                if(anuncio.instagram?.trim()) redes.appendChild(document.createTextNode(' | '));
+              // Bloque categoría y adicionales
+              const bloqueCategoria = document.createElement('div');
+              bloqueCategoria.className = 'bloque cat-sub';
+              bloqueCategoria.textContent = item.categoria;
+              if(item.adicionales){
+                bloqueCategoria.innerHTML += ` - <span class="adicionales">${item.adicionales}</span>`;
               }
-              if(anuncio.instagram?.trim()) {
-                const igLink = document.createElement('a');
-                igLink.href = anuncio.instagram.trim();
-                igLink.target = '_blank';
-                igLink.rel = 'noopener';
-                igLink.textContent = 'Instagram';
-                redes.appendChild(igLink);
-              }
-              card.appendChild(redes);
-            }
 
-            // Carrusel imágenes para nivel 3
-            if (anuncio.nivel === '3') {
-              const imgs = [anuncio.img1, anuncio.img2, anuncio.img3, anuncio.img4, anuncio.img5]
-                .filter(src => src && src.trim());
+              // Bloque descripción
+              const bloqueDescripcion = document.createElement('div');
+              bloqueDescripcion.className = 'bloque descripcion';
+              bloqueDescripcion.textContent = item.descripcion || '';
 
-              if(imgs.length > 0) {
-                const carousel = document.createElement('div');
-                carousel.className = 'carousel';
-                imgs.forEach(src => {
-                  const img = crearImagen(src.trim(), `Imagen de ${anuncio.nombre}`, abrirModal);
-                  carousel.appendChild(img);
+              // Bloque imágenes (normal o carrusel nivel 3)
+              let bloqueImagenes;
+              if(nivel === 3){
+                bloqueImagenes = document.createElement('div');
+                bloqueImagenes.className = 'bloque carousel';
+                ['img1','img2','img3','img4','img5','img6'].forEach(key => {
+                  if(item[key]){
+                    const img = document.createElement('img');
+                    img.src = item[key];
+                    img.alt = `Imagen de ${item.nombre}`;
+                    img.onclick = () => mostrarModal(item[key]);
+                    bloqueImagenes.appendChild(img);
+                  }
                 });
-                card.appendChild(carousel);
+              } else {
+                bloqueImagenes = document.createElement('div');
+                bloqueImagenes.className = 'bloque';
+                ['img1','img2','img3','img4','img5','img6'].forEach(key => {
+                  if(item[key]){
+                    const img = document.createElement('img');
+                    img.className = 'thumbnail';
+                    img.src = item[key];
+                    img.alt = `Imagen de ${item.nombre}`;
+                    img.onclick = () => mostrarModal(item[key]);
+                    bloqueImagenes.appendChild(img);
+                  }
+                });
               }
-            }
 
-            contenedor.appendChild(card);
-          }
-        }
+              // Bloque contacto: dirección, teléfono, whatsapp
+              const bloqueContacto = document.createElement('div');
+              bloqueContacto.className = 'bloque contacto';
+              let contactoHtml = '';
 
-        filtrarYMostrar();
-      })
-      .catch(err => {
-        console.error('Error cargando datos:', err);
-        const contenedor = document.getElementById('contenedor');
-        contenedor.innerHTML = '<p>Error al cargar datos. Por favor, intente más tarde.</p>';
+              if(item.direccion) contactoHtml += `📍 ${item.direccion}<br>`;
+              if(item.direccion2) contactoHtml += `${item.direccion2}<br>`;
+              if(item.direccion3) contactoHtml += `${item.direccion3}<br>`;
+              if(item.telefono) contactoHtml += `📞 ${item.telefono}<br>`;
+              if(item.whatsapp) contactoHtml += `🟢 <a href="https://wa.me/${item.whatsapp}" target="_blank" rel="noopener noreferrer">${item.whatsapp}</a><br>`;
+
+              bloqueContacto.innerHTML = contactoHtml;
+
+              // Bloque redes sociales
+              const bloqueRedes = document.createElement('div');
+              bloqueRedes.className = 'bloque redes';
+              let redesHtml = '';
+
+              const extraerUsuario = (url) => {
+                if (!url) return '';
+                try {
+                  const u = new URL(url);
+                  const parts = u.pathname.split('/').filter(Boolean);
+                  return parts.length ? parts[parts.length - 1] : url;
+                } catch {
+                  return url;
+                }
+              };
+
+              if(item.instagram) redesHtml += `📸 Instagram: <a href="${item.instagram}" target="_blank" rel="noopener noreferrer">${extraerUsuario(item.instagram)}</a><br>`;
+              if(item.facebook) redesHtml += `📘 Facebook: <a href="${item.facebook}" target="_blank" rel="noopener noreferrer">${extraerUsuario(item.facebook)}</a><br>`;
+              if(item.youtube) redesHtml += `▶️ YouTube: <a href="${item.youtube}" target="_blank" rel="noopener noreferrer">${extraerUsuario(item.youtube)}</a><br>`;
+
+              bloqueRedes.innerHTML = redesHtml;
+
+              // Bloque enlace web con emojis corregidos
+              const bloqueWeb = document.createElement('div');
+              bloqueWeb.className = 'bloque web';
+              if(item.link){
+                bloqueWeb.innerHTML = `🌐🔗 <a href="${item.link}" target="_blank" rel="noopener noreferrer">Visitá nuestro sitio web!</a>`;
+              }
+
+              // Logo
+              let logoImg = null;
+              if(item.logo){
+                logoImg = document.createElement('img');
+                logoImg.className = 'thumbnail';
+                logoImg.src = item.logo;
+                logoImg.alt = `${item.nombre} - logo`;
+                logoImg.style.maxHeight = '80px';
+                logoImg.style.marginBottom = '0.8rem';
+                logoImg.style.cursor = 'pointer';
+                logoImg.onclick = () => mostrarModal(item.logo);
+              }
+
+              // Crear div principal tarjeta
+              const div = document.createElement('div');
+              div.className = `card nivel-${nivel}`;
+
+              if(logoImg) div.appendChild(logoImg);
+
+              const nombreDiv = document.createElement('div');
+              nombreDiv.className = 'nombre';
+              nombreDiv.textContent = item.nombre;
+              div.appendChild(nombreDiv);
+
+              div.appendChild(bloqueCategoria);
+              div.appendChild(bloqueDescripcion);
+              div.appendChild(bloqueImagenes);
+              div.appendChild(bloqueContacto);
+              div.appendChild(bloqueRedes);
+              div.appendChild(bloqueWeb);
+
+              contenedor.appendChild(div);
+            });
+        };
+
+        filtro.addEventListener('input', render);
+        categoriaSelect.addEventListener('change', () => {
+          updateSubcategorias();
+          render();
+        });
+        subcategoriaSelect.addEventListener('change', render);
+
+        updateSubcategorias();
+        render();
       });
   </script>
 </body>
