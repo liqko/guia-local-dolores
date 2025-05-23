@@ -7,16 +7,25 @@
   <style>
     body {
       font-family: sans-serif;
+      font-style: italic;
       background: transparent;
       margin: 0;
       padding: 1rem;
-      font-style: italic;
+      color: #333;
     }
-    .buscador { margin-bottom: 1rem; }
-    input {
+    h1 {
+      color: #006699;
+    }
+    .buscador {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    select, input {
       padding: 0.5rem;
-      width: 100%;
-      max-width: 400px;
+      border-radius: 0.5rem;
+      border: 1px solid #ccc;
     }
     .grid {
       display: grid;
@@ -27,22 +36,49 @@
       padding: 1rem;
       border-radius: 0.75rem;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-      background: #ffffff;
+      background: #fff;
     }
-    .nivel-1 { background: #f5f5f5; }
-    .nivel-2 { background: #e6f0ff; }
-    .nivel-3 { background: #ffe6cc; }
-    .card img { max-width: 100%; height: 100px; object-fit: cover; border-radius: 0.5rem; }
-    .extra-imgs img { height: 80px; margin: 4px 0; }
-    .nombre { font-weight: bold; font-size: 1.1rem; margin-top: 0.5rem; }
-    .descripcion { font-size: 0.9rem; color: #333; }
-    .contacto { font-size: 0.85rem; color: #666; margin-top: 0.5rem; }
+    .nivel-1 { background: #e3f2fd; }
+    .nivel-2 { background: #f1f8e9; }
+    .nivel-3 { background: #fff8e1; }
+    .card img {
+      max-width: 100%;
+      height: 100px;
+      object-fit: cover;
+      border-radius: 0.5rem;
+    }
+    .nombre {
+      font-weight: bold;
+      font-size: 1.1rem;
+      margin-top: 0.5rem;
+      color: #222;
+    }
+    .descripcion {
+      font-size: 0.9rem;
+      color: #333;
+    }
+    .contacto {
+      font-size: 0.85rem;
+      color: #555;
+      margin-top: 0.5rem;
+    }
+    .cat-sub {
+      font-size: 0.85rem;
+      color: #444;
+      margin-top: 0.25rem;
+    }
   </style>
 </head>
 <body>
-  <h1 style="color:#000">Turismo - Guía Local Dolores</h1>
+  <h1>Turismo - Guía Local Dolores</h1>
   <div class="buscador">
-    <input type="text" id="filtro" placeholder="Buscar por nombre, categoría o subcategoría..." />
+    <select id="categoriaSelect">
+      <option value="">Todas las categorías</option>
+    </select>
+    <select id="subcategoriaSelect" disabled>
+      <option value="">Todas las subcategorías</option>
+    </select>
+    <input type="text" id="filtro" placeholder="Buscar por nombre..." />
   </div>
   <div class="grid" id="contenedor"></div>
 
@@ -52,19 +88,60 @@
     fetch(url)
       .then(res => res.json())
       .then(data => {
-        const contenedor = document.getElementById('contenedor');
         const filtro = document.getElementById('filtro');
+        const categoriaSelect = document.getElementById('categoriaSelect');
+        const subcategoriaSelect = document.getElementById('subcategoriaSelect');
+        const contenedor = document.getElementById('contenedor');
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
+        const turismoData = data.filter(item => item.rubro1 === 'Turismo' || item.rubro2 === 'Turismo');
+
+        const categorias = [...new Set(turismoData.map(item => item.categoria1).filter(Boolean))].sort();
+        categorias.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          categoriaSelect.appendChild(option);
+        });
+
+        const updateSubcategorias = () => {
+          const categoriaElegida = categoriaSelect.value;
+          subcategoriaSelect.innerHTML = `<option value="">Todas las subcategorías</option>`;
+          subcategoriaSelect.disabled = true;
+
+          if (categoriaElegida) {
+            const subcategorias = [...new Set(
+              turismoData
+                .filter(item => item.categoria1 === categoriaElegida)
+                .map(item => item.subcategoria).filter(Boolean)
+            )].sort();
+
+            subcategorias.forEach(sub => {
+              const option = document.createElement('option');
+              option.value = sub;
+              option.textContent = sub;
+              subcategoriaSelect.appendChild(option);
+            });
+
+            if (subcategorias.length > 0) {
+              subcategoriaSelect.disabled = false;
+            }
+          }
+        };
+
         const render = () => {
           const q = normalizar(filtro.value);
+          const categoria = categoriaSelect.value;
+          const subcategoria = subcategoriaSelect.value;
+
           contenedor.innerHTML = '';
 
-          data
-            .filter(item => item.rubro1 === 'Turismo' || item.rubro2 === 'Turismo')
+          turismoData
             .filter(item => {
-              const txt = `${item.nombre} ${item.categoria1} ${item.categoria2} ${item.subcategoria}`;
+              if (categoria && item.categoria1 !== categoria) return false;
+              if (subcategoria && item.subcategoria !== subcategoria) return false;
+              const txt = `${item.nombre}`;
               return normalizar(txt).includes(q);
             })
             .sort((a, b) => {
@@ -72,50 +149,47 @@
               return a.subnivel - b.subnivel;
             })
             .forEach(item => {
-              const nivel = parseInt(item.nivel) || 1;
+              const nivel = Number(item.nivel || 1);
+              const telefono = item.telefono && item.telefono.trim() !== '' ? `📞 ${item.telefono}<br>` : '';
+              const whatsapp = item.whatsapp && item.whatsapp.trim() !== '' ?
+                (nivel === 1
+                  ? `🟢 ${item.whatsapp}<br>`
+                  : `🟢 <a href="https://wa.me/${item.whatsapp}" target="_blank">${item.whatsapp}</a><br>`)
+                : '';
+              const direccion = item.direccion ? `📍 ${item.direccion}<br>` : '';
+              const direccion2 = item.direccion2 || '';
+              const direccion3 = item.direccion3 || '';
+              const comoLlegar = nivel === 3 && item.maps ? `📌 <a href="${item.maps}" target="_blank">Cómo llegar</a>` : '';
+
               const div = document.createElement('div');
               div.className = `card nivel-${nivel}`;
-
               div.innerHTML = `
                 ${item.logo ? `<img src="${item.logo}" alt="Logo" />` : ''}
                 <div class="nombre">${item.nombre}</div>
+                <div class="cat-sub">${item.categoria1 || ''}${item.subcategoria ? ' - ' + item.subcategoria : ''}</div>
                 <div class="descripcion">${item.descripcion || ''}</div>
-                <div class="descripcion">${item.categoria1 || ''} ${item.subcategoria || ''}</div>
                 <div class="contacto">
-                  ${nivel === 3 && item.direccion ? `${item.direccion}<br>` : ''}
-                  ${nivel !== 3 && item.direccion ? `${item.direccion}<br>` : ''}
-                  ${nivel === 3 && item.maps ? `📌 <a href="${item.maps}" target="_blank">Cómo llegar</a><br>` : ''}
-                  ${nivel < 3 && item.telefono ? `📞 ${item.telefono}<br>` : ''}
-                  ${nivel < 3 && item.whatsapp ? `📱 ${item.whatsapp}<br>` : ''}
-                  ${nivel === 3 && item.telefono ? `📞 ${item.telefono}<br>` : ''}
-                  ${nivel === 3 && item.whatsapp ? `📱 <a href="https://wa.me/${item.whatsapp}" target="_blank">${item.whatsapp}</a><br>` : ''}
-                  ${item.instagram ? `📸 <a href="${item.instagram}" target="_blank">Instagram</a><br>` : ''}
-                  ${item.facebook ? `📘 <a href="${item.facebook}" target="_blank">Facebook</a><br>` : ''}
+                  ${telefono}
+                  ${whatsapp}
+                  ${direccion}
+                  ${direccion2 ? `${direccion2}<br>` : ''}
+                  ${direccion3 ? `${direccion3}<br>` : ''}
+                  ${comoLlegar}
                 </div>
               `;
-
-              if (nivel === 3) {
-                let imagenesExtras = '';
-                for (let i = 1; i <= 6; i++) {
-                  const img = item[`img${i}`];
-                  if (img) {
-                    imagenesExtras += `<img src="${img}" alt="Extra ${i}" />`;
-                  }
-                }
-                if (imagenesExtras) {
-                  div.innerHTML += `<div class="extra-imgs">${imagenesExtras}</div>`;
-                }
-
-                if (item.link) {
-                  div.innerHTML += `<div class="contacto"><a href="${item.link}" target="_blank">Visitar sitio</a></div>`;
-                }
-              }
-
               contenedor.appendChild(div);
             });
         };
 
+        categoriaSelect.addEventListener('change', () => {
+          updateSubcategorias();
+          render();
+        });
+
+        subcategoriaSelect.addEventListener('change', render);
         filtro.addEventListener('input', render);
+
+        updateSubcategorias();
         render();
       });
   </script>
