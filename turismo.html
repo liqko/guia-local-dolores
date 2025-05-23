@@ -3,24 +3,29 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Turismo | Guía Local Dolores</title>
+  <title>Turismo - Guía Local Dolores</title>
   <style>
     body {
       font-family: sans-serif;
       font-style: italic;
       background: transparent;
       margin: 0;
-      padding: 1rem;
       color: #333;
     }
     h1 {
       color: #006699;
+      margin: 0;
+      padding: 1rem;
     }
     .buscador {
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
-      margin-bottom: 1rem;
+      padding: 1rem;
+      background: #f5e1d4;
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
     select, input {
       padding: 0.5rem;
@@ -31,25 +36,17 @@
       display: grid;
       gap: 1rem;
       grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      padding: 1rem;
     }
     .card {
       padding: 1rem;
       border-radius: 0.75rem;
-      background: #fff;
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      background: #fff;
     }
-    .nivel-1 {
-      background: #FFF8E1;
-    }
-    .nivel-2 {
-      background: #2CA6A4;
-      color: #fff;
-    }
-    .nivel-3 {
-      background: #D6A77A;
-      border-left: 5px solid #b97d50;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    }
+    .nivel-1 { background: #f5e1d4; }
+    .nivel-2 { background: #00b0b9; color: white; }
+    .nivel-3 { background: #d6a77a; }
     .card img.thumbnail {
       max-width: 100%;
       height: 100px;
@@ -73,6 +70,12 @@
       color: #444;
       margin-top: 0.25rem;
     }
+    .adicionales {
+      font-size: 0.85rem;
+      color: #555;
+      margin-top: 0.25rem;
+      font-style: normal;
+    }
     .descripcion {
       font-size: 0.9rem;
       color: #333;
@@ -83,7 +86,6 @@
       color: #555;
       margin-top: 0.8rem;
     }
-
     .modal {
       display: none;
       position: fixed;
@@ -112,6 +114,22 @@
       font-weight: bold;
       cursor: pointer;
     }
+    .top-button {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: #006699;
+      color: white;
+      border: none;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      font-size: 20px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -126,15 +144,13 @@
     <input type="text" id="filtro" placeholder="Buscar por nombre..." />
   </div>
   <div class="grid" id="contenedor"></div>
-
   <div id="modal" class="modal" onclick="this.style.display='none'">
     <span class="modal-close" onclick="document.getElementById('modal').style.display='none'">&times;</span>
     <div class="modal-content" id="modalImgContainer"></div>
   </div>
-
+  <button id="topBtn" class="top-button" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">↑</button>
   <script>
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/1';
-
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -147,9 +163,7 @@
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-        const turismoData = data.filter(item =>
-          [item.rubro1, item.rubro2, item.rubro3, item.rubro4].includes('Turismo')
-        );
+        const turismoData = data.filter(item => [item.rubro1, item.rubro2, item.rubro3, item.rubro4].includes('Turismo'));
 
         const categorias = [...new Set(turismoData.map(item => item.categoria).filter(Boolean))].sort();
         categorias.forEach(cat => {
@@ -163,21 +177,16 @@
           const categoriaElegida = categoriaSelect.value;
           subcategoriaSelect.innerHTML = '<option value="">Todas las subcategorías</option>';
           subcategoriaSelect.disabled = true;
-
           if (categoriaElegida) {
             const subcategorias = [...new Set(
-              turismoData.filter(item => item.categoria === categoriaElegida)
-                         .map(item => item.subcategoria1)
-                         .filter(Boolean)
+              turismoData.filter(item => item.categoria === categoriaElegida).map(item => item.subcategoria1).filter(Boolean)
             )].sort();
-
             subcategorias.forEach(sub => {
               const option = document.createElement('option');
               option.value = sub;
               option.textContent = sub;
               subcategoriaSelect.appendChild(option);
             });
-
             if (subcategorias.length > 0) subcategoriaSelect.disabled = false;
           }
         };
@@ -193,57 +202,58 @@
           }
         };
 
+        const mostrarModal = (src) => {
+          modalImgContainer.innerHTML = `<img src="${src}" />`;
+          modal.style.display = 'block';
+        }
+
         const render = () => {
           const q = normalizar(filtro.value);
           const categoria = categoriaSelect.value;
           const subcategoria = subcategoriaSelect.value;
-
           contenedor.innerHTML = '';
+          turismoData.filter(item => {
+            if (categoria && item.categoria !== categoria) return false;
+            if (subcategoria && item.subcategoria1 !== subcategoria) return false;
+            return normalizar(item.nombre).includes(q);
+          })
+          .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel)
+          .forEach(item => {
+            const nivel = Number(item.nivel || 1);
+            const contacto = `
+              ${item.direccion ? '📍 ' + item.direccion + '<br>' : ''}
+              ${item.direccion2 ? item.direccion2 + '<br>' : ''}
+              ${item.direccion3 ? item.direccion3 + '<br>' : ''}
+              ${item.telefono ? '📞 ' + item.telefono + '<br>' : ''}
+              ${item.whatsapp ? '🟢 <a href="https://wa.me/' + item.whatsapp + '" target="_blank">' + item.whatsapp + '</a><br>' : ''}
+              ${item.instagram ? '📸 Instagram: <a href="' + item.instagram + '" target="_blank">' + extraerUsuario(item.instagram) + '</a><br>' : ''}
+              ${item.facebook ? '📘 Facebook: <a href="' + item.facebook + '" target="_blank">' + extraerUsuario(item.facebook) + '</a><br>' : ''}
+              ${item.youtube ? '▶️ YouTube: <a href="' + item.youtube + '" target="_blank">' + extraerUsuario(item.youtube) + '</a><br>' : ''}
+              ${nivel === 3 && item.maps ? '📌 <a href="' + item.maps + '" target="_blank">Cómo llegar</a><br>' : ''}`;
 
-          turismoData
-            .filter(item => {
-              if (categoria && item.categoria !== categoria) return false;
-              if (subcategoria && item.subcategoria1 !== subcategoria) return false;
-              return normalizar(item.nombre).includes(q);
-            })
-            .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel)
-            .forEach(item => {
-              const nivel = Number(item.nivel || 1);
-              const contacto = `
-                ${item.telefono ? `📞 ${item.telefono}<br>` : ''}
-                ${item.whatsapp ? `🟢 <a href="https://wa.me/${item.whatsapp}" target="_blank">${item.whatsapp}</a><br>` : ''}
-                ${item.direccion ? `📍 ${item.direccion}<br>` : ''}
-                ${item.direccion2 ? `${item.direccion2}<br>` : ''}
-                ${item.direccion3 ? `${item.direccion3}<br>` : ''}
-                ${nivel === 3 && item.maps ? `📌 <a href="${item.maps}" target="_blank">Cómo llegar</a><br>` : ''}
-                ${item.instagram ? `📸 Instagram: <a href="${item.instagram}" target="_blank">${extraerUsuario(item.instagram)}</a><br>` : ''}
-                ${item.facebook ? `📘 Facebook: <a href="${item.facebook}" target="_blank">${extraerUsuario(item.facebook)}</a><br>` : ''}
-                ${item.youtube ? `▶️ YouTube: <a href="${item.youtube}" target="_blank">${extraerUsuario(item.youtube)}</a><br>` : ''}`;
+            const imagenes = ['img1','img2','img3','img4','img5','img6']
+              .map(k => item[k])
+              .filter(Boolean);
+            let galeria = '';
+            if (nivel === 3 && imagenes.length > 1) {
+              galeria = '<div style="display:flex;overflow:auto;gap:0.5rem;margin:1rem 0">' + imagenes.map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}')" />`).join('') + '</div>';
+            } else {
+              galeria = imagenes.map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}')" />`).join('');
+            }
 
-              const imagenes = ['img1','img2','img3','img4','img5','img6']
-                .map(key => item[key])
-                .filter(Boolean)
-                .map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}')" />`).join('');
-
-              const enlace = item.link ? `<div style="margin-top: 0.8rem;"><a href="${item.link}" target="_blank">🌐 Visita nuestra web! ✨📲</a></div>` : '';
-
-              const div = document.createElement('div');
-              div.className = `card nivel-${nivel}`;
-              div.innerHTML = `
-                ${item.logo ? `<img class="thumbnail" src="${item.logo}" alt="Logo" onclick="mostrarModal('${item.logo}')" />` : ''}
-                <div class="nombre">${item.nombre}</div>
-                <div class="cat-sub">${item.categoria}${item.subcategoria1 ? ' - ' + item.subcategoria1 : ''}</div>
-                <div class="descripcion">${item.descripcion || ''}</div>
-                <div>${imagenes}</div>
-                <div class="contacto">${contacto}</div>
-                ${enlace}`;
-              contenedor.appendChild(div);
-            });
-        };
-
-        window.mostrarModal = function(src) {
-          modalImgContainer.innerHTML = `<img src="${src}" />`;
-          modal.style.display = 'block';
+            const div = document.createElement('div');
+            div.className = `card nivel-${nivel}`;
+            div.innerHTML = `
+              ${item.logo ? '<img class="thumbnail" src="' + item.logo + '" onclick="mostrarModal(\'' + item.logo + '\')" />' : ''}
+              <div class="nombre">${item.nombre}</div>
+              <div class="cat-sub">${item.categoria}${item.subcategoria1 ? ' - ' + item.subcategoria1 : ''}</div>
+              ${item.adicionales ? '<div class="adicionales">' + item.adicionales + '</div>' : ''}
+              <div class="descripcion">${item.descripcion || ''}</div>
+              <div>${galeria}</div>
+              <div class="contacto">${contacto}</div>
+              ${item.link ? '<div style="margin-top:0.8rem;"><a href="' + item.link + '" target="_blank">🌐✨ Visita nuestro sitio web!</a></div>' : ''}`;
+            contenedor.appendChild(div);
+          });
         }
 
         categoriaSelect.addEventListener('change', () => {
@@ -256,6 +266,10 @@
         updateSubcategorias();
         render();
       });
+
+    window.addEventListener('scroll', () => {
+      document.getElementById('topBtn').style.display = window.scrollY > 100 ? 'flex' : 'none';
+    });
   </script>
 </body>
 </html>
