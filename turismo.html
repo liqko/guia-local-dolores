@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Turismo</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <style>
@@ -87,7 +87,6 @@
       color: #555;
       margin-top: 0.8rem;
     }
-    /* Modal */
     .modal {
       display: none;
       position: fixed;
@@ -96,30 +95,27 @@
       top: 0;
       width: 100vw;
       height: 100vh;
-      max-height: 100vh;
-      overflow-y: auto;
+      overflow: auto;
       background-color: rgba(0,0,0,0.9);
       align-items: center;
       justify-content: center;
-      padding: 1rem;
-      box-sizing: border-box;
     }
     .modal-content {
+      position: relative;
       margin: auto;
-      display: block;
-      max-width: 90vw;
-      max-height: 90vw;
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: 90%;
       max-height: 90vh;
-      border-radius: 10px;
-      box-shadow: 0 0 20px black;
-      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
     .modal-content img {
-      width: 100%;
-      height: auto;
-      object-fit: contain;
+      width: auto;
+      max-width: 100%;
+      max-height: 90vh;
       border-radius: 10px;
-      touch-action: manipulation;
     }
     .modal-close {
       position: absolute;
@@ -129,8 +125,25 @@
       font-size: 30px;
       font-weight: bold;
       cursor: pointer;
+    }
+    .modal-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 2rem;
+      color: white;
+      background: rgba(0,0,0,0.4);
+      padding: 0.5rem;
+      border-radius: 50%;
+      cursor: pointer;
       user-select: none;
-      z-index: 1000;
+      z-index: 1;
+    }
+    .modal-prev {
+      left: 10px;
+    }
+    .modal-next {
+      right: 10px;
     }
     .top-button {
       position: fixed;
@@ -164,15 +177,16 @@
   <div class="grid" id="contenedor"></div>
 
   <div id="modal" class="modal">
-    <span class="modal-close">&times;</span>
+    <span class="modal-close" id="modalClose">&times;</span>
+    <div class="modal-nav modal-prev" id="modalPrev">&#10094;</div>
     <div class="modal-content" id="modalImgContainer"></div>
+    <div class="modal-nav modal-next" id="modalNext">&#10095;</div>
   </div>
 
   <button id="topBtn" class="top-button" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">↑</button>
 
   <script>
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/1';
-
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -180,8 +194,6 @@
         const categoriaSelect = document.getElementById('categoriaSelect');
         const subcategoriaSelect = document.getElementById('subcategoriaSelect');
         const contenedor = document.getElementById('contenedor');
-        const modal = document.getElementById('modal');
-        const modalImgContainer = document.getElementById('modalImgContainer');
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
@@ -224,19 +236,48 @@
           }
         };
 
-        window.mostrarModal = (src) => {
-          modalImgContainer.innerHTML = `<img src="${src}" alt="Imagen" />`;
-          modal.style.display = 'flex';
+        let currentImageIndex = 0;
+        let currentImageList = [];
+
+        const mostrarModal = (src, group = []) => {
+          currentImageList = group.length ? group : [src];
+          currentImageIndex = currentImageList.indexOf(src);
+          if (currentImageIndex === -1) currentImageIndex = 0;
+          updateModalImage();
+          document.getElementById('modal').style.display = 'flex';
         };
 
-        const cerrarModal = (e) => {
-          if (e.target.id === 'modal' || e.target.classList.contains('modal-close')) {
-            modal.style.display = 'none';
+        function updateModalImage() {
+          const imgSrc = currentImageList[currentImageIndex];
+          document.getElementById('modalImgContainer').innerHTML = `<img src="${imgSrc}" alt="Imagen ampliada" />`;
+        }
+
+        document.getElementById('modalClose').addEventListener('click', () => {
+          document.getElementById('modal').style.display = 'none';
+        });
+        document.getElementById('modalPrev').addEventListener('click', (e) => {
+          e.stopPropagation();
+          currentImageIndex = (currentImageIndex - 1 + currentImageList.length) % currentImageList.length;
+          updateModalImage();
+        });
+        document.getElementById('modalNext').addEventListener('click', (e) => {
+          e.stopPropagation();
+          currentImageIndex = (currentImageIndex + 1) % currentImageList.length;
+          updateModalImage();
+        });
+        document.getElementById('modal').addEventListener('click', (e) => {
+          if (e.target.id === 'modal') {
+            document.getElementById('modal').style.display = 'none';
           }
-        };
-
-        modal.addEventListener('click', cerrarModal);
-        modal.querySelector('.modal-close').addEventListener('click', cerrarModal);
+        });
+        document.addEventListener('keydown', (e) => {
+          const modal = document.getElementById('modal');
+          if (modal.style.display === 'flex') {
+            if (e.key === 'Escape') modal.style.display = 'none';
+            if (e.key === 'ArrowRight') document.getElementById('modalNext').click();
+            if (e.key === 'ArrowLeft') document.getElementById('modalPrev').click();
+          }
+        });
 
         const render = () => {
           const q = normalizar(filtro.value);
@@ -268,28 +309,28 @@
             const imagenes = ['img1','img2','img3','img4','img5','img6']
               .map(k => item[k])
               .filter(Boolean);
+
             let galeria = '';
             if (nivel === 3 && imagenes.length > 1) {
-              galeria = '<div style="display:flex;overflow:auto;gap:0.5rem;margin:1rem 0">' + imagenes.map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}')" />`).join('') + '</div>';
+              galeria = '<div style="display:flex;overflow:auto;gap:0.5rem;margin:1rem 0">' + imagenes.map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}', ${JSON.stringify(imagenes)})" />`).join('') + '</div>';
             } else {
-              galeria = imagenes.map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}')" />`).join('');
+              galeria = imagenes.map(url => `<img class="thumbnail" src="${url}" onclick="mostrarModal('${url}', ${JSON.stringify(imagenes)})" />`).join('');
             }
 
             const div = document.createElement('div');
             div.className = `card nivel-${nivel}`;
             div.innerHTML = `
-              ${item.logo ? '<img class="thumbnail" src="' + item.logo + '" onclick="mostrarModal(\'' + item.logo + '\')" />' : ''}
+              ${item.logo ? '<img class="thumbnail" src="' + item.logo + '" onclick="mostrarModal(\'' + item.logo + '\', [\'' + item.logo + '\'])" />' : ''}
               <div class="nombre">${item.nombre}</div>
               <div class="cat-sub">${item.categoria}${item.subcategoria1 ? ' - ' + item.subcategoria1 : ''}</div>
               ${item.adicionales ? '<div class="adicionales">' + item.adicionales + '</div>' : ''}
               <div class="descripcion">${item.descripcion || ''}</div>
               <div>${galeria}</div>
               <div class="contacto">${contacto}</div>
-              ${item.link ? '<div style="margin-top:0.8rem;"><a href="' + item.link + '" target="_blank">🌐✨ Visita nuestro sitio web!</a></div>' : ''}
-            `;
+              ${item.link ? '<div style="margin-top:0.8rem;"><a href="' + item.link + '" target="_blank">🌐✨ Visita nuestro sitio web!</a></div>' : ''}`;
             contenedor.appendChild(div);
           });
-        };
+        }
 
         categoriaSelect.addEventListener('change', () => {
           updateSubcategorias();
