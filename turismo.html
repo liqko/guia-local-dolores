@@ -95,34 +95,46 @@
       top: 0;
       width: 100vw;
       height: 100vh;
-      overflow: auto;
+      overflow: hidden;
       background-color: rgba(0,0,0,0.9);
     }
     .modal-content {
-      max-width: 100vw;
-      max-height: 100vh;
+      position: relative;
+      margin: 0 auto;
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: 90vw;
+      max-height: 90vh;
       display: flex;
       align-items: center;
       justify-content: center;
-      overflow-x: auto;
-      gap: 1rem;
-      padding: 2rem;
-      box-sizing: border-box;
     }
     .modal-content img {
-      max-height: 90vh;
       max-width: 100%;
-      object-fit: contain;
-      border-radius: 1rem;
+      max-height: 90vh;
+      border-radius: 0.5rem;
     }
+    .modal-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 2rem;
+      background: rgba(255,255,255,0.3);
+      border: none;
+      padding: 0.5rem 1rem;
+      cursor: pointer;
+      z-index: 1;
+    }
+    .modal-nav.left { left: 10px; }
+    .modal-nav.right { right: 10px; }
     .modal-close {
       position: absolute;
-      top: 10px;
-      right: 20px;
+      top: 20px;
+      right: 30px;
+      font-size: 2rem;
       color: white;
-      font-size: 30px;
-      font-weight: bold;
       cursor: pointer;
+      z-index: 2;
     }
     .top-button {
       position: fixed;
@@ -155,16 +167,70 @@
   </div>
   <div class="grid" id="contenedor"></div>
 
-  <!-- Modal -->
-  <div id="modal" class="modal" onclick="this.style.display='none'">
-    <span class="modal-close" onclick="document.getElementById('modal').style.display='none'">&times;</span>
-    <div class="modal-content" id="modalImgContainer"></div>
+  <!-- MODAL CON CARRUSEL -->
+  <div id="modal" class="modal">
+    <span class="modal-close" id="modalClose">&times;</span>
+    <div class="modal-content">
+      <button class="modal-nav left" id="prevBtn">&#10094;</button>
+      <img id="modalImage" src="" />
+      <button class="modal-nav right" id="nextBtn">&#10095;</button>
+    </div>
   </div>
 
   <button id="topBtn" class="top-button" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">↑</button>
-
   <script>
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/1';
+    let currentImageIndex = 0;
+    let currentImageList = [];
+
+    const modal = document.getElementById('modal');
+    const modalImage = document.getElementById('modalImage');
+    const modalClose = document.getElementById('modalClose');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+
+    function mostrarModal(imagenes, index) {
+      currentImageList = imagenes;
+      currentImageIndex = index;
+      modalImage.src = currentImageList[currentImageIndex];
+      modal.style.display = 'block';
+    }
+
+    function cerrarModal() {
+      modal.style.display = 'none';
+      currentImageList = [];
+      currentImageIndex = 0;
+    }
+
+    modalClose.onclick = cerrarModal;
+
+    modal.onclick = (e) => {
+      if (e.target === modal) cerrarModal();
+    };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') cerrarModal();
+      if (e.key === 'ArrowRight') siguienteImagen();
+      if (e.key === 'ArrowLeft') imagenAnterior();
+    });
+
+    function siguienteImagen() {
+      if (currentImageList.length > 1) {
+        currentImageIndex = (currentImageIndex + 1) % currentImageList.length;
+        modalImage.src = currentImageList[currentImageIndex];
+      }
+    }
+
+    function imagenAnterior() {
+      if (currentImageList.length > 1) {
+        currentImageIndex = (currentImageIndex - 1 + currentImageList.length) % currentImageList.length;
+        modalImage.src = currentImageList[currentImageIndex];
+      }
+    }
+
+    nextBtn.onclick = siguienteImagen;
+    prevBtn.onclick = imagenAnterior;
+
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -172,8 +238,6 @@
         const categoriaSelect = document.getElementById('categoriaSelect');
         const subcategoriaSelect = document.getElementById('subcategoriaSelect');
         const contenedor = document.getElementById('contenedor');
-        const modal = document.getElementById('modal');
-        const modalImgContainer = document.getElementById('modalImgContainer');
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
@@ -216,12 +280,6 @@
           }
         };
 
-        const mostrarModal = (srcs) => {
-          if (!Array.isArray(srcs)) srcs = [srcs];
-          modalImgContainer.innerHTML = srcs.map(src => `<img src="${src}" />`).join('');
-          modal.style.display = 'block';
-        };
-
         const render = () => {
           const q = normalizar(filtro.value);
           const categoria = categoriaSelect.value;
@@ -235,6 +293,8 @@
           .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel)
           .forEach(item => {
             const nivel = Number(item.nivel || 1);
+            const imagenes = ['img1','img2','img3','img4','img5','img6'].map(k => item[k]).filter(Boolean);
+
             const contacto = `
               ${item.direccion ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion + '<br>' : ''}
               ${item.direccion2 ? item.direccion2 + '<br>' : ''}
@@ -243,29 +303,18 @@
               ${item.telefono ? '<div style="margin-top:0.5rem"><i class="fas fa-phone"></i> ' + item.telefono + '</div>' : ''}
               ${item.whatsapp ? '<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/' + item.whatsapp + '" target="_blank">' + item.whatsapp + '</a></div>' : ''}
               ${(item.instagram || item.facebook || item.youtube) ? '<div style="margin-top:0.8rem">' : ''}
-                ${item.instagram ? '<i class="fab fa-instagram" style="color:#E1306C; margin-right:5px;"></i><a href="' + item.instagram + '" target="_blank">' + extraerUsuario(item.instagram) + '</a><br>' : ''}
-                ${item.facebook ? '<i class="fab fa-facebook" style="color:#1877F2; margin-right:5px;"></i><a href="' + item.facebook + '" target="_blank">' + extraerUsuario(item.facebook) + '</a><br>' : ''}
-                ${item.youtube ? '<i class="fab fa-youtube" style="color:#FF0000; margin-right:5px;"></i><a href="' + item.youtube + '" target="_blank">' + extraerUsuario(item.youtube) + '</a><br>' : ''}
+                ${item.instagram ? '<i class="fab fa-instagram" style="color:#E1306C;"></i> <a href="' + item.instagram + '" target="_blank">' + extraerUsuario(item.instagram) + '</a><br>' : ''}
+                ${item.facebook ? '<i class="fab fa-facebook" style="color:#1877F2;"></i> <a href="' + item.facebook + '" target="_blank">' + extraerUsuario(item.facebook) + '</a><br>' : ''}
+                ${item.youtube ? '<i class="fab fa-youtube" style="color:#FF0000;"></i> <a href="' + item.youtube + '" target="_blank">' + extraerUsuario(item.youtube) + '</a><br>' : ''}
               ${(item.instagram || item.facebook || item.youtube) ? '</div>' : ''}
             `;
 
-            const imagenes = ['img1','img2','img3','img4','img5','img6']
-              .map(k => item[k])
-              .filter(Boolean);
-
-            let galeria = '';
-            if (nivel === 3 && imagenes.length > 1) {
-              galeria = `<div style="display:flex;overflow:auto;gap:0.5rem;margin:1rem 0">
-                ${imagenes.map((url, i, arr) => `<img class="thumbnail" src="${url}" onclick='mostrarModal(${JSON.stringify(arr)})' />`).join('')}
-              </div>`;
-            } else {
-              galeria = imagenes.map((url, i, arr) => `<img class="thumbnail" src="${url}" onclick='mostrarModal(${JSON.stringify([url])})' />`).join('');
-            }
+            const galeria = imagenes.map((url, idx) => `<img class="thumbnail" src="${url}" onclick='mostrarModal(${JSON.stringify(imagenes)}, ${idx})' />`).join('');
 
             const div = document.createElement('div');
             div.className = `card nivel-${nivel}`;
             div.innerHTML = `
-              ${item.logo ? '<img class="thumbnail" src="' + item.logo + '" onclick="mostrarModal(['` + item.logo + `'])" />' : ''}
+              ${item.logo ? '<img class="thumbnail" src="' + item.logo + `" onclick='mostrarModal(["${item.logo}"], 0)' />` : ''}
               <div class="nombre">${item.nombre}</div>
               <div class="cat-sub">${item.categoria}${item.subcategoria1 ? ' - ' + item.subcategoria1 : ''}</div>
               ${item.adicionales ? '<div class="adicionales">' + item.adicionales + '</div>' : ''}
@@ -275,7 +324,7 @@
               ${item.link ? '<div style="margin-top:0.8rem;"><a href="' + item.link + '" target="_blank">🌐✨ Visita nuestro sitio web!</a></div>' : ''}`;
             contenedor.appendChild(div);
           });
-        };
+        }
 
         categoriaSelect.addEventListener('change', () => {
           updateSubcategorias();
@@ -290,12 +339,6 @@
 
     window.addEventListener('scroll', () => {
       document.getElementById('topBtn').style.display = window.scrollY > 100 ? 'flex' : 'none';
-    });
-
-    document.addEventListener('keydown', function(e) {
-      if (e.key === "Escape") {
-        document.getElementById('modal').style.display = 'none';
-      }
     });
   </script>
 </body>
