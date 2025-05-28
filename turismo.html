@@ -233,6 +233,10 @@
     }
         
   </style>
+
+  <!-- Lightbox2 -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.4/css/lightbox.min.css" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/lightbox2/2.11.4/js/lightbox.min.js"></script>
 </head>
 <body>
   <header class="header">
@@ -269,197 +273,129 @@
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-        const turismoData = data.filter(item => {const rubros = [(item.rubro1 || '').toLowerCase().trim(),...(item.rubro2 || '').toLowerCase().split(',').map(r => r.trim())];return rubros.includes('turismo');});
+        const ordenar = (a, b) => {
+          if (a.nivel !== b.nivel) return a.nivel - b.nivel;
+          return a.nombre.localeCompare(b.nombre);
+        };
 
-        const categorias = [...new Set(turismoData.map(item => item.categoria).filter(Boolean))].sort();
+        // Procesar datos y crear estructura jerárquica
+        const niveles = [[], [], []];
+        data.forEach(item => {
+          item.nivel = Number(item.nivel);
+          item.categoria = item.categoria || "";
+          item.subcategoria = item.subcategoria || "";
+          item.contacto = item.contacto || "";
+          item.descripcion = item.descripcion || "";
+          item.adicionales = item.adicionales || "";
+          item.imagenes = item.imagenes ? item.imagenes.split(',').map(u => u.trim()).filter(Boolean) : [];
+          niveles[item.nivel - 1].push(item);
+        });
+        niveles.forEach(n => n.sort(ordenar));
+
+        // Obtener categorías y subcategorías para select
+        const categorias = [...new Set(niveles[0].map(i => i.categoria))].sort();
         categorias.forEach(cat => {
-          const option = document.createElement('option');
-          option.value = cat;
-          option.textContent = cat;
-          categoriaSelect.appendChild(option);
+          if (cat) categoriaSelect.innerHTML += `<option value="${cat}">${cat}</option>`;
         });
 
-        const updateSubcategorias = () => {
-            const categoriaElegida = categoriaSelect.value;
-            subcategoriaSelect.innerHTML = '<option value="">Todas las subcategorías</option>';
-            subcategoriaSelect.disabled = true;
-
-            if (categoriaElegida) {
-                const subcategoriaSet = new Set();
-
-                turismoData
-                    .filter(item => item.categoria === categoriaElegida)
-                    .forEach(item => {
-                        if (item.subcategoria1) {
-                            item.subcategoria1.split(',').forEach(sub => {
-                                const trimmed = sub.trim();
-                                if (trimmed) subcategoriaSet.add(trimmed);
-                            });
-                        }
-                    });
-
-                const subcategorias = Array.from(subcategoriaSet).sort();
-
-                subcategorias.forEach(sub => {
-                    const option = document.createElement('option');
-                    option.value = sub;
-                    option.textContent = sub;
-                    subcategoriaSelect.appendChild(option);
-                });
-
-                if (subcategorias.length > 0) {
-                    subcategoriaSelect.disabled = false;
-                }
-            }
-        };
-
-        const extraerUsuario = (url) => {
-          if (!url) return '';
-          try {
-            const u = new URL(url);
-            const parts = u.pathname.split('/').filter(Boolean);
-            return parts.length ? parts[parts.length - 1] : url;
-          } catch {
-            return url;
-          }
-        };
-
-        const mostrarModal = (src) => {
-          modalImgContainer.innerHTML = `<img src="${src}" alt="Imagen ampliada" />`;
-          modal.classList.add('show');
-          document.body.classList.add('modal-open');
-        };
-
-        modalClose.addEventListener('click', () => {
-          modal.classList.remove('show');
-          modalImgContainer.innerHTML = '';
-          document.body.classList.remove('modal-open');
-        });
-
-        modal.addEventListener('click', (e) => {
-          if (e.target === modal || e.target.classList.contains('modal-content')) {
-            modal.classList.remove('show');
-            modalImgContainer.innerHTML = '';
-            document.body.classList.remove('modal-open');
-          }
-        });
-
-        document.addEventListener('keydown', (e) => {
-           if (e.key === 'Escape') {
-             modal.classList.remove('show');
-             modalImgContainer.innerHTML = '';
-             document.body.classList.remove('modal-open');
-            }
-         });
-
-        const render = () => {
-          const q = normalizar(filtro.value);
-          const categoria = categoriaSelect.value;
-          const subcategoria = subcategoriaSelect.value;
-          contenedor.innerHTML = '';
-          turismoData.filter(item => {
-            if (categoria && item.categoria !== categoria) return false;
-            if (subcategoria) {
-              const subcats = (item.subcategoria1 || '').split(',').map(s => s.trim());
-              if (!subcats.includes(subcategoria)) return false;
-            }
-            return normalizar(item.nombre).includes(q);
-          })
-          .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel)
-          .forEach(item => {
-            const nivel = Number(item.nivel || 1);
-            const logos = {
-              'Parque Termal': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/parque-termal.png',
-              'Termales Mall': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/termales%20Mall.png'
-            };
-            
-            const rubros = [
-               item.rubro1 ? item.rubro1.trim() : '',
-              ...(item.rubro2 ? item.rubro2.split(',').map(r => r.trim()) : [])
-            ];
-            
-            const logosDetectados = Object.entries(logos)
-              .filter(([nombreRubro]) => rubros.map(r => r.toLowerCase()).includes(nombreRubro.toLowerCase()))
-              .map(([nombreRubro, urlImagen]) => {
-                return `<img src="${urlImagen}" alt="Logo ${nombreRubro}" class="termales-logo" />`;
-            })
-            .join('');
-                          
-            const termalesLogoHTML = logosDetectados
-              ? `<div class="termales-logo-container">${logosDetectados}</div>`
-              : '';
-
-            const badges = [];
-            if ((item.verificado || '').toLowerCase() === 'x') {
-              badges.push('<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/VERIFICADO.png" alt="Verificado">');
-            }
-            if ((item.gold || '').toLowerCase() === 'x') {
-              badges.push('<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/BEST.png" alt="Gold">');
-            }
-
-            const contacto = `<div class="contacto">` + 
-              termalesLogoHTML +
-              (item.direccion ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion + '<br>' : '') +
-              (item.direccion2 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion2 + '<br>' : '') +
-              (item.direccion3 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion3 + '<br>' : '') +
-              (nivel === 3 && item.maps ? '<div style="margin-top:0.5rem"><i class="fas fa-thumbtack"></i> <a href="' + item.maps + '" target="_blank" rel="noopener noreferrer">Cómo llegar</a></div>' : '') + '<div style="margin-top:1rem;"></div>' + 
-              ((nivel === 2 || nivel === 3) && item.whatsapp ? '<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/' + item.whatsapp + '" target="_blank" rel="noopener noreferrer">' + item.whatsapp + '</a></div>' : '') +
-              (item.telefono ? '<div><i class="fas fa-phone"></i> ' + item.telefono + '</div>' : '') + 
-              ((item.instagram || item.facebook || item.youtube) ? '<div style="margin-top:0.8rem">' : '') +
-              (item.instagram ? '<i class="fab fa-instagram" style="color:#E1306C; margin-right:5px;"></i><a href="' + item.instagram + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.instagram) + '</a><br>' : '') +
-              (item.facebook ? '<i class="fab fa-facebook" style="color:#1877F2; margin-right:5px;"></i><a href="' + item.facebook + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.facebook) + '</a><br>' : '') +
-              (item.youtube ? '<i class="fab fa-youtube" style="color:#FF0000; margin-right:5px;"></i><a href="' + item.youtube + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.youtube) + '</a><br>' : '') +
-              ((item.instagram || item.facebook || item.youtube) ? '</div>' : '') +
-              (item.link ? `
-                <div style="margin-top: 1rem;">
-                  <i class="fas fa-globe" style="color:#006699; margin-right:5px;"></i>
-                  <a href="${item.link}" target="_blank" rel="noopener noreferrer">Stalkeá nuestra web!</a>
-                </div>
-              ` : '');
-
-            const imagenes = ['img1','img2','img3','img4','img5','img6'].map(k => item[k]).filter(Boolean);
-            const galeria = nivel === 3 && imagenes.length > 1
-              ? '<div class="galeria-carrusel">' + imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModal('${url}')">`).join('') + '</div>'
-              : imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen" onclick="mostrarModal('${url}')">`).join('');
-
-            const div = document.createElement('div');
-            div.className = `card nivel-${nivel}`;
-            div.innerHTML =
-              `<div class="badge-icons">${badges.join('')}</div>` +
-              (item.logo ? `<img class="thumbnail" src="${item.logo}" alt="Logo">` : '') +
-              `<div class="nombre">${item.nombre}</div>` +
-              (item.categoria ? `<div class="cat-sub">${item.categoria}${item.subcategoria1 ? ' - ' + item.subcategoria1 : ''}</div>` : '') +
-              (item.adicional ? `<div class="adicionales">${item.adicional}</div>` : '') +
-              (item.descripcion ? `<div class="descripcion">${item.descripcion}</div>` : '') +
-              galeria +
-              contacto;
-
-            contenedor.appendChild(div);
-          });
-        };
-
-        filtro.addEventListener('input', render);
         categoriaSelect.addEventListener('change', () => {
-          updateSubcategorias();
+          const cat = categoriaSelect.value;
+          subcategoriaSelect.innerHTML = `<option value="">Todas las subcategorías</option>`;
+          subcategoriaSelect.disabled = !cat;
+          if (cat) {
+            const subs = new Set(niveles[1].filter(i => i.categoria === cat).map(i => i.subcategoria));
+            [...subs].sort().forEach(sub => {
+              if (sub) subcategoriaSelect.innerHTML += `<option value="${sub}">${sub}</option>`;
+            });
+          }
           render();
         });
+
         subcategoriaSelect.addEventListener('change', render);
+        filtro.addEventListener('input', render);
+
+        function render() {
+          const cat = categoriaSelect.value;
+          const subcat = subcategoriaSelect.value;
+          const busqueda = normalizar(filtro.value);
+
+          const filtrados = [];
+          // Nivel 1
+          const n1filtrados = niveles[0].filter(i => {
+            if (cat && i.categoria !== cat) return false;
+            if (busqueda && !normalizar(i.nombre).includes(busqueda)) return false;
+            return true;
+          });
+
+          // Nivel 2
+          const n2filtrados = niveles[1].filter(i => {
+            if (cat && i.categoria !== cat) return false;
+            if (subcat && i.subcategoria !== subcat) return false;
+            if (busqueda && !normalizar(i.nombre).includes(busqueda)) return false;
+            return true;
+          });
+
+          // Nivel 3
+          const n3filtrados = niveles[2].filter(i => {
+            if (cat && i.categoria !== cat) return false;
+            if (subcat && i.subcategoria !== subcat) return false;
+            if (busqueda && !normalizar(i.nombre).includes(busqueda)) return false;
+            return true;
+          });
+
+          // Mostrar ordenado
+          const mostrar = [...n1filtrados, ...n2filtrados, ...n3filtrados].sort(ordenar);
+
+          contenedor.innerHTML = mostrar.map(item => {
+            const nivel = item.nivel;
+            const imagenes = item.imagenes || [];
+            const adicionales = item.adicionales.split(';').map(a => a.trim()).filter(Boolean);
+            const contactos = item.contacto.split(';').map(c => c.trim()).filter(Boolean);
+
+            // Para logos termales
+            let termalesLogoHTML = "";
+            if (item.nombre.toLowerCase().includes("termal") && nivel === 1) {
+              termalesLogoHTML = `<div class="termales-logo-container">
+                <img class="termales-logo" src="https://upload.wikimedia.org/wikipedia/commons/thumb/d/dc/Termas_Chajari_logo.svg/2560px-Termas_Chajari_logo.svg.png" alt="Termas Chajarí Logo" />
+                <img class="termales-logo" src="https://upload.wikimedia.org/wikipedia/commons/5/5c/Termas_de_Montegrande_logo.png" alt="Termas de Montegrande Logo" />
+              </div>`;
+            }
+
+            // Construir galería con Lightbox
+            const galeria = imagenes.length > 1
+              ? '<div class="galeria-carrusel">' + imagenes.map((url, idx) =>
+                  `<a href="${url}" data-lightbox="galeria-${item.nombre}" data-title="${item.nombre}">
+                     <img class="thumbnail" src="${url}" alt="Imagen ${idx + 1}">
+                   </a>`).join('') + '</div>'
+              : imagenes.map((url, idx) =>
+                  `<a href="${url}" data-lightbox="galeria-${item.nombre}" data-title="${item.nombre}">
+                     <img class="thumbnail" src="${url}" alt="Imagen ${idx + 1}">
+                   </a>`).join('');
+
+            return `<div class="card nivel-${nivel}">
+              ${termalesLogoHTML}
+              <div class="nombre">${item.nombre}</div>
+              ${nivel > 1 ? `<div class="cat-sub">${item.categoria} - ${item.subcategoria}</div>` : `<div class="cat-sub">${item.categoria}</div>`}
+              <div class="adicionales">${adicionales.join(", ")}</div>
+              ${galeria}
+              <div class="descripcion">${item.descripcion}</div>
+              <div class="contacto">${contactos.join("<br>")}</div>
+            </div>`;
+          }).join('');
+        }
 
         render();
 
-        window.mostrarModal = mostrarModal;
+        // Lightbox2 ya maneja la apertura de imágenes, no se necesita modal manual aquí.
 
-        window.addEventListener('scroll', () => {
-          const topBtn = document.getElementById('topBtn');
-          if (window.scrollY > 200) {
-            topBtn.style.display = 'flex';
-          } else {
-            topBtn.style.display = 'none';
-          }
+        // Mostrar botón subir arriba
+        const topBtn = document.getElementById("topBtn");
+        window.addEventListener("scroll", () => {
+          if (window.scrollY > 200) topBtn.style.display = "flex";
+          else topBtn.style.display = "none";
         });
-      })
-      .catch(e => console.error('Error cargando datos:', e));
+
+      });
   </script>
 </body>
 </html>
-
