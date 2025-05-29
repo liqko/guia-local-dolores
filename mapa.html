@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Comercios Adheridos</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+  <style>
+    body {
+      margin: 0;
+      font-family: sans-serif;
+      display: flex;
+      height: 100vh;
+    }
+
+    #sidebar {
+      width: 320px;
+      overflow-y: auto;
+      background: #f9f9f9;
+      border-right: 1px solid #ddd;
+      padding: 10px;
+    }
+
+    #map {
+      flex-grow: 1;
+    }
+
+    h1 {
+      font-size: 1.2em;
+      margin-top: 0;
+    }
+
+    .comercio-item {
+      cursor: pointer;
+      padding: 5px;
+      border-radius: 4px;
+    }
+
+    .comercio-item:hover {
+      background-color: #eee;
+    }
+
+    .popup-logo {
+      width: 60px;
+      height: auto;
+      display: block;
+      margin: 5px auto;
+      object-fit: contain;
+    }
+
+    .popup-link {
+      background: white;
+      color: #007bff;
+      padding: 5px 10px;
+      border-radius: 4px;
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 5px;
+      border: 1px solid #007bff;
+      font-weight: bold;
+    }
+
+    .popup-categoria {
+      font-size: 0.9em;
+      color: #555;
+      font-style: italic;
+    }
+
+    .filtros {
+      margin-bottom: 15px;
+    }
+
+    .filtros input,
+    .filtros select,
+    .filtros button {
+      width: 100%;
+      padding: 6px;
+      margin-top: 5px;
+      margin-bottom: 10px;
+      font-size: 1em;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>Comercios Adheridos</h1>
+    <div class="filtros">
+      <input type="text" id="busquedaNombre" placeholder="Buscar por nombre...">
+      <select id="filtroCategoria">
+        <option value="">Todas las categorías</option>
+      </select>
+      <button onclick="limpiarFiltros()">Limpiar filtros</button>
+    </div>
+    <div id="lista-comercios"></div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    const map = L.map('map').setView([-36.313, -57.679], 14);
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap',
+      maxZoom: 18,
+    }).addTo(map);
+
+    function normalizarCategoria(texto) {
+      return texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, '-');
+    }
+
+    const markers = [];
+    const categorias = {};
+    let todosLosDatos = [];
+
+    function limpiarMarcadores() {
+      markers.forEach(obj => map.removeLayer(obj.marker));
+    }
+
+    function renderizar(filtrados, mostrarLista = true) {
+      limpiarMarcadores();
+      const lista = document.getElementById("lista-comercios");
+      lista.innerHTML = '';
+
+      filtrados.forEach(item => {
+        item.marker.addTo(map);
+      });
+
+      if (!mostrarLista || filtrados.length === 0) return;
+
+      const datosPorCategoria = {};
+      filtrados.forEach(item => {
+        if (!datosPorCategoria[item.categoria]) datosPorCategoria[item.categoria] = [];
+        datosPorCategoria[item.categoria].push(item);
+      });
+
+      const ordenCategorias = Object.keys(datosPorCategoria).sort();
+
+      ordenCategorias.forEach(cat => {
+        const titulo = document.createElement("div");
+        titulo.style.fontWeight = "bold";
+        titulo.style.marginTop = "10px";
+        titulo.textContent = cat;
+        lista.appendChild(titulo);
+
+        datosPorCategoria[cat].forEach(item => {
+          const div = document.createElement("div");
+          div.className = "comercio-item";
+          div.textContent = item.nombre;
+          div.onclick = () => {
+            map.setView(item.marker.getLatLng(), 17);
+            item.marker.openPopup();
+          };
+          lista.appendChild(div);
+        });
+      });
+    }
+
+    function aplicarFiltros() {
+      const nombre = document.getElementById("busquedaNombre").value.toLowerCase();
+      const categoria = document.getElementById("filtroCategoria").value;
+
+      const filtrados = todosLosDatos.filter(item => {
+        const coincideNombre = nombre === '' || item.nombre.toLowerCase().includes(nombre);
+        const coincideCategoria = categoria === '' || item.categoria === categoria;
+        return coincideNombre && coincideCategoria;
+      });
+
+      renderizar(filtrados, true);
+    }
+
+    function limpiarFiltros() {
+      document.getElementById("busquedaNombre").value = '';
+      document.getElementById("filtroCategoria").value = '';
+      renderizar(todosLosDatos, false);
+    }
+
+    fetch('https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/ANUNCIANTES')
+      .then(response => response.json())
+      .then(data => {
+        data.forEach(item => {
+          if (item.lat && item.lng) {
+            const lat = parseFloat(item.lat.replace(',', '.'));
+            const lng = parseFloat(item.lng.replace(',', '.'));
+            const categoria = item.categoria || 'Otros';
+            const categoriaNormalizada = normalizarCategoria(categoria);
+
+            if (!categorias[categoria]) categorias[categoria] = true;
+
+            const iconoCategoria = L.icon({
+              iconUrl: `img/${categoriaNormalizada}.png`,
+              iconSize: [32, 32],
+              iconAnchor: [16, 32],
+              popupAnchor: [0, -32]
+            });
+
+            const popupHtml = `
+              <strong>${item.nombre}</strong><br/>
+              <div class="popup-categoria">${categoria}${item.subcategoria ? ' - ' + item.subcategoria : ''}</div>
+              ${item.direccion ? '📍 ' + item.direccion + '<br/>' : ''}
+              ${item.telefono ? '📞 ' + item.telefono + '<br/>' : ''}
+              ${item.whatsapp ? '📱 <a href="https://wa.me/549' + item.whatsapp.replace(/\D/g, '') + '" target="_blank">WhatsApp</a><br/>' : ''}
+              ${item.redsocial ? '🌐 <a href="' + item.redsocial + '" target="_blank">Red social</a><br/>' : ''}
+              ${item.logo ? `<img class="popup-logo" src="${item.logo}" alt="${item.nombre}" />` : ''}
+              ${item.maps ? `<a class="popup-link" href="${item.maps}" target="_blank">¿Cómo llegar?</a>` : ''}
+            `;
+
+            const marker = L.marker([lat, lng], { icon: iconoCategoria }).bindPopup(popupHtml);
+
+            todosLosDatos.push({
+              nombre: item.nombre,
+              categoria,
+              marker
+            });
+
+            markers.push({ marker });
+          }
+        });
+
+        // Poblar categorías
+        const select = document.getElementById("filtroCategoria");
+        Object.keys(categorias).sort().forEach(cat => {
+          const option = document.createElement("option");
+          option.value = cat;
+          option.textContent = cat;
+          select.appendChild(option);
+        });
+
+        // Mostrar íconos sin lista al cargar
+        renderizar(todosLosDatos, false);
+
+        document.getElementById("busquedaNombre").addEventListener("input", aplicarFiltros);
+        document.getElementById("filtroCategoria").addEventListener("change", aplicarFiltros);
+      })
+      .catch(error => {
+        alert("No se pudo cargar el mapa. Intente más tarde.");
+        console.error('Error al cargar los datos:', error);
+      });
+  </script>
+</body>
+</html>
+
+
+
