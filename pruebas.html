@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>La Guía de tu ciduad!</title>
+  <title>La Guía de tu ciudad!</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <style>
     body {
@@ -27,9 +27,10 @@
     .header h1 {
       margin: 0;
       font-size: 3rem;
-      text-transform: uppercase;
+      /* text-transform: uppercase; */
       font-weight: bold;
       letter-spacing: 2px;
+      text-transform: none; /* <-- El título NO estará en mayúsculas */
     }
     .buscador {
       display: flex;
@@ -221,9 +222,35 @@
         max-height: 80vh;
       }
     }
-
     body.modal-open {
       overflow: hidden;
+    }
+    /* Estilos para la paginación nueva */
+    .pagination-bar {
+      display: inline-block;
+      vertical-align: middle;
+      margin: 0 10px;
+    }
+    .pagination-bar button,
+    .pagination-bar span {
+      margin: 0 2px;
+      padding: 2px 7px;
+      border: 1px solid #ccc;
+      background: #f9f9f9;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 1em;
+    }
+    .pagination-bar span.active {
+      background: #006699;
+      color: #fff;
+      border: 1px solid #006699;
+      cursor: default;
+      font-weight: bold;
+    }
+    .pagination-bar button[disabled] {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
   </style>
 </head>
@@ -241,9 +268,9 @@
   </div>
   <div class="grid" id="contenedor"></div>
   <div style="text-align: center; margin: 1rem;">
-    <button onclick="cambiarPagina(-1)" id="btnAnterior" disabled>Anterior</button>
-    <span id="paginadorInfo"></span>
-    <button onclick="cambiarPagina(1)" id="btnSiguiente">Siguiente</button>
+    <button onclick="cambiarPagina('prev')" id="btnAnterior" disabled>Anterior</button>
+    <span id="paginationBar" class="pagination-bar"></span>
+    <button onclick="cambiarPagina('next')" id="btnSiguiente">Siguiente</button>
   </div>
 
   <div id="modal" class="modal">
@@ -264,6 +291,7 @@
         const modalImgContainer = document.getElementById('modalImgContainer');
         const modalClose = document.getElementById('modalClose');
         const categoriaSubcategoriaSelect = document.getElementById('categoriaSubcategoriaSelect');
+        const paginationBar = document.getElementById('paginationBar');
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
@@ -343,17 +371,58 @@
         // PAGINACIÓN Y FILTRO
         let paginaActual = 1;
         const resultadosPorPagina = 10;
+        let totalPaginas = 1;
+        let resultados = [];
 
-        // Hacemos global la función cambiarPagina para que funcione el onclick
+        // Nueva función para ir a una página específica
+        window.irAPagina = function(num) {
+          paginaActual = num;
+          render();
+        }
+
+        // Cambiar página anterior/siguiente
         window.cambiarPagina = function(direccion) {
-          paginaActual += direccion;
+          if (direccion === 'prev' && paginaActual > 1) {
+            paginaActual--;
+          } else if (direccion === 'next' && paginaActual < totalPaginas) {
+            paginaActual++;
+          }
           render();
         };
+
+        function buildPaginationBar() {
+          let html = '';
+          const maxBtns = 7; // Máximo de botones visibles (ajusta si quieres)
+          let start = Math.max(1, paginaActual - Math.floor(maxBtns / 2));
+          let end = start + maxBtns - 1;
+          if (end > totalPaginas) {
+            end = totalPaginas;
+            start = Math.max(1, end - maxBtns + 1);
+          }
+          // Botón primera página
+          if (start > 1) {
+            html += `<button onclick="irAPagina(1)">1</button>`;
+            if (start > 2) html += `<span>...</span>`;
+          }
+          for (let i = start; i <= end; i++) {
+            if (i === paginaActual) {
+              html += `<span class="active">${i}</span>`;
+            } else {
+              html += `<button onclick="irAPagina(${i})">${i}</button>`;
+            }
+          }
+          // Botón última página
+          if (end < totalPaginas) {
+            if (end < totalPaginas - 1) html += `<span>...</span>`;
+            html += `<button onclick="irAPagina(${totalPaginas})">${totalPaginas}</button>`;
+          }
+          paginationBar.innerHTML = html;
+        }
 
         const render = () => {
           const q = normalizar(filtro.value);
           const filtroSeleccionado = categoriaSubcategoriaSelect.value;
-          const resultados = turismoData.filter(item => {
+          resultados = turismoData.filter(item => {
             if (filtroSeleccionado) {
               if (filtroSeleccionado.startsWith('cat::')) {
                 const cat = filtroSeleccionado.slice(5);
@@ -372,13 +441,17 @@
           })
           .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel);
 
+          totalPaginas = Math.max(1, Math.ceil(resultados.length / resultadosPorPagina));
+          if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+          if (paginaActual < 1) paginaActual = 1;
+
           const inicio = (paginaActual - 1) * resultadosPorPagina;
           const fin = inicio + resultadosPorPagina;
           const resultadosPaginados = resultados.slice(inicio, fin);
 
           document.getElementById("btnAnterior").disabled = paginaActual === 1;
-          document.getElementById("btnSiguiente").disabled = fin >= resultados.length;
-          document.getElementById("paginadorInfo").textContent = `Página ${paginaActual} de ${Math.ceil(resultados.length / resultadosPorPagina)}`;
+          document.getElementById("btnSiguiente").disabled = paginaActual === totalPaginas;
+          buildPaginationBar();
           contenedor.innerHTML = '';
 
           resultadosPaginados.forEach(item => {
