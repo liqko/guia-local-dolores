@@ -71,18 +71,238 @@
       flex: 1 1 auto;
       min-width: 0;
       margin-right: 24px;
+      display: flex;
+      flex-direction: column;
     }
     .item-name {
       font-size: 1.15rem;
       font-weight: bold;
       font-style: italic;
       margin-bottom: 0.1rem;
-      display: block;
       word-break: break-word;
+      display: block;
     }
     .item-desc {
       font-size: 0.98rem;
       color: #f3dada;
       margin-bottom: 0.1rem;
       font-style: italic;
-      text-align: justify
+      text-align: justify;
+      word-break: break-word;
+      display: block;
+    }
+    .item-price {
+      font-size: 1.08rem;
+      font-style: italic;
+      font-weight: bold;
+      color: #fff;
+      min-width: 80px;
+      text-align: right;
+      margin-left: auto;
+      margin-top: 0.15em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .comercio-info {
+      margin: 2rem auto 0 auto;
+      max-width: 650px;
+      font-size: 1.05rem;
+      background: rgba(0,0,0,0.10);
+      border-radius: 8px;
+      padding: 1rem 2rem 1rem 2rem;
+      font-style: italic;
+      color: #fff;
+    }
+    .comercio-info .dato {
+      margin-bottom: 0.3rem;
+    }
+    .comercio-info a, .comercio-info a:visited {
+      color: #fff;
+      text-decoration: underline;
+      font-style: italic;
+    }
+    .notfound {
+      margin: 2rem auto;
+      max-width: 540px;
+      background: #fff3;
+      color: #fff;
+      padding: 2rem;
+      border-radius: 7px;
+      text-align: center;
+    }
+    /* Sección: Colores (bordó y variantes cálidas) */
+    .section-Entradas      { background: #a0334d; }
+    .section-PlatoPrincipal{ background: #a14428; }
+    .section-Postre        { background: #9a2e2e; }
+    .section-Cafetería     { background: #803a20; }
+    .section-Bebidas       { background: #7c2e45; }
+    @media (max-width: 700px) {
+      .menu-container, .comercio-info { padding: 1rem; }
+      .header { padding: 1.2rem 0.6rem 0.8rem 0.6rem; }
+      .title { font-size: 1.2rem; }
+      .logo { max-width: 90px; height: 45px;}
+      .section { padding: 0.7rem 0.5rem 0.4rem 0.5rem; }
+      .item-row { flex-direction: column; align-items: stretch; }
+      .item-main { margin-right: 0; }
+      .item-price { text-align: left; margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="title" id="menu-title">Carta - Sapori di Casa</span>
+    <img id="resto-logo" class="logo" src="" alt="Logo Resto" style="display:none;">
+  </div>
+  <div class="comercio-info" id="comercio-info"></div>
+  <div class="menu-container" id="menu"></div>
+  <script>
+    // Configuración: Cambia estos valores según el comercio
+    const NOMBRE_COMERCIO = "Sapori di Casa";
+    const SHEET_ID = "19y92OLjUdfQsXC-ds_0UvHq-iB18rXapnoXRCYgd0k0"; // ID de la planilla del comercio
+
+    // Define las secciones y el nombre exacto de cada hoja
+    const SECCIONES = [
+      { nombre: "Entradas",        hoja: "Entradas" },
+      { nombre: "Plato Principal", hoja: "Plato Principal" },
+      { nombre: "Postre",          hoja: "Postre" },
+      { nombre: "Cafetería",       hoja: "Cafetería" },
+      { nombre: "Bebidas",         hoja: "Bebidas" }
+    ];
+
+    // --- Datos generales de la base principal (no modificar) ---
+    const BASE_GENERAL_CSV_URL = "https://docs.google.com/spreadsheets/d/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/gviz/tq?tqx=out:csv&sheet=comercios";
+    const COLS = {
+      nombre: 0,
+      direccion: 9,
+      telefono: 12,
+      whatsapp: 13,
+      mail: 14,
+      instagram: 15,
+      facebook: 16,
+      youtube: 17,
+      logo: 18,
+      ciudad: 29
+    };
+
+    // Devuelve la URL CSV de una hoja por nombre
+    function getSheetCSV(sheetName) {
+      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+    }
+
+    // Parsea CSV simple a array de objetos
+    function parseCSV(str, delimiter = ',') {
+      const rows = str.trim().split('\n').map(row => {
+        // Maneja comas dentro de "..."
+        const matches = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+        return matches ? matches.map(cell => cell.replace(/^"|"$/g, '').trim()) : row.split(delimiter).map(cell => cell.trim());
+      });
+      const headers = rows.shift();
+      return rows.map(row => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h.trim().toLowerCase()] = (row[i] || '').trim());
+        return obj;
+      });
+    }
+    // Alternativa para buscar por columna fija (más rápido)
+    function parseCSVasArray(str, delimiter = ',') {
+      const rows = str.trim().split('\n').map(r => {
+        const matches = r.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g);
+        return matches ? matches.map(cell => cell.replace(/^"|"$/g, '').trim()) : r.split(delimiter).map(cell => cell.trim());
+      });
+      return rows;
+    }
+
+    function renderComercioInfo(datos) {
+      let html = "";
+      if (datos.direccion) html += `<div class="dato"><b>Dirección:</b> ${datos.direccion}${datos.ciudad ? ' ('+datos.ciudad+')' : ''}</div>`;
+      if (datos.telefono) html += `<div class="dato"><b>Teléfono:</b> <a href="tel:${datos.telefono.replace(/ /g,'')}">${datos.telefono}</a></div>`;
+      if (datos.whatsapp) html += `<div class="dato"><b>WhatsApp:</b> <a href="https://wa.me/${datos.whatsapp.replace(/\D/g,'')}" target="_blank">${datos.whatsapp}</a></div>`;
+      if (datos.mail) html += `<div class="dato"><b>Email:</b> <a href="mailto:${datos.mail}">${datos.mail}</a></div>`;
+      if (datos.instagram) html += `<div class="dato"><b>Instagram:</b> <a href="https://instagram.com/${datos.instagram.replace(/^@/,'')}" target="_blank">@${datos.instagram.replace(/^@/,'')}</a></div>`;
+      if (datos.facebook) html += `<div class="dato"><b>Facebook:</b> <a href="${datos.facebook.startsWith('http') ? datos.facebook : 'https://facebook.com/'+datos.facebook}" target="_blank">${datos.facebook}</a></div>`;
+      if (datos.youtube) html += `<div class="dato"><b>YouTube:</b> <a href="${datos.youtube}" target="_blank">${datos.youtube}</a></div>`;
+      document.getElementById('comercio-info').innerHTML = html;
+    }
+
+    // Renderiza cada sección
+    function renderSection(section, items) {
+      // Determina el color de fondo según la clase section-[NombreSinEspacios]
+      const cssClass = "section section-" + section.nombre.replace(/\s/g, "");
+      let html = `<div class="${cssClass}"><div class="section-title">${section.nombre}</div>`;
+      items.forEach(item => {
+        html += `<div class="item-row">
+          <div class="item-main">
+            <span class="item-name">${item.nombre || ""}</span>
+            ${item.descripcion ? `<span class="item-desc">${item.descripcion}</span>` : ""}
+          </div>
+          <span class="item-price">${item.precio ? '$'+item.precio : ''}</span>
+        </div>`;
+      });
+      html += "</div>";
+      return html;
+    }
+
+    // Carga todas las secciones en paralelo y renderiza el menú
+    async function cargarMenu() {
+      const promesas = SECCIONES.map(async section => {
+        const url = getSheetCSV(section.hoja);
+        try {
+          const r = await fetch(url);
+          if (!r.ok) return ''; // Si la hoja no existe
+          const csv = await r.text();
+          const items = parseCSV(csv);
+          // Filtra filas válidas
+          const validos = items.filter(item => item.nombre && item.precio);
+          if (validos.length > 0) return renderSection(section, validos);
+          return '';
+        } catch {
+          // Si la hoja no existe o está vacía, ignora la sección
+          return '';
+        }
+      });
+      const seccionesHTML = await Promise.all(promesas);
+      const contenido = seccionesHTML.filter(Boolean).join('') || "<div class='notfound'>No hay menú cargado actualmente.</div>";
+      document.getElementById('menu').innerHTML = contenido;
+    }
+
+    // Carga datos generales del comercio desde la base principal
+    fetch(BASE_GENERAL_CSV_URL)
+      .then(r => r.text())
+      .then(csvText => {
+        const rows = parseCSVasArray(csvText);
+        // Buscar la fila cuyo nombre coincida (case-insensitive)
+        let fila = rows.find(row => row[COLS.nombre] && row[COLS.nombre].toLowerCase() === NOMBRE_COMERCIO.toLowerCase());
+        if (!fila) {
+          document.getElementById('comercio-info').innerHTML = "<div class='notfound'>No se encontró información general del comercio.</div>";
+          return;
+        }
+        // Logo
+        if (fila[COLS.logo] && fila[COLS.logo].startsWith('http')) {
+          document.getElementById('resto-logo').src = fila[COLS.logo];
+          document.getElementById('resto-logo').style.display = '';
+        } else {
+          document.getElementById('resto-logo').style.display = 'none';
+        }
+        renderComercioInfo({
+          direccion: fila[COLS.direccion],
+          telefono: fila[COLS.telefono],
+          whatsapp: fila[COLS.whatsapp],
+          mail: fila[COLS.mail],
+          instagram: fila[COLS.instagram],
+          facebook: fila[COLS.facebook],
+          youtube: fila[COLS.youtube],
+          ciudad: fila[COLS.ciudad]
+        });
+      })
+      .catch(e => {
+        document.getElementById('comercio-info').innerHTML = "<div class='notfound'>No se pudo cargar la información general.</div>";
+        console.error(e);
+      });
+
+    // Setea el nombre del comercio en el título
+    document.getElementById('menu-title').innerText = `Carta - ${NOMBRE_COMERCIO}`;
+
+    cargarMenu();
+  </script>
+</body>
+</html>
