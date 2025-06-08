@@ -78,7 +78,38 @@
   <h1>📅 Próximos Eventos</h1>
   <div class="events-container" id="events"></div>
   <script>
-    // Cambia este enlace si alguna vez cambias la hoja o la configuración
+    // Función para formatear fechas en español
+    function fechaHumana(valor) {
+      // Si el valor es vacío o null
+      if (!valor) return "";
+      // Si el valor ya tiene formato amigable, lo devuelve
+      if (valor.match(/[a-zA-Z]/)) return valor;
+
+      // Detecta y convierte formatos comunes
+      // Caso: YYYY-MM-DD
+      if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        const [anio, mes, dia] = valor.split("-");
+        return `${parseInt(dia,10)} de ${meses[parseInt(mes,10)-1]} de ${anio}`;
+      }
+      // Caso: DD/MM/YYYY o D/M/YYYY
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(valor)) {
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        const [dia, mes, anio] = valor.split("/");
+        return `${parseInt(dia,10)} de ${meses[parseInt(mes,10)-1]} de ${anio}`;
+      }
+      // Caso: fecha numérica como en Sheets (número de días desde 1899-12-30)
+      if (/^\d+$/.test(valor)) {
+        const fechaBase = new Date(1899, 11, 30);
+        fechaBase.setDate(fechaBase.getDate() + parseInt(valor,10));
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        return `${fechaBase.getDate()} de ${meses[fechaBase.getMonth()]} de ${fechaBase.getFullYear()}`;
+      }
+      // Devuelve el valor sin cambios si no reconoce el formato
+      return valor;
+    }
+
+    // URL pública de tu hoja de eventos en formato JSON
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json";
 
     fetch(SHEET_URL)
@@ -88,21 +119,31 @@
         const json = JSON.parse(text.substr(47).slice(0, -2));
         const rows = json.table.rows;
         const eventsDiv = document.getElementById('events');
-        // Asume que la primera fila es encabezado
-        for (let i = 1; i < rows.length; i++) {
-          // Cambia los índices si tus columnas están en otro orden
-          const [
-            fecha,      // columna 0
-            titulo,     // columna 1
-            lugar,      // columna 2
-            descripcion, // columna 3
-            emojis      // columna 4 (puedes dejarlo vacío si no hay)
-          ] = rows[i].c.map(v => v ? v.v : "");
+        // Toma los encabezados para saber el orden de las columnas
+        const headers = json.table.cols.map(col => (col.label || "").toLowerCase());
+        // Mapea los índices de las columnas
+        const idxFecha = headers.indexOf("fecha");
+        const idxTitulo = headers.indexOf("titulo");
+        const idxLugar = headers.indexOf("lugar");
+        const idxDescripcion = headers.indexOf("descripcion");
+        const idxEmojis = headers.indexOf("emojis");
+        // Recorre las filas (empezando en la 1 si hay encabezado)
+        for (let i = 0; i < rows.length; i++) {
+          const c = rows[i].c;
+          // Si la fila está vacía, la ignora
+          if (!c || !c[idxTitulo]) continue;
+          // Toma los valores
+          const fecha = c[idxFecha] ? c[idxFecha].v : "";
+          const titulo = c[idxTitulo] ? c[idxTitulo].v : "";
+          const lugar = c[idxLugar] ? c[idxLugar].v : "";
+          const descripcion = c[idxDescripcion] ? c[idxDescripcion].v : "";
+          const emojis = c[idxEmojis] ? c[idxEmojis].v : "🎉";
+          // Crea la tarjeta
           const card = document.createElement('div');
           card.className = "event-card";
           card.innerHTML = `
-            <div class="event-title">${emojis || "🎉"} ${titulo}</div>
-            <div class="event-date">🗓️ ${fecha}</div>
+            <div class="event-title">${emojis} ${titulo}</div>
+            <div class="event-date">📅 <strong>Fecha:</strong> ${fechaHumana(fecha)}</div>
             <div class="event-location">📍 ${lugar}</div>
             <div class="event-description">${descripcion}</div>
           `;
