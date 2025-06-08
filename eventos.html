@@ -17,6 +17,26 @@
       color: #2b3a55;
       margin-bottom: 0;
     }
+    .search-container {
+      display: flex;
+      justify-content: center;
+      margin-top: 18px;
+      margin-bottom: 0;
+    }
+    .search-box {
+      width: 320px;
+      padding: 12px 18px;
+      font-size: 1.08em;
+      border: 1.5px solid #d2d7e1;
+      border-radius: 12px;
+      outline: none;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 7px rgba(44,60,90,0.05);
+      transition: border-color 0.2s;
+    }
+    .search-box:focus {
+      border-color: #3b7dd8;
+    }
     .events-container {
       display: flex;
       flex-wrap: wrap;
@@ -72,6 +92,13 @@
       align-items: center;
       gap: 6px;
     }
+    .event-category {
+      color: #6d3bd8;
+      font-size: 1em;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
     .event-location {
       color: #3d475a;
       font-size: 1em;
@@ -107,33 +134,32 @@
 </head>
 <body>
   <h1>📅 Próximos Eventos</h1>
+  <div class="search-container">
+    <input type="text" id="search" class="search-box" placeholder="Buscar por fecha, categoría u organizador...">
+  </div>
   <div class="events-container" id="events"></div>
   <script>
-    // Función para formatear fechas en español, incluyendo Date(YYYY,M,DD)
+    // Formatea fechas en español, incluyendo Date(YYYY,M,DD)
     function fechaHumana(valor) {
       if (!valor) return "";
-      // Caso: Date(2025,5,14)
       const dateMatch = valor.match(/^Date\((\d{4}),(\d{1,2}),(\d{1,2})\)$/);
       if (dateMatch) {
         const anio = parseInt(dateMatch[1],10);
-        const mes = parseInt(dateMatch[2],10)+1; // Google y JS: enero=0
+        const mes = parseInt(dateMatch[2],10)+1;
         const dia = parseInt(dateMatch[3],10);
         const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
         return `${dia} de ${meses[mes-1]} de ${anio}`;
       }
-      // Caso: YYYY-MM-DD
       if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
         const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
         const [anio, mes, dia] = valor.split("-");
         return `${parseInt(dia,10)} de ${meses[parseInt(mes,10)-1]} de ${anio}`;
       }
-      // Caso: DD/MM/YYYY o D/M/YYYY
       if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(valor)) {
         const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
         const [dia, mes, anio] = valor.split("/");
         return `${parseInt(dia,10)} de ${meses[parseInt(mes,10)-1]} de ${anio}`;
       }
-      // Numérico tipo Sheets
       if (/^\d+$/.test(valor)) {
         const fechaBase = new Date(1899, 11, 30);
         fechaBase.setDate(fechaBase.getDate() + parseInt(valor,10));
@@ -145,46 +171,88 @@
 
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json";
 
+    let eventosData = [];
+
+    function renderEventos(data, search="") {
+      const eventsDiv = document.getElementById('events');
+      eventsDiv.innerHTML = "";
+      let eventosMostrados = 0;
+      const filtro = search.trim().toLowerCase();
+
+      data.forEach(ev => {
+        // Filtrado por fecha, categoria u organizador
+        if (filtro) {
+          const buscarEn = [
+            ev.fecha_humana,
+            ev.categoria,
+            ev.organizador
+          ].join(" ").toLowerCase();
+          if (!buscarEn.includes(filtro)) return;
+        }
+
+        const card = document.createElement('div');
+        card.className = "event-card";
+        card.innerHTML = `
+          ${ev.logo ? `<img class="event-logo" src="${ev.logo}" alt="Logo de ${ev.organizador || ev.evento}">` : ""}
+          ${ev.evento ? `<div class="event-title">${ev.evento}</div>` : ""}
+          ${ev.fecha_humana ? `<div class="event-date">📅 <strong>Fecha:</strong> ${ev.fecha_humana}</div>` : ""}
+          ${ev.hora ? `<div class="event-time">⏰ <strong>Hora:</strong> ${ev.hora}</div>` : ""}
+          ${ev.categoria ? `<div class="event-category">🏷️ <strong>Categoría:</strong> ${ev.categoria}</div>` : ""}
+          ${ev.lugar ? `<div class="event-location">📍 ${ev.lugar}</div>` : ""}
+          ${ev.organizador ? `<div class="event-organizer">👤 <strong>Organiza:</strong> ${ev.organizador}</div>` : ""}
+          ${ev.valor ? `<div class="event-value">💲 <strong>Valor:</strong> ${ev.valor}</div>` : ""}
+          ${ev.descripcion ? `<div class="event-description">${ev.descripcion}</div>` : ""}
+        `;
+        eventsDiv.appendChild(card);
+        eventosMostrados++;
+      });
+      if (eventosMostrados === 0) {
+        eventsDiv.innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay eventos para mostrar con ese criterio de búsqueda.</p>";
+      }
+    }
+
     fetch(SHEET_URL)
       .then(res => res.text())
       .then(text => {
         const json = JSON.parse(text.substr(47).slice(0, -2));
         const rows = json.table.rows;
-        const eventsDiv = document.getElementById('events');
-        let eventosMostrados = 0;
+        eventosData = [];
         for (let i = 0; i < rows.length; i++) {
           const c = rows[i].c;
           if (!c || !c[2]) continue; // Columna C = evento (índice 2)
+          // Ahora la columna D es categoría (índice 3)
           const fecha        = c[0] ? c[0].v : ""; // A
           const hora         = c[1] ? c[1].v : ""; // B
           const evento       = c[2] ? c[2].v : ""; // C
-          const lugar        = c[3] ? c[3].v : ""; // D
-          const descripcion  = c[4] ? c[4].v : ""; // E
-          const valor        = c[5] ? c[5].v : ""; // F
-          const organizador  = c[6] ? c[6].v : ""; // G
-          const logo         = c[7] ? c[7].v : ""; // H
+          const categoria    = c[3] ? c[3].v : ""; // D
+          const lugar        = c[4] ? c[4].v : ""; // E
+          const descripcion  = c[5] ? c[5].v : ""; // F
+          const valor        = c[6] ? c[6].v : ""; // G
+          const organizador  = c[7] ? c[7].v : ""; // H
+          const logo         = c[8] ? c[8].v : ""; // I
 
-          const card = document.createElement('div');
-          card.className = "event-card";
-          card.innerHTML = `
-            ${logo ? `<img class="event-logo" src="${logo}" alt="Logo de ${organizador || evento}">` : ""}
-            <div class="event-title">${evento}</div>
-            <div class="event-date">📅 <strong>Fecha:</strong> ${fechaHumana(fecha)}</div>
-            <div class="event-time">⏰ <strong>Hora:</strong> ${hora}</div>
-            <div class="event-location">📍 ${lugar}</div>
-            <div class="event-organizer">👤 <strong>Organiza:</strong> ${organizador}</div>
-            <div class="event-value">💲 <strong>Valor:</strong> ${valor}</div>
-            <div class="event-description">${descripcion}</div>
-          `;
-          eventsDiv.appendChild(card);
-          eventosMostrados++;
+          eventosData.push({
+            fecha,
+            fecha_humana: fechaHumana(fecha),
+            hora,
+            evento,
+            categoria,
+            lugar,
+            descripcion,
+            valor,
+            organizador,
+            logo
+          });
         }
-        if (eventosMostrados === 0) {
-          eventsDiv.innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay eventos para mostrar. Revisa que la hoja tenga datos públicos y al menos un evento cargado.</p>";
-        }
+        renderEventos(eventosData);
       }).catch(error => {
         document.getElementById('events').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar los eventos. Verifica que la hoja esté publicada y disponible.<br>Error: ${error}</p>`;
       });
+
+    // Buscador
+    document.getElementById('search').addEventListener('input', function() {
+      renderEventos(eventosData, this.value);
+    });
   </script>
 </body>
 </html>
