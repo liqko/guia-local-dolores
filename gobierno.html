@@ -582,6 +582,13 @@
           return { rating, reviews, mapsUrl };
         }
 
+        // INTERCAMBIO DE NIVELES: nivel 3 pasa a 5 y 5 a 3
+        function intercambiarNivel(n) {
+          if (n === 3) return 5;
+          if (n === 5) return 3;
+          return n;
+        }
+
         const render = () => {
           const q = normalizar(filtro.value);
           const categoriaSeleccionada = selectCategoria.value;
@@ -607,7 +614,12 @@
             const coincideNombre = normalizar(item.nombre).includes(q);
             return coincideCategoria && coincideSubcategoria && coincideNombre;
           })
-          .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel);
+          .sort((a, b) => {
+            // Usamos nivel intercambiado para el orden
+            const nivelA = intercambiarNivel(Number(a.nivel || 1));
+            const nivelB = intercambiarNivel(Number(b.nivel || 1));
+            return nivelB - nivelA || a.subnivel - b.subnivel;
+          });
 
           totalPaginas = Math.max(1, Math.ceil(resultados.length / resultadosPorPagina));
           if (paginaActual > totalPaginas) paginaActual = totalPaginas;
@@ -623,7 +635,10 @@
           contenedor.innerHTML = '';
 
           resultadosPaginados.forEach(item => {
-            const nivel = Number(item.nivel || 1);
+            // INTERCAMBIO DE NIVELES: nivel 3 pasa a 5 y 5 a 3
+            let _nivel = Number(item.nivel || 1);
+            let nivel = intercambiarNivel(_nivel);
+
             const logos = {
               'Parque Termal': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/parque-termal.png',
               'Termales Mall': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/termales%20Mall.png'
@@ -682,39 +697,71 @@
               `;
             }
 
-            const contacto = `<div class="contacto">` + 
-              termalesLogoHTML +
-              (item.direccion ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion + '<br>' : '') +
-              (item.direccion2 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion2 + '<br>' : '') +
-              (item.direccion3 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion3 + '<br>' : '') +
-              (nivel === 3 && item.maps ? '<div style="margin-top:0.5rem"><i class="fas fa-thumbtack"></i> <a href="' + item.maps + '" target="_blank" rel="noopener noreferrer">Cómo llegar</a></div>' : '') + '<div style="margin-top:1rem;"></div>' + 
-              ((nivel === 2 || nivel === 3) && item.whatsapp ? '<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/' + item.whatsapp + '" target="_blank" rel="noopener noreferrer">' + item.whatsapp + '</a></div>' : '') +
-              (item.telefono ? '<div><i class="fas fa-phone"></i> ' + item.telefono + '</div>' : '') + 
-              ((item.instagram || item.facebook || item.youtube) ? '<div style="margin-top:0.8rem">' : '') +
-              (item.instagram ? '<i class="fab fa-instagram" style="color:#E1306C; margin-right:5px;"></i><a href="' + item.instagram + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.instagram) + '</a><br>' : '') +
-              (item.facebook ? '<i class="fab fa-facebook" style="color:#1877F2; margin-right:5px;"></i><a href="' + item.facebook + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.facebook) + '</a><br>' : '') +
-              (item.youtube ? '<i class="fab fa-youtube" style="color:#FF0000; margin-right:5px;"></i><a href="' + item.youtube + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.youtube) + '</a><br>' : '') +
-              (item.mail ? '<div><i class="fas fa-envelope" style="color:#006699; margin-right:5px;"></i> <a href="mailto:' + item.mail + '">' + item.mail + '</a></div>' : '') +
-              ((item.instagram || item.facebook || item.youtube) ? '</div>' : '') +
-              (item.link ? `
-                <div style="margin-top: 1rem;">
-                  <i class="fas fa-globe" style="color:#006699; margin-right:5px;"></i>
-                  <a href="${item.link}" target="_blank" rel="noopener noreferrer">Stalkeá nuestra web!</a>
-                </div>
-              ` : '');
+            // -- CAMBIO DE FUNCIONALIDADES SEGÚN NIVEL INVERTIDO
+            // Lo que antes era nivel 3 ahora es nivel 5 y viceversa
+            // - nivel 3 (ahora 5): galería carrusel si hay >1 imagen, botón "como llegar", WhatsApp, etc.
+            // - nivel 5 (ahora 3): solo muestra imágenes sueltas (sin carrusel), sin botón "como llegar", etc.
+
+            let contacto = '';
+            let galeria = '';
+            let leyenda = '';
 
             const imagenes = ['img1','img2','img3','img4','img5','img6'].map(k => item[k]).filter(Boolean);
-            const galeria = nivel === 3 && imagenes.length > 1
-              ? '<div class="galeria-carrusel">' + imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModal('${url}')">`).join('') + '</div>'
-              : imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen" onclick="mostrarModal('${url}')">`).join('');
 
-            // Leyendas para niveles especiales
-            let leyenda = '';
-            if (nivel === 4) {
-              leyenda = `<div class="leyenda-nivel-4">ESPACIO GRATUITO</div>`;
-            }
-            if (nivel === 5) {
+            if (nivel === 5) { // lo que antes era nivel 3
+              contacto = `<div class="contacto">` +
+                termalesLogoHTML +
+                (item.direccion ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion + '<br>' : '') +
+                (item.direccion2 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion2 + '<br>' : '') +
+                (item.direccion3 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion3 + '<br>' : '') +
+                (item.maps ? '<div style="margin-top:0.5rem"><i class="fas fa-thumbtack"></i> <a href="' + item.maps + '" target="_blank" rel="noopener noreferrer">Cómo llegar</a></div>' : '') + '<div style="margin-top:1rem;"></div>' +
+                (item.whatsapp ? '<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/' + item.whatsapp + '" target="_blank" rel="noopener noreferrer">' + item.whatsapp + '</a></div>' : '') +
+                (item.telefono ? '<div><i class="fas fa-phone"></i> ' + item.telefono + '</div>' : '') +
+                ((item.instagram || item.facebook || item.youtube) ? '<div style="margin-top:0.8rem">' : '') +
+                (item.instagram ? '<i class="fab fa-instagram" style="color:#E1306C; margin-right:5px;"></i><a href="' + item.instagram + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.instagram) + '</a><br>' : '') +
+                (item.facebook ? '<i class="fab fa-facebook" style="color:#1877F2; margin-right:5px;"></i><a href="' + item.facebook + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.facebook) + '</a><br>' : '') +
+                (item.youtube ? '<i class="fab fa-youtube" style="color:#FF0000; margin-right:5px;"></i><a href="' + item.youtube + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.youtube) + '</a><br>' : '') +
+                (item.mail ? '<div><i class="fas fa-envelope" style="color:#006699; margin-right:5px;"></i> <a href="mailto:' + item.mail + '">' + item.mail + '</a></div>' : '') +
+                ((item.instagram || item.facebook || item.youtube) ? '</div>' : '') +
+                (item.link ? `
+                  <div style="margin-top: 1rem;">
+                    <i class="fas fa-globe" style="color:#006699; margin-right:5px;"></i>
+                    <a href="${item.link}" target="_blank" rel="noopener noreferrer">Stalkeá nuestra web!</a>
+                  </div>
+                ` : '') +
+                `</div>`;
+
+              galeria = imagenes.length > 1
+                ? '<div class="galeria-carrusel">' + imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModal('${url}')">`).join('') + '</div>'
+                : imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen" onclick="mostrarModal('${url}')">`).join('');
+
               leyenda = `<div class="leyenda-nivel-5">ESPACIO GRATUITO/BONIFICADO</div>`;
+            } else if (nivel === 3) { // lo que antes era nivel 5
+              contacto = `<div class="contacto">` +
+                termalesLogoHTML +
+                (item.direccion ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion + '<br>' : '') +
+                (item.direccion2 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion2 + '<br>' : '') +
+                (item.direccion3 ? '<i class="fas fa-map-marker-alt"></i> ' + item.direccion3 + '<br>' : '') +
+                (item.telefono ? '<div><i class="fas fa-phone"></i> ' + item.telefono + '</div>' : '') +
+                ((item.instagram || item.facebook || item.youtube) ? '<div style="margin-top:0.8rem">' : '') +
+                (item.instagram ? '<i class="fab fa-instagram" style="color:#E1306C; margin-right:5px;"></i><a href="' + item.instagram + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.instagram) + '</a><br>' : '') +
+                (item.facebook ? '<i class="fab fa-facebook" style="color:#1877F2; margin-right:5px;"></i><a href="' + item.facebook + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.facebook) + '</a><br>' : '') +
+                (item.youtube ? '<i class="fab fa-youtube" style="color:#FF0000; margin-right:5px;"></i><a href="' + item.youtube + '" target="_blank" rel="noopener noreferrer">' + extraerUsuario(item.youtube) + '</a><br>' : '') +
+                (item.mail ? '<div><i class="fas fa-envelope" style="color:#006699; margin-right:5px;"></i> <a href="mailto:' + item.mail + '">' + item.mail + '</a></div>' : '') +
+                ((item.instagram || item.facebook || item.youtube) ? '</div>' : '') +
+                (item.link ? `
+                  <div style="margin-top: 1rem;">
+                    <i class="fas fa-globe" style="color:#006699; margin-right:5px;"></i>
+                    <a href="${item.link}" target="_blank" rel="noopener noreferrer">Stalkeá nuestra web!</a>
+                  </div>
+                ` : '') +
+                `</div>`;
+
+              galeria = imagenes.map(url => `<img class="thumbnail" src="${url}" alt="Imagen" onclick="mostrarModal('${url}')">`).join('');
+
+              leyenda = `<div class="leyenda-nivel-3"></div>`;
+            } else if (nivel === 4) {
+              leyenda = `<div class="leyenda-nivel-4">ESPACIO GRATUITO</div>`;
             }
 
             const div = document.createElement('div');
