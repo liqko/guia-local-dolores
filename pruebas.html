@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Industria, Comercios y Servicios</title>
+  <title>Industrias, Comercios y Servicios</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <style>
     body {
@@ -361,7 +361,7 @@
 <body>
   <header class="header" id="titulo-principal">
     <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/com.png" />
-    <h1>Industria, Comercios y Servicios</h1>
+    <h1>Industrias, Comercios y Servicios</h1>
   </header>
 
   <div class="buscador">
@@ -374,8 +374,12 @@
     <input type="text" id="filtro" placeholder="Buscar por nombre..." />
   </div>
 
+  <!-- Destacadas arriba -->
   <div class="destacadas-bar" id="destacadasBar"></div>
+
   <div class="grid" id="contenedor"></div>
+
+  <!-- Paginador solo abajo -->
   <div class="paginacion-zocalo" id="paginador-abajo">
     <button onclick="cambiarPagina('prev')" id="btnAnterior" disabled>Anterior</button>
     <span id="paginationBar" class="pagination-bar"></span>
@@ -391,7 +395,6 @@
 
   <script>
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/1';
-    let DESTACADAS = [];
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -406,8 +409,6 @@
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
-        let paginaActual = 1;
-        const resultadosPorPagina = 10;
 
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
@@ -419,9 +420,6 @@
           ];
           return rubros.includes('industria - comercios - servicios');
         });
-
-        // SIEMPRE usar data puro para DESTACADAS
-        DESTACADAS = data.filter(item => Number(item.nivel) === 5 && Number(item.subnivel) === 1);
 
         const categoriasUnicas = [...new Set(
           turismoData.flatMap(item => {
@@ -506,12 +504,21 @@
             }
          });
 
+        let paginaActual = 1;
+        const resultadosPorPagina = 10;
+        let totalPaginas = 1;
+        let resultados = [];
+
+        // SIEMPRE destacar tarjetas nivel 5 subnivel 1 de TODO el dataset sin filtrar
+        function getDestacadas() {
+          return turismoData.filter(item => Number(item.nivel) === 5 && Number(item.subnivel) === 1);
+        }
+
         function buildPaginationBar(targetBar) {
           let html = '';
           const maxBtns = 7;
           let start = Math.max(1, paginaActual - Math.floor(maxBtns / 2));
           let end = start + maxBtns - 1;
-          const totalPaginas = window.totalPaginas || 1;
           if (end > totalPaginas) {
             end = totalPaginas;
             start = Math.max(1, end - maxBtns + 1);
@@ -534,6 +541,7 @@
           targetBar.innerHTML = html;
         }
 
+        // Renderiza una tarjeta (reutilizable para destacadas y normales)
         function renderCard(item) {
           const nivel = Number(item.nivel || 1);
 
@@ -552,7 +560,7 @@
 
           // Logos especiales centrados debajo de galería o en ese lugar
           let termalesLogoHTML = '';
-          if (nivel >= 2) {
+          if (nivel > 2) {
             const logos = {
               'Parque Termal': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/parque-termal.png',
               'Termales Mall': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/termales%20Mall.png'
@@ -688,8 +696,8 @@
           }
         }
 
-        function renderDestacadas() {
-          destacadasBar.innerHTML = DESTACADAS.map(renderCard).join('');
+        function renderDestacadas(destacadas) {
+          destacadasBar.innerHTML = destacadas.map(renderCard).join('');
         }
 
         function renderNormales(normales) {
@@ -703,7 +711,6 @@
         }
 
         window.cambiarPagina = function(direccion) {
-          const totalPaginas = window.totalPaginas || 1;
           if (direccion === 'prev' && paginaActual > 1) {
             paginaActual--;
           } else if (direccion === 'next' && paginaActual < totalPaginas) {
@@ -720,7 +727,10 @@
           const categoriaSeleccionada = selectCategoria.value;
           const subcategoriaSeleccionada = selectSubcategoria.value;
 
-          // Normales: quito las destacadas de la paginación, pero SÍ aplico filtros
+          // SIEMPRE destacadas de todo el dataset
+          const destacadas = getDestacadas();
+
+          // Normales: quito las destacadas de la paginación
           let filtrados = turismoData.filter(item => {
             let coincideCategoria = true;
             if (categoriaSeleccionada) {
@@ -742,8 +752,8 @@
 
           const normales = filtrados.filter(item => !(Number(item.nivel) === 5 && Number(item.subnivel) === 1));
 
-          window.totalPaginas = Math.max(1, Math.ceil(normales.length / resultadosPorPagina));
-          if (paginaActual > window.totalPaginas) paginaActual = window.totalPaginas;
+          totalPaginas = Math.max(1, Math.ceil(normales.length / resultadosPorPagina));
+          if (paginaActual > totalPaginas) paginaActual = totalPaginas;
           if (paginaActual < 1) paginaActual = 1;
 
           const inicio = (paginaActual - 1) * resultadosPorPagina;
@@ -752,10 +762,11 @@
 
           // Paginador (solo abajo)
           btnAnterior.disabled = paginaActual === 1;
-          btnSiguiente.disabled = paginaActual === window.totalPaginas;
+          btnSiguiente.disabled = paginaActual === totalPaginas;
           buildPaginationBar(paginationBar);
 
-          // Render normales (destacadas solo al inicio)
+          // Render destacado y normales
+          renderDestacadas(destacadas);
           renderNormales(normalesPaginadas);
         }
 
@@ -764,7 +775,6 @@
           render();
         });
 
-        renderDestacadas(); // Sólo una vez al inicio
         render();
 
         window.addEventListener('scroll', () => {
