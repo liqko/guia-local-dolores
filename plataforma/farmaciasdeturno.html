@@ -10,7 +10,7 @@
       font-family: 'Segoe UI', 'Arial', sans-serif;
       font-style: italic;
       margin: 0;
-      padding: 0 10px;
+      padding: 0;
     }
     .main-logo {
       display: block;
@@ -33,16 +33,14 @@
     .events-container {
       display: flex;
       justify-content: center;
-      padding: 30px 10px 60px 10px;
+      padding: 30px 10px;
       min-height: 200px;
-      font-style: italic;
     }
     .event-card {
       background: #fff;
       border-radius: 18px;
       box-shadow: 0 4px 16px rgba(60,80,120,0.08);
       max-width: 370px;
-      width: 100%;
       padding: 24px 18px;
       display: flex;
       flex-direction: column;
@@ -54,14 +52,15 @@
       font-size: 1.5em;
       font-weight: bold;
       color: #16335a;
-      margin: 0;
       text-align: center;
     }
     .event-date, .event-location, .event-description {
       font-size: 1.1em;
-      color: #3b7dd8;
       text-align: center;
     }
+    .event-date { color: #3b7dd8; }
+    .event-location { color: #3d475a; }
+    .event-description { color: #444; }
     .notice {
       background: #d32f2f;
       color: white;
@@ -85,66 +84,47 @@
   <script>
     const SHEET_URL = "https://docs.google.com/spreadsheets/d/1zf1jlXRK5VxSdihIMva5dri9yjdNbFh1o4EH5kmvDIs/gviz/tq?tqx=out:json&sheet=turnos";
 
-    function parseFecha(valor) {
-      const [dd, mm, yyyy] = valor.split('/');
-      return new Date(parseInt(yyyy), parseInt(mm)-1, parseInt(dd));
-    }
-
-    function formateaFechaHumana(fecha) {
-      const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-      return `${fecha.getDate()} de ${meses[fecha.getMonth()]} de ${fecha.getFullYear()}`;
-    }
-
-    function esHoy(fecha) {
-      const hoy = new Date();
-      return fecha.getDate() === hoy.getDate() &&
-             fecha.getMonth() === hoy.getMonth() &&
-             fecha.getFullYear() === hoy.getFullYear();
-    }
-
-    function mostrarFarmaciaTurno(farmacia, fechaHumana, observacion) {
-      const cont = document.getElementById('events');
-      cont.innerHTML = `
-        <div class="event-card">
-          <div class="event-title">Farmacia de Turno</div>
-          <div class="event-date">📅 ${fechaHumana}</div>
-          <div class="event-location">🏥 ${farmacia}</div>
-          ${observacion ? `<div class="event-description">📝 ${observacion}</div>` : ""}
-        </div>
-        <div class="notice">ESTE ESPACIO ES GRATUITO - Un servicio a la comunidad!</div>
-      `;
-    }
-
-    function mostrarSinTurno() {
+    function mostrarError(msg) {
       document.getElementById('events').innerHTML =
-        `<p style="color:#b02a2a; font-weight:bold; text-align:center;">
-         No hay farmacia de turno cargada para hoy.</p>`;
+        `<p style="color:#b02a2a; font-weight:bold; text-align:center;">${msg}</p>`;
     }
 
     fetch(SHEET_URL)
-      .then(res => res.text())
-      .then(text => {
-        const json = JSON.parse(text.substr(47).slice(0, -2));
+      .then(r => r.text())
+      .then(t => {
+        const json = JSON.parse(t.substr(47).slice(0,-2));
         const rows = json.table.rows;
-        for (let row of rows) {
+        const hoy = new Date(); hoy.setHours(0,0,0,0);
+        let encontrado = false;
+
+        rows.forEach(row => {
           const c = row.c;
-          if (!c || !c[0] || !c[1]) continue;
-          const fechaRaw     = c[0].v;
-          const farmacia     = c[1].v;
-          const observacion  = c[2] ? c[2].v : "";
-          const fechaObj     = parseFecha(fechaRaw);
-          if (esHoy(fechaObj)) {
-            mostrarFarmaciaTurno(farmacia, formateaFechaHumana(fechaObj), observacion);
-            return;
+          if (!c || !c[0] || !c[1]) return;
+
+          const fecha = new Date(c[0].v);
+          fecha.setHours(0,0,0,0);
+
+          if (fecha.getTime() === hoy.getTime()) {
+            const farmacia = c[1].v;
+            const observacion = c[2] ? c[2].v : "";
+            document.getElementById('events').innerHTML = `
+              <div class="event-card">
+                <div class="event-title">Farmacia de Turno</div>
+                <div class="event-date">📅 ${fecha.toLocaleDateString("es-AR", { day:'numeric', month:'long', year:'numeric' })}</div>
+                <div class="event-location">🏥 ${farmacia}</div>
+                ${observacion ? `<div class="event-description">📝 ${observacion}</div>` : ""}
+              </div>
+              <div class="notice">ESTE ESPACIO ES GRATUITO - Un servicio a la comunidad!</div>
+            `;
+            encontrado = true;
           }
-        }
-        mostrarSinTurno();
+        });
+
+        if (!encontrado) mostrarError("No hay farmacia de turno cargada para hoy.");
       })
-      .catch(err => {
-        document.getElementById('events').innerHTML =
-          `<p style="color:#b02a2a; font-weight:bold; text-align:center;">
-           Error al cargar la hoja: ${err.message}</p>`;
-        console.error(err);
+      .catch(e => {
+        console.error(e);
+        mostrarError("Error al cargar la hoja: " + (e.message||e));
       });
   </script>
 </body>
