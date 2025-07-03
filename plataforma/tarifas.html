@@ -133,9 +133,7 @@
       Cargando periodo...
     </div>
   </div>
-  <div class="tarifas-grid" id="tarifas-contenedor">
-    <!-- Aquí se insertarán las tarjetas con JS -->
-  </div>
+  <div class="tarifas-grid" id="tarifas-contenedor"></div>
   <script>
     const SHEET_ID = "1DJzPw-dmc3gEO7SjedaSS5dFww-85_sJbeDsJSTtnsU";
     const SHEET_NAME = "valores";
@@ -144,18 +142,18 @@
     function parseCSV(text) {
       const rows = text.trim().split('\n');
       return rows.map(row => {
-        // Soporta comillas dobles y valores con comas
-        const regex = /("([^"]|"")*"|[^,]*)/g;
+        // Split respecting quoted cells with commas
+        const pattern = /("([^"]|"")*"|[^,]*)/g;
         let cols = [];
         let match;
-        while ((match = regex.exec(row)) !== null) {
-          let val = match[0].trim();
+        while ((match = pattern.exec(row)) !== null) {
+          let val = match[0];
           if (val.startsWith('"') && val.endsWith('"')) {
             val = val.slice(1, -1).replace(/""/g, '"');
           }
-          cols.push(val);
-          if (regex.lastIndex >= row.length) break;
-          regex.lastIndex++; // skip comma
+          cols.push(val.trim());
+          if (pattern.lastIndex >= row.length) break;
+          pattern.lastIndex++; // skip comma
         }
         return cols;
       });
@@ -164,18 +162,24 @@
     function renderTarifas(datos) {
       const contenedor = document.getElementById('tarifas-contenedor');
       contenedor.innerHTML = "";
-      // Solo omitimos la fila de títulos (primera fila)
       datos.slice(1).forEach(row => {
-        // Ajustamos para que no falle si hay columnas vacías al final
-        const [servicio, anunciante, descripcion, valor, promocion, adicional] = row;
-        if (!servicio) return; // Si la columna servicio está vacía, saltar esta fila
+        // Evita errores por filas cortas: rellena con cadenas vacías
+        while (row.length < 6) row.push("");
+        const servicio = row[0] || "";
+        const anunciante = row[1] || "";
+        const descripcion = row[2] || "";
+        const valor = row[3] || "";
+        const promocion = row[4] || "";
+        const adicional = row[5] || "";
+        // Solo mostrar si hay valor en servicio
+        if (!servicio) return;
         const card = document.createElement('div');
         card.className = 'tarifa-card';
         card.innerHTML = `
           <div class="tarifa-servicio">${servicio}</div>
           ${anunciante ? `<div class="tarifa-anunciante">${anunciante}</div>` : ''}
-          <div class="tarifa-descripcion">${descripcion || ''}</div>
-          <div class="tarifa-valor">${(valor && valor !== '0') ? valor : 'Consultar'}</div>
+          <div class="tarifa-descripcion">${descripcion}</div>
+          <div class="tarifa-valor">${valor && valor !== '0' ? valor : 'Consultar'}</div>
           ${promocion ? `<div class="tarifa-promocion">Promoción: ${promocion}</div>` : ''}
           ${adicional ? `<div class="tarifa-adicional">${adicional}</div>` : ''}
         `;
@@ -183,17 +187,17 @@
       });
     }
 
-    function setPeriodoTitulo(text) {
-      document.getElementById('periodo-titulo').textContent = text || "VALORES DEL PERIODO";
+    function setPeriodoTitulo(datos) {
+      // El título del periodo está en la primera fila, columna H (índice 7)
+      const periodo = (datos[0] && datos[0][7]) ? datos[0][7] : "VALORES DEL PERIODO";
+      document.getElementById('periodo-titulo').textContent = periodo;
     }
 
     fetch(CSV_URL)
       .then(resp => resp.ok ? resp.text() : Promise.reject("No se pudo obtener datos"))
       .then(csv => {
         const datos = parseCSV(csv);
-        // El título del periodo está en la primera fila, columna H (índice 7)
-        const periodo = (datos[0] && datos[0][7]) ? datos[0][7] : "VALORES DEL PERIODO";
-        setPeriodoTitulo(periodo);
+        setPeriodoTitulo(datos);
         renderTarifas(datos);
       })
       .catch(err => {
