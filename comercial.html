@@ -37,16 +37,12 @@
       .header h1 { font-size: 1.5rem; }
       .header img { height: 40px; }
     }
-    /* QUITA sticky del buscador y del header */
     .buscador {
       display: flex;
       gap: 0.5rem;
       flex-wrap: wrap;
       padding: 1rem;
       background: #f5e1d4;
-      /* position: sticky;
-      top: 0;
-      z-index: 10; */
     }
     .buscador select,
     .buscador input {
@@ -182,7 +178,6 @@
       justify-content: flex-start;
       align-items: flex-start;
     }
-    /* sticky sin linea, sombra ni borde */
     .card .nombre {
       font-weight: bold;
       font-size: 1.1rem;
@@ -190,10 +185,6 @@
       margin-bottom: 0.12em;
       margin-top: 0.05em;
       text-align: left;
-      /* position: sticky;
-      top: 0;
-      background: inherit;
-      z-index: 2; */
     }
     .cat-line {
       font-size: 0.95rem;
@@ -426,15 +417,15 @@
     <select id="selectSubcategoria">
       <option value="">Todas las subcategorías</option>
     </select>
+    <select id="selectTag">
+      <option value="">Todos los tags</option>
+    </select>
     <input type="text" id="filtro" placeholder="Buscar por nombre..." />
   </div>
 
-  <!-- Destacadas arriba -->
   <div class="destacadas-bar" id="destacadasBar"></div>
-
   <div class="grid" id="contenedor"></div>
 
-  <!-- Paginador solo abajo -->
   <div class="paginacion-zocalo" id="paginador-abajo">
     <button onclick="cambiarPagina('prev')" id="btnAnterior" disabled>Anterior</button>
     <span id="paginationBar" class="pagination-bar"></span>
@@ -461,6 +452,7 @@
         const modalClose = document.getElementById('modalClose');
         const selectCategoria = document.getElementById('selectCategoria');
         const selectSubcategoria = document.getElementById('selectSubcategoria');
+        const selectTag = document.getElementById('selectTag');
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
@@ -475,6 +467,19 @@
           ];
           return rubros.includes('industrias - comercios - servicios');
         });
+
+        // TAGS
+        const allTags = [
+          ...new Set(
+            turismoData
+              .flatMap(item => (item.tags || '').split(',')
+                .map(tag => tag.trim())
+                .filter(Boolean)
+              )
+          )
+        ].sort();
+        selectTag.innerHTML = '<option value="">Todos los tags</option>' +
+          allTags.map(tag => `<option value="${tag}">${tag}</option>`).join('');
 
         const categoriasUnicas = [...new Set(
           turismoData.flatMap(item => {
@@ -512,6 +517,11 @@
         });
 
         selectSubcategoria.addEventListener('change', () => {
+          paginaActual = 1;
+          render();
+        });
+
+        selectTag.addEventListener('change', () => {
           paginaActual = 1;
           render();
         });
@@ -559,7 +569,6 @@
         let totalPaginas = 1;
         let resultados = [];
 
-        // SIEMPRE destacar tarjetas nivel 5 subnivel 1 de TODO el dataset sin filtrar
         function getDestacadas() {
           return turismoData.filter(item => Number(item.nivel) === 5 && Number(item.subnivel1) === 1);
         }
@@ -590,8 +599,6 @@
           }
           targetBar.innerHTML = html;
         }
-
-        // === BLOQUES DE SUCURSALES Y WHATSAPP ===
 
         function generarBloqueSucursales(item) {
           const sucursales = [];
@@ -635,27 +642,23 @@
           return '';
         }
 
-        // Ayuda para extraer usuario de URL de red social
         function extraerUsuarioRedSocial(url) {
           if (!url) return '';
           if (!/^https?:\/\//.test(url)) return url;
           try {
             const u = new URL(url);
             const parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/');
-            // Para youtube: channel/UCxxxx o user/xxxx o c/xxxx o @xxxx
             if(u.hostname.includes('youtube')) {
               if(parts[0].startsWith('@')) return parts[0];
               if(parts[0] === 'channel' || parts[0] === 'user' || parts[0] === 'c') return parts[1] || '';
               return parts[0] || '';
             }
-            // Instagram y Facebook: primer segmento
             return parts[0] || '';
           } catch {
             return url;
           }
         }
 
-        // Renderiza una tarjeta (reutilizable para destacadas y normales)
         function renderCard(item) {
           const nivel = Number(item.nivel || 1);
 
@@ -672,7 +675,7 @@
           }
           const spacerUnderSubcat = `<div class="spacer-under-subcat"></div>`;
 
-          // Logos especiales: Parque Termal y Termales Mall en TODOS los niveles
+          // Logos especiales
           let termalesLogoHTML = '';
           const logos = {
             'Parque Termal': 'https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/parque-termal.png',
@@ -705,12 +708,46 @@
             galeria = `<img class="thumbnail solo" src="${imagenes[0]}" alt="Imagen" onclick="mostrarModal('${imagenes[0]}')">`;
           }
 
-          // Contacto sucursales y whatsapp
-          const sucursalesBloque = generarBloqueSucursales(item);
-          const whatsappBloque = renderWhatsapps(item);
-
-          // NIVEL 1
+          // NIVEL 1: SOLO TEXTO PLANO SIN ENLACES
           if (nivel === 1) {
+            const whatsappPlano = [item.whatsapp, item.whatsapp2].filter(Boolean).map(w => `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${w}</div>`).join('');
+            const sucursalesPlano = (() => {
+              const sucursales = [];
+              if (item.direccion || item.telefono) {
+                sucursales.push({
+                  direccion: item.direccion,
+                  telefono: item.telefono
+                });
+              }
+              if (item.direccion2 || item.telefono2) {
+                sucursales.push({
+                  direccion: item.direccion2,
+                  telefono: item.telefono2
+                });
+              }
+              if (item.direccion3 || item.telefono3) {
+                sucursales.push({
+                  direccion: item.direccion3,
+                  telefono: item.telefono3
+                });
+              }
+              return sucursales.map(suc => {
+                let bloque = '';
+                if (suc.direccion) bloque += `<div><i class="fas fa-map-marker-alt"></i> ${suc.direccion}</div>`;
+                if (suc.telefono) bloque += `<div><i class="fas fa-phone"></i> ${suc.telefono}</div>`;
+                return bloque;
+              }).filter(Boolean).join('<div style="height:0.5em"></div>');
+            })();
+            let galeriaPlano = '';
+            if (imagenes.length > 1) {
+              galeriaPlano = '<div class="galeria-carrusel">' +
+                  imagenes.map(url =>
+                    `<img class="thumbnail" src="${url}" alt="Imagen galería">`
+                  ).join('') +
+                '</div>';
+            } else if (imagenes.length === 1) {
+              galeriaPlano = `<img class="thumbnail solo" src="${imagenes[0]}" alt="Imagen">`;
+            }
             return `
               <div class="card nivel-${nivel}">
                 ${nombre}
@@ -718,15 +755,16 @@
                 ${subcatLine}
                 ${spacerUnderSubcat}
                 <div class="contacto-bloque">
-                  ${sucursalesBloque}
-                  ${whatsappBloque}
+                  ${sucursalesPlano}
+                  ${whatsappPlano}
                 </div>
                 ${termalesLogoHTML}
+                ${galeriaPlano}
               </div>
             `;
           }
 
-          // NIVEL 2 redes sociales: solo usuario, no link, siempre dentro de la tarjeta
+          // NIVEL 2: SOLO TEXTO PLANO SIN ENLACES
           if (nivel === 2) {
             let redesBloque = '';
             if (item.instagram) {
@@ -742,6 +780,44 @@
               redesBloque += `<div>YouTube: ${usuario}</div>`;
             }
             if (redesBloque) redesBloque = `<div class="redes-bloque">${redesBloque}</div>`;
+            const whatsappPlano = [item.whatsapp, item.whatsapp2].filter(Boolean).map(w => `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${w}</div>`).join('');
+            const sucursalesPlano = (() => {
+              const sucursales = [];
+              if (item.direccion || item.telefono) {
+                sucursales.push({
+                  direccion: item.direccion,
+                  telefono: item.telefono
+                });
+              }
+              if (item.direccion2 || item.telefono2) {
+                sucursales.push({
+                  direccion: item.direccion2,
+                  telefono: item.telefono2
+                });
+              }
+              if (item.direccion3 || item.telefono3) {
+                sucursales.push({
+                  direccion: item.direccion3,
+                  telefono: item.telefono3
+                });
+              }
+              return sucursales.map(suc => {
+                let bloque = '';
+                if (suc.direccion) bloque += `<div><i class="fas fa-map-marker-alt"></i> ${suc.direccion}</div>`;
+                if (suc.telefono) bloque += `<div><i class="fas fa-phone"></i> ${suc.telefono}</div>`;
+                return bloque;
+              }).filter(Boolean).join('<div style="height:0.5em"></div>');
+            })();
+            let galeriaPlano = '';
+            if (imagenes.length > 1) {
+              galeriaPlano = '<div class="galeria-carrusel">' +
+                  imagenes.map(url =>
+                    `<img class="thumbnail" src="${url}" alt="Imagen galería">`
+                  ).join('') +
+                '</div>';
+            } else if (imagenes.length === 1) {
+              galeriaPlano = `<img class="thumbnail solo" src="${imagenes[0]}" alt="Imagen">`;
+            }
             return `
               <div class="card nivel-${nivel}">
                 ${logoComercio}
@@ -750,16 +826,17 @@
                 ${subcatLine}
                 ${spacerUnderSubcat}
                 <div class="contacto-bloque">
-                  ${sucursalesBloque}
-                  ${whatsappBloque}
+                  ${sucursalesPlano}
+                  ${whatsappPlano}
                 </div>
                 ${termalesLogoHTML}
                 ${redesBloque}
+                ${galeriaPlano}
               </div>
             `;
           }
 
-          // NIVEL 3, 4, 5: redes sociales usuario cliqueable, pero solo mostrar usuario
+          // NIVEL 3, 4, 5 (con enlaces donde corresponda)
           const badges = [];
           if ((item.verificado || '').toLowerCase() === 'x') {
             badges.push('<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/VERIFICADO.png" alt="Verificado">');
@@ -794,7 +871,7 @@
             }
           }
           if (redesBloque) redesBloque = `<div class="redes-bloque">${redesBloque}</div>`;
-          const webBloque = item.link ? `<div class="web-bloque"><div><i class="fas fa-globe" style="color:#006699; margin-right:5px;"></i><a href="${item.link}" target="_blank" rel="noopener noreferrer">Visitá nuestra web</a></div></div>` : '';
+          const webBloque = item.link ? `<div class="web-bloque"><div><i class="fas fa-globe" style="color:#006699; margin-right:5px;"></i><a href="${item.link}" target="_blank" rel="noopener noreferrer">Visita nuestra web</a></div></div>` : '';
           const mailBloque = item.mail ? `<div class="mail-bloque"><div><i class="fas fa-envelope" style="color:#006699; margin-right:5px;"></i><a href="mailto:${item.mail}">${item.mail}</a></div></div>` : '';
 
           let leyenda = '';
@@ -803,6 +880,29 @@
 
           const adicionales = (item.adicionales ? `<div class="adicionales">${item.adicionales}</div>` : '');
           const descripcion = (item.descripcion ? `<div class="descripcion">${item.descripcion}</div>` : '');
+
+          // Botón Cómo llegar (robusto)
+          let aiMapsValue = '';
+          for (const key in item) {
+            if (
+              key.toLowerCase().includes('map') &&
+              typeof item[key] === 'string' &&
+              item[key].includes('http')
+            ) {
+              aiMapsValue = item[key];
+              break;
+            }
+          }
+          let comoLlegarBloque = '';
+          if (nivel === 5 && aiMapsValue) {
+            comoLlegarBloque = `
+              <div style="margin-top:1em;">
+                <a href="${aiMapsValue}" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;font-size:1.02em;">
+                  <i class="fas fa-route" style="margin-right:0.4em;color:#d35400;font-size:1.3em;"></i>Cómo llegar
+                </a>
+              </div>
+            `;
+          }
 
           return `
             <div class="card nivel-${nivel}">
@@ -816,14 +916,15 @@
               ${descripcion}
               ${galeria}
               <div class="contacto-bloque">
-                ${sucursalesBloque}
-                ${whatsappBloque}
+                ${generarBloqueSucursales(item)}
+                ${renderWhatsapps(item)}
               </div>
               ${termalesLogoHTML}
               ${redesBloque}
               ${webBloque}
               ${mailBloque}
               ${leyenda}
+              ${comoLlegarBloque}
             </div>
           `;
         }
@@ -867,11 +968,10 @@
           const q = normalizar(filtro.value);
           const categoriaSeleccionada = selectCategoria.value;
           const subcategoriaSeleccionada = selectSubcategoria.value;
+          const tagSeleccionado = selectTag.value;
 
-          // SIEMPRE destacadas de todo el dataset
           const destacadas = getDestacadas();
 
-          // Normales: quito las destacadas de la paginación
           let filtrados = turismoData.filter(item => {
             let coincideCategoria = true;
             if (categoriaSeleccionada) {
@@ -886,8 +986,12 @@
               const subcats = (item.subcategoria1 || '').split(',').map(s => s.trim());
               coincideSubcategoria = subcats.includes(subcategoriaSeleccionada);
             }
+            let coincideTag = true;
+            if (tagSeleccionado) {
+              coincideTag = (item.tags || '').split(',').map(t => t.trim()).includes(tagSeleccionado);
+            }
             const coincideNombre = normalizar(item.nombre).includes(q);
-            return coincideCategoria && coincideSubcategoria && coincideNombre;
+            return coincideCategoria && coincideSubcategoria && coincideNombre && coincideTag;
           })
           .sort((a, b) => b.nivel - a.nivel || a.subnivel1 - b.subnivel1);
 
