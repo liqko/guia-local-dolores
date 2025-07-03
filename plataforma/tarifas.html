@@ -44,6 +44,7 @@
       .tarifa-card { width: 96vw; max-width: 350px; }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 </head>
 <body>
   <div class="header-tarifador">
@@ -55,35 +56,17 @@
     const SHEET_NAME = "valores";
     const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${SHEET_NAME}`;
 
-    function parseCSV(text) {
-      const rows = text.trim().split('\n');
-      return rows.map(row => {
-        // Split respecting quoted cells with commas
-        const pattern = /("([^"]|"")*"|[^,]*)/g;
-        let cols = [];
-        let match;
-        while ((match = pattern.exec(row)) !== null) {
-          let val = match[0];
-          if (val.startsWith('"') && val.endsWith('"')) {
-            val = val.slice(1, -1).replace(/""/g, '"');
-          }
-          cols.push(val.trim());
-          if (pattern.lastIndex >= row.length) break;
-          pattern.lastIndex++; // skip comma
-        }
-        return cols;
-      });
-    }
-
     function renderTarifas(datos) {
       const contenedor = document.getElementById('tarifas-contenedor');
       contenedor.innerHTML = "";
-      datos.slice(1).forEach(row => {
-        // Siempre toma las primeras 6 columnas (aunque haya columnas vacías al final)
+      // Saltamos la primera fila (títulos)
+      for (let i = 1; i < datos.length; i++) {
+        const row = datos[i];
+        if (!row[0]) continue; // Mostrar solo si hay servicio
+        // Siempre toma los primeros 6 campos (el resto son vacíos o el periodo)
         const [servicio, anunciante, descripcion, valor, promocion, adicional] = [
           row[0] || "", row[1] || "", row[2] || "", row[3] || "", row[4] || "", row[5] || ""
         ];
-        if (!servicio) return;
         const card = document.createElement('div');
         card.className = 'tarifa-card';
         card.innerHTML = `
@@ -95,7 +78,7 @@
           ${adicional ? `<div class="tarifa-adicional">${adicional}</div>` : ''}
         `;
         contenedor.appendChild(card);
-      });
+      }
     }
 
     function setPeriodoTitulo(datos) {
@@ -107,9 +90,14 @@
     fetch(CSV_URL)
       .then(resp => resp.ok ? resp.text() : Promise.reject("No se pudo obtener datos"))
       .then(csv => {
-        const datos = parseCSV(csv);
-        setPeriodoTitulo(datos);
-        renderTarifas(datos);
+        Papa.parse(csv, {
+          complete: function(results) {
+            const datos = results.data;
+            setPeriodoTitulo(datos);
+            renderTarifas(datos);
+          },
+          skipEmptyLines: true
+        });
       })
       .catch(err => {
         document.getElementById('periodo-titulo').textContent = "VALORES DEL PERIODO";
