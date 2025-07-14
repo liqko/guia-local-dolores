@@ -14,8 +14,9 @@
     input, select, textarea { width: 100%; padding: 8px 7px; margin-bottom: 11px; border-radius: 10px; border: 1.5px solid #b2ebf2; background: #fff; font-size: 1em; box-sizing: border-box; transition: border 0.2s;}
     input:focus, select:focus, textarea:focus { border: 1.5px solid #00bcd4; outline: none;}
     textarea { min-height: 50px; resize: vertical;}
-    .btn-publicar { background: #00bcd4; color: #fff; font-size: 1.04em; font-weight: bold; border: none; border-radius: 14px; padding: 13px 0; margin: 14px 0 16px 0; cursor: pointer; width: 100%; }
-    .btn-publicar:hover { background: #0097a7; }
+    .btn-publicar { background: #00bcd4; color: #fff; font-size: 1.04em; font-weight: bold; border: none; border-radius: 14px; padding: 13px 0; margin: 14px 0 16px 0; cursor: pointer; width: 100%; transition: background 0.2s; }
+    .btn-publicar[disabled], .btn-publicar:disabled { background: #80deea; color: #b0bec5; cursor: wait; }
+    .btn-publicar:hover:not(:disabled) { background: #0097a7; }
     .exito { margin: 30px 0 0 0; padding: 18px 12px 24px 12px; background: #e0ffe0; border: 2px solid #43a047; color: #2e7d32; border-radius: 18px; text-align: center; font-size: 1.17em; font-weight: bold; box-shadow: 0 2px 12px #43a04733; display: none;}
     .exito.error { background: #ffe0e0; border: 2px solid #d32f2f; color: #b71c1c; }
     .privacidad { margin-top: 18px; font-size: 0.97em; color: #7a6c64; text-align: center; line-height: 1.5;}
@@ -42,8 +43,8 @@
         <input type="text" id="nombre" name="nombre" maxlength="80">
         <label for="fecha_nacimiento">Fecha de nacimiento:</label>
         <input type="date" id="fecha_nacimiento" name="fecha_nacimiento">
-        <label for="edad">Edad:</label>
-        <input type="number" id="edad" name="edad" min="15" max="99">
+        <label for="edad">Edad (se calcula automáticamente):</label>
+        <input type="number" id="edad" name="edad" min="15" max="99" readonly style="background:#f0f0f0;">
         <label for="foto">Foto (URL de Google Drive o similar):</label>
         <input type="text" id="foto" name="foto" maxlength="250">
         <div class="explica">Opcional. Subí tu foto a Google Drive, abrila y copiá el enlace aquí.</div>
@@ -85,7 +86,7 @@
       <label for="email">Email de contacto: <span class="oblig">*</span></label>
       <input type="email" id="email" name="email" maxlength="80" placeholder="Tu email">
       <div class="explica">Este correo solo se usará para contactarte y para eliminar tu publicación.</div>
-      <button type="submit" class="btn-publicar">Publicar</button>
+      <button type="submit" class="btn-publicar" id="btn-publicar">Publicar</button>
     </form>
     <div id="mensajeExito" class="exito"></div>
     <div class="privacidad">
@@ -96,7 +97,7 @@
     </div>
   </div>
   <script>
-    // URL de tu Google Apps Script (reemplaza por la tuya si cambia)
+    // URL de tu Google Apps Script
     const scriptURL = 'https://script.google.com/macros/s/AKfycbzaSKyw_dabkGJE8QGx6yqHyiLbHzWdHflmSGYaKVWr4C4OouJO7ZM56xoJcZ41LhHiXA/exec';
 
     // Mostrar/ocultar campos según tipo
@@ -106,13 +107,36 @@
       document.getElementById('oferta-campos').style.display = (tipo === 'oferta') ? '' : 'none';
     });
 
+    // Calcular edad automáticamente al elegir fecha de nacimiento
+    document.getElementById('fecha_nacimiento').addEventListener('change', function() {
+      const fecha = this.value;
+      let edad = "";
+      if(fecha) {
+        const hoy = new Date();
+        const fnac = new Date(fecha);
+        edad = hoy.getFullYear() - fnac.getFullYear();
+        const m = hoy.getMonth() - fnac.getMonth();
+        if (m < 0 || (m === 0 && hoy.getDate() < fnac.getDate())) {
+          edad--;
+        }
+        if (edad < 0 || isNaN(edad)) edad = "";
+      }
+      document.getElementById('edad').value = edad;
+    });
+
     document.getElementById('formularioCarga').addEventListener('submit', function(e) {
       e.preventDefault();
+      const btn = document.getElementById('btn-publicar');
+      btn.disabled = true;
+      btn.textContent = 'Enviando...';
+
       const tipo = document.getElementById('tipo').value;
       const email = document.getElementById('email').value.trim();
 
       if (!tipo || !email) {
         mostrarMensaje('Completá los campos obligatorios.', true);
+        btn.disabled = false;
+        btn.textContent = 'Publicar';
         return;
       }
 
@@ -185,9 +209,13 @@
         } else {
           mostrarMensaje('Ocurrió un error al publicar.', true);
         }
+        btn.disabled = false;
+        btn.textContent = 'Publicar';
       })
       .catch(() => {
         mostrarMensaje('Ocurrió un error de conexión.', true);
+        btn.disabled = false;
+        btn.textContent = 'Publicar';
       });
     });
 
@@ -196,7 +224,9 @@
       el.textContent = msg;
       el.className = 'exito' + (esError ? ' error' : '');
       el.style.display = 'block';
-      setTimeout(()=>{ el.style.display = 'none'; }, esError ? 4000 : 2200);
+      setTimeout(() => {
+        el.style.display = 'none';
+      }, esError ? 4000 : 2200);
     }
   </script>
 </body>
