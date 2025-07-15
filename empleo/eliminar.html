@@ -17,11 +17,14 @@
     .tabla-registros {width: 100%; border-collapse: collapse; margin-top: 10px;}
     .tabla-registros th, .tabla-registros td {border: 1px solid #b2ebf2; padding: 7px 6px; font-size: 0.97em;}
     .tabla-registros th { background: #b2ebf2; color: #006064;}
-    .btn-eliminar { background: #d32f2f; color: #fff; border: none; border-radius: 8px; padding: 7px 15px; cursor: pointer; font-size: 0.97em; font-weight: bold;}
-    .btn-eliminar:hover { background: #b71c1c; color: #ffe082;}
+    .btn-eliminar, .btn-eliminar-selec { background: #d32f2f; color: #fff; border: none; border-radius: 8px; padding: 7px 15px; cursor: pointer; font-size: 0.97em; font-weight: bold;}
+    .btn-eliminar:hover, .btn-eliminar-selec:hover { background: #b71c1c; color: #ffe082;}
+    .btn-eliminar-selec[disabled] { background: #ffd6d6; color: #b71c1c; cursor: not-allowed;}
     .exito { margin: 30px 0 0 0; padding: 18px 12px 24px 12px; background: #ffe0e0; border: 2px solid #d32f2f; color: #b71c1c; border-radius: 18px; text-align: center; font-size: 1.17em; font-weight: bold; box-shadow: 0 2px 12px #ef9a9a33; display: none;}
     .exito.error { background: #fffde0; border: 2px solid #ffb300; color: #e65100; }
     .privacidad { margin-top: 14px; font-size: 0.97em; color: #7a6c64; text-align: center;}
+    .buscando {margin: 18px 0; color: #007c91; font-weight: bold; text-align: center; font-size: 1.13em;}
+    .seleccionar-todos {margin-bottom: 7px; color: #006064;}
     @media (max-width: 600px) {.form-main {max-width: 99vw; padding: 11px 5vw 13px 5vw; margin: 17px auto 30vw auto;}}
   </style>
 </head>
@@ -52,9 +55,11 @@
   <script>
     const scriptURL = 'https://script.google.com/macros/s/AKfycbzaSKyw_dabkGJE8QGx6yqHyiLbHzWdHflmSGYaKVWr4C4OouJO7ZM56xoJcZ41LhHiXA/exec'; // <- Cambia por tu URL de Apps Script
 
+    let registrosActuales = [];
+
     function buscarRegistros(event) {
       event.preventDefault();
-      document.getElementById('zonaRegistros').innerHTML = "Buscando...";
+      document.getElementById('zonaRegistros').innerHTML = "<div class='buscando'>Buscando...</div>";
       document.getElementById('mensajeExito').style.display = "none";
       const tipo = document.getElementById('tipo').value;
       const email = document.getElementById('email').value.trim();
@@ -62,20 +67,26 @@
       fetch(`${scriptURL}?accion=listar&tipo=${encodeURIComponent(tipo)}&email=${encodeURIComponent(email)}`)
         .then(r => r.json())
         .then(datos => {
-          if (!Array.isArray(datos) || datos.length === 0) {
+          registrosActuales = Array.isArray(datos) ? datos : [];
+          if (registrosActuales.length === 0) {
             document.getElementById('zonaRegistros').innerHTML = "<div class='exito error'>No se encontraron registros.</div>";
             return;
           }
-          let html = `<table class="tabla-registros"><tr>`;
-          // Cabeceras simples
+          let html = `<div class="seleccionar-todos">
+            <input type="checkbox" id="check-todos" onchange="toggleSeleccionarTodos(this)">
+            <label for="check-todos" style="font-weight:normal;">Seleccionar todos</label>
+          </div>
+          <button type="button" class="btn-eliminar-selec" id="btn-eliminar-selec" onclick="eliminarSeleccionados()" disabled>Eliminar seleccionados</button>
+          <table class="tabla-registros"><tr>`;
           if (tipo === 'cv') {
-            html += "<th>Nombre</th><th>Área</th><th>Puesto</th><th>Eliminar</th>";
+            html += "<th></th><th>Nombre</th><th>Área</th><th>Puesto</th><th>Eliminar</th>";
           } else {
-            html += "<th>Título</th><th>Empresa</th><th>Zona</th><th>Eliminar</th>";
+            html += "<th></th><th>Título</th><th>Empresa</th><th>Zona</th><th>Eliminar</th>";
           }
           html += "</tr>";
-          datos.forEach(reg => {
+          registrosActuales.forEach((reg, idx) => {
             html += "<tr>";
+            html += `<td><input type="checkbox" class="check-sel" data-idx="${idx}" onchange="actualizarEliminarSeleccionados()"></td>`;
             if (tipo === 'cv') {
               html += `<td>${reg.nombre || ""}</td><td>${reg.area || ""}</td><td>${reg.puesto || ""}</td>`;
             } else {
@@ -90,6 +101,61 @@
           document.getElementById('zonaRegistros').innerHTML = "<div class='exito error'>Ocurrió un error al buscar.</div>";
         });
       return false;
+    }
+
+    function toggleSeleccionarTodos(chk) {
+      document.querySelectorAll('.check-sel').forEach(c => { c.checked = chk.checked; });
+      actualizarEliminarSeleccionados();
+    }
+
+    function actualizarEliminarSeleccionados() {
+      const haySeleccionados = Array.from(document.querySelectorAll('.check-sel')).some(c => c.checked);
+      document.getElementById('btn-eliminar-selec').disabled = !haySeleccionados;
+      // Actualiza el check-todos si corresponde
+      const all = document.querySelectorAll('.check-sel');
+      const todos = Array.from(all).every(c => c.checked);
+      document.getElementById('check-todos').checked = all.length > 0 && todos;
+    }
+
+    function eliminarSeleccionados() {
+      const seleccionados = Array.from(document.querySelectorAll('.check-sel'))
+        .map((c, i) => c.checked ? registrosActuales[i].id : null)
+        .filter(Boolean);
+
+      if (seleccionados.length === 0) return;
+      if (!confirm(`¿Seguro que deseas eliminar ${seleccionados.length} registro(s)? No se podrá(n) recuperar.`)) return;
+
+      document.getElementById('btn-eliminar-selec').disabled = true;
+      document.getElementById('btn-eliminar-selec').textContent = "Eliminando...";
+
+      let eliminados = 0, fallidos = 0;
+      const total = seleccionados.length;
+
+      function finalizar() {
+        document.getElementById('btn-eliminar-selec').textContent = "Eliminar seleccionados";
+        buscarRegistros(new Event('submit')); // recarga
+        document.getElementById('mensajeExito').textContent =
+          (eliminados > 0 ? `¡${eliminados} registro(s) eliminado(s) exitosamente!` : '') +
+          (fallidos > 0 ? ` ${fallidos} no se pudieron eliminar.` : '');
+        document.getElementById('mensajeExito').style.display = "block";
+      }
+
+      seleccionados.forEach((id, idx) => {
+        fetch(scriptURL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: `accion=eliminar_id&id=${encodeURIComponent(id)}`
+        })
+        .then(r => r.text())
+        .then(txt => {
+          if (txt.includes("Eliminado")) eliminados++;
+          else fallidos++;
+        })
+        .catch(() => { fallidos++; })
+        .finally(() => {
+          if (eliminados + fallidos === total) finalizar();
+        });
+      });
     }
 
     function eliminarRegistro(id, btn) {
