@@ -62,6 +62,7 @@
       justify-content: center;
       margin-top: 24px;
       margin-bottom: 0;
+      flex-wrap: wrap;
     }
     .search-box {
       width: 340px;
@@ -81,11 +82,42 @@
     .search-box:focus {
       box-shadow: 0 4px 20px #ff4e5080;
     }
-    .cards-container {
+    /* CAMBIO: Categorías chips */
+    .categories-bar {
       display: flex;
       flex-wrap: wrap;
-      gap: 30px;
+      gap: 9px;
       justify-content: center;
+      margin: 0 0 18px 0;
+      padding: 0;
+    }
+    .category-chip {
+      background: #fff9cc;
+      color: #ff4e50;
+      border: 2px solid #f9d423;
+      border-radius: 14px;
+      padding: 7px 18px;
+      font-size: 1em;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border 0.15s;
+      box-shadow: 0 2px 6px #f9d42325;
+      outline: none;
+    }
+    .category-chip.selected,
+    .category-chip:hover {
+      background: #ff4e50;
+      color: #fff;
+      border: 2px solid #ff4e50;
+    }
+
+    .cards-container {
+      display: flex;
+      flex-direction: column; /* CAMBIO: una tarjeta por fila */
+      flex-wrap: nowrap;
+      gap: 30px;
+      justify-content: flex-start;
+      align-items: center;
       padding: 40px 10px 32px 10px;
       min-height: 340px;
     }
@@ -95,6 +127,7 @@
       box-shadow: 0 6px 30px #0001, 0 1.5px 6px #ff4e5022;
       max-width: 400px;
       min-width: 260px;
+      width: 100%;
       padding: 30px 18px 22px 18px;
       display: flex;
       flex-direction: column;
@@ -284,6 +317,7 @@
   <div class="search-container">
     <input type="text" id="search" class="search-box" placeholder="Buscar por nombre o categoría...">
   </div>
+  <div class="categories-bar" id="categoriesBar"></div>
   <div class="cards-container" id="cards"></div>
   <div class="paginator" id="paginator"></div>
   <script>
@@ -292,25 +326,53 @@
     let comerciosData = [];
     let filtrados = [];
     let currentPage = 1;
-    const itemsPerPage = 6;
+    const itemsPerPage = 10; // CAMBIO: ahora 10 por página
+    let categoriasSet = new Set();
+    let categoriaFiltro = "";
 
     function fechaHumana(fecha) {
       if (!fecha) return "";
-      // Si es formato Google serial (número), conviértelo
       if (!isNaN(fecha) && typeof fecha !== "string") {
-        // CAMBIO: corregido para sumar días en UTC y evitar -1 día
         let base = Date.UTC(1899,11,30);
         fecha = new Date(base + Number(fecha) * 86400000);
       }
-      // Si es string tipo "2025-07-15T03:00:00.000Z", toma solo la parte de la fecha
       if (typeof fecha === "string" && fecha.match(/^\d{4}-\d{2}-\d{2}/)) {
         fecha = fecha.substring(0,10);
       }
       let d = new Date(fecha);
       if (isNaN(d.getTime())) return fecha;
       const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-      // CAMBIO: usar getUTCDate/getUTCMonth/getUTCFullYear para fecha serial
       return `${d.getUTCDate()} de ${meses[d.getUTCMonth()]} de ${d.getUTCFullYear()}`;
+    }
+
+    function renderCategoriesBar() {
+      const bar = document.getElementById('categoriesBar');
+      bar.innerHTML = "";
+      if (categoriasSet.size <= 1) return; // sólo mostrar si hay más de una categoría
+      categoriasSet.forEach(cat => {
+        const btn = document.createElement('button');
+        btn.className = 'category-chip' + (categoriaFiltro === cat ? ' selected' : '');
+        btn.innerText = cat;
+        btn.onclick = () => {
+          categoriaFiltro = (categoriaFiltro === cat ? "" : cat);
+          document.getElementById('search').value = "";
+          aplicarFiltro(""); // reset de búsqueda textual
+        };
+        bar.appendChild(btn);
+      });
+      // Botón para limpiar filtro si hay alguno
+      if (categoriaFiltro) {
+        const limpiar = document.createElement('button');
+        limpiar.className = "category-chip";
+        limpiar.style.background = "#eee";
+        limpiar.style.color = "#333";
+        limpiar.innerText = "Todas las categorías";
+        limpiar.onclick = () => {
+          categoriaFiltro = "";
+          aplicarFiltro("");
+        };
+        bar.insertBefore(limpiar, bar.firstChild);
+      }
     }
 
     function renderCards(data, page=1) {
@@ -324,11 +386,9 @@
         const card = document.createElement('div');
         card.className = "card";
         let logoHtml = '';
-        // Usa com.logo para el logo del comercio (columna logo)
         if (com.logo) {
           logoHtml = `<img class="logo-comercio" src="${com.logo}" alt="Logo comercio">`;
         }
-        // Zócalo de categoría con com.logo1 si existe (columna logo1)
         let categoriaHtml = '';
         if (com.categoria) {
           categoriaHtml = '<div class="categoria-container">';
@@ -356,6 +416,7 @@
       }
       renderPaginator(data.length, page);
     }
+
     function renderPaginator(total, page) {
       const paginatorDiv = document.getElementById('paginator');
       const totalPages = Math.ceil(total / itemsPerPage);
@@ -370,30 +431,50 @@
       document.getElementById('prevPage').onclick = () => { if (currentPage > 1) { currentPage--; renderCards(filtrados, currentPage); window.scrollTo({top:0,behavior:"smooth"});} };
       document.getElementById('nextPage').onclick = () => { if (currentPage < totalPages) { currentPage++; renderCards(filtrados, currentPage); window.scrollTo({top:0,behavior:"smooth"});} };
     }
+
     function aplicarFiltro(search) {
       const filtro = (search||"").trim().toLowerCase();
-      filtrados = comerciosData.filter(com => {
-        return (
-          (com.nombre && com.nombre.toLowerCase().includes(filtro))
-          || (com.categoria && com.categoria.toLowerCase().includes(filtro))
-          || (com.promo && com.promo.toLowerCase().includes(filtro))
-        );
-      });
+      if (categoriaFiltro) {
+        filtrados = comerciosData.filter(com => (com.categoria && com.categoria.toLowerCase() === categoriaFiltro.toLowerCase()));
+      } else if (filtro) {
+        // Si la búsqueda coincide exactamente con una categoría, mostrar sólo esa
+        let matchCat = Array.from(categoriasSet).find(cat => cat.toLowerCase() === filtro);
+        if (matchCat) {
+          categoriaFiltro = matchCat;
+          filtrados = comerciosData.filter(com => (com.categoria && com.categoria.toLowerCase() === matchCat.toLowerCase()));
+        } else {
+          filtrados = comerciosData.filter(com => {
+            return (
+              (com.nombre && com.nombre.toLowerCase().includes(filtro))
+              || (com.categoria && com.categoria.toLowerCase().includes(filtro))
+              || (com.promo && com.promo.toLowerCase().includes(filtro))
+            );
+          });
+        }
+      } else {
+        filtrados = comerciosData;
+      }
       currentPage = 1;
       renderCards(filtrados, currentPage);
+      renderCategoriesBar();
     }
-    // === CARGA DE DATOS ===
+
     fetch(DATA_URL)
       .then(res => res.json())
       .then(data => {
         comerciosData = data;
         filtrados = comerciosData;
+        // Extraer categorías únicas
+        categoriasSet = new Set(comerciosData.map(c => c.categoria).filter(Boolean));
         renderCards(filtrados, currentPage);
+        renderCategoriesBar();
       })
       .catch(error => {
         document.getElementById('cards').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar los comercios.<br>Error: ${error}</p>`;
       });
+
     document.getElementById('search').addEventListener('input', function() {
+      categoriaFiltro = "";
       aplicarFiltro(this.value);
     });
   </script>
