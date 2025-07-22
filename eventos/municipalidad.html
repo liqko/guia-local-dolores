@@ -51,16 +51,10 @@
     <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/varios/guialocal.png" alt="Logo Principal" class="main-logo" />
     <h1 class="header-title" id="orgTitle">Eventos por Organizador</h1>
   </div>
-  <div class="tabs-container">
-    <button class="tab-btn active" id="tab-eventos">Eventos</button>
-    <button class="tab-btn" id="tab-actividades">Actividades</button>
-    <button class="tab-btn" id="tab-deportiva">Deportiva</button>
-    <button class="tab-btn" id="tab-capacitacion">Capacitación</button>
-  </div>
+  <div class="tabs-container" id="tabs"></div>
   <div class="events-container" id="events"></div>
   <div class="paginator" id="paginator"></div>
   <script>
-    // ------------ CONFIGURACIÓN --------------
     // Cambia este valor por el organizador que quieres mostrar
     const ORGANIZADOR = "Municipalidad de Dolores";
     document.getElementById("orgTitle").textContent = "Eventos de " + ORGANIZADOR;
@@ -68,12 +62,18 @@
     // URLs de las hojas
     const URLs = {
       eventos: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=eventos",
-      actividades: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=actividades_grl",
+      actividades: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=actividades",
       deportiva: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=agenda_deportiva_grl",
       capacitacion: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=capacitacion"
     };
 
-    // ------------ FORMATO FECHA --------------
+    const TAB_LABELS = {
+      eventos: "Eventos",
+      actividades: "Actividades",
+      deportiva: "Deportiva",
+      capacitacion: "Capacitación"
+    };
+
     function formatoFechaCompleto(valor) {
       if (!valor) return "";
       let fecha;
@@ -105,18 +105,20 @@
       }
       return partes.map(p => `<p>${p.trim()}</p>`).join('');
     }
-    function normalizar(str) {
-      return (str || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+    function esAprobado(valor) {
+      if (valor === true) return true;
+      if (!valor) return false;
+      valor = valor.toString().trim().toLowerCase();
+      return ["si", "sí", "✓", "✔", "✅", "x", "ok", "true"].some(v => valor === v);
     }
 
-    // ------------ CARGA Y FILTRO DE DATOS --------------
     let allData = {eventos:[], actividades:[], deportiva:[], capacitacion:[]};
-    let filteredData = {eventos:[], actividades:[], deportiva:[], capacitacion:[]};
-    let currentTab = "eventos";
+    let availableTabs = [];
+    let currentTab = null;
     let currentPage = 1;
     const eventsPerPage = 6;
+    let loadedSheets = 0;
 
-    // Para cada hoja, cargar los datos y filtrar por organizador
     function cargarDatos() {
       Object.keys(URLs).forEach(tipo => {
         fetch(URLs[tipo])
@@ -127,12 +129,9 @@
             let data = [];
             for (let i = 0; i < rows.length; i++) {
               const c = rows[i].c;
-              // Filtrar aprobados
               if (tipo === "eventos") {
-                // eventos: verificado, fecha, hora, tipo, nombre, categoria, ubicacion, lugar, descripcion, a_cargo, valor, organizador, logo, organizador2, logo2, organizador3, logo3, organizador4, logo4, auspiciantes, enlace
                 const verificado = c[0] ? c[0].v : "";
                 if (!esAprobado(verificado)) continue;
-                // Filtro organizador
                 let organizadores = [c[11],c[13],c[15],c[17]].map(x=>x?x.v:"");
                 if (!organizadores.join(" ").toLowerCase().includes(ORGANIZADOR.toLowerCase())) continue;
                 data.push({
@@ -234,9 +233,35 @@
               }
             }
             allData[tipo] = data;
-            if (tipo === currentTab) renderEventos(data, 1);
+            loadedSheets++;
+            if (loadedSheets === Object.keys(URLs).length) {
+              availableTabs = Object.keys(allData).filter(t => allData[t].length > 0);
+              crearTabs();
+            }
           });
       });
+    }
+
+    function crearTabs() {
+      const tabsDiv = document.getElementById('tabs');
+      tabsDiv.innerHTML = "";
+      if (availableTabs.length === 0) {
+        document.getElementById('events').innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay registros para este organizador.</p>";
+        document.getElementById('paginator').innerHTML = "";
+        return;
+      }
+      availableTabs.forEach((tipo, idx) => {
+        const btn = document.createElement("button");
+        btn.className = "tab-btn" + (idx === 0 ? " active" : "");
+        btn.id = "tab-" + tipo;
+        btn.textContent = TAB_LABELS[tipo];
+        btn.onclick = () => setTab(tipo);
+        tabsDiv.appendChild(btn);
+      });
+      // Activar primera pestaña con registros
+      currentTab = availableTabs[0];
+      currentPage = 1;
+      renderEventos(allData[currentTab], currentPage);
     }
 
     function renderEventos(data, page=1) {
@@ -327,7 +352,7 @@
       });
       renderPaginator(data.length, page);
       if (eventosMostrados === 0) {
-        eventsDiv.innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay registros para mostrar.</p>";
+        eventsDiv.innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay registros para mostrar en esta pestaña.</p>";
       }
     }
     function renderPaginator(total, page) {
@@ -344,24 +369,12 @@
       document.getElementById('prevPage').onclick = () => { if (currentPage > 1) { currentPage--; renderEventos(allData[currentTab], currentPage); }};
       document.getElementById('nextPage').onclick = () => { if (currentPage < totalPages) { currentPage++; renderEventos(allData[currentTab], currentPage); }};
     }
-    // ------------ TABS --------------
-    document.getElementById('tab-eventos').onclick = () => { setTab('eventos'); };
-    document.getElementById('tab-actividades').onclick = () => { setTab('actividades'); };
-    document.getElementById('tab-deportiva').onclick = () => { setTab('deportiva'); };
-    document.getElementById('tab-capacitacion').onclick = () => { setTab('capacitacion'); };
     function setTab(tab) {
       currentTab = tab;
       currentPage = 1;
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
       document.getElementById('tab-' + tab).classList.add('active');
       renderEventos(allData[tab], currentPage);
-    }
-    // ------------ INICIO --------------
-    function esAprobado(valor) {
-      if (valor === true) return true;
-      if (!valor) return false;
-      valor = valor.toString().trim().toLowerCase();
-      return ["si", "sí", "✓", "✔", "✅", "x", "ok", "true"].some(v => valor === v);
     }
     cargarDatos();
   </script>
