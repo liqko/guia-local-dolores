@@ -400,6 +400,12 @@
   <div class="search-container">
     <input type="text" id="search" class="search-box" placeholder="Buscar por fecha, deporte, categoría, nombre, organizador...">
   </div>
+  <div id="loading-indicator" style="display:none; text-align:center; font-size:1.2em; color:#22529a; margin-top:20px;">
+    <span id="loading-spinner" style="font-size:2em;">⏳</span> Cargando eventos deportivos...
+  </div>
+  <div id="retry-container" style="display:none; text-align:center; margin-top:20px;">
+    <button onclick="loadAgenda(true)" style="background:#3b7dd8; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:1em; font-weight:600;">Reintentar</button>
+  </div>
   <div class="events-container" id="events"></div>
   <div class="paginator" id="paginator"></div>
   <div class="footer-zocalo">
@@ -477,11 +483,95 @@
       // Solo mostrar si tiene fecha, nombre y algún organizador o deporte
       return !(ev.fecha && ev.nombre && (ev.organizador || ev.deporte));
     }
-    const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=agenda_deportiva_grl";
     let agendaData = [];
     let agendaFiltrada = [];
     let currentPage = 1;
     const eventsPerPage = 6;
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=agenda_deportiva_grl";
+    let fetchAttempts = 0;
+    const maxFetchAttempts = 3;
+
+    function showLoading(show=true) {
+      document.getElementById('loading-indicator').style.display = show ? 'block' : 'none';
+    }
+    function showRetry(show=true) {
+      document.getElementById('retry-container').style.display = show ? 'block' : 'none';
+    }
+
+    function loadAgenda(forceRetry=false) {
+      showLoading(true);
+      showRetry(false);
+      document.getElementById('events').innerHTML = "";
+      fetchAttempts = forceRetry ? 1 : fetchAttempts + 1;
+      fetch(SHEET_URL)
+        .then(res => res.text())
+        .then(text => {
+          showLoading(false);
+          showRetry(false);
+          const json = JSON.parse(text.substr(47).slice(0, -2));
+          const rows = json.table.rows;
+          agendaData = [];
+          for (let i = 0; i < rows.length; i++) {
+            const c = rows[i].c;
+            const verificado = c[0] ? c[0].v : "";
+            if (!esAprobado(verificado)) continue;
+            const fecha = c[1] ? c[1].v : "";
+            const hora = c[2] ? c[2].v : "";
+            const deporte = c[3] ? c[3].v : "";
+            const categoria = c[4] ? c[4].v : "";
+            const nombre = c[5] ? c[5].v : "";
+            const ubicacion = c[6] ? c[6].v : "";
+            if (ubicacion && ubicacion.toLowerCase().includes("fuera del partido de dolores")) continue;
+            const lugar = c[7] ? c[7].v : "";
+            const descripcion = c[8] ? c[8].v : "";
+            const info_adicional = c[9] ? c[9].v : "";
+            const organizador = c[10] ? c[10].v : "";
+            const logo = c[11] ? c[11].v : "";
+            const organizador2 = c[12] ? c[12].v : "";
+            const logo2 = c[13] ? c[13].v : "";
+            const organizador3 = c[14] ? c[14].v : "";
+            const logo3 = c[15] ? c[15].v : "";
+            const organizador4 = c[16] ? c[16].v : "";
+            const logo4 = c[17] ? c[17].v : "";
+            const auspiciantes = c[18] ? c[18].v : "";
+            const enlace = c[19] ? c[19].v : "";
+            agendaData.push({
+              verificado,
+              fecha,
+              hora,
+              deporte,
+              categoria,
+              nombre,
+              ubicacion,
+              lugar,
+              descripcion,
+              info_adicional,
+              organizador,
+              logo,
+              organizador2,
+              logo2,
+              organizador3,
+              logo3,
+              organizador4,
+              logo4,
+              auspiciantes,
+              enlace
+            });
+          }
+          agendaFiltrada = agendaData.filter(ev => !agendaVacia(ev));
+          renderAgenda(agendaFiltrada, currentPage);
+        })
+        .catch(error => {
+          showLoading(false);
+          if (fetchAttempts < maxFetchAttempts) {
+            setTimeout(() => loadAgenda(), 1500); // Reintenta después de 1.5 segundos
+          } else {
+            document.getElementById('events').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar los eventos deportivos. Verifica que la hoja esté publicada y disponible.<br>Error: ${error}</p>`;
+            showRetry(true);
+          }
+        });
+    }
+
     function aplicarFiltro(search) {
       const filtro = search.trim().toLowerCase();
       const anteriorPage = currentPage;
@@ -627,65 +717,9 @@
         el.scrollIntoView({behavior:"smooth",block:"start"});
       }
     }
-    // --- DATA FETCH ---
-    fetch(SHEET_URL)
-      .then(res => res.text())
-      .then(text => {
-        const json = JSON.parse(text.substr(47).slice(0, -2));
-        const rows = json.table.rows;
-        agendaData = [];
-        for (let i = 0; i < rows.length; i++) {
-          const c = rows[i].c;
-          const verificado = c[0] ? c[0].v : "";
-          if (!esAprobado(verificado)) continue;
-          const fecha = c[1] ? c[1].v : "";
-          const hora = c[2] ? c[2].v : "";
-          const deporte = c[3] ? c[3].v : "";
-          const categoria = c[4] ? c[4].v : "";
-          const nombre = c[5] ? c[5].v : "";
-          const ubicacion = c[6] ? c[6].v : "";
-          if (ubicacion && ubicacion.toLowerCase().includes("fuera del partido de dolores")) continue;
-          const lugar = c[7] ? c[7].v : "";
-          const descripcion = c[8] ? c[8].v : "";
-          const info_adicional = c[9] ? c[9].v : "";
-          const organizador = c[10] ? c[10].v : "";
-          const logo = c[11] ? c[11].v : "";
-          const organizador2 = c[12] ? c[12].v : "";
-          const logo2 = c[13] ? c[13].v : "";
-          const organizador3 = c[14] ? c[14].v : "";
-          const logo3 = c[15] ? c[15].v : "";
-          const organizador4 = c[16] ? c[16].v : "";
-          const logo4 = c[17] ? c[17].v : "";
-          const auspiciantes = c[18] ? c[18].v : "";
-          const enlace = c[19] ? c[19].v : "";
-          agendaData.push({
-            verificado,
-            fecha,
-            hora,
-            deporte,
-            categoria,
-            nombre,
-            ubicacion,
-            lugar,
-            descripcion,
-            info_adicional,
-            organizador,
-            logo,
-            organizador2,
-            logo2,
-            organizador3,
-            logo3,
-            organizador4,
-            logo4,
-            auspiciantes,
-            enlace
-          });
-        }
-        agendaFiltrada = agendaData.filter(ev => !agendaVacia(ev));
-        renderAgenda(agendaFiltrada, currentPage);
-      }).catch(error => {
-        document.getElementById('events').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar los eventos deportivos. Verifica que la hoja esté publicada y disponible.<br>Error: ${error}</p>`;
-      });
+    // CARGA INICIAL
+    loadAgenda();
+
     document.getElementById('search').addEventListener('input', function() {
       aplicarFiltro(this.value);
     });
