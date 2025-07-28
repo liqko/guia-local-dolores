@@ -14,8 +14,26 @@
       padding: 0;
       overflow-x: hidden;
     }
-    .header-flex { display: flex; justify-content: center; align-items: center; gap: 18px; margin-top: 28px; margin-bottom: 0; flex-wrap: wrap; width: 100%; }
-    .main-logo, .secondary-logo { width: 70px; height: 70px; border-radius: 14px; box-shadow: 0 2px 10px rgba(44,60,90,0.10); background: #fff; object-fit: cover; display: block; }
+    .header-flex { display: flex; justify-content: center; align-items: center; gap: 24px; margin-top: 28px; margin-bottom: 0; flex-wrap: wrap; width: 100%; }
+    .main-logo {
+      width: 110px;
+      height: 110px;
+      border-radius: 18px;
+      box-shadow: 0 2px 10px rgba(44,60,90,0.10);
+      background: #fff;
+      object-fit: cover;
+      display: block;
+      transition: width 0.2s, height 0.2s;
+    }
+    .secondary-logo {
+      width: 70px;
+      height: 70px;
+      border-radius: 14px;
+      box-shadow: 0 2px 10px rgba(44,60,90,0.10);
+      background: #fff;
+      object-fit: cover;
+      display: block;
+    }
     .header-title {
       font-size: 2.1em;
       font-weight: 800;
@@ -33,6 +51,32 @@
       border: 1.5px solid #e2e8f0;
       padding: 14px 22px;
       box-shadow: 0 2px 12px rgba(44,60,90,0.08);
+    }
+    .header-organizer-block {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-width: 120px;
+      max-width: 220px;
+      margin: 0 10px;
+    }
+    .header-organizer {
+      font-size: 1.08em;
+      color: #16335a;
+      font-weight: 600;
+      text-align: center;
+      background: #f5f8fd;
+      border-radius: 10px;
+      border: 1px solid #e3e8f0;
+      box-shadow: 0 2px 8px rgba(44,60,90,0.08);
+      padding: 8px 15px;
+      margin-top: 8px;
+      margin-bottom: 0;
+      word-break: break-word;
+      overflow-wrap: break-word;
+      line-height: 1.25;
+      white-space: pre-line;
     }
     .search-container { display: flex; justify-content: center; margin-top: 18px; margin-bottom: 0; }
     .search-box { width: 320px; padding: 12px 18px; font-size: 1.08em; border: 1.5px solid #d2d7e1; border-radius: 12px; outline: none; margin-bottom: 12px; box-shadow: 0 2px 7px rgba(44,60,90,0.05); background: #fff; }
@@ -220,6 +264,13 @@
       .events-container {
         padding: 18px 8px;
       }
+      .main-logo {
+        width: 80px;
+        height: 80px;
+      }
+      .header-organizer-block {
+        max-width: 150px;
+      }
     }
     @media (max-width: 600px) {
       .footer-zocalo {
@@ -246,7 +297,11 @@
       }
       .header-title { font-size: 1.35em; padding: 8px 9px; }
       .events-container { padding: 12px 5px; }
-      .main-logo, .secondary-logo { width: 48px; height: 48px; }
+      .main-logo { width: 60px; height: 60px; }
+      .header-organizer-block {
+        max-width: 120px;
+        padding: 0 2px;
+      }
     }
     #enlaceModal { display:none; position:fixed; z-index:9999; top:0; left:0; width:100vw; height:100vh; background:#2b3a5580; align-items:center; justify-content:center; }
     #modalContent { position:relative; width:100vw; height:100vh; max-width:100vw; max-height:100vh; margin: 0; background:#fff; border-radius:0; box-shadow:0 4px 32px #2226; display: flex; flex-direction: column; }
@@ -258,10 +313,17 @@
   <div class="header-flex">
     <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/ACTIVIDADES.png" alt="Logo Principal" class="main-logo" />
     <h1 class="header-title">Actividades</h1>
+    <div id="header-organizer-block" class="header-organizer-block" style="display:none"></div>
     <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/varios/guialocal.png" alt="Logo Secundario" class="secondary-logo" />
   </div>
   <div class="search-container">
     <input type="text" id="search" class="search-box" placeholder="Buscar por día, a cargo, organizador, lugar...">
+  </div>
+  <div id="loading-indicator" style="display:none; text-align:center; font-size:1.2em; color:#22529a; margin-top:20px;">
+    <span id="loading-spinner" style="font-size:2em;">⏳</span> Cargando actividades...
+  </div>
+  <div id="retry-container" style="display:none; text-align:center; margin-top:20px;">
+    <button onclick="loadActividades(true)" style="background:#3b7dd8; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:1em; font-weight:600;">Reintentar</button>
   </div>
   <div class="events-container" id="events"></div>
   <div class="paginator" id="paginator"></div>
@@ -316,11 +378,115 @@
     function actividadVacia(ev) {
       return !(ev.actividad && ev.dia && (ev.organizador || ev.a_cargo));
     }
-    const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=actividades_grl";
     let actividadesData = [];
     let actividadesFiltradas = [];
     let currentPage = 1;
     const eventsPerPage = 6;
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=actividades_grl";
+    let fetchAttempts = 0;
+    const maxFetchAttempts = 3;
+
+    function showLoading(show=true) {
+      document.getElementById('loading-indicator').style.display = show ? 'block' : 'none';
+    }
+    function showRetry(show=true) {
+      document.getElementById('retry-container').style.display = show ? 'block' : 'none';
+    }
+
+    function loadActividades(forceRetry=false) {
+      showLoading(true);
+      showRetry(false);
+      document.getElementById('events').innerHTML = "";
+      fetchAttempts = forceRetry ? 1 : fetchAttempts + 1;
+      fetch(SHEET_URL)
+        .then(res => res.text())
+        .then(text => {
+          showLoading(false);
+          showRetry(false);
+          const json = JSON.parse(text.substr(47).slice(0, -2));
+          const rows = json.table.rows;
+          actividadesData = [];
+          for (let i = 0; i < rows.length; i++) {
+            const c = rows[i].c;
+            const verificado = c[0] ? c[0].v : "";
+            if (!esAprobado(verificado)) continue;
+            const ubicacion = c[1] ? c[1].v : "";
+            if (ubicacion && ubicacion.toLowerCase().includes("fuera del partido de dolores")) continue;
+            const dia = c[2] ? c[2].v : "";
+            const hora = c[3] ? c[3].v : "";
+            const actividad = c[4] ? c[4].v : "";
+            const a_cargo = c[5] ? c[5].v : "";
+            const valor = c[6] ? c[6].v : "";
+            const info_adicional = c[7] ? c[7].v : "";
+            const inscripcion = c[8] ? c[8].v : "";
+            const lugar = c[9] ? c[9].v : "";
+            const organizador = c[10] ? c[10].v : "";
+            const logo = c[11] ? c[11].v : "";
+            const organizador2 = c[12] ? c[12].v : "";
+            const logo2 = c[13] ? c[13].v : "";
+            const organizador3 = c[14] ? c[14].v : "";
+            const logo3 = c[15] ? c[15].v : "";
+            const organizador4 = c[16] ? c[16].v : "";
+            const logo4 = c[17] ? c[17].v : "";
+            const auspiciantes = c[18] ? c[18].v : "";
+            const enlace = c[19] ? c[19].v : "";
+            actividadesData.push({
+              verificado,
+              ubicacion,
+              dia,
+              hora,
+              actividad,
+              a_cargo,
+              valor,
+              info_adicional,
+              inscripcion,
+              lugar,
+              organizador,
+              logo,
+              organizador2,
+              logo2,
+              organizador3,
+              logo3,
+              organizador4,
+              logo4,
+              auspiciantes,
+              enlace
+            });
+          }
+          actividadesFiltradas = actividadesData.filter(ev => !actividadVacia(ev));
+          // Muestra organizador principal en el header solo si hay datos
+          let principalOrganizador = "";
+          if (actividadesFiltradas.length > 0) {
+            // Busca el organizador principal del primer evento de la lista
+            principalOrganizador = actividadesFiltradas[0].organizador || actividadesFiltradas[0].a_cargo || "";
+          }
+          const organizerBlock = document.getElementById('header-organizer-block');
+          if (principalOrganizador && organizerBlock) {
+            organizerBlock.innerHTML = `<span class="header-organizer"><i class="ri-user-line"></i> ${principalOrganizador}</span>`;
+            organizerBlock.style.display = 'flex';
+          } else if (organizerBlock) {
+            organizerBlock.innerHTML = "";
+            organizerBlock.style.display = 'none';
+          }
+          renderActividades(actividadesFiltradas, currentPage);
+        })
+        .catch(error => {
+          showLoading(false);
+          if (fetchAttempts < maxFetchAttempts) {
+            setTimeout(() => loadActividades(), 1500); // Reintenta después de 1.5 segundos
+          } else {
+            document.getElementById('events').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar las actividades. Verifica que la hoja esté publicada y disponible.<br>Error: ${error}</p>`;
+            showRetry(true);
+            // Oculta organizador en header si error
+            const organizerBlock = document.getElementById('header-organizer-block');
+            if (organizerBlock) {
+              organizerBlock.innerHTML = "";
+              organizerBlock.style.display = 'none';
+            }
+          }
+        });
+    }
+
     function aplicarFiltro(search) {
       const filtro = search.trim().toLowerCase();
       const anteriorPage = currentPage;
@@ -432,64 +598,9 @@
         el.scrollIntoView({behavior:"smooth",block:"start"});
       }
     }
-    fetch(SHEET_URL)
-      .then(res => res.text())
-      .then(text => {
-        const json = JSON.parse(text.substr(47).slice(0, -2));
-        const rows = json.table.rows;
-        actividadesData = [];
-        for (let i = 0; i < rows.length; i++) {
-          const c = rows[i].c;
-          const verificado = c[0] ? c[0].v : "";
-          if (!esAprobado(verificado)) continue;
-          const ubicacion = c[1] ? c[1].v : "";
-          if (ubicacion && ubicacion.toLowerCase().includes("fuera del partido de dolores")) continue;
-          const dia = c[2] ? c[2].v : "";
-          const hora = c[3] ? c[3].v : "";
-          const actividad = c[4] ? c[4].v : "";
-          const a_cargo = c[5] ? c[5].v : "";
-          const valor = c[6] ? c[6].v : "";
-          const info_adicional = c[7] ? c[7].v : "";
-          const inscripcion = c[8] ? c[8].v : "";
-          const lugar = c[9] ? c[9].v : "";
-          const organizador = c[10] ? c[10].v : "";
-          const logo = c[11] ? c[11].v : "";
-          const organizador2 = c[12] ? c[12].v : "";
-          const logo2 = c[13] ? c[13].v : "";
-          const organizador3 = c[14] ? c[14].v : "";
-          const logo3 = c[15] ? c[15].v : "";
-          const organizador4 = c[16] ? c[16].v : "";
-          const logo4 = c[17] ? c[17].v : "";
-          const auspiciantes = c[18] ? c[18].v : "";
-          const enlace = c[19] ? c[19].v : "";
-          actividadesData.push({
-            verificado,
-            ubicacion,
-            dia,
-            hora,
-            actividad,
-            a_cargo,
-            valor,
-            info_adicional,
-            inscripcion,
-            lugar,
-            organizador,
-            logo,
-            organizador2,
-            logo2,
-            organizador3,
-            logo3,
-            organizador4,
-            logo4,
-            auspiciantes,
-            enlace
-          });
-        }
-        actividadesFiltradas = actividadesData.filter(ev => !actividadVacia(ev));
-        renderActividades(actividadesFiltradas, currentPage);
-      }).catch(error => {
-        document.getElementById('events').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar las actividades. Verifica que la hoja esté publicada y disponible.<br>Error: ${error}</p>`;
-      });
+    // CARGA INICIAL
+    loadActividades();
+
     document.getElementById('search').addEventListener('input', function() {
       aplicarFiltro(this.value);
     });
