@@ -53,6 +53,8 @@
     .tabs-container { display: flex; justify-content: center; gap: 4px; margin-top: 18px; margin-bottom: 0; flex-wrap: wrap; }
     .tab-btn { font-size: 1.05em; background: #3b7dd8; color: #fff; border: none; padding: 9px 24px; border-radius: 11px 11px 0 0; cursor: pointer; font-weight: 600; margin-right: 3px; margin-bottom: -2px; }
     .tab-btn.active { background: #22529a; }
+    #retry-container {display:none; text-align:center; margin-top:20px;}
+    #retry-container button { background:#3b7dd8; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:1em; font-weight:600;}
     .events-container {
       display: flex; flex-direction: column; align-items: center; gap: 25px;
       padding: 30px 16px;
@@ -145,6 +147,15 @@
       display: block;
       padding-left: 0;
     }
+    .event-date, .event-time {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 0;
+      margin-top: 0;
+    }
+    .event-date { color: #3b7dd8; font-weight: 600; font-size: 1.1em; }
+    .event-time { color: #0e5076; font-weight: 500; font-size: 1em; }
     .event-info-row,
     .event-info-row.event-value,
     .event-description {
@@ -172,10 +183,7 @@
       margin-right: 6px;
     }
     .event-info-row span { display: inline-block; vertical-align: middle; }
-    .event-date { color: #3b7dd8; font-weight: 600; font-size: 1.1em; }
-    .event-time { color: #0e5076; font-weight: 500; font-size: 1em; }
     .event-location { color: #3d475a; font-size: 1em; }
-    .event-organizer { color: #5a5a5a; font-size: 0.99em; }
     .event-description {
       color: #444;
       margin-bottom: 0;
@@ -267,9 +275,13 @@
     </div>
   </div>
   <div class="tabs-container" id="tabs"></div>
+  <div id="retry-container">
+    <button onclick="cargarDatos(true)">Reintentar</button>
+  </div>
   <div class="events-container" id="events"></div>
   <div class="paginator" id="paginator"></div>
   <script>
+    // --- Utilidades ---
     const ORGANIZADOR = "MUNICIPALIDAD DE DOLORES";
     const URLs = {
       eventos_grl: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=eventos_grl",
@@ -282,7 +294,6 @@
       deportiva: "Deportiva",
       actividades: "Actividades"
     };
-
     function formatoFechaCompleto(valor) {
       if (!valor) return "";
       let fecha;
@@ -329,7 +340,10 @@
     const eventsPerPage = 6;
     let loadedSheets = 0;
 
-    function cargarDatos() {
+    function cargarDatos(force) {
+      document.getElementById('retry-container').style.display = "none";
+      loadedSheets = 0;
+      allData = {eventos:[], capacitacion:[], deportiva:[], actividades:[]};
       // eventos_grl
       fetch(URLs.eventos_grl)
         .then(res => res.text())
@@ -375,7 +389,11 @@
             checkTabs();
           } catch(e) {
             document.getElementById('events').innerHTML = "Error cargando eventos_grl";
+            document.getElementById('retry-container').style.display = "block";
           }
+        })
+        .catch(() => {
+          document.getElementById('retry-container').style.display = "block";
         });
       // actividades_grl
       fetch(URLs.actividades_grl)
@@ -396,7 +414,7 @@
                 hora: safe(c,3),
                 actividad: safe(c,4),
                 categoria: safe(c,5),
-                a_cargo: safe(c,5), // Usar el campo correcto si necesitas.
+                a_cargo: safe(c,5),
                 valor: safe(c,6),
                 info_adicional: safe(c,7),
                 inscripcion: safe(c,8),
@@ -417,7 +435,11 @@
             checkTabs();
           } catch(e) {
             document.getElementById('events').innerHTML = "Error cargando actividades_grl";
+            document.getElementById('retry-container').style.display = "block";
           }
+        })
+        .catch(() => {
+          document.getElementById('retry-container').style.display = "block";
         });
       // agenda_deportiva_grl
       fetch(URLs.agenda_deportiva_grl)
@@ -459,7 +481,11 @@
             checkTabs();
           } catch(e) {
             document.getElementById('events').innerHTML = "Error cargando agenda_deportiva_grl";
+            document.getElementById('retry-container').style.display = "block";
           }
+        })
+        .catch(() => {
+          document.getElementById('retry-container').style.display = "block";
         });
     }
 
@@ -500,12 +526,8 @@
       pageData.forEach(ev => {
         const card = document.createElement('div');
         card.className = "event-card";
-
-        // Organizadores: logo y nombre uno debajo del otro, centrados
+        // LOGOS de organizadores secundarios (NO mostrar el principal)
         let organizadoresBlocks = [];
-        if (ev.organizador || ev.logo) {
-          organizadoresBlocks.push({nombre: ev.organizador, logo: ev.logo});
-        }
         if (ev.organizador2 || ev.logo2) {
           organizadoresBlocks.push({nombre: ev.organizador2, logo: ev.logo2});
         }
@@ -526,38 +548,25 @@
             `).join('') +
             `</div>`;
         }
-
-        // FECHA Y HORA
+        // Nombre del evento
+        let nombreHtml = "";
+        if (ev.nombre) nombreHtml = `<div class="event-title">${ev.nombre}</div>`;
+        else if (ev.actividad) nombreHtml = `<div class="event-title">${ev.actividad}</div>`;
+        // Categoría debajo del nombre
+        let categoriaHtml = "";
+        if (ev.categoria) categoriaHtml = `<div class="event-category-under-title">${ev.categoria}</div>`;
+        // Fecha y hora debajo de nombre y categoría
         let fecha = ev.fecha || ev.dia;
         let fechaHoraHtml = "";
         if (fecha) {
           fechaHoraHtml += `<div class="event-date"><i class="ri-calendar-event-line"></i> ${formatoFechaCompleto(fecha)}</div>`;
-          if (ev.hora) {
-            fechaHoraHtml += `<div class="event-time"><i class="ri-time-line"></i> ${ev.hora}</div>`;
-          }
-          fechaHoraHtml = `<div>${fechaHoraHtml}</div>`;
-        } else if (ev.hora) {
-          fechaHoraHtml = `<div><div class="event-time"><i class="ri-time-line"></i> ${ev.hora}</div></div>`;
         }
-
-        let nombreHtml = "";
-        if (ev.nombre) nombreHtml = `<div class="event-title">${ev.nombre}</div>`;
-        else if (ev.actividad) nombreHtml = `<div class="event-title">${ev.actividad}</div>`;
-
-        // Categoría debajo del nombre/título del evento
-        let categoriaHtml = "";
-        if (ev.categoria) categoriaHtml = `<div class="event-category-under-title">${ev.categoria}</div>`;
-
+        if (ev.hora) {
+          fechaHoraHtml += `<div class="event-time"><i class="ri-time-line"></i> ${ev.hora}</div>`;
+        }
+        if (fechaHoraHtml) fechaHoraHtml = `<div>${fechaHoraHtml}</div>`;
         let infoRows = '';
         if (ev.lugar) infoRows += `<div class="event-info-row event-location"><span class="icon"><i class="ri-map-pin-line"></i></span><span>${ev.lugar}</span></div>`;
-        let organizadores = [];
-        if (ev.organizador)  organizadores.push(ev.organizador);
-        if (ev.organizador2) organizadores.push(ev.organizador2);
-        if (ev.organizador3) organizadores.push(ev.organizador3);
-        if (ev.organizador4) organizadores.push(ev.organizador4);
-        if (organizadores.length > 0) {
-          infoRows += `<div class="event-info-row event-organizer"><span class="icon"><i class="ri-user-line"></i></span><span>${organizadores.join(" / ")}</span></div>`;
-        }
         if (ev.descripcion) infoRows += `<div class="event-description"><span class="desc-icon"><i class="ri-information-line"></i></span>${textoAParrafoJustificado(ev.descripcion)}</div>`;
         if (ev.info_adicional) infoRows += `<div class="event-info-adicional"><span class="icon"><i class="ri-alert-line"></i></span><span>${ev.info_adicional}</span></div>`;
         if (ev.valor) {
@@ -565,7 +574,6 @@
           infoRows += `<div class="event-info-row event-value${esCerrada ? ' inscripcion-cerrada' : ''}"><span>${ev.valor}</span></div>`;
         }
         if (ev.inscripcion) infoRows += `<div class="event-info-adicional"><span class="icon"><i class="ri-edit-line"></i></span><span>${ev.inscripcion}</span></div>`;
-
         let auspiciantesHtml = "";
         if (ev.auspiciantes) {
           auspiciantesHtml = `<div class="event-sponsors"><i class="ri-star-line"></i> ${ev.auspiciantes}</div>`;
@@ -574,12 +582,11 @@
         if (ev.enlace && typeof ev.enlace === "string" && ev.enlace.trim() !== "") {
           enlaceHtml = `<a class="event-link" href="${ev.enlace}" target="_blank">Más info / Inscripción</a>`;
         }
-
         card.innerHTML = `
           ${logosHtml}
-          ${fechaHoraHtml}
           ${nombreHtml}
           ${categoriaHtml}
+          ${fechaHoraHtml}
           ${infoRows}
           ${auspiciantesHtml}
           ${enlaceHtml}
@@ -589,6 +596,7 @@
       });
       renderPaginator(data.length, page);
       if (eventosMostrados === 0) {
+        document.getElementById('retry-container').style.display = "block";
         eventsDiv.innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay registros para mostrar en esta pestaña.</p>";
       }
     }
