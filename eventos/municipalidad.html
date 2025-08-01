@@ -6,8 +6,8 @@
   <title>Panel del Organizador</title>
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
   <style>
-    body { background: #f3f6fb; font-family: 'Segoe UI', 'Arial', sans-serif; font-style: italic; margin: 0; padding: 0; }
-    .main-container { max-width: 750px; margin: 40px auto 0 auto; background: #fff; border-radius: 20px; box-shadow: 0 6px 32px rgba(44,60,90,0.12); padding: 36px 18px 24px 18px; }
+    body { background: transparent; font-family: 'Segoe UI', 'Arial', sans-serif; font-style: italic; margin: 0; padding: 0; }
+    .main-container { max-width: 750px; margin: 40px auto 0 auto; background: transparent; border-radius: 20px; box-shadow: none; padding: 36px 18px 24px 18px; }
     .header-flex { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-bottom: 0; }
     .header-title { font-size: 2.1em; font-weight: 800; color: #2b3a55; letter-spacing: 1px; font-style: italic; text-align: center; margin: 0; word-break: break-word; background: #f3f6fb; border-radius: 14px; border: 1.5px solid #e2e8f0; padding: 14px 22px; box-shadow: 0 2px 12px rgba(44,60,90,0.08); }
     .main-logos-row { display: flex; flex-direction: row; gap: 23px; justify-content: center; align-items: center; margin-top: 6px; }
@@ -98,6 +98,10 @@
     .paginator button { padding: 7px 18px; font-size: 1em; border: none; background: #3b7dd8; color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 7px rgba(44,60,90,0.05);}
     .paginator button[disabled] { background: #b5c9e4; cursor: not-allowed; }
     .paginator .page-info { font-size: 1.06em; color: #222; font-weight: 500; min-width: 55px; text-align: center; font-style: italic; }
+    #loading-indicator { display:none; text-align:center; font-size:1.2em; color:#22529a; margin-top:20px; }
+    #loading-spinner { font-size:2em;}
+    #retry-container {display:none; text-align:center; margin-top:20px;}
+    #retry-container button { background:#3b7dd8; color:#fff; border:none; border-radius:8px; padding:8px 20px; font-size:1em; font-weight:600;}
     @media (max-width: 900px) {
       .main-container { max-width: 99vw; padding: 16px 2vw 16px 2vw; }
       .event-card { max-width: calc(100% - 32px); padding: 18px 12px; }
@@ -129,8 +133,8 @@
     <div class="header-flex">
       <h1 class="header-title" id="orgTitle">MUNICIPALIDAD DE DOLORES</h1>
       <div class="main-logos-row">
-        <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/nivel4%20gob/muni.png" alt="Muni Dolores" class="main-logo" />
-        <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/nivel4%20gob/milugar.png" alt="Mi Lugar" class="main-logo" />
+        <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/nivel4%20gob/muni.png" alt="Logo Organizador 1" class="main-logo" />
+        <img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/nivel4%20gob/MILUGAR.png" alt="Logo Organizador 2" class="main-logo" />
       </div>
     </div>
     <div class="tabs-container" id="tabs">
@@ -138,6 +142,12 @@
       <button class="tab-btn" data-tab="capacitaciones">Capacitaciones</button>
       <button class="tab-btn" data-tab="actividades">Actividades</button>
       <button class="tab-btn" data-tab="deportiva">Agenda Deportiva</button>
+    </div>
+    <div id="loading-indicator">
+      <span id="loading-spinner">⏳</span> Cargando información...
+    </div>
+    <div id="retry-container">
+      <button onclick="forzarCarga()">Reintentar</button>
     </div>
     <div id="enlaceModal">
       <div id="modalContent">
@@ -154,7 +164,6 @@
     <div class="tab-content" id="tab-deportiva"><div class="events-container" id="events-deportiva"></div><div class="paginator" id="paginator-deportiva"></div></div>
   </div>
   <script>
-    // Pon el nombre tal como aparece en la hoja
     const ORGANIZADOR = "MUNICIPALIDAD DE DOLORES";
     const SHEETS = {
       eventos: "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=ig_grl",
@@ -167,6 +176,16 @@
     let currentPage = {eventos: 1, capacitaciones: 1, actividades: 1, deportiva: 1};
     const eventsPerPage = 6;
     let currentTab = "eventos";
+    let loadedSheets = 0, fetchAttempts = 0, maxFetchAttempts = 3;
+
+    function showLoading(show=true) { document.getElementById('loading-indicator').style.display = show ? 'block' : 'none'; }
+    function showRetry(show=true) { document.getElementById('retry-container').style.display = show ? 'block' : 'none'; }
+    function hideLoadingAndRetry() { showLoading(false); showRetry(false); }
+    function forzarCarga() {
+      loadedSheets = 0; fetchAttempts = 0;
+      showLoading(true); showRetry(false);
+      cargarDatos();
+    }
 
     function isVerificado(v) {
       if (!v) return false;
@@ -176,7 +195,7 @@
     function normalizar(str) {
       return (str || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
     }
-    function fechaHumana(valor) {
+    function fechaHumana(valor) { /* igual que antes */ 
       if (!valor) return "";
       if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
         const [anio, mes, dia] = valor.split("-");
@@ -203,7 +222,7 @@
       }
       return valor;
     }
-    function horaHumana(valor) {
+    function horaHumana(valor) { /* igual que antes */ 
       if (!valor) return "";
       let m = valor.match(/^Date\(\d{4},\d{1,2},\d{1,2},(\d{1,2}),(\d{1,2})/);
       if (m) {
@@ -216,16 +235,14 @@
       }
       return valor;
     }
-    function textoAParrafoJustificado(texto) {
+    function textoAParrafoJustificado(texto) { /* igual que antes */ 
       if (!texto) return '';
       let partes = texto.split(/\n\s*\n/);
       if (partes.length === 1) partes = texto.split(/\n/);
       return partes.map(p => `<p style="text-align:justify;">${p.trim()}</p>`).join('');
     }
-    function eventoVacio(ev) {
-      return !ev.nombre && !ev.fecha_humana;
-    }
-    function renderInstagramBlock(instagram) {
+    function eventoVacio(ev) { return !ev.nombre && !ev.fecha_humana; }
+    function renderInstagramBlock(instagram) { /* igual que antes */ 
       if (!instagram || typeof instagram !== "string" || instagram.trim() === "") return "";
       if (instagram.match(/\.(jpg|jpeg|png)(\?.*)?$/)) {
         return `<div class="event-image-block"><img src="${instagram}" alt="Imagen Instagram del evento"></div>`;
@@ -246,9 +263,10 @@
       }
       return "";
     }
-
-    function fetchData(tipo, url) {
-      fetch(url)
+    function cargarDatos() {
+      loadedSheets = 0; showLoading(true); showRetry(false);
+      // Eventos
+      fetch(SHEETS.eventos)
         .then(res => res.text())
         .then(text => {
           const json = JSON.parse(text.substr(47).slice(0, -2)), rows = json.table.rows;
@@ -256,13 +274,9 @@
           for (let i = 0; i < rows.length; i++) {
             const c = rows[i].c;
             if (!c[0] || !isVerificado(c[0].v || "")) continue;
-            let organizador = "";
-            if (tipo === "eventos") organizador = c[9] ? c[9].v || "" : "";
-            if (tipo === "capacitaciones") organizador = c[1] ? c[1].v || "" : "";
-            if (tipo === "actividades") organizador = c[1] ? c[1].v || "" : "";
-            if (tipo === "deportiva") organizador = c[1] ? c[1].v || "" : "";
+            let organizador = c[9] ? c[9].v || "" : "";
             if (normalizar(organizador) !== normalizar(ORGANIZADOR)) continue;
-            if (tipo === "eventos") arr.push({
+            arr.push({
               fecha:         c[1] ? c[1].v || "" : "",
               fecha_humana:  fechaHumana(c[1] ? c[1].v : ""),
               nombre:        c[2] ? c[2].v || "" : "",
@@ -280,7 +294,24 @@
               instagram:     c[15] ? c[15].v || "" : "",
               logo:          c[16] ? c[16].v || "" : ""
             });
-            else if (tipo === "capacitaciones") arr.push({
+          }
+          allData.eventos = arr;
+          filteredData.eventos = arr;
+          loadedSheets++;
+          checkCargaCompleta();
+        }).catch(err => tryAgainOrShowRetry());
+      // Capacitaciones
+      fetch(SHEETS.capacitaciones)
+        .then(res => res.text())
+        .then(text => {
+          const json = JSON.parse(text.substr(47).slice(0, -2)), rows = json.table.rows;
+          let arr = [];
+          for (let i = 0; i < rows.length; i++) {
+            const c = rows[i].c;
+            if (!c[0] || !isVerificado(c[0].v || "")) continue;
+            let organizador = c[1] ? c[1].v || "" : "";
+            if (normalizar(organizador) !== normalizar(ORGANIZADOR)) continue;
+            arr.push({
               co_organizadores: c[2] ? c[2].v || "" : "",
               fecha: c[3] ? c[3].v || "" : "",
               fecha_humana: fechaHumana(c[3] ? c[3].v : ""),
@@ -298,7 +329,24 @@
               instagram: c[15] ? c[15].v || "" : "",
               logo: c[16] ? c[16].v || "" : ""
             });
-            else if (tipo === "actividades") arr.push({
+          }
+          allData.capacitaciones = arr;
+          filteredData.capacitaciones = arr;
+          loadedSheets++;
+          checkCargaCompleta();
+        }).catch(err => tryAgainOrShowRetry());
+      // Actividades
+      fetch(SHEETS.actividades)
+        .then(res => res.text())
+        .then(text => {
+          const json = JSON.parse(text.substr(47).slice(0, -2)), rows = json.table.rows;
+          let arr = [];
+          for (let i = 0; i < rows.length; i++) {
+            const c = rows[i].c;
+            if (!c[0] || !isVerificado(c[0].v || "")) continue;
+            let organizador = c[1] ? c[1].v || "" : "";
+            if (normalizar(organizador) !== normalizar(ORGANIZADOR)) continue;
+            arr.push({
               fecha_hora: c[2] ? c[2].v || "" : "",
               nombre: c[3] ? c[3].v || "" : "",
               descripcion: c[4] ? c[4].v || "" : "",
@@ -311,7 +359,24 @@
               instagram: c[11] ? c[11].v || "" : "",
               logo: c[12] ? c[12].v || "" : ""
             });
-            else if (tipo === "deportiva") arr.push({
+          }
+          allData.actividades = arr;
+          filteredData.actividades = arr;
+          loadedSheets++;
+          checkCargaCompleta();
+        }).catch(err => tryAgainOrShowRetry());
+      // Deportiva
+      fetch(SHEETS.deportiva)
+        .then(res => res.text())
+        .then(text => {
+          const json = JSON.parse(text.substr(47).slice(0, -2)), rows = json.table.rows;
+          let arr = [];
+          for (let i = 0; i < rows.length; i++) {
+            const c = rows[i].c;
+            if (!c[0] || !isVerificado(c[0].v || "")) continue;
+            let organizador = c[1] ? c[1].v || "" : "";
+            if (normalizar(organizador) !== normalizar(ORGANIZADOR)) continue;
+            arr.push({
               fecha: c[2] ? c[2].v || "" : "",
               fecha_humana: fechaHumana(c[2] ? c[2].v : ""),
               hora: c[3] ? c[3].v || "" : "",
@@ -331,13 +396,27 @@
               logo: c[16] ? c[16].v || "" : ""
             });
           }
-          allData[tipo] = arr;
-          filteredData[tipo] = arr;
-          renderEventos(tipo, currentPage[tipo]);
-        });
+          allData.deportiva = arr;
+          filteredData.deportiva = arr;
+          loadedSheets++;
+          checkCargaCompleta();
+        }).catch(err => tryAgainOrShowRetry());
     }
-
+    function checkCargaCompleta() {
+      if (loadedSheets < 4) return;
+      hideLoadingAndRetry();
+      renderEventos(currentTab, currentPage[currentTab]);
+    }
+    function tryAgainOrShowRetry() {
+      fetchAttempts++;
+      if (fetchAttempts < maxFetchAttempts) {
+        setTimeout(cargarDatos, 1500);
+      } else {
+        showLoading(false); showRetry(true);
+      }
+    }
     function renderEventos(tipo, page=1) {
+      document.querySelectorAll('.events-container').forEach(c=>c.innerHTML="");
       const eventsDiv = document.getElementById('events-' + tipo);
       eventsDiv.innerHTML = "";
       let eventosMostrados = 0;
@@ -396,12 +475,11 @@
         eventsDiv.appendChild(card);
         eventosMostrados++;
       });
+      renderPaginator(tipo, filteredData[tipo].length, page);
       if (eventosMostrados === 0) {
         eventsDiv.innerHTML = "<p style='color:#b02a2a; font-weight:bold'>No hay registros para mostrar en esta pestaña.</p>";
       }
-      renderPaginator(tipo, filteredData[tipo].length, page);
     }
-
     function renderPaginator(tipo, total, page) {
       const paginatorDiv = document.getElementById('paginator-' + tipo);
       const totalPages = Math.ceil(total / eventsPerPage);
@@ -413,17 +491,15 @@
       document.getElementById('prevPage-' + tipo).onclick = () => { if (currentPage[tipo] > 1) { currentPage[tipo]--; renderEventos(tipo, currentPage[tipo]); }};
       document.getElementById('nextPage-' + tipo).onclick = () => { if (currentPage[tipo] < totalPages) { currentPage[tipo]++; renderEventos(tipo, currentPage[tipo]); }};
     }
-
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', function() {
         document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
         this.classList.add('active');
         currentTab = this.getAttribute('data-tab');
-        document.getElementById('tab-' + currentTab).classList.add('active');
+        renderEventos(currentTab, currentPage[currentTab]);
       });
     });
-
     document.getElementById('search').addEventListener('input', function() {
       const filtro = this.value.trim().toLowerCase();
       Object.keys(allData).forEach(tipo => {
@@ -433,10 +509,9 @@
           return campos.join(" ").toLowerCase().includes(filtro);
         });
         currentPage[tipo] = 1;
-        renderEventos(tipo, currentPage[tipo]);
+        if (tipo === currentTab) renderEventos(tipo, currentPage[tipo]);
       });
     });
-
     function abrirEnlaceModal(url) {
       var postMatch = url.match(/instagram\.com\/(p|reel|tv)\/([a-zA-Z0-9_-]+)/);
       if (postMatch) {
@@ -460,11 +535,8 @@
         document.getElementById('modalIframe').src = '';
       }
     };
-
-    fetchData("eventos", SHEETS.eventos);
-    fetchData("capacitaciones", SHEETS.capacitaciones);
-    fetchData("actividades", SHEETS.actividades);
-    fetchData("deportiva", SHEETS.deportiva);
+    // INICIALIZACIÓN
+    cargarDatos();
   </script>
 </body>
 </html>
