@@ -110,6 +110,7 @@
     .event-category { color: #6d3bd8; font-size: 1em; }
     .event-location { color: #3d475a; font-size: 1em; }
     .event-value { color: #29853b; font-weight: 600; font-size: 1em; }
+    .event-inscripcion-label { font-weight:600; margin-right:3px;}
     .event-inscripcion { color: #22529a; font-weight: 600; font-size: 1em; font-style: italic; }
     .event-inscripcion.cerrada { color: #b02a2a !important; }
     .event-info-adicional { display: flex; align-items: flex-start; gap: 8px; color: #22529a; font-size: 1em; font-style: italic; margin-top: 0; margin-bottom: 0; padding-left: 0; font-weight: 600; word-break: break-word; overflow-wrap: break-word; line-height: 1.3; text-align: justify; }
@@ -134,17 +135,9 @@
       transition: background 0.2s, color 0.2s;
       margin-right: 8px;
     }
-    .event-link.instagram {
-      background: #E1306C;
-      border-color: #E1306C;
-      margin-left: 0;
-    }
-    .event-link.instagram:hover {
-      background: #b82e63;
-      color: #fff;
-    }
     .event-image-block { width: 100%; margin-top: 15px; display: flex; justify-content: center; align-items: center; }
     .event-image-block img { width: 100%; max-width: 380px; height: auto; border-radius: 13px; object-fit: contain; background: #f8f8fa; box-shadow: 0 2px 10px rgba(44,60,90,0.11); display: block; }
+    .event-instagram-link-plain { color: #e1306c; font-weight:600; font-size:1.02em; font-style: italic; display:block; margin-top:10px; margin-bottom:4px; overflow-wrap:break-word; text-align:left;}
     .paginator { background: #f3f6fb; border-radius: 14px; border: 1.5px solid #e2e8f0; padding: 10px 18px; box-shadow: 0 2px 12px rgba(44,60,90,0.08); margin-bottom: 14px; margin-top: 12px; display: flex; justify-content: center; align-items: center; gap: 14px; font-style: italic; }
     .paginator button { padding: 7px 18px; font-size: 1em; border: none; background: #3b7dd8; color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 7px rgba(44,60,90,0.05);}
     .paginator button[disabled] { background: #b5c9e4; cursor: not-allowed; }
@@ -310,12 +303,14 @@
       currentPage = anteriorPage > totalPages ? totalPages : anteriorPage;
       renderEventos(eventosFiltrados, currentPage); scrollToEvents();
     }
-    function renderInstagramBlock(instagram) {
-      if (!instagram || typeof instagram !== "string" || instagram.trim() === "") return "";
-      if (instagram.match(/\.(jpg|jpeg|png)(\?.*)?$/i)) {
-        return `<div class="event-image-block"><img src="${instagram}" alt="Imagen Instagram de la actividad"></div>`;
+    function renderInstagramBlock(ev) {
+      if (!ev.instagram || typeof ev.instagram !== "string" || ev.instagram.trim() === "") return "";
+      // Si es imagen, mostrar imagen
+      if (ev.instagram.match(/\.(jpg|jpeg|png)(\?.*)?$/i)) {
+        return `<div class="event-image-block"><img src="${ev.instagram}" alt="Imagen Instagram de la actividad"></div>`;
       }
-      return "";
+      // Si es enlace de instagram, mostrar plano (no botón, no clickeable)
+      return `<div class="event-instagram-link-plain">${ev.instagram}</div>`;
     }
     function textoAParrafoJustificado(texto) {
       if (!texto) return '';
@@ -330,7 +325,31 @@
       const start = (page-1)*eventsPerPage, end = start + eventsPerPage, pageData = data.slice(start, end);
       pageData.forEach((ev, idx) => {
         const card = document.createElement('div'); card.className = "event-card";
-        // ORGANIZADOR PRINCIPAL UNIFICADO, ABAJO
+
+        let infoRows = '';
+        if (ev.nombre) infoRows += `<div class="event-title">${ev.nombre}</div>`;
+        if (ev.descripcion) infoRows += `<div class="event-description">${textoAParrafoJustificado(ev.descripcion)}</div>`;
+        if (ev.fecha_hora) infoRows += `<div class="event-info-row event-date"><span class="icon"><i class="ri-calendar-event-line"></i></span><span>${ev.fecha_hora}</span></div>`;
+        if (ev.lugar) infoRows += `<div class="event-info-row event-location"><span class="icon"><i class="ri-map-pin-line"></i></span><span>${ev.lugar}</span></div>`;
+        if (ev.valor) infoRows += `<div class="event-info-row event-value"><span class="icon"><i class="ri-money-dollar-circle-line"></i></span><span>${ev.valor}</span></div>`;
+        // INSCRIPCION
+        if (ev.inscripcion && String(ev.inscripcion).trim() !== "") {
+          let inscripcionLower = String(ev.inscripcion).trim().toLowerCase();
+          let inscripcionClass = inscripcionLower === "cerrada" ? "cerrada" : "";
+          infoRows += `<div class="event-info-row event-inscripcion${inscripcionClass ? " "+inscripcionClass : ""}"><span class="icon"><i class="ri-lock-fill"></i></span><span class="event-inscripcion${inscripcionClass ? " "+inscripcionClass : ""}"><span class="event-inscripcion-label">Inscripción:</span> ${ev.inscripcion}</span></div>`;
+        }
+        if (ev.info_adicional) infoRows += `<div class="event-info-adicional"><span class="icon"><i class="ri-information-line"></i></span><span>${ev.info_adicional}</span></div>`;
+
+        // ENLACE
+        let enlaceHtml = "";
+        if (ev.enlace && String(ev.enlace).trim() !== "") {
+          enlaceHtml = `<button class="event-link" type="button" onclick="abrirEnlaceModal(this.getAttribute('data-url'))" data-url="${ev.enlace.replace(/"/g, '&quot;')}">Entradas / Más info / Inscribirse</button>`;
+        }
+
+        // INSTAGRAM (imagen o plano, nunca botón)
+        let instagramHtml = renderInstagramBlock(ev);
+
+        // ORGANIZADOR
         let organizadorHtml = '';
         if (ev.organizador_principal && ev.organizador_principal.trim() !== "") {
           organizadorHtml = `
@@ -340,40 +359,9 @@
             </div>`;
         }
 
-        let infoRows = '';
-        if (ev.nombre) infoRows += `<div class="event-title">${ev.nombre}</div>`;
-        if (ev.descripcion) infoRows += `<div class="event-description">${textoAParrafoJustificado(ev.descripcion)}</div>`;
-        if (ev.fecha_hora) infoRows += `<div class="event-info-row event-date"><span class="icon"><i class="ri-calendar-event-line"></i></span><span>${ev.fecha_hora}</span></div>`;
-        if (ev.lugar) infoRows += `<div class="event-info-row event-location"><span class="icon"><i class="ri-map-pin-line"></i></span><span>${ev.lugar}</span></div>`;
-        if (ev.valor) infoRows += `<div class="event-info-row event-value"><span class="icon"><i class="ri-money-dollar-circle-line"></i></span><span>${ev.valor}</span></div>`;
-        if (ev.inscripcion) {
-          let insClass = "";
-          if (String(ev.inscripcion).trim().toLowerCase() === "cerrada") insClass = "cerrada";
-          infoRows += `<div class="event-info-row event-inscripcion${insClass ? " "+insClass : ""}"><span class="icon"><i class="ri-lock-fill"></i></span><span>${ev.inscripcion}</span></div>`;
-        }
-        if (ev.info_adicional) infoRows += `<div class="event-info-adicional"><span class="icon"><i class="ri-information-line"></i></span><span>${ev.info_adicional}</span></div>`;
-
-        // Botones: Inscripción y/o Instagram (en línea, igual que capacitaciones/eventos)
-        let btnsHtml = '';
-        if (
-          (ev.enlace && String(ev.enlace).trim() !== "") ||
-          (ev.instagram && String(ev.instagram).trim() !== "" && !/\.(jpg|jpeg|png)(\?.*)?$/i.test(ev.instagram.trim()))
-        ) {
-          btnsHtml += `<div style="display:flex; flex-wrap:wrap; gap:7px; margin-bottom:5px; margin-top:5px;">`;
-          if (ev.enlace && String(ev.enlace).trim() !== "") {
-            btnsHtml += `<button class="event-link" type="button" onclick="abrirEnlaceModal(this.getAttribute('data-url'))" data-url="${ev.enlace.replace(/"/g, '&quot;')}">Entradas / Más info / Inscribirse</button>`;
-          }
-          if (ev.instagram && String(ev.instagram).trim() !== "" && !/\.(jpg|jpeg|png)(\?.*)?$/i.test(ev.instagram.trim())) {
-            btnsHtml += `<a class="event-link instagram" href="${ev.instagram}" target="_blank" rel="noopener"><i class="ri-instagram-line"></i> Instagram</a>`;
-          }
-          btnsHtml += `</div>`;
-        }
-
-        let instagramHtml = renderInstagramBlock(ev.instagram);
-
         card.innerHTML = `
           ${infoRows}
-          ${btnsHtml}
+          ${enlaceHtml}
           ${instagramHtml}
           ${organizadorHtml}
         `;
