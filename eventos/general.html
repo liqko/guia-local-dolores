@@ -110,7 +110,7 @@
     }
     .events-container { display: flex; flex-direction: column; align-items: center; gap: 25px; padding: 30px 16px; min-height: 300px; font-style: italic; }
     .event-card { width: 100%; max-width: 420px; margin: 0 auto; background: #fff; border-radius: 18px; box-shadow: 0 4px 16px rgba(60,80,120,0.08); padding: 24px 16px; display: flex; flex-direction: column; gap: 5px; }
-    /* DESTACADA */
+    /* --- TARJETA DESTACADA --- */
     .event-card.destacada-acp {
       background: linear-gradient(120deg,#ff8c00 0%,#ffb347 40%,#a259ff 100%);
       color: #fff !important;
@@ -132,28 +132,20 @@
       color: #fff !important;
       text-shadow: 0 2px 10px #5a008966, 0 1px 12px #ffb347a0;
     }
-    /* El botón SIEMPRE azul/blanco, sin borde ni inversión especial */
-    .event-link {
-      display: inline-block;
-      margin-top: 10px;
-      color: #fff !important;
+    .event-card.destacada-acp .event-link {
+      /* NO aplicar estilos distintos al botón, debe mantener azul/blanco */
       background: #3b7dd8 !important;
+      color: #fff !important;
       border: none !important;
-      text-decoration: none;
-      font-size: 1em;
-      word-break: break-word;
-      overflow-wrap: break-word;
-      cursor: pointer;
-      border-radius: 9px;
-      padding: 9px 22px;
-      font-weight: 600;
-      font-family: 'Segoe UI', 'Arial', sans-serif;
-      font-style: italic;
       box-shadow: 0 2px 7px rgba(44,60,90,0.08);
-      transition: background 0.2s, color 0.2s;
-      text-shadow: none !important;
+      text-shadow: none;
     }
-    .event-link:hover { background: #22529a !important; color: #fff !important; text-decoration: underline; }
+    .event-card.destacada-acp .event-link:hover {
+      background: #22529a !important;
+      color: #fff !important;
+      border: none !important;
+      text-decoration: underline;
+    }
     @keyframes glowacp {
       0% { box-shadow: 0 6px 32px #ff8c0028, 0 2px 16px #a259ff44; }
       100% { box-shadow: 0 6px 44px #a259ff66, 0 2px 32px #ff8c0044; }
@@ -230,7 +222,7 @@
     .paginator button { padding: 7px 18px; font-size: 1em; border: none; background: #3b7dd8; color: #fff; border-radius: 8px; cursor: pointer; font-weight: 600; box-shadow: 0 2px 7px rgba(44,60,90,0.08);}
     .paginator button[disabled] { background: #b5c9e4; cursor: not-allowed; }
     .paginator .page-info { font-size: 1.06em; color: #222; font-weight: 500; min-width: 55px; text-align: center; font-style: italic; }
-    /* ZÓCALO INFERIOR CORREGIDO */
+    /* --- ZÓCALO INFERIOR CORREGIDO --- */
     .footer-zocalo {
       width: 100%;
       background: #2b3a55;
@@ -462,7 +454,91 @@
     function eventoVacio(ev) {
       return !ev.nombre && !ev.fecha_humana && !ev.organizador_principal;
     }
-
+    const SHEET_URL = "https://docs.google.com/spreadsheets/d/17H2xueOlfBdsWDLspy8PWRMRFqbuEpQhA0VkUjSczxc/gviz/tq?tqx=out:json&sheet=ig_grl";
+    let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
+    let fetchAttempts = 0, maxFetchAttempts = 3;
+    function showLoading(show=true) { document.getElementById('loading-indicator').style.display = show ? 'block' : 'none'; }
+    function showRetry(show=true) { document.getElementById('retry-container').style.display = show ? 'block' : 'none'; }
+    function loadEventos(forceRetry=false) {
+      showLoading(true); showRetry(false);
+      document.getElementById('events').innerHTML = "";
+      fetchAttempts = forceRetry ? 1 : fetchAttempts + 1;
+      fetch(SHEET_URL)
+        .then(res => res.text())
+        .then(text => {
+          showLoading(false); showRetry(false);
+          const json = JSON.parse(text.substr(47).slice(0, -2)), rows = json.table.rows;
+          eventosData = [];
+          for (let i = 0; i < rows.length; i++) {
+            const c = rows[i].c;
+            if (!c[0] || !isVerificado(c[0].v || "")) continue;
+            const ubicacion = c[7] ? c[7].v || "" : "";
+            if (ubicacion.toLowerCase().includes("fuera de la ciudad de dolores")) continue;
+            const nombre = c[2] ? c[2].v || "" : "";
+            const fecha = c[1] ? c[1].v || "" : "";
+            const organizador_principal = c[9] ? c[9].v || "" : "";
+            if (!nombre && !fecha && !organizador_principal) continue;
+            eventosData.push({
+              fecha:         c[1] ? c[1].v || "" : "",
+              fecha_humana:  fechaHumana(c[1] ? c[1].v : ""),
+              nombre:        c[2] ? c[2].v || "" : "",
+              hora:          c[3] ? c[3].v || "" : "",
+              hora2:         c[4] ? c[4].v || "" : "",
+              categoria:     c[5] ? c[5].v || "" : "",
+              descripcion:   c[6] ? c[6].v || "" : "",
+              ubicacion:     ubicacion,
+              lugar:         c[8] ? c[8].v || "" : "",
+              organizador_principal: c[9] ? c[9].v || "" : "",
+              co_organizadores: c[10] ? c[10].v || "" : "",
+              info_adicional: c[11] ? c[11].v || "" : "",
+              valor_entrada: c[12] ? c[12].v || "" : "",
+              auspiciantes:  c[13] ? c[13].v || "" : "",
+              enlace:        c[14] ? c[14].v || "" : "",
+              instagram:     c[15] ? c[15].v || "" : "",
+              logo:          c[16] ? c[16].v || "" : ""
+            });
+          }
+          // ORDENAR POR FECHA (ascendente)
+          eventosData.sort(function(a, b) {
+            let fa = (a.fecha || "").trim();
+            let fb = (b.fecha || "").trim();
+            function toISO(str) {
+              if (!str) return "";
+              if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+              let m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+              if (m) return `${m[3]}-${m[2].padStart(2,"0")}-${m[1].padStart(2,"0")}`;
+              return str;
+            }
+            fa = toISO(fa); fb = toISO(fb);
+            return fa.localeCompare(fb);
+          });
+          eventosFiltrados = eventosData;
+          renderEventos(eventosFiltrados, currentPage);
+        })
+        .catch(error => {
+          showLoading(false);
+          if (fetchAttempts < maxFetchAttempts) setTimeout(() => loadEventos(), 1500);
+          else {
+            document.getElementById('events').innerHTML = `<p style="color:#b02a2a; font-weight:bold">No se pudieron cargar los eventos. Verifica que la hoja esté publicada y disponible.<br>Error: ${error}</p>`;
+            showRetry(true);
+          }
+        });
+    }
+    function aplicarFiltro(search) {
+      const filtro = search.trim().toLowerCase(), anteriorPage = currentPage;
+      eventosFiltrados = eventosData.filter(ev => {
+        if (eventoVacio(ev)) return false;
+        if (ev.ubicacion && ev.ubicacion.toLowerCase().includes("fuera de la ciudad de dolores")) return false;
+        if (!filtro) return true;
+        const buscarEn = [
+          ev.fecha_humana, ev.categoria, ev.organizador_principal, ev.co_organizadores, ev.auspiciantes
+        ].join(" ").toLowerCase();
+        return buscarEn.includes(filtro);
+      });
+      const totalPages = Math.max(1, Math.ceil(eventosFiltrados.length / eventsPerPage));
+      currentPage = anteriorPage > totalPages ? totalPages : anteriorPage;
+      renderEventos(eventosFiltrados, currentPage); scrollToEvents();
+    }
     function renderInstagramBlock(instagram) {
       if (!instagram || typeof instagram !== "string" || instagram.trim() === "") return "";
       if (instagram.match(/\.(jpg|jpeg|png)(\?.*)?$/)) {
@@ -496,7 +572,7 @@
       let eventosMostrados = 0;
       const start = (page-1)*eventsPerPage, end = start + eventsPerPage, pageData = data.slice(start, end);
       pageData.forEach((ev, idx) => {
-        // 1. DESTACADA
+        // 1. TARJETA DESTACADA
         const card = document.createElement('div');
         card.className = "event-card" + (eventoEsDestacadoAcp(ev) ? " destacada-acp" : "");
         // Info principal arriba (título/categoría)
@@ -521,11 +597,11 @@
         if (ev.auspiciantes && ev.auspiciantes.trim() !== "") {
           sponsorsHtml = `
             <div class="event-sponsors-block">
-              <div class="event-sponsors-label">AUSPICIA:</div>
+              <div class="event-sponsors-label">Agradecemos a:</div>
               <div class="event-sponsors">${ev.auspiciantes}</div>
             </div>`;
         }
-        // === BOTÓN igual para todas
+        // === BOTÓN (estética igual para todas)
         let enlaceHtml = (ev.enlace && typeof ev.enlace === "string" && ev.enlace.trim() !== "")
           ? `<button class="event-link" type="button" onclick="abrirEnlaceModal(this.getAttribute('data-url'))" data-url="${ev.enlace.replace(/"/g, '&quot;')}">Entradas / Más info / Inscribirse</button>`
           : "";
