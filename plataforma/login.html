@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Acceso anunciantes</title>
+  <!-- Firebase App y Auth -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2em; }
+    .formbox { max-width: 350px; margin: auto; border-radius: 12px; padding: 2em; background: #f7f7f7; box-shadow: 0 2px 12px #0002; }
+    h2 { text-align: center; }
+    button, input[type="submit"] { background: #006699; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; font-size: 1.1em; margin-top: 1em; width: 100%; }
+    button.google { background:#ea4335; margin-bottom:14px;}
+    input, label { display:block; width:100%; margin-top:8px;}
+    .small { font-size: 0.97em; color: #333; margin-top: 1em; }
+    .msg { margin-top:1em; color:#e53935;}
+    .success { color: #388e3c;}
+  </style>
+</head>
+<body>
+  <div class="formbox">
+    <h2>Acceso a anunciantes</h2>
+    <button class="google" id="google-login">Ingresar con Google</button>
+    <hr>
+    <form id="form-login">
+      <label for="lemail">Email</label>
+      <input type="email" id="lemail" required>
+      <label for="lpass">Contraseña</label>
+      <input type="password" id="lpass" required>
+      <input type="submit" value="Ingresar">
+    </form>
+    <div class="small">¿No tenés cuenta? <a href="#" onclick="showRegister();return false;">Registrate aquí</a></div>
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <div class="formbox" id="registerbox" style="display:none;">
+    <h2>Registro de anunciantes</h2>
+    <form id="form-register">
+      <label for="rnombre">Nombre o comercio</label>
+      <input type="text" id="rnombre" required>
+      <label for="remail">Email</label>
+      <input type="email" id="remail" required>
+      <label for="rpass">Contraseña</label>
+      <input type="password" id="rpass" required>
+      <input type="submit" value="Registrarme">
+    </form>
+    <div class="small">¿Ya tenés cuenta? <a href="#" onclick="showLogin();return false;">Iniciar sesión</a></div>
+    <div id="msgreg" class="msg"></div>
+  </div>
+  <script>
+    // Configuración Firebase (REEMPLAZA por tus valores)
+    const firebaseConfig = {
+      apiKey: "TU_API_KEY",
+      authDomain: "TU_DOMINIO.firebaseapp.com",
+      projectId: "TU_PROJECT_ID",
+      appId: "TU_APP_ID"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const auth = firebase.auth();
+    const db = firebase.firestore();
+
+    // Mostrar registro o login
+    function showRegister() {
+      document.querySelector(".formbox").style.display = "none";
+      document.getElementById("registerbox").style.display = "block";
+    }
+    function showLogin() {
+      document.querySelector(".formbox").style.display = "block";
+      document.getElementById("registerbox").style.display = "none";
+    }
+
+    // LOGIN GOOGLE
+    document.getElementById('google-login').onclick = async function() {
+      const provider = new firebase.auth.GoogleAuthProvider();
+      try {
+        const result = await auth.signInWithPopup(provider);
+        await saveUserIfNew(result.user, true);
+        checkAprobado(result.user.email);
+      } catch (e) {
+        document.getElementById('msg').innerText = "Error: " + e.message;
+      }
+    };
+
+    // LOGIN EMAIL
+    document.getElementById('form-login').onsubmit = async function(e) {
+      e.preventDefault();
+      let email = document.getElementById('lemail').value;
+      let pass = document.getElementById('lpass').value;
+      try {
+        const cred = await auth.signInWithEmailAndPassword(email, pass);
+        checkAprobado(cred.user.email);
+      } catch (e) {
+        document.getElementById('msg').innerText = "Error: " + e.message;
+      }
+    };
+
+    // REGISTRO EMAIL
+    document.getElementById('form-register').onsubmit = async function(e) {
+      e.preventDefault();
+      let nombre = document.getElementById('rnombre').value;
+      let email = document.getElementById('remail').value;
+      let pass = document.getElementById('rpass').value;
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(email, pass);
+        // Guardar datos en base
+        await db.collection("anunciantes").doc(email).set({
+          nombre: nombre,
+          email: email,
+          creado: new Date(),
+          aprobado: false,
+          google: false
+        });
+        document.getElementById('msgreg').innerHTML = "<span class='success'>¡Registro exitoso! Esperá aprobación del administrador.</span>";
+      } catch (e) {
+        document.getElementById('msgreg').innerText = "Error: " + e.message;
+      }
+    };
+
+    // Guardar usuario Google si es nuevo
+    async function saveUserIfNew(user, isGoogle=false) {
+      const doc = await db.collection("anunciantes").doc(user.email).get();
+      if (!doc.exists) {
+        await db.collection("anunciantes").doc(user.email).set({
+          nombre: user.displayName || "",
+          email: user.email,
+          creado: new Date(),
+          aprobado: false,
+          google: isGoogle
+        });
+      }
+    }
+
+    // Chequear si está aprobado
+    async function checkAprobado(email) {
+      const doc = await db.collection("anunciantes").doc(email).get();
+      if (!doc.exists) {
+        document.getElementById('msg').innerText = "Usuario no registrado.";
+      } else if (!doc.data().aprobado) {
+        document.getElementById('msg').innerText = "Tu registro está pendiente de aprobación. Esperá que el administrador active tu cuenta.";
+        auth.signOut();
+      } else {
+        // ACCESO PERMITIDO
+        document.getElementById('msg').innerHTML = "<span class='success'>¡Bienvenido! Acceso concedido.</span>";
+        // Redirigir a panel, ejemplo:
+        // window.location.href = "/panel-anunciantes.html";
+      }
+    }
+  </script>
+</body>
+</html>
