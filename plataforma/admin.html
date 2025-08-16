@@ -3,54 +3,60 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Panel Admin - Anunciantes</title>
+  <title>Acceso anunciantes</title>
   <!-- Firebase App y Auth -->
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
   <style>
-    body { font-family: Arial, sans-serif; padding: 2em; background: #fafafa;}
-    .panel { max-width: 700px; margin: 2em auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 12px #0002; padding: 2em;}
+    body { font-family: Arial, sans-serif; padding: 2em; }
+    .formbox { max-width: 350px; margin: auto; border-radius: 12px; padding: 2em; background: #f7f7f7; box-shadow: 0 2px 12px #0002; }
     h2 { text-align: center; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1em;}
-    th, td { padding: 8px 5px; text-align: left; border-bottom: 1px solid #ddd;}
-    th { background: #006699; color: #fff;}
-    tr.aprobado { background: #e8f5e9;}
-    tr.pendiente { background: #fffde7;}
-    .btn { padding: 5px 14px; border-radius: 6px; border: none; cursor: pointer;}
-    .btn-aprobar { background: #43a047; color: #fff;}
-    .btn-rechazar { background: #e53935; color: #fff;}
-    .logout { float: right; background: #888; color: #fff; border: none; border-radius: 8px; padding: 6px 14px;}
-    .msg { color:#e53935; margin-top:1em;}
-    .user-email { font-size: 1em; color: #006699; font-weight: bold;}
+    button, input[type="submit"] { background: #006699; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; font-size: 1.1em; margin-top: 1em; width: 100%; }
+    button.google { background:#ea4335; margin-bottom:14px;}
+    input, label { display:block; width:100%; margin-top:8px;}
+    .small { font-size: 0.97em; color: #333; margin-top: 1em; }
+    .msg { margin-top:1em; color:#e53935;}
+    .success { color: #388e3c;}
   </style>
 </head>
 <body>
-  <div class="panel">
-    <button class="logout" onclick="logout()">Salir</button>
-    <h2>Panel de administración</h2>
-    <div id="admin-email"></div>
+  <div class="formbox">
+    <h2>Acceso a anunciantes</h2>
+    <button class="google" id="google-login">Ingresar con Google</button>
+    <hr>
+    <form id="form-login">
+      <label for="lemail">Email</label>
+      <input type="email" id="lemail" required>
+      <label for="lpass">Contraseña</label>
+      <input type="password" id="lpass" required>
+      <input type="submit" value="Ingresar">
+    </form>
+    <div class="small">¿No tenés cuenta? <a href="#" onclick="showRegister();return false;">Registrate aquí</a></div>
     <div id="msg" class="msg"></div>
-    <table id="tabla">
-      <thead>
-        <tr>
-          <th>Email</th>
-          <th>Nombre</th>
-          <th>Fecha registro</th>
-          <th>Aprobado</th>
-          <th>Acción</th>
-        </tr>
-      </thead>
-      <tbody id="listado"></tbody>
-    </table>
+  </div>
+
+  <div class="formbox" id="registerbox" style="display:none;">
+    <h2>Registro de anunciantes</h2>
+    <form id="form-register">
+      <label for="rnombre">Nombre o comercio</label>
+      <input type="text" id="rnombre" required>
+      <label for="remail">Email</label>
+      <input type="email" id="remail" required>
+      <label for="rpass">Contraseña</label>
+      <input type="password" id="rpass" required>
+      <input type="submit" value="Registrarme">
+    </form>
+    <div class="small">¿Ya tenés cuenta? <a href="#" onclick="showLogin();return false;">Iniciar sesión</a></div>
+    <div id="msgreg" class="msg"></div>
   </div>
   <script>
-    // Configuración Firebase (TU CONFIGURACIÓN)
+    // Configuración Firebase
     const firebaseConfig = {
       apiKey: "AIzaSyC__YRb9phBPEL563dkDHZhht-sdTXy6XE",
       authDomain: "anunciantes-guialocal.firebaseapp.com",
       projectId: "anunciantes-guialocal",
-      storageBucket: "anunciantes-guialocal.firebasestorage.app",
+      storageBucket: "anunciantes-guialocal.appspot.com",
       messagingSenderId: "1046169260713",
       appId: "1:1046169260713:web:5ae883a5f2d16619d18fb8",
       measurementId: "G-CNR1Y6VW06"
@@ -59,93 +65,89 @@
     const auth = firebase.auth();
     const db = firebase.firestore();
 
-    const ADMIN_EMAIL = "liqkoargentina@gmail.com";
-
-    // Autenticación al cargar
-    window.onload = function() {
-      auth.onAuthStateChanged(async function(user) {
-        if (user && user.email === ADMIN_EMAIL) {
-          document.getElementById('admin-email').innerHTML = 'Administrador: <span class="user-email">'+user.email+'</span>';
-          cargarUsuarios();
-        } else {
-          // Si no está logueado como admin, mostrar login rápido solo para admin
-          mostrarLoginAdmin();
-        }
-      });
-    };
-
-    function mostrarLoginAdmin() {
-      document.body.innerHTML = `
-        <div class="panel">
-          <h2>Acceso administrador</h2>
-          <form id="form-admin-login">
-            <label>Email</label>
-            <input type="email" id="admin-email-input" required style="width:100%;padding:8px;">
-            <label>Contraseña</label>
-            <input type="password" id="admin-pass-input" required style="width:100%;padding:8px;">
-            <input type="submit" value="Ingresar" class="btn btn-aprobar" style="margin-top:1em;">
-          </form>
-          <div id="msg" class="msg"></div>
-        </div>
-      `;
-      document.getElementById('form-admin-login').onsubmit = async function(e) {
-        e.preventDefault();
-        let email = document.getElementById('admin-email-input').value;
-        let pass = document.getElementById('admin-pass-input').value;
-        try {
-          let cred = await auth.signInWithEmailAndPassword(email, pass);
-          if (cred.user.email !== ADMIN_EMAIL) {
-            auth.signOut();
-            document.getElementById('msg').innerText = "Solo el email administrador puede acceder.";
-          } else {
-            window.location.reload();
-          }
-        } catch (e) {
-          document.getElementById('msg').innerText = "Error: " + e.message;
-        }
-      }
+    // Mostrar registro o login
+    function showRegister() {
+      document.querySelector(".formbox").style.display = "none";
+      document.getElementById("registerbox").style.display = "block";
+    }
+    function showLogin() {
+      document.querySelector(".formbox").style.display = "block";
+      document.getElementById("registerbox").style.display = "none";
     }
 
-    // Cargar usuarios
-    async function cargarUsuarios() {
-      let tbody = document.getElementById('listado');
-      tbody.innerHTML = "";
-      const snap = await db.collection("anunciantes").orderBy("creado", "desc").get();
-      snap.forEach(doc => {
-        let data = doc.data();
-        let aprobado = data.aprobado === true;
-        let tr = document.createElement("tr");
-        tr.className = aprobado ? "aprobado" : "pendiente";
-        tr.innerHTML = `
-          <td>${data.email}</td>
-          <td>${data.nombre || ''}</td>
-          <td>${data.creado ? (new Date(data.creado.seconds*1000)).toLocaleString() : ''}</td>
-          <td>${aprobado ? "Sí" : "No"}</td>
-          <td>
-            ${aprobado ? 
-              `<button class="btn btn-rechazar" onclick="cambiarAprobado('${data.email}', false)">Rechazar</button>` :
-              `<button class="btn btn-aprobar" onclick="cambiarAprobado('${data.email}', true)">Aprobar</button>`
-            }
-          </td>
-        `;
-        tbody.appendChild(tr);
-      });
-    }
-
-    // Cambiar aprobado/rechazado
-    async function cambiarAprobado(email, valor) {
+    // LOGIN GOOGLE
+    document.getElementById('google-login').onclick = async function() {
+      const provider = new firebase.auth.GoogleAuthProvider();
       try {
-        await db.collection("anunciantes").doc(email).update({aprobado: valor});
-        cargarUsuarios();
+        const result = await auth.signInWithPopup(provider);
+        await saveUserIfNew(result.user, true);
+        checkAprobado(result.user.email);
       } catch (e) {
         document.getElementById('msg').innerText = "Error: " + e.message;
       }
+    };
+
+    // LOGIN EMAIL
+    document.getElementById('form-login').onsubmit = async function(e) {
+      e.preventDefault();
+      let email = document.getElementById('lemail').value;
+      let pass = document.getElementById('lpass').value;
+      try {
+        const cred = await auth.signInWithEmailAndPassword(email, pass);
+        checkAprobado(cred.user.email);
+      } catch (e) {
+        document.getElementById('msg').innerText = "Error: " + e.message;
+      }
+    };
+
+    // REGISTRO EMAIL
+    document.getElementById('form-register').onsubmit = async function(e) {
+      e.preventDefault();
+      let nombre = document.getElementById('rnombre').value;
+      let email = document.getElementById('remail').value;
+      let pass = document.getElementById('rpass').value;
+      try {
+        const cred = await auth.createUserWithEmailAndPassword(email, pass);
+        // Guardar datos en base
+        await db.collection("anunciantes").doc(email).set({
+          nombre: nombre,
+          email: email,
+          creado: new Date(),
+          aprobado: false,
+          google: false
+        });
+        document.getElementById('msgreg').innerHTML = "<span class='success'>¡Registro exitoso! Esperá aprobación del administrador.</span>";
+      } catch (e) {
+        document.getElementById('msgreg').innerText = "Error: " + e.message;
+      }
+    };
+
+    // Guardar usuario Google si es nuevo
+    async function saveUserIfNew(user, isGoogle=false) {
+      const doc = await db.collection("anunciantes").doc(user.email).get();
+      if (!doc.exists) {
+        await db.collection("anunciantes").doc(user.email).set({
+          nombre: user.displayName || "",
+          email: user.email,
+          creado: new Date(),
+          aprobado: false,
+          google: isGoogle
+        });
+      }
     }
 
-    // Logout
-    function logout() {
-      auth.signOut();
-      window.location.reload();
+    // Chequear si está aprobado
+    async function checkAprobado(email) {
+      const doc = await db.collection("anunciantes").doc(email).get();
+      if (!doc.exists) {
+        document.getElementById('msg').innerText = "Usuario no registrado.";
+      } else if (!doc.data().aprobado) {
+        document.getElementById('msg').innerText = "Tu registro está pendiente de aprobación. Esperá que el administrador active tu cuenta.";
+        auth.signOut();
+      } else {
+        // ACCESO PERMITIDO: Redirigir a tu panel automáticamente
+        window.location.href = "panel-anunciantes.html";
+      }
     }
   </script>
 </body>
