@@ -9,7 +9,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
   <style>
     body { font-family: Arial, sans-serif; padding: 2em; }
-    .formbox { max-width: 350px; margin: auto; border-radius: 12px; padding: 2em; background: #f7f7f7; box-shadow: 0 2px 12px #0002; }
+    .formbox { max-width: 370px; margin: auto; border-radius: 12px; padding: 2em; background: #f7f7f7; box-shadow: 0 2px 12px #0002; }
     h2 { text-align: center; }
     button, input[type="submit"] { background: #006699; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; font-size: 1.1em; margin-top: 1em; width: 100%; }
     button.google { background:#ea4335; margin-bottom:14px;}
@@ -17,9 +17,12 @@
     .small { font-size: 0.97em; color: #333; margin-top: 1em; }
     .msg { margin-top:1em; color:#e53935;}
     .success { color: #388e3c;}
+    .hidden { display:none; }
+    .link { color: #006699; cursor: pointer; text-decoration: underline; }
   </style>
 </head>
 <body>
+  <!-- LOGIN -->
   <div class="formbox" id="loginbox">
     <h2>Acceso a anunciantes</h2>
     <button class="google" id="google-login">Ingresar con Google</button>
@@ -31,14 +34,28 @@
       <input type="password" id="lpass" required>
       <input type="submit" value="Ingresar">
     </form>
-    <div class="small">¿No tenés cuenta? <a href="#" onclick="showRegister();return false;">Registrate aquí</a></div>
+    <div class="small">
+      ¿No tenés cuenta?
+      <a href="#" onclick="showRegister();return false;">Registrate aquí</a>
+    </div>
     <div id="msg" class="msg"></div>
   </div>
 
+  <!-- REGISTRO -->
   <div class="formbox" id="registerbox" style="display:none;">
     <h2>Registro de anunciantes</h2>
     <form id="form-register">
-      <label for="rnombre">Nombre o comercio</label>
+      <label for="rcomercio">
+        Comercio / Servicio / Organización
+        <span class="small">
+          Escribí las primeras letras y seleccioná de la lista.<br>
+          Si <b>no aparece</b>, hacé <span class="link" onclick="nuevoComercio();">clic aquí para registrar un nuevo comercio/servicio/organización</span>.<br>
+          Si los datos son incorrectos, <b>podrás modificarlos luego de la aprobación</b>.
+        </span>
+      </label>
+      <input type="text" id="rcomercio" list="sugerencias-comercios" autocomplete="off" required>
+      <datalist id="sugerencias-comercios"></datalist>
+      <label for="rnombre">Nombre y apellido</label>
       <input type="text" id="rnombre" required>
       <label for="remail">Email</label>
       <input type="email" id="remail" required>
@@ -46,9 +63,34 @@
       <input type="password" id="rpass" required>
       <input type="submit" value="Registrarme">
     </form>
-    <div class="small">¿Ya tenés cuenta? <a href="#" onclick="showLogin();return false;">Iniciar sesión</a></div>
+    <div class="small">
+      ¿Ya tenés cuenta?
+      <a href="#" onclick="showLogin();return false;">Iniciar sesión</a>
+    </div>
     <div id="msgreg" class="msg"></div>
   </div>
+
+  <!-- NUEVO COMERCIO -->
+  <div class="formbox" id="nuevocomerciobox" style="display:none;">
+    <h2>Registrar nuevo comercio/servicio/organización</h2>
+    <form id="form-nuevo-comercio">
+      <label for="nc_nombre">Nombre del comercio/servicio/organización</label>
+      <input type="text" id="nc_nombre" required>
+      <label for="nc_categoria">Categoría</label>
+      <input type="text" id="nc_categoria" required>
+      <label for="nc_direccion">Dirección</label>
+      <input type="text" id="nc_direccion" required>
+      <label for="nc_telefono">Teléfono</label>
+      <input type="text" id="nc_telefono">
+      <!-- Agregá más campos si necesitás -->
+      <input type="submit" value="Registrar comercio y continuar">
+    </form>
+    <div class="small">
+      <span class="link" onclick="cancelarNuevoComercio();">Cancelar y volver</span>
+    </div>
+    <div id="msgnuevo" class="msg"></div>
+  </div>
+
   <script>
     // Configuración Firebase
     const firebaseConfig = {
@@ -64,15 +106,37 @@
     const auth = firebase.auth();
     const db = firebase.firestore();
 
+    // Mostrar y ocultar formularios
     function showRegister() {
       document.getElementById("loginbox").style.display = "none";
       document.getElementById("registerbox").style.display = "block";
+      document.getElementById("nuevocomerciobox").style.display = "none";
+      clearMsgs();
     }
     function showLogin() {
       document.getElementById("loginbox").style.display = "block";
       document.getElementById("registerbox").style.display = "none";
+      document.getElementById("nuevocomerciobox").style.display = "none";
+      clearMsgs();
+    }
+    function nuevoComercio() {
+      document.getElementById("registerbox").style.display = "none";
+      document.getElementById("nuevocomerciobox").style.display = "block";
+      document.getElementById("loginbox").style.display = "none";
+      clearMsgs();
+    }
+    function cancelarNuevoComercio() {
+      document.getElementById("nuevocomerciobox").style.display = "none";
+      document.getElementById("registerbox").style.display = "block";
+      clearMsgs();
+    }
+    function clearMsgs() {
+      document.getElementById('msg').innerText = "";
+      document.getElementById('msgreg').innerText = "";
+      document.getElementById('msgnuevo').innerText = "";
     }
 
+    // LOGIN GOOGLE
     document.getElementById('google-login').onclick = async function() {
       const provider = new firebase.auth.GoogleAuthProvider();
       try {
@@ -84,6 +148,7 @@
       }
     };
 
+    // LOGIN EMAIL
     document.getElementById('form-login').onsubmit = async function(e) {
       e.preventDefault();
       let email = document.getElementById('lemail').value;
@@ -96,15 +161,46 @@
       }
     };
 
+    // AUTOCOMPLETADO DE COMERCIOS
+    const comercioInput = document.getElementById('rcomercio');
+    const datalist = document.getElementById('sugerencias-comercios');
+    comercioInput.addEventListener('input', async function() {
+      const texto = comercioInput.value.trim().toLowerCase();
+      if (texto.length < 2) { datalist.innerHTML = ""; return; }
+      // Trae desde Firestore la colección de comercios
+      const ref = db.collection("comercios")
+        .orderBy("nombre")
+        .startAt(texto)
+        .endAt(texto + "\uf8ff")
+        .limit(8);
+      const snap = await ref.get();
+      datalist.innerHTML = "";
+      snap.forEach(doc => {
+        const nombre = doc.data().nombre;
+        if (nombre) {
+          const option = document.createElement('option');
+          option.value = nombre;
+          datalist.appendChild(option);
+        }
+      });
+    });
+
+    // REGISTRO DE USUARIO
     document.getElementById('form-register').onsubmit = async function(e) {
       e.preventDefault();
-      let nombre = document.getElementById('rnombre').value;
-      let email = document.getElementById('remail').value;
+      let comercio = document.getElementById('rcomercio').value.trim();
+      let nombre = document.getElementById('rnombre').value.trim();
+      let email = document.getElementById('remail').value.trim();
       let pass = document.getElementById('rpass').value;
+      if (!comercio) {
+        document.getElementById('msgreg').innerText = "Debés seleccionar o registrar un comercio/servicio/organización.";
+        return;
+      }
       try {
         const cred = await auth.createUserWithEmailAndPassword(email, pass);
         await db.collection("anunciantes").doc(email).set({
           nombre: nombre,
+          comercio: comercio,
           email: email,
           creado: new Date(),
           aprobado: false,
@@ -116,11 +212,43 @@
       }
     };
 
+    // FORMULARIO NUEVO COMERCIO
+    document.getElementById('form-nuevo-comercio').onsubmit = async function(e) {
+      e.preventDefault();
+      let nombre = document.getElementById('nc_nombre').value.trim();
+      let categoria = document.getElementById('nc_categoria').value.trim();
+      let direccion = document.getElementById('nc_direccion').value.trim();
+      let telefono = document.getElementById('nc_telefono').value.trim();
+      if (!nombre || !categoria || !direccion) {
+        document.getElementById('msgnuevo').innerText = "Completá todos los campos obligatorios.";
+        return;
+      }
+      try {
+        // Guarda el comercio como pendiente de aprobación
+        await db.collection("comercios").add({
+          nombre,
+          categoria,
+          direccion,
+          telefono,
+          creado: new Date(),
+          aprobado: false
+        });
+        document.getElementById('msgnuevo').innerHTML = "<span class='success'>¡Comercio registrado! Ahora completá tu registro de usuario seleccionando el nombre recién creado.</span>";
+        // Autocompleta el campo en el registro y vuelve al form de registro
+        comercioInput.value = nombre;
+        cancelarNuevoComercio();
+      } catch (e) {
+        document.getElementById('msgnuevo').innerText = "Error: " + e.message;
+      }
+    };
+
+    // FUNCIONES AUXILIARES PARA USUARIOS GOOGLE
     async function saveUserIfNew(user, isGoogle=false) {
       const doc = await db.collection("anunciantes").doc(user.email).get();
       if (!doc.exists) {
         await db.collection("anunciantes").doc(user.email).set({
           nombre: user.displayName || "",
+          comercio: "",
           email: user.email,
           creado: new Date(),
           aprobado: false,
@@ -128,7 +256,6 @@
         });
       }
     }
-
     async function checkAprobado(email) {
       const doc = await db.collection("anunciantes").doc(email).get();
       if (!doc.exists) {
