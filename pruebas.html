@@ -16,7 +16,7 @@
     .buscador-global {display:flex; gap:0.5rem; padding:1rem; background: #f5e1d4; width:100vw; box-sizing:border-box;}
     .buscador-global input {padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; flex:1; min-width:120px; max-width:100vw;}
     .buscador, .buscador select { gap: 0.5rem; flex-wrap: wrap; padding: 1rem; background: #f5e1d4; width: 100vw; box-sizing: border-box;}
-    .buscador select {padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; min-width: 120px; max-width: 100vw;}
+    .buscador select {padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; min-width: 120px; max-width:100vw;}
     .no-tags-msg{ padding:1.2em 1em 0 1em; color:#c00; font-weight:bold;font-size:1.1em; width:100vw;box-sizing:border-box;}
     .paginacion-zocalo{ display:flex; justify-content:center; align-items:center; background:#f5e1d4; border-radius:1.5em; padding:0.6em; margin:1.2em auto; width:100vw; min-width: 0; max-width:100vw; box-sizing:border-box; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow-x:auto;}
     .pagination-bar{ display:inline-block; vertical-align:middle; margin:0 10px; background:#eaf0ea; border-radius:1.5em; padding:0.4em 1.1em; font-size:1em; width:auto; white-space:nowrap;}
@@ -38,7 +38,17 @@
     .nivel-5{background:#ffe7dc;color:#222;border:3px solid #ff7f50;}
     .logo-comercio{ max-width:110px; max-height:110px; object-fit:contain; border-radius:0.6rem; background:#fff; border:1px solid #eee; margin-bottom:1em; display:block;}
     .card .nombre{ font-weight:bold; font-size:1.1rem; color:#222; margin-bottom:0.1em; text-align:left; word-break:break-word;}
-    .card .pie { font-size:1rem; color:#888; margin-bottom:0.6em; margin-top:0.1em; text-align:left; font-weight:500; font-variant: normal; font-style:normal;}
+    .card .pie { font-size:1rem; color:#fff; margin-bottom:0.6em; margin-top:0.1em; text-align:left; font-weight:500; font-variant: normal; font-style:normal;
+      text-shadow:
+        -1px -1px 0 #000,  
+         1px -1px 0 #000,
+        -1px  1px 0 #000,
+         1px  1px 0 #000;
+      padding: 0.05em 0.25em;
+      border-radius: 0.2em;
+      background: rgba(0,0,0,0.08);
+      display: inline-block;
+    }
     .descripcion{ font-size:0.97rem; color:#333; margin-bottom:0.7em; margin-top:0.3em; width:100%; text-align:justify; white-space:pre-line; word-break:break-word;}
     .adicionales{ font-size:0.93rem; color:#333; margin-bottom:0.8em; margin-top:0.3em; width:100%; text-align:left;}
     .segmento-doble{height:0.9em;width:100%;display:block;}
@@ -82,11 +92,14 @@
     </select>
   </div>
   <div class="buscador-global">
-    <input type="text" id="buscadorGlobal" placeholder="Buscar en toda la ficha (nombre, categoría, tags, etc.)..." style="flex:1;"/>
+    <input type="text" id="buscadorGlobal" placeholder="Buscar en toda la ficha (nombre, segmento, categoría, subcategoría, tags, etc.)..." style="flex:1;"/>
   </div>
   <div class="buscador">
     <select id="selectCategoria">
       <option value="">Todas las categorías</option>
+    </select>
+    <select id="selectSubcategoria">
+      <option value="">Todas las subcategorías</option>
     </select>
     <input type="text" id="filtroNombre" placeholder="Buscar solo por nombre..." />
   </div>
@@ -100,106 +113,105 @@
   <button id="topBtn" class="top-button" aria-label="Volver arriba" title="Volver arriba" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">↑</button>
   <div id="modalImg" style="display:none;"></div>
   <script>
-    // Cambia aquí la URL por la de la hoja "anunciantes"
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/anunciantes';
     fetch(url)
       .then(res => res.json())
       .then(data => {
-        // --- Elementos ---
         const filtroNombre = document.getElementById('filtroNombre');
         const buscadorGlobal = document.getElementById('buscadorGlobal');
         const contenedor = document.getElementById('contenedor');
         const destacadasBar = document.getElementById('destacadasBar');
         const selectSegmento = document.getElementById('selectSegmento');
         const selectCategoria = document.getElementById('selectCategoria');
+        const selectSubcategoria = document.getElementById('selectSubcategoria');
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
         const modalImg = document.getElementById('modalImg');
         const normalizar = texto => texto ? texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "") : "";
 
-        // --- Utilidades ---
-        // Capitaliza cada palabra (para "pie")
         function capitalizarFrase(str){
           return (str||"").toLowerCase()
             .replace(/(?:^|\s|-|\/)\S/g, l => l.toUpperCase());
         }
-
-        // Filtramos solo los aprobados (aprobado == true, o string "TRUE"/"true")
         const isAprobado = v => {
           if (typeof v === "boolean") return v;
           if (typeof v === "string") return v.trim().toLowerCase() === "true";
           return false;
         };
-
-        // Sacar columnas "agregar ..." y "subcategoria"
         function limpiarCampos(item) {
           const nuevo = {};
           for (let k in item) {
-            if (!/^agregar\s/i.test(k) && k !== "subcategoria") nuevo[k] = item[k];
+            if (!/^agregar\s/i.test(k)) nuevo[k] = item[k];
           }
           return nuevo;
         }
-
-        // Limpio los datos
         const anunciantesData = data.filter(item => isAprobado(item.aprobado)).map(limpiarCampos);
 
-        // --- Selects únicos ---
-        function obtenerValoresUnicos(campo) {
+        // --- Segmentos únicos ---
+        function obtenerValoresUnicos(campo, filtro={}) {
           return [
             ...new Set(
-              anunciantesData.flatMap(item =>
-                (item[campo] || "")
-                  .split(",")
-                  .map(r => r.trim())
-                  .filter(Boolean)
-              )
+              anunciantesData
+                .filter(item => {
+                  let ok = true;
+                  for (let k in filtro) {
+                    if (!filtro[k]) continue;
+                    if (!((item[k]||"").split(",").map(t=>t.trim()).includes(filtro[k]))) ok = false;
+                  }
+                  return ok;
+                })
+                .flatMap(item =>
+                  (item[campo] || "")
+                    .split(",")
+                    .map(r => r.trim())
+                    .filter(Boolean)
+                )
             )
           ].sort();
         }
-        // Segmentos
-        const segmentosUnicos = obtenerValoresUnicos('segmento');
-        selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
-          segmentosUnicos.map(seg => `<option value="${seg}">${seg}</option>`).join('');
-        // Categorías
+        // Cargar segmentos
+        function actualizarSegmentos() {
+          const segmentosUnicos = obtenerValoresUnicos('segmento');
+          selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
+            segmentosUnicos.map(seg => `<option value="${seg}">${seg}</option>`).join('');
+        }
+        // Cargar categorías según segmento
         function actualizarCategorias() {
           const segmentoSeleccionado = selectSegmento.value;
-          let categorias;
-          if (segmentoSeleccionado === '') {
-            categorias = obtenerValoresUnicos('categoria');
-          } else {
-            categorias = [
-              ...new Set(
-                anunciantesData
-                  .filter(item =>
-                    (item.segmento || "")
-                      .split(",")
-                      .map(r => r.trim())
-                      .includes(segmentoSeleccionado)
-                  )
-                  .flatMap(item =>
-                    (item.categoria || "")
-                      .split(",")
-                      .map(s => s.trim())
-                      .filter(Boolean)
-                  )
-              )
-            ].sort();
-          }
+          const categoriasUnicas = obtenerValoresUnicos('categoria', segmentoSeleccionado ? {segmento: segmentoSeleccionado} : {});
           selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
-            categorias.map(cat => `<option value="${cat}">${cat}</option>`).join('');
+            categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
         }
-
+        // Cargar subcategorías según segmento y categoría
+        function actualizarSubcategorias() {
+          const segmentoSeleccionado = selectSegmento.value;
+          const categoriaSeleccionada = selectCategoria.value;
+          const subcategoriasUnicas = obtenerValoresUnicos('subcategoria', {
+            ...(segmentoSeleccionado && {segmento: segmentoSeleccionado}),
+            ...(categoriaSeleccionada && {categoria: categoriaSeleccionada})
+          });
+          selectSubcategoria.innerHTML = '<option value="">Todas las subcategorías</option>' +
+            subcategoriasUnicas.map(sub => `<option value="${sub}">${sub}</option>`).join('');
+        }
         selectSegmento.addEventListener('change', () => {
           actualizarCategorias();
+          actualizarSubcategorias();
           paginaActual = 1;
           render();
         });
         selectCategoria.addEventListener('change', () => {
+          actualizarSubcategorias();
           paginaActual = 1;
           render();
         });
+        selectSubcategoria.addEventListener('change', () => {
+          paginaActual = 1;
+          render();
+        });
+        actualizarSegmentos();
         actualizarCategorias();
+        actualizarSubcategorias();
 
         // LOGOS DE SEGMENTO (PARQUE TERMAL y TERMALES MALL)
         function renderTermalesLogos(item) {
@@ -533,6 +545,7 @@
           const qGlobal = normalizar(buscadorGlobal.value.trim());
           const segmentoSeleccionado = selectSegmento.value;
           const categoriaSeleccionada = selectCategoria.value;
+          const subcategoriaSeleccionada = selectSubcategoria.value;
           const qNombre = normalizar(filtroNombre.value.trim());
 
           // Filtrado por selectores
@@ -549,6 +562,12 @@
               const categorias = (item.categoria || "").split(",").map(s => s.trim());
               coincideCategoria = categorias.includes(categoriaSeleccionada);
             }
+            // Subcategoría
+            let coincideSubcategoria = true;
+            if (subcategoriaSeleccionada) {
+              const subcats = (item.subcategoria || "").split(",").map(s => s.trim());
+              coincideSubcategoria = subcats.includes(subcategoriaSeleccionada);
+            }
             // Nombre (input)
             let coincideNombre = true;
             if (qNombre) {
@@ -558,12 +577,12 @@
             let coincideGlobal = true;
             if (qGlobal) {
               coincideGlobal = [
-                'nombre','segmento','categoria','tags','adicionales','pie','descripcion'
+                'nombre','segmento','categoria','subcategoria','tags','adicionales','pie','descripcion'
               ].some(campo =>
                 normalizar(item[campo]||"").includes(qGlobal)
               );
             }
-            return coincideSegmento && coincideCategoria && coincideNombre && coincideGlobal;
+            return coincideSegmento && coincideCategoria && coincideSubcategoria && coincideNombre && coincideGlobal;
           })
           .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel);
 
