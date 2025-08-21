@@ -12,7 +12,7 @@
     .header h1{margin:0;font-size:2.2rem;font-weight:bold;letter-spacing:2px;line-height:1.1;}
     @media (max-width:900px){ .header h1{font-size:1.5rem;} .header img{height:40px;} }
     .buscador,.buscador-tags { display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 1rem; background: #f5e1d4; width: 100vw; box-sizing: border-box;}
-    .buscador select,.buscador input,.buscador-tags input { padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; flex: 1; min-width: 120px; max-width: 100vw; box-sizing: border-box;}
+    .buscador select,.buscador input,.buscador-tags input { padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; flex: 1; min-width: 120px; max-width: 100vw; box-sizing:border-box;}
     .buscador-tags{border-bottom:1px solid #dcb;}
     .no-tags-msg{ padding:1.2em 1em 0 1em; color:#c00; font-weight:bold;font-size:1.1em; width:100vw;box-sizing:border-box;}
     .paginacion-zocalo{ display:flex; justify-content:center; align-items:center; background:#f5e1d4; border-radius:1.5em; padding:0.6em; margin:1.2em auto; width:100vw; min-width: 0; max-width:100vw; box-sizing:border-box; box-shadow:0 2px 8px rgba(0,0,0,0.08); overflow-x:auto;}
@@ -35,8 +35,6 @@
     .nivel-5{background:#ffe7dc;color:#222;border:3px solid #ff7f50;}
     .logo-comercio{ max-width:110px; max-height:110px; object-fit:contain; border-radius:0.6rem; background:#fff; border:1px solid #eee; margin-bottom:1em; display:block;}
     .card .nombre{ font-weight:bold; font-size:1.1rem; color:#222; margin-bottom:0.5em; text-align:left; word-break:break-word;}
-    .calificacion-block{ font-size:1.05rem; color:#d35400; font-weight:bold; margin-bottom:0.2em; margin-top:-0.1em; text-align:left; display:flex; align-items:center; gap:0.35em;}
-    .calificacion-block a { color: #006699; text-decoration: underline; font-weight: normal; font-size: 0.97em;}
     .descripcion{ font-size:0.97rem; color:#333; margin-bottom:0.7em; margin-top:0.3em; width:100%; text-align:justify; white-space:pre-line; word-break:break-word;}
     .adicionales{ font-size:0.93rem; color:#333; margin-bottom:0.8em; margin-top:0.3em; width:100%; text-align:left;}
     .segmento-doble{height:0.9em;width:100%;display:block;}
@@ -78,14 +76,14 @@
     <input type="text" id="buscadorTags" placeholder="Buscar por palabras clave (ej: remera, swimmer, etc)" style="flex:1;"/>
   </div>
   <div class="no-tags-msg" id="noTagsMsg" style="display:none">
-    No encontramos resultados por tags. Probá el buscador convencional de abajo para filtrar por nombre, categoría o subcategoría.
+    No encontramos resultados por tags. Probá el buscador convencional de abajo para filtrar por nombre, segmento o categoría.
   </div>
   <div class="buscador">
+    <select id="selectSegmento">
+      <option value="">Todos los segmentos</option>
+    </select>
     <select id="selectCategoria">
       <option value="">Todas las categorías</option>
-    </select>
-    <select id="selectSubcategoria">
-      <option value="">Todas las subcategorías</option>
     </select>
     <input type="text" id="filtro" placeholder="Buscar por nombre..." />
   </div>
@@ -99,7 +97,8 @@
   <button id="topBtn" class="top-button" aria-label="Volver arriba" title="Volver arriba" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">↑</button>
   <div id="modalImg" style="display:none;"></div>
   <script>
-    const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/1';
+    // Cambia aquí la URL por la de la hoja "anunciantes"
+    const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/anunciantes';
     fetch(url)
       .then(res => res.json())
       .then(data => {
@@ -107,8 +106,8 @@
         const buscadorTags = document.getElementById('buscadorTags');
         const contenedor = document.getElementById('contenedor');
         const destacadasBar = document.getElementById('destacadasBar');
+        const selectSegmento = document.getElementById('selectSegmento');
         const selectCategoria = document.getElementById('selectCategoria');
-        const selectSubcategoria = document.getElementById('selectSubcategoria');
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
@@ -116,69 +115,75 @@
         const modalImg = document.getElementById('modalImg');
         const normalizar = texto => texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
 
-        const turismoData = data.filter(item => {
-          const rubros = [
-            ...(item.rubro1 ? item.rubro1.split(',').map(r => r.trim().toLowerCase()) : []),
-            ...(item.rubro2 ? item.rubro2.split(',').map(r => r.trim().toLowerCase()) : [])
-          ];
-          return rubros.includes('industrias - comercios - servicios');
-        });
+        // Filtramos solo los aprobados (aprobado == true, o string "TRUE"/"true")
+        const isAprobado = v => {
+          if (typeof v === "boolean") return v;
+          if (typeof v === "string") return v.trim().toLowerCase() === "true";
+          return false;
+        };
+        const anunciantesData = data.filter(item => isAprobado(item.aprobado));
 
-        const categoriasUnicas = [...new Set(
-          turismoData.flatMap(item => {
-            const r1 = item.rubro1 ? item.rubro1.split(',').map(r => r.trim()) : [];
-            const r2 = item.rubro2 ? item.rubro2.split(',').map(r => r.trim()) : [];
-            return [...r1, ...r2];
-          }).filter(Boolean)
-        )].sort();
+        // Obtiene segmentos únicos (pueden estar separados por coma)
+        const segmentosUnicos = [
+          ...new Set(
+            anunciantesData.flatMap(item =>
+              (item.segmento || "")
+                .split(",")
+                .map(r => r.trim())
+                .filter(Boolean)
+            )
+          )
+        ].sort();
+        selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
+          segmentosUnicos.map(seg => `<option value="${seg}">${seg}</option>`).join('');
 
-        selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
-          categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
-
-        function actualizarSubcategorias() {
-          const catSeleccionada = selectCategoria.value;
-          let subcats;
-          if (catSeleccionada === '') {
-            subcats = turismoData.flatMap(item => item.subcategoria1 ? item.subcategoria1.split(',').map(s => s.trim()) : []);
+        function actualizarCategorias() {
+          const segmentoSeleccionado = selectSegmento.value;
+          let categorias;
+          if (segmentoSeleccionado === '') {
+            categorias = anunciantesData.flatMap(item =>
+              (item.categoria || "")
+                .split(",")
+                .map(s => s.trim())
+                .filter(Boolean)
+            );
           } else {
-            subcats = turismoData
+            categorias = anunciantesData
               .filter(item =>
-                (item.rubro1 && item.rubro1.split(',').map(r => r.trim()).includes(catSeleccionada)) ||
-                (item.rubro2 && item.rubro2.split(',').map(r => r.trim()).includes(catSeleccionada))
+                (item.segmento || "")
+                  .split(",")
+                  .map(r => r.trim())
+                  .includes(segmentoSeleccionado)
               )
-              .flatMap(item => item.subcategoria1 ? item.subcategoria1.split(',').map(s => s.trim()) : []);
+              .flatMap(item =>
+                (item.categoria || "")
+                  .split(",")
+                  .map(s => s.trim())
+                  .filter(Boolean)
+              );
           }
-          const subcategoriasFiltradas = [...new Set(subcats)].sort();
-          selectSubcategoria.innerHTML = '<option value="">Todas las subcategorías</option>' +
-            subcategoriasFiltradas.map(sub => `<option value="${sub}">${sub}</option>`).join('');
+          const categoriasUnicas = [...new Set(categorias)].sort();
+          selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
+            categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
         }
 
+        selectSegmento.addEventListener('change', () => {
+          actualizarCategorias();
+          paginaActual = 1;
+          render();
+        });
+
         selectCategoria.addEventListener('change', () => {
-          actualizarSubcategorias();
           paginaActual = 1;
           render();
         });
 
-        selectSubcategoria.addEventListener('change', () => {
-          paginaActual = 1;
-          render();
-        });
+        actualizarCategorias();
 
-        actualizarSubcategorias();
-
+        // --- Todo el resto de la lógica permanece igual ---
         function renderTermalesLogos(item) {
-          const rubros = [
-            ...(item.rubro1 ? item.rubro1.split(',').map(r => r.trim().toLowerCase()) : []),
-            ...(item.rubro2 ? item.rubro2.split(',').map(r => r.trim().toLowerCase()) : [])
-          ];
-          let logosHtml = '';
-          if (rubros.includes('parque termal')) {
-            logosHtml += `<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/parque-termal.png" alt="Logo Parque Termal" class="termales-logo" />`;
-          }
-          if (rubros.includes('termales mall')) {
-            logosHtml += `<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/mall-logo2.png" alt="Logo Termales Mall" class="termales-logo" />`;
-          }
-          return logosHtml ? `<div class="termales-logo-container">${logosHtml}</div>` : '';
+          // Compatibilidad: si quieres mostrar logos por segmento, aquí puedes adaptar
+          return '';
         }
 
         function extraerUsuarioRedSocial(url) {
@@ -213,7 +218,6 @@
 
         function renderRedesBloque(item, nivel) {
           let redesHtml = '';
-          // SOLO EN NIVEL 3+ SON ENLACES
           if (item.instagram && item.instagram.trim()) {
             const usuario = extraerUsuarioRedSocial(item.instagram);
             if(nivel === 2){
@@ -241,20 +245,9 @@
           return redesHtml ? `<div class="redes-bloque">${redesHtml}</div>` : '';
         }
 
-        // <<<<<<<<<<<<<< MODIFICACIÓN: AGREGAR BLOQUE DE CALIFICACIÓN >>>>>>>>>>>>>>>
-        function renderCalificacionBlock(item) {
-          // Muestra promedio debajo del nombre, o leyenda si no hay calificaciones
-          if (item.promedio && !isNaN(item.promedio) && Number(item.promedio) > 0) {
-            return `<div class="calificacion-block"><i class="fa fa-star" style="color:gold;"></i> ${Number(item.promedio).toFixed(1)}</div>`;
-          } else {
-            return `<div class="calificacion-block">Este comercio aún no tiene calificaciones. <a href="https://www.guialocaldolores.com.ar/registro">Registrate para participar</a></div>`;
-          }
-        }
-        // <<<<<<<<<<<<<< FIN MODIFICACIÓN >>>>>>>>>>>>>>>
-
         function renderCard(item) {
           const nivel = Number(item.nivel||1);
-          const es51 = nivel === 5 && Number(item.subnivel1) === 1;
+          const es51 = nivel === 5 && Number(item.subnivel) === 1;
           let html = `<div class="card nivel-${nivel}">`;
 
           if(nivel>=3){
@@ -273,10 +266,6 @@
           }
 
           html += `<div class="nombre">${item.nombre}</div>`;
-
-          // <<<<<<<<<<<<<< MODIFICACIÓN: AGREGAR BLOQUE DE CALIFICACIÓN DEBAJO DEL NOMBRE >>>>>>>>>>>>>>>
-          html += renderCalificacionBlock(item);
-
           html += `<span class="espaciado"></span>`;
           html += renderTermalesLogos(item);
 
@@ -378,7 +367,7 @@
             html += renderRedesBloque(item, nivel);
           }
 
-          // -- IMAGENES AHORA VAN ANTES DEL BLOQUE WEB+MAIL
+          // -- IMAGENES
           let galeriaHtml = "";
           if([3,4,5].includes(nivel) || es51){
             const imagenes=['img1','img2','img3','img4','img5','img6'].map(k=>item[k]).filter(Boolean);
@@ -449,7 +438,7 @@
             render();
             return;
           }
-          const filtradoTag = turismoData.filter(item => {
+          const filtradoTag = anunciantesData.filter(item => {
             const tagsArr = (item.tags || '').split(',').map(tag => normalizar(tag.trim()));
             return tagsArr.some(tag => tag.includes(qTag));
           });
@@ -479,7 +468,7 @@
         let totalPaginas = 1;
 
         function getDestacadas(array) {
-          return array.filter(item => Number(item.nivel) === 5 && Number(item.subnivel1) === 1);
+          return array.filter(item => Number(item.nivel) === 5 && Number(item.subnivel) === 1);
         }
 
         function buildPaginationBar(targetBar) {
@@ -512,31 +501,28 @@
         function render() {
           if (buscadorTags.value.trim() !== '') return;
           const q = normalizar(filtro.value);
+          const segmentoSeleccionado = selectSegmento.value;
           const categoriaSeleccionada = selectCategoria.value;
-          const subcategoriaSeleccionada = selectSubcategoria.value;
 
-          const destacadas = getDestacadas(turismoData);
+          const destacadas = getDestacadas(anunciantesData);
 
-          let filtrados = turismoData.filter(item => {
+          let filtrados = anunciantesData.filter(item => {
+            let coincideSegmento = true;
+            if (segmentoSeleccionado) {
+              const segmentos = (item.segmento || "").split(",").map(r => r.trim());
+              coincideSegmento = segmentos.includes(segmentoSeleccionado);
+            }
             let coincideCategoria = true;
             if (categoriaSeleccionada) {
-              const rubros = [
-                ...(item.rubro1 ? item.rubro1.split(',').map(r => r.trim()) : []),
-                ...(item.rubro2 ? item.rubro2.split(',').map(r => r.trim()) : [])
-              ];
-              coincideCategoria = rubros.includes(categoriaSeleccionada);
-            }
-            let coincideSubcategoria = true;
-            if (subcategoriaSeleccionada) {
-              const subcats = (item.subcategoria1 || '').split(',').map(s => s.trim());
-              coincideSubcategoria = subcats.includes(subcategoriaSeleccionada);
+              const categorias = (item.categoria || "").split(",").map(s => s.trim());
+              coincideCategoria = categorias.includes(categoriaSeleccionada);
             }
             const coincideNombre = normalizar(item.nombre).includes(q);
-            return coincideCategoria && coincideSubcategoria && coincideNombre;
+            return coincideSegmento && coincideCategoria && coincideNombre;
           })
-          .sort((a, b) => b.nivel - a.nivel || a.subnivel1 - b.subnivel1);
+          .sort((a, b) => b.nivel - a.nivel || a.subnivel - b.subnivel);
 
-          const normales = filtrados.filter(item => !(Number(item.nivel) === 5 && Number(item.subnivel1) === 1));
+          const normales = filtrados.filter(item => !(Number(item.nivel) === 5 && Number(item.subnivel) === 1));
 
           totalPaginas = Math.max(1, Math.ceil(normales.length / resultadosPorPagina));
           if (paginaActual > totalPaginas) paginaActual = totalPaginas;
