@@ -1,53 +1,99 @@
-function doGet(e) {
-  var nombre = decodeURIComponent(e.parameter.nombre || "");
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("anunciantes");
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var result = {};
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard Comercio</title>
+  <style>
+    body { font-family: Arial,sans-serif; background: #f7f7f7; margin:0; }
+    .dashboard { max-width: 800px; margin: 40px auto; background: #fff; padding: 2em; border-radius: 12px; box-shadow: 0 4px 16px #0002; }
+    .logout { float: right; color: #3498db; cursor:pointer; }
+    h2 { margin-top:0; }
+    .modulo { margin: 24px 0; padding: 18px; border-radius: 8px; background: #f3f7fa; }
+    .error { color: red; }
+    input, textarea { font-size:16px; width:95%; margin:5px 0 10px 0; }
+    label { font-weight: bold; }
+    button { font-size:16px; margin:8px 4px; }
+    .ok { color: green; font-weight: bold; }
+  </style>
+</head>
+<body>
+<div id="main-dashboard"></div>
+<script>
+const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwl93i3Z14T-GJJxcHR0JwnR7NIYFCBAfdOiJ5THFJmb6IX-KFV-wSiTS4o2dx_Bcnb/exec";
 
-  if (!nombre) {
-    return ContentService.createTextOutput(JSON.stringify({error:"Falta el nombre"}))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
+const comercioId = localStorage.getItem("comercio_id");
 
-  // Busca en columna B (índice 1)
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][1] == nombre) { // columna B
-      for (var j = 0; j < headers.length; j++) {
-        result[headers[j]] = data[i][j];
+if(comercioId){
+  document.getElementById('main-dashboard').innerHTML = `
+    <div class="dashboard">
+      <span class="logout" onclick="logout()">Cerrar sesión</span>
+      <h2>¡Bienvenido!</h2>
+      <div class="modulo" id="datos-comercio">
+        <h3>Cargando datos de tu comercio...</h3>
+      </div>
+    </div>
+  `;
+
+  fetch(WEBAPP_URL + "?id=" + encodeURIComponent(comercioId))
+    .then(res => res.json())
+    .then(data => {
+      if(data.error){
+        document.getElementById('datos-comercio').innerHTML = `<p class="error">No se encontraron datos para tu comercio.</p>`;
+        return;
       }
-      return ContentService.createTextOutput(JSON.stringify(result))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
+      let html = `<h3>Datos de tu comercio</h3>
+      <form id="comercio-datos-edicion">
+        <label>ID:</label><br>
+        <input type="text" id="edit-id" value="${data.id || ""}" disabled><br>
+        <label>Nombre:</label><br>
+        <input type="text" id="edit-nombre" value="${data.nombre || ""}" disabled><br>
+        <label>Dirección:</label><br>
+        <input type="text" id="edit-direccion" value="${data.direccion || ""}"><br>
+        <label>Teléfono:</label><br>
+        <input type="text" id="edit-telefono" value="${data.telefono || ""}"><br>
+        <button type="button" onclick="guardarDatos()">Guardar cambios</button>
+      </form>
+      <div id="msg-guardado"></div>`;
+      document.getElementById('datos-comercio').innerHTML = html;
+    })
+    .catch(()=>{
+      document.getElementById('datos-comercio').innerHTML = `<p class="error">No se pudo cargar la información.</p>`;
+    });
+
+  window.guardarDatos = function(){
+    const id = document.getElementById('edit-id').value;
+    const direccion = document.getElementById('edit-direccion').value;
+    const telefono = document.getElementById('edit-telefono').value;
+
+    fetch(WEBAPP_URL + "?id=" + encodeURIComponent(id), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: id,
+        direccion: direccion,
+        telefono: telefono
+      })
+    })
+    .then(res => res.json())
+    .then(resp => {
+      if(resp.success){
+        document.getElementById('msg-guardado').innerHTML = `<span class="ok">¡Cambios guardados correctamente!</span>`;
+      }else{
+        document.getElementById('msg-guardado').innerHTML = `<span class="error">${resp.error || "Error al guardar los cambios."}</span>`;
+      }
+    })
+    .catch(()=> {
+      document.getElementById('msg-guardado').innerHTML = `<span class="error">Error al guardar los cambios.</span>`;
+    });
   }
-  return ContentService.createTextOutput(JSON.stringify({error:"No encontrado"}))
-    .setMimeType(ContentService.MimeType.JSON);
+} else {
+  window.location.href = "login_comercios.html";
 }
 
-function doPost(e) {
-  var nombre = decodeURIComponent(e.parameter.nombre || "");
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("anunciantes");
-  var data = sheet.getDataRange().getValues();
-  var headers = data[0];
-  var params = JSON.parse(e.postData.contents);
-
-  if (!nombre) {
-    return ContentService.createTextOutput(JSON.stringify({error:"Falta el nombre"}))
-      .setMimeType(ContentService.MimeType.JSON);
-  }
-
-  // Busca en columna B (índice 1)
-  for (var i = 1; i < data.length; i++) {
-    if (data[i][1] == nombre) { // columna B
-      for (var j = 0; j < headers.length; j++) {
-        if (params[headers[j]] !== undefined) {
-          sheet.getRange(i+1, j+1).setValue(params[headers[j]]);
-        }
-      }
-      return ContentService.createTextOutput(JSON.stringify({success:true}))
-        .setMimeType(ContentService.MimeType.JSON);
-    }
-  }
-  return ContentService.createTextOutput(JSON.stringify({error:"No encontrado"}))
-    .setMimeType(ContentService.MimeType.JSON);
+function logout() {
+  localStorage.removeItem("comercio_id");
+  window.location.href = "login_comercios.html";
 }
+</script>
+</body>
+</html>
