@@ -1,101 +1,53 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-  <meta charset="UTF-8">
-  <title>Dashboard Comercio</title>
-  <style>
-    body { font-family: Arial,sans-serif; background: #f7f7f7; margin:0; }
-    .dashboard { max-width: 800px; margin: 40px auto; background: #fff; padding: 2em; border-radius: 12px; box-shadow: 0 4px 16px #0002; }
-    .logout { float: right; color: #3498db; cursor:pointer; }
-    h2 { margin-top:0; }
-    .modulo { margin: 24px 0; padding: 18px; border-radius: 8px; background: #f3f7fa; }
-    .error { color: red; }
-    input, textarea { font-size:16px; width:95%; margin:5px 0 10px 0; }
-    label { font-weight: bold; }
-    button { font-size:16px; margin:8px 4px; }
-    .ok { color: green; font-weight: bold; }
-  </style>
-</head>
-<body>
-<div id="main-dashboard"></div>
-<script>
-// URL de tu Web App Google Apps Script
-const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwl93i3Z14T-GJJxcHR0JwnR7NIYFCBAfdOiJ5THFJmb6IX-KFV-wSiTS4o2dx_Bcnb/exec";
+function doGet(e) {
+  var nombre = decodeURIComponent(e.parameter.nombre || "");
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("anunciantes");
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var result = {};
 
-const comercioNombre = localStorage.getItem("comercio_nombre");
-
-// Render principal
-if(comercioNombre){
-  document.getElementById('main-dashboard').innerHTML = `
-    <div class="dashboard">
-      <span class="logout" onclick="logout()">Cerrar sesión</span>
-      <h2>¡Bienvenido, <span id="comercio-nombre">${comercioNombre}</span>!</h2>
-      <div class="modulo" id="datos-comercio">
-        <h3>Cargando datos de tu comercio...</h3>
-      </div>
-    </div>
-  `;
-
-  // Cargar datos desde la hoja (GET)
-  fetch(WEBAPP_URL + "?nombre=" + encodeURIComponent(comercioNombre))
-    .then(res => res.json())
-    .then(data => {
-      if(data.error){
-        document.getElementById('datos-comercio').innerHTML = `<p class="error">No se encontraron datos para tu comercio.</p>`;
-        return;
-      }
-      let html = `<h3>Datos de tu comercio</h3>
-      <form id="comercio-datos-edicion">
-        <label>Nombre:</label><br>
-        <input type="text" id="edit-nombre" value="${data.Nombre || ""}" disabled><br>
-        <label>Dirección:</label><br>
-        <input type="text" id="edit-direccion" value="${data.Direccion || ""}"><br>
-        <label>Teléfono:</label><br>
-        <input type="text" id="edit-telefono" value="${data.Telefono || ""}"><br>
-        <button type="button" onclick="guardarDatos()">Guardar cambios</button>
-      </form>
-      <div id="msg-guardado"></div>`;
-      document.getElementById('datos-comercio').innerHTML = html;
-    })
-    .catch(()=>{
-      document.getElementById('datos-comercio').innerHTML = `<p class="error">No se pudo cargar la información.</p>`;
-    });
-
-  // Función para guardar datos (POST)
-  window.guardarDatos = function(){
-    const nombre = document.getElementById('edit-nombre').value;
-    const direccion = document.getElementById('edit-direccion').value;
-    const telefono = document.getElementById('edit-telefono').value;
-
-    fetch(WEBAPP_URL + "?nombre=" + encodeURIComponent(nombre), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        Nombre: nombre,
-        Direccion: direccion,
-        Telefono: telefono
-      })
-    })
-    .then(res => res.json())
-    .then(resp => {
-      if(resp.success){
-        document.getElementById('msg-guardado').innerHTML = `<span class="ok">¡Cambios guardados correctamente!</span>`;
-      }else{
-        document.getElementById('msg-guardado').innerHTML = `<span class="error">${resp.error || "Error al guardar los cambios."}</span>`;
-      }
-    })
-    .catch(()=> {
-      document.getElementById('msg-guardado').innerHTML = `<span class="error">Error al guardar los cambios.</span>`;
-    });
+  if (!nombre) {
+    return ContentService.createTextOutput(JSON.stringify({error:"Falta el nombre"}))
+      .setMimeType(ContentService.MimeType.JSON);
   }
-} else {
-  window.location.href = "login_comercios3.html";
+
+  // Busca en columna B (índice 1)
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][1] == nombre) { // columna B
+      for (var j = 0; j < headers.length; j++) {
+        result[headers[j]] = data[i][j];
+      }
+      return ContentService.createTextOutput(JSON.stringify(result))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({error:"No encontrado"}))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
-function logout() {
-  localStorage.removeItem("comercio_nombre");
-  window.location.href = "login_comercios3.html";
+function doPost(e) {
+  var nombre = decodeURIComponent(e.parameter.nombre || "");
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("anunciantes");
+  var data = sheet.getDataRange().getValues();
+  var headers = data[0];
+  var params = JSON.parse(e.postData.contents);
+
+  if (!nombre) {
+    return ContentService.createTextOutput(JSON.stringify({error:"Falta el nombre"}))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+
+  // Busca en columna B (índice 1)
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][1] == nombre) { // columna B
+      for (var j = 0; j < headers.length; j++) {
+        if (params[headers[j]] !== undefined) {
+          sheet.getRange(i+1, j+1).setValue(params[headers[j]]);
+        }
+      }
+      return ContentService.createTextOutput(JSON.stringify({success:true}))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  }
+  return ContentService.createTextOutput(JSON.stringify({error:"No encontrado"}))
+    .setMimeType(ContentService.MimeType.JSON);
 }
-</script>
-</body>
-</html>
