@@ -27,6 +27,9 @@
     .panel-dashboard h3 { margin-bottom:10px; }
     .item-dato { margin-bottom:7px; }
     .panel-dashboard a { color: #3498db; text-decoration:underline; }
+    /* Para formulario de edición */
+    #form-datos-comercio label { margin-top:10px; }
+    #form-datos-comercio input { margin-bottom:4px; }
   </style>
 </head>
 <body>
@@ -85,14 +88,14 @@
       </div>
     </div>
 
-    <!-- PANEL DASHBOARD -->
+    <!-- PANEL DASHBOARD con edición de datos -->
     <div id="panel-dashboard" class="panel panel-dashboard">
       <div class="saludo">¡Hola <span id="nombre-comercio"></span>!</div>
-      <div class="datos">
-        <div class="item-dato"><b>ID:</b> <span id="id-comercio"></span></div>
-        <div class="item-dato"><b>Nombre:</b> <span id="nombre-comercio2"></span></div>
-      </div>
-      <h3>Zona Comercios Panel</h3>
+      <form id="form-datos-comercio">
+        <div id="campos-datos-comercio"></div>
+        <button type="submit" style="background:#3dc879; margin-top:16px;">Guardar cambios</button>
+        <div id="msg-datos-comercio"></div>
+      </form>
       <div>
         <a href="https://wa.me/5492245502172?text=Hola, quiero ayuda con mi panel" target="_blank">¿Necesitás ayuda? WhatsApp Soporte</a>
       </div>
@@ -106,6 +109,8 @@ const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const SHEET_ANUNCIANTES = "anunciantes";
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
+// Cambia esta url por la de tu Apps Script para edición de datos de la hoja "anunciantes"
+const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbXXXXXX/exec"; // <-- PONÉ TU URL
 
 let comercios = [];
 let sesion = null;
@@ -158,7 +163,6 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro = false) {
         inputEl.value = c.nombre;
         idEl.value = c.id;
         listEl.classList.add('hidden');
-        // Fix: aseguramos que el campo contraseña se habilite y reciba foco si estamos en registro
         if(modoRegistro) {
           setTimeout(() => {
             document.getElementById('password_reg').disabled = false;
@@ -168,23 +172,17 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro = false) {
       };
       listEl.appendChild(item);
     });
-
-    // SI NO HAY NINGUN RESULTADO, MOSTRAR OPCIÓN DE REGISTRAR NUEVO COMERCIO
     if (matches.length === 0) {
       const item = document.createElement('div');
       item.style.padding = "10px";
       item.style.background = "#fffbe5";
-      item.innerHTML = `
-        <b>¿Tu comercio aún no está publicado?</b><br>
-        <button id="btnRegistrarComercio" style="margin-top:8px;">Solicitar alta de nuevo comercio</button>
-      `;
+      item.innerHTML = `<b>¿Tu comercio aún no está publicado?</b><br>
+        <button id="btnRegistrarComercio" style="margin-top:8px;">Solicitar alta de nuevo comercio</button>`;
       listEl.appendChild(item);
       setTimeout(() => {
         const btn = document.getElementById('btnRegistrarComercio');
         if(btn){
-          btn.onclick = function() {
-            mostrarPanel('nuevo-comercio');
-          };
+          btn.onclick = function() { mostrarPanel('nuevo-comercio'); };
         }
       }, 100);
     }
@@ -249,9 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem("comercio_nombre", res.nombre);
         sesion = { id: res.id, nombre: res.nombre };
         document.getElementById('login-msg').innerHTML = "<span class='success'>" + res.message + "</span>";
-        setTimeout(() => {
-          mostrarPanelDashboard();
-        }, 600);
+        setTimeout(() => { mostrarPanelDashboard(); }, 600);
       } else {
         document.getElementById('login-msg').innerHTML = "<span class='error'>" + (res.message || "Login incorrecto") + "</span>";
       }
@@ -289,9 +285,7 @@ document.addEventListener('DOMContentLoaded', () => {
         localStorage.setItem("comercio_nombre", comercio);
         sesion = { id: comercio_id, nombre: comercio };
         document.getElementById('reg-msg').innerHTML = "<span class='success'>" + res.message + "</span>";
-        setTimeout(() => {
-          mostrarPanelDashboard();
-        }, 1200);
+        setTimeout(() => { mostrarPanelDashboard(); }, 1200);
       } else {
         document.getElementById('reg-msg').innerHTML = "<span class='error'>" + res.message + "</span>";
       }
@@ -315,17 +309,66 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 });
 
-// Mostrar panel dashboard con datos
+// DASHBOARD con edición de datos
 function mostrarPanelDashboard() {
   if (sesion && sesion.id && sesion.nombre) {
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
-    document.getElementById('id-comercio').textContent = sesion.id;
-    document.getElementById('nombre-comercio2').textContent = sesion.nombre;
+    // PEDIR DATOS AL APPSCRIPT
+    fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`)
+      .then(r => r.json())
+      .then(datos => {
+        if(datos.error) {
+          document.getElementById('campos-datos-comercio').innerHTML = "<b>Error cargando datos.</b>";
+          return;
+        }
+        // ARMAR FORMULARIO CON CAMPOS EDITABLES
+        let html = "";
+        // Lista de campos editables (podés agregar/quitar los que quieras)
+        const camposEditables = [
+          "nombre", "nivel", "subnivel", "segmento", "categoria", "subcategoria", "tags", "adicionales",
+          "pie", "descripcion", "direccion", "lat", "lng", "maps", "telefono", "whatsapp", "mail",
+          "instagram", "facebook", "youtube", "tiktok", "linkedin", "logo", "verificado", "gold",
+          "img1", "img2", "img3", "img4", "img5", "img6", "link"
+        ];
+        camposEditables.forEach(campo => {
+          html += `
+            <div>
+              <label>${campo}</label>
+              <input type="text" name="${campo}" value="${datos[campo] || ""}" autocomplete="off"/>
+            </div>
+          `;
+        });
+        document.getElementById('campos-datos-comercio').innerHTML = html;
+      });
     mostrarPanel('dashboard');
   } else {
     mostrarPanel('login');
   }
 }
+
+// GUARDAR CAMBIOS
+document.getElementById('form-datos-comercio').onsubmit = function(e) {
+  e.preventDefault();
+  const formData = new FormData(e.target);
+  const data = {};
+  formData.forEach((v, k) => data[k] = v);
+  fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, {
+    method: "POST",
+    body: JSON.stringify(data),
+    headers: {"Content-Type":"application/json"}
+  })
+    .then(r => r.json())
+    .then(res => {
+      if(res.success) {
+        document.getElementById('msg-datos-comercio').textContent = "¡Datos guardados!";
+      } else {
+        document.getElementById('msg-datos-comercio').textContent = "Error al guardar.";
+      }
+    })
+    .catch(() => {
+      document.getElementById('msg-datos-comercio').textContent = "Error de conexión.";
+    });
+};
 </script>
 </body>
 </html>
