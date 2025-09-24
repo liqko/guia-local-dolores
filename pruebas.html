@@ -163,7 +163,7 @@
         return nuevo;
       }
 
-      // Remapeo y filtrado de anunciantes, guarda todas sus categorías válidas
+      // Remapeo y filtrado de anunciantes, guarda todas sus categorías válidas y todos sus segmentos
       const anunciantesData = data
         .filter(item => isAprobado(item.aprobado))
         .map(limpiarCampos)
@@ -172,61 +172,40 @@
             .split(",")
             .map(c => c.trim())
             .filter(c => categoriasValidas.includes(c));
+          const segmentosAnunciante = (item.segmento || "")
+            .split(",")
+            .map(s => s.trim())
+            .filter(Boolean);
           if (categoriasAnunciante.length === 0) return null;
           return {
             ...item,
             nivel: remapNivel(item.nivel),
-            categorias: categoriasAnunciante // array de categorías válidas
+            categorias: categoriasAnunciante, // array de categorías válidas
+            segmentos: segmentosAnunciante    // array de todos los segmentos
           };
         })
         .filter(Boolean);
 
-      function obtenerValoresUnicos(campo, filtro={}) {
-        return [
-          ...new Set(
-            anunciantesData
-              .filter(item => {
-                let ok = true;
-                for (let k in filtro) {
-                  if (!filtro[k]) continue;
-                  if (!((item[k]||"").split(",").map(t=>t.trim()).includes(filtro[k]))) ok = false;
-                }
-                return ok;
-              })
-              .flatMap(item =>
-                campo === "categorias"
-                  ? item.categorias
-                  : (item[campo] || "")
-                      .split(",")
-                      .map(r => r.trim())
-                      .filter(Boolean)
-              )
-          )
-        ].filter(Boolean).sort();
+      // Segmentos únicos
+      function obtenerSegmentosUnicos() {
+        return [...new Set(anunciantesData.flatMap(item => item.segmentos))].filter(Boolean).sort();
       }
+      // Todas las categorías válidas
+      function obtenerCategoriasUnicas() {
+        return categoriasValidas;
+      }
+
       function actualizarSegmentos() {
-        const segmentosUnicos = obtenerValoresUnicos('segmento');
+        const segmentosUnicos = obtenerSegmentosUnicos();
         selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
           segmentosUnicos.map(seg => `<option value="${seg}">${seg}</option>`).join('');
       }
       function actualizarCategorias() {
-        const segmentoSeleccionado = selectSegmento.value;
-        let categoriasUnicas = categoriasValidas;
-        if (segmentoSeleccionado) {
-          categoriasUnicas = [
-            ...new Set(
-              anunciantesData
-                .filter(item => (item.segmento || "").split(",").map(s => s.trim()).includes(segmentoSeleccionado))
-                .flatMap(item => item.categorias)
-                .filter(cat => categoriasValidas.includes(cat))
-            )
-          ];
-        }
+        const categoriasUnicas = obtenerCategoriasUnicas();
         selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
           categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
       }
       selectSegmento.addEventListener('change', () => {
-        actualizarCategorias();
         paginaActual = 1;
         render();
       });
@@ -238,7 +217,7 @@
       actualizarCategorias();
 
       function renderTermalesLogos(item) {
-        const segmentos = (item.segmento || '').split(',').map(r => r.trim().toLowerCase());
+        const segmentos = item.segmentos.map(r => r.toLowerCase());
         let logosHtml = '';
         if (segmentos.includes('parque termal')) {
           logosHtml += `<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/parque-termal.png" alt="Logo Parque Termal" class="termales-logo" />`;
@@ -497,9 +476,12 @@
         if(nivel===3){
           html+=`<div class="leyenda-nivel-5">ESPACIO GRATUITO/BONIFICADO</div><span class="segmento-doble"></span>`;
         }
-        // Muestra todas las categorías del comercio
+        // Muestra todas las categorías y segmentos del comercio
         if(item.categorias && item.categorias.length) {
           html += `<div style="margin-top:0.5em;font-size:0.98em;color:#006699;"><i class="fas fa-tags"></i> ${item.categorias.join(', ')}</div>`;
+        }
+        if(item.segmentos && item.segmentos.length) {
+          html += `<div style="margin-top:0.3em;font-size:0.95em;color:#b35400;"><i class="fas fa-layer-group"></i> ${item.segmentos.join(', ')}</div>`;
         }
         html+=`</div>`;
         return html;
@@ -561,15 +543,17 @@
         const categoriaSeleccionada = selectCategoria.value;
 
         let filtrados = anunciantesData.filter(item => {
+          // Segmento: debe estar en alguno de los segmentos del comercio
           let coincideSegmento = true;
           if (segmentoSeleccionado) {
-            const segmentos = (item.segmento || "").split(",").map(r => r.trim());
-            coincideSegmento = segmentos.includes(segmentoSeleccionado);
+            coincideSegmento = item.segmentos.includes(segmentoSeleccionado);
           }
+          // Categoría: debe estar en alguna de las categorías válidas del comercio
           let coincideCategoria = true;
           if (categoriaSeleccionada) {
             coincideCategoria = item.categorias.includes(categoriaSeleccionada);
           }
+          // Buscador global: busca en todos los campos y todas las categorías
           let coincideGlobal = true;
           if (qGlobal) {
             coincideGlobal = [
@@ -577,7 +561,8 @@
             ].some(campo =>
               normalizar(item[campo]||"").includes(qGlobal)
             ) ||
-            item.categorias.some(cat => normalizar(cat).includes(qGlobal));
+            item.categorias.some(cat => normalizar(cat).includes(qGlobal)) ||
+            item.segmentos.some(seg => normalizar(seg).includes(qGlobal));
           }
           return coincideSegmento && coincideCategoria && coincideGlobal;
         })
