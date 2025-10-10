@@ -151,26 +151,42 @@
     // === ARRAY DE BANNERS, editá las URLs y las imágenes como quieras ===
     const banners = [
       {
-        url: "https://www.guialocaldolores.com.ar/fuego-libre/",
-        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/publicidad/1.png"
+        url: "https://enlace1.com",
+        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/banner1.png"
       },
       {
-        url: "https://www.guialocaldolores.com.ar/fuego-libre/",
-        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/publicidad/2.png"
+        url: "https://enlace2.com",
+        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/banner2.png"
       },
       {
-        url: "https://www.guialocaldolores.com.ar/fuego-libre/",
-        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/publicidad/3.png"
+        url: "https://enlace3.com",
+        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/banner3.png"
       },
       {
-        url: "https://www.guialocaldolores.com.ar/fuego-libre/",
-        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/publicidad/4.png"
+        url: "https://enlace4.com",
+        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/banner4.png"
       },
       {
-        url: "https://www.guialocaldolores.com.ar/fuego-libre/",
-        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/publicidad/6.png"
+        url: "https://enlace5.com",
+        img: "https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/banner5.png"
       }
     ];
+
+    // Extrae imagen de publicación de Instagram (si es posible)
+    async function fetchInstagramImage(url) {
+      try {
+        const proxy = "https://corsproxy.io/?";
+        const res = await fetch(proxy + encodeURIComponent(url));
+        const html = await res.text();
+        const match = html.match(/<meta property="og:image" content="([^"]+)"/);
+        if (match && match[1]) return match[1];
+      } catch (e) {}
+      return "";
+    }
+
+    function isInstagramPost(url) {
+      return typeof url === "string" && /^https?:\/\/(www\.)?instagram\.com\/p\//.test(url);
+    }
 
     const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/anunciantes';
     fetch(url)
@@ -273,7 +289,6 @@
         actualizarSegmentos();
         actualizarCategorias();
 
-        // NUEVO: logos termales + "pet" juntos
         function renderTermalesLogos(item) {
           const segmentos = (item.segmento || '').split(',').map(r => normalizar(r));
           let logosHtml = '';
@@ -286,7 +301,6 @@
           if (segmentos.includes('hecho en dolores')) {
             logosHtml += `<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/hecho.png" alt="Hecho en Dolores" class="termales-logo" />`;
           }
-          // PET LOGO en línea con los otros logos, cuando corresponde
           if (item.pet && item.pet.trim() && item.pet.trim().toLowerCase() === 'x') {
             logosHtml += `<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/pet.png" alt="PET Friendly" class="termales-logo" />`;
           }
@@ -365,7 +379,53 @@
           return redesHtml ? `<div class="redes-bloque">${redesHtml}</div>` : '';
         }
 
-        function renderCard(item) {
+        function renderGaleria(item, nivelVisual, galeriaId) {
+          const imagenes = ['img1','img2','img3','img4','img5','img6'].map(k => item[k]).filter(Boolean);
+          if (imagenes.length === 0) return "";
+
+          if (nivelVisual === 3) return "";
+
+          if (nivelVisual >= 5 && imagenes.some(isInstagramPost)) {
+            let html = "";
+            imagenes.forEach((url, idx) => {
+              if (isInstagramPost(url)) {
+                html += `<span id="instaimg-${galeriaId}-${idx}"><span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">Cargando...</span></span>`;
+              } else {
+                html += `<img class="thumbnail solo" src="${url}" alt="Imagen">`;
+              }
+            });
+            html += `<span class="segmento-doble"></span>`;
+            setTimeout(() => {
+              imagenes.forEach(async (url, idx) => {
+                if (isInstagramPost(url)) {
+                  const imgurl = await fetchInstagramImage(url);
+                  const el = document.getElementById(`instaimg-${galeriaId}-${idx}`);
+                  if(el) {
+                    if(imgurl){
+                      el.innerHTML = `<img class="thumbnail solo" src="${imgurl}" alt="Instagram" style="pointer-events:none;">`;
+                    }else{
+                      el.innerHTML = `<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>`;
+                    }
+                  }
+                }
+              });
+            }, 100);
+            return html;
+          }
+
+          if (imagenes.length > 1) {
+            return `<div class="galeria-carrusel">` +
+              imagenes.map((url, idx) =>
+                `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`).join('') +
+              `</div><span class="segmento-doble"></span>`;
+          } else if (imagenes.length === 1) {
+            return `<img class="thumbnail solo" src="${imagenes[0]}" alt="Imagen" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},0)">` +
+              `<span class="segmento-doble"></span>`;
+          }
+          return "";
+        }
+
+        function renderCard(item, galeriaId) {
           const nivelVisual = Number(item.nivel);
           const esDestacada = nivelVisual === 5 && Number(item.subnivel) === 1;
           let html = `<div class="card nivel-${nivelVisual}">`;
@@ -377,7 +437,6 @@
           if((item.gold||'').toLowerCase()==='x'){
             html += `<img src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/BEST.png" alt="Gold">`;
           }
-          // QUITADO: PET EN BADGE, ahora va entre termales logos.
           html += `</div>`;
 
           if(item.logo){
@@ -389,7 +448,7 @@
             html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
           }
           html += `<span class="espaciado"></span>`;
-          html += renderTermalesLogos(item); // <<---- AQUÍ SE MUESTRA LOGOS TERMAL/HECHO/PET
+          html += renderTermalesLogos(item);
 
           if(nivelVisual === 2 && item.descripcion){
             html += `<div class="descripcion">${item.descripcion.substring(0,150)}</div>`;
@@ -404,6 +463,7 @@
             html += `<span class="segmento-doble"></span>`;
           }
 
+          // Contacto bloque: para nivel 3, solo dirección y teléfono, sin "Cómo llegar", sin whatsapp extra.
           let dirCount = 0;
           let contactoHtml = "";
           for(let i=1;i<=6;i++){
@@ -414,47 +474,24 @@
               contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
               if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
               const wh=item[`whatsapp${i===1?'':i}`];
-              if(wh){
-                if(nivelVisual === 3){
-                  contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${wh}</div><span class="espaciado"></span>`;
-                }else{
-                  contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${wh.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`;
-                }
+              if(wh && nivelVisual !== 3){
+                contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${wh.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`;
               }
-              if(dir && item[`maps${i===1?'':i}`]){
-                if(nivelVisual === 3){
-                  contactoHtml += `<div><i class="fas fa-route" style="margin-right:0.4em;color:#d35400;font-size:1.3em;"></i>${item[`maps${i===1?'':i}`]}</div><span class="espaciado"></span>`;
-                }else{
-                  contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;"><i class="fas fa-route" style="margin-right:0.4em;color:#d35400;font-size:1.3em;"></i>Cómo llegar</a></div>`;
-                  contactoHtml += `<span class="espaciado"></span>`;
-                }
+              if(dir && item[`maps${i===1?'':i}`] && nivelVisual !== 3){
+                contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;"><i class="fas fa-route" style="margin-right:0.4em;color:#d35400;font-size:1.3em;"></i>Cómo llegar</a></div>`;
+                contactoHtml += `<span class="espaciado"></span>`;
               }
             }
           }
-          if(dirCount>1 && item.whatsapp){
-            if(nivelVisual === 3){
-              contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${item.whatsapp}</div><span class="espaciado"></span>`;
-            }else{
-              contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${item.whatsapp.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${item.whatsapp}</a></div><span class="espaciado"></span>`;
-            }
+          if(dirCount>1 && item.whatsapp && nivelVisual !== 3){
+            contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${item.whatsapp.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${item.whatsapp}</a></div><span class="espaciado"></span>`;
           }
           html += `<div class="contacto-bloque">${contactoHtml}</div>`;
           html += `<span class="segmento-doble"></span>`;
 
           html += renderRedesBloque(item, nivelVisual);
 
-          let galeriaHtml = "";
-          const imagenes=['img1','img2','img3','img4','img5','img6'].map(k=>item[k]).filter(Boolean);
-          if(imagenes.length>1){
-            galeriaHtml = `<div class="galeria-carrusel">`+
-              imagenes.map((url,idx)=>
-              `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`).join('')+
-              `</div><span class="segmento-doble"></span>`;
-          }else if(imagenes.length===1){
-            galeriaHtml = `<img class="thumbnail solo" src="${imagenes[0]}" alt="Imagen" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},0)">`+
-            `<span class="segmento-doble"></span>`;
-          }
-          html += galeriaHtml;
+          html += renderGaleria(item, nivelVisual, galeriaId);
 
           let webMailHtml = "";
           if(item.link && item.link.trim()){
@@ -495,17 +532,15 @@
           else {window.scrollTo({top:0,behavior:'smooth'});}
         }
         function renderDestacadas(destacadas) {
-          destacadasBar.innerHTML = destacadas.map(renderCard).join('');
+          destacadasBar.innerHTML = destacadas.map((item, idx) => renderCard(item, `dest-${idx}`)).join('');
         }
 
-        // === MODIFICADO: Banner rotativo cada 3 tarjetas en móviles ===
         function renderNormales(normales) {
-          const isMobile = window.innerWidth <= 600;
           let html = '';
           normales.forEach((item, idx) => {
-            html += renderCard(item);
-            if (isMobile && (idx + 1) % 3 === 0 && (idx + 1) < normales.length) {
-              // Alterna banners rotativos (por posición)
+            html += renderCard(item, `norm-${idx}`);
+            // Banner intercalado cada 3 tarjetas EN TODAS LAS PANTALLAS
+            if ((idx + 1) % 3 === 0 && (idx + 1) < normales.length) {
               const bannerNum = Math.floor(idx / 3) % banners.length;
               const banner = banners[bannerNum];
               html += `
@@ -566,7 +601,6 @@
           targetBar.innerHTML = html;
         }
 
-        // Destacadas SIEMPRE arriba
         function render() {
           const qGlobal = normalizar(buscadorGlobal.value.trim());
           const segmentoSeleccionado = selectSegmento.value;
