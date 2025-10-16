@@ -5,30 +5,31 @@
   <title>Panel Comercios - Login & Dashboard</title>
   <style>
     body { font-family: Arial, sans-serif; background: #f6f7fb; min-height: 100vh; margin:0; padding:0;}
-    .container { max-width: 420px; margin: 40px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 16px #0002; padding: 32px 32px 24px 32px;}
-    label { display: block; margin: 16px 0 6px; font-weight: 500; }
-    input, select { width: 100%; padding: 8px; margin-bottom: 10px; border-radius:5px; border:1px solid #bbb;}
-    .autocomplete-list { position:absolute; background:#fff; border:1px solid #bbb; z-index:10; max-height:180px; overflow-y:auto; width:93%; }
+    .container { max-width: 720px; margin: 20px auto; background: #fff; border-radius: 12px; box-shadow: 0 2px 16px #0002; padding: 24px;}
+    label { display: block; margin: 12px 0 6px; font-weight: 500; }
+    input, select, button { width: 100%; padding: 8px; margin-bottom: 10px; border-radius:5px; border:1px solid #bbb; box-sizing: border-box; }
+    .autocomplete-list { position:absolute; background:#fff; border:1px solid #bbb; z-index:10; max-height:220px; overflow-y:auto; width:93%; }
     .autocomplete-item { padding:8px; cursor:pointer; }
     .autocomplete-item:hover { background:#e7f7fd; }
     .hidden { display: none; }
     .success { color: #060; font-weight:bold; }
     .error { color: #c00; }
-    button { margin-top: 18px; padding: 12px 0; width: 100%; font-size: 1.1em; border-radius:7px; border:1px solid #2a8; background:#3dc879; color:#fff; font-weight:bold;}
-    .link { color: #3498db; cursor:pointer; text-decoration:underline; margin-top:14px; display:inline-block;}
+    button.primary { margin-top: 10px; padding: 12px 0; font-size: 1.05em; border-radius:7px; border:1px solid #2a8; background:#3dc879; color:#fff; font-weight:bold;}
+    .link { color: #3498db; cursor:pointer; text-decoration:underline; margin-top:8px; display:inline-block;}
     .panel { display: none; }
     .panel.active { display: block; }
     h2, h3 { text-align:center; }
-    .info { background: #fffbe5; padding: 15px; border-radius: 8px; margin: 10px 0; color: #555; text-align: center;}
+    .info { background: #fffbe5; padding: 12px; border-radius: 8px; margin: 10px 0; color: #555; text-align: center;}
     .saludo { font-size: 1.3em; margin-bottom:16px; text-align:center;}
     .datos { background: #f6f6f6; padding: 12px; border-radius:7px; margin-bottom:10px; }
     .panel-dashboard { margin-top:20px; }
-    .logout-btn { background:#e74c3c; border:1px solid #c0392b; color:#fff; margin-top:10px;}
+    .logout-btn { background:#e74c3c; border:1px solid #c0392b; color:#fff; margin-top:10px; padding:8px; }
     .panel-dashboard h3 { margin-bottom:10px; }
     .item-dato { margin-bottom:7px; }
     .panel-dashboard a { color: #3498db; text-decoration:underline; }
     #form-datos-comercio label { margin-top:10px; }
     #form-datos-comercio input { margin-bottom:4px; }
+    #debug { background:#111; color:#bff; padding:10px; border-radius:6px; max-height:160px; overflow:auto; font-size:12px; margin-top:8px; white-space:pre-wrap; }
   </style>
 </head>
 <body>
@@ -45,7 +46,7 @@
         <input type="hidden" id="comercio-id" name="comercio_id">
         <label>Clave</label>
         <input type="password" id="clave" name="clave" placeholder="Clave de acceso..." required minlength="4">
-        <button type="submit">Ingresar</button>
+        <button type="submit" id="btnLogin" class="primary" disabled>Ingresar</button>
         <div id="login-msg"></div>
       </form>
       <div style="text-align:center;">
@@ -64,8 +65,8 @@
         </div>
         <input type="hidden" id="comercio-id2" name="comercio_id_reg">
         <label>Contraseña</label>
-        <input type="password" id="password_reg" name="password_reg" placeholder="Elige una contraseña..." required minlength="4" autocomplete="new-password">
-        <button type="submit">Crear cuenta</button>
+        <input type="password" id="password_reg" name="password_reg" placeholder="Elige una contraseña..." required minlength="4" autocomplete="new-password" disabled>
+        <button type="submit" id="btnRegister" class="primary" disabled>Crear cuenta</button>
         <div id="reg-msg"></div>
       </form>
       <div style="text-align:center;">
@@ -100,6 +101,9 @@
       </div>
       <button class="logout-btn" id="logout-btn">Cerrar sesión</button>
     </div>
+
+    <h3>Debug / Registros</h3>
+    <div id="debug"></div>
   </div>
 
 <script>
@@ -112,6 +116,17 @@ const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwl93i3Z14T-GJJxc
 
 let comercios = [];
 let sesion = null;
+const debugEl = document.getElementById('debug');
+function debugLog(...args) {
+  console.log(...args);
+  try {
+    debugEl.textContent += Array.from(args).map(a => {
+      if (typeof a === 'object') return JSON.stringify(a, null, 2);
+      return String(a);
+    }).join(' ') + "\n\n";
+    debugEl.scrollTop = debugEl.scrollHeight;
+  } catch(e){}
+}
 
 // Cambia de panel entre login, registro, alta nuevo comercio y dashboard
 function mostrarPanel(panel) {
@@ -125,73 +140,82 @@ function mostrarPanel(panel) {
   else if (panel === 'dashboard') document.getElementById('panel-dashboard').classList.add('active');
 }
 
-// --- AUTOCOMPLETADO ---
+// --- AUTOCOMPLETADO: carga robusta desde Google Sheets ---
 function cargarComercios(callback) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_ANUNCIANTES}`;
-  fetch(url)
+  fetch(url, {cache: 'no-store'})
     .then(res => res.text())
     .then(text => {
       try {
-        const json = JSON.parse(text.substr(47).slice(0, -2));
-        comercios = json.table.rows.map(row => ({
-          nombre: row.c[1] ? row.c[1].v : "",
-          id: row.c[61] ? row.c[61].v : ""
-        }));
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start === -1 || end === -1) throw new Error('Formato inesperado de Google Sheets');
+        const jsonText = text.slice(start, end+1);
+        const json = JSON.parse(jsonText);
+        // identificar columnas por cabecera si es posible
+        const cols = (json.table && json.table.cols) ? json.table.cols.map(c => (c && c.label) ? String(c.label).toLowerCase().trim() : '') : [];
+        let idxNombre = cols.findIndex(h => /nombre|comercio|title|titulo/.test(h));
+        let idxId = cols.findIndex(h => /id|planilla|planilla_id|codigo/.test(h));
+        if (idxNombre === -1) idxNombre = 1;
+        if (idxId === -1) idxId = 61;
+        comercios = (json.table.rows || []).map(row => ({
+          nombre: (row.c && row.c[idxNombre] && row.c[idxNombre].v) ? row.c[idxNombre].v : '',
+          id: (row.c && row.c[idxId] && row.c[idxId].v) ? row.c[idxId].v : ''
+        })).filter(c => c.nombre);
+        debugLog('Comercios cargados:', comercios.length);
         if (callback) callback();
       } catch (error) {
-        alert("Error cargando comercios: revisá la hoja de Google y que esté pública.");
+        debugLog('Error parseando Google Sheets:', error);
+        alert('Error cargando comercios: revisá la hoja de Google y que esté pública. Ver detalles en Debug.');
+        if (callback) callback();
       }
     })
-    .catch(() => {
-      alert("No se pudo cargar la lista de comercios. Revisá tu conexión.");
+    .catch(err => {
+      debugLog('Error fetch Google Sheets:', err);
+      alert('No se pudo cargar la lista de comercios. Revisá tu conexión.');
+      if (callback) callback();
     });
 }
 
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro = false) {
+  if(!inputEl || !listEl || !idEl) return;
   inputEl.addEventListener('input', function() {
     const val = this.value.trim().toLowerCase();
     listEl.innerHTML = '';
-    if (val.length < 2) { listEl.classList.add('hidden'); return; }
+    if (val.length < 2) { listEl.classList.add('hidden'); idEl.value = ''; document.getElementById('btnLogin')?.setAttribute('disabled', 'true'); if(modoRegistro) document.getElementById('btnRegister')?.setAttribute('disabled','true'); return; }
     const matches = comercios.filter(c => c.nombre.toLowerCase().includes(val));
-    matches.slice(0, 10).forEach(c => {
-      const item = document.createElement('div');
-      item.className = 'autocomplete-item';
-      item.textContent = c.nombre;
-      item.onclick = function() {
-        inputEl.value = c.nombre;
-        idEl.value = c.id;
-        listEl.classList.add('hidden');
-        if(modoRegistro) {
-          setTimeout(() => {
+
+    if (matches.length) {
+      matches.slice(0, 20).forEach(c => {
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+        item.textContent = c.nombre + (c.id ? (' ('+c.id+')') : '');
+        item.onclick = function() {
+          inputEl.value = c.nombre;
+          idEl.value = c.id || '';
+          listEl.classList.add('hidden');
+          document.getElementById('btnLogin')?.removeAttribute('disabled');
+          if(modoRegistro) {
             document.getElementById('password_reg').disabled = false;
             document.getElementById('password_reg').focus();
-          },150);
-        }
-      };
-      listEl.appendChild(item);
-    });
-    if (matches.length === 0) {
+            document.getElementById('btnRegister')?.removeAttribute('disabled');
+          }
+        };
+        listEl.appendChild(item);
+      });
+      listEl.classList.remove('hidden');
+    } else {
       const item = document.createElement('div');
-      item.style.padding = "10px";
-      item.style.background = "#fffbe5";
-      item.innerHTML = `<b>¿Tu comercio aún no está publicado?</b><br>
-        <button id="btnRegistrarComercio" style="margin-top:8px;">Solicitar alta de nuevo comercio</button>`;
+      item.style.padding = '10px';
+      item.style.background = '#fffbe5';
+      item.innerHTML = `<b>¿Tu comercio aún no está publicado?</b><br><button id="btnRegistrarComercio" style="margin-top:8px; width:100%;">Solicitar alta de nuevo comercio</button>`;
       listEl.appendChild(item);
-      setTimeout(() => {
-        const btn = document.getElementById('btnRegistrarComercio');
-        if(btn){
-          btn.onclick = function() { mostrarPanel('nuevo-comercio'); };
-        }
-      }, 100);
+      setTimeout(() => { const btn = document.getElementById('btnRegistrarComercio'); if(btn) btn.onclick = function() { mostrarPanel('nuevo-comercio'); }; }, 50);
+      listEl.classList.remove('hidden');
     }
-    listEl.classList.toggle('hidden', !matches.length && inputEl.value.length < 2);
   });
-  inputEl.addEventListener('blur', function() {
-    setTimeout(() => listEl.classList.add('hidden'), 200);
-  });
-  inputEl.addEventListener('change', function() {
-    if (this.value === "") idEl.value = "";
-  });
+  inputEl.addEventListener('blur', function() { setTimeout(() => listEl.classList.add('hidden'), 180); });
+  inputEl.addEventListener('change', function() { if (this.value === '') { idEl.value = ''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnRegister')?.setAttribute('disabled','true'); } });
 }
 
 // --- LOGIN y REGISTRO ---
@@ -211,199 +235,133 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // --- SESIÓN LOCAL ---
-  if(localStorage.getItem("comercio_id") && localStorage.getItem("comercio_nombre")) {
+  if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')) {
     sesion = {
-      id: localStorage.getItem("comercio_id"),
-      nombre: localStorage.getItem("comercio_nombre"),
-      planilla_id: localStorage.getItem("planilla_id") || ""
+      id: localStorage.getItem('comercio_id'),
+      nombre: localStorage.getItem('comercio_nombre'),
+      planilla_id: localStorage.getItem('planilla_id') || ''
     };
     mostrarPanelDashboard();
   }
 
   // LOGIN
-  document.getElementById("login-form").onsubmit = function(e) {
+  document.getElementById('login-form').onsubmit = function(e) {
     e.preventDefault();
     const nombre = document.getElementById('comercio-buscar').value.trim();
     const clave = document.getElementById('clave').value.trim();
-    if (!nombre) {
-      document.getElementById('login-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista.</span>";
-      return;
-    }
+    const id = document.getElementById('comercio-id').value.trim();
+    if (!id) { document.getElementById('login-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista (seleccioná la opción sugerida).</span>"; return; }
     document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
+    const payload = { accion: 'login', comercio_id: id, nombre: nombre, password: clave };
+    debugLog('POST -> WORKER_URL:', WORKER_URL, payload);
     fetch(WORKER_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        accion: "login",
-        nombre: nombre,
-        password: clave
-      })
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      mode: 'cors'
     })
-    .then(r => r.json())
+    .then(r => { debugLog('Respuesta worker status:', r.status); return r.json().catch(() => ({ success:false, message: 'Respuesta inválida de worker' })); })
     .then(res => {
+      debugLog('Worker ->', res);
       if (res.success) {
-        // ----------- AGREGADO: guardar planilla_id -------------
-        localStorage.setItem("comercio_id", res.id);
-        localStorage.setItem("comercio_nombre", res.nombre);
-        if (res.planilla_id) {
-          localStorage.setItem("planilla_id", res.planilla_id);
-        }
-        sesion = {
-          id: res.id,
-          nombre: res.nombre,
-          planilla_id: res.planilla_id || localStorage.getItem("planilla_id") || ""
-        };
-        document.getElementById('login-msg').innerHTML = "<span class='success'>" + res.message + "</span>";
+        localStorage.setItem('comercio_id', res.id || id);
+        localStorage.setItem('comercio_nombre', res.nombre || nombre);
+        if (res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
+        sesion = { id: res.id || id, nombre: res.nombre || nombre, planilla_id: res.planilla_id || localStorage.getItem('planilla_id') || '' };
+        document.getElementById('login-msg').innerHTML = "<span class='success'>" + (res.message || 'Ingresado') + "</span>";
         setTimeout(() => { mostrarPanelDashboard(); }, 600);
       } else {
-        document.getElementById('login-msg').innerHTML = "<span class='error'>" + (res.message || "Login incorrecto") + "</span>";
+        document.getElementById('login-msg').innerHTML = "<span class='error'>" + (res.message || 'Login incorrecto') + "</span>";
       }
     })
-    .catch(() => {
-      document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión.</span>";
-    });
+    .catch(err => { debugLog('Error fetch worker:', err); document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión. Revisá consola (posible CORS o endpoint inaccesible).</span>"; });
   };
 
   // REGISTRO
-  document.getElementById("register-form").onsubmit = function(e) {
+  document.getElementById('register-form').onsubmit = function(e) {
     e.preventDefault();
     const comercio = document.getElementById('comercio-buscar2').value.trim();
     const comercio_id = document.getElementById('comercio-id2').value.trim();
     const password = document.getElementById('password_reg').value.trim();
-    if (!comercio_id) {
-      document.getElementById('reg-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista.</span>";
-      return;
-    }
+    if (!comercio_id) { document.getElementById('reg-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista.</span>"; return; }
     document.getElementById('reg-msg').innerHTML = "<span>Registrando...</span>";
+    const payload = { accion: 'registrar', password: password, comercio_id: comercio_id, comercio_nombre: comercio };
+    debugLog('POST -> WORKER_URL registrar:', payload);
     fetch(WORKER_URL, {
-      method: "POST",
-      body: JSON.stringify({
-        accion: "registrar",
-        password: password,
-        comercio_id: comercio_id,
-        comercio_nombre: comercio
-      }),
-      headers: { "Content-Type": "application/json" }
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      mode: 'cors'
     })
-    .then(r => r.json())
+    .then(r => r.json().catch(() => ({ success:false, message: 'Respuesta inválida de worker' })))
     .then(res => {
+      debugLog('Worker registrar ->', res);
       if (res.success) {
-        // ----------- AGREGADO: guardar planilla_id -------------
-        localStorage.setItem("comercio_id", comercio_id);
-        localStorage.setItem("comercio_nombre", comercio);
-        if (res.planilla_id) {
-          localStorage.setItem("planilla_id", res.planilla_id);
-        }
-        sesion = {
-          id: comercio_id,
-          nombre: comercio,
-          planilla_id: res.planilla_id || localStorage.getItem("planilla_id") || ""
-        };
-        document.getElementById('reg-msg').innerHTML = "<span class='success'>" + res.message + "</span>";
-        setTimeout(() => { mostrarPanelDashboard(); }, 1200);
+        localStorage.setItem('comercio_id', comercio_id);
+        localStorage.setItem('comercio_nombre', comercio);
+        if (res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
+        sesion = { id: comercio_id, nombre: comercio, planilla_id: res.planilla_id || localStorage.getItem('planilla_id') || '' };
+        document.getElementById('reg-msg').innerHTML = "<span class='success'>" + (res.message || 'Registrado') + "</span>";
+        setTimeout(() => { mostrarPanelDashboard(); }, 1000);
       } else {
-        document.getElementById('reg-msg').innerHTML = "<span class='error'>" + res.message + "</span>";
+        document.getElementById('reg-msg').innerHTML = "<span class='error'>" + (res.message || 'Error al registrar') + "</span>";
       }
     })
-    .catch(() => {
-      document.getElementById('reg-msg').innerHTML = "<span class='error'>Error de conexión.</span>";
-    });
+    .catch(err => { debugLog('Error fetch registrar:', err); document.getElementById('reg-msg').innerHTML = "<span class='error'>Error de conexión.</span>"; });
   };
 
-  // Botón para ir al formulario de alta de comercio nuevo
-  document.getElementById('btnFormComercio')?.addEventListener('click', function() {
-    window.open(FORM_URL, "_blank");
-  });
-
-  // LOGOUT
-  document.getElementById('logout-btn')?.addEventListener('click', function() {
-    localStorage.removeItem("comercio_id");
-    localStorage.removeItem("comercio_nombre");
-    localStorage.removeItem("planilla_id"); // limpiar también planilla_id
-    sesion = null;
-    mostrarPanel('login');
-  });
+  document.getElementById('btnFormComercio')?.addEventListener('click', function() { window.open(FORM_URL, '_blank'); });
+  document.getElementById('logout-btn')?.addEventListener('click', function() { localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion = null; mostrarPanel('login'); });
 });
 
 // DASHBOARD con edición de datos
 function mostrarPanelDashboard() {
-  if (sesion && sesion.id && sesion.nombre) {
-    document.getElementById('nombre-comercio').textContent = sesion.nombre;
-    // DEBUG: Mostrar el ID y la URL que se consulta
-    console.log("Consultando datos de comercio con id:", sesion.id);
-    console.log("URL Apps Script:", `${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`);
-    // PEDIR DATOS AL APPSCRIPT
-    fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`)
-      .then(r => r.json())
-      .then(datos => {
-        console.log("Respuesta de Apps Script:", datos);
-
-        // -------- AGREGADO: guardar planilla_id si viene ---------
-        if (datos.planilla_id) {
-          sesion.planilla_id = datos.planilla_id;
-          localStorage.setItem("planilla_id", datos.planilla_id);
-        }
-
-        if(datos.error) {
-          document.getElementById('campos-datos-comercio').innerHTML =
-            `<b>Error cargando datos:</b> <span style='color:red'>${datos.error}</span><br>
-            <span style='color:#555'>¿El id existe en la hoja "anunciantes"? ¿El nombre de la columna es "id"?</span>`;
-          return;
-        }
-        // ARMAR FORMULARIO CON CAMPOS EDITABLES
-        let html = "";
-        const camposEditables = [
-          "nombre", "nivel", "subnivel", "segmento", "categoria", "subcategoria", "tags", "adicionales",
-          "pie", "descripcion", "direccion", "lat", "lng", "maps", "telefono", "whatsapp", "mail",
-          "instagram", "facebook", "youtube", "tiktok", "linkedin", "logo", "verificado", "gold",
-          "img1", "img2", "img3", "img4", "img5", "img6", "link"
-        ];
-        camposEditables.forEach(campo => {
-          html += `
-            <div>
-              <label>${campo}</label>
-              <input type="text" name="${campo}" value="${datos[campo] || ""}" autocomplete="off"/>
-            </div>
-          `;
-        });
-        document.getElementById('campos-datos-comercio').innerHTML = html;
-      })
-      .catch(err => {
-        document.getElementById('campos-datos-comercio').innerHTML =
-          `<b>Error de conexión con Apps Script.</b><br>
-          <span style='color:#c00;'>${err}</span>`;
-        console.error("Error al consultar Apps Script:", err);
-      });
-    mostrarPanel('dashboard');
-  } else {
-    mostrarPanel('login');
-  }
+  if (!sesion || !sesion.id) { mostrarPanel('login'); return; }
+  document.getElementById('nombre-comercio').textContent = sesion.nombre;
+  debugLog('Consultando datos de comercio con id:', sesion.id);
+  debugLog('URL Apps Script:', `${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`);
+  fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, { mode: 'cors' })
+    .then(r => r.json().catch(()=>({error: 'Respuesta inválida de Apps Script'})))
+    .then(datos => {
+      debugLog('Respuesta de Apps Script:', datos);
+      if (datos.planilla_id) { sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
+      if(datos.error) {
+        document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos:</b> <span style='color:red'>${datos.error}</span><br><span style='color:#555'>¿El id existe en la hoja "anunciantes"? ¿El nombre de la columna es "id"?</span>`;
+        mostrarPanel('dashboard');
+        return;
+      }
+      const camposEditables = [
+        "nombre", "nivel", "subnivel", "segmento", "categoria", "subcategoria", "tags", "adicionales",
+        "pie", "descripcion", "direccion", "lat", "lng", "maps", "telefono", "whatsapp", "mail",
+        "instagram", "facebook", "youtube", "tiktok", "linkedin", "logo", "verificado", "gold",
+        "img1", "img2", "img3", "img4", "img5", "img6", "link"
+      ];
+      let html = '';
+      camposEditables.forEach(campo => { html += `<div><label>${campo}</label><input type="text" name="${campo}" value="${datos[campo] || ''}" autocomplete="off"/></div>`; });
+      document.getElementById('campos-datos-comercio').innerHTML = html;
+    })
+    .catch(err => { document.getElementById('campos-datos-comercio').innerHTML = `<b>Error de conexión con Apps Script.</b><br><span style='color:#c00;'>${err}</span>`; debugLog('Error al consultar Apps Script:', err); });
+  mostrarPanel('dashboard');
 }
 
 // GUARDAR CAMBIOS
-document.getElementById('form-datos-comercio').onsubmit = function(e) {
-  e.preventDefault();
-  const formData = new FormData(e.target);
-  const data = {};
-  formData.forEach((v, k) => data[k] = v);
-  fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, {
-    method: "POST",
-    body: JSON.stringify(data),
-    headers: {"Content-Type":"application/json"}
-  })
-    .then(r => r.json())
-    .then(res => {
-      if(res.success) {
-        document.getElementById('msg-datos-comercio').textContent = "¡Datos guardados!";
-      } else {
-        document.getElementById('msg-datos-comercio').textContent = "Error al guardar.";
-      }
+const formDatos = document.getElementById('form-datos-comercio');
+if (formDatos) {
+  formDatos.onsubmit = function(e) {
+    e.preventDefault();
+    if (!sesion || !sesion.id) { document.getElementById('msg-datos-comercio').textContent = 'Sesión no válida.'; return; }
+    const formData = new FormData(e.target);
+    const data = {};
+    formData.forEach((v,k) => data[k] = v);
+    debugLog('POST -> APPSCRIPT guardar:', data);
+    fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, {
+      method: 'POST', body: JSON.stringify(data), headers: {'Content-Type':'application/json'}, mode: 'cors'
     })
-    .catch((err) => {
-      document.getElementById('msg-datos-comercio').textContent = "Error de conexión.";
-      console.error("Error al guardar datos en Apps Script:", err);
-    });
-};
+    .then(r => r.json().catch(()=>({success:false})))
+    .then(res => { debugLog('AppsScript guardar ->', res); if(res.success) { document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; } else { document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; } })
+    .catch(err => { debugLog('Error guardando en Apps Script:', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
+  };
+}
 </script>
 </body>
 </html>
