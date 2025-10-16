@@ -30,6 +30,7 @@
     #form-datos-comercio label { margin-top:10px; }
     #form-datos-comercio input { margin-bottom:4px; }
     #debug { background:#111; color:#bff; padding:10px; border-radius:6px; max-height:160px; overflow:auto; font-size:12px; margin-top:8px; white-space:pre-wrap; }
+    #reportBtn { margin-top:8px; background:#2d9bf0; color:#fff; border:none; padding:10px; border-radius:6px; cursor:pointer; }
   </style>
 </head>
 <body>
@@ -48,6 +49,9 @@
         <input type="password" id="clave" name="clave" placeholder="Clave de acceso..." required minlength="4">
         <button type="submit" id="btnLogin" class="primary" disabled>Ingresar</button>
         <div id="login-msg"></div>
+        <div id="report-area" style="display:none;">
+          <button id="reportBtn">Reportar a Soporte (WhatsApp)</button>
+        </div>
       </form>
       <div style="text-align:center;">
         <span class="link" onclick="mostrarPanel('registro')">¿No tenés cuenta? Registrate</span>
@@ -117,6 +121,7 @@ const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwl93i3Z14T-GJJxc
 let comercios = [];
 let sesion = null;
 const debugEl = document.getElementById('debug');
+
 function debugLog(...args) {
   console.log(...args);
   try {
@@ -128,19 +133,27 @@ function debugLog(...args) {
   } catch(e){}
 }
 
-// Cambia de panel entre login, registro, alta nuevo comercio y dashboard
+// UI helpers
 function mostrarPanel(panel) {
-  document.getElementById('panel-login').classList.remove('active');
-  document.getElementById('panel-registro').classList.remove('active');
-  document.getElementById('panel-nuevo-comercio').classList.remove('active');
-  document.getElementById('panel-dashboard').classList.remove('active');
-  if (panel === 'login') document.getElementById('panel-login').classList.add('active');
-  else if (panel === 'registro') document.getElementById('panel-registro').classList.add('active');
-  else if (panel === 'nuevo-comercio') document.getElementById('panel-nuevo-comercio').classList.add('active');
-  else if (panel === 'dashboard') document.getElementById('panel-dashboard').classList.add('active');
+  ['panel-login','panel-registro','panel-nuevo-comercio','panel-dashboard'].forEach(id => {
+    document.getElementById(id).classList.remove('active');
+  });
+  const el = document.getElementById('panel-' + panel);
+  if (el) el.classList.add('active');
 }
 
-// --- AUTOCOMPLETADO: carga robusta desde Google Sheets ---
+function enableReportButton(payloadText) {
+  const area = document.getElementById('report-area');
+  area.style.display = 'block';
+  const btn = document.getElementById('reportBtn');
+  btn.onclick = function() {
+    const supportNumber = "5492245502172";
+    const text = encodeURIComponent(payloadText + "\n\nPor favor revisar. Gracias.");
+    window.open(`https://wa.me/${supportNumber}?text=${text}`, "_blank");
+  };
+}
+
+// Cargar comercios (robusto)
 function cargarComercios(callback) {
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${SHEET_ANUNCIANTES}`;
   fetch(url, {cache: 'no-store'})
@@ -152,7 +165,6 @@ function cargarComercios(callback) {
         if (start === -1 || end === -1) throw new Error('Formato inesperado de Google Sheets');
         const jsonText = text.slice(start, end+1);
         const json = JSON.parse(jsonText);
-        // identificar columnas por cabecera si es posible
         const cols = (json.table && json.table.cols) ? json.table.cols.map(c => (c && c.label) ? String(c.label).toLowerCase().trim() : '') : [];
         let idxNombre = cols.findIndex(h => /nombre|comercio|title|titulo/.test(h));
         let idxId = cols.findIndex(h => /id|planilla|planilla_id|codigo/.test(h));
@@ -182,11 +194,10 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro = false) {
   inputEl.addEventListener('input', function() {
     const val = this.value.trim().toLowerCase();
     listEl.innerHTML = '';
-    if (val.length < 2) { listEl.classList.add('hidden'); idEl.value = ''; document.getElementById('btnLogin')?.setAttribute('disabled', 'true'); if(modoRegistro) document.getElementById('btnRegister')?.setAttribute('disabled','true'); return; }
+    if (val.length < 2) { listEl.classList.add('hidden'); idEl.value = ''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnRegister')?.setAttribute('disabled','true'); return; }
     const matches = comercios.filter(c => c.nombre.toLowerCase().includes(val));
-
     if (matches.length) {
-      matches.slice(0, 20).forEach(c => {
+      matches.slice(0,20).forEach(c => {
         const item = document.createElement('div');
         item.className = 'autocomplete-item';
         item.textContent = c.nombre + (c.id ? (' ('+c.id+')') : '');
@@ -195,11 +206,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro = false) {
           idEl.value = c.id || '';
           listEl.classList.add('hidden');
           document.getElementById('btnLogin')?.removeAttribute('disabled');
-          if(modoRegistro) {
-            document.getElementById('password_reg').disabled = false;
-            document.getElementById('password_reg').focus();
-            document.getElementById('btnRegister')?.removeAttribute('disabled');
-          }
+          if(modoRegistro) { document.getElementById('password_reg').disabled = false; document.getElementById('password_reg').focus(); document.getElementById('btnRegister')?.removeAttribute('disabled'); }
         };
         listEl.appendChild(item);
       });
@@ -210,74 +217,91 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro = false) {
       item.style.background = '#fffbe5';
       item.innerHTML = `<b>¿Tu comercio aún no está publicado?</b><br><button id="btnRegistrarComercio" style="margin-top:8px; width:100%;">Solicitar alta de nuevo comercio</button>`;
       listEl.appendChild(item);
-      setTimeout(() => { const btn = document.getElementById('btnRegistrarComercio'); if(btn) btn.onclick = function() { mostrarPanel('nuevo-comercio'); }; }, 50);
+      setTimeout(() => { const btn = document.getElementById('btnRegistrarComercio'); if(btn) btn.onclick = function(){ mostrarPanel('nuevo-comercio'); }; }, 50);
       listEl.classList.remove('hidden');
     }
   });
-  inputEl.addEventListener('blur', function() { setTimeout(() => listEl.classList.add('hidden'), 180); });
-  inputEl.addEventListener('change', function() { if (this.value === '') { idEl.value = ''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnRegister')?.setAttribute('disabled','true'); } });
+  inputEl.addEventListener('blur', function(){ setTimeout(()=>listEl.classList.add('hidden'),180); });
+  inputEl.addEventListener('change', function(){ if (this.value === '') { idEl.value = ''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnRegister')?.setAttribute('disabled','true'); } });
 }
 
-// --- LOGIN y REGISTRO ---
+// LOGIN & REGISTRO
 document.addEventListener('DOMContentLoaded', () => {
   cargarComercios(() => {
-    showAutocomplete(
-      document.getElementById('comercio-buscar'),
-      document.getElementById('autocomplete-list'),
-      document.getElementById('comercio-id')
-    );
-    showAutocomplete(
-      document.getElementById('comercio-buscar2'),
-      document.getElementById('autocomplete-list2'),
-      document.getElementById('comercio-id2'),
-      true // modoRegistro
-    );
+    showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
+    showAutocomplete(document.getElementById('comercio-buscar2'), document.getElementById('autocomplete-list2'), document.getElementById('comercio-id2'), true);
   });
 
-  // --- SESIÓN LOCAL ---
   if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')) {
-    sesion = {
-      id: localStorage.getItem('comercio_id'),
-      nombre: localStorage.getItem('comercio_nombre'),
-      planilla_id: localStorage.getItem('planilla_id') || ''
-    };
+    sesion = { id: localStorage.getItem('comercio_id'), nombre: localStorage.getItem('comercio_nombre'), planilla_id: localStorage.getItem('planilla_id') || '' };
     mostrarPanelDashboard();
   }
 
-  // LOGIN
-  document.getElementById('login-form').onsubmit = function(e) {
+  document.getElementById('login-form').onsubmit = async function(e) {
     e.preventDefault();
+    document.getElementById('report-area').style.display = 'none';
     const nombre = document.getElementById('comercio-buscar').value.trim();
     const clave = document.getElementById('clave').value.trim();
     const id = document.getElementById('comercio-id').value.trim();
-    if (!id) { document.getElementById('login-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista (seleccioná la opción sugerida).</span>"; return; }
+    if (!id && !nombre) { document.getElementById('login-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista.</span>"; return; }
     document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
-    const payload = { accion: 'login', comercio_id: id, nombre: nombre, password: clave };
-    debugLog('POST -> WORKER_URL:', WORKER_URL, payload);
-    fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      mode: 'cors'
-    })
-    .then(r => { debugLog('Respuesta worker status:', r.status); return r.json().catch(() => ({ success:false, message: 'Respuesta inválida de worker' })); })
-    .then(res => {
+
+    // Primero intento con comercio_id (si existe)
+    const payloadWithId = { accion: 'login', comercio_id: id || '', nombre: nombre, password: clave };
+    debugLog('POST -> WORKER_URL:', WORKER_URL, payloadWithId);
+
+    try {
+      let r = await fetch(WORKER_URL, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payloadWithId), mode: 'cors' });
+      let text = await r.text();
+      let res;
+      try { res = JSON.parse(text); } catch(e) { res = { success:false, message: text }; }
+      debugLog('Respuesta worker status:', r.status);
       debugLog('Worker ->', res);
-      if (res.success) {
+
+      if (r.status === 200 && res.success) {
+        // Éxito
         localStorage.setItem('comercio_id', res.id || id);
         localStorage.setItem('comercio_nombre', res.nombre || nombre);
         if (res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
         sesion = { id: res.id || id, nombre: res.nombre || nombre, planilla_id: res.planilla_id || localStorage.getItem('planilla_id') || '' };
         document.getElementById('login-msg').innerHTML = "<span class='success'>" + (res.message || 'Ingresado') + "</span>";
-        setTimeout(() => { mostrarPanelDashboard(); }, 600);
-      } else {
-        document.getElementById('login-msg').innerHTML = "<span class='error'>" + (res.message || 'Login incorrecto') + "</span>";
+        setTimeout(()=>mostrarPanelDashboard(), 600);
+        return;
       }
-    })
-    .catch(err => { debugLog('Error fetch worker:', err); document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión. Revisá consola (posible CORS o endpoint inaccesible).</span>"; });
+
+      // Si llegó 401 o success false, hacemos un intento de fallback: enviar sólo nombre+password (sin id)
+      if (r.status === 401 || (res && res.success === false)) {
+        // retry con nombre (si no lo probamos sólo nombre)
+        debugLog('Intentando fallback: enviar sólo nombre+password...');
+        const payloadNombre = { accion: 'login', nombre: nombre, password: clave };
+        let r2 = await fetch(WORKER_URL, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payloadNombre), mode: 'cors' });
+        let text2 = await r2.text();
+        let res2;
+        try { res2 = JSON.parse(text2); } catch(e) { res2 = { success:false, message:text2 }; }
+        debugLog('Fallback status:', r2.status, 'Worker ->', res2);
+
+        // Mostrar mensaje al usuario con la respuesta del worker (texto claro)
+        const messageToShow = (res2 && res2.message) ? res2.message : (res && res.message) ? res.message : 'Login falló. Ver debug.';
+        document.getElementById('login-msg').innerHTML = "<span class='error'>" + messageToShow + "</span>";
+
+        // Mostrar botón para reportar con payload y respuestas (para enviar por WhatsApp)
+        const payloadText = `Intento login\nPayload original: ${JSON.stringify(payloadWithId)}\nRespuesta worker status: ${r.status}\nRespuesta worker body: ${JSON.stringify(res)}\nFallback payload: ${JSON.stringify(payloadNombre)}\nFallback status: ${r2.status}\nFallback body: ${JSON.stringify(res2)}`;
+        enableReportButton(payloadText);
+        debugLog('Payload completo para soporte:', payloadText);
+        return;
+      }
+
+      // Otros errores
+      document.getElementById('login-msg').innerHTML = "<span class='error'>Error al conectar o respuesta inesperada. Ver Debug.</span>";
+      enableReportButton(`Intento login - payload: ${JSON.stringify(payloadWithId)}\nRespuesta: ${text}`);
+    } catch(err) {
+      debugLog('Error fetch worker:', err);
+      document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión. Revisá consola (posible CORS o endpoint inaccesible).</span>";
+      enableReportButton(`Error fetch worker: ${err}`);
+    }
   };
 
-  // REGISTRO
+  // Registro (igual que antes)
   document.getElementById('register-form').onsubmit = function(e) {
     e.preventDefault();
     const comercio = document.getElementById('comercio-buscar2').value.trim();
@@ -287,55 +311,45 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('reg-msg').innerHTML = "<span>Registrando...</span>";
     const payload = { accion: 'registrar', password: password, comercio_id: comercio_id, comercio_nombre: comercio };
     debugLog('POST -> WORKER_URL registrar:', payload);
-    fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-      mode: 'cors'
-    })
-    .then(r => r.json().catch(() => ({ success:false, message: 'Respuesta inválida de worker' })))
-    .then(res => {
-      debugLog('Worker registrar ->', res);
-      if (res.success) {
-        localStorage.setItem('comercio_id', comercio_id);
-        localStorage.setItem('comercio_nombre', comercio);
-        if (res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
-        sesion = { id: comercio_id, nombre: comercio, planilla_id: res.planilla_id || localStorage.getItem('planilla_id') || '' };
-        document.getElementById('reg-msg').innerHTML = "<span class='success'>" + (res.message || 'Registrado') + "</span>";
-        setTimeout(() => { mostrarPanelDashboard(); }, 1000);
-      } else {
-        document.getElementById('reg-msg').innerHTML = "<span class='error'>" + (res.message || 'Error al registrar') + "</span>";
-      }
-    })
-    .catch(err => { debugLog('Error fetch registrar:', err); document.getElementById('reg-msg').innerHTML = "<span class='error'>Error de conexión.</span>"; });
+    fetch(WORKER_URL, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload), mode: 'cors' })
+      .then(r => r.json().catch(()=>({success:false, message:'Respuesta inválida'})))
+      .then(res => {
+        debugLog('Worker registrar ->', res);
+        if (res.success) {
+          localStorage.setItem('comercio_id', comercio_id);
+          localStorage.setItem('comercio_nombre', comercio);
+          if (res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
+          sesion = { id: comercio_id, nombre: comercio, planilla_id: res.planilla_id || localStorage.getItem('planilla_id') || '' };
+          document.getElementById('reg-msg').innerHTML = "<span class='success'>" + (res.message || 'Registrado') + "</span>";
+          setTimeout(()=>mostrarPanelDashboard(), 1000);
+        } else {
+          document.getElementById('reg-msg').innerHTML = "<span class='error'>" + (res.message || 'Error al registrar') + "</span>";
+        }
+      })
+      .catch(err => { debugLog('Error fetch registrar:', err); document.getElementById('reg-msg').innerHTML = "<span class='error'>Error de conexión.</span>"; });
   };
 
-  document.getElementById('btnFormComercio')?.addEventListener('click', function() { window.open(FORM_URL, '_blank'); });
-  document.getElementById('logout-btn')?.addEventListener('click', function() { localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion = null; mostrarPanel('login'); });
+  document.getElementById('btnFormComercio')?.addEventListener('click', function(){ window.open(FORM_URL, '_blank'); });
+  document.getElementById('logout-btn')?.addEventListener('click', function(){ localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion = null; mostrarPanel('login'); });
 });
 
-// DASHBOARD con edición de datos
+// DASHBOARD y guardar cambios (igual que antes)
 function mostrarPanelDashboard() {
   if (!sesion || !sesion.id) { mostrarPanel('login'); return; }
   document.getElementById('nombre-comercio').textContent = sesion.nombre;
   debugLog('Consultando datos de comercio con id:', sesion.id);
   debugLog('URL Apps Script:', `${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`);
   fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, { mode: 'cors' })
-    .then(r => r.json().catch(()=>({error: 'Respuesta inválida de Apps Script'})))
+    .then(r => r.json().catch(()=>({error:'Respuesta inválida de Apps Script'})))
     .then(datos => {
       debugLog('Respuesta de Apps Script:', datos);
       if (datos.planilla_id) { sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
-      if(datos.error) {
-        document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos:</b> <span style='color:red'>${datos.error}</span><br><span style='color:#555'>¿El id existe en la hoja "anunciantes"? ¿El nombre de la columna es "id"?</span>`;
+      if (datos.error) {
+        document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos:</b> <span style='color:red'>${datos.error}</span><br><span style='color:#555'>¿El id existe en la hoja "anunciantes"?</span>`;
         mostrarPanel('dashboard');
         return;
       }
-      const camposEditables = [
-        "nombre", "nivel", "subnivel", "segmento", "categoria", "subcategoria", "tags", "adicionales",
-        "pie", "descripcion", "direccion", "lat", "lng", "maps", "telefono", "whatsapp", "mail",
-        "instagram", "facebook", "youtube", "tiktok", "linkedin", "logo", "verificado", "gold",
-        "img1", "img2", "img3", "img4", "img5", "img6", "link"
-      ];
+      const camposEditables = ["nombre","nivel","subnivel","segmento","categoria","subcategoria","tags","adicionales","pie","descripcion","direccion","lat","lng","maps","telefono","whatsapp","mail","instagram","facebook","youtube","tiktok","linkedin","logo","verificado","gold","img1","img2","img3","img4","img5","img6","link"];
       let html = '';
       camposEditables.forEach(campo => { html += `<div><label>${campo}</label><input type="text" name="${campo}" value="${datos[campo] || ''}" autocomplete="off"/></div>`; });
       document.getElementById('campos-datos-comercio').innerHTML = html;
@@ -344,7 +358,6 @@ function mostrarPanelDashboard() {
   mostrarPanel('dashboard');
 }
 
-// GUARDAR CAMBIOS
 const formDatos = document.getElementById('form-datos-comercio');
 if (formDatos) {
   formDatos.onsubmit = function(e) {
@@ -354,12 +367,10 @@ if (formDatos) {
     const data = {};
     formData.forEach((v,k) => data[k] = v);
     debugLog('POST -> APPSCRIPT guardar:', data);
-    fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, {
-      method: 'POST', body: JSON.stringify(data), headers: {'Content-Type':'application/json'}, mode: 'cors'
-    })
-    .then(r => r.json().catch(()=>({success:false})))
-    .then(res => { debugLog('AppsScript guardar ->', res); if(res.success) { document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; } else { document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; } })
-    .catch(err => { debugLog('Error guardando en Apps Script:', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
+    fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, { method:'POST', body: JSON.stringify(data), headers:{'Content-Type':'application/json'}, mode:'cors' })
+      .then(r => r.json().catch(()=>({success:false})))
+      .then(res => { debugLog('AppsScript guardar ->', res); if(res.success) { document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; } else { document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; } })
+      .catch(err => { debugLog('Error guardando en Apps Script:', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
   };
 }
 </script>
