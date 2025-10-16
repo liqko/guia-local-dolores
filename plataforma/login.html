@@ -101,7 +101,7 @@
         <div id="msg-datos-comercio"></div>
       </form>
       <div>
-        <a href="https://wa.me/5492245459957?text=Hola, quiero ayuda con mi panel" target="_blank">¿Necesitás ayuda? WhatsApp Soporte</a>
+        <a href="https://wa.me/5492245502172?text=Hola, quiero ayuda con mi panel" target="_blank">¿Necesitás ayuda? WhatsApp Soporte</a>
       </div>
       <button class="logout-btn" id="logout-btn">Cerrar sesión</button>
     </div>
@@ -115,7 +115,9 @@
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const SHEET_ANUNCIANTES = "anunciantes";
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
+const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
+// APPSCRIPT_URL ya no se usa directamente desde el navegador; el Worker hará la llamada server-side.
 const APPSCRIPT_URL = "https://script.google.com/macros/s/AKfycbwl93i3Z14T-GJJxcHR0JwnR7NIYFCBAfdOiJ5THFJmb6IX-KFV-wSiTS4o2dx_Bcnb/exec";
 
 let comercios = [];
@@ -334,29 +336,46 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // DASHBOARD y guardar cambios
-function mostrarPanelDashboard() {
+async function mostrarPanelDashboard() {
   if (!sesion || !sesion.id) { mostrarPanel('login'); return; }
   document.getElementById('nombre-comercio').textContent = sesion.nombre;
   debugLog('Consultando datos de comercio con id:', sesion.id);
-  // Enviamos también el nombre al Apps Script para que lo acepte si lo necesita
-  const appsScriptUrlWithNombre = `${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}`;
-  debugLog('URL Apps Script:', appsScriptUrlWithNombre);
-  fetch(appsScriptUrlWithNombre, { mode: 'cors' })
-    .then(r => r.json().catch(()=>({error:'Respuesta inválida de Apps Script'})))
-    .then(datos => {
-      debugLog('Respuesta de Apps Script:', datos);
-      if (datos.planilla_id) { sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
-      if (datos.error) {
-        document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos:</b> <span style='color:red'>${datos.error}</span><br><span style='color:#555'>¿El id existe en la hoja "anunciantes"?</span>`;
-        mostrarPanel('dashboard');
-        return;
-      }
-      const camposEditables = ["nombre","nivel","subnivel","segmento","categoria","subcategoria","tags","adicionales","pie","descripcion","direccion","lat","lng","maps","telefono","whatsapp","mail","instagram","facebook","youtube","tiktok","linkedin","logo","verificado","gold","img1","img2","img3","img4","img5","img6","link"];
-      let html = '';
-      camposEditables.forEach(campo => { html += `<div><label>${campo}</label><input type="text" name="${campo}" value="${datos[campo] || ''}" autocomplete="off"/></div>`; });
-      document.getElementById('campos-datos-comercio').innerHTML = html;
-    })
-    .catch(err => { document.getElementById('campos-datos-comercio').innerHTML = `<b>Error de conexión con Apps Script.</b><br><span style='color:#c00;'>${err}</span>`; debugLog('Error al consultar Apps Script:', err); });
+
+  // Pedimos los datos AL WORKER; el worker hará la petición al Apps Script server-side (evita CORS)
+  const encodedId = encodeURIComponent(sesion.id);
+  const encodedNombre = encodeURIComponent(sesion.nombre || '');
+  const encodedPlanilla = encodeURIComponent(sesion.planilla_id || '');
+  const urlToWorker = `${WORKER_ORIGIN}/commerce?id=${encodedId}&nombre=${encodedNombre}&planilla_id=${encodedPlanilla}`;
+
+  debugLog('URL -> Worker /commerce:', urlToWorker);
+
+  try {
+    const r = await fetch(urlToWorker, { method: 'GET', mode: 'cors' });
+    const datos = await r.json().catch(()=>({ error: 'Respuesta inválida del worker' }));
+    debugLog('Worker /commerce ->', datos);
+
+    if (datos.error) {
+      document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos:</b> <span style='color:red'>${datos.error}</span><br><span style='color:#555'>¿El id existe en la hoja "anunciantes" o la planilla del comercio está configurada?</span>`;
+      mostrarPanel('dashboard');
+      return;
+    }
+
+    // Si obtuvo planilla_id desde Apps Script, actualizar sesión y localStorage
+    if (datos.planilla_id && datos.planilla_id !== sesion.planilla_id) {
+      sesion.planilla_id = datos.planilla_id;
+      localStorage.setItem('planilla_id', datos.planilla_id);
+    }
+
+    const camposEditables = ["nombre","nivel","subnivel","segmento","categoria","subcategoria","tags","adicionales","pie","descripcion","direccion","lat","lng","maps","telefono","whatsapp","mail","instagram","facebook","youtube","tiktok","linkedin","logo","verificado","gold","img1","img2","img3","img4","img5","img6","link"];
+    let html = '';
+    camposEditables.forEach(campo => { html += `<div><label>${campo}</label><input type="text" name="${campo}" value="${datos[campo] || ''}" autocomplete="off"/></div>`; });
+    document.getElementById('campos-datos-comercio').innerHTML = html;
+
+  } catch (err) {
+    document.getElementById('campos-datos-comercio').innerHTML = `<b>Error de conexión con el Worker.</b><br><span style='color:#c00;'>${err}</span>`;
+    debugLog('Error al consultar Worker /commerce:', err);
+  }
+
   mostrarPanel('dashboard');
 }
 
@@ -368,12 +387,13 @@ if (formDatos) {
     const formData = new FormData(e.target);
     const data = {};
     formData.forEach((v,k) => data[k] = v);
-    debugLog('POST -> APPSCRIPT guardar:', data);
-    // Incluimos el id en la query y enviamos el body como JSON
-    fetch(`${APPSCRIPT_URL}?id=${encodeURIComponent(sesion.id)}`, { method:'POST', body: JSON.stringify(data), headers:{'Content-Type':'application/json'}, mode:'cors' })
+    debugLog('POST -> APPSCRIPT guardar (via Worker):', data);
+    // Enviamos al Worker para que guarde en Apps Script (worker hará el POST al AppsScript)
+    const saveUrl = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&planilla_id=${encodeURIComponent(sesion.planilla_id || '')}`;
+    fetch(saveUrl, { method:'POST', body: JSON.stringify(data), headers:{'Content-Type':'application/json'}, mode:'cors' })
       .then(r => r.json().catch(()=>({success:false})))
-      .then(res => { debugLog('AppsScript guardar ->', res); if(res.success) { document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; } else { document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; } })
-      .catch(err => { debugLog('Error guardando en Apps Script:', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
+      .then(res => { debugLog('Worker /commerce guardar ->', res); if(res.success) { document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; } else { document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; } })
+      .catch(err => { debugLog('Error guardando via Worker:', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
   };
 }
 </script>
