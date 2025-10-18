@@ -150,7 +150,7 @@ let comercios = [];
 let sesion = null;
 let loginInProgress = false;
 const debugEl = document.getElementById('debug');
-function debugLog(...args){ console.log(...args); try { debugEl.textContent += args.map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ') + "\\n\\n"; debugEl.scrollTop = debugEl.scrollHeight; }catch(e){} }
+function debugLog(...args){ console.log(...args); try { debugEl.textContent += args.map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ') + "\n\n"; debugEl.scrollTop = debugEl.scrollHeight; }catch(e){} }
 
 /* UI helpers */
 function showOverlay(msg){ document.getElementById('loading-overlay').style.display='flex'; if(msg) document.querySelector('.loading-text').textContent = msg; }
@@ -225,48 +225,88 @@ document.addEventListener('DOMContentLoaded', ()=>{
   cargarComercios(()=>{ showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id')); });
   document.getElementById('login-form').onsubmit = async function(e){
     e.preventDefault();
-    if(loginInProgress) return;
+    // Evitar doble submit por bandera
+    if (loginInProgress) return;
     const nombre = document.getElementById('comercio-buscar').value.trim();
     const clave = document.getElementById('clave').value.trim();
     const id = document.getElementById('comercio-id').value.trim();
     if(!id && !nombre){ document.getElementById('login-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista.</span>"; return; }
-    document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
+
+    // Estado visual inmediato: deshabilitar botón y mostrar overlay
     loginInProgress = true;
-    const btn = document.getElementById('btnLogin'); disableBtn(btn); showOverlay('Verificando credenciales...');
+    const btn = document.getElementById('btnLogin');
+    disableBtn(btn);
+    showOverlay('Verificando credenciales...');
+
+    document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
+
     const payload = { accion:'login', comercio_id:id||'', nombre:nombre, password:clave };
-    // timeout safety (15s)
+
+    // Timeout / abort safety
     const controller = new AbortController();
     const timeout = setTimeout(()=> controller.abort(), 15000);
+
     try{
-      const r = await fetch(WORKER_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors', signal: controller.signal });
+      const r = await fetch(WORKER_URL, {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body: JSON.stringify(payload),
+        mode:'cors',
+        signal: controller.signal
+      });
+
       clearTimeout(timeout);
+
       const text = await r.text();
       let res;
-      try{ res = JSON.parse(text); }catch(e){ res = { success:false, message: text }; }
+      try { res = JSON.parse(text); } catch(e) { res = { success:false, message: text }; }
+
       debugLog('Login worker ->', r.status, res);
-      if(r.status===200 && res.success){
+
+      if (r.status === 200 && res.success) {
+        // Guardar sesión local y mostrar mensaje inmediato
         localStorage.setItem('comercio_id', res.id || id);
         localStorage.setItem('comercio_nombre', res.nombre || nombre);
         if(res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
         sesion = { id: res.id || id, nombre: res.nombre || nombre, planilla_id: res.planilla_id || '' };
         document.getElementById('login-msg').innerHTML = "<span class='success'>"+(res.message||'Ingresado')+"</span>";
-        setTimeout(()=> { hideOverlay(); mostrarPanelDashboard(); }, 300);
-        loginInProgress = false;
-        enableBtn(btn);
+
+        // Opcional: ocultar el botón para que no esté visible mientras cargan datos
+        btn.style.display = 'none';
+
+        // Espera ligera para que se vea el mensaje y luego carga el dashboard
+        setTimeout(async ()=>{
+          try {
+            await mostrarPanelDashboard(); // mostrarPanelDashboard se encarga de mostrar overlay y ocultarlo al terminar
+          } finally {
+            // Restaurar estado del botón cuando termine (en caso de volver al login)
+            btn.style.display = '';
+          }
+        }, 200);
+
         return;
       }
-      hideOverlay();
+
+      // Si login falló
       document.getElementById('login-msg').innerHTML = "<span class='error'>"+(res.message||'Login falló')+"</span>";
       enableReportButton(`Intento login\nPayload: ${JSON.stringify(payload)}\nWorker status: ${r.status}\nWorker body: ${JSON.stringify(res)}`);
-    }catch(err){
-      clearTimeout(timeout);
-      debugLog('Error fetch worker', err);
-      hideOverlay();
-      document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión. Intentá nuevamente.</span>";
-      enableReportButton(`Error fetch worker: ${err}`);
+    } catch(err){
+      if (err.name === 'AbortError') {
+        document.getElementById('login-msg').innerHTML = "<span class='error'>Timeout: la petición tardó demasiado. Intentá de nuevo.</span>";
+      } else {
+        debugLog('Error fetch worker', err);
+        document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión. Intentá nuevamente.</span>";
+        enableReportButton(`Error fetch worker: ${err}`);
+      }
     } finally {
+      clearTimeout(timeout);
       loginInProgress = false;
-      enableBtn(document.getElementById('btnLogin'));
+      enableBtn(btn);
+      // hideOverlay se debe llamar por mostrarPanelDashboard() al terminar; 
+      // si ocurrió error y no se llamó al dashboard, ocultamos overlay aquí
+      if (!document.getElementById('tab-datos') || document.getElementById('campos-datos-comercio').innerHTML === '') {
+        hideOverlay();
+      }
     }
   };
 
@@ -355,7 +395,7 @@ function buildDashboardFields(datos){
 /* Helpers */
 function escapeHtml(str){ return String(str).replace(/[&<>"']/g, function(m){ return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]); }); }
 function mostrarPanel(panel){ ['panel-login','panel-registro','panel-dashboard'].forEach(id=>document.getElementById(id).classList.remove('active')); document.getElementById('panel-'+panel)?.classList.add('active'); }
-function enableReportButton(payloadText){ document.getElementById('report-area').style.display='block'; document.getElementById('reportBtn').onclick = ()=> openWhatsApp(payloadText + "\\n\\nPor favor revisen. Gracias."); }
+function enableReportButton(payloadText){ document.getElementById('report-area').style.display='block'; document.getElementById('reportBtn').onclick = ()=> openWhatsApp(payloadText + "\n\nPor favor revisen. Gracias."); }
 function openWhatsApp(text){ const number="5492245459957"; window.open(`https://wa.me/${number}?text=${encodeURIComponent(text)}`,'_blank'); }
 </script>
 </body>
