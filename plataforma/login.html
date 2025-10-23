@@ -152,11 +152,15 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
 }
 
 /* Eventos y login */
+let originalLoginBtnText = null;
 document.addEventListener('DOMContentLoaded', ()=>{
-  cargarComercios(()=>{ 
+  cargarComercios(()=>{
     showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
     showAutocomplete(document.getElementById('comercio-buscar2'), document.getElementById('autocomplete-list2'), document.getElementById('comercio-id2'), true);
   });
+
+  const btnLogin = document.getElementById('btnLogin');
+  if(btnLogin) originalLoginBtnText = btnLogin.textContent || 'Ingresar';
 
   document.getElementById('login-form').onsubmit = async function(e){
     e.preventDefault(); document.getElementById('report-area').style.display='none';
@@ -164,6 +168,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const clave = document.getElementById('clave').value.trim();
     const id = document.getElementById('comercio-id').value.trim();
     if(!id && !nombre){ document.getElementById('login-msg').innerHTML = "<span class='error'>Elegí un comercio de la lista.</span>"; return; }
+
+    // Disable the button immediately to avoid double submits
+    if(btnLogin){
+      btnLogin.setAttribute('disabled','true');
+      btnLogin.textContent = 'Ingresando...';
+    }
     document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
     const payload = { accion:'login', comercio_id:id||'', nombre:nombre, password:clave };
     try{
@@ -173,6 +183,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       try{ res = JSON.parse(text); }catch(e){ res = { success:false, message: text }; }
       debugLog('Login worker ->', r.status, res);
       if(r.status===200 && res.success){
+        // Replace the login button text while dashboard data is loading to avoid repeated clicks
+        if(btnLogin){
+          btnLogin.textContent = 'Cargando datos...';
+          btnLogin.setAttribute('disabled','true');
+        }
         localStorage.setItem('comercio_id', res.id || id);
         localStorage.setItem('comercio_nombre', res.nombre || nombre);
         if(res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
@@ -181,10 +196,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
         setTimeout(()=> mostrarPanelDashboard(),500);
         return;
       }
+
+      // On failure, restore button so user can try again
+      if(btnLogin){
+        btnLogin.removeAttribute('disabled');
+        btnLogin.textContent = originalLoginBtnText;
+      }
       document.getElementById('login-msg').innerHTML = "<span class='error'>"+(res.message||'Login falló')+"</span>";
       enableReportButton(`Intento login\nPayload: ${JSON.stringify(payload)}\nWorker status: ${r.status}\nWorker body: ${JSON.stringify(res)}`);
     }catch(err){
       debugLog('Error fetch worker', err);
+      // Restore button on network error
+      if(btnLogin){
+        btnLogin.removeAttribute('disabled');
+        btnLogin.textContent = originalLoginBtnText;
+      }
       document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión.</span>";
       enableReportButton(`Error fetch worker: ${err}`);
     }
@@ -198,7 +224,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
     openWhatsApp(`Hola, solicito creación/activación o modificación de datos.\nComercio: ${nombre}\nId: ${id}\nGracias.`);
   });
 
-  document.getElementById('logout-btn').addEventListener('click', ()=> { localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion=null; mostrarPanel('login'); });
+  document.getElementById('logout-btn').addEventListener('click', ()=> {
+    localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion=null;
+    // Restore login button when logging out
+    const btn = document.getElementById('btnLogin');
+    if(btn){
+      btn.removeAttribute('disabled');
+      btn.textContent = originalLoginBtnText;
+    }
+    mostrarPanel('login');
+  });
 
   // Si ya hay sesión guardada, abrir dashboard
   if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){ sesion = { id: localStorage.getItem('comercio_id'), nombre: localStorage.getItem('comercio_nombre'), planilla_id: localStorage.getItem('planilla_id')||'' }; mostrarPanelDashboard(); }
@@ -223,10 +258,24 @@ async function mostrarPanelDashboard(){
     document.getElementById('campos-datos-comercio').innerHTML = html;
     document.getElementById('link-support-dashboard').href = `https://wa.me/5492245502172?text=${encodeURIComponent('Solicito modificación de datos\\nComercio: ' + sesion.nombre + '\\nId: ' + sesion.id)}`;
     mostrarPanel('dashboard');
+
+    // Once dashboard is shown, restore login button text (it may still be disabled while fetching)
+    const btn = document.getElementById('btnLogin');
+    if(btn){
+      btn.removeAttribute('disabled');
+      btn.textContent = originalLoginBtnText;
+    }
   }catch(err){
     debugLog('Error al consultar /commerce', err);
     document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
     mostrarPanel('dashboard');
+
+    // On error, also restore login button so user can retry later
+    const btn = document.getElementById('btnLogin');
+    if(btn){
+      btn.removeAttribute('disabled');
+      btn.textContent = originalLoginBtnText;
+    }
   }
 }
 
