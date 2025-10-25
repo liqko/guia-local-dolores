@@ -96,6 +96,7 @@
     .badge-icons{position:absolute;top:8px;right:8px;display:flex;gap:4px;z-index:10;}
     .badge-icons img{height:40px;width:auto;}
     body.modal-open{overflow:hidden;}
+    /* ---- Modal global (fallback) ---- */
     .modal-img-bg{ position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.8);z-index:99999;display:flex;align-items:center;justify-content:center; padding:1rem; box-sizing:border-box;}
     .modal-img{ background:#fff;border-radius:1em;box-shadow:0 4px 32px #000c;padding:1em;position:relative;max-width:90vw;max-height:90vh;display:flex;flex-direction:column;align-items:center;overflow:hidden;}
     .modal-img img{max-width:80vw;max-height:72vh;border-radius:0.7em;box-shadow:0 2px 12px #0004; display:block;}
@@ -104,6 +105,74 @@
     .modal-img .flecha-modal.izq{left:0.2em;}
     .modal-img .flecha-modal.der{right:0.2em;}
     .modal-img .indicador{color:#666;font-size:1em;margin-top:0.5em;}
+
+    /* ---- New: modal that opens INSIDE the card (keeps position relative to the card) ---- */
+    .modal-in-card{
+      position:absolute;
+      top:0;
+      left:0;
+      width:100%;
+      height:100%;
+      background:rgba(0,0,0,0.85);
+      z-index:9999;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:0.6rem;
+      box-sizing:border-box;
+      overflow:auto;
+      border-radius:0.75rem;
+    }
+    .modal-in-card .modal-img{
+      background:transparent;
+      padding:0;
+      border-radius:0.5rem;
+      max-width:100%;
+      max-height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      position:relative;
+    }
+    .modal-in-card img{
+      max-width:100%;
+      max-height:100%;
+      border-radius:0.5rem;
+      box-shadow:0 2px 20px rgba(0,0,0,0.6);
+      display:block;
+    }
+    .modal-in-card .cerrar-modal{
+      position:absolute;
+      top:-6px;
+      right:-6px;
+      font-size:1.6rem;
+      background:#fff;
+      border-radius:50%;
+      width:38px;
+      height:38px;
+      border:none;
+      cursor:pointer;
+      box-shadow:0 2px 8px rgba(0,0,0,0.25);
+    }
+    .modal-in-card .flecha-modal{
+      position:absolute;
+      top:50%;
+      transform:translateY(-50%);
+      font-size:1.6rem;
+      color:#fff;
+      background:rgba(0,0,0,0.25);
+      border:none;
+      width:40px;
+      height:40px;
+      border-radius:50%;
+      cursor:pointer;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .modal-in-card .flecha-modal.izq{ left:6px; }
+    .modal-in-card .flecha-modal.der{ right:6px; }
+    .modal-in-card .indicador{ position:absolute; bottom:8px; color:#fff; font-size:0.95rem; background:rgba(0,0,0,0.25); padding:0.2rem 0.5rem; border-radius:0.4rem; }
     .leyenda-nivel-4,
     .leyenda-nivel-3,
     .leyenda-nivel-espacio-gratis {
@@ -718,7 +787,6 @@
           // Si estamos embebidos en un iframe, pedir al padre que haga scroll (postMessage),
           // y además intentar hacer scroll del iframe (frameElement) si es posible.
           if (window.self !== window.top) {
-            // intentar scroll del iframe en la página padre (si frameElement está accesible)
             try {
               if (window.frameElement && typeof window.frameElement.scrollIntoView === 'function') {
                 window.frameElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -726,7 +794,6 @@
             } catch (e) {
               // cross-origin puede impedir acceso, lo manejamos mediante postMessage
             }
-            // enviar mensaje al padre para que pueda manejar el scroll si lo desea
             try {
               window.parent.postMessage({ type: 'guialocal:scrollToSelector', selector: '#titulo-principal' }, '*');
             } catch (e) {
@@ -842,57 +909,121 @@
           else {topBtn.style.display = 'none';}
         });
 
-        // Mostrar modal: ahora hacemos scroll al elemento origen (para que el usuario mantenga referencia)
-        // y además controlamos la clase body.modal-open. En caso de estar embebido, el padre puede recibir
-        // el postMessage 'guialocal:modalOpened' con información para manejar z-index en el host (si lo desea).
+        /* ---------------------------
+           Nuevo: mostrar modal DENTRO de la tarjeta
+           - garantizamos que el modal aparezca siempre sobre la tarjeta que contiene la miniatura
+           - si por algún motivo no existe la tarjeta, cae al comportamiento global (modal full-screen)
+           --------------------------- */
         window.mostrarModalGaleria = function(img, imagenesArr, idx) {
           try {
-            // Primero desplazar la imagen al centro de la vista para mantener la referencia visual
-            try {
-              if (img && typeof img.scrollIntoView === 'function') {
-                img.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            const card = img && img.closest ? img.closest('.card') : null;
+            const fallbackToGlobal = !card; // si no encontramos .card usamos el modal global
+            let actual = Number(idx) || 0;
+
+            if (!fallbackToGlobal) {
+              // crear modal dentro de la tarjeta
+              const existing = card.querySelector('.modal-in-card');
+              if (existing) existing.remove();
+
+              const wrapper = document.createElement('div');
+              wrapper.className = 'modal-in-card';
+              wrapper.tabIndex = 0;
+
+              const innerHtml = `
+                <div class="modal-img" onclick="event.stopPropagation();">
+                  <button class="cerrar-modal" title="Cerrar">&times;</button>
+                  ${imagenesArr.length>1?`<button class="flecha-modal izq" title="Anterior">&lt;</button>`:""}
+                  <img src="${imagenesArr[actual]}" alt="Imagen ampliada">
+                  ${imagenesArr.length>1?`<button class="flecha-modal der" title="Siguiente">&gt;</button>`:""}
+                  ${imagenesArr.length>1?`<div class="indicador">${actual+1} / ${imagenesArr.length}</div>`:""}
+                </div>
+              `;
+              wrapper.innerHTML = innerHtml;
+
+              // cerrar al click en el fondo del wrapper
+              wrapper.addEventListener('click', function(e){
+                if (e.target === wrapper) removeWrapper();
+              });
+
+              // controles
+              function removeWrapper(){
+                try{ wrapper.remove(); }catch(e){}
               }
-            } catch (e) {}
+              const btnCerrar = wrapper.querySelector('.cerrar-modal');
+              if (btnCerrar) btnCerrar.addEventListener('click', removeWrapper);
 
-            // pequeña espera para que el scroll ocurra en navegadores
-            setTimeout(() => {
-              let actual = idx;
-              function renderModalImg() {
-                // Añadir clase para bloquear scroll de fondo
+              const btnIzq = wrapper.querySelector('.flecha-modal.izq');
+              const btnDer = wrapper.querySelector('.flecha-modal.der');
+              const imgEl = wrapper.querySelector('img');
+
+              function renderIndex(){
+                if (!imgEl) return;
+                imgEl.src = imagenesArr[actual];
+                const indicador = wrapper.querySelector('.indicador');
+                if (indicador) indicador.textContent = `${actual+1} / ${imagenesArr.length}`;
+              }
+              if (btnIzq){
+                btnIzq.addEventListener('click', function(ev){
+                  ev.stopPropagation();
+                  actual = (actual - 1 + imagenesArr.length) % imagenesArr.length;
+                  renderIndex();
+                });
+              }
+              if (btnDer){
+                btnDer.addEventListener('click', function(ev){
+                  ev.stopPropagation();
+                  actual = (actual + 1) % imagenesArr.length;
+                  renderIndex();
+                });
+              }
+
+              // insertar en la tarjeta
+              card.style.position = card.style.position || 'relative';
+              card.appendChild(wrapper);
+
+              // desplazar la tarjeta un poco (si se está embebido) para mantener la referencia visual
+              try {
+                if (typeof card.scrollIntoView === 'function') {
+                  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+              } catch (e) {}
+
+              // notificar al padre (si está embebido) que abrimos modal dentro de la tarjeta
+              try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalOpenedInCard' }, '*'); } catch (e){}
+            } else {
+              // fallback: comportamiento anterior (modal global centrado)
+              function renderModalImgGlobal() {
                 try { document.body.classList.add('modal-open'); } catch(e){}
-
                 modalImg.innerHTML = `
-                  <div class="modal-img-bg" onclick="cerrarModalImg(event)">
+                  <div class="modal-img-bg" onclick="cerrarModalImgGlobal(event)">
                     <div class="modal-img" onclick="event.stopPropagation();">
-                      <button class="cerrar-modal" onclick="cerrarModalImg(event)" title="Cerrar">&times;</button>
-                      ${imagenesArr.length>1?`<button class="flecha-modal izq" onclick="cambiarImg(-1,event)">&lt;</button>`:""}
+                      <button class="cerrar-modal" onclick="cerrarModalImgGlobal(event)" title="Cerrar">&times;</button>
+                      ${imagenesArr.length>1?`<button class="flecha-modal izq" onclick="cambiarImgGlobal(-1,event)">&lt;</button>`:""}
                       <img src="${imagenesArr[actual]}" alt="Imagen ampliada">
-                      ${imagenesArr.length>1?`<button class="flecha-modal der" onclick="cambiarImg(1,event)">&gt;</button>`:""}
+                      ${imagenesArr.length>1?`<button class="flecha-modal der" onclick="cambiarImgGlobal(1,event)">&gt;</button>`:""}
                       ${imagenesArr.length>1?`<div class="indicador">${actual+1} / ${imagenesArr.length}</div>`:""}
                     </div>
                   </div>
                 `;
                 modalImg.style.display = 'block';
               }
-              window.cambiarImg = function(dir,event){
+              window.cambiarImgGlobal = function(dir,event){
                 if(event && event.stopPropagation) event.stopPropagation();
                 actual += dir;
                 if(actual<0) actual=imagenesArr.length-1;
                 if(actual>=imagenesArr.length) actual=0;
-                renderModalImg();
+                renderModalImgGlobal();
               }
-              window.cerrarModalImg = function(event){
+              window.cerrarModalImgGlobal = function(event){
                 if(event && event.stopPropagation) event.stopPropagation();
                 modalImg.style.display='none';
                 modalImg.innerHTML='';
                 try { document.body.classList.remove('modal-open'); } catch(e){}
-                // avisar al padre (si está embebido) que se cerró el modal
                 try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalClosed' }, '*'); } catch(e){}
               }
-              // avisar al padre que abrimos modal (para que el contenedor host ajuste z-index si quiere)
+              renderModalImgGlobal();
               try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalOpened' }, '*'); } catch(e){}
-              renderModalImg();
-            }, 280);
+            }
           } catch (err) {
             console.error('Error mostrando modal:', err);
           }
