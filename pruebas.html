@@ -119,7 +119,7 @@
       <div class="tabs" style="margin-bottom:6px;">
         <button id="tab-btn-datos" class="tab-btn active">Datos</button>
         <button id="tab-btn-promos" class="tab-btn">Promociones</button>
-        <a id="open-sheets-promos" class="link" href="https://docs.google.com/spreadsheets/d/1-9nk03fv_9_4ER60xf7jCUzprgElMIv5amqAlRtIowY/edit?gid=1812912737" target="_blank" style="margin-left:auto">Abrir en Sheets (Promos)</a>
+        <a id="open-sheets-promos" class="link" href="https://docs.google.com/spreadsheets/d/1-9nk03fv_9_4ER60xf7jCUzprgElMIv5amqAlRtIowY/edit?gid=1812912737#gid=1812912737&fvid=302597456" target="_blank" style="margin-left:auto">Abrir en Sheets (Promos)</a>
       </div>
 
       <div id="tab-datos" class="tab-panel active">
@@ -211,10 +211,14 @@
 /* === CONFIG === */
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
+/* NOTE: ANUNCIANTES sheet ID (se usa para el autocompletado/login data) */
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
+/* PROMOS spreadsheet ID (la que nos pasaste) */
+const PROMOS_SHEET_ID = "1-9nk03fv_9_4ER60xf7jCUzprgElMIv5amqAlRtIowY";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 /* ================= */
 
+/* Teléfono de soporte (usar siempre este número) */
 const SUPPORT_NUMBER = "5492245459957";
 
 const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel_acceso","nivelacceso","verificado","gold","subnivel"];
@@ -546,8 +550,8 @@ document.addEventListener('submit', function(e){
 
 /* -----------------------
    PESTAÑA PROMOCIONES
-   - carga promos desde la hoja 'promos'
-   - permite crear/editar y borrar (eliminar directo)
+   - carga promos desde la hoja 'promos' (consulta directa a Google Sheets)
+   - permite crear/editar y borrar (si querés escritura se necesita Apps Script o backend)
    ----------------------- */
 
 function switchDashboardTab(tab){
@@ -566,6 +570,7 @@ function switchDashboardTab(tab){
   }
 }
 
+/* Reemplazo: loadPromos consulta el spreadsheet de PROMOS y filtra por la columna A = id del comercio */
 async function loadPromos(){
   if(!sesion || !sesion.id) return;
   document.getElementById('promos-loading').style.display = 'block';
@@ -573,22 +578,37 @@ async function loadPromos(){
   document.getElementById('promos-table').style.display = 'none';
   document.getElementById('promos-tbody').innerHTML = '';
 
-  const url = `${WORKER_ORIGIN}/commerce?sheet=promos&id=${encodeURIComponent(sesion.id)}`;
+  // Query: seleccionar filas donde la primera columna (A) coincide con el id del comercio
+  const tq = `select * where A = '${String(sesion.id).replace(/'/g,"\\'")}'`;
+  const url = `https://docs.google.com/spreadsheets/d/${PROMOS_SHEET_ID}/gviz/tq?tqx=out:json&sheet=promos&tq=${encodeURIComponent(tq)}`;
+
   try{
-    const r = await fetch(url, { method:'GET', mode:'cors' });
-    const datos = await r.json().catch(()=>({ error:'Respuesta inválida' }));
-    debugLog('/commerce?sheet=promos ->', datos);
-    if(datos.error){ document.getElementById('promos-error').textContent = 'Error al cargar promociones.'; document.getElementById('promos-error').style.display='block'; document.getElementById('promos-loading').style.display='none'; return; }
+    const r = await fetch(url, { method:'GET', cache:'no-store' });
+    const text = await r.text();
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if(start === -1 || end === -1){
+      throw new Error('Respuesta inválida de Google Sheets');
+    }
+    const jsonText = text.slice(start, end+1);
+    const json = JSON.parse(jsonText);
 
-    let rows = [];
-    if(Array.isArray(datos.rows)) rows = datos.rows;
-    else if(Array.isArray(datos.promos)) rows = datos.promos;
-    else if(Array.isArray(datos.data)) rows = datos.data;
-    else if(Array.isArray(datos)) rows = datos;
+    const cols = (json.table && json.table.cols) ? json.table.cols.map(c => (c && c.label) ? String(c.label).trim() : '') : [];
 
+    const rows = (json.table && json.table.rows) ? json.table.rows.map(row => {
+      const obj = {};
+      (row.c || []).forEach((cell, i) => {
+        const keyRaw = cols[i] || `col${i+1}`;
+        const key = String(keyRaw).toLowerCase().replace(/\s+/g,'_');
+        obj[key] = (cell && cell.v !== undefined && cell.v !== null) ? cell.v : '';
+      });
+      return obj;
+    }) : [];
+
+    debugLog('Promos cargadas (sheet):', rows.length);
     renderPromosList(rows);
   }catch(err){
-    debugLog('Error cargando promos', err);
+    debugLog('Error cargando promos desde Sheets', err);
     document.getElementById('promos-error').textContent = 'Error de conexión al cargar promociones.';
     document.getElementById('promos-error').style.display='block';
   } finally {
@@ -606,7 +626,7 @@ function renderPromosList(rows){
   }
 
   rows.forEach(r=>{
-    const id = r.id || r.id_promocion || r.__id || r._id || r.rowId || '';
+    const id = r.id || r.id_promocion || r.__id || r._id || r.rowId || r.col1 || '';
     const publicar = (r.publicar === true || r.publicar === 'TRUE' || r.publicar === 'true' || r.publicar === '1' || r.publicar === 1) ? true : false;
     const promoText = r.promo || r.titulo || r.texto || '';
     const desde = r.desde || r.fecha_desde || '';
@@ -666,7 +686,7 @@ function openPromoForm(row){
     window.scrollTo({ top: document.getElementById('promo-form-container').offsetTop - 20, behavior:'smooth' });
     return;
   }
-  document.getElementById('promo-id').value = row.id || row.id_promocion || row.__id || '';
+  document.getElementById('promo-id').value = row.id || row.id_promocion || row.__id || row.col1 || '';
   document.getElementById('promo-text').value = row.promo || row.titulo || row.texto || '';
   document.getElementById('promo-desde').value = toInputDateTime(row.desde || row.fecha_desde || '');
   document.getElementById('promo-hasta').value = toInputDateTime(row.hasta || row.fecha_hasta || '');
