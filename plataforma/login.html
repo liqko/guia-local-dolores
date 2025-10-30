@@ -122,9 +122,10 @@
 
         <div style="margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px">
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <input id="promo-text" type="text" placeholder="Texto de la promo (ej: 10% OFF)" style="flex:1;max-width:420px" />
-            <input id="promo-desde" type="date" style="width:160px" />
-            <input id="promo-hasta" type="date" style="width:160px" />
+            <input id="promo-text" type="text" placeholder="Texto de la promo (ej: 10% OFF)" style="flex:1;max-width:320px" />
+            <input id="promo-desde" type="date" style="width:140px" />
+            <input id="promo-hasta" type="date" style="width:140px" />
+            <input id="promo-otros" type="text" placeholder="Otros (ej: Hasta agotar stock 50 unidades)" style="flex:1;max-width:300px" />
             <button id="promo-create" style="min-width:140px">Crear promo</button>
             <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
           </div>
@@ -550,8 +551,9 @@ function renderPromosList(promos){
         if(newText === null) return;
         const newDesde = prompt('Desde (YYYY-MM-DD):','');
         const newHasta = prompt('Hasta (YYYY-MM-DD):','');
+        const newOtros = prompt('Otros (nota opcional):','');
         const payload = { promo_id: pid };
-        if(newText) payload.promo = newText; if(newDesde) payload.desde = newDesde; if(newHasta) payload.hasta = newHasta;
+        if(newText) payload.promo = newText; if(newDesde) payload.desde = newDesde; if(newHasta) payload.hasta = newHasta; if(newOtros) payload.otros = newOtros;
         const r = await promos_post('/commerce', { action: 'updatePromo', payload: payload });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo actualizada'); loadPromosUI(); } else { alert('Error actualizando: ' + JSON.stringify(r.json)); }
       }
@@ -570,11 +572,23 @@ document.addEventListener('click', function(e){
       const promo = document.getElementById('promo-text').value.trim();
       const desde = document.getElementById('promo-desde').value;
       const hasta = document.getElementById('promo-hasta').value;
+      const otros = document.getElementById('promo-otros').value.trim();
       if(!promo){ alert('Ingresá texto de promo'); return; }
       document.getElementById('promos-status').textContent = 'Creando promo...';
-      const r = await promos_post('/login', { action: 'createPromo', payload: { promo, desde, hasta, otros: '' } });
-      if(r.status === 200 && r.json && (r.json.success || r.json.created)){ document.getElementById('promos-status').textContent = 'Promo creada'; document.getElementById('promo-text').value=''; document.getElementById('promo-desde').value=''; document.getElementById('promo-hasta').value=''; loadPromosUI(); }
-      else { document.getElementById('promos-status').textContent = 'Error creando: ' + JSON.stringify(r.json); alert('Error creando promo. Ver consola.'); console.log('create promo result', r); }
+      // IMPORTANT: POST to /commerce so Worker treats this as proxy->AppsScript for promos (not as login)
+      const r = await promos_post('/commerce', { action: 'createPromo', payload: { promo, desde, hasta, otros } });
+      if(r.status === 200 && r.json && (r.json.success || r.json.created)){
+        document.getElementById('promos-status').textContent = 'Promo creada';
+        document.getElementById('promo-text').value='';
+        document.getElementById('promo-desde').value='';
+        document.getElementById('promo-hasta').value='';
+        document.getElementById('promo-otros').value='';
+        loadPromosUI();
+      } else {
+        document.getElementById('promos-status').textContent = 'Error creando: ' + JSON.stringify(r.json);
+        alert('Error creando promo. Revisa la consola para más detalles.');
+        console.error('create promo result', r);
+      }
     })();
   } else if(e.target.id === 'promo-refresh'){
     loadPromosUI();
