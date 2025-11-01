@@ -129,10 +129,8 @@
         <div style="margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px">
           <div class="promos-row-controls">
             <input id="promo-text" class="promo-input" type="text" placeholder="Texto de la promo (ej: 10% OFF)" />
-            <!-- NOTE: category is REQUIRED now - no blank option -->
-            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo" required>
-              <!-- options populated dynamically; no empty 'opcional' entry -->
-            </select>
+            <!-- category REQUIRED -->
+            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo" required></select>
             <input id="promo-desde" type="date" style="width:140px" />
             <input id="promo-hasta" type="date" style="width:140px" />
             <input id="promo-otros" class="promo-input" type="text" placeholder="Otros (ej: Hasta agotar stock 50 unidades)" style="max-width:300px" />
@@ -172,7 +170,7 @@ const SUPPORT_NUMBER = "5492245459957";
 const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel_acceso","verificado","gold","subnivel","nivelacceso"];
 
 let comercios = [];
-let categorias = []; // categories list
+let categorias = [];
 let sesion = null;
 const debugEl = document.getElementById('debug');
 function debugLog(...args){ console.log(...args); try { debugEl.textContent += args.map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ') + "\n\n"; debugEl.scrollTop = debugEl.scrollHeight; }catch(e){} }
@@ -194,12 +192,13 @@ function isAllowedLevel(levelStr){
   return n === 1 || n === 2 || n >= 5;
 }
 
-/* Cargar comercios (autocompletado) y categorías (categorias_list) */
+/* Safe cargarComercios: loads advertisers and then loads categories (non-blocking) */
 function cargarComercios(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
     try{
       const start=text.indexOf('{'), end=text.lastIndexOf('}');
+      if(start === -1 || end === -1) throw new Error('Respuesta GViz inválida (anunciantes)');
       const jsonText=text.slice(start,end+1);
       const json=JSON.parse(jsonText);
       const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
@@ -213,51 +212,53 @@ function cargarComercios(callback){
         return { nombre, id, nivel };
       }).filter(c=>c.nombre);
       debugLog('Comercios cargados:', comercios.length);
-      cargarCategorias(()=> callback && callback());
-    }catch(e){
-      debugLog('Error parseando lista de comercios', e);
-      cargarCategorias(()=> callback && callback());
+    } catch(err){
+      console.warn('cargarComercios: fallo parseo anunciantes (se continua). Error:', err);
+      comercios = comercios || [];
+    } finally {
+      try { cargarCategorias(()=> callback && callback()); } catch(e){ callback && callback(); }
     }
-  }).catch(err=>{ debugLog('Error fetch lista de comercios', err); cargarCategorias(()=> callback && callback()); });
+  }).catch(err=>{
+    console.warn('fetch anunciantes falló, continuar sin comercios:', err);
+    comercios = comercios || [];
+    try { cargarCategorias(()=> callback && callback()); } catch(e){ callback && callback(); }
+  });
 }
 
-/* Cargar categorias desde sheet 'categorias_list' para el select (no incluir encabezado 'titulo') */
+/* Safe cargarCategorias: populates categorias array and select; never throws to break app */
 function cargarCategorias(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent('categorias_list')}`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
     try{
       const start=text.indexOf('{'), end=text.lastIndexOf('}');
+      if(start === -1 || end === -1) throw new Error('Respuesta GViz inválida (categorias_list)');
       const jsonText=text.slice(start,end+1);
       const json=JSON.parse(jsonText);
-      const rows = json.table.rows || [];
-      // assume first column is título
-      const raw = rows.map(r=> (r.c && r.c[0] && r.c[0].v) ? String(r.c[0].v).trim() : '').filter(t => t);
-      // filter out header-like entries
-      categorias = raw.filter(t => t.toLowerCase() !== 'titulo');
-      categorias = Array.from(new Set(categorias)); // dedupe
-      debugLog('Categorias cargadas:', categorias.length, categorias.slice(0,50));
-      populateCategoriaSelect();
-      callback && callback();
-    }catch(e){
-      debugLog('Error parseando categorias_list', e);
+      const rows = json.table && json.table.rows ? json.table.rows : [];
+      const raw = rows.map(r=> (r.c && r.c[0] && r.c[0].v) ? String(r.c[0].v).trim() : '').filter(Boolean);
+      const filtered = raw.filter(t => t.toLowerCase() !== 'titulo');
+      categorias = Array.from(new Set(filtered));
+      debugLog('Categorias cargadas (safe):', categorias.length);
+    } catch(err){
+      console.warn('cargarCategorias: fallo parseo categorias_list, se establecerá lista vacía. Error:', err);
       categorias = [];
-      populateCategoriaSelect();
+    } finally {
+      try { populateCategoriaSelect(); } catch(e){ console.warn('populateCategoriaSelect error', e); }
       callback && callback();
     }
   }).catch(err=>{
-    debugLog('Error fetch categorias_list', err);
+    console.warn('fetch categorias_list falló, establecer categorias=[] y seguir. Error:', err);
     categorias = [];
-    populateCategoriaSelect();
+    try { populateCategoriaSelect(); } catch(e){ console.warn('populateCategoriaSelect error', e); }
     callback && callback();
   });
 }
 
-/* Rellenar select de categoría (REQUIRED - no blank option) */
+/* Fill the promo-categoria select; REQUIRED: no empty selectable option */
 function populateCategoriaSelect(){
   const sel = document.getElementById('promo-categoria');
   if(!sel) return;
   sel.innerHTML = '';
-  // if no categories, show placeholder option disabled (prevents submit)
   if(!categorias || categorias.length === 0){
     const opt = document.createElement('option');
     opt.value = '';
@@ -268,7 +269,6 @@ function populateCategoriaSelect(){
     sel.classList.add('field-error');
     return;
   }
-  // populate categories (first option is a prompt but disabled to force selection)
   const promptOpt = document.createElement('option');
   promptOpt.value = '';
   promptOpt.textContent = 'Elegí categoría...';
@@ -284,7 +284,7 @@ function populateCategoriaSelect(){
   sel.classList.remove('field-error');
 }
 
-/* Autocomplete helper (unchanged) */
+/* Autocomplete helper */
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   if(!inputEl||!listEl||!idEl) return;
   inputEl.addEventListener('input', function(){
@@ -345,7 +345,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   inputEl.addEventListener('change', function(){ if(this.value===''){ idEl.value=''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnGenerarClave')?.setAttribute('disabled','true'); } });
 }
 
-/* Eventos y login */
+/* Events and login */
 let originalLoginBtnText = null;
 document.addEventListener('DOMContentLoaded', ()=>{
   cargarComercios(()=>{
@@ -414,7 +414,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Create commerce (external form)
   document.getElementById('btnCrearComercio').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
-  // Registro / Generar clave: logic unchanged
+  /* Registro / Generar clave: UI validation and POST to worker */
   const pwdInput = document.getElementById('nueva-clave');
   const pwdConfirm = document.getElementById('nueva-clave-confirm');
   const btnGenerar = document.getElementById('btnGenerarClave');
@@ -498,7 +498,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){ sesion = { id: localStorage.getItem('comercio_id'), nombre: localStorage.getItem('comercio_nombre'), planilla_id: localStorage.getItem('planilla_id')||'' }; mostrarPanelDashboard(); }
 });
 
-/* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
+/* Promos helpers */
 async function promos_post(path, payload){
   const body = Object.assign({}, payload, { advertiserId: (sesion && sesion.id) ? sesion.id : '' });
   const url = WORKER_ORIGIN + path;
@@ -582,110 +582,92 @@ function renderPromosList(promos){
 
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
-/* Crear promo desde form - categoria REQUIRED enforcement */
+/* Crear promo handler (category REQUIRED) */
 document.addEventListener('click', function(e){
   if(!e.target) return;
-
-  // Crear promo
-  if(e.target.id === 'promo-create'){
-    (async ()=>{
-      if(!sesion || !sesion.id){ alert('No logueado.'); return; }
-      const promoEl = document.getElementById('promo-text');
-      const categoriaEl = document.getElementById('promo-categoria');
-      const promo = promoEl.value.trim();
-      const categoria = categoriaEl.value || '';
-      const desde = document.getElementById('promo-desde').value;
-      const hasta = document.getElementById('promo-hasta').value;
-      const otros = document.getElementById('promo-otros').value.trim();
-
-      // Validate required fields: promo text + categoria (category REQUIRED)
-      let invalid = false;
-      if(!promo){
-        promoEl.classList.add('field-error');
-        invalid = true;
-      } else promoEl.classList.remove('field-error');
-
-      if(!categoria){
-        categoriaEl.classList.add('field-error');
-        invalid = true;
-      } else categoriaEl.classList.remove('field-error');
-
-      if(invalid){
-        alert('Por favor completá el texto de la promo y seleccioná una categoría (requerido).');
-        return;
-      }
-
-      // UI feedback
-      const statusEl = document.getElementById('promos-status');
-      statusEl.textContent = 'Creando promo...';
-      const btn = e.target;
-      btn.setAttribute('disabled','true');
-      const spinner = document.createElement('span'); spinner.className='spinner'; btn.appendChild(spinner);
-
-      // Build payload exactly as backend expects
-      const payload = {
-        action: 'createPromo',
-        payload: { promo: promo, categoria: categoria, desde: desde || '', hasta: hasta || '', otros: otros || '' },
-        advertiserId: String(sesion.id || '')
-      };
-
-      debugLog('Creating promo - request payload:', payload);
-
-      try {
-        const url = WORKER_ORIGIN + '/commerce';
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          mode: 'cors',
-          body: JSON.stringify(payload)
-        });
-
-        const text = await res.text();
-        let body;
-        try { body = JSON.parse(text); } catch(e) { body = { rawText: text }; }
-
-        debugLog('CreatePromo response status:', res.status, 'body:', body);
-
-        if(res.status === 200 && body && (body.success === true || body.created === true)){
-          statusEl.textContent = 'Promo creada correctamente.';
-          document.getElementById('promo-text').value = '';
-          document.getElementById('promo-categoria').value = '';
-          document.getElementById('promo-desde').value = '';
-          document.getElementById('promo-hasta').value = '';
-          document.getElementById('promo-otros').value = '';
-          await loadPromosUI();
-        } else {
-          const errMsg = `Error creando promo. HTTP ${res.status} - ${JSON.stringify(body)}`;
-          statusEl.textContent = errMsg;
-          debugLog(errMsg);
-          if(body && body.message) alert('Error: ' + body.message);
-        }
-      } catch(err){
-        const errText = 'Error de conexión al crear promo: ' + String(err);
-        document.getElementById('promos-status').textContent = errText;
-        debugLog(errText, err);
-        alert('Error de conexión. Revisa la consola para más detalles.');
-      } finally {
-        try { btn.removeChild(spinner); } catch(e){}
-        btn.removeAttribute('disabled');
-      }
-    })();
+  if(e.target.id !== 'promo-create'){
+    if(e.target.id === 'promo-refresh') loadPromosUI();
     return;
   }
 
-  // Refrescar promos
-  if(e.target.id === 'promo-refresh'){
-    loadPromosUI();
-    return;
-  }
+  (async ()=>{
+    if(!sesion || !sesion.id){ alert('No logueado.'); return; }
+    const promoEl = document.getElementById('promo-text');
+    const categoriaEl = document.getElementById('promo-categoria');
+    const promo = promoEl ? promoEl.value.trim() : '';
+    const categoria = categoriaEl ? categoriaEl.value : '';
+    const desde = document.getElementById('promo-desde').value;
+    const hasta = document.getElementById('promo-hasta').value;
+    const otros = document.getElementById('promo-otros').value.trim();
+
+    let invalid = false;
+    if(!promo){ promoEl && promoEl.classList.add('field-error'); invalid = true; } else promoEl && promoEl.classList.remove('field-error');
+    if(!categoria){ categoriaEl && categoriaEl.classList.add('field-error'); invalid = true; } else categoriaEl && categoriaEl.classList.remove('field-error');
+
+    if(invalid){
+      alert('Por favor completá el texto de la promo y seleccioná una categoría (requerido).');
+      return;
+    }
+
+    const statusEl = document.getElementById('promos-status');
+    statusEl.textContent = 'Creando promo...';
+    const btn = e.target;
+    btn.setAttribute('disabled','true');
+    const spinner = document.createElement('span'); spinner.className='spinner'; btn.appendChild(spinner);
+
+    const payload = {
+      action: 'createPromo',
+      payload: { promo: promo, categoria: categoria, desde: desde || '', hasta: hasta || '', otros: otros || '' },
+      advertiserId: String(sesion.id || '')
+    };
+
+    debugLog('Creating promo - request payload:', payload);
+
+    try {
+      const url = WORKER_ORIGIN + '/commerce';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        mode: 'cors',
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      let body;
+      try { body = JSON.parse(text); } catch(e) { body = { rawText: text }; }
+
+      debugLog('CreatePromo response status:', res.status, 'body:', body);
+
+      if(res.status === 200 && body && (body.success === true || body.created === true)){
+        statusEl.textContent = 'Promo creada correctamente.';
+        promoEl.value = '';
+        categoriaEl.value = '';
+        document.getElementById('promo-desde').value = '';
+        document.getElementById('promo-hasta').value = '';
+        document.getElementById('promo-otros').value = '';
+        await loadPromosUI();
+      } else {
+        const errMsg = `Error creando promo. HTTP ${res.status} - ${JSON.stringify(body)}`;
+        statusEl.textContent = errMsg;
+        debugLog(errMsg);
+        if(body && body.message) alert('Error: ' + body.message);
+      }
+    } catch(err){
+      const errText = 'Error de conexión al crear promo: ' + String(err);
+      document.getElementById('promos-status').textContent = errText;
+      debugLog(errText, err);
+      alert('Error de conexión. Revisa la consola para más detalles.');
+    } finally {
+      try { btn.removeChild(spinner); } catch(e){}
+      btn.removeAttribute('disabled');
+    }
+  })();
 });
 
-/* Ensure categories select is populated after load */
+/* Ensure select gets populated after window load if needed */
 (function initCategoriesOnLoad(){
   if(window.addEventListener) {
-    window.addEventListener('load', () => {
-      setTimeout(()=> populateCategoriaSelect(), 500);
-    });
+    window.addEventListener('load', () => { setTimeout(()=> populateCategoriaSelect(), 500); });
   }
 })();
 </script>
