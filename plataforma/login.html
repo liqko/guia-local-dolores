@@ -8,7 +8,7 @@
     body{font-family:Arial,Helvetica,sans-serif;background:#f6f7fb;margin:0;padding:0}
     .container{max-width:980px;margin:20px auto;background:#fff;border-radius:12px;box-shadow:0 2px 16px #0002;padding:24px}
     label{display:block;margin:12px 0 6px;font-weight:500}
-    input,button,textarea{width:100%;padding:8px;margin-bottom:10px;border-radius:5px;border:1px solid #bbb;box-sizing:border-box}
+    input,button,textarea,select{width:100%;padding:8px;margin-bottom:10px;border-radius:5px;border:1px solid #bbb;box-sizing:border-box}
     .autocomplete-list{position:absolute;background:#fff;border:1px solid #bbb;z-index:10;max-height:220px;overflow-y:auto;width:93%}
     .autocomplete-item{padding:8px;cursor:pointer}
     .autocomplete-item:hover{background:#e7f7fd}
@@ -37,6 +37,9 @@
     .secondary{background:#666;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
     .spinner{display:inline-block;width:16px;height:16px;border:2px solid #ccc;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;margin-left:8px;vertical-align:middle}
     @keyframes spin{to{transform:rotate(360deg)}}
+    .promos-row-controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .promo-input { flex:1; min-width:160px; }
+    .promo-select { width:220px; min-width:140px; }
   </style>
 </head>
 <body>
@@ -123,11 +126,14 @@
         <div id="promos-status" class="small-muted">Cargando configuración de promos...</div>
 
         <div style="margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px">
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <input id="promo-text" type="text" placeholder="Texto de la promo (ej: 10% OFF)" style="flex:1;max-width:320px" />
+          <div class="promos-row-controls">
+            <input id="promo-text" class="promo-input" type="text" placeholder="Texto de la promo (ej: 10% OFF)" />
+            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo">
+              <option value="">Categoría (opcional)</option>
+            </select>
             <input id="promo-desde" type="date" style="width:140px" />
             <input id="promo-hasta" type="date" style="width:140px" />
-            <input id="promo-otros" type="text" placeholder="Otros (ej: Hasta agotar stock 50 unidades)" style="flex:1;max-width:300px" />
+            <input id="promo-otros" class="promo-input" type="text" placeholder="Otros (ej: Hasta agotar stock 50 unidades)" style="max-width:300px" />
             <button id="promo-create" style="min-width:140px">Crear promo</button>
             <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
           </div>
@@ -164,6 +170,7 @@ const SUPPORT_NUMBER = "5492245459957"; // +54 9 224 5459957
 const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel_acceso","verificado","gold","subnivel","nivelacceso"];
 
 let comercios = [];
+let categorias = []; // NEW: list of categories from categorias_list
 let sesion = null;
 const debugEl = document.getElementById('debug');
 function debugLog(...args){ console.log(...args); try { debugEl.textContent += args.map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ') + "\n\n"; debugEl.scrollTop = debugEl.scrollHeight; }catch(e){} }
@@ -187,7 +194,7 @@ function isAllowedLevel(levelStr){
   return n === 1 || n === 2 || n >= 5;
 }
 
-/* Cargar lista de comercios (autocompletado) */
+/* Cargar lista de comercios (autocompletado) and categories */
 function cargarComercios(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -206,14 +213,71 @@ function cargarComercios(callback){
         return { nombre, id, nivel };
       }).filter(c=>c.nombre);
       debugLog('Comercios cargados:', comercios.length);
-      callback && callback();
+      // Also load categories after comercios (we can run independently too)
+      cargarCategorias(()=> callback && callback());
     }catch(e){
       debugLog('Error parseando lista de comercios', e);
-      callback && callback();
+      // still attempt to load categories
+      cargarCategorias(()=> callback && callback());
     }
-  }).catch(err=>{ debugLog('Error fetch lista de comercios', err); callback && callback(); });
+  }).catch(err=>{ debugLog('Error fetch lista de comercios', err); cargarCategorias(()=> callback && callback()); });
 }
 
+/* NEW: cargar categorias desde sheet 'categorias_list' to populate promo-categoria select */
+function cargarCategorias(callback){
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent('categorias_list')}`;
+  fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
+    try{
+      const start=text.indexOf('{'), end=text.lastIndexOf('}');
+      const jsonText=text.slice(start,end+1);
+      const json=JSON.parse(jsonText);
+      // find column labels
+      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
+      // assume first column is 'titulo', second is 'logo'
+      const idxTitulo = 0;
+      const rows = json.table.rows || [];
+      categorias = rows.map(r=> {
+        const title = (r.c && r.c[idxTitulo] && r.c[idxTitulo].v) ? String(r.c[idxTitulo].v).trim() : '';
+        return title;
+      }).filter(t => t && t.toLowerCase() !== 'titulo');
+      // dedupe and sort lightly
+      categorias = Array.from(new Set(categorias));
+      debugLog('Categorias cargadas:', categorias.length, categorias.slice(0,20));
+      populateCategoriaSelect();
+      callback && callback();
+    }catch(e){
+      debugLog('Error parseando categorias_list', e);
+      categorias = [];
+      populateCategoriaSelect();
+      callback && callback();
+    }
+  }).catch(err=>{
+    debugLog('Error fetch categorias_list', err);
+    categorias = [];
+    populateCategoriaSelect();
+    callback && callback();
+  });
+}
+
+/* Fill the promo-categoria select with categories */
+function populateCategoriaSelect(){
+  const sel = document.getElementById('promo-categoria');
+  if(!sel) return;
+  // clear existing options except first
+  const first = sel.querySelector('option');
+  sel.innerHTML = '';
+  sel.appendChild(first || (() => {
+    const o = document.createElement('option'); o.value=''; o.textContent='Categoría (opcional)'; return o;
+  })());
+  categorias.forEach(cat=>{
+    const opt = document.createElement('option');
+    opt.value = cat;
+    opt.textContent = cat;
+    sel.appendChild(opt);
+  });
+}
+
+/* Autocomplete helper (unchanged) */
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   if(!inputEl||!listEl||!idEl) return;
   inputEl.addEventListener('input', function(){
@@ -487,7 +551,7 @@ document.addEventListener('submit', function(e){
 /* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
 /* Requiere: WORKER_ORIGIN (already defined), sesion (id and nombre) */
 async function promos_post(path, payload){
-  // Enviamos advertiserId en el body para que el Worker lo reciba si no hay JWT
+  // Enviamos advertiserId in body if not present (worker expects advertiserId)
   const body = Object.assign({}, payload, { advertiserId: (sesion && sesion.id) ? sesion.id : '' });
   const url = WORKER_ORIGIN + path;
   try {
@@ -517,15 +581,17 @@ async function loadPromosUI(){
 function renderPromosList(promos){
   const list = document.getElementById('promos-list');
   if(!promos || promos.length === 0){ list.innerHTML = '<div class="small-muted">No hay promos registradas.</div>'; return; }
-  let html = '<table><thead><tr><th>Promo</th><th>Desde</th><th>Hasta</th><th>promo_id</th><th>otros</th><th>Acciones</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Promo</th><th>Categoria</th><th>Desde</th><th>Hasta</th><th>promo_id</th><th>otros</th><th>Acciones</th></tr></thead><tbody>';
   for(const p of promos){
     const promo = htmlEscape(p.promo || '');
+    const categoria = htmlEscape(p.categoria || '');
     const desde = htmlEscape(p.desde || '');
     const hasta = htmlEscape(p.hasta || '');
     const pid = htmlEscape(p.promo_id || '');
     const otros = htmlEscape(p.otros || '');
     html += `<tr>
       <td>${promo}</td>
+      <td>${categoria}</td>
       <td>${desde}</td>
       <td>${hasta}</td>
       <td style="font-size:0.9em;color:#555">${pid}</td>
@@ -549,13 +615,19 @@ function renderPromosList(promos){
         const r = await promos_post('/commerce', { action: 'deletePromo', payload: { promo_id: pid } });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo borrada'); loadPromosUI(); } else { alert('Error borrando: ' + JSON.stringify(r.json)); }
       } else if(action === 'edit'){
+        // better UX: prompt for all fields including categoria
         const newText = prompt('Editar texto de promo:', '');
         if(newText === null) return;
+        const newCategoria = prompt('Categoria (dejar vacía para no cambiar):','');
         const newDesde = prompt('Desde (YYYY-MM-DD):','');
         const newHasta = prompt('Hasta (YYYY-MM-DD):','');
         const newOtros = prompt('Otros (nota opcional):','');
         const payload = { promo_id: pid };
-        if(newText) payload.promo = newText; if(newDesde) payload.desde = newDesde; if(newHasta) payload.hasta = newHasta; if(newOtros) payload.otros = newOtros;
+        if(newText) payload.promo = newText;
+        if(newCategoria) payload.categoria = newCategoria;
+        if(newDesde) payload.desde = newDesde;
+        if(newHasta) payload.hasta = newHasta;
+        if(newOtros) payload.otros = newOtros;
         const r = await promos_post('/commerce', { action: 'updatePromo', payload: payload });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo actualizada'); loadPromosUI(); } else { alert('Error actualizando: ' + JSON.stringify(r.json)); }
       }
@@ -565,7 +637,7 @@ function renderPromosList(promos){
 
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
-/* Crear promo desde form - REEMPLAZADO handler: asegura payload correcto y logs */
+/* Crear promo desde form - includes categoria selection and robust payload */
 document.addEventListener('click', function(e){
   if(!e.target) return;
 
@@ -574,6 +646,7 @@ document.addEventListener('click', function(e){
     (async ()=>{
       if(!sesion || !sesion.id){ alert('No logueado.'); return; }
       const promo = document.getElementById('promo-text').value.trim();
+      const categoria = document.getElementById('promo-categoria').value || '';
       const desde = document.getElementById('promo-desde').value;
       const hasta = document.getElementById('promo-hasta').value;
       const otros = document.getElementById('promo-otros').value.trim();
@@ -589,7 +662,7 @@ document.addEventListener('click', function(e){
       // Build payload exactly as backend expects
       const payload = {
         action: 'createPromo',
-        payload: { promo: promo, desde: desde || '', hasta: hasta || '', otros: otros || '' },
+        payload: { promo: promo, categoria: categoria, desde: desde || '', hasta: hasta || '', otros: otros || '' },
         advertiserId: String(sesion.id || '')
       };
 
@@ -613,6 +686,7 @@ document.addEventListener('click', function(e){
         if(res.status === 200 && body && (body.success === true || body.created === true)){
           statusEl.textContent = 'Promo creada correctamente.';
           document.getElementById('promo-text').value = '';
+          document.getElementById('promo-categoria').value = '';
           document.getElementById('promo-desde').value = '';
           document.getElementById('promo-hasta').value = '';
           document.getElementById('promo-otros').value = '';
@@ -642,12 +716,22 @@ document.addEventListener('click', function(e){
     return;
   }
 
-  // Other handlers preserved above in renderPromosList
+  // Other handlers preserved in renderPromosList
 });
 
 /* End Promos block */
 
-/* Misc: legacy helpers and initialization are above */
+/* Misc: initialization to ensure categories loaded even if not available earlier */
+(function initCategoriesOnLoad(){
+  // If cargarComercios already ran, cargarCategorias was called there.
+  // Ensure select is populated if categorias already loaded.
+  if(window.addEventListener) {
+    window.addEventListener('load', () => {
+      // small delay to allow previous fetches
+      setTimeout(()=> populateCategoriaSelect(), 500);
+    });
+  }
+})();
 </script>
 </body>
 </html>
