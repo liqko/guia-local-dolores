@@ -35,6 +35,8 @@
     .ok{background:#e6ffed;border:1px solid #b7f0c6}
     .err{background:#ffecec;border:1px solid #fabbbb}
     .secondary{background:#666;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid #ccc;border-top-color:#333;border-radius:50%;animation:spin .8s linear infinite;margin-left:8px;vertical-align:middle}
+    @keyframes spin{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
@@ -275,7 +277,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
 /* Eventos y login */
 let originalLoginBtnText = null;
 document.addEventListener('DOMContentLoaded', ()=>{
-  cargarComercios(()=>{ 
+  cargarComercios(()=>{
     showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
     showAutocomplete(document.getElementById('comercio-buscar2'), document.getElementById('autocomplete-list2'), document.getElementById('comercio-id2'), true);
   });
@@ -563,9 +565,11 @@ function renderPromosList(promos){
 
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
-/* Crear promo desde form */
+/* Crear promo desde form - REEMPLAZADO handler: asegura payload correcto y logs */
 document.addEventListener('click', function(e){
   if(!e.target) return;
+
+  // Crear promo
   if(e.target.id === 'promo-create'){
     (async ()=>{
       if(!sesion || !sesion.id){ alert('No logueado.'); return; }
@@ -574,25 +578,71 @@ document.addEventListener('click', function(e){
       const hasta = document.getElementById('promo-hasta').value;
       const otros = document.getElementById('promo-otros').value.trim();
       if(!promo){ alert('Ingresá texto de promo'); return; }
-      document.getElementById('promos-status').textContent = 'Creando promo...';
-      // IMPORTANT: POST to /commerce so Worker treats this as proxy->AppsScript for promos (not as login)
-      const r = await promos_post('/commerce', { action: 'createPromo', payload: { promo, desde, hasta, otros } });
-      if(r.status === 200 && r.json && (r.json.success || r.json.created)){
-        document.getElementById('promos-status').textContent = 'Promo creada';
-        document.getElementById('promo-text').value='';
-        document.getElementById('promo-desde').value='';
-        document.getElementById('promo-hasta').value='';
-        document.getElementById('promo-otros').value='';
-        loadPromosUI();
-      } else {
-        document.getElementById('promos-status').textContent = 'Error creando: ' + JSON.stringify(r.json);
-        alert('Error creando promo. Revisa la consola para más detalles.');
-        console.error('create promo result', r);
+
+      // UI feedback
+      const statusEl = document.getElementById('promos-status');
+      statusEl.textContent = 'Creando promo...';
+      const btn = e.target;
+      btn.setAttribute('disabled','true');
+      const spinner = document.createElement('span'); spinner.className='spinner'; btn.appendChild(spinner);
+
+      // Build payload exactly as backend expects
+      const payload = {
+        action: 'createPromo',
+        payload: { promo: promo, desde: desde || '', hasta: hasta || '', otros: otros || '' },
+        advertiserId: String(sesion.id || '')
+      };
+
+      debugLog('Creating promo - request payload:', payload);
+
+      try {
+        const url = WORKER_ORIGIN + '/commerce';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          mode: 'cors',
+          body: JSON.stringify(payload)
+        });
+
+        const text = await res.text();
+        let body;
+        try { body = JSON.parse(text); } catch(e) { body = { rawText: text }; }
+
+        debugLog('CreatePromo response status:', res.status, 'body:', body);
+
+        if(res.status === 200 && body && (body.success === true || body.created === true)){
+          statusEl.textContent = 'Promo creada correctamente.';
+          document.getElementById('promo-text').value = '';
+          document.getElementById('promo-desde').value = '';
+          document.getElementById('promo-hasta').value = '';
+          document.getElementById('promo-otros').value = '';
+          await loadPromosUI();
+        } else {
+          const errMsg = `Error creando promo. HTTP ${res.status} - ${JSON.stringify(body)}`;
+          statusEl.textContent = errMsg;
+          debugLog(errMsg);
+          if(body && body.message) alert('Error: ' + body.message);
+        }
+      } catch(err){
+        const errText = 'Error de conexión al crear promo: ' + String(err);
+        document.getElementById('promos-status').textContent = errText;
+        debugLog(errText, err);
+        alert('Error de conexión. Revisa la consola para más detalles.');
+      } finally {
+        try { btn.removeChild(spinner); } catch(e){}
+        btn.removeAttribute('disabled');
       }
     })();
-  } else if(e.target.id === 'promo-refresh'){
-    loadPromosUI();
+    return;
   }
+
+  // Refrescar promos
+  if(e.target.id === 'promo-refresh'){
+    loadPromosUI();
+    return;
+  }
+
+  // Other handlers preserved above in renderPromosList
 });
 
 /* End Promos block */
