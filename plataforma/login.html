@@ -40,6 +40,7 @@
     .promos-row-controls { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
     .promo-input { flex:1; min-width:160px; }
     .promo-select { width:220px; min-width:140px; }
+    .field-required { border-color:#d9534f; }
   </style>
 </head>
 <body>
@@ -128,8 +129,8 @@
         <div style="margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px">
           <div class="promos-row-controls">
             <input id="promo-text" class="promo-input" type="text" placeholder="Texto de la promo (ej: 10% OFF)" />
-            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo">
-              <option value="">Categoría (opcional)</option>
+            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo" required>
+              <option value="" disabled selected>Seleccione categoría</option>
             </select>
             <input id="promo-desde" type="date" style="width:140px" />
             <input id="promo-hasta" type="date" style="width:140px" />
@@ -159,30 +160,24 @@
 /* === CONFIG === */
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
-// NOTE: UPDATED SHEET_ID to the spreadsheet ID you provided to ensure the UI reads the correct document
+// SHEET_ID ya configurado por vos
 const SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 /* ================= */
 
-/* Teléfono de soporte (usar siempre este número) */
-const SUPPORT_NUMBER = "5492245459957"; // +54 9 224 5459957
-
-/* Campos que NO deben ser editables desde el panel. */
+const SUPPORT_NUMBER = "5492245459957";
 const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel_acceso","verificado","gold","subnivel","nivelacceso"];
 
 let comercios = [];
-let categorias = []; // NEW: list of categories from categorias_list
+let categorias = [];
 let sesion = null;
 const debugEl = document.getElementById('debug');
 function debugLog(...args){ console.log(...args); try { debugEl.textContent += args.map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ') + "\n\n"; debugEl.scrollTop = debugEl.scrollHeight; }catch(e){} }
 
 function mostrarPanel(panel){ ['panel-login','panel-registro','panel-dashboard'].forEach(id=>document.getElementById(id).classList.remove('active')); document.getElementById('panel-'+panel)?.classList.add('active'); }
-
 function openWhatsApp(text){ window.open(`https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent(text)}`,'_blank'); }
-
 function enableReportButton(payloadText){ document.getElementById('report-area').style.display='block'; document.getElementById('reportBtn').onclick = ()=> openWhatsApp(payloadText + "\n\nPor favor revisen. Gracias."); }
 
-/* Helpers para niveles */
 function parseLevel(levelStr){
   if(levelStr===undefined || levelStr===null) return NaN;
   const s = String(levelStr).trim().replace(',', '.');
@@ -214,17 +209,15 @@ function cargarComercios(callback){
         return { nombre, id, nivel };
       }).filter(c=>c.nombre);
       debugLog('Comercios cargados:', comercios.length);
-      // Also load categories after comercios (we can run independently too)
       cargarCategorias(()=> callback && callback());
     }catch(e){
       debugLog('Error parseando lista de comercios', e);
-      // still attempt to load categories
       cargarCategorias(()=> callback && callback());
     }
   }).catch(err=>{ debugLog('Error fetch lista de comercios', err); cargarCategorias(()=> callback && callback()); });
 }
 
-/* NEW: cargar categorias desde sheet 'categorias_list' to populate promo-categoria select */
+/* Cargar categorias */
 function cargarCategorias(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent('categorias_list')}`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -232,16 +225,12 @@ function cargarCategorias(callback){
       const start=text.indexOf('{'), end=text.lastIndexOf('}');
       const jsonText=text.slice(start,end+1);
       const json=JSON.parse(jsonText);
-      // find column labels
-      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
-      // assume first column is 'titulo', second is 'logo'
       const idxTitulo = 0;
       const rows = json.table.rows || [];
       categorias = rows.map(r=> {
         const title = (r.c && r.c[idxTitulo] && r.c[idxTitulo].v) ? String(r.c[idxTitulo].v).trim() : '';
         return title;
       }).filter(t => t && t.toLowerCase() !== 'titulo');
-      // dedupe and sort lightly
       categorias = Array.from(new Set(categorias));
       debugLog('Categorias cargadas:', categorias.length, categorias.slice(0,20));
       populateCategoriaSelect();
@@ -260,16 +249,17 @@ function cargarCategorias(callback){
   });
 }
 
-/* Fill the promo-categoria select with categories */
+/* Fill the promo-categoria select with a placeholder disabled (selection mandatory) */
 function populateCategoriaSelect(){
   const sel = document.getElementById('promo-categoria');
   if(!sel) return;
-  // clear existing options except first
-  const first = sel.querySelector('option');
   sel.innerHTML = '';
-  sel.appendChild(first || (() => {
-    const o = document.createElement('option'); o.value=''; o.textContent='Categoría (opcional)'; return o;
-  })());
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  placeholder.textContent = 'Seleccione categoría';
+  sel.appendChild(placeholder);
   categorias.forEach(cat=>{
     const opt = document.createElement('option');
     opt.value = cat;
@@ -278,7 +268,7 @@ function populateCategoriaSelect(){
   });
 }
 
-/* Autocomplete helper (unchanged) */
+/* Autocomplete helper */
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   if(!inputEl||!listEl||!idEl) return;
   inputEl.addEventListener('input', function(){
@@ -405,10 +395,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   };
 
-  // Create commerce (external form)
   document.getElementById('btnCrearComercio').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
-  // Registro / Generar clave: UI validation and POST to worker to register clave in sheet
   const pwdInput = document.getElementById('nueva-clave');
   const pwdConfirm = document.getElementById('nueva-clave-confirm');
   const btnGenerar = document.getElementById('btnGenerarClave');
@@ -492,17 +480,32 @@ document.addEventListener('DOMContentLoaded', ()=>{
   if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){ sesion = { id: localStorage.getItem('comercio_id'), nombre: localStorage.getItem('comercio_nombre'), planilla_id: localStorage.getItem('planilla_id')||'' }; mostrarPanelDashboard(); }
 });
 
-/* Dashboard: pedir datos al Worker -> Apps Script */
+/* mostrarPanelDashboard: manejo más robusto de la respuesta GET para evitar "unknown action" */
 async function mostrarPanelDashboard(){
   if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
   document.getElementById('nombre-comercio').textContent = sesion.nombre;
   debugLog('Pidiendo datos para id:', sesion.id);
   const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
+
   try{
     const r = await fetch(url, { method:'GET', mode:'cors' });
-    const datos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
-    debugLog('/commerce ->', datos);
-    if(datos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${datos.error}`; mostrarPanel('dashboard'); return; }
+    let datos;
+    try { datos = await r.json(); } catch(e) { datos = { error: 'Respuesta inválida', raw: await r.text().catch(()=>'no body') }; }
+    debugLog('/commerce GET ->', r.status, datos);
+
+    // Si el worker devuelve error "unknown action" o similar, no detengas el dashboard:
+    if(datos && datos.error){
+      debugLog('Worker GET devolvió error:', datos.error, '— continuar con carga de UI y promos.');
+      // Mostrar mensaje suave en el dashboard (no romper otras cosas)
+      document.getElementById('campos-datos-comercio').innerHTML = `<div class="small-warning"><b>Nota:</b> No se pudo cargar datos adicionales del worker: ${String(datos.error)}</div>`;
+      // Aun así, mostramos panel y continuamos con carga de promos
+      mostrarPanel('dashboard');
+      // cargar promos por POST (este es el camino esperado)
+      setTimeout(()=>{ try{ if(document.getElementById('promos-list')) loadPromosUI(); }catch(e){ debugLog('Error al iniciar loadPromosUI tras GET error', e); } }, 200);
+      return;
+    }
+
+    // Si no hay error, llenamos campos normalmente
     if(datos.planilla_id && datos.planilla_id !== sesion.planilla_id){ sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
     const campos = ["nombre","nivel","subnivel","segmento","categoria","tags","adicionales","pie","descripcion","direccion","lat","lng","telefono","whatsapp","mail","instagram","facebook","youtube","tiktok","linkedin","logo","verificado","gold","img1","img2","img3","img4","link"];
     let html = '';
@@ -513,22 +516,19 @@ async function mostrarPanelDashboard(){
     mostrarPanel('dashboard');
 
     const btn = document.getElementById('btnLogin');
-    if(btn){
-      btn.removeAttribute('disabled');
-      btn.textContent = originalLoginBtnText;
-    }
+    if(btn){ btn.removeAttribute('disabled'); btn.textContent = originalLoginBtnText; }
 
     // After dashboard data is loaded, trigger promos load (if section present)
-    setTimeout(()=>{ try{ if(document.getElementById('promos-list')) loadPromosUI(); }catch(e){} }, 300);
+    setTimeout(()=>{ try{ if(document.getElementById('promos-list')) loadPromosUI(); }catch(e){ debugLog('Error iniciando loadPromosUI', e); } }, 300);
+
   }catch(err){
-    debugLog('Error al consultar /commerce', err);
+    debugLog('Error al consultar /commerce GET', err);
     document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
     mostrarPanel('dashboard');
     const btn = document.getElementById('btnLogin');
-    if(btn){
-      btn.removeAttribute('disabled');
-      btn.textContent = originalLoginBtnText;
-    }
+    if(btn){ btn.removeAttribute('disabled'); btn.textContent = originalLoginBtnText; }
+    // Intentar carga de promos aun cuando la GET falló (POST path separado)
+    setTimeout(()=>{ try{ if(document.getElementById('promos-list')) loadPromosUI(); }catch(e){ debugLog('Error al intentar loadPromosUI tras GET catch', e); } }, 300);
   }
 }
 
@@ -543,16 +543,20 @@ document.addEventListener('submit', function(e){
     debugLog('Guardar ->', data);
     const saveUrl = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     fetch(saveUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data), mode:'cors' })
-      .then(r=>r.json().catch(()=>({success:false, raw:'no json'})))
-      .then(res=>{ debugLog('respuesta guardar ->', res); if(res && res.success) document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; else document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; })
+      .then(async r=> {
+        const text = await r.text().catch(()=>null);
+        let parsed;
+        try { parsed = text ? JSON.parse(text) : null; } catch(e){ parsed = { raw: text }; }
+        debugLog('respuesta guardar ->', r.status, parsed);
+        return parsed || { success: (r.status===200) };
+      })
+      .then(res=>{ debugLog('respuesta guardar procesada ->', res); if(res && res.success) document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; else document.getElementById('msg-datos-comercio').textContent = 'Error al guardar. ' + (res && res.message?res.message:''); })
       .catch(err=>{ debugLog('Error guardando', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
   }
 });
 
 /* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
-/* Requiere: WORKER_ORIGIN (already defined), sesion (id and nombre) */
 async function promos_post(path, payload){
-  // Enviamos advertiserId in body if not present (worker expects advertiserId)
   const body = Object.assign({}, payload, { advertiserId: (sesion && sesion.id) ? sesion.id : '' });
   const url = WORKER_ORIGIN + path;
   try {
@@ -570,10 +574,22 @@ async function loadPromosUI(){
   if(!sesion || !sesion.id){ st.textContent = 'No logueado: inicia sesión para gestionar promos.'; list.innerHTML = ''; return; }
   st.textContent = 'Cargando promos...';
   list.innerHTML = 'Cargando promos...';
-  // Pedimos promos vía Worker -> Apps Script: action getPromos
+  // Pedimos promos vía Worker -> Apps Script: action getPromos (POST)
   const res = await promos_post('/commerce', { action: 'getPromos' });
-  if(res.status !== 200){ st.textContent = 'Error cargando promos: ' + (res.json && (res.json.error || res.json.message) ? (res.json.error || res.json.message) : res.status); list.innerHTML=''; return; }
+  debugLog('loadPromosUI -> response:', res);
+  if(res.status !== 200){
+    st.textContent = 'Error cargando promos: ' + (res.json && (res.json.error || res.json.message) ? (res.json.error || res.json.message) : res.status);
+    list.innerHTML='';
+    return;
+  }
   const data = res.json || {};
+  // Si backend devolvió error, lo mostramos completo en debug y UI
+  if(data.error){
+    st.textContent = 'Error backend al listar promos: ' + String(data.error);
+    debugLog('Error backend getPromos:', data);
+    list.innerHTML = `<div class="small-warning">Error al obtener promos: ${String(data.error)}</div>`;
+    return;
+  }
   const promos = data.promos || data.rows || [];
   renderPromosList(promos);
   st.textContent = 'Promos cargadas: ' + promos.length;
@@ -606,7 +622,6 @@ function renderPromosList(promos){
   html += '</tbody></table>';
   list.innerHTML = html;
 
-  // Attach handlers
   list.querySelectorAll('button').forEach(b=>{
     b.addEventListener('click', async (ev)=>{
       const action = b.getAttribute('data-action');
@@ -614,9 +629,9 @@ function renderPromosList(promos){
       if(action === 'delete'){
         if(!confirm('Confirmar borrar promo?')) return;
         const r = await promos_post('/commerce', { action: 'deletePromo', payload: { promo_id: pid } });
+        debugLog('deletePromo ->', r);
         if(r.status === 200 && r.json && r.json.success){ alert('Promo borrada'); loadPromosUI(); } else { alert('Error borrando: ' + JSON.stringify(r.json)); }
       } else if(action === 'edit'){
-        // better UX: prompt for all fields including categoria
         const newText = prompt('Editar texto de promo:', '');
         if(newText === null) return;
         const newCategoria = prompt('Categoria (dejar vacía para no cambiar):','');
@@ -630,6 +645,7 @@ function renderPromosList(promos){
         if(newHasta) payload.hasta = newHasta;
         if(newOtros) payload.otros = newOtros;
         const r = await promos_post('/commerce', { action: 'updatePromo', payload: payload });
+        debugLog('updatePromo ->', r);
         if(r.status === 200 && r.json && r.json.success){ alert('Promo actualizada'); loadPromosUI(); } else { alert('Error actualizando: ' + JSON.stringify(r.json)); }
       }
     });
@@ -638,29 +654,35 @@ function renderPromosList(promos){
 
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
-/* Crear promo desde form - includes categoria selection and robust payload */
+/* Crear promo desde form - validation y logs reforzados */
 document.addEventListener('click', function(e){
   if(!e.target) return;
 
-  // Crear promo
   if(e.target.id === 'promo-create'){
     (async ()=>{
       if(!sesion || !sesion.id){ alert('No logueado.'); return; }
       const promo = document.getElementById('promo-text').value.trim();
-      const categoria = document.getElementById('promo-categoria').value || '';
+      const categoriaSel = document.getElementById('promo-categoria');
+      const categoria = categoriaSel ? (categoriaSel.value || '') : '';
       const desde = document.getElementById('promo-desde').value;
       const hasta = document.getElementById('promo-hasta').value;
       const otros = document.getElementById('promo-otros').value.trim();
+
+      // Validation: category mandatory (UI-level). Server-side validation recommended too.
+      if(!categoria){
+        if(categoriaSel){ categoriaSel.classList.add('field-required'); categoriaSel.focus(); }
+        alert('Seleccioná una categoría (obligatorio).');
+        return;
+      } else { if(categoriaSel) categoriaSel.classList.remove('field-required'); }
+
       if(!promo){ alert('Ingresá texto de promo'); return; }
 
-      // UI feedback
       const statusEl = document.getElementById('promos-status');
       statusEl.textContent = 'Creando promo...';
       const btn = e.target;
       btn.setAttribute('disabled','true');
       const spinner = document.createElement('span'); spinner.className='spinner'; btn.appendChild(spinner);
 
-      // Build payload exactly as backend expects
       const payload = {
         action: 'createPromo',
         payload: { promo: promo, categoria: categoria, desde: desde || '', hasta: hasta || '', otros: otros || '' },
@@ -684,6 +706,7 @@ document.addEventListener('click', function(e){
 
         debugLog('CreatePromo response status:', res.status, 'body:', body);
 
+        // Show detailed error if not successful
         if(res.status === 200 && body && (body.success === true || body.created === true)){
           statusEl.textContent = 'Promo creada correctamente.';
           document.getElementById('promo-text').value = '';
@@ -696,7 +719,9 @@ document.addEventListener('click', function(e){
           const errMsg = `Error creando promo. HTTP ${res.status} - ${JSON.stringify(body)}`;
           statusEl.textContent = errMsg;
           debugLog(errMsg);
+          // Si body tiene message lo mostramos al usuario
           if(body && body.message) alert('Error: ' + body.message);
+          else alert('Error creando promo. Revisa el panel de debug para más detalles.');
         }
       } catch(err){
         const errText = 'Error de conexión al crear promo: ' + String(err);
@@ -711,24 +736,16 @@ document.addEventListener('click', function(e){
     return;
   }
 
-  // Refrescar promos
   if(e.target.id === 'promo-refresh'){
     loadPromosUI();
     return;
   }
-
-  // Other handlers preserved in renderPromosList
 });
 
-/* End Promos block */
-
-/* Misc: initialization to ensure categories loaded even if not available earlier */
+/* Ensures categories populate after load */
 (function initCategoriesOnLoad(){
-  // If cargarComercios already ran, cargarCategorias was called there.
-  // Ensure select is populated if categorias already loaded.
   if(window.addEventListener) {
     window.addEventListener('load', () => {
-      // small delay to allow previous fetches
       setTimeout(()=> populateCategoriaSelect(), 500);
     });
   }
