@@ -490,8 +490,7 @@ async function mostrarPanelDashboard(){
   try{
     const r = await fetch(url, { method:'GET', mode:'cors' });
     let datos;
-    try { datos = await r.json(); } catch(e) { datos = { error: 'Respuesta inválida', raw: await r.text().catch(()=>'
-no body') }; }
+    try { datos = await r.json(); } catch(e) { datos = { error: 'Respuesta inválida', raw: await r.text().catch(()=>'no body') }; }
     debugLog('/commerce GET ->', r.status, datos);
 
     // Si el worker devuelve error "unknown action" o similar, no detengas el dashboard:
@@ -557,18 +556,9 @@ document.addEventListener('submit', function(e){
 });
 
 /* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
-
-/*
-  NOTE: promos_post below was adapted to call WORKER_URL (same endpoint as login)
-  and to map 'action' -> 'accion' so the worker recognizes the command format.
-  This is a front-only change and is reversible.
-*/
 async function promos_post(path, payload){
-  // prepare body and ensure compatibility with worker expecting 'accion'
   const body = Object.assign({}, payload, { advertiserId: (sesion && sesion.id) ? sesion.id : '' });
-  if(body.action && !body.accion){ body.accion = body.action; delete body.action; }
-  // send to WORKER_URL (login worker) — keep path appended only if non-empty
-  const url = WORKER_URL + (path || '');
+  const url = WORKER_ORIGIN + path;
   try {
     const r = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body), mode:'cors' });
     const text = await r.text();
@@ -584,8 +574,8 @@ async function loadPromosUI(){
   if(!sesion || !sesion.id){ st.textContent = 'No logueado: inicia sesión para gestionar promos.'; list.innerHTML = ''; return; }
   st.textContent = 'Cargando promos...';
   list.innerHTML = 'Cargando promos...';
-  // Pedimos promos vía Worker -> Apps Script: action/getPromos (mapped to 'accion' by promos_post)
-  const res = await promos_post('', { action: 'getPromos' });
+  // Pedimos promos vía Worker -> Apps Script: action getPromos (POST)
+  const res = await promos_post('/commerce', { action: 'getPromos' });
   debugLog('loadPromosUI -> response:', res);
   if(res.status !== 200){
     st.textContent = 'Error cargando promos: ' + (res.json && (res.json.error || res.json.message) ? (res.json.error || res.json.message) : res.status);
@@ -593,6 +583,7 @@ async function loadPromosUI(){
     return;
   }
   const data = res.json || {};
+  // Si backend devolvió error, lo mostramos completo en debug y UI
   if(data.error){
     st.textContent = 'Error backend al listar promos: ' + String(data.error);
     debugLog('Error backend getPromos:', data);
@@ -637,7 +628,7 @@ function renderPromosList(promos){
       const pid = b.getAttribute('data-pid');
       if(action === 'delete'){
         if(!confirm('Confirmar borrar promo?')) return;
-        const r = await promos_post('', { action: 'deletePromo', payload: { promo_id: pid } });
+        const r = await promos_post('/commerce', { action: 'deletePromo', payload: { promo_id: pid } });
         debugLog('deletePromo ->', r);
         if(r.status === 200 && r.json && r.json.success){ alert('Promo borrada'); loadPromosUI(); } else { alert('Error borrando: ' + JSON.stringify(r.json)); }
       } else if(action === 'edit'){
@@ -653,7 +644,7 @@ function renderPromosList(promos){
         if(newDesde) payload.desde = newDesde;
         if(newHasta) payload.hasta = newHasta;
         if(newOtros) payload.otros = newOtros;
-        const r = await promos_post('', { action: 'updatePromo', payload: payload });
+        const r = await promos_post('/commerce', { action: 'updatePromo', payload: payload });
         debugLog('updatePromo ->', r);
         if(r.status === 200 && r.json && r.json.success){ alert('Promo actualizada'); loadPromosUI(); } else { alert('Error actualizando: ' + JSON.stringify(r.json)); }
       }
@@ -677,7 +668,7 @@ document.addEventListener('click', function(e){
       const hasta = document.getElementById('promo-hasta').value;
       const otros = document.getElementById('promo-otros').value.trim();
 
-      // Validation: category mandatory (UI-level).
+      // Validation: category mandatory (UI-level). Server-side validation recommended too.
       if(!categoria){
         if(categoriaSel){ categoriaSel.classList.add('field-required'); categoriaSel.focus(); }
         alert('Seleccioná una categoría (obligatorio).');
@@ -701,11 +692,22 @@ document.addEventListener('click', function(e){
       debugLog('Creating promo - request payload:', payload);
 
       try {
-        // Use promos_post which maps action -> accion and sends to WORKER_URL
-        const r = await promos_post('', payload);
-        debugLog('CreatePromo (via promos_post) ->', r);
+        const url = WORKER_ORIGIN + '/commerce';
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          mode: 'cors',
+          body: JSON.stringify(payload)
+        });
 
-        if(r.status === 200 && r.json && (r.json.success === true || r.json.created === true)){
+        const text = await res.text();
+        let body;
+        try { body = JSON.parse(text); } catch(e) { body = { rawText: text }; }
+
+        debugLog('CreatePromo response status:', res.status, 'body:', body);
+
+        // Show detailed error if not successful
+        if(res.status === 200 && body && (body.success === true || body.created === true)){
           statusEl.textContent = 'Promo creada correctamente.';
           document.getElementById('promo-text').value = '';
           document.getElementById('promo-categoria').value = '';
@@ -714,10 +716,11 @@ document.addEventListener('click', function(e){
           document.getElementById('promo-otros').value = '';
           await loadPromosUI();
         } else {
-          const errMsg = `Error creando promo. HTTP ${r.status} - ${JSON.stringify(r.json)}`;
+          const errMsg = `Error creando promo. HTTP ${res.status} - ${JSON.stringify(body)}`;
           statusEl.textContent = errMsg;
           debugLog(errMsg);
-          if(r.json && r.json.message) alert('Error: ' + r.json.message);
+          // Si body tiene message lo mostramos al usuario
+          if(body && body.message) alert('Error: ' + body.message);
           else alert('Error creando promo. Revisa el panel de debug para más detalles.');
         }
       } catch(err){
