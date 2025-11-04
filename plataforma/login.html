@@ -159,6 +159,7 @@
 /* === CONFIG === */
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
+const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 /* ================= */
@@ -231,16 +232,17 @@ function cargarCategorias(callback){
       const start=text.indexOf('{'), end=text.lastIndexOf('}');
       const jsonText=text.slice(start,end+1);
       const json=JSON.parse(jsonText);
-      // find column labels
-      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
-      // assume first column is 'titulo', second is 'logo'
+      // assume first column is 'titulo'
       const idxTitulo = 0;
       const rows = json.table.rows || [];
       categorias = rows.map(r=> {
-        const title = (r.c && r.c[idxTitulo] && r.c[idxTitulo].v) ? String(r.c[idxTitulo].v).trim() : '';
-        return title;
-      }).filter(t => t && t.toLowerCase() !== 'titulo');
-      // dedupe and sort lightly
+        const raw = (r.c && r.c[idxTitulo] && r.c[idxTitulo].v) ? r.c[idxTitulo].v : '';
+        return (typeof raw === 'string' ? raw.trim() : (raw===null || raw===undefined ? '' : String(raw).trim()));
+      })
+      .filter(t => t && t.toLowerCase() !== 'titulo');
+      // filter out non-useful values like 'true'
+      categorias = categorias.filter(c => typeof c === 'string' && c.trim().length > 0 && c.toLowerCase() !== 'true');
+      // dedupe
       categorias = Array.from(new Set(categorias));
       debugLog('Categorias cargadas:', categorias.length, categorias.slice(0,20));
       populateCategoriaSelect();
@@ -263,18 +265,29 @@ function cargarCategorias(callback){
 function populateCategoriaSelect(){
   const sel = document.getElementById('promo-categoria');
   if(!sel) return;
-  // clear existing options except first
-  const first = sel.querySelector('option');
+  // set a clear placeholder option (disabled + selected)
   sel.innerHTML = '';
-  sel.appendChild(first || (() => {
-    const o = document.createElement('option'); o.value=''; o.textContent='Categoría (opcional)'; return o;
-  })());
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '-- Seleccioná categoría --';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  sel.appendChild(placeholder);
+  // add only valid string categories
   categorias.forEach(cat=>{
+    if(typeof cat !== 'string') return;
+    const v = cat.trim();
+    if(!v || v.toLowerCase() === 'true') return;
     const opt = document.createElement('option');
-    opt.value = cat;
-    opt.textContent = cat;
+    opt.value = v;
+    opt.textContent = v;
     sel.appendChild(opt);
   });
+  // keep backward compatibility: if categories empty, keep placeholder text as optional
+  if(sel.options.length === 1){
+    placeholder.textContent = 'Categoría (opcional)';
+    placeholder.disabled = false;
+  }
 }
 
 /* Autocomplete helper (unchanged) */
@@ -555,10 +568,10 @@ document.addEventListener('submit', function(e){
    SAFE replacement: promos_post
    - normaliza 'accion' -> 'action'
    - asegura advertiserId desde sesion
-   - envía SIEMPRE a WORKER_ORIGIN + '/commerce'
+   - envía SIEMPRE a WORKER_COMMERCE_URL (a menos que se pase URL absoluta)
    - registra request/response en #debug
    ========================= */
-async function promos_post(path, payload){
+async function promos_post(pathOrUrl, payload){
   // Hacer una copia para no mutar el payload externo
   const body = Object.assign({}, payload || {});
 
@@ -570,10 +583,10 @@ async function promos_post(path, payload){
     body.advertiserId = String(window.sesion.id);
   }
 
-  // Enviar las llamadas de promos al endpoint /commerce (BACKEND de comerciante)
-  const url = WORKER_ORIGIN + '/commerce';
+  // Allow caller to pass either absolute URL or use WORKER_COMMERCE_URL
+  const url = (typeof pathOrUrl === 'string' && pathOrUrl.startsWith('http')) ? pathOrUrl : WORKER_COMMERCE_URL;
 
-  // Debug visible en la UI
+  // Debug visible in the UI
   try { debugLog('promos_post -> URL:', url, 'payload keys:', Object.keys(body)); } catch(e){}
 
   try {
@@ -604,7 +617,7 @@ async function loadPromosUI(){
   st.textContent = 'Cargando promos...';
   list.innerHTML = 'Cargando promos...';
   // Pedimos promos vía Worker -> Apps Script: action getPromos
-  const res = await promos_post('/commerce', { action: 'getPromos' });
+  const res = await promos_post(WORKER_COMMERCE_URL, { action: 'getPromos', advertiserId: String(sesion.id || '') });
   if(res.status !== 200){ st.textContent = 'Error cargando promos: ' + (res.json && (res.json.error || res.json.message) ? (res.json.error || res.json.message) : res.status); list.innerHTML=''; return; }
   const data = res.json || {};
   const promos = data.promos || data.rows || [];
@@ -646,7 +659,7 @@ function renderPromosList(promos){
       const pid = b.getAttribute('data-pid');
       if(action === 'delete'){
         if(!confirm('Confirmar borrar promo?')) return;
-        const r = await promos_post('/commerce', { action: 'deletePromo', payload: { promo_id: pid } });
+        const r = await promos_post(WORKER_COMMERCE_URL, { action: 'deletePromo', payload: { promo_id: pid } });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo borrada'); loadPromosUI(); } else { alert('Error borrando: ' + JSON.stringify(r.json)); }
       } else if(action === 'edit'){
         // better UX: prompt for all fields including categoria
@@ -662,7 +675,7 @@ function renderPromosList(promos){
         if(newDesde) payload.desde = newDesde;
         if(newHasta) payload.hasta = newHasta;
         if(newOtros) payload.otros = newOtros;
-        const r = await promos_post('/commerce', { action: 'updatePromo', payload: payload });
+        const r = await promos_post(WORKER_COMMERCE_URL, { action: 'updatePromo', payload: payload });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo actualizada'); loadPromosUI(); } else { alert('Error actualizando: ' + JSON.stringify(r.json)); }
       }
     });
@@ -704,7 +717,7 @@ document.addEventListener('click', function(e){
 
       try {
         // use promos_post safe wrapper
-        const r = await promos_post('/commerce', payload);
+        const r = await promos_post(WORKER_COMMERCE_URL, payload);
         debugLog('CreatePromo via promos_post ->', r);
 
         if(r.status === 200 && r.json && (r.json.success === true || r.json.created === true)){
