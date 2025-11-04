@@ -550,15 +550,49 @@ document.addEventListener('submit', function(e){
 
 /* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
 /* Requiere: WORKER_ORIGIN (already defined), sesion (id and nombre) */
+
+/* =========================
+   SAFE replacement: promos_post
+   - normaliza 'accion' -> 'action'
+   - asegura advertiserId desde sesion
+   - envía SIEMPRE a WORKER_ORIGIN + '/commerce'
+   - registra request/response en #debug
+   ========================= */
 async function promos_post(path, payload){
-  // Enviamos advertiserId in body if not present (worker expects advertiserId)
-  const body = Object.assign({}, payload, { advertiserId: (sesion && sesion.id) ? sesion.id : '' });
-  const url = WORKER_ORIGIN + path;
+  // Hacer una copia para no mutar el payload externo
+  const body = Object.assign({}, payload || {});
+
+  // Normalizar: si viene 'accion' -> mapear a 'action' (el Apps Script espera 'action')
+  if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
+
+  // Asegurar advertiserId si no viene (tomarlo de la sesión si existe)
+  if(!body.advertiserId && (window.sesion && window.sesion.id)){
+    body.advertiserId = String(window.sesion.id);
+  }
+
+  // Enviar las llamadas de promos al endpoint /commerce (BACKEND de comerciante)
+  const url = WORKER_ORIGIN + '/commerce';
+
+  // Debug visible en la UI
+  try { debugLog('promos_post -> URL:', url, 'payload keys:', Object.keys(body)); } catch(e){}
+
   try {
-    const r = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify(body), mode:'cors' });
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      mode: 'cors',
+      body: JSON.stringify(body)
+    });
+
     const text = await r.text();
-    try { return { status: r.status, json: JSON.parse(text) }; } catch(e){ return { status: r.status, json: { error:'invalid json', text } }; }
+    let json;
+    try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText: text }; }
+
+    try { debugLog('promos_post response ->', { status: r.status, body: json }); } catch(e){}
+
+    return { status: r.status, json: json };
   } catch(err){
+    debugLog('promos_post fetch error ->', String(err));
     return { status: 0, json: { error: String(err) } };
   }
 }
@@ -669,21 +703,11 @@ document.addEventListener('click', function(e){
       debugLog('Creating promo - request payload:', payload);
 
       try {
-        const url = WORKER_ORIGIN + '/commerce';
-        const res = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          mode: 'cors',
-          body: JSON.stringify(payload)
-        });
+        // use promos_post safe wrapper
+        const r = await promos_post('/commerce', payload);
+        debugLog('CreatePromo via promos_post ->', r);
 
-        const text = await res.text();
-        let body;
-        try { body = JSON.parse(text); } catch(e) { body = { rawText: text }; }
-
-        debugLog('CreatePromo response status:', res.status, 'body:', body);
-
-        if(res.status === 200 && body && (body.success === true || body.created === true)){
+        if(r.status === 200 && r.json && (r.json.success === true || r.json.created === true)){
           statusEl.textContent = 'Promo creada correctamente.';
           document.getElementById('promo-text').value = '';
           document.getElementById('promo-categoria').value = '';
@@ -692,10 +716,10 @@ document.addEventListener('click', function(e){
           document.getElementById('promo-otros').value = '';
           await loadPromosUI();
         } else {
-          const errMsg = `Error creando promo. HTTP ${res.status} - ${JSON.stringify(body)}`;
+          const errMsg = `Error creando promo. HTTP ${r.status} - ${JSON.stringify(r.json)}`;
           statusEl.textContent = errMsg;
           debugLog(errMsg);
-          if(body && body.message) alert('Error: ' + body.message);
+          if(r.json && r.json.message) alert('Error: ' + r.json.message);
         }
       } catch(err){
         const errText = 'Error de conexión al crear promo: ' + String(err);
@@ -718,8 +742,6 @@ document.addEventListener('click', function(e){
 
   // Other handlers preserved in renderPromosList
 });
-
-/* End Promos block */
 
 /* Misc: initialization to ensure categories loaded even if not available earlier */
 (function initCategoriesOnLoad(){
