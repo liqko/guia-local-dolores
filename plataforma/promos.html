@@ -114,7 +114,8 @@
   <div id="paginator" class="paginator"></div>
 
   <script>
-    const DATA_URL = "https://script.google.com/macros/s/AKfycbwFB1sAjvEEXPqxX-ePdZOJdeOv3DPx0O3dbAoa1QQMzNA9NxPBAad2XJ_uBeTMSjQz/exec";
+    // NUEVO DATA_URL: exec que me pasaste
+    const DATA_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
 
     let comerciosData = [];
     let filtrados = [];
@@ -158,30 +159,22 @@
       if (!wh) return "";
       const s = String(wh).trim();
       if (!s) return "";
-      // if already a full URL leave as-is
       if (/^https?:\/\//i.test(s)) return s;
-      // if contains wa.me or api.whatsapp skip normalization (but ensure protocol)
       if (/^(?:https?:\/\/)?(?:wa\.me|api\.whatsapp\.com)/i.test(s)) {
         return (/^https?:\/\//i.test(s) ? s : 'https://' + s.replace(/^\/+/, ''));
       }
-      // extract digits
       const digits = s.replace(/[^0-9]/g, '');
       if (digits.length >= 6) return 'https://wa.me/' + digits;
-      // fallback: try to encode as URL
       return encodeUrl(s);
     }
 
-    // Resolve whatsapp value checking multiple possible locations (top-level and extras)
-    // phoneComparison: optionally pass the telephone field (kept for compatibility)
     function getWhatsAppForCom(com, phoneComparison) {
       if (!com) return "";
       const candidates = [];
       if (com.whatsapp) candidates.push(com.whatsapp);
       const extras = com.extras || {};
-      // common explicit variants
       const keys = ['whatsapp','whatsapp_url','whatsapp_link','wa','wpp','wsp','whats','whats_app','whatsappnumber','whatsapp_num'];
       keys.forEach(k => { if (k in extras && extras[k]) candidates.push(extras[k]); });
-      // also check any extras key that looks like wa/wpp/whats/whatsapp (this avoids matching 'telefono')
       Object.keys(extras).forEach(k => {
         if (/^(?:wa|wpp|whats|whatsapp)/i.test(k) && extras[k]) candidates.push(extras[k]);
       });
@@ -193,8 +186,6 @@
         if (!str) continue;
         const link = makeWhatsAppLink(str);
         if (!link) continue;
-        // NOTE: changed: do NOT skip when whatsapp equals telefono.
-        // Return first valid whatsapp candidate found.
         return link;
       }
       return "";
@@ -260,7 +251,10 @@
     function buildCatLabel(com) {
       if (!com || !com.categoria || !String(com.categoria).trim()) return '';
       let imgHtml = '';
-      if (com.logo1) {
+      if (com.logo_categoria) {
+        const src = safeUrl(com.logo_categoria);
+        if (src) imgHtml = `<img class="logo-categoria" src="${src}" alt="${escapeHtml(com.categoria)}" onerror="this.style.display='none'">`;
+      } else if (com.logo1) {
         const src = safeUrl(com.logo1);
         if (src) imgHtml = `<img class="logo-categoria" src="${src}" alt="${escapeHtml(com.categoria)}" onerror="this.style.display='none'">`;
       }
@@ -276,18 +270,17 @@
       let count = 0;
 
       pageData.forEach(com => {
-        // If this item has no visible fields (defensive), skip it
         if (!hasMeaningfulData(com)) return;
 
         const card = document.createElement('div');
         card.className = 'card';
 
-        // Build top row (logo + title + category)
         const leftParts = [];
         if (com.logo && safeUrl(com.logo)) {
-          leftParts.push(`<img class="logo-comercio" src="${safeUrl(com.logo)}" alt="${escapeHtml(com.nombre||'')}" onerror="this.style.display='none'">`);
+          leftParts.push(`<img class="logo-comercio" src="${safeUrl(com.logo)}" alt="${escapeHtml(com.anunciante||com.nombre||'')}" onerror="this.style.display='none'">`);
         }
-        leftParts.push(`<div class="title-block"><div class="card-title">${escapeHtml(com.nombre||'')}</div>${buildCatLabel(com)}</div>`);
+        const nombre = com.anunciante || com.nombre || '';
+        leftParts.push(`<div class="title-block"><div class="card-title">${escapeHtml(nombre)}</div>${buildCatLabel(com)}</div>`);
 
         const leftHtml = `<div class="card-logos-row"><div class="left-row" style="display:flex;gap:12px;align-items:center">${leftParts.join('')}</div></div>`;
 
@@ -297,11 +290,9 @@
         const desdeHtml = com.desde ? `<div><div class="date-label">DESDE</div><div class="fecha-row date-desde"><i class="ri-calendar-event-line"></i> ${fechaHumana(com.desde)}</div></div>` : '';
         const hastaHtml = com.hasta ? `<div><div class="date-label">HASTA</div><div class="fecha-row date-hasta"><i class="ri-calendar-event-line"></i> ${fechaHumana(com.hasta)}</div></div>` : '';
 
-        const domicilioHtml = (com.domicilio && String(com.domicilio).trim()) ? `<div class="info-row"><i class="ri-map-pin-line icon"></i>${escapeHtml(com.domicilio)}</div>` : '';
-        // Telephone shown as plain text (no tel: link)
+        const domicilioHtml = (com.direccion && String(com.direccion).trim()) ? `<div class="info-row"><i class="ri-map-pin-line icon"></i>${escapeHtml(com.direccion)}</div>` : '';
         const telefonoHtml = (com.telefono && String(com.telefono).trim()) ? `<div class="info-row"><i class="ri-phone-line icon"></i><span style="font-weight:700">${escapeHtml(com.telefono)}</span></div>` : '';
 
-        // Socials - ensure whatsapp is used when present (now returns even if matches telefono)
         const socials = [];
         const waLink = getWhatsAppForCom(com, com.telefono);
         if (waLink) {
@@ -315,7 +306,6 @@
         if (com.linkedin && safeUrl(com.linkedin)) socials.push(`<a href="${safeUrl(com.linkedin)}" target="_blank" rel="noopener" title="LinkedIn"><i class="ri-linkedin-line"></i></a>`);
         const socialsHtml = socials.length ? `<div class="socials">${socials.join('')}</div>` : '';
 
-        // Extras badges (only if useful keys exist)
         let extrasBadges = '';
         if (com.extras) {
           const e = com.extras;
@@ -334,11 +324,9 @@
           allExtrasHtml = `<div class="extras-container" style="display:none" data-visible="false"><table class="extras-table">${rows}</table></div>`;
         }
 
-        // Map link (only if makeMapLink returns something)
-        const mapLink = makeMapLink(com.llegar, com.domicilio);
+        const mapLink = makeMapLink(com.llegar, com.direccion);
         const mapHtml = mapLink ? `<div style="margin-top:10px"><a class="btn-maps" href="${mapLink}" target="_blank" rel="noopener"><i class="ri-donut-chart-line" style="margin-right:8px"></i> COMO LLEGAR</a></div>` : '';
 
-        // Build final card only with the parts that exist (avoids empty rows)
         card.innerHTML = `
           ${leftHtml}
           ${promoHtml}
@@ -391,7 +379,7 @@
         if (matchCat) { categoriaFiltro = matchCat; filtrados = comerciosData.filter(c => c.categoria && c.categoria.toLowerCase() === matchCat.toLowerCase()); }
         else {
           filtrados = comerciosData.filter(c => {
-            const main = (c.nombre && c.nombre.toLowerCase().includes(q)) || (c.categoria && c.categoria.toLowerCase().includes(q)) || (c.promo && c.promo.toLowerCase().includes(q));
+            const main = (c.anunciante && c.anunciante.toLowerCase().includes(q)) || (c.categoria && c.categoria.toLowerCase().includes(q)) || (c.promo && c.promo.toLowerCase().includes(q));
             if (main) return true;
             if (c.extras) return Object.values(c.extras).some(v => String(v||'').toLowerCase().includes(q));
             return false;
@@ -405,15 +393,13 @@
       renderCategoriesBar();
     }
 
-    // Only keep rows that have at least one meaningful visible value
     function hasMeaningfulData(c) {
       if (!c) return false;
-      const props = ['nombre','promo','categoria','domicilio','telefono','instagram','facebook','youtube','tiktok','linkedin','logo','llegar'];
+      const props = ['anunciante','nombre','promo','categoria','direccion','telefono','instagram','facebook','youtube','tiktok','linkedin','logo','llegar','otros'];
       for (let i=0;i<props.length;i++){
         const k = props[i];
         if (k in c && c[k] !== null && c[k] !== undefined && String(c[k]).trim() !== '') return true;
       }
-      // check extras for any visible meaningful value
       if (c.extras) {
         const vals = Object.values(c.extras);
         if (vals.some(v => v !== null && v !== undefined && String(v).trim() !== '')) return true;
@@ -424,23 +410,56 @@
     function loadData() {
       if (!DATA_URL) { document.getElementById('cards').innerHTML = '<p style="color:#b02a2a">Falta DATA_URL</p>'; return; }
       fetch(DATA_URL).then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
-      .then(data => {
-        comerciosData = Array.isArray(data) ? data : [];
-        // Ensure extras exist and normalize some fallbacks, but DO NOT fallback whatsapp from telefono
-        comerciosData = comerciosData.map(c => {
-          if (!c.extras) c.extras = {};
-          if ((!c.categoria || String(c.categoria).trim() === '') && c.extras && c.extras.categoria) c.categoria = String(c.extras.categoria);
-          if ((!c.promo || String(c.promo).trim() === '') && c.extras && c.extras.promo) c.promo = String(c.extras.promo);
-          return c;
-        })
-        // Filter out rows that have no meaningful data (prevents empty cards)
+      .then(raw => {
+        // Flexible: accept multiple shapes returned by the WebApp
+        let data = [];
+        if (Array.isArray(raw)) {
+          data = raw;
+        } else if (raw && Array.isArray(raw.promos)) {
+          data = raw.promos;
+        } else if (raw && Array.isArray(raw.rows)) {
+          data = raw.rows;
+        } else if (raw && Array.isArray(raw.data)) {
+          data = raw.data;
+        } else if (raw && raw.error) {
+          throw new Error(String(raw.error));
+        } else if (raw && typeof raw === 'object' && Object.keys(raw).length === 0) {
+          data = [];
+        } else {
+          // As a last resort, if object contains numeric keys convert to array (legacy)
+          try {
+            const maybeArray = Object.values(raw).filter(v => v && typeof v === 'object' && ('promo' in v || 'anunciante' in v));
+            if (maybeArray.length) data = maybeArray;
+            else data = Array.isArray(raw) ? raw : [];
+          } catch(e){ data = []; }
+        }
+
+        // Normalize items: some endpoints may return objects with spreadsheet headers as keys
+        // Ensure campos mínimos and extras object
+        comerciosData = (Array.isArray(data) ? data : []).map(row => {
+          const obj = Object.assign({}, row);
+          // allow legacy keys mapping (promo_id vs promoId etc) - but do not overwrite existing good values
+          if (!obj.anunciante && obj.anunciante !== '' && (obj.nombre)) obj.anunciante = obj.nombre;
+          if (!obj.direccion && obj.domicilio) obj.direccion = obj.domicilio;
+          if (!obj.whatsapp && obj.whats) obj.whatsapp = obj.whats;
+          if (!obj.extras) obj.extras = obj.extras || {};
+          return obj;
+        });
+
+        // OPTIONAL: If sheet has 'aprobado' and you want to show only approved promos uncomment the filter:
+        // comerciosData = comerciosData.filter(c => { const a = (c.aprobado===true || String(c.aprobado).trim() === '1' || String(c.aprobado).toLowerCase() === 'true'); return a; });
+
+        // Remove rows without meaningful content
         comerciosData = comerciosData.filter(hasMeaningfulData);
 
         filtrados = comerciosData;
         categoriasSet = new Set(comerciosData.map(c => c.categoria).filter(Boolean));
         renderCards(filtrados,currentPage);
         renderCategoriesBar();
-      }).catch(err => { document.getElementById('cards').innerHTML = `<p style="color:#b02a2a">No se pudieron cargar los comercios.<br>${err}</p>`; });
+      }).catch(err => {
+        document.getElementById('cards').innerHTML = `<p style="color:#b02a2a">No se pudieron cargar los comercios.<br>${escapeHtml(String(err))}</p>`;
+        console.error('loadData error:', err);
+      });
     }
 
     document.getElementById('search').addEventListener('input', function(){ categoriaFiltro=''; aplicarFiltro(this.value); });
