@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Panel Comercios - Login & Dashboard</title>
+  <title>Panel Comercios - Login & Dashboard (Fusion)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     body{font-family:Arial,Helvetica,sans-serif;background:#f6f7fb;margin:0;padding:0}
@@ -60,7 +60,6 @@
         <div id="login-msg"></div>
         <div id="level-warning" class="small-muted"></div>
 
-        <!-- Zócalo / banner para crear comercio -->
         <div id="create-commerce-banner" class="info-banner">
           <strong>¿Tu anuncio no aparece en la guía?</strong>
           <div class="small-muted">Si tu comercio, servicio u organización no figura en la guía, completá el formulario para solicitar la creación del anuncio. Esto publica el anuncio y el equipo técnico asignará el nivel correspondiente.</div>
@@ -120,7 +119,6 @@
         <div id="msg-datos-comercio"></div>
       </form>
 
-      <!-- START: Promos section (integrated) -->
       <div style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
         <h3>Promos / Ofertas</h3>
         <div id="promos-status" class="small-muted">Cargando configuración de promos...</div>
@@ -128,8 +126,9 @@
         <div style="margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px">
           <div class="promos-row-controls">
             <input id="promo-text" class="promo-input" type="text" placeholder="Texto de la promo (ej: 10% OFF)" />
-            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo">
-              <option value="">Categoría (opcional)</option>
+            <!-- from panel2: make selection required and populated from categorias_list -->
+            <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo" required>
+              <option value="" disabled selected>-- Seleccioná categoría --</option>
             </select>
             <input id="promo-desde" type="date" style="width:140px" />
             <input id="promo-hasta" type="date" style="width:140px" />
@@ -141,7 +140,6 @@
 
         <div id="promos-list" style="margin-top:12px">Cargando promos...</div>
       </div>
-      <!-- END: Promos section -->
 
       <div style="margin-top:10px">
         <a id="link-support-dashboard" href="#" target="_blank">WhatsApp Soporte</a>
@@ -160,42 +158,28 @@
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
 const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
-const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
+/* use the sheet id that worked for categories (panel2) */
+const SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 /* ================= */
 
-/* Teléfono de soporte (usar siempre este número) */
-const SUPPORT_NUMBER = "5492245459957"; // +54 9 224 5459957
-
-/* Campos que NO deben ser editables desde el panel. */
+const SUPPORT_NUMBER = "5492245459957";
 const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel_acceso","verificado","gold","subnivel","nivelacceso"];
 
 let comercios = [];
-let categorias = []; // NEW: list of categories from categorias_list
+let categorias = [];
 let sesion = null;
 const debugEl = document.getElementById('debug');
 function debugLog(...args){ console.log(...args); try { debugEl.textContent += args.map(a=>typeof a==='object'?JSON.stringify(a,null,2):String(a)).join(' ') + "\n\n"; debugEl.scrollTop = debugEl.scrollHeight; }catch(e){} }
 
 function mostrarPanel(panel){ ['panel-login','panel-registro','panel-dashboard'].forEach(id=>document.getElementById(id).classList.remove('active')); document.getElementById('panel-'+panel)?.classList.add('active'); }
-
 function openWhatsApp(text){ window.open(`https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent(text)}`,'_blank'); }
 
-function enableReportButton(payloadText){ document.getElementById('report-area').style.display='block'; document.getElementById('reportBtn').onclick = ()=> openWhatsApp(payloadText + "\n\nPor favor revisen. Gracias."); }
+/* Helpers niveles */
+function parseLevel(levelStr){ if(levelStr===undefined || levelStr===null) return NaN; const s = String(levelStr).trim().replace(',', '.'); const m = s.match(/^(\d+(\.\d+)?)/); return m ? parseFloat(m[1]) : NaN; }
+function isAllowedLevel(levelStr){ const n = parseLevel(levelStr); if(isNaN(n)) return false; return n === 1 || n === 2 || n >= 5; }
 
-/* Helpers para niveles */
-function parseLevel(levelStr){
-  if(levelStr===undefined || levelStr===null) return NaN;
-  const s = String(levelStr).trim().replace(',', '.');
-  const m = s.match(/^(\d+(\.\d+)?)/);
-  return m ? parseFloat(m[1]) : NaN;
-}
-function isAllowedLevel(levelStr){
-  const n = parseLevel(levelStr);
-  if(isNaN(n)) return false;
-  return n === 1 || n === 2 || n >= 5;
-}
-
-/* Cargar lista de comercios (autocompletado) and categories */
+/* Cargar comercios (autocompletado) - same logic */
 function cargarComercios(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -203,7 +187,7 @@ function cargarComercios(callback){
       const start=text.indexOf('{'), end=text.lastIndexOf('}');
       const jsonText=text.slice(start,end+1);
       const json=JSON.parse(jsonText);
-      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[]; 
+      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
       let idxNombre = cols.findIndex(h=>/nombre|comercio|title|titulo/.test(h)); if(idxNombre===-1) idxNombre=1;
       let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h)); if(idxId===-1) idxId=61;
       let idxNivel = cols.findIndex(h=>/nivel|nivel_acceso|nivelacceso/.test(h));
@@ -214,25 +198,21 @@ function cargarComercios(callback){
         return { nombre, id, nivel };
       }).filter(c=>c.nombre);
       debugLog('Comercios cargados:', comercios.length);
-      // Also load categories after comercios (we can run independently too)
+      // load categories after comercios (panel2 uses same sheet)
       cargarCategorias(()=> callback && callback());
     }catch(e){
       debugLog('Error parseando lista de comercios', e);
-      // still attempt to load categories
       cargarCategorias(()=> callback && callback());
     }
   }).catch(err=>{ debugLog('Error fetch lista de comercios', err); cargarCategorias(()=> callback && callback()); });
 }
 
-/* Robust cargarCategorias + populateCategoriaSelect (replaces older functions) */
-
-/* Helper: convert cell to string safely */
+/* cargarCategorias from panel2 (keeps behavior that worked) */
 function _cellToString(cell){
   if(cell === undefined || cell === null) return '';
   if(typeof cell === 'object' && 'v' in cell) return String(cell.v).trim();
   return String(cell).trim();
 }
-
 function cargarCategorias(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent('categorias_list')}`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -263,9 +243,8 @@ function cargarCategorias(callback){
       const seen = new Set();
       const cleaned = [];
       for(const c of rawCats){
-        const key = c; // keep original casing for display
-        if(!seen.has(key)){
-          seen.add(key);
+        if(!seen.has(c)){
+          seen.add(c);
           cleaned.push(c);
         }
       }
@@ -288,10 +267,11 @@ function cargarCategorias(callback){
   });
 }
 
+/* populateCategoriaSelect: panel2 behavior (populate and keep required) */
 function populateCategoriaSelect(){
   const sel = document.getElementById('promo-categoria');
   if(!sel) return;
-  const current = sel.value || '';
+  // set a clear placeholder option (disabled + selected) and make select required
   sel.innerHTML = '';
   const placeholder = document.createElement('option');
   placeholder.value = '';
@@ -299,40 +279,21 @@ function populateCategoriaSelect(){
   placeholder.disabled = true;
   placeholder.selected = true;
   sel.appendChild(placeholder);
-
-  if(Array.isArray(categorias) && categorias.length > 0){
-    categorias.forEach(cat=>{
-      if(typeof cat !== 'string') return;
-      const v = cat.trim();
-      if(!v) return;
-      const opt = document.createElement('option');
-      opt.value = v;
-      opt.textContent = v;
-      sel.appendChild(opt);
-    });
-    sel.required = true;
-    placeholder.disabled = true;
-
-    try {
-      if(current && Array.from(sel.options).some(o=>o.value === current)){
-        sel.value = current;
-      } else {
-        sel.selectedIndex = 0;
-      }
-    } catch(e){ sel.selectedIndex = 0; }
-
-  } else {
-    sel.required = false;
-    placeholder.textContent = 'Categoría (opcional)';
-    placeholder.disabled = false;
-    sel.selectedIndex = 0;
-  }
-
-  sel.dataset.loaded = (Array.isArray(categorias) && categorias.length>0) ? '1' : '0';
-  debugLog('populateCategoriaSelect -> sel.required:', sel.required, 'options:', sel.options.length);
+  // add only valid string categories (coming from categorias_list A2:A)
+  categorias.forEach(cat=>{
+    if(typeof cat !== 'string') return;
+    const v = cat.trim();
+    if(!v || v.toLowerCase() === 'true') return;
+    const opt = document.createElement('option');
+    opt.value = v;
+    opt.textContent = v;
+    sel.appendChild(opt);
+  });
+  // Always enforce required selection: keep placeholder disabled even if no categories.
+  sel.required = true;
 }
 
-/* Autocomplete helper (unchanged) */
+/* Autocomplete helper (unchanged and safe) */
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   if(!inputEl||!listEl||!idEl) return;
   inputEl.addEventListener('input', function(){
@@ -393,22 +354,21 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   inputEl.addEventListener('change', function(){ if(this.value===''){ idEl.value=''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnGenerarClave')?.setAttribute('disabled','true'); } });
 }
 
-/* Eventos y login */
+/* Eventos y login: attach listeners immediately and re-attach after cargarComercios */
 let originalLoginBtnText = null;
 document.addEventListener('DOMContentLoaded', ()=>{
-  // Attach autocomplete listeners immediately so inputs always respond even if cargarComercios is delayed/fails
   try {
+    // immediate attach so inputs respond even if cargarComercios delays
     showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
     showAutocomplete(document.getElementById('comercio-buscar2'), document.getElementById('autocomplete-list2'), document.getElementById('comercio-id2'), true);
   } catch(e){
     console.error('Autocomplete attach immediate error', e);
   }
 
-  // Then load comercios; once data arrives, re-run populate and re-attach (harmless)
+  // load comercios and categories; on callback re-attach (harmless)
   cargarComercios(()=>{
     try {
       populateCategoriaSelect();
-      // re-attach to ensure listeners use fresh references (no-op if already attached)
       showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
       showAutocomplete(document.getElementById('comercio-buscar2'), document.getElementById('autocomplete-list2'), document.getElementById('comercio-id2'), true);
       debugLog('cargarComercios callback finished, comercios:', comercios.length, 'categorias:', categorias.length);
@@ -478,91 +438,48 @@ document.addEventListener('DOMContentLoaded', ()=>{
   // Create commerce (external form)
   document.getElementById('btnCrearComercio').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
-  // Registro / Generar clave: UI validation and POST to worker to register clave in sheet
+  /* Registro / Generar clave handlers (unchanged) */
   const pwdInput = document.getElementById('nueva-clave');
   const pwdConfirm = document.getElementById('nueva-clave-confirm');
   const btnGenerar = document.getElementById('btnGenerarClave');
-
-  function updatePwdButtonState(){
-    const id = document.getElementById('comercio-id2').value.trim();
-    const nivel = document.getElementById('comercio-buscar2')?.dataset?.nivel || '';
-    const pwd = pwdInput.value || '';
-    const pwdc = pwdConfirm.value || '';
-    if(!id) { btnGenerar.setAttribute('disabled','true'); return; }
-    if(!isAllowedLevel(nivel)) { btnGenerar.setAttribute('disabled','true'); return; }
-    if(pwd.length < 4) { btnGenerar.setAttribute('disabled','true'); return; }
-    if(pwd !== pwdc) { btnGenerar.setAttribute('disabled','true'); return; }
-    btnGenerar.removeAttribute('disabled');
-  }
-
+  function updatePwdButtonState(){ const id = document.getElementById('comercio-id2').value.trim(); const nivel = document.getElementById('comercio-buscar2')?.dataset?.nivel || ''; const pwd = pwdInput.value || ''; const pwdc = pwdConfirm.value || ''; if(!id) { btnGenerar.setAttribute('disabled','true'); return; } if(!isAllowedLevel(nivel)) { btnGenerar.setAttribute('disabled','true'); return; } if(pwd.length < 4) { btnGenerar.setAttribute('disabled','true'); return; } if(pwd !== pwdc) { btnGenerar.setAttribute('disabled','true'); return; } btnGenerar.removeAttribute('disabled'); }
   pwdInput?.addEventListener('input', updatePwdButtonState);
   pwdConfirm?.addEventListener('input', updatePwdButtonState);
-
   btnGenerar.addEventListener('click', async ()=>{
     const nombre = document.getElementById('comercio-buscar2').value.trim();
     const id = document.getElementById('comercio-id2').value.trim();
     const nivel = document.getElementById('comercio-buscar2')?.dataset?.nivel || '';
     const pwd = pwdInput.value || '';
-
     if(!id || !nombre){ document.getElementById('reg-msg').innerHTML = "<span class='error'>Buscá tu comercio o completá el formulario de creación si no está publicado.</span>"; return; }
     if(!isAllowedLevel(nivel)){ document.getElementById('reg-msg').innerHTML = "<span class='error'>No está permitido generar la clave para este anunciante (nivel no autorizado). Contactá soporte para otras consultas.</span>"; return; }
     if(pwd.length < 4){ document.getElementById('reg-msg').innerHTML = "<span class='error'>La contraseña debe tener al menos 4 caracteres.</span>"; return; }
-
-    btnGenerar.setAttribute('disabled','true');
-    pwdInput.setAttribute('disabled','true');
-    pwdConfirm.setAttribute('disabled','true');
-    document.getElementById('reg-msg').innerHTML = "<span>Registrando contraseña...</span>";
-
+    btnGenerar.setAttribute('disabled','true'); pwdInput.setAttribute('disabled','true'); pwdConfirm.setAttribute('disabled','true'); document.getElementById('reg-msg').innerHTML = "<span>Registrando contraseña...</span>";
     const saveUrl = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(id)}&planilla_id=${encodeURIComponent('')}`;
     const body = { accion: 'set_clave', __id: id, nombre: nombre, clave: pwd };
-
     try{
       const r = await fetch(saveUrl, { method:'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), mode:'cors' });
       const resText = await r.text();
       let res;
       try{ res = JSON.parse(resText); } catch(e){ res = { success: (r.status===200), message: resText }; }
       debugLog('Set clave ->', r.status, res);
-
       const ok = (r.status === 200) && (res && (res.success === true || res.aprobado === true || res.ok === true));
-      if(ok){
-        document.getElementById('reg-msg').innerHTML = "<span class='success'>Contraseña registrada correctamente en la hoja. Podés usarla para iniciar sesión.</span>";
-        pwdInput.value = '';
-        pwdConfirm.value = '';
-        setTimeout(()=> mostrarPanel('login'), 1200);
-        return;
-      } else {
-        document.getElementById('reg-msg').innerHTML = "<span class='error'>No se pudo registrar la contraseña. "+(res && res.message?res.message:'')+"</span>";
-      }
+      if(ok){ document.getElementById('reg-msg').innerHTML = "<span class='success'>Contraseña registrada correctamente en la hoja. Podés usarla para iniciar sesión.</span>"; pwdInput.value = ''; pwdConfirm.value = ''; setTimeout(()=> mostrarPanel('login'), 1200); return; } else { document.getElementById('reg-msg').innerHTML = "<span class='error'>No se pudo registrar la contraseña. "+(res && res.message?res.message:'')+"</span>"; }
     }catch(err){
       debugLog('Error registrando clave', err);
       document.getElementById('reg-msg').innerHTML = "<span class='error'>Error de conexión al registrar la contraseña. Enviando mensaje a soporte...</span>";
       const manualMsg = `Solicitud registro de clave (manual)\nComercio: ${nombre}\nId: ${id}\nNivel: ${nivel || '(sin info)'}\nContraseña solicitada por el anunciante: ${pwd}\nPor favor anotar en la hoja 'anunciantes' en la columna BG (encabezado 'clave').`;
       openWhatsApp(manualMsg);
     } finally {
-      btnGenerar.removeAttribute('disabled');
-      pwdInput.removeAttribute('disabled');
-      pwdConfirm.removeAttribute('disabled');
-      updatePwdButtonState();
+      btnGenerar.removeAttribute('disabled'); pwdInput.removeAttribute('disabled'); pwdConfirm.removeAttribute('disabled'); updatePwdButtonState();
     }
   });
 
-  document.getElementById('btnSolicitarAlta')?.addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
   document.getElementById('reportBtn')?.addEventListener('click', ()=> openWhatsApp('Necesito asistencia.'));
-
-  document.getElementById('logout-btn').addEventListener('click', ()=> {
-    localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion=null;
-    const btn = document.getElementById('btnLogin');
-    if(btn){
-      btn.removeAttribute('disabled');
-      btn.textContent = originalLoginBtnText;
-    }
-    mostrarPanel('login');
-  });
-
+  document.getElementById('logout-btn').addEventListener('click', ()=> { localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id'); sesion=null; const btn = document.getElementById('btnLogin'); if(btn){ btn.removeAttribute('disabled'); btn.textContent = originalLoginBtnText; } mostrarPanel('login'); });
   if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){ sesion = { id: localStorage.getItem('comercio_id'), nombre: localStorage.getItem('comercio_nombre'), planilla_id: localStorage.getItem('planilla_id')||'' }; mostrarPanelDashboard(); }
 });
 
-/* Dashboard: pedir datos al Worker -> Apps Script */
+/* mostrarPanelDashboard unchanged (uses WORKER_COMMERCE_URL) */
 async function mostrarPanelDashboard(){
   if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
   document.getElementById('nombre-comercio').textContent = sesion.nombre;
@@ -581,28 +498,17 @@ async function mostrarPanelDashboard(){
     document.getElementById('campos-datos-comercio').innerHTML = html;
     document.getElementById('link-support-dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Solicito modificación de datos\\nComercio: ' + sesion.nombre + '\\nId: ' + sesion.id)}`;
     mostrarPanel('dashboard');
-
     const btn = document.getElementById('btnLogin');
-    if(btn){
-      btn.removeAttribute('disabled');
-      btn.textContent = originalLoginBtnText;
-    }
-
-    // After dashboard data is loaded, trigger promos load (if section present)
+    if(btn){ btn.removeAttribute('disabled'); btn.textContent = originalLoginBtnText; }
     setTimeout(()=>{ try{ if(document.getElementById('promos-list')) loadPromosUI(); }catch(e){} }, 300);
   }catch(err){
     debugLog('Error al consultar /commerce', err);
     document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
     mostrarPanel('dashboard');
-    const btn = document.getElementById('btnLogin');
-    if(btn){
-      btn.removeAttribute('disabled');
-      btn.textContent = originalLoginBtnText;
-    }
   }
 }
 
-/* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
+/* promos_post, loadPromosUI, renderPromosList, create/edit/delete promos - preserved from earlier logic */
 async function promos_post(pathOrUrl, payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
@@ -769,7 +675,7 @@ document.addEventListener('click', function(e){
   }
 });
 
-/* Misc: initialization to ensure categories loaded even if not available earlier */
+/* Ensure categories select gets populated on load if needed */
 (function initCategoriesOnLoad(){
   if(window.addEventListener) {
     window.addEventListener('load', () => {
