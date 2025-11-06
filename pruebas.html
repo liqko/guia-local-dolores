@@ -286,6 +286,7 @@ function populateCategoriaSelect(){
     sel.appendChild(opt);
   });
   // Always enforce required selection: keep placeholder disabled even if no categories.
+  sel.required = true;
 }
 
 /* Autocomplete helper (unchanged) */
@@ -333,7 +334,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
         };
         listEl.appendChild(item);
       });
-      list.classList.remove('hidden');
+      listEl.classList.remove('hidden');
     } else {
       const item=document.createElement('div'); item.style.padding='10px'; item.style.background='#fffbe5';
       item.innerHTML = `<b>¿Tu comercio no está publicado?</b><br>
@@ -542,56 +543,16 @@ async function mostrarPanelDashboard(){
   }
 }
 
-/* Guardar cambios via Worker -> Apps Script */
-document.addEventListener('submit', function(e){
-  if(e.target && e.target.id === 'form-datos-comercio'){ e.preventDefault();
-    if(!sesion || !sesion.id){ document.getElementById('msg-datos-comercio').textContent = 'Sesión no válida.'; return; }
-    const fd = new FormData(e.target);
-    const data = {};
-    fd.forEach((v,k)=> data[k]=v);
-    if(!data.__id) data.__id = sesion.id;
-    debugLog('Guardar ->', data);
-    const saveUrl = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
-    fetch(saveUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data), mode:'cors' })
-      .then(r=>r.json().catch(()=>({success:false, raw:'no json'})))
-      .then(res=>{ debugLog('respuesta guardar ->', res); if(res && res.success) document.getElementById('msg-datos-comercio').textContent = '¡Datos guardados!'; else document.getElementById('msg-datos-comercio').textContent = 'Error al guardar.'; })
-      .catch(err=>{ debugLog('Error guardando', err); document.getElementById('msg-datos-comercio').textContent = 'Error de conexión.'; });
-  }
-});
-
 /* ------------------ Promos: Listar / Crear / Editar / Borrar ------------------ */
-/* Requiere: WORKER_ORIGIN (already defined), sesion (id and nombre) */
-
-/* =========================
-   SAFE replacement: promos_post
-   - normaliza 'accion' -> 'action'
-   - asegura advertiserId desde sesion (usa la variable sesion si existe)
-   - envía SIEMPRE a WORKER_COMMERCE_URL (a menos que se pase URL absoluta)
-   - registra request/response en #debug
-   ========================= */
 async function promos_post(pathOrUrl, payload){
-  // Hacer una copia para no mutar el payload externo
   const body = Object.assign({}, payload || {});
-
-  // Normalizar: si viene 'accion' -> mapear a 'action' (el Apps Script espera 'action')
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-
-  // Asegurar advertiserId si no viene (tomarlo de la sesión si existe)
   if(!body.advertiserId){
-    // prefer explicit sesion variable (declared in this script) then fallback to window.sesion
-    if(typeof sesion !== 'undefined' && sesion && sesion.id){
-      body.advertiserId = String(sesion.id);
-    } else if(window.sesion && window.sesion.id){
-      body.advertiserId = String(window.sesion.id);
-    }
+    if(typeof sesion !== 'undefined' && sesion && sesion.id) body.advertiserId = String(sesion.id);
+    else if(window.sesion && window.sesion.id) body.advertiserId = String(window.sesion.id);
   }
-
-  // Allow caller to pass either absolute URL or use WORKER_COMMERCE_URL
   const url = (typeof pathOrUrl === 'string' && pathOrUrl.startsWith('http')) ? pathOrUrl : WORKER_COMMERCE_URL;
-
-  // Debug visible in the UI
   try { debugLog('promos_post -> URL:', url, 'payload keys:', Object.keys(body)); } catch(e){}
-
   try {
     const r = await fetch(url, {
       method: 'POST',
@@ -599,13 +560,10 @@ async function promos_post(pathOrUrl, payload){
       mode: 'cors',
       body: JSON.stringify(body)
     });
-
     const text = await r.text();
     let json;
     try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText: text }; }
-
     try { debugLog('promos_post response ->', { status: r.status, body: json }); } catch(e){}
-
     return { status: r.status, json: json };
   } catch(err){
     debugLog('promos_post fetch error ->', String(err));
@@ -619,7 +577,6 @@ async function loadPromosUI(){
   if(!sesion || !sesion.id){ st.textContent = 'No logueado: inicia sesión para gestionar promos.'; list.innerHTML = ''; return; }
   st.textContent = 'Cargando promos...';
   list.innerHTML = 'Cargando promos...';
-  // Pedimos promos vía Worker -> Apps Script: action getPromos
   const res = await promos_post(WORKER_COMMERCE_URL, { action: 'getPromos', advertiserId: String(sesion.id || '') });
   if(res.status !== 200){ st.textContent = 'Error cargando promos: ' + (res.json && (res.json.error || res.json.message) ? (res.json.error || res.json.message) : res.status); list.innerHTML=''; return; }
   const data = res.json || {};
@@ -655,7 +612,6 @@ function renderPromosList(promos){
   html += '</tbody></table>';
   list.innerHTML = html;
 
-  // Attach handlers
   list.querySelectorAll('button').forEach(b=>{
     b.addEventListener('click', async (ev)=>{
       const action = b.getAttribute('data-action');
@@ -665,7 +621,6 @@ function renderPromosList(promos){
         const r = await promos_post(WORKER_COMMERCE_URL, { action: 'deletePromo', payload: { promo_id: pid } });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo borrada'); loadPromosUI(); } else { alert('Error borrando: ' + JSON.stringify(r.json)); }
       } else if(action === 'edit'){
-        // EDIT: quitar opción para editar categoría. Solo permitir editar texto/desde/hasta/otros.
         const newText = prompt('Editar texto de promo:', '');
         if(newText === null) return;
         const newDesde = prompt('Desde (YYYY-MM-DD):','');
@@ -676,7 +631,6 @@ function renderPromosList(promos){
         if(newDesde) payload.desde = newDesde;
         if(newHasta) payload.hasta = newHasta;
         if(newOtros) payload.otros = newOtros;
-        // NOTA: NO enviamos 'categoria' en updates (la edición no puede cambiar categoría)
         const r = await promos_post(WORKER_COMMERCE_URL, { action: 'updatePromo', payload: payload });
         if(r.status === 200 && r.json && r.json.success){ alert('Promo actualizada'); loadPromosUI(); } else { alert('Error actualizando: ' + JSON.stringify(r.json)); }
       }
