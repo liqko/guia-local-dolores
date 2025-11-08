@@ -215,7 +215,7 @@
     .top-button:hover{background:#f5e1d4;}
     .nivel-1 .sin-direccion-social { background: #444; color: #fff; border-radius: 0.5em; padding: 0.5em 0.7em; text-align: center; font-style: italic; font-size: 1.05em; margin-bottom: 0.5em; }
     .nivel-1 .sin-direccion-social i { color: #fff !important;}
-    /* Make banner container positioned so CTA can be absolute */
+    /* Make banner container positioned so CTA can be placed below media */
     .banner-tarjeta {
       width: 100%;
       text-align: center;
@@ -223,30 +223,27 @@
       display: flex;
       justify-content: center;
       position: relative;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
     }
 
-    /* CTA button over banner */
+    /* CTA button placed under the media (not overlay) */
     .banner-tarjeta .cta-btn {
-      position: absolute;
-      right: 12px;
-      bottom: 12px;
-      z-index: 60;
       display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-      padding: 0.45em 0.8em;
-      background: #ff7f50;
-      color: #fff;
-      border-radius: 0.6em;
-      text-decoration: none;
-      font-weight: 600;
+      align-items:center;
+      gap:0.45rem;
+      padding:0.45em 0.8em;
+      background:#ff7f50;
+      color:#fff;
+      border-radius:0.6em;
+      text-decoration:none;
+      font-weight:600;
       box-shadow: 0 4px 12px rgba(0,0,0,0.18);
-      border: none;
-      cursor: pointer;
-      font-size: 0.95rem;
-    }
-    @media (max-width:420px){
-      .banner-tarjeta .cta-btn { right: 8px; bottom: 8px; padding: 0.36em 0.6em; font-size: 0.9rem; }
+      border:none;
+      cursor:pointer;
+      font-size:0.95rem;
+      margin-top: 0.2rem;
     }
 
     /* Banner image sizing (kept) */
@@ -352,18 +349,16 @@
   <button id="topBtn" class="top-button" aria-label="Volver arriba" title="Volver arriba" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">↑</button>
   <div id="modalImg" style="display:none;"></div>
   <script>
-    // banners ahora puede tener 'img' (imagen) o 'media' (video directo o url de YouTube).
+    // Small but important fixes to make the page resilient:
+    // - safer remove diacritics implementation (broader browser support)
+    // - robust YouTube id extraction that handles /shorts/ URLS and other formats without throwing
+    // - top-level try/catch around render initialization to show an error in the UI instead of halting
+    // - CTA is placed below the media (not overlay)
+
     const banners = [
-      // ejemplo clásico con imagen
       { url: "https://www.guialocaldolores.com.ar/fuego-libre/", img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317401/v49zp00ozrcwq6trzuvq.png" },
-
-      // ejemplo: video mp4 directo (se reproducirá en el lugar, sin link)
       { media: "https://youtube.com/shorts/Du49LQwxA_4?feature=share", poster: "https://via.placeholder.com/320x180.png?text=Poster+Video" },
-
-      // ejemplo: YouTube (se intentará autoplay cuando entre en vista)
       { media: "https://youtube.com/shorts/Cym2V9muLGQ?feature=share" },
-
-      // otro ejemplo con imagen
       { img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/wmxljnky7smtuxmecf4i.png" }
     ];
 
@@ -385,864 +380,783 @@
       return /\.(png|jpe?g|gif|webp|bmp|svg|tiff?|ico)(\?.*)?$/i.test(url);
     }
 
-    // nuevo: detectores para video y YouTube
     function isVideoFile(url){
       return typeof url === 'string' && /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
     }
     function isYouTube(url){
       return typeof url === 'string' && /youtu(be\.com|\.be)/i.test(url);
     }
+
+    // Robust YouTube embed builder: handles /watch?v=, youtu.be/, /shorts/, /embed/
     function getYouTubeEmbedUrl(url, autoplay){
       try{
+        if(!url || typeof url !== 'string') return '';
+        // extract id with regex patterns
+        // - youtu.be/ID
+        // - v=ID
+        // - /shorts/ID
+        // - /embed/ID
         let id = '';
-        // extraer id de varios formatos
-        const u = new URL(url);
-        if(u.hostname.includes('youtu.be')){
-          id = u.pathname.slice(1);
-        } else {
-          id = u.searchParams.get('v') || '';
-          if(!id){
-            const parts = u.pathname.split('/');
-            id = parts.pop();
+        const shortMatch = url.match(/youtu\.be\/([A-Za-z0-9_-]{6,})/i);
+        if(shortMatch && shortMatch[1]) id = shortMatch[1];
+        if(!id){
+          const shortsMatch = url.match(/\/shorts\/([A-Za-z0-9_-]{6,})/i);
+          if(shortsMatch && shortsMatch[1]) id = shortsMatch[1];
+        }
+        if(!id){
+          const vMatch = url.match(/[?&]v=([A-Za-z0-9_-]{6,})/i);
+          if(vMatch && vMatch[1]) id = vMatch[1];
+        }
+        if(!id){
+          const embedMatch = url.match(/\/embed\/([A-Za-z0-9_-]{6,})/i);
+          if(embedMatch && embedMatch[1]) id = embedMatch[1];
+        }
+        // fallback: last path segment
+        if(!id){
+          try {
+            const tmp = new URL(url);
+            const parts = tmp.pathname.split('/').filter(Boolean);
+            id = parts.pop() || '';
+          } catch(e){
+            id = '';
           }
         }
         if(!id) return '';
         const params = new URLSearchParams({rel:0,playsinline:1});
-        if(autoplay) params.set('autoplay', '1');
-        // silenciar en el embed por defecto
-        params.set('mute', '1');
-        // agregar modestbranding para cleaner embed
+        if(autoplay) params.set('autoplay','1');
+        params.set('mute','1');
         params.set('modestbranding','1');
-        return `https://www.youtube.com/embed/${id}?${params.toString()}`;
+        // keep embed url
+        return `https://www.youtube.com/embed/${encodeURIComponent(id)}?${params.toString()}`;
       }catch(e){
         return '';
       }
     }
 
-    const url = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/anunciantes';
-    fetch(url)
+    // safer normalize / remove diacritics for broader browser support
+    const normalizar = (texto) => {
+      if(!texto) return "";
+      // decompose + remove combining diacritics range
+      return texto.toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    };
+
+    // Fetch sheet and initialize inside try/catch so runtime errors are shown
+    const sheetUrl = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/anunciantes';
+    fetch(sheetUrl)
       .then(res => res.json())
       .then(data => {
-        const buscadorGlobal = document.getElementById('buscadorGlobal');
-        const contenedor = document.getElementById('contenedor');
-        const destacadasBar = document.getElementById('destacadasBar');
-        const selectSegmento = document.getElementById('selectSegmento');
-        const selectCategoria = document.getElementById('selectCategoria');
-        const paginationBar = document.getElementById('paginationBar');
-        const btnAnterior = document.getElementById('btnAnterior');
-        const btnSiguiente = document.getElementById('btnSiguiente');
-        const modalImg = document.getElementById('modalImg');
-        const normalizar = texto => texto ? texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim() : "";
+        try {
+          // --- all original logic adapted with small defensive guards ---
+          const buscadorGlobal = document.getElementById('buscadorGlobal');
+          const contenedor = document.getElementById('contenedor');
+          const destacadasBar = document.getElementById('destacadasBar');
+          const selectSegmento = document.getElementById('selectSegmento');
+          const selectCategoria = document.getElementById('selectCategoria');
+          const paginationBar = document.getElementById('paginationBar');
+          const btnAnterior = document.getElementById('btnAnterior');
+          const btnSiguiente = document.getElementById('btnSiguiente');
+          const modalImg = document.getElementById('modalImg');
 
-        function capitalizarFrase(str){
-          let parts = (str||"").toLowerCase().split('/');
-          parts = parts.map((p, i) => {
-            if (i === 0) {
-              return p.replace(/(?:^|\s|-)\S/g, l => l.toUpperCase());
-            } else {
-              return p;
+          function capitalizarFrase(str){
+            let parts = (str||"").toLowerCase().split('/');
+            parts = parts.map((p, i) => {
+              if (i === 0) {
+                return p.replace(/(?:^|\s|-)\S/g, l => l.toUpperCase());
+              } else {
+                return p;
+              }
+            });
+            return parts.join('/');
+          }
+          const isAprobado = v => {
+            if (typeof v === "boolean") return v;
+            if (typeof v === "string") return v.trim().toLowerCase() === "true";
+            return false;
+          };
+          function limpiarCampos(item) {
+            const nuevo = {};
+            for (let k in item) {
+              if (!/^agregar\s/i.test(k)) nuevo[k] = item[k];
             }
+            return nuevo;
+          }
+          const anunciantesData = Array.isArray(data) ? data.filter(item => isAprobado(item.aprobado)).map(limpiarCampos) : [];
+
+          const serviciosData = anunciantesData.filter(item => {
+            const segmentos = (item.segmento || '').split(',').map(s => normalizar(s));
+            return segmentos.includes('industrias - comercios - servicios');
           });
-          return parts.join('/');
-        }
-        const isAprobado = v => {
-          if (typeof v === "boolean") return v;
-          if (typeof v === "string") return v.trim().toLowerCase() === "true";
-          return false;
-        };
-        function limpiarCampos(item) {
-          const nuevo = {};
-          for (let k in item) {
-            if (!/^agregar\s/i.test(k)) nuevo[k] = item[k];
+
+          function limpiarValorCategoria(valor) {
+            return (valor||"").replace(/^"+|"+$/g, '').trim();
           }
-          return nuevo;
-        }
-        const anunciantesData = data.filter(item => isAprobado(item.aprobado)).map(limpiarCampos);
 
-        const serviciosData = anunciantesData.filter(item => {
-          const segmentos = (item.segmento || '').split(',').map(s => normalizar(s));
-          return segmentos.includes('industrias - comercios - servicios');
-        });
+          function obtenerCategoriasUnicas() {
+            const todas = serviciosData
+              .flatMap(item => (item.categoria || '').split(',').map(cat => cat.trim()))
+              .filter(Boolean);
+            return [...new Set(todas)].sort();
+          }
+          function actualizarCategorias() {
+            const categoriasUnicas = obtenerCategoriasUnicas();
+            selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
+              categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
+          }
 
-        function limpiarValorCategoria(valor) {
-          return valor.replace(/^"+|"+$/g, '').trim();
-        }
-
-        function obtenerCategoriasUnicas() {
-          const todas = serviciosData
-            .flatMap(item => (item.categoria || '').split(',').map(cat => cat.trim()))
-            .filter(Boolean);
-          return [...new Set(todas)].sort();
-        }
-        function actualizarCategorias() {
-          const categoriasUnicas = obtenerCategoriasUnicas();
-          selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
-            categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
-        }
-
-        function obtenerValoresUnicos(campo, filtro={}) {
-          return [
-            ...new Set(
-              serviciosData
-                .filter(item => {
-                  let ok = true;
-                  for (let k in filtro) {
-                    if (!filtro[k]) continue;
-                    if (!((item[k]||"").split(",").map(t=>t.trim()).includes(filtro[k]))) ok = false;
-                  }
-                  return ok;
-                })
-                .flatMap(item =>
-                  campo === "categoria"
-                    ? [limpiarValorCategoria((item[campo] || "").trim())]
-                    : (item[campo] || "")
-                        .split(",")
-                        .map(r => r.trim())
-                        .filter(Boolean)
-                )
-            )
-          ].filter(Boolean).sort();
-        }
-        function actualizarSegmentos() {
-          const segmentosUnicos = obtenerValoresUnicos('segmento');
-          selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
-            segmentosUnicos.map(seg => `<option value="${seg}">${seg}</option>`).join('');
-        }
-        selectSegmento.addEventListener('change', () => {
+          function obtenerValoresUnicos(campo, filtro={}) {
+            return [
+              ...new Set(
+                serviciosData
+                  .filter(item => {
+                    let ok = true;
+                    for (let k in filtro) {
+                      if (!filtro[k]) continue;
+                      if (!((item[k]||"").split(",").map(t=>t.trim()).includes(filtro[k]))) ok = false;
+                    }
+                    return ok;
+                  })
+                  .flatMap(item =>
+                    campo === "categoria"
+                      ? [limpiarValorCategoria((item[campo] || "").trim())]
+                      : (item[campo] || "")
+                          .split(",")
+                          .map(r => r.trim())
+                          .filter(Boolean)
+                  )
+              )
+            ].filter(Boolean).sort();
+          }
+          function actualizarSegmentos() {
+            const segmentosUnicos = obtenerValoresUnicos('segmento');
+            selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
+              segmentosUnicos.map(seg => `<option value="${seg}">${seg}</option>`).join('');
+          }
+          selectSegmento.addEventListener('change', () => {
+            actualizarCategorias();
+            paginaActual = 1;
+            render();
+          });
+          selectCategoria.addEventListener('change', () => {
+            paginaActual = 1;
+            render();
+          });
+          actualizarSegmentos();
           actualizarCategorias();
-          paginaActual = 1;
-          render();
-        });
-        selectCategoria.addEventListener('change', () => {
-          paginaActual = 1;
-          render();
-        });
-        actualizarSegmentos();
-        actualizarCategorias();
 
-        function renderTermalesLogos(item) {
-          const segmentos = (item.segmento || '').split(',').map(r => normalizar(r));
-          let logosHtml = '';
-          if (segmentos.includes('parque termal')) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png" alt="Logo Parque Termal" class="insignia-logo" />`;
+          function renderTermalesLogos(item) {
+            const segmentos = (item.segmento || '').split(',').map(r => normalizar(r));
+            let logosHtml = '';
+            if (segmentos.includes('parque termal')) {
+              logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png" alt="Logo Parque Termal" class="insignia-logo" />`;
+            }
+            if (segmentos.includes('termales mall')) {
+              logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png" alt="Logo Termales Mall" class="insignia-logo" />`;
+            }
+            if (segmentos.includes('hecho en dolores')) {
+              logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png" alt="Hecho en Dolores" class="insignia-logo" />`;
+            }
+            if (item.pet && item.pet.trim() && item.pet.trim().toLowerCase() === 'x') {
+              logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/scjanucodtyoqc7vun39.png" alt="PET Friendly" class="insignia-logo" />`;
+            }
+            return logosHtml ? `<div class="termales-logo-container">${logosHtml}</div>` : '';
           }
-          if (segmentos.includes('termales mall')) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png" alt="Logo Termales Mall" class="insignia-logo" />`;
-          }
-          if (segmentos.includes('hecho en dolores')) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png" alt="Hecho en Dolores" class="insignia-logo" />`;
-          }
-          if (item.pet && item.pet.trim() && item.pet.trim().toLowerCase() === 'x') {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/scjanucodtyoqc7vun39.png" alt="PET Friendly" class="insignia-logo" />`;
-          }
-          return logosHtml ? `<div class="termales-logo-container">${logosHtml}</div>` : '';
-        }
 
-        function extraerUsuarioRedSocial(url) {
-          if (!url) return '';
-          if (!/^https?:\/\//.test(url)) return url;
-          try {
-            const u = new URL(url);
-            const parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/');
-            if(u.hostname.includes('youtube')) {
-              if(parts[0].startsWith('@')) return parts[0];
-              if(['channel','user','c'].includes(parts[0])) return parts[1]||'';
+          function extraerUsuarioRedSocial(url) {
+            if (!url) return '';
+            if (!/^https?:\/\//.test(url)) return url;
+            try {
+              const u = new URL(url);
+              const parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/');
+              if(u.hostname.includes('youtube')) {
+                if(parts[0].startsWith('@')) return parts[0];
+                if(['channel','user','c'].includes(parts[0])) return parts[1]||'';
+                return parts[0]||'';
+              }
+              if(u.hostname.includes('tiktok')) {
+                return '@'+parts[0];
+              }
+              if(u.hostname.includes('linkedin')) {
+                return parts.slice(1).join('/');
+              }
               return parts[0]||'';
+            } catch {
+              return url;
             }
-            if(u.hostname.includes('tiktok')) {
-              return '@'+parts[0];
+          }
+
+          function renderRedesNivel3(item) {
+            if (item.instagram && item.instagram.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-instagram"></i> ${extraerUsuarioRedSocial(item.instagram)}</div><span class="espaciado"></span>`;
+            } else if (item.facebook && item.facebook.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-facebook"></i> ${extraerUsuarioRedSocial(item.facebook)}</div><span class="espaciado"></span>`;
+            } else if (item.youtube && item.youtube.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-youtube"></i> ${extraerUsuarioRedSocial(item.youtube)}</div><span class="espaciado"></span>`;
+            } else if (item.tiktok && item.tiktok.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-tiktok"></i> ${extraerUsuarioRedSocial(item.tiktok)}</div><span class="espaciado"></span>`;
+            } else if (item.linkedin && item.linkedin.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-linkedin"></i> ${extraerUsuarioRedSocial(item.linkedin)}</div><span class="espaciado"></span>`;
             }
-            if(u.hostname.includes('linkedin')) {
-              return parts.slice(1).join('/');
+            return "";
+          }
+
+          function renderRedesNivel4(item) {
+            if (item.instagram && item.instagram.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-instagram"></i> <a href="${item.instagram}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.instagram)}</a></div><span class="espaciado"></span>`;
+            } else if (item.facebook && item.facebook.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-facebook"></i> <a href="${item.facebook}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.facebook)}</a></div><span class="espaciado"></span>`;
+            } else if (item.youtube && item.youtube.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-youtube"></i> <a href="${item.youtube}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.youtube)}</a></div><span class="espaciado"></span>`;
+            } else if (item.tiktok && item.tiktok.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-tiktok"></i> <a href="${item.tiktok}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.tiktok)}</a></div><span class="espaciado"></span>`;
+            } else if (item.linkedin && item.linkedin.trim()) {
+              return `<div class="redes-bloque"><i class="fab fa-linkedin"></i> <a href="${item.linkedin}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.linkedin)}</a></div><span class="espaciado"></span>`;
             }
-            return parts[0]||'';
-          } catch {
-            return url;
+            return "";
           }
-        }
 
-        function renderRedesNivel3(item) {
-          if (item.instagram && item.instagram.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-instagram"></i> ${extraerUsuarioRedSocial(item.instagram)}</div><span class="espaciado"></span>`;
-          } else if (item.facebook && item.facebook.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-facebook"></i> ${extraerUsuarioRedSocial(item.facebook)}</div><span class="espaciado"></span>`;
-          } else if (item.youtube && item.youtube.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-youtube"></i> ${extraerUsuarioRedSocial(item.youtube)}</div><span class="espaciado"></span>`;
-          } else if (item.tiktok && item.tiktok.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-tiktok"></i> ${extraerUsuarioRedSocial(item.tiktok)}</div><span class="espaciado"></span>`;
-          } else if (item.linkedin && item.linkedin.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-linkedin"></i> ${extraerUsuarioRedSocial(item.linkedin)}</div><span class="espaciado"></span>`;
+          function renderRedesBloque(item, nivelVisual) {
+            let redesHtml = '';
+            function plainOrLink(icon, url, usuario) {
+              if (nivelVisual === 3) {
+                return `<div><i class="${icon}" style="margin-right:5px;"></i>${usuario}</div><span class="espaciado"></span>`;
+              } else {
+                return `<div><i class="${icon}" style="margin-right:5px;"></i><a href="${url}" target="_blank" rel="noopener noreferrer">${usuario}</a></div><span class="espaciado"></span>`;
+              }
+            }
+            if (item.instagram && item.instagram.trim()) {
+              const usuario = extraerUsuarioRedSocial(item.instagram);
+              redesHtml += plainOrLink('fab fa-instagram', item.instagram, usuario);
+            }
+            if (item.facebook && item.facebook.trim()) {
+              const usuario = extraerUsuarioRedSocial(item.facebook);
+              redesHtml += plainOrLink('fab fa-facebook', item.facebook, usuario);
+            }
+            if (item.youtube && item.youtube.trim()) {
+              const usuario = extraerUsuarioRedSocial(item.youtube);
+              redesHtml += plainOrLink('fab fa-youtube', item.youtube, usuario);
+            }
+            if (item.tiktok && item.tiktok.trim()) {
+              const usuario = extraerUsuarioRedSocial(item.tiktok);
+              redesHtml += plainOrLink('fab fa-tiktok', item.tiktok, usuario);
+            }
+            if (item.linkedin && item.linkedin.trim()) {
+              const usuario = extraerUsuarioRedSocial(item.linkedin);
+              redesHtml += plainOrLink('fab fa-linkedin', item.linkedin, usuario);
+            }
+            return redesHtml ? `<div class="redes-bloque">${redesHtml}</div>` : '';
           }
-          return "";
-        }
 
-        function renderRedesNivel4(item) {
-          if (item.instagram && item.instagram.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-instagram"></i> <a href="${item.instagram}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.instagram)}</a></div><span class="espaciado"></span>`;
-          } else if (item.facebook && item.facebook.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-facebook"></i> <a href="${item.facebook}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.facebook)}</a></div><span class="espaciado"></span>`;
-          } else if (item.youtube && item.youtube.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-youtube"></i> <a href="${item.youtube}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.youtube)}</a></div><span class="espaciado"></span>`;
-          } else if (item.tiktok && item.tiktok.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-tiktok"></i> <a href="${item.tiktok}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.tiktok)}</a></div><span class="espaciado"></span>`;
-          } else if (item.linkedin && item.linkedin.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-linkedin"></i> <a href="${item.linkedin}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.linkedin)}</a></div><span class="espaciado"></span>`;
-          }
-          return "";
-        }
+          function renderGaleria(item, nivelVisual, galeriaId) {
+            if (nivelVisual === 3) return "";
 
-        function renderRedesBloque(item, nivelVisual) {
-          let redesHtml = '';
-          function plainOrLink(icon, url, usuario) {
-            if (nivelVisual === 3) {
-              return `<div><i class="${icon}" style="margin-right:5px;"></i>${usuario}</div><span class="espaciado"></span>`;
+            const campos = ['img1','img2','img3','img4','img5','img6','img7','img8','img9','img10'];
+            let imagenes = campos.map(k => (item[k] || '').trim()).filter(Boolean);
+
+            let maxImages = 10;
+            if (nivelVisual === 1 || nivelVisual === 2) maxImages = 3;
+            if (nivelVisual === 5) maxImages = 10;
+            imagenes = imagenes.slice(0, maxImages);
+
+            if (imagenes.length === 0) return "";
+
+            let html = "";
+            if (imagenes.length > 1) {
+              html += `<div class="galeria-carrusel">`;
+              imagenes.forEach((url, idx) => {
+                if (isInstagramPost(url)) {
+                  html += `<span id="instaimg-${galeriaId}-${idx}" class="galeria-placeholder">Cargando…</span>`;
+                } else if (isDirectImage(url)) {
+                  html += `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`;
+                } else {
+                  let dom = "";
+                  try { dom = (new URL(url)).hostname; } catch(e) { dom = url; }
+                  html += `<span class="galeria-placeholder">No disponible<small>${dom}</small></span>`;
+                }
+              });
+              html += `</div><span class="segmento-doble"></span>`;
             } else {
-              return `<div><i class="${icon}" style="margin-right:5px;"></i><a href="${url}" target="_blank" rel="noopener noreferrer">${usuario}</a></div><span class="espaciado"></span>`;
-            }
-          }
-          if (item.instagram && item.instagram.trim()) {
-            const usuario = extraerUsuarioRedSocial(item.instagram);
-            redesHtml += plainOrLink('fab fa-instagram', item.instagram, usuario);
-          }
-          if (item.facebook && item.facebook.trim()) {
-            const usuario = extraerUsuarioRedSocial(item.facebook);
-            redesHtml += plainOrLink('fab fa-facebook', item.facebook, usuario);
-          }
-          if (item.youtube && item.youtube.trim()) {
-            const usuario = extraerUsuarioRedSocial(item.youtube);
-            redesHtml += plainOrLink('fab fa-youtube', item.youtube, usuario);
-          }
-          if (item.tiktok && item.tiktok.trim()) {
-            const usuario = extraerUsuarioRedSocial(item.tiktok);
-            redesHtml += plainOrLink('fab fa-tiktok', item.tiktok, usuario);
-          }
-          if (item.linkedin && item.linkedin.trim()) {
-            const usuario = extraerUsuarioRedSocial(item.linkedin);
-            redesHtml += plainOrLink('fab fa-linkedin', item.linkedin, usuario);
-          }
-          return redesHtml ? `<div class="redes-bloque">${redesHtml}</div>` : '';
-        }
-
-        function renderGaleria(item, nivelVisual, galeriaId) {
-          if (nivelVisual === 3) return "";
-
-          const campos = ['img1','img2','img3','img4','img5','img6','img7','img8','img9','img10'];
-          let imagenes = campos.map(k => (item[k] || '').trim()).filter(Boolean);
-
-          let maxImages = 10;
-          if (nivelVisual === 1 || nivelVisual === 2) maxImages = 3;
-          if (nivelVisual === 5) maxImages = 10;
-          imagenes = imagenes.slice(0, maxImages);
-
-          if (imagenes.length === 0) return "";
-
-          let html = "";
-          if (imagenes.length > 1) {
-            html += `<div class="galeria-carrusel">`;
-            imagenes.forEach((url, idx) => {
+              const url = imagenes[0];
               if (isInstagramPost(url)) {
-                html += `<span id="instaimg-${galeriaId}-${idx}" class="galeria-placeholder">Cargando…</span>`;
+                html += `<span id="instaimg-${galeriaId}-0" class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">Cargando…</span><span class="segmento-doble"></span>`;
               } else if (isDirectImage(url)) {
-                html += `<img class="thumbnail" src="${url}" alt="Imagen galería" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`;
+                html += `<img class="thumbnail solo" src="${url}" alt="Imagen" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},0)">` +
+                  `<span class="segmento-doble"></span>`;
               } else {
                 let dom = "";
                 try { dom = (new URL(url)).hostname; } catch(e) { dom = url; }
-                html += `<span class="galeria-placeholder">No disponible<small>${dom}</small></span>`;
+                html += `<span class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">No disponible<small>${dom}</small></span><span class="segmento-doble"></span>`;
               }
-            });
-            html += `</div><span class="segmento-doble"></span>`;
-          } else {
-            const url = imagenes[0];
-            if (isInstagramPost(url)) {
-              html += `<span id="instaimg-${galeriaId}-0" class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">Cargando…</span><span class="segmento-doble"></span>`;
-            } else if (isDirectImage(url)) {
-              html += `<img class="thumbnail solo" src="${url}" alt="Imagen" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},0)">` +
-                `<span class="segmento-doble"></span>`;
-            } else {
-              let dom = "";
-              try { dom = (new URL(url)).hostname; } catch(e) { dom = url; }
-              html += `<span class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">No disponible<small>${dom}</small></span><span class="segmento-doble"></span>`;
             }
+
+            setTimeout(() => {
+              imagenes.forEach(async (url, idx) => {
+                if (isInstagramPost(url)) {
+                  const imgurl = await fetchInstagramImage(url);
+                  const el = document.getElementById(`instaimg-${galeriaId}-${idx}`);
+                  if(el) {
+                    if(imgurl){
+                      if(imagenes.length === 1){
+                        el.innerHTML = `<img class="thumbnail solo" src="${imgurl}" alt="Instagram" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`;
+                      } else {
+                        el.innerHTML = `<img class="thumbnail" src="${imgurl}" alt="Instagram" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`;
+                      }
+                    }else{
+                      el.innerHTML = `<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>`;
+                    }
+                  }
+                }
+              });
+            }, 100);
+
+            return html;
           }
 
-          setTimeout(() => {
-            imagenes.forEach(async (url, idx) => {
-              if (isInstagramPost(url)) {
-                const imgurl = await fetchInstagramImage(url);
-                const el = document.getElementById(`instaimg-${galeriaId}-${idx}`);
-                if(el) {
-                  if(imgurl){
-                    if(imagenes.length === 1){
-                      el.innerHTML = `<img class="thumbnail solo" src="${imgurl}" alt="Instagram" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`;
-                    } else {
-                      el.innerHTML = `<img class="thumbnail" src="${imgurl}" alt="Instagram" onclick="mostrarModalGaleria(this,${JSON.stringify(imagenes).replace(/"/g,'&quot;')},${idx})">`;
-                    }
-                  }else{
-                    el.innerHTML = `<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>`;
+          function renderCard(item, galeriaId) {
+            const nivelVisual = Number(item.nivel);
+            const esDestacada = nivelVisual === 5 && Number(item.subnivel) === 1;
+            let html = `<div class="card nivel-${nivelVisual}">`;
+            html += `<div class="badge-icons">`;
+            if((item.verificado||'').toLowerCase()==='x'){
+              html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
+            }
+            if((item.gold||'').toLowerCase()==='x'){
+              html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
+            }
+            html += `</div>`;
+            if (nivelVisual === 1 || nivelVisual === 2 || nivelVisual === 5) {
+              if(item.logo){ html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`; }
+              html += `<div class="nombre">${item.nombre}</div>`;
+              if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
+              html += `<span class="espaciado"></span>`;
+              html += renderTermalesLogos(item);
+              if(item.descripcion){
+                html += `<div class="descripcion">${item.descripcion}</div><span class="segmento-doble"></span>`;
+              }
+              let contactoHtml = "";
+              for(let i=1;i<=6;i++){
+                const dir=item[`direccion${i===1?'':i}`];
+                const tel=item[`telefono${i===1?'':i}`];
+                if(dir){
+                  contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
+                  if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
+                  const wh=item[`whatsapp${i===1?'':i}`];
+                  if(wh){
+                    contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${wh.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`;
+                  }
+                  if(dir && item[`maps${i===1?'':i}`]){
+                    contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
+                    contactoHtml += `<span class="espaciado"></span>`;
                   }
                 }
               }
-            });
-          }, 100);
-
-          return html;
-        }
-
-        function renderCard(item, galeriaId) {
-          const nivelVisual = Number(item.nivel);
-          const esDestacada = nivelVisual === 5 && Number(item.subnivel) === 1;
-          let html = `<div class="card nivel-${nivelVisual}">`;
-          html += `<div class="badge-icons">`;
-          if((item.verificado||'').toLowerCase()==='x'){
-            html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
-          }
-          if((item.gold||'').toLowerCase()==='x'){
-            html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
-          }
-          html += `</div>`;
-          if (nivelVisual === 1 || nivelVisual === 2 || nivelVisual === 5) {
-            if(item.logo){ html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`; }
-            html += `<div class="nombre">${item.nombre}</div>`;
-            if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
-            html += `<span class="espaciado"></span>`;
-            html += renderTermalesLogos(item);
-            if(item.descripcion){
-              html += `<div class="descripcion">${item.descripcion}</div><span class="segmento-doble"></span>`;
-            }
-            let contactoHtml = "";
-            for(let i=1;i<=6;i++){
-              const dir=item[`direccion${i===1?'':i}`];
-              const tel=item[`telefono${i===1?'':i}`];
-              if(dir){
-                contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
-                if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
-                const wh=item[`whatsapp${i===1?'':i}`];
-                if(wh){
-                  contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${wh.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`;
-                }
-                if(dir && item[`maps${i===1?'':i}`]){
-                  contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
-                  contactoHtml += `<span class="espaciado"></span>`;
-                }
+              if(item.whatsapp){
+                contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${item.whatsapp.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${item.whatsapp}</a></div><span class="espaciado"></span>`;
               }
-            }
-            if(item.whatsapp){
-              contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${item.whatsapp.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${item.whatsapp}</a></div><span class="espaciado"></span>`;
-            }
-            html += `<div class="contacto-bloque">${contactoHtml}</div>`;
-            html += `<span class="segmento-doble"></span>`;
-            html += renderRedesBloque(item, nivelVisual);
-            html += renderGaleria(item, nivelVisual, galeriaId);
-            let webMailHtml = "";
-            if(item.link && item.link.trim()){
-              webMailHtml += `<div><i class="fas fa-globe" style="color:#006699;margin-right:5px;"></i><a href="${item.link}" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div><span class="espaciado"></span>`;
-            }
-            if(item.mail){
-              webMailHtml += `<div><i class="fas fa-envelope" style="color:#006699;margin-right:5px;"></i><a href="mailto:${item.mail}">${item.mail}</a></div><span class="espaciado"></span>`;
-            }
-            if(webMailHtml){
-              html += `<div class="web-mail-bloque">${webMailHtml}</div>`;
+              html += `<div class="contacto-bloque">${contactoHtml}</div>`;
               html += `<span class="segmento-doble"></span>`;
-            }
-            if(nivelVisual===1){
-              html+=`<div class="leyenda-nivel-4">ESPACIO GRATUITO</div><span class="segmento-doble"></span>`;
-            }
-            if(nivelVisual===2){
-              html+=`<div class="leyenda-nivel-3">ESPACIO GRATUITO/BONIFICADO</div><span class="segmento-doble"></span>`;
-            }
-          }
-          else if (nivelVisual === 3) {
-            html += `<div class="nombre">${item.nombre}</div>`;
-            if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
-            html += `<span class="espaciado"></span>`;
-            html += renderTermalesLogos(item);
-
-            // BLOQUE CONTACTO NIVEL 3 (mostrar primer dirección con sus datos; si no hay dirección, mostrar primer teléfono o whatsapp)
-            let contactoHtml = "";
-            let foundDir = false;
-            for(let i=1;i<=6;i++){
-              const idx = i===1 ? '' : i;
-              const dir = item[`direccion${idx}`];
-              const tel = item[`telefono${idx}`];
-              const wh = item[`whatsapp${idx}`];
-              if(dir && !foundDir){
-                contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
-                if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
-                if(wh) { contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${wh}</div><span class="espaciado"></span>`; }
-                foundDir = true;
+              html += renderRedesBloque(item, nivelVisual);
+              html += renderGaleria(item, nivelVisual, galeriaId);
+              let webMailHtml = "";
+              if(item.link && item.link.trim()){
+                webMailHtml += `<div><i class="fas fa-globe" style="color:#006699;margin-right:5px;"></i><a href="${item.link}" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div><span class="espaciado"></span>`;
+              }
+              if(item.mail){
+                webMailHtml += `<div><i class="fas fa-envelope" style="color:#006699;margin-right:5px;"></i><a href="mailto:${item.mail}">${item.mail}</a></div><span class="espaciado"></span>`;
+              }
+              if(webMailHtml){
+                html += `<div class="web-mail-bloque">${webMailHtml}</div>`;
+                html += `<span class="segmento-doble"></span>`;
+              }
+              if(nivelVisual===1){
+                html+=`<div class="leyenda-nivel-4">ESPACIO GRATUITO</div><span class="segmento-doble"></span>`;
+              }
+              if(nivelVisual===2){
+                html+=`<div class="leyenda-nivel-3">ESPACIO GRATUITO/BONIFICADO</div><span class="segmento-doble"></span>`;
               }
             }
+            else if (nivelVisual === 3) {
+              html += `<div class="nombre">${item.nombre}</div>`;
+              if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
+              html += `<span class="espaciado"></span>`;
+              html += renderTermalesLogos(item);
 
-            if(!foundDir){
-              let firstPhone = "";
-              let firstWhats = "";
+              // BLOQUE CONTACTO NIVEL 3 (mostrar primer dirección con sus datos; si no hay dirección, mostrar primer teléfono o whatsapp)
+              let contactoHtml = "";
+              let foundDir = false;
               for(let i=1;i<=6;i++){
                 const idx = i===1 ? '' : i;
-                if(!firstPhone && item[`telefono${idx}`]) firstPhone = item[`telefono${idx}`];
-                if(!firstWhats && item[`whatsapp${idx}`]) firstWhats = item[`whatsapp${idx}`];
-              }
-              if(!firstPhone && item.telefono) firstPhone = item.telefono;
-              if(!firstWhats && item.whatsapp) firstWhats = item.whatsapp;
-
-              if(firstPhone){
-                contactoHtml += `<div><i class="fas fa-phone"></i> ${firstPhone}</div><span class="espaciado"></span>`;
-              } else if(firstWhats){
-                contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${firstWhats}</div><span class="espaciado"></span>`;
-              }
-            }
-            html += `<div class="contacto-bloque">${contactoHtml}</div>`;
-            html += `<span class="segmento-doble"></span>`;
-
-            html += renderRedesNivel3(item);
-            html+=`<div class="leyenda-nivel-espacio-gratis">ESPACIO GRATUITO</div><span class="segmento-doble"></span>`;
-          }
-          else if (nivelVisual === 4) {
-            if(item.logo){
-              html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
-            }
-            html += `<div class="nombre">${item.nombre}</div>`;
-            if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
-            html += `<span class="espaciado"></span>`;
-            html += renderTermalesLogos(item);
-            if(item.descripcion){
-              html += `<div class="descripcion">${item.descripcion.substring(0,200)}</div><span class="segmento-doble"></span>`;
-            }
-            let contactoHtml = "";
-            let whatsappIncluido = false;
-            for(let i=1;i<=6;i++){
-              const dir=item[`direccion${i===1?'':i}`];
-              const tel=item[`telefono${i===1?'':i}`];
-              if(dir){
-                contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
-                if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
-                const wh=item[`whatsapp${i===1?'':i}`];
-                if(wh && !whatsappIncluido){
-                  contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${wh.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`;
-                  whatsappIncluido = true;
-                }
-                if(dir && item[`maps${i===1?'':i}`]){
-                  contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
-                  contactoHtml += `<span class="espaciado"></span>`;
+                const dir = item[`direccion${idx}`];
+                const tel = item[`telefono${idx}`];
+                const wh = item[`whatsapp${idx}`];
+                if(dir && !foundDir){
+                  contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
+                  if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
+                  if(wh) { contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${wh}</div><span class="espaciado"></span>`; }
+                  foundDir = true;
                 }
               }
-            }
-            html += `<div class="contacto-bloque">${contactoHtml}</div>`;
-            html += `<span class="segmento-doble"></span>`;
-            html += renderRedesNivel4(item);
-            let webMailHtml = "";
-            if(item.link && item.link.trim()){
-              webMailHtml += `<div><i class="fas fa-globe" style="color:#006699;margin-right:5px;"></i><a href="${item.link}" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div><span class="espaciado"></span>`;
-            }
-            if(item.mail){
-              webMailHtml += `<div><i class="fas fa-envelope" style="color:#006699;margin-right:5px;"></i><a href="mailto:${item.mail}">${item.mail}</a></div><span class="espaciado"></span>`;
-            }
-            if(webMailHtml){
-              html += `<div class="web-mail-bloque">${webMailHtml}</div>`;
+
+              if(!foundDir){
+                let firstPhone = "";
+                let firstWhats = "";
+                for(let i=1;i<=6;i++){
+                  const idx = i===1 ? '' : i;
+                  if(!firstPhone && item[`telefono${idx}`]) firstPhone = item[`telefono${idx}`];
+                  if(!firstWhats && item[`whatsapp${idx}`]) firstWhats = item[`whatsapp${idx}`];
+                }
+                if(!firstPhone && item.telefono) firstPhone = item.telefono;
+                if(!firstWhats && item.whatsapp) firstWhats = item.whatsapp;
+
+                if(firstPhone){
+                  contactoHtml += `<div><i class="fas fa-phone"></i> ${firstPhone}</div><span class="espaciado"></span>`;
+                } else if(firstWhats){
+                  contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${firstWhats}</div><span class="espaciado"></span>`;
+                }
+              }
+              html += `<div class="contacto-bloque">${contactoHtml}</div>`;
               html += `<span class="segmento-doble"></span>`;
+
+              html += renderRedesNivel3(item);
+              html+=`<div class="leyenda-nivel-espacio-gratis">ESPACIO GRATUITO</div><span class="segmento-doble"></span>`;
             }
-          }
-          html+=`</div>`;
-          return html;
-        }
-
-        // renderBanner: ahora soporta img, media (video directo) y media (YouTube)
-        function renderBanner(banner, idx){
-          const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
-          const ctaLink = banner.url || banner.link || banner.cta || "";
-          // Si tiene media y es archivo de video directo
-          if(banner.media && isVideoFile(banner.media)){
-            // no link: se muestra aquí el video. Usamos data-src y lo cargamos con observer.
-            const posterAttr = banner.poster ? `poster="${banner.poster}"` : (banner.img ? `poster="${banner.img}"` : '');
-            return `
-              <div class="banner-tarjeta">
-                <video id="${id}" class="banner-media" data-src="${banner.media}" ${posterAttr} muted playsinline loop preload="metadata" controlsList="nodownload" controls></video>
-                ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
-              </div>
-            `;
-          }
-          // Si es YouTube u otro embed
-          if(banner.media && isYouTube(banner.media)){
-            // Por razones de autoplay/privacidad, solo seteamos data-src y lo asignamos cuando entra en vista.
-            const embed = getYouTubeEmbedUrl(banner.media, true);
-            // si no obtuvimos embed, fallback a imagen si existe.
-            if(embed){
-              return `
-                <div class="banner-tarjeta">
-                  <div id="${id}" class="banner-media" data-src="${embed}"></div>
-                  ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
-                </div>
-              `;
-            }
-          }
-          // Si tiene imagen (o fallback)
-          if(banner.img){
-            return `
-              <div class="banner-tarjeta">
-                <img src="${banner.img}" alt="Banner">
-                ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
-              </div>
-            `;
-          }
-          return '';
-        }
-
-        function renderNormales(normales) {
-          let html = '';
-          let cantidadBanners = Math.min(3, banners.length);
-          let indicesBanners = [];
-          while (indicesBanners.length < cantidadBanners) {
-            let idx = Math.floor(Math.random() * banners.length);
-            if (!indicesBanners.includes(idx)) indicesBanners.push(idx);
-          }
-          normales.forEach((item, idx) => {
-            html += renderCard(item, `norm-${idx}`);
-            if ((idx + 1) % 3 === 0 && (idx + 1) < normales.length) {
-              let bannerNum = Math.floor(idx / 3);
-              let banner = banners[indicesBanners[bannerNum] || 0];
-              html += renderBanner(banner, `inter-${idx}`);
-            }
-          });
-          if (normales.length === 0) {
-            html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
-          }
-          contenedor.innerHTML = html;
-
-          // Después de inyectar HTML, inicializamos observer para banners (lazy load y autoplay on scroll)
-          initBannerObservers();
-        }
-
-        function renderDestacadas(destacadas) {
-          destacadasBar.innerHTML = destacadas.map((item, idx) => renderCard(item, `dest-${idx}`)).join('');
-        }
-
-        function scrollTitulo() {
-          // Intentar desplazar el header al tope.
-          const titulo = document.getElementById('titulo-principal');
-          if (!titulo) {
-            // fallback al scroll top del propio documento
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-            return;
-          }
-
-          // Primero intentar desplazar el elemento dentro del documento (funciona si no está embebido)
-          try {
-            titulo.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          } catch (e) {
-            // ignore
-          }
-
-          // Si estamos embebidos en un iframe, pedir al padre que haga scroll (postMessage),
-          // y además intentar hacer scroll del iframe (frameElement) si es posible.
-          if (window.self !== window.top) {
-            try {
-              if (window.frameElement && typeof window.frameElement.scrollIntoView === 'function') {
-                window.frameElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            else if (nivelVisual === 4) {
+              if(item.logo){
+                html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
               }
-            } catch (e) {
-              // cross-origin puede impedir acceso, lo manejamos mediante postMessage
-            }
-            try {
-              window.parent.postMessage({ type: 'guialocal:scrollToSelector', selector: '#titulo-principal' }, '*');
-            } catch (e) {
-              // no hacer nada si falla
-            }
-          }
-        }
-
-        window.irAPagina = function(num){
-          paginaActual = num;
-          render();
-          setTimeout(scrollTitulo, 0);
-        }
-        window.cambiarPagina = function(direccion){
-          if (direccion === 'prev' && paginaActual > 1) {paginaActual--;}
-          else if (direccion === 'next' && paginaActual < totalPaginas) {paginaActual++;}
-          else if (direccion === 'primera') {paginaActual=1;}
-          render();
-          setTimeout(scrollTitulo, 0);
-        };
-
-        let paginaActual = 1;
-        const resultadosPorPagina = 10;
-        let totalPaginas = 1;
-
-        function getDestacadas(array) {
-          return array.filter(item => Number(item.nivel) === 5 && Number(item.subnivel) === 1);
-        }
-
-        function buildPaginationBar(targetBar) {
-          let html = '';
-          const maxBtns = 7;
-          let start = Math.max(1, paginaActual - Math.floor(maxBtns / 2));
-          let end = start + maxBtns - 1;
-          if (end > totalPaginas) {
-            end = totalPaginas;
-            start = Math.max(1, end - maxBtns + 1);
-          }
-          if (start > 1) {
-            html += `<button onclick="cambiarPagina('primera')">1</button>`;
-            if (start > 2) html += `<span class="dots">...</span>`;
-          }
-          for (let i = start; i <= end; i++) {
-            if (i === paginaActual) {
-              html += `<span class="active">${i}</span>`;
-            } else {
-              html += `<button onclick="irAPagina(${i})">${i}</button>`;
-            }
-          }
-          if (end < totalPaginas) {
-            if (end < totalPaginas - 1) html += `<span class="dots">...</span>`;
-            html += `<button onclick="irAPagina(${totalPaginas})">${totalPaginas}</button>`;
-          }
-          targetBar.innerHTML = html;
-        }
-
-        function render() {
-          const qGlobal = normalizar(buscadorGlobal.value.trim());
-          const segmentoSeleccionado = selectSegmento.value;
-          const categoriaSeleccionada = selectCategoria.value;
-
-          let filtrados = serviciosData.filter(item => {
-            let coincideSegmento = true;
-            if (segmentoSeleccionado) {
-              const segmentos = (item.segmento || "").split(",").map(r => normalizar(r));
-              coincideSegmento = segmentos.includes(normalizar(segmentoSeleccionado));
-            }
-            let coincideCategoria = true;
-            if (categoriaSeleccionada) {
-              const categorias = (item.categoria || "").split(",").map(r => r.trim());
-              coincideCategoria = categorias.includes(categoriaSeleccionada);
-            }
-            let coincideGlobal = true;
-            if (qGlobal) {
-              coincideGlobal = [
-                'nombre','segmento','categoria','subcategoria','tags','adicionales','pie','descripcion'
-              ].some(campo =>
-                normalizar(item[campo]||"").includes(qGlobal)
-              );
-            }
-            return coincideSegmento && coincideCategoria && coincideGlobal;
-          })
-          .sort((a, b) => Number(b.nivel) - Number(a.nivel) || a.subnivel - b.subnivel);
-
-          const destacadas = getDestacadas(anunciantesData);
-          const normales = filtrados.filter(item => !(Number(item.nivel) === 5 && Number(item.subnivel) === 1));
-          totalPaginas = Math.max(1, Math.ceil(normales.length / resultadosPorPagina));
-          if (paginaActual > totalPaginas) paginaActual = totalPaginas;
-          if (paginaActual < 1) paginaActual = 1;
-
-          const inicio = (paginaActual - 1) * resultadosPorPagina;
-          const fin = inicio + resultadosPorPagina;
-          const normalesPaginadas = normales.slice(inicio, fin);
-
-          btnAnterior.disabled = paginaActual === 1;
-          btnSiguiente.disabled = paginaActual === totalPaginas;
-          buildPaginationBar(paginationBar);
-
-          renderDestacadas(destacadas);
-          renderNormales(normalesPaginadas);
-        }
-
-        buscadorGlobal.addEventListener('input', () => {
-          paginaActual = 1;
-          render();
-        });
-
-        render();
-
-        window.addEventListener('scroll', () => {
-          const topBtn = document.getElementById('topBtn');
-          if (window.scrollY > 200) {topBtn.style.display = 'flex';}
-          else {topBtn.style.display = 'none';}
-        });
-
-        /* ---------------------------
-           Nuevo: mostrar modal DENTRO de la tarjeta
-           - garantizamos que el modal aparezca siempre sobre la tarjeta que contiene la miniatura
-           - si por algún motivo no existe la tarjeta, cae al comportamiento global (modal full-screen)
-           --------------------------- */
-        window.mostrarModalGaleria = function(img, imagenesArr, idx) {
-          try {
-            const card = img && img.closest ? img.closest('.card') : null;
-            const fallbackToGlobal = !card; // si no encontramos .card usamos el modal global
-            let actual = Number(idx) || 0;
-
-            if (!fallbackToGlobal) {
-              // crear modal dentro de la tarjeta
-              const existing = card.querySelector('.modal-in-card');
-              if (existing) existing.remove();
-
-              const wrapper = document.createElement('div');
-              wrapper.className = 'modal-in-card';
-              wrapper.tabIndex = 0;
-
-              const innerHtml = `
-                <div class="modal-img" onclick="event.stopPropagation();">
-                  <button class="cerrar-modal" title="Cerrar">&times;</button>
-                  ${imagenesArr.length>1?`<button class="flecha-modal izq" title="Anterior">&lt;</button>`:""}
-                  <img src="${imagenesArr[actual]}" alt="Imagen ampliada">
-                  ${imagenesArr.length>1?`<button class="flecha-modal der" title="Siguiente">&gt;</button>`:""}
-                  ${imagenesArr.length>1?`<div class="indicador">${actual+1} / ${imagenesArr.length}</div>`:""}
-                </div>
-              `;
-              wrapper.innerHTML = innerHtml;
-
-              // cerrar al click en el fondo del wrapper
-              wrapper.addEventListener('click', function(e){
-                if (e.target === wrapper) removeWrapper();
-              });
-
-              // controles
-              function removeWrapper(){
-                try{ wrapper.remove(); }catch(e){}
+              html += `<div class="nombre">${item.nombre}</div>`;
+              if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
+              html += `<span class="espaciado"></span>`;
+              html += renderTermalesLogos(item);
+              if(item.descripcion){
+                html += `<div class="descripcion">${item.descripcion.substring(0,200)}</div><span class="segmento-doble"></span>`;
               }
-              const btnCerrar = wrapper.querySelector('.cerrar-modal');
-              if (btnCerrar) btnCerrar.addEventListener('click', removeWrapper);
-
-              const btnIzq = wrapper.querySelector('.flecha-modal.izq');
-              const btnDer = wrapper.querySelector('.flecha-modal.der');
-              const imgEl = wrapper.querySelector('img');
-
-              function renderIndex(){
-                if (!imgEl) return;
-                imgEl.src = imagenesArr[actual];
-                const indicador = wrapper.querySelector('.indicador');
-                if (indicador) indicador.textContent = `${actual+1} / ${imagenesArr.length}`;
-              }
-              if (btnIzq){
-                btnIzq.addEventListener('click', function(ev){
-                  ev.stopPropagation();
-                  actual = (actual - 1 + imagenesArr.length) % imagenesArr.length;
-                  renderIndex();
-                });
-              }
-              if (btnDer){
-                btnDer.addEventListener('click', function(ev){
-                  ev.stopPropagation();
-                  actual = (actual + 1) % imagenesArr.length;
-                  renderIndex();
-                });
-              }
-
-              // insertar en la tarjeta
-              card.style.position = card.style.position || 'relative';
-              card.appendChild(wrapper);
-
-              // desplazar la tarjeta un poco (si se está embebido) para mantener la referencia visual
-              try {
-                if (typeof card.scrollIntoView === 'function') {
-                  card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              let contactoHtml = "";
+              let whatsappIncluido = false;
+              for(let i=1;i<=6;i++){
+                const dir=item[`direccion${i===1?'':i}`];
+                const tel=item[`telefono${i===1?'':i}`];
+                if(dir){
+                  contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
+                  if(tel) { contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`; }
+                  const wh=item[`whatsapp${i===1?'':i}`];
+                  if(wh && !whatsappIncluido){
+                    contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${wh.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`;
+                    whatsappIncluido = true;
+                  }
+                  if(dir && item[`maps${i===1?'':i}`]){
+                    contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
+                    contactoHtml += `<span class="espaciado"></span>`;
+                  }
                 }
-              } catch (e) {}
+              }
+              html += `<div class="contacto-bloque">${contactoHtml}</div>`;
+              html += `<span class="segmento-doble"></span>`;
+              html += renderRedesNivel4(item);
+              let webMailHtml = "";
+              if(item.link && item.link.trim()){
+                webMailHtml += `<div><i class="fas fa-globe" style="color:#006699;margin-right:5px;"></i><a href="${item.link}" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div><span class="espaciado"></span>`;
+              }
+              if(item.mail){
+                webMailHtml += `<div><i class="fas fa-envelope" style="color:#006699;margin-right:5px;"></i><a href="mailto:${item.mail}">${item.mail}</a></div><span class="espaciado"></span>`;
+              }
+              if(webMailHtml){
+                html += `<div class="web-mail-bloque">${webMailHtml}</div>`;
+                html += `<span class="segmento-doble"></span>`;
+              }
+            }
+            html+=`</div>`;
+            return html;
+          }
 
-              // notificar al padre (si está embebido) que abrimos modal dentro de la tarjeta
-              try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalOpenedInCard' }, '*'); } catch (e){}
-            } else {
-              // fallback: comportamiento anterior (modal global centrado)
-              function renderModalImgGlobal() {
-                try { document.body.classList.add('modal-open'); } catch(e){}
-                modalImg.innerHTML = `
-                  <div class="modal-img-bg" onclick="cerrarModalImgGlobal(event)">
-                    <div class="modal-img" onclick="event.stopPropagation();">
-                      <button class="cerrar-modal" onclick="cerrarModalImgGlobal(event)" title="Cerrar">&times;</button>
-                      ${imagenesArr.length>1?`<button class="flecha-modal izq" onclick="cambiarImgGlobal(-1,event)">&lt;</button>`:""}
-                      <img src="${imagenesArr[actual]}" alt="Imagen ampliada">
-                      ${imagenesArr.length>1?`<button class="flecha-modal der" onclick="cambiarImgGlobal(1,event)">&gt;</button>`:""}
-                      ${imagenesArr.length>1?`<div class="indicador">${actual+1} / ${imagenesArr.length}</div>`:""}
-                    </div>
+          // renderBanner: now defensive and places CTA below the media (not overlay)
+          function renderBanner(banner, idx){
+            const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
+            const ctaLink = banner.url || banner.link || banner.cta || "";
+            // direct video file (mp4/webm/ogg)
+            if(banner.media && isVideoFile(banner.media)){
+              const posterAttr = banner.poster ? `poster="${banner.poster}"` : (banner.img ? `poster="${banner.img}"` : '');
+              return `
+                <div class="banner-tarjeta" data-banner-idx="${idx}">
+                  <div id="${id}" class="banner-media" data-src="${banner.media}" ${posterAttr}>
+                    <!-- video element will be created/attached by observer -->
+                    <video class="banner-media" data-src="${banner.media}" ${posterAttr} muted playsinline loop preload="metadata" controls></video>
+                  </div>
+                  ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Ir al comercio</a>` : '' }
+                </div>
+              `;
+            }
+            // YouTube or embed
+            if(banner.media && isYouTube(banner.media)){
+              const embed = getYouTubeEmbedUrl(banner.media, true);
+              if(embed){
+                return `
+                  <div class="banner-tarjeta" data-banner-idx="${idx}">
+                    <div id="${id}" class="banner-media" data-src="${embed}"></div>
+                    ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Ir al comercio</a>` : '' }
                   </div>
                 `;
-                modalImg.style.display = 'block';
               }
-              window.cambiarImgGlobal = function(dir,event){
-                if(event && event.stopPropagation) event.stopPropagation();
-                actual += dir;
-                if(actual<0) actual=imagenesArr.length-1;
-                if(actual>=imagenesArr.length) actual=0;
-                renderModalImgGlobal();
-              }
-              window.cerrarModalImgGlobal = function(event){
-                if(event && event.stopPropagation) event.stopPropagation();
-                modalImg.style.display='none';
-                modalImg.innerHTML='';
-                try { document.body.classList.remove('modal-open'); } catch(e){}
-                try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalClosed' }, '*'); } catch(e){}
-              }
-              renderModalImgGlobal();
-              try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalOpened' }, '*'); } catch(e){}
             }
-          } catch (err) {
-            console.error('Error mostrando modal:', err);
+            // image fallback
+            if(banner.img){
+              return `
+                <div class="banner-tarjeta" data-banner-idx="${idx}">
+                  <img src="${banner.img}" alt="Banner">
+                  ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Ir al comercio</a>` : '' }
+                </div>
+              `;
+            }
+            return '';
           }
-        };
 
-        // Observador para banners: lazy-load y autoplay cuando el banner está visible
-        function initBannerObservers(){
-          const observerOptions = {
-            root: null,
-            rootMargin: '0px',
-            threshold: 0.5 // al menos 50% visible
+          function renderNormales(normales) {
+            let html = '';
+            let cantidadBanners = Math.min(3, banners.length);
+            let indicesBanners = [];
+            while (indicesBanners.length < cantidadBanners) {
+              let idx = Math.floor(Math.random() * banners.length);
+              if (!indicesBanners.includes(idx)) indicesBanners.push(idx);
+            }
+            normales.forEach((item, idx) => {
+              html += renderCard(item, `norm-${idx}`);
+              if ((idx + 1) % 3 === 0 && (idx + 1) < normales.length) {
+                let bannerNum = Math.floor(idx / 3);
+                let banner = banners[indicesBanners[bannerNum] || 0];
+                html += renderBanner(banner, `inter-${idx}`);
+              }
+            });
+            if (normales.length === 0) {
+              html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
+            }
+            contenedor.innerHTML = html;
+
+            // initialize observer for banners (lazy load / autoplay)
+            initBannerObservers();
+          }
+
+          function renderDestacadas(destacadas) {
+            destacadasBar.innerHTML = (Array.isArray(destacadas) ? destacadas : []).map((item, idx) => renderCard(item, `dest-${idx}`)).join('');
+          }
+
+          function scrollTitulo() {
+            const titulo = document.getElementById('titulo-principal');
+            if (!titulo) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+            try { titulo.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) {}
+            if (window.self !== window.top) {
+              try { if (window.frameElement && typeof window.frameElement.scrollIntoView === 'function') window.frameElement.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch(e){}
+              try { window.parent.postMessage({ type: 'guialocal:scrollToSelector', selector: '#titulo-principal' }, '*'); } catch(e){}
+            }
+          }
+
+          window.irAPagina = function(num){ paginaActual = num; render(); setTimeout(scrollTitulo, 0); }
+          window.cambiarPagina = function(direccion){
+            if (direccion === 'prev' && paginaActual > 1) {paginaActual--;}
+            else if (direccion === 'next' && paginaActual < totalPaginas) {paginaActual++;}
+            else if (direccion === 'primera') {paginaActual=1;}
+            render();
+            setTimeout(scrollTitulo, 0);
           };
-          const callback = function(entries, obs){
-            entries.forEach(async entry => {
-              const target = entry.target;
-              const dataSrc = target.dataset ? target.dataset.src : null;
-              // Si es un <video> elemento
-              if(target.tagName && target.tagName.toLowerCase() === 'video'){
-                const videoEl = target;
-                if(entry.isIntersecting){
-                  // si no tiene src, lo asignamos ahora (lazy)
-                  if(!videoEl.src && dataSrc){
-                    videoEl.src = dataSrc;
-                    try{ videoEl.load(); }catch(e){}
-                  }
-                  try{
-                    const p = videoEl.play();
-                    if(p && typeof p.then === 'function'){ p.catch(()=>{}); }
-                  }catch(e){}
-                } else {
-                  try{ videoEl.pause(); }catch(e){}
-                }
+
+          let paginaActual = 1;
+          const resultadosPorPagina = 10;
+          let totalPaginas = 1;
+
+          function getDestacadas(array) {
+            return (Array.isArray(array) ? array : []).filter(item => Number(item.nivel) === 5 && Number(item.subnivel) === 1);
+          }
+
+          function buildPaginationBar(targetBar) {
+            let html = '';
+            const maxBtns = 7;
+            let start = Math.max(1, paginaActual - Math.floor(maxBtns / 2));
+            let end = start + maxBtns - 1;
+            if (end > totalPaginas) {
+              end = totalPaginas;
+              start = Math.max(1, end - maxBtns + 1);
+            }
+            if (start > 1) {
+              html += `<button onclick="cambiarPagina('primera')">1</button>`;
+              if (start > 2) html += `<span class="dots">...</span>`;
+            }
+            for (let i = start; i <= end; i++) {
+              if (i === paginaActual) {
+                html += `<span class="active">${i}</span>`;
               } else {
-                // puede ser un elemento placeholder <div data-src="..."> (por ejemplo iframe YouTube)
-                if(entry.isIntersecting){
-                  if(target.tagName && target.tagName.toLowerCase() === 'iframe'){
-                    // iframe ya presente: intentar play configurado por src
+                html += `<button onclick="irAPagina(${i})">${i}</button>`;
+              }
+            }
+            if (end < totalPaginas) {
+              if (end < totalPaginas - 1) html += `<span class="dots">...</span>`;
+              html += `<button onclick="irAPagina(${totalPaginas})">${totalPaginas}</button>`;
+            }
+            targetBar.innerHTML = html;
+          }
+
+          function render() {
+            const qGlobal = normalizar(buscadorGlobal.value.trim());
+            const segmentoSeleccionado = selectSegmento.value;
+            const categoriaSeleccionada = selectCategoria.value;
+
+            let filtrados = serviciosData.filter(item => {
+              let coincideSegmento = true;
+              if (segmentoSeleccionado) {
+                const segmentos = (item.segmento || "").split(",").map(r => normalizar(r));
+                coincideSegmento = segmentos.includes(normalizar(segmentoSeleccionado));
+              }
+              let coincideCategoria = true;
+              if (categoriaSeleccionada) {
+                const categorias = (item.categoria || "").split(",").map(r => r.trim());
+                coincideCategoria = categorias.includes(categoriaSeleccionada);
+              }
+              let coincideGlobal = true;
+              if (qGlobal) {
+                coincideGlobal = [
+                  'nombre','segmento','categoria','subcategoria','tags','adicionales','pie','descripcion'
+                ].some(campo =>
+                  normalizar(item[campo]||"").includes(qGlobal)
+                );
+              }
+              return coincideSegmento && coincideCategoria && coincideGlobal;
+            })
+            .sort((a, b) => Number(b.nivel) - Number(a.nivel) || a.subnivel - b.subnivel);
+
+            const destacadas = getDestacadas(anunciantesData);
+            const normales = filtrados.filter(item => !(Number(item.nivel) === 5 && Number(item.subnivel) === 1));
+            totalPaginas = Math.max(1, Math.ceil(normales.length / resultadosPorPagina));
+            if (paginaActual > totalPaginas) paginaActual = totalPaginas;
+            if (paginaActual < 1) paginaActual = 1;
+
+            const inicio = (paginaActual - 1) * resultadosPorPagina;
+            const fin = inicio + resultadosPorPagina;
+            const normalesPaginadas = normales.slice(inicio, fin);
+
+            btnAnterior.disabled = paginaActual === 1;
+            btnSiguiente.disabled = paginaActual === totalPaginas;
+            buildPaginationBar(paginationBar);
+
+            renderDestacadas(destacadas);
+            renderNormales(normalesPaginadas);
+          }
+
+          buscadorGlobal.addEventListener('input', () => {
+            paginaActual = 1;
+            render();
+          });
+
+          render();
+
+          window.addEventListener('scroll', () => {
+            const topBtn = document.getElementById('topBtn');
+            if (window.scrollY > 200) {topBtn.style.display = 'flex';}
+            else {topBtn.style.display = 'none';}
+          });
+
+          /* Modal gallery (unchanged behavior) */
+          window.mostrarModalGaleria = function(img, imagenesArr, idx) {
+            try {
+              const card = img && img.closest ? img.closest('.card') : null;
+              const fallbackToGlobal = !card;
+              let actual = Number(idx) || 0;
+              if (!fallbackToGlobal) {
+                const existing = card.querySelector('.modal-in-card');
+                if (existing) existing.remove();
+                const wrapper = document.createElement('div');
+                wrapper.className = 'modal-in-card';
+                wrapper.tabIndex = 0;
+                const innerHtml = `
+                  <div class="modal-img" onclick="event.stopPropagation();">
+                    <button class="cerrar-modal" title="Cerrar">&times;</button>
+                    ${imagenesArr.length>1?`<button class="flecha-modal izq" title="Anterior">&lt;</button>`:""}
+                    <img src="${imagenesArr[actual]}" alt="Imagen ampliada">
+                    ${imagenesArr.length>1?`<button class="flecha-modal der" title="Siguiente">&gt;</button>`:""}
+                    ${imagenesArr.length>1?`<div class="indicador">${actual+1} / ${imagenesArr.length}</div>`:""}
+                  </div>
+                `;
+                wrapper.innerHTML = innerHtml;
+                wrapper.addEventListener('click', function(e){
+                  if (e.target === wrapper) removeWrapper();
+                });
+                function removeWrapper(){ try{ wrapper.remove(); }catch(e){} }
+                const btnCerrar = wrapper.querySelector('.cerrar-modal');
+                if (btnCerrar) btnCerrar.addEventListener('click', removeWrapper);
+                const btnIzq = wrapper.querySelector('.flecha-modal.izq');
+                const btnDer = wrapper.querySelector('.flecha-modal.der');
+                const imgEl = wrapper.querySelector('img');
+                function renderIndex(){
+                  if (!imgEl) return;
+                  imgEl.src = imagenesArr[actual];
+                  const indicador = wrapper.querySelector('.indicador');
+                  if (indicador) indicador.textContent = `${actual+1} / ${imagenesArr.length}`;
+                }
+                if (btnIzq){ btnIzq.addEventListener('click', function(ev){ ev.stopPropagation(); actual = (actual - 1 + imagenesArr.length) % imagenesArr.length; renderIndex(); }); }
+                if (btnDer){ btnDer.addEventListener('click', function(ev){ ev.stopPropagation(); actual = (actual + 1) % imagenesArr.length; renderIndex(); }); }
+                card.style.position = card.style.position || 'relative';
+                card.appendChild(wrapper);
+                try { if (typeof card.scrollIntoView === 'function') card.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+                try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalOpenedInCard' }, '*'); } catch (e){}
+              } else {
+                function renderModalImgGlobal() {
+                  try { document.body.classList.add('modal-open'); } catch(e){}
+                  modalImg.innerHTML = `
+                    <div class="modal-img-bg" onclick="cerrarModalImgGlobal(event)">
+                      <div class="modal-img" onclick="event.stopPropagation();">
+                        <button class="cerrar-modal" onclick="cerrarModalImgGlobal(event)" title="Cerrar">&times;</button>
+                        ${imagenesArr.length>1?`<button class="flecha-modal izq" onclick="cambiarImgGlobal(-1,event)">&lt;</button>`:""}
+                        <img src="${imagenesArr[actual]}" alt="Imagen ampliada">
+                        ${imagenesArr.length>1?`<button class="flecha-modal der" onclick="cambiarImgGlobal(1,event)">&gt;</button>`:""}
+                        ${imagenesArr.length>1?`<div class="indicador">${actual+1} / ${imagenesArr.length}</div>`:""}
+                      </div>
+                    </div>
+                  `;
+                  modalImg.style.display = 'block';
+                }
+                window.cambiarImgGlobal = function(dir,event){
+                  if(event && event.stopPropagation) event.stopPropagation();
+                  actual += dir;
+                  if(actual<0) actual=imagenesArr.length-1;
+                  if(actual>=imagenesArr.length) actual=0;
+                  renderModalImgGlobal();
+                }
+                window.cerrarModalImgGlobal = function(event){
+                  if(event && event.stopPropagation) event.stopPropagation();
+                  modalImg.style.display='none';
+                  modalImg.innerHTML='';
+                  try { document.body.classList.remove('modal-open'); } catch(e){}
+                  try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalClosed' }, '*'); } catch(e){}
+                }
+                renderModalImgGlobal();
+                try { if (window.self !== window.top) window.parent.postMessage({ type: 'guialocal:modalOpened' }, '*'); } catch(e){}
+              }
+            } catch (err) {
+              console.error('Error mostrando modal:', err);
+            }
+          };
+
+          // Observador para banners: lazy-load y autoplay cuando el banner está visible
+          function initBannerObservers(){
+            const observerOptions = { root: null, rootMargin: '0px', threshold: 0.5 };
+            const callback = function(entries, obs){
+              entries.forEach(async entry => {
+                const target = entry.target;
+                const dataSrc = target.dataset ? target.dataset.src : null;
+                // video element inside banner-tarjeta
+                if(target.tagName && target.tagName.toLowerCase() === 'video'){
+                  const videoEl = target;
+                  if(entry.isIntersecting){
+                    if(!videoEl.src && dataSrc){ videoEl.src = dataSrc; try{ videoEl.load(); }catch(e){} }
+                    try{ const p = videoEl.play(); if(p && typeof p.then === 'function'){ p.catch(()=>{}); } }catch(e){}
                   } else {
-                    // Si es div placeholder con data-src -> crear iframe y reemplazar
-                    const ds = dataSrc || target.datasetSrc || target.getAttribute('data-src');
-                    if(ds){
-                      if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
-                        // reemplazar por iframe con autoplay/mute
-                        const iframe = document.createElement('iframe');
-                        iframe.setAttribute('src', ds);
-                        iframe.setAttribute('frameborder', '0');
-                        iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                        iframe.setAttribute('allowfullscreen', 'true');
-                        iframe.style.width = '100%';
-                        iframe.style.height = '100%';
-                        iframe.style.border = 'none';
-                        // si el placeholder es un div, insertamos el iframe dentro
-                        target.innerHTML = '';
-                        target.appendChild(iframe);
-                      } else {
-                        // fallback: si es directamente URL a video, creamos video
-                        if(isVideoFile(ds)){
-                          const video = document.createElement('video');
-                          video.src = ds;
-                          video.muted = true;
-                          video.loop = true;
-                          video.playsInline = true;
-                          video.autoplay = true;
-                          video.preload = 'metadata';
-                          video.style.width = '100%';
-                          video.style.height = '100%';
-                          video.style.border = 'none';
-                          target.innerHTML = '';
-                          target.appendChild(video);
-                          try{ video.play(); }catch(e){}
-                        } else {
-                          // si es un embed ya listo, insertar iframe
+                    try{ videoEl.pause(); }catch(e){}
+                  }
+                } else {
+                  // placeholder div (for iframe embeds)
+                  if(entry.isIntersecting){
+                    if(target.tagName && target.tagName.toLowerCase() === 'iframe'){
+                      // already iframe
+                    } else {
+                      const ds = dataSrc || target.datasetSrc || target.getAttribute('data-src');
+                      if(ds){
+                        if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
                           const iframe = document.createElement('iframe');
                           iframe.setAttribute('src', ds);
                           iframe.setAttribute('frameborder', '0');
@@ -1253,50 +1167,75 @@
                           iframe.style.border = 'none';
                           target.innerHTML = '';
                           target.appendChild(iframe);
+                        } else {
+                          if(isVideoFile(ds)){
+                            const video = document.createElement('video');
+                            video.src = ds;
+                            video.muted = true;
+                            video.loop = true;
+                            video.playsInline = true;
+                            video.autoplay = true;
+                            video.preload = 'metadata';
+                            video.style.width = '100%';
+                            video.style.height = '100%';
+                            video.style.border = 'none';
+                            target.innerHTML = '';
+                            target.appendChild(video);
+                            try{ video.play(); }catch(e){}
+                          } else {
+                            const iframe = document.createElement('iframe');
+                            iframe.setAttribute('src', ds);
+                            iframe.setAttribute('frameborder', '0');
+                            iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                            iframe.setAttribute('allowfullscreen', 'true');
+                            iframe.style.width = '100%';
+                            iframe.style.height = '100%';
+                            iframe.style.border = 'none';
+                            target.innerHTML = '';
+                            target.appendChild(iframe);
+                          }
                         }
                       }
                     }
+                    try{ obs.unobserve(target); }catch(e){}
                   }
-                  // una vez cargado, dejar de observar este target
-                  try{ obs.unobserve(target); }catch(e){}
+                }
+              });
+            };
+            const observer = new IntersectionObserver(callback, observerOptions);
+
+            // observe video elements inside banner-tarjeta
+            const videoEls = document.querySelectorAll('.banner-tarjeta video.banner-media');
+            videoEls.forEach(v => {
+              if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src');
+              try { observer.observe(v); } catch(e){ /* ignore */ }
+            });
+
+            // observe placeholders for div.banner-media (embed placeholders)
+            const placeholders = document.querySelectorAll('.banner-tarjeta .banner-media');
+            placeholders.forEach(el => {
+              if(el.tagName && el.tagName.toLowerCase() === 'div'){
+                if(el.dataset && el.dataset.src){
+                  try { observer.observe(el); } catch(e) { /* ignore */ }
                 }
               }
             });
-          };
+          }
 
-          const observer = new IntersectionObserver(callback, observerOptions);
+          window.addEventListener('resize', () => { render(); });
 
-          // seleccionar videos dentro de .banner-tarjeta
-          const videoEls = document.querySelectorAll('.banner-tarjeta video.banner-media');
-          videoEls.forEach(v => {
-            // guardamos data-src en dataset.src
-            if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src');
-            observer.observe(v);
-          });
-
-          // seleccionar placeholders para iframes (div.banner-media con data-src)
-          const placeholders = document.querySelectorAll('.banner-tarjeta .banner-media');
-          placeholders.forEach(el => {
-            // Si es un video element ya está manejado arriba; si es un div (getAttribute), observarlo
-            if(el.tagName && el.tagName.toLowerCase() === 'div'){
-              // Si contiene data-src y aún no se ha creado iframe, observar
-              if(el.dataset && el.dataset.src){
-                observer.observe(el);
-              }
-            }
-          });
+          // done initialization inside try
+        } catch (err) {
+          console.error('Error inicializando la vista:', err);
+          const cont = document.getElementById('contenedor');
+          if(cont) cont.innerHTML = `<div class="no-tags-msg">Ocurrió un error cargando la vista: ${String(err && err.message ? err.message : err)}</div>`;
         }
-
-        /* ---------------------------
-           Nuevo: mostrar modal DENTRO de la tarjeta
-           --------------------------- */
-
-        window.addEventListener('resize', () => {
-          render();
-        });
-
       })
-      .catch(e => console.error('Error cargando datos:', e));
+      .catch(e => {
+        console.error('Error cargando datos:', e);
+        const cont = document.getElementById('contenedor');
+        if(cont) cont.innerHTML = `<div class="no-tags-msg">Error cargando datos remotos: ${String(e && e.message ? e.message : e)}</div>`;
+      });
   </script>
 </body>
 </html>
