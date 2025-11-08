@@ -229,8 +229,10 @@
       gap: 0.6rem;
     }
 
-    /* CTA button under media for both videos and images (force static flow) */
+    /* CTA button over banner */
     .banner-tarjeta .cta-btn {
+      /* CHANGED: no absolute positioning so CTA appears UNDER the media */
+      /* position: absolute; right: 12px; bottom: 12px; */
       z-index: 60;
       display: inline-flex;
       align-items: center;
@@ -246,12 +248,9 @@
       cursor: pointer;
       font-size: 0.95rem;
       margin-top: 0.2rem; /* ensure spacing below media */
-      position: static !important;
-      right: auto !important;
-      bottom: auto !important;
     }
     @media (max-width:420px){
-      .banner-tarjeta .cta-btn { padding: 0.36em 0.6em; font-size: 0.9rem; }
+      .banner-tarjeta .cta-btn { /* right: 8px; bottom: 8px; */ padding: 0.36em 0.6em; font-size: 0.9rem; }
     }
 
     /* Banner image sizing (kept) */
@@ -826,8 +825,7 @@
                   whatsappIncluido = true;
                 }
                 if(dir && item[`maps${i===1?'':i}`]){
-                  contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
-                  contactoHtml += `<span class="espaciado"></span>`;
+                  contactoHtml += `<div style="margin:0.7em 0;"><a href="${item[`maps${i===1?'':i}`]}" target="_blank" style="display:inline-flex;align-items:center;color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div><span class="espaciado"></span>`;
                 }
               }
             }
@@ -850,45 +848,48 @@
           return html;
         }
 
-        // renderBanner: ahora soporta img, media (video directo) y media (YouTube)
+        // === MODIFIED renderBanner: wrap media (image/video/placeholder) inside a .banner-media container
+        // This ensures CTA (if present) is always below the media, and the observer logic can treat placeholders uniformly.
         function renderBanner(banner, idx){
           const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
           const ctaLink = banner.url || banner.link || banner.cta || "";
-          // Si tiene media y es archivo de video directo
-          if(banner.media && isVideoFile(banner.media)){
-            // no link: se muestra aquí el video. Usamos data-src y lo cargamos con observer.
-            const posterAttr = banner.poster ? `poster="${banner.poster}"` : (banner.img ? `poster="${banner.img}"` : '');
-            return `
-              <div class="banner-tarjeta">
-                <video id="${id}" class="banner-media" data-src="${banner.media}" ${posterAttr} muted playsinline loop preload="metadata" controlsList="nodownload" controls></video>
-                ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
-              </div>
-            `;
-          }
-          // Si es YouTube u otro embed
-          if(banner.media && isYouTube(banner.media)){
-            // Por razones de autoplay/privacidad, solo seteamos data-src y lo asignamos cuando entra en vista.
-            const embed = getYouTubeEmbedUrl(banner.media, true);
-            // si no obtuvimos embed, fallback a imagen si existe.
-            if(embed){
-              return `
-                <div class="banner-tarjeta">
-                  <div id="${id}" class="banner-media" data-src="${embed}"></div>
-                  ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
-                </div>
-              `;
-            }
-          }
-          // Si tiene imagen (o fallback)
+
+          // IMAGE: wrap image inside .banner-media so it behaves same as video/iframe placeholders
           if(banner.img){
-            // WRAP image inside .banner-media so layout/JS/CSS behave same for images and videos
             return `
               <div class="banner-tarjeta">
-                <div class="banner-media"><img src="${banner.img}" alt="Banner"></div>
+                <div id="${id}" class="banner-media"><img src="${banner.img}" alt="Banner"></div>
                 ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
               </div>
             `;
           }
+
+          // DIRECT VIDEO FILE (mp4/webm/ogg)
+          if(banner.media && isVideoFile(banner.media)){
+            // place a video element inside .banner-media and lazy-load via data-src on the video
+            const posterAttr = banner.poster ? `poster="${banner.poster}"` : '';
+            return `
+              <div class="banner-tarjeta">
+                <div id="${id}" class="banner-media">
+                  <video class="banner-media-video" data-src="${banner.media}" ${posterAttr} muted playsinline loop preload="metadata" controls></video>
+                </div>
+                ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
+              </div>
+            `;
+          }
+
+          // YOUTUBE or EMBED (placeholder div with data-src)
+          if(banner.media && isYouTube(banner.media)){
+            const embed = getYouTubeEmbedUrl(banner.media, true) || banner.media;
+            return `
+              <div class="banner-tarjeta">
+                <div id="${id}" class="banner-media" data-src="${embed}"></div>
+                ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
+              </div>
+            `;
+          }
+
+          // fallback: nothing
           return '';
         }
 
@@ -1182,7 +1183,7 @@
           }
         };
 
-        // Observador para banners: lazy-load y autoplay cuando el banner está visible
+        // === MODIFIED initBannerObservers to match the new renderBanner structure ===
         function initBannerObservers(){
           const observerOptions = {
             root: null,
@@ -1192,12 +1193,13 @@
           const callback = function(entries, obs){
             entries.forEach(async entry => {
               const target = entry.target;
-              const dataSrc = target.dataset ? target.dataset.src : null;
-              // Si es un <video> elemento
+              if(!target) return;
+
+              // If the observed element is a video element (we create video elements with class banner-media-video)
               if(target.tagName && target.tagName.toLowerCase() === 'video'){
                 const videoEl = target;
+                const dataSrc = videoEl.dataset ? videoEl.dataset.src : videoEl.getAttribute('data-src');
                 if(entry.isIntersecting){
-                  // si no tiene src, lo asignamos ahora (lazy)
                   if(!videoEl.src && dataSrc){
                     videoEl.src = dataSrc;
                     try{ videoEl.load(); }catch(e){}
@@ -1209,62 +1211,70 @@
                 } else {
                   try{ videoEl.pause(); }catch(e){}
                 }
-              } else {
-                // puede ser un elemento placeholder <div data-src="..."> (por ejemplo iframe YouTube)
-                if(entry.isIntersecting){
-                  if(target.tagName && target.tagName.toLowerCase() === 'iframe'){
-                    // iframe ya presente: intentar play configurado por src
-                  } else {
-                    // Si es div placeholder con data-src -> crear iframe y reemplazar
-                    const ds = dataSrc || target.datasetSrc || target.getAttribute('data-src');
-                    if(ds){
-                      if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
-                        // reemplazar por iframe con autoplay/mute
-                        const iframe = document.createElement('iframe');
-                        iframe.setAttribute('src', ds);
-                        iframe.setAttribute('frameborder', '0');
-                        iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                        iframe.setAttribute('allowfullscreen', 'true');
-                        iframe.style.width = '100%';
-                        iframe.style.height = '100%';
-                        iframe.style.border = 'none';
-                        // si el placeholder es un div, insertamos el iframe dentro
-                        target.innerHTML = '';
-                        target.appendChild(iframe);
-                      } else {
-                        // fallback: si es directamente URL a video, creamos video
-                        if(isVideoFile(ds)){
-                          const video = document.createElement('video');
-                          video.src = ds;
-                          video.muted = true;
-                          video.loop = true;
-                          video.playsInline = true;
-                          video.autoplay = true;
-                          video.preload = 'metadata';
-                          video.style.width = '100%';
-                          video.style.height = '100%';
-                          video.style.border = 'none';
-                          target.innerHTML = '';
-                          target.appendChild(video);
-                          try{ video.play(); }catch(e){}
-                        } else {
-                          // si es un embed ya listo, insertar iframe
-                          const iframe = document.createElement('iframe');
-                          iframe.setAttribute('src', ds);
-                          iframe.setAttribute('frameborder', '0');
-                          iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                          iframe.setAttribute('allowfullscreen', 'true');
-                          iframe.style.width = '100%';
-                          iframe.style.height = '100%';
-                          iframe.style.border = 'none';
-                          target.innerHTML = '';
-                          target.appendChild(iframe);
-                        }
-                      }
-                    }
-                  }
-                  // una vez cargado, dejar de observar este target
+                return;
+              }
+
+              // Otherwise, handle placeholders: div.banner-media elements (may contain img already, or have data-src for iframe/embed)
+              if(entry.isIntersecting){
+                // if it's already an iframe inside, nothing to do
+                if(target.querySelector && target.querySelector('iframe')) {
                   try{ obs.unobserve(target); }catch(e){}
+                  return;
+                }
+
+                const ds = target.dataset ? target.dataset.src : target.getAttribute('data-src');
+                // If it has a data-src, treat it as embed placeholder (YouTube/embed)
+                if(ds){
+                  try {
+                    if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
+                      const iframe = document.createElement('iframe');
+                      iframe.setAttribute('src', ds);
+                      iframe.setAttribute('frameborder', '0');
+                      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                      iframe.setAttribute('allowfullscreen', 'true');
+                      iframe.style.width = '100%';
+                      iframe.style.height = '100%';
+                      iframe.style.border = 'none';
+                      target.innerHTML = '';
+                      target.appendChild(iframe);
+                    } else if(isVideoFile(ds)){
+                      const video = document.createElement('video');
+                      video.src = ds;
+                      video.muted = true;
+                      video.loop = true;
+                      video.playsInline = true;
+                      video.autoplay = true;
+                      video.preload = 'metadata';
+                      video.style.width = '100%';
+                      video.style.height = '100%';
+                      video.style.border = 'none';
+                      target.innerHTML = '';
+                      target.appendChild(video);
+                      try{ video.play(); }catch(e){}
+                    } else {
+                      // generic embed fallback
+                      const iframe = document.createElement('iframe');
+                      iframe.setAttribute('src', ds);
+                      iframe.setAttribute('frameborder', '0');
+                      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                      iframe.setAttribute('allowfullscreen', 'true');
+                      iframe.style.width = '100%';
+                      iframe.style.height = '100%';
+                      iframe.style.border = 'none';
+                      target.innerHTML = '';
+                      target.appendChild(iframe);
+                    }
+                  } catch(err){
+                    console.warn('Error loading embed:', err);
+                  }
+                  try{ obs.unobserve(target); }catch(e){}
+                  return;
+                }
+
+                // If the target already contains an <img> (rendered immediately), nothing to do except stop observing
+                if(target.querySelector && target.querySelector('img')) {
+                  try{ obs.unobserve(target); }catch(e){}
+                  return;
                 }
               }
             });
@@ -1272,24 +1282,39 @@
 
           const observer = new IntersectionObserver(callback, observerOptions);
 
-          // seleccionar videos dentro de .banner-tarjeta
-          const videoEls = document.querySelectorAll('.banner-tarjeta video.banner-media');
+          // Observe video elements we created with class banner-media-video
+          const videoEls = document.querySelectorAll('.banner-tarjeta video.banner-media-video');
           videoEls.forEach(v => {
-            // guardamos data-src en dataset.src
-            if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src');
-            observer.observe(v);
+            try {
+              if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src');
+              observer.observe(v);
+            } catch(e){}
           });
 
-          // seleccionar placeholders para iframes (div.banner-media con data-src)
+          // Observe placeholder divs (.banner-media) for iframes / youtube or images (if images exist, observer will unobserve)
           const placeholders = document.querySelectorAll('.banner-tarjeta .banner-media');
           placeholders.forEach(el => {
-            // Si es un video element ya está manejado arriba; si es un div (getAttribute), observarlo
-            if(el.tagName && el.tagName.toLowerCase() === 'div'){
-              // Si contiene data-src y aún no se ha creado iframe, observar
-              if(el.dataset && el.dataset.src){
-                observer.observe(el);
+            try {
+              // if it contains an img already, no need to observe; otherwise observe if there's a data-src (embed) or a video element to lazy load
+              const hasImg = el.querySelector && el.querySelector('img');
+              const hasVideo = el.querySelector && el.querySelector('video');
+              const hasIframe = el.querySelector && el.querySelector('iframe');
+              const ds = el.dataset ? el.dataset.src : el.getAttribute('data-src');
+
+              if(hasImg || hasIframe){
+                // nothing to observe
+              } else if(hasVideo){
+                // observe the video element instead (we handled above). But also observe the container to catch any cases
+                const v = el.querySelector('video');
+                if(v) {
+                  if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src');
+                  observer.observe(v);
+                }
+              } else {
+                // no immediate content: observe container if it has data-src (embed) so we can replace it on intersection
+                if(ds) observer.observe(el);
               }
-            }
+            } catch(e){}
           });
         }
 
