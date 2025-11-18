@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Agenda de Eventos — Estricto (Estructura fija)</title>
+  <title>Agenda de Eventos — Estricto (debug)</title>
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
   <style>
     :root{ --accent:#22529a; --vip:#ff8c00; --muted:#6b7b8f; --bg:#f6f9fd; --card:#fff; }
     body{ margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:#122033; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
-    .wrap{ max-width:1020px;margin:18px auto;padding:14px; box-sizing:border-box; }
+    .wrap{ max-width:1100px;margin:18px auto;padding:14px; box-sizing:border-box; }
     header{ display:flex;gap:12px;align-items:center; }
     .logo{ width:64px;height:64px;border-radius:10px;object-fit:cover;background:#fff;border:1px solid #e6eef9;padding:6px; }
     h1{ margin:0;color:var(--accent);font-size:1.25rem; }
@@ -18,7 +18,8 @@
     .search{ padding:10px 12px;border-radius:10px;border:1px solid #e6edf6;background:#fff;min-width:240px;flex:1 1 320px; }
     .select{ padding:9px;border-radius:10px;border:1px solid #e6edf6;background:#fff; }
 
-    .debug{ margin-top:10px;color:#8a2a2a;font-weight:700;font-size:0.95rem; }
+    .debug{ margin-top:10px;color:#8a2a2a;font-weight:700;font-size:0.95rem; background:#fff;padding:8px;border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.04); }
+    .debug pre { white-space:pre-wrap; word-break:break-word; font-size:0.9rem; color:#333; }
 
     .cards{ margin-top:14px; display:flex; flex-direction:column; gap:12px; }
     .card{ background:var(--card); border-radius:10px; padding:12px; box-shadow:0 6px 18px rgba(16,30,60,0.04); display:flex; gap:12px; align-items:flex-start; flex-wrap:wrap; }
@@ -49,7 +50,7 @@
       <img class="logo" id="logo" src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/eventos.png" alt="logo">
       <div>
         <h1>Agenda de Eventos</h1>
-        <p class="sub">Uso estricto de la estructura que enviaste. Solo se muestran filas con "aprobado" marcado (columna 0). Fecha legible y hora unificada.</p>
+        <p class="sub">Política estricta: solo eventos aprobados. Panel debug activo (temporal) para diagnosticar por qué faltan free.</p>
       </div>
     </header>
 
@@ -57,7 +58,6 @@
       <input id="search" class="search" placeholder="Buscar por nombre, descripción, lugar..." />
       <select id="selCategory" class="select"><option value="">Todas las categorías</option></select>
       <select id="selOrganizer" class="select"><option value="">Todos los organizadores</option></select>
-      <!-- NOTE: removed "Ver todo" control intentionally to enforce only-approved policy -->
     </div>
 
     <div style="margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
@@ -67,7 +67,10 @@
       <div id="status" class="small" style="margin-left:8px;color:#6b7b8f"></div>
     </div>
 
-    <div id="debug" class="debug" aria-live="polite"></div>
+    <div id="debug" class="debug" aria-live="polite">
+      <div><strong>DEBUG:</strong></div>
+      <pre id="debugPre">Cargando...</pre>
+    </div>
 
     <div id="cards" class="cards"></div>
 
@@ -75,12 +78,12 @@
   </div>
 
   <script>
-    // ---------- CONFIG (uso estricto de la estructura que diste) ----------
+    // ---------- CONFIG ----------
     const GVIZ_URL = "https://docs.google.com/spreadsheets/d/1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o/gviz/tq?tqx=out:json&gid=338324539";
     const DATA_URL = GVIZ_URL;
     document.getElementById('sheetUrl').textContent = DATA_URL;
 
-    // ---------- Indices fijos según estructura proporcionada ----------
+    // ---------- Indices fijos ----------
     const IDX = {
       aprobado: 0, nivel: 1, nombre: 8, organizador: 4, logo_organizador: 5, categoria: 6,
       lugar: 10, direccion: 11, fecha: 13, hora: 14, hora2: 15, descripcion: 16,
@@ -92,23 +95,22 @@
     const PER_PAGE = 8;
     let page = 1;
 
-    // UI elements
+    // UI elems
     const searchEl = document.getElementById('search');
     const selCategory = document.getElementById('selCategory');
     const selOrganizer = document.getElementById('selOrganizer');
-    const debugEl = document.getElementById('debug');
+    const debugPre = document.getElementById('debugPre');
     const countTotalEl = document.getElementById('countTotal');
     const countApprovedEl = document.getElementById('countApproved');
     const cardsEl = document.getElementById('cards');
     const pagerEl = document.getElementById('pager');
     const statusEl = document.getElementById('status');
 
-    // ---------- Utilities ----------
+    // ---------- Utils ----------
     const safe = v => v === null || v === undefined ? "" : String(v);
     const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl = u => { if(!u) return ""; u = String(u).trim(); if(/^https?:\/\//i.test(u)) return u; if(/^www\./i.test(u)) return 'https://' + u; return u; };
 
-    // Robust detection for approved cell values
     function isCheckedValue(v){
       if (v === true) return true;
       if (v === false) return false;
@@ -117,7 +119,6 @@
       return ['si','sí','true','1','ok','✓','x'].includes(s);
     }
 
-    // Safe date and time formatters (avoid throwing)
     function dateISO(valor) {
       if (valor === null || valor === undefined || valor === '') return "";
       valor = String(valor).trim();
@@ -175,9 +176,9 @@
       return chosen ? horaHumana(chosen) : '';
     }
 
-    // ---------- Load and parsing (strict index mapping) ----------
+    // ---------- Load ----------
     async function load() {
-      debugEl.textContent = "Cargando (uso índices fijos)...";
+      debugPre.textContent = "Cargando datos...";
       try {
         const res = await fetch(DATA_URL, {cache:'no-store'});
         if(!res.ok) throw new Error('HTTP ' + res.status);
@@ -194,16 +195,13 @@
 
         for(let i=0;i<rows.length;i++){
           const c = rows[i].c || [];
-          // helper to read value robustly: prefer .v, else fallback to formatted value or empty
           const val = idx => {
             if (!c[idx]) return "";
             if (c[idx].v !== undefined) return c[idx].v;
             if (c[idx].f !== undefined) return c[idx].f;
-            // sometimes the cell may be an object, attempt to stringify
-            try { return c[idx]; } catch(e){ return ""; }
+            return "";
           };
 
-          // detect aprobado robustly
           const aproRaw = val(IDX.aprobado);
           const aprobado = isCheckedValue(aproRaw);
 
@@ -227,7 +225,6 @@
             partners: []
           };
 
-          // partners (columns 22..32 as per structure)
           for(let p=22;p<=32;p+=2){
             const name = val(p);
             const logo = val(p+1);
@@ -240,11 +237,19 @@
           if(ev.aprobado) approvedCount++;
         }
 
+        // diagnostic output: console.table + visible debug
+        try {
+          console.log('PARSED EVENTS:');
+          console.table(all.map((e,i)=>({row:i+2, nombre:e.nombre, nivel:e.nivel, aprobado:e.aprobado, categoria:e.categoria, fecha:e.fecha, hora:e.hora})));
+          debugPre.textContent = 'Parsed events: ' + all.length + ' rows. ' + approvedCount + ' aprobados.\n\nPrimeros 6 eventos (row, nombre, nivel, aprobado):\n' + all.slice(0,6).map((e,i)=> `${i+2}: "${e.nombre}" | ${e.nivel} | aprobado: ${e.aprobado}`).join('\n');
+        } catch(e) {
+          debugPre.textContent = 'Parsed ' + all.length + ' rows. Aprobados: ' + approvedCount;
+        }
+
         countTotalEl.textContent = all.length;
         countApprovedEl.textContent = approvedCount;
         statusEl.textContent = approvedCount === 0 ? 'No hay eventos aprobados en la hoja.' : '';
 
-        // Fill selects only from approved events (strict policy)
         const approvedEvents = all.filter(e => e.aprobado);
         populate(selCategory, new Set(approvedEvents.map(e=>e.categoria).filter(Boolean)));
         populate(selOrganizer, new Set(approvedEvents.map(e=>e.organizador).filter(Boolean)));
@@ -254,24 +259,20 @@
         renderCards();
         renderPager();
 
-        debugEl.textContent = `Carga completa. Total filas: ${all.length}. Aprobados: ${approvedCount}. Mostrando solo aprobados.`;
-        console.log('All events (normalized):', all);
+        debugPre.textContent += '\n\nRender complete. Mostrando solo eventos aprobados.';
       } catch(err) {
         console.error(err);
-        debugEl.textContent = 'ERROR durante carga: ' + (err && err.message ? err.message : String(err));
+        debugPre.textContent = 'ERROR durante carga: ' + (err && err.message ? err.message : String(err));
         cardsEl.innerHTML = `<div style="color:#b02a2a;font-weight:800">No se pudieron cargar los eventos: ${esc(err && err.message ? err.message : String(err))}</div>`;
       }
     }
 
-    // ---------- Filtering and rendering (always strict approved) ----------
+    // ---------- Filtering & render (strict approved) ----------
     function applyFilters(){
       const q = (searchEl.value||'').trim().toLowerCase();
       const cat = selCategory.value;
       const org = selOrganizer.value;
-
-      // Always use only approved events
       let source = all.filter(e => !!e.aprobado);
-
       filtered = source.filter(ev => {
         if (cat && (!ev.categoria || String(ev.categoria).toLowerCase() !== String(cat).toLowerCase())) return false;
         if (org && (!ev.organizador || String(ev.organizador).toLowerCase() !== String(org).toLowerCase())) return false;
@@ -281,7 +282,6 @@
         }
         return true;
       });
-
       page = 1;
       renderCards();
       renderPager();
@@ -361,16 +361,16 @@
       });
     }
 
-    // ---------- safe start ----------
-    try {
-      load();
-    } catch(err) {
-      console.error('load error (capturado):', err);
-      debugEl.textContent = 'ERROR durante carga (capturado): ' + (err && err.message ? err.message : String(err));
-      filtered = all.filter(e => !!e.aprobado);
-      renderCards();
-      renderPager();
-    }
+    // ---------- start safely ----------
+    (function start(){
+      try { load(); } catch(err) {
+        console.error('load error (capturado):', err);
+        debugPre.textContent = 'ERROR durante carga: ' + (err && err.message ? err.message : String(err));
+        filtered = all.filter(e => !!e.aprobado);
+        renderCards();
+        renderPager();
+      }
+    })();
   </script>
 </body>
 </html>
