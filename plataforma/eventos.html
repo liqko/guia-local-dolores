@@ -7,8 +7,8 @@
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
   <style>
     :root{ --accent:#22529a; --vip:#ff8c00; --muted:#6b7b8f; --bg:#f6f9fd; --card:#fff; }
-    body{ margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:#122033; }
-    .wrap{ max-width:1020px;margin:18px auto;padding:14px; }
+    body{ margin:0;font-family:Inter,Arial,Helvetica,sans-serif;background:var(--bg);color:#122033; -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; }
+    .wrap{ max-width:1020px;margin:18px auto;padding:14px; box-sizing:border-box; }
     header{ display:flex;gap:12px;align-items:center; }
     .logo{ width:64px;height:64px;border-radius:10px;object-fit:cover;background:#fff;border:1px solid #e6eef9;padding:6px; }
     h1{ margin:0;color:var(--accent);font-size:1.25rem; }
@@ -17,7 +17,6 @@
     .controls{ display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap; }
     .search{ padding:10px 12px;border-radius:10px;border:1px solid #e6edf6;background:#fff;min-width:240px;flex:1 1 320px; }
     .select{ padding:9px;border-radius:10px;border:1px solid #e6edf6;background:#fff; }
-    .checkbox{ display:flex;align-items:center;gap:8px;color:var(--muted); }
 
     .debug{ margin-top:10px;color:#8a2a2a;font-weight:700;font-size:0.95rem; }
 
@@ -50,7 +49,7 @@
       <img class="logo" id="logo" src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/eventos.png" alt="logo">
       <div>
         <h1>Agenda de Eventos</h1>
-        <p class="sub">Uso estricto de la estructura que enviaste. Solo se muestran filas con "aprobado" marcado (columna 0) por defecto. Fecha legible y hora unificada.</p>
+        <p class="sub">Uso estricto de la estructura que enviaste. Solo se muestran filas con "aprobado" marcado (columna 0). Fecha legible y hora unificada.</p>
       </div>
     </header>
 
@@ -58,7 +57,7 @@
       <input id="search" class="search" placeholder="Buscar por nombre, descripción, lugar..." />
       <select id="selCategory" class="select"><option value="">Todas las categorías</option></select>
       <select id="selOrganizer" class="select"><option value="">Todos los organizadores</option></select>
-      <label class="checkbox"><input type="checkbox" id="showAll"> Ver todo (incluir no aprobados)</label>
+      <!-- NOTE: removed "Ver todo" control intentionally to enforce only-approved policy -->
     </div>
 
     <div style="margin-top:10px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
@@ -78,10 +77,10 @@
   <script>
     // ---------- CONFIG (uso estricto de la estructura que diste) ----------
     const GVIZ_URL = "https://docs.google.com/spreadsheets/d/1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o/gviz/tq?tqx=out:json&gid=338324539";
-    const DATA_URL = GVIZ_URL; // sin detecciones: la estructura es la que vos me diste
+    const DATA_URL = GVIZ_URL;
     document.getElementById('sheetUrl').textContent = DATA_URL;
 
-    // ---------- Indices fijos según estructura que pasaste ----------
+    // ---------- Indices fijos según estructura proporcionada ----------
     const IDX = {
       aprobado: 0, nivel: 1, nombre: 8, organizador: 4, logo_organizador: 5, categoria: 6,
       lugar: 10, direccion: 11, fecha: 13, hora: 14, hora2: 15, descripcion: 16,
@@ -93,11 +92,10 @@
     const PER_PAGE = 8;
     let page = 1;
 
-    // UI
+    // UI elements
     const searchEl = document.getElementById('search');
     const selCategory = document.getElementById('selCategory');
     const selOrganizer = document.getElementById('selOrganizer');
-    const showAllEl = document.getElementById('showAll');
     const debugEl = document.getElementById('debug');
     const countTotalEl = document.getElementById('countTotal');
     const countApprovedEl = document.getElementById('countApproved');
@@ -105,41 +103,35 @@
     const pagerEl = document.getElementById('pager');
     const statusEl = document.getElementById('status');
 
-    // ---------- helpers ----------
+    // ---------- Utilities ----------
     const safe = v => v === null || v === undefined ? "" : String(v);
     const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const safeUrl = u => { if(!u) return ""; u = String(u).trim(); if(/^https?:\/\//i.test(u)) return u; if(/^www\./i.test(u)) return 'https://' + u; return u; };
-    const horaHum = h => {
-      if(!h) return '';
-      // Date(...) pattern de Google Sheets
-      let m = String(h).match(/^Date\(\d{4},\d{1,2},\d{1,2},(\d{1,2}),(\d{1,2})/);
-      if (m) return `${String(m[1]).padStart(2,'0')}:${String(m[2]).padStart(2,'0')} hs`;
-      // hh:mm or h:mm
-      m = String(h).match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);
-      if (m) return `${String(m[1]).padStart(2,'0')}:${m[2]} hs`;
-      return h;
-    };
 
-    // ---------- FIX: dateISO y horaHumana robustas (evitan "dateISO is not defined") ----------
+    // Robust detection for approved cell values
+    function isCheckedValue(v){
+      if (v === true) return true;
+      if (v === false) return false;
+      if (typeof v === 'number') return v === 1;
+      const s = String(v||'').toLowerCase().trim();
+      return ['si','sí','true','1','ok','✓','x'].includes(s);
+    }
+
+    // Safe date and time formatters (avoid throwing)
     function dateISO(valor) {
       if (valor === null || valor === undefined || valor === '') return "";
       valor = String(valor).trim();
-      // ISO yyyy-mm-dd
       if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
-      // dd/mm/yyyy -> yyyy-mm-dd
       var m = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
       if (m) {
         var d = String(m[1]).padStart(2,'0'), mo = String(m[2]).padStart(2,'0'), y = m[3];
         return y + "-" + mo + "-" + d;
       }
-      // Google GViz Date(...) pattern
       m = valor.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)/);
       if (m) {
         var y2 = parseInt(m[1],10), mo2 = parseInt(m[2],10), d2 = parseInt(m[3],10);
-        // keep month as-is (compatibility with various formats)
         return y2 + "-" + String(mo2).padStart(2,'0') + "-" + String(d2).padStart(2,'0');
       }
-      // fallback parse
       var parsed = Date.parse(valor);
       if (!isNaN(parsed)) {
         var dt = new Date(parsed);
@@ -151,70 +143,47 @@
       return valor;
     }
 
+    function fechaHumana(valor) {
+      if (!valor) return "";
+      try {
+        const iso = dateISO(String(valor));
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return String(valor);
+        const [y,m,d] = iso.split('-').map(Number);
+        const date = new Date(y,m-1,d);
+        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
+      } catch(e){
+        return String(valor);
+      }
+    }
+
     function horaHumana(valor) {
       if (valor === null || valor === undefined || valor === '') return "";
       var s = String(valor).trim();
       var m = s.match(/^Date\(\d{4},\d{1,2},\d{1,2},(\d{1,2}),(\d{1,2})/);
-      if (m) return (String(m[1]).padStart(2,'0') + ":" + String(m[2]).padStart(2,'0') + " hs");
+      if (m) return `${String(m[1]).padStart(2,'0')}:${String(m[2]).padStart(2,'0')} hs`;
       m = s.match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);
-      if (m) return (String(m[1]).padStart(2,'0') + ":" + m[2] + " hs");
+      if (m) return `${String(m[1]).padStart(2,'0')}:${m[2]} hs`;
       return s;
     }
 
-    function fechaHumana(valor) {
-      if (!valor) return "";
-      // iso or dd/mm/year or Date(...) or parseable
-      if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
-        const [y,m,d] = valor.split("-");
-        const date = new Date(Number(y), Number(m)-1, Number(d));
-        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
-        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
-      }
-      // dd/mm/yyyy
-      var mm = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (mm) {
-        const d = Number(mm[1]), mo = Number(mm[2]), y = Number(mm[3]);
-        const date = new Date(y, mo-1, d);
-        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
-        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
-      }
-      // Date(...)
-      mm = valor.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)/);
-      if (mm) {
-        const y = Number(mm[1]), mo = Number(mm[2]), d = Number(mm[3]);
-        const date = new Date(y, mo, d);
-        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
-        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
-      }
-      const p = new Date(valor);
-      if (!isNaN(p.getTime())) {
-        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
-        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-        return `${dias[p.getDay()]} ${p.getDate()} de ${meses[p.getMonth()]} de ${p.getFullYear()}`;
-      }
-      return valor;
-    }
-
-    function horaUnificadaObj(obj){
-      const h2 = obj && obj.hora2 ? String(obj.hora2||'').trim() : '';
-      const h1 = obj && obj.hora ? String(obj.hora||'').trim() : '';
+    function horaUnificadaObj(ev){
+      const h2 = ev && ev.hora2 ? String(ev.hora2||'').trim() : '';
+      const h1 = ev && ev.hora ? String(ev.hora||'').trim() : '';
       const chosen = h2 !== '' ? h2 : h1;
-      return chosen ? horaHum(chosen) : '';
+      return chosen ? horaHumana(chosen) : '';
     }
 
-    // ---------- carga estricta usando índices fijos ----------
+    // ---------- Load and parsing (strict index mapping) ----------
     async function load() {
       debugEl.textContent = "Cargando (uso índices fijos)...";
       try {
         const res = await fetch(DATA_URL, {cache:'no-store'});
         if(!res.ok) throw new Error('HTTP ' + res.status);
         const text = await res.text();
-        // parse GViz wrapper
         const start = text.indexOf('{'), end = text.lastIndexOf('}');
-        if (start === -1 || end === -1) throw new Error('Respuesta inesperada, GViz wrapper no encontrada');
+        if (start === -1 || end === -1) throw new Error('Respuesta inesperada (gviz wrapper no encontrada)');
         const jsonText = text.substring(start, end+1);
         const obj = JSON.parse(jsonText);
         const rows = (obj.table && obj.table.rows) ? obj.table.rows : [];
@@ -225,13 +194,19 @@
 
         for(let i=0;i<rows.length;i++){
           const c = rows[i].c || [];
-          const val = idx => (c[idx] && c[idx].v !== undefined) ? c[idx].v : "";
+          // helper to read value robustly: prefer .v, else fallback to formatted value or empty
+          const val = idx => {
+            if (!c[idx]) return "";
+            if (c[idx].v !== undefined) return c[idx].v;
+            if (c[idx].f !== undefined) return c[idx].f;
+            // sometimes the cell may be an object, attempt to stringify
+            try { return c[idx]; } catch(e){ return ""; }
+          };
 
-          // usar exactamente la columna 0 como 'aprobado'
-          const apro = val(IDX.aprobado);
-          const aprobado = (apro === true) || (String(apro||'').toLowerCase().trim() === 'true') || (String(apro||'').toLowerCase().trim() === 'si') || (String(apro||'').toLowerCase().trim() === '1') || apro === 1;
+          // detect aprobado robustly
+          const aproRaw = val(IDX.aprobado);
+          const aprobado = isCheckedValue(aproRaw);
 
-          // construir evento
           const ev = {
             aprobado,
             nivel: safe(val(IDX.nivel)),
@@ -252,7 +227,7 @@
             partners: []
           };
 
-          // partners de acuerdo a tu estructura (22..33)
+          // partners (columns 22..32 as per structure)
           for(let p=22;p<=32;p+=2){
             const name = val(p);
             const logo = val(p+1);
@@ -267,47 +242,50 @@
 
         countTotalEl.textContent = all.length;
         countApprovedEl.textContent = approvedCount;
-        document.getElementById('status').textContent = approvedCount === 0 ? 'No hay eventos aprobados en la hoja.' : '';
+        statusEl.textContent = approvedCount === 0 ? 'No hay eventos aprobados en la hoja.' : '';
 
+        // Fill selects only from approved events (strict policy)
         const approvedEvents = all.filter(e => e.aprobado);
         populate(selCategory, new Set(approvedEvents.map(e=>e.categoria).filter(Boolean)));
         populate(selOrganizer, new Set(approvedEvents.map(e=>e.organizador).filter(Boolean)));
 
-        showAllEl.checked = false;
         filtered = approvedEvents.slice();
         page = 1;
         renderCards();
         renderPager();
 
-        debugEl.textContent = `Carga completa. Total filas: ${all.length}. Aprobados: ${approvedCount}. Mostrando solo aprobados por defecto.`;
-        console.log('All events (raw normalized):', all);
+        debugEl.textContent = `Carga completa. Total filas: ${all.length}. Aprobados: ${approvedCount}. Mostrando solo aprobados.`;
+        console.log('All events (normalized):', all);
       } catch(err) {
         console.error(err);
-        debugEl.textContent = 'ERROR durante carga: ' + (err.message || err);
-        cardsEl.innerHTML = `<div style="color:#b02a2a;font-weight:800">No se pudieron cargar los eventos: ${esc(err.message || err)}</div>`;
+        debugEl.textContent = 'ERROR durante carga: ' + (err && err.message ? err.message : String(err));
+        cardsEl.innerHTML = `<div style="color:#b02a2a;font-weight:800">No se pudieron cargar los eventos: ${esc(err && err.message ? err.message : String(err))}</div>`;
       }
     }
 
-    // ---------- filtrado y render ----------
+    // ---------- Filtering and rendering (always strict approved) ----------
     function applyFilters(){
       const q = (searchEl.value||'').trim().toLowerCase();
       const cat = selCategory.value;
       const org = selOrganizer.value;
-      const includeAll = showAllEl.checked; // si true incluimos no aprobados
-      let source = includeAll ? all : all.filter(e=>e.aprobado);
+
+      // Always use only approved events
+      let source = all.filter(e => !!e.aprobado);
+
       filtered = source.filter(ev => {
-        if(cat && (!ev.categoria || String(ev.categoria).toLowerCase() !== String(cat).toLowerCase())) return false;
-        if(org && (!ev.organizador || String(ev.organizador).toLowerCase() !== String(org).toLowerCase())) return false;
-        if(q){
+        if (cat && (!ev.categoria || String(ev.categoria).toLowerCase() !== String(cat).toLowerCase())) return false;
+        if (org && (!ev.organizador || String(ev.organizador).toLowerCase() !== String(org).toLowerCase())) return false;
+        if (q) {
           const hay = [ev.nombre, ev.descripcion, ev.lugar, ev.direccion, ev.categoria, ev.organizador, ev.fecha].join(' ').toLowerCase();
           return hay.indexOf(q) !== -1;
         }
         return true;
       });
+
       page = 1;
       renderCards();
       renderPager();
-      statusEl.textContent = `Mostrando ${filtered.length} / ${all.length} (aprobados: ${approvedCount})${includeAll ? ' — mostrando no aprobados también' : ''}`;
+      statusEl.textContent = `Mostrando ${filtered.length} / ${all.filter(e=>!!e.aprobado).length} eventos aprobados`;
     }
 
     function renderCards(){
@@ -375,24 +353,7 @@
     searchEl.addEventListener('input', () => applyFilters());
     selCategory.addEventListener('change', () => { selOrganizer.value=''; applyFilters(); });
     selOrganizer.addEventListener('change', () => { selCategory.value=''; applyFilters(); });
-    showAllEl.addEventListener('change', () => {
-      if(showAllEl.checked){
-        populateSelectsFromAll();
-      } else {
-        populateSelectsFromApproved();
-      }
-      applyFilters();
-    });
 
-    function populateSelectsFromApproved(){
-      const approved = all.filter(e=>e.aprobado);
-      populate(selCategory, new Set(approved.map(e=>e.categoria).filter(Boolean)));
-      populate(selOrganizer, new Set(approved.map(e=>e.organizador).filter(Boolean)));
-    }
-    function populateSelectsFromAll(){
-      populate(selCategory, new Set(all.map(e=>e.categoria).filter(Boolean)));
-      populate(selOrganizer, new Set(all.map(e=>e.organizador).filter(Boolean)));
-    }
     function populate(sel, set){
       sel.innerHTML = '<option value="">(todos)</option>';
       Array.from(set).sort().forEach(v => {
@@ -400,8 +361,16 @@
       });
     }
 
-    // ---------- inicio ----------
-    load();
+    // ---------- safe start ----------
+    try {
+      load();
+    } catch(err) {
+      console.error('load error (capturado):', err);
+      debugEl.textContent = 'ERROR durante carga (capturado): ' + (err && err.message ? err.message : String(err));
+      filtered = all.filter(e => !!e.aprobado);
+      renderCards();
+      renderPager();
+    }
   </script>
 </body>
 </html>
