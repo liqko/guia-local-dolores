@@ -50,7 +50,7 @@
       <img class="logo" id="logo" src="https://raw.githubusercontent.com/liqko/guia-local-dolores/refs/heads/main/img/plataforma/eventos.png" alt="logo">
       <div>
         <h1>Agenda de Eventos</h1>
-        <p class="sub">Uso estricto de la estructura que enviaste. Solo se muestran filas con "aprobado" marcado (columna 0) por defecto. Fecha legible en español y hora unificada.</p>
+        <p class="sub">Uso estricto de la estructura que enviaste. Solo se muestran filas con "aprobado" marcado (columna 0) por defecto. Fecha legible y hora unificada.</p>
       </div>
     </header>
 
@@ -120,62 +120,89 @@
       return h;
     };
 
-    // devuelve fecha en estilo hispanohablante: "lunes 12 de noviembre de 2025"
-    function fechaHumana(valor) {
-      if (!valor) return "";
-      // manejar ISO yyyy-mm-dd
-      if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
-        const [anio, mes, dia] = valor.split("-");
-        const fecha = new Date(parseInt(anio,10), parseInt(mes,10)-1, parseInt(dia,10));
-        return formatoFechaEsp(fecha);
+    // ---------- FIX: dateISO y horaHumana robustas (evitan "dateISO is not defined") ----------
+    function dateISO(valor) {
+      if (valor === null || valor === undefined || valor === '') return "";
+      valor = String(valor).trim();
+      // ISO yyyy-mm-dd
+      if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
+      // dd/mm/yyyy -> yyyy-mm-dd
+      var m = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) {
+        var d = String(m[1]).padStart(2,'0'), mo = String(m[2]).padStart(2,'0'), y = m[3];
+        return y + "-" + mo + "-" + d;
       }
-      // dd/mm/yyyy
-      if (/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.test(valor)) {
-        const match = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-        const dia = parseInt(match[1],10), mes = parseInt(match[2],10), anio = parseInt(match[3],10);
-        const fecha = new Date(anio, mes-1, dia);
-        return formatoFechaEsp(fecha);
+      // Google GViz Date(...) pattern
+      m = valor.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)/);
+      if (m) {
+        var y2 = parseInt(m[1],10), mo2 = parseInt(m[2],10), d2 = parseInt(m[3],10);
+        // keep month as-is (compatibility with various formats)
+        return y2 + "-" + String(mo2).padStart(2,'0') + "-" + String(d2).padStart(2,'0');
       }
-      // Date(yyyy,mm,dd) o Date(yyyy,mm,dd,hh,mm)
-      if (/^Date\((\d{4}),\s*(\d+),\s*(\d+)/.test(valor)) {
-        const m = valor.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)(?:,\s*(\d+),\s*(\d+))?/);
-        const anio = parseInt(m[1],10);
-        const mes = parseInt(m[2],10);
-        const dia = parseInt(m[3],10);
-        const fecha = new Date(anio, mes, dia);
-        return formatoFechaEsp(fecha);
+      // fallback parse
+      var parsed = Date.parse(valor);
+      if (!isNaN(parsed)) {
+        var dt = new Date(parsed);
+        var yy = dt.getFullYear();
+        var mm = String(dt.getMonth()+1).padStart(2,'0');
+        var dd = String(dt.getDate()).padStart(2,'0');
+        return yy + "-" + mm + "-" + dd;
       }
-      // intentar Date.parse
-      const d = new Date(valor);
-      if (!isNaN(d.getTime())) return formatoFechaEsp(d);
       return valor;
     }
 
-    function formatoFechaEsp(fecha){
-      const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
-      const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-      const diaNombre = dias[fecha.getDay()];
-      const dia = fecha.getDate();
-      const mesNombre = meses[fecha.getMonth()];
-      const anio = fecha.getFullYear();
-      // resultado: "lunes 12 de noviembre de 2025"
-      return `${diaNombre} ${dia} de ${mesNombre} de ${anio}`;
+    function horaHumana(valor) {
+      if (valor === null || valor === undefined || valor === '') return "";
+      var s = String(valor).trim();
+      var m = s.match(/^Date\(\d{4},\d{1,2},\d{1,2},(\d{1,2}),(\d{1,2})/);
+      if (m) return (String(m[1]).padStart(2,'0') + ":" + String(m[2]).padStart(2,'0') + " hs");
+      m = s.match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);
+      if (m) return (String(m[1]).padStart(2,'0') + ":" + m[2] + " hs");
+      return s;
     }
 
-    // hora unificada: si hay hora2 no vacía usa hora2, si no usa hora
-    function horaUnificada(ev){
-      const h2 = safe(ev.hora2 || "");
-      const h1 = safe(ev.hora || "");
-      const chosen = h2.trim() !== "" ? h2 : h1;
-      return horaHum(chosen);
+    function fechaHumana(valor) {
+      if (!valor) return "";
+      // iso or dd/mm/year or Date(...) or parseable
+      if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+        const [y,m,d] = valor.split("-");
+        const date = new Date(Number(y), Number(m)-1, Number(d));
+        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
+      }
+      // dd/mm/yyyy
+      var mm = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (mm) {
+        const d = Number(mm[1]), mo = Number(mm[2]), y = Number(mm[3]);
+        const date = new Date(y, mo-1, d);
+        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
+      }
+      // Date(...)
+      mm = valor.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)/);
+      if (mm) {
+        const y = Number(mm[1]), mo = Number(mm[2]), d = Number(mm[3]);
+        const date = new Date(y, mo, d);
+        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        return `${dias[date.getDay()]} ${date.getDate()} de ${meses[date.getMonth()]} de ${date.getFullYear()}`;
+      }
+      const p = new Date(valor);
+      if (!isNaN(p.getTime())) {
+        const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
+        const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+        return `${dias[p.getDay()]} ${p.getDate()} de ${meses[p.getMonth()]} de ${p.getFullYear()}`;
+      }
+      return valor;
     }
 
-    // detecta valores "true" de checkbox de Sheets (boolean o string)
-    function isCheckedValue(v){
-      if (v === true) return true;
-      if (v === false) return false;
-      const s = String(v||'').toLowerCase().trim();
-      return ['si','sí','true','1','ok','✓','x'].includes(s);
+    function horaUnificadaObj(obj){
+      const h2 = obj && obj.hora2 ? String(obj.hora2||'').trim() : '';
+      const h1 = obj && obj.hora ? String(obj.hora||'').trim() : '';
+      const chosen = h2 !== '' ? h2 : h1;
+      return chosen ? horaHum(chosen) : '';
     }
 
     // ---------- carga estricta usando índices fijos ----------
@@ -202,7 +229,7 @@
 
           // usar exactamente la columna 0 como 'aprobado'
           const apro = val(IDX.aprobado);
-          const aprobado = isCheckedValue(apro);
+          const aprobado = (apro === true) || (String(apro||'').toLowerCase().trim() === 'true') || (String(apro||'').toLowerCase().trim() === 'si') || (String(apro||'').toLowerCase().trim() === '1') || apro === 1;
 
           // construir evento
           const ev = {
@@ -238,17 +265,14 @@
           if(ev.aprobado) approvedCount++;
         }
 
-        // por defecto: si existe la columna en posición 0 usamos estrictamente aprobados
         countTotalEl.textContent = all.length;
         countApprovedEl.textContent = approvedCount;
         document.getElementById('status').textContent = approvedCount === 0 ? 'No hay eventos aprobados en la hoja.' : '';
 
-        // llenar selects con los valores de los eventos aprobados por defecto (si showAll está activado, se mostrará todo)
         const approvedEvents = all.filter(e => e.aprobado);
         populate(selCategory, new Set(approvedEvents.map(e=>e.categoria).filter(Boolean)));
         populate(selOrganizer, new Set(approvedEvents.map(e=>e.organizador).filter(Boolean)));
 
-        // aplicar filtros iniciales: por defecto showAll = false -> mostramos solo aprobados
         showAllEl.checked = false;
         filtered = approvedEvents.slice();
         page = 1;
@@ -303,7 +327,7 @@
         const metaParts = [];
         const fechaDisplay = fechaHumana(ev.fecha_iso || ev.fecha);
         if(fechaDisplay) metaParts.push(fechaDisplay);
-        const horaUni = horaUnificada(ev);
+        const horaUni = horaUnificadaObj(ev);
         if(horaUni) metaParts.push(horaUni);
         if(ev.lugar) metaParts.push(ev.lugar);
         const meta = metaParts.join(' • ');
@@ -353,7 +377,6 @@
     selOrganizer.addEventListener('change', () => { selCategory.value=''; applyFilters(); });
     showAllEl.addEventListener('change', () => {
       if(showAllEl.checked){
-        // si pediste ver todo, repoblar selects con todos los valores
         populateSelectsFromAll();
       } else {
         populateSelectsFromApproved();
