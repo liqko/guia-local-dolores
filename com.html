@@ -277,6 +277,7 @@
       border-radius: 1em;
       overflow: hidden;
       box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+      position: relative;
     }
     /* ensure the inner iframe/video/img fills the portrait box and preserves the orientation */
     .banner-tarjeta .banner-media iframe,
@@ -288,6 +289,9 @@
       display: block;
       border: none;
     }
+
+    /* when the banner has a CTA, show pointer on media */
+    .banner-tarjeta.has-cta .banner-media { cursor: pointer; }
 
     @media (max-width:600px) {
       .banner-tarjeta img {
@@ -590,7 +594,7 @@
           } else if (item.tiktok && item.tiktok.trim()) {
             return `<div class="redes-bloque"><i class="fab fa-tiktok"></i> <a href="${item.tiktok}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.tiktok)}</a></div><span class="espaciado"></span>`;
           } else if (item.linkedin && item.linkedin.trim()) {
-            return `<div class="redes-bloque"><i class="fab fa-linkedin"></i> <a href="${item.linkedin}" target="_blank" rel="noopener noreferrer">${extraerUsuarioRedSocial(item.linkedin)}</a></div><span class="espaciado"></span>`;
+            return `<div class="redes-bloque"><i class="fab fa-linkedin"></i> <a href="${item.linkedin}" target="_blank" rel="noopener noreferrer">${extracerUsuarioRedSocial(item.linkedin)}</a></div><span class="espaciado"></span>`;
           }
           return "";
         }
@@ -857,8 +861,8 @@
           // IMAGE: wrap image inside .banner-media so it behaves same as video/iframe placeholders
           if(banner.img){
             return `
-              <div class="banner-tarjeta">
-                <div id="${id}" class="banner-media"><img src="${banner.img}" alt="Banner"></div>
+              <div class="banner-tarjeta ${ctaLink ? 'has-cta' : ''}" data-cta="${ctaLink}">
+                <div id="${id}" class="banner-media" ${ctaLink ? `data-cta="${ctaLink}"` : ''}><img src="${banner.img}" alt="Banner"></div>
                 ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
               </div>
             `;
@@ -869,8 +873,8 @@
             // place a video element inside .banner-media and lazy-load via data-src on the video
             const posterAttr = banner.poster ? `poster="${banner.poster}"` : '';
             return `
-              <div class="banner-tarjeta">
-                <div id="${id}" class="banner-media">
+              <div class="banner-tarjeta ${ctaLink ? 'has-cta' : ''}" data-cta="${ctaLink}">
+                <div id="${id}" class="banner-media" ${ctaLink ? `data-cta="${ctaLink}"` : ''}>
                   <video class="banner-media-video" data-src="${banner.media}" ${posterAttr} muted playsinline loop preload="metadata" controls></video>
                 </div>
                 ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
@@ -882,8 +886,8 @@
           if(banner.media && isYouTube(banner.media)){
             const embed = getYouTubeEmbedUrl(banner.media, true) || banner.media;
             return `
-              <div class="banner-tarjeta">
-                <div id="${id}" class="banner-media" data-src="${embed}"></div>
+              <div class="banner-tarjeta ${ctaLink ? 'has-cta' : ''}" data-cta="${ctaLink}">
+                <div id="${id}" class="banner-media" data-src="${embed}" ${ctaLink ? `data-cta="${ctaLink}"` : ''}></div>
                 ${ ctaLink ? `<a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Visitar comercio</a>` : '' }
               </div>
             `;
@@ -916,10 +920,15 @@
 
           // Después de inyectar HTML, inicializamos observer para banners (lazy load y autoplay on scroll)
           initBannerObservers();
+
+          // Y nos aseguramos de que los CTA y clicks sobre media estén correctamente enlazados
+          attachCtaHandlers();
         }
 
         function renderDestacadas(destacadas) {
           destacadasBar.innerHTML = destacadas.map((item, idx) => renderCard(item, `dest-${idx}`)).join('');
+          // después de renderizar destacadas
+          attachCtaHandlers();
         }
 
         function scrollTitulo() {
@@ -1264,6 +1273,10 @@
                       target.innerHTML = '';
                       target.appendChild(iframe);
                     }
+
+                    // attach CTA handlers after replacement so CTA click works with the new iframe/video inside
+                    attachCtaHandlers();
+
                   } catch(err){
                     console.warn('Error loading embed:', err);
                   }
@@ -1321,6 +1334,65 @@
         /* ---------------------------
            Nuevo: mostrar modal DENTRO de la tarjeta
            --------------------------- */
+
+        // Nuevo: función que enlaza CTA buttons y clicks sobre media
+        function attachCtaHandlers(){
+          try {
+            const bannersEl = document.querySelectorAll('.banner-tarjeta');
+            bannersEl.forEach(b => {
+              const cta = b.querySelector('.cta-btn');
+              const media = b.querySelector('.banner-media');
+              const ctaUrl = (b.dataset && b.dataset.cta) ? b.dataset.cta : (cta ? cta.getAttribute('href') : '');
+
+              // apply class if there's a CTA
+              if(ctaUrl){
+                b.classList.add('has-cta');
+                if(media){
+                  media.setAttribute('data-cta', ctaUrl);
+                }
+              } else {
+                b.classList.remove('has-cta');
+              }
+
+              // attach click handler to CTA (ensures window.open fallback)
+              if(cta){
+                cta.onclick = function(e){
+                  // prefer native anchor, but still use window.open for reliability
+                  e.preventDefault();
+                  try {
+                    window.open(ctaUrl, '_blank', 'noopener');
+                  } catch(err){
+                    location.href = ctaUrl;
+                  }
+                };
+              }
+
+              // attach click handler to the media area: open CTA when user clicks on the media (but avoid intercepting native video clicks)
+              if(media){
+                media.onclick = function(e){
+                  // if no CTA, do nothing
+                  if(!ctaUrl) return;
+                  // if clicked on interactive element inside media (video/iframe/a/button/input/select/textarea), don't navigate
+                  const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                  if(tag === 'video' || tag === 'iframe' || tag === 'a' || tag === 'button' || tag === 'input' || tag === 'select' || tag === 'textarea') {
+                    // allow default behavior (e.g., play/pause, controls) — do NOT open link
+                    return;
+                  }
+                  // otherwise open CTA
+                  e.preventDefault();
+                  try {
+                    window.open(ctaUrl, '_blank', 'noopener');
+                  } catch(err){
+                    location.href = ctaUrl;
+                  }
+                };
+              }
+            });
+          } catch (err) {
+            // no crash if something falla
+            console.warn('attachCtaHandlers error', err);
+          }
+        }
 
         window.addEventListener('resize', () => {
           render();
