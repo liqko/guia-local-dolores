@@ -852,13 +852,13 @@
           return html;
         }
 
-        // === MODIFIED renderBanner: do NOT render CTA button under video banners (direct video and YouTube).
-        // Images will keep the CTA button under the media.
+        // === MODIFIED renderBanner: CTA ALWAYS points to guialocaldolores.com.ar and is always placed under the media ---
+        // Also: include data-poster attribute when available so initBannerObservers can use it to create thumbnail after end.
         function renderBanner(banner, idx){
           const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
           const ctaLink = "https://www.guialocaldolores.com.ar";
 
-          // IMAGE: render CTA under image (unchanged)
+          // IMAGE: wrap image inside .banner-media so it behaves same as video/iframe placeholders
           if(banner.img){
             return `
               <div class="banner-tarjeta has-cta" data-cta="${ctaLink}">
@@ -868,25 +868,27 @@
             `;
           }
 
-          // DIRECT VIDEO FILE (mp4/webm/ogg) - NO CTA button displayed under video
+          // DIRECT VIDEO FILE (mp4/webm/ogg)
           if(banner.media && isVideoFile(banner.media)){
+            // place a video element inside .banner-media and lazy-load via data-src on the video
             const posterAttr = banner.poster ? `poster="${banner.poster}"` : '';
-            // keep data-cta on the media so clicking the media can still open CTA if desired, but we DO NOT render the CTA button under the media.
             return `
-              <div class="banner-tarjeta" data-cta="${ctaLink}">
+              <div class="banner-tarjeta has-cta" data-cta="${ctaLink}">
                 <div id="${id}" class="banner-media" data-cta="${ctaLink}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}>
                   <video class="banner-media-video" data-src="${banner.media}" ${posterAttr} muted playsinline loop preload="metadata" controls></video>
                 </div>
+                <a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Ir a guialocaldolores.com.ar</a>
               </div>
             `;
           }
 
-          // YOUTUBE or EMBED - NO CTA button displayed under the iframe
+          // YOUTUBE or EMBED
           if(banner.media && isYouTube(banner.media)){
             const embed = getYouTubeEmbedUrl(banner.media, true) || banner.media;
             return `
-              <div class="banner-tarjeta" data-cta="${ctaLink}">
+              <div class="banner-tarjeta has-cta" data-cta="${ctaLink}">
                 <div id="${id}" class="banner-media" data-src="${embed}" data-cta="${ctaLink}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}></div>
+                <a class="cta-btn" href="${ctaLink}" target="_blank" rel="noopener noreferrer">Ir a guialocaldolores.com.ar</a>
               </div>
             `;
           }
@@ -1092,12 +1094,14 @@
                   onStateChange: function(e){
                     // estado 0 = ended
                     if(e.data === YT.PlayerState.ENDED){
-                      // Reemplazamos el iframe por poster (sin CTA) para evitar sugerencias de YouTube
+                      // Reemplazamos el iframe por poster + CTA para evitar sugerencias de YouTube
                       try{
+                        // compute poster: use provided poster, otherwise try to derive thumbnail from embedUrl
                         let posterUrl = poster || '';
                         if(!posterUrl && embedUrl){
                           try {
                             const u = new URL(embedUrl);
+                            // try to extract video id
                             let vid = '';
                             if(u.hostname.includes('youtu.be')) vid = u.pathname.slice(1);
                             else vid = u.searchParams.get('v') || (u.pathname.split('/').pop());
@@ -1105,8 +1109,9 @@
                           } catch(e){}
                         }
 
+                        const ctaLink = "https://www.guialocaldolores.com.ar";
                         const wrapper = document.createElement('div');
-                        wrapper.className = 'banner-tarjeta';
+                        wrapper.className = 'banner-tarjeta has-cta';
                         wrapper.style.display = 'flex';
                         wrapper.style.flexDirection = 'column';
                         wrapper.style.alignItems = 'center';
@@ -1114,25 +1119,28 @@
                         wrapper.style.gap = '0.6rem';
 
                         if(posterUrl){
-                          // Wrap poster in anchor so user may still navigate if desired, but no CTA button is shown
-                          const a = document.createElement('a');
-                          a.href = "https://www.guialocaldolores.com.ar";
-                          a.target = "_blank";
-                          a.rel = "noopener noreferrer";
                           const img = document.createElement('img');
                           img.src = posterUrl;
                           img.alt = 'Banner';
                           img.style.maxWidth = '320px';
                           img.style.width = '90vw';
                           img.style.borderRadius = '1em';
-                          a.appendChild(img);
-                          wrapper.appendChild(a);
+                          wrapper.appendChild(img);
                         }
 
-                        // Reemplazar contenido del contenedor (sin botón CTA)
+                        const a = document.createElement('a');
+                        a.className = 'cta-btn';
+                        a.href = ctaLink;
+                        a.target = '_blank';
+                        a.rel = 'noopener noreferrer';
+                        a.textContent = 'Ir a guialocaldolores.com.ar';
+                        wrapper.appendChild(a);
+
+                        // Reemplazar contenido del contenedor
                         containerEl.innerHTML = '';
                         containerEl.appendChild(wrapper);
                       }catch(err){
+                        // fallback: ocultar iframe
                         try{ containerEl.innerHTML = ''; }catch(e){}
                       }
                     }
@@ -1271,10 +1279,9 @@
               const media = b.querySelector('.banner-media');
               const ctaUrl = (b.dataset && b.dataset.cta) ? b.dataset.cta : (cta ? cta.getAttribute('href') : '');
 
-              // apply class if there's a CTA (for images we keep the visible button; for videos we do not render the button but still may keep data-cta)
+              // apply class if there's a CTA
               if(ctaUrl){
-                // add has-cta only if there is an actual visible CTA button inside (i.e., cta exists)
-                if(cta) b.classList.add('has-cta');
+                b.classList.add('has-cta');
                 if(media){
                   media.setAttribute('data-cta', ctaUrl);
                 }
@@ -1384,6 +1391,10 @@
           if (window.scrollY > 200) {topBtn.style.display = 'flex';}
           else {topBtn.style.display = 'none';}
         });
+
+        /* ---------------------------
+           Nuevo: mostrar modal DENTRO de la tarjeta (ya implementado más arriba)
+           --------------------------- */
 
       })
       .catch(e => console.error('Error cargando datos:', e));
