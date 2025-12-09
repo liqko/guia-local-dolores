@@ -1169,20 +1169,78 @@ contents=<!DOCTYPE html>
 
         /* --------------------------- end YouTube helpers --------------------------- */
 
+        // Helper utilities to produce a banner sequence with minimal repetition on the same page
+        function shuffleArray(arr) {
+          for (let i = arr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [arr[i], arr[j]] = [arr[j], arr[i]];
+          }
+        }
+        function bannerKey(b) {
+          return (b && (b.img || b.media || b.url || b.cta)) ? (b.img || b.media || b.url || b.cta) : JSON.stringify(b);
+        }
+        function buildBannerSequence(slots) {
+          // returns an array of length 'slots' with banner objects chosen from `banners`,
+          // trying to avoid repeats inside the same page. If slots > banners.length, banners
+          // will be reused but shuffled so repeats are minimized and not consecutive.
+          if (!banners || !banners.length || slots <= 0) return [];
+          const seq = [];
+          // We'll append shuffled copies until we reach slots, ensuring we don't place the same banner twice in a row.
+          let attempts = 0;
+          while (seq.length < slots && attempts < 20) {
+            const pool = banners.slice();
+            shuffleArray(pool);
+            for (let i = 0; i < pool.length && seq.length < slots; i++) {
+              const candidate = pool[i];
+              if (seq.length > 0 && bannerKey(seq[seq.length - 1]) === bannerKey(candidate)) {
+                // try to find a different element further in pool to avoid immediate repeat
+                const altIdx = pool.findIndex((p, idx) => idx > i && bannerKey(p) !== bannerKey(seq[seq.length - 1]));
+                if (altIdx !== -1) {
+                  seq.push(pool.splice(altIdx, 1)[0]);
+                } else {
+                  // no alternative in this pool, push candidate (we'll try again later)
+                  seq.push(candidate);
+                }
+              } else {
+                seq.push(candidate);
+              }
+            }
+            attempts++;
+          }
+          // If we still don't have enough (very unlikely), fill by cycling without immediate duplicates
+          let i = 0;
+          while (seq.length < slots) {
+            const candidate = banners[i % banners.length];
+            if (seq.length === 0 || bannerKey(seq[seq.length - 1]) !== bannerKey(candidate)) {
+              seq.push(candidate);
+            } else {
+              // try next one
+              i++;
+              if (i > banners.length * 5) {
+                // give up and push anyway
+                seq.push(candidate);
+              }
+            }
+            i++;
+          }
+          return seq.slice(0, slots);
+        }
+
         function renderNormales(normales) {
           let html = '';
-          let cantidadBanners = Math.min(3, banners.length);
-          let indicesBanners = [];
-          while (indicesBanners.length < cantidadBanners) {
-            let idx = Math.floor(Math.random() * banners.length);
-            if (!indicesBanners.includes(idx)) indicesBanners.push(idx);
-          }
+          // determine insertion slots: one banner every 2 tarjetas (after the 2nd, 4th, ...), but not after final if it is the last item
+          const slots = Math.floor(normales.length / 2);
+          const bannerSeq = buildBannerSequence(slots);
+
           normales.forEach((item, idx) => {
             html += renderCard(item, `norm-${idx}`);
+            // after every 2 cards, insert the corresponding banner (if not the last card)
             if ((idx + 1) % 2 === 0 && (idx + 1) < normales.length) {
-              let bannerNum = Math.floor(idx / 3);
-              let banner = banners[indicesBanners[bannerNum] || 0];
-              html += renderBanner(banner, `inter-${idx}`);
+              const slotIndex = Math.floor((idx + 1) / 2) - 1;
+              const banner = bannerSeq[slotIndex];
+              if (banner) {
+                html += renderBanner(banner, `inter-${idx}`);
+              }
             }
           });
           if (normales.length === 0) {
