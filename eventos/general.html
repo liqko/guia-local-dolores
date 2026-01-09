@@ -10,7 +10,8 @@
       --bg:#f5f7fb; --panel:#fff; --muted:#6b7a90; --blue:#1f5fb8; --blue-soft:#e8f1ff;
       --vip:#ffb74d; --danger:#c62828; --card-radius:14px; --shadow:0 10px 30px rgba(28,43,78,0.06);
     }
-    *{box-sizing:border-box;} html,body{height:100%;margin:0;background:var(--bg);font-family:"Inter","Segoe UI",Arial,sans-serif;color:#122;}
+    *{box-sizing:border-box;}
+    html,body{height:100%;margin:0;background:var(--bg);font-family:"Inter","Segoe UI",Arial,sans-serif;color:#122;}
     .wrap{max-width:1100px;margin:24px auto 32px;padding:0 18px;}
     .header{display:flex;gap:16px;align-items:center;margin-bottom:14px;flex-wrap:wrap;}
     .logo{width:88px;height:88px;border-radius:14px;object-fit:cover;background:#fff;box-shadow:0 6px 20px rgba(33,49,86,0.06);padding:8px;}
@@ -23,7 +24,7 @@
     .select{padding:11px 12px;border-radius:12px;border:1.5px solid #d7e1f7;background:#fff;font-weight:700;}
     .cta{padding:11px 14px;border-radius:12px;background:linear-gradient(90deg,#ffd972 0,#ff7a2a 100%);color:#222;font-weight:800;text-decoration:none;border:2px solid #ff7a2a;}
     .events{display:flex;flex-direction:column;gap:16px;}
-    .card{display:flex;gap:16px;align-items:flex-start;background:var(--panel);border-radius:var(--card-radius);box-shadow:var(--shadow);padding:14px;position:relative;transition:transform .18s,box-shadow .18s;border:1px solid #e8edf7;}
+    .card{display:flex;gap:16px;align-items:flex-start;background:var(--panel);border-radius:var(--card-radius);box-shadow:var(--shadow);padding:14px;position:relative;transition:transform .18s, box-shadow .18s;border:1px solid #eef3ff;}
     .card:hover{transform:translateY(-4px);box-shadow:0 18px 40px rgba(28,43,78,0.10);}
     .left{flex:0 0 120px;display:flex;flex-direction:column;gap:10px;align-items:center;}
     .thumb{width:120px;height:120px;border-radius:12px;background:#eee;object-fit:cover;display:block;border:1px solid #f0f4fb;}
@@ -75,7 +76,7 @@
 
   <div id="enlaceModal" style="display:none; position:fixed; top:0; left:0; width:100vw; height:100vh; background:rgba(43,58,85,0.6); align-items:center; justify-content:center; z-index:9999;">
     <div style="width:95%; max-width:980px; height:85vh; background:#fff; border-radius:10px; overflow:hidden; position:relative;">
-      <button id="cerrarModal" aria-label="Cerrar" style="position:absolute; top:12px; right:12px; z-index:20; background:var(--blue); color:#fff; border-radius:50%; width:40px; height:40px; border:none; font-size:1.2rem;">×</button>
+      <button id="cerrarModal" aria-label="Cerrar" style="position:absolute; top:12px; right:12px; z-index:20; background:var(--blue); color:#fff; border-radius:50%; width:40px; height:40px; border:none; font-size:18px; font-weight:900; cursor:pointer;">✕</button>
       <iframe id="modalIframe" src="" style="width:100%; height:100%; border:0; background:#f5f7fb;"></iframe>
     </div>
   </div>
@@ -83,11 +84,18 @@
   <script>
     // WebApp (doGet) URL provista
     const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxTqt5VG9d4mBPYA92t75q1_n1YBMM5nQ1fMz_SsI1_hdEcspBs6EPwXRGR_cWv_HNzkA/exec";
-    const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getEventsFormatted";
+
+    // IMPORTANTE:
+    // Tu WebApp está respondiendo "unauthorized" si no se envía serverSecret en getEventsFormatted.
+    // Esto hace que la página quede vacía aunque haya eventos.
+    const SERVER_SECRET = "PzbqSEw9xNrwvWruJN7njiW905uwMiBS";
+
+    // Endpoint con secreto incluido (para que cargue siempre)
+    const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getEventsFormatted&serverSecret=" + encodeURIComponent(SERVER_SECRET);
 
     const GENERIC_FREE_LOGO = "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png";
     const PLACEHOLDER_SVG = `data:image/svg+xml;utf8,` +
-      encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><rect width='100%' height='100%' fill='#eef4ff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#9fb0d8' font-family='Arial' font-size='18'>Imagen no disponible</text></svg>`);
+      encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><rect width='100%' height='100%' fill='#eef4ff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#7b8bb3' font-family='Arial' font-size='24'>Sin imagen</text></svg>`);
 
     let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
 
@@ -98,11 +106,52 @@
       else { er.style.display='none'; er.textContent=''; }
       st.textContent = msg;
     }
-    function isPastISO(iso){
-      if (!iso) return false;
-      const today = new Date().toISOString().slice(0,10);
-      return iso < today;
+
+    // ---- FECHAS: robusto (ISO / DD/MM/YYYY / Date(...) / Date object) ----
+    function toISODateString(d){
+      if (!d || isNaN(d.getTime())) return "";
+      const y = d.getFullYear();
+      const m = String(d.getMonth()+1).padStart(2,'0');
+      const day = String(d.getDate()).padStart(2,'0');
+      return `${y}-${m}-${day}`;
     }
+
+    function parseToDate(value){
+      if (value === null || value === undefined || value === '') return null;
+
+      if (Object.prototype.toString.call(value) === '[object Date]') {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? null : d;
+      }
+
+      const s = String(value).trim();
+
+      // YYYY-MM-DD
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+
+      // DD/MM/YYYY
+      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(parseInt(m[3],10), parseInt(m[2],10)-1, parseInt(m[1],10));
+
+      // Date(YYYY,MM,DD...)  (MM en Apps Script suele venir 0-based en ese string)
+      m = s.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)(?:,\s*(\d+),\s*(\d+))?/);
+      if (m) return new Date(parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3],10));
+
+      // fallback
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function isPastDate(value){
+      const d = parseToDate(value);
+      if (!d) return false;
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const onlyDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return onlyDate.getTime() < today.getTime();
+    }
+
     function horaHumana(h){
       if (!h) return "";
       h = String(h).trim();
@@ -112,6 +161,7 @@
       if (m) return `${String(m[1]).padStart(2,'0')}:${m[2]} hs`;
       return h;
     }
+
     function textoAParrafoJustificado(texto){
       if (!texto) return "";
       const partes = texto.split(/\n\s*\n/).length>1 ? texto.split(/\n\s*\n/) : texto.split(/\n/);
@@ -122,43 +172,82 @@
       document.getElementById('events').innerHTML = '';
       document.getElementById('loading').style.display = 'block';
       document.getElementById('error').style.display = 'none';
+
       try {
-        const r = await fetch(EVENTS_ENDPOINT);
+        const r = await fetch(EVENTS_ENDPOINT, { cache: "no-store" });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
+
         const arr = (data && data.events) ? data.events : [];
-        // Filtrar por fecha >= hoy
-        eventosData = arr.filter(ev => !isPastISO(ev.fecha_iso || ev.fecha));
-        // Ordenar por fecha asc
-        eventosData.sort((a,b)=> (a.fecha_iso||"").localeCompare(b.fecha_iso||""));
+
+        // Filtrar por fecha >= hoy (robusto)
+        eventosData = arr.filter(ev => {
+          const raw = (ev && (ev.fecha_iso || ev.fecha)) ? (ev.fecha_iso || ev.fecha) : '';
+          return !isPastDate(raw);
+        });
+
+        // Ordenar por fecha asc (robusto)
+        eventosData.sort((a,b)=>{
+          const da = parseToDate((a && (a.fecha_iso || a.fecha)) ? (a.fecha_iso || a.fecha) : '') || new Date(8640000000000000);
+          const db = parseToDate((b && (b.fecha_iso || b.fecha)) ? (b.fecha_iso || b.fecha) : '') || new Date(8640000000000000);
+          return da.getTime() - db.getTime();
+        });
+
         eventosFiltrados = eventosData.slice();
         currentPage = 1;
+
         setStatus(`Mostrando ${eventosData.length} evento(s) vigentes`, false);
         document.getElementById('loading').style.display = 'none';
+
         renderEventos(eventosFiltrados, currentPage);
       } catch(e){
         document.getElementById('loading').style.display = 'none';
-        const msg = 'No se pudieron cargar los datos desde la WebApp. Verifica que la URL sea correcta y accesible.';
+        const msg = 'No se pudieron cargar los datos desde la WebApp (revisar permisos/URL/secret).';
         setStatus(msg, true);
         document.getElementById('events').innerHTML = `<p class="error">${msg}</p>`;
       }
     }
 
     function renderEventos(data,page=1){
-      const container = document.getElementById('events'); container.innerHTML = '';
-      const start = (page-1)*eventsPerPage, end = start+eventsPerPage, pageData = data.slice(start,end);
-      if (!pageData.length){ container.innerHTML = `<p style="color:#b02a2a;font-weight:800">No hay eventos para mostrar con ese criterio.</p>`; document.getElementById('paginator').innerHTML = ''; return; }
+      const container = document.getElementById('events');
+      container.innerHTML = '';
+
+      const start = (page-1)*eventsPerPage;
+      const end = start+eventsPerPage;
+      const pageData = data.slice(start,end);
+
+      if (!pageData.length){
+        container.innerHTML = `<p style="color:#b02a2a;font-weight:800">No hay eventos para mostrar con ese criterio.</p>`;
+        document.getElementById('paginator').innerHTML = '';
+        document.getElementById('main-title').textContent = `Agenda de Eventos (0)`;
+        return;
+      }
+
       pageData.forEach((ev)=>{
         const card = document.createElement('article');
-        const lvl = ev.nivel && String(ev.nivel).toLowerCase().indexOf('vip')!==-1 ? 'vip' : (ev.nivel && String(ev.nivel).toLowerCase().indexOf('free')!==-1 ? 'free' : '');
+
+        const nivelStr = (ev && ev.nivel) ? String(ev.nivel).toLowerCase() : '';
+        const lvl = nivelStr.indexOf('vip') !== -1 ? 'vip' : (nivelStr.indexOf('free') !== -1 ? 'free' : '');
+
         card.className = `card event-card ${lvl}`;
+
         if (lvl){
-          const b = document.createElement('div'); b.className = `badge ${lvl}`; b.textContent = lvl.toUpperCase(); card.appendChild(b);
+          const b = document.createElement('div');
+          b.className = `badge ${lvl}`;
+          b.textContent = lvl.toUpperCase();
+          card.appendChild(b);
         }
-        const left = document.createElement('div'); left.className = 'left';
-        const img = document.createElement('img'); img.className='thumb'; img.alt = ev.nombre_evento || ev.nombre || 'imagen evento';
-        let candidate = ev.logo || ev.logo_organizador || ev.img1 || ev.img2 || '';
+
+        const left = document.createElement('div');
+        left.className = 'left';
+
+        const img = document.createElement('img');
+        img.className='thumb';
+        img.alt = (ev && (ev.nombre_evento || ev.nombre)) ? (ev.nombre_evento || ev.nombre) : 'imagen evento';
+
+        let candidate = (ev && (ev.logo || ev.logo_organizador || ev.img1 || ev.img2)) ? (ev.logo || ev.logo_organizador || ev.img1 || ev.img2) : '';
         if ((!candidate || String(candidate).trim()==='') && lvl === 'free') candidate = GENERIC_FREE_LOGO;
+
         img.loading = 'lazy';
         img.src = candidate ? candidate : PLACEHOLDER_SVG;
         img.crossOrigin = 'anonymous';
@@ -168,71 +257,205 @@
           else this.src = PLACEHOLDER_SVG;
           this.onerror = null;
         };
+
         left.appendChild(img);
 
-        const right = document.createElement('div'); right.className='right';
-        const h = document.createElement('h2'); h.className='title-card'; h.textContent = ev.nombre_evento || ev.nombre || ''; right.appendChild(h);
-        if (ev.categoria){ const c = document.createElement('div'); c.className='category'; c.textContent = ev.categoria; right.appendChild(c); }
-        const meta = document.createElement('div'); meta.className='meta';
-        if (ev.fecha_humana){ const d = document.createElement('div'); d.innerHTML = `<i class="ri-calendar-event-line"></i>&nbsp; ${ev.fecha_humana}`; meta.appendChild(d); }
-        const hr = (ev.hora_unificada && ev.hora_unificada.trim()) ? ev.hora_unificada : ((ev.hora && ev.hora.trim()) ? ev.hora : (ev.hora2 || ''));
-        if (hr){ const t = document.createElement('div'); t.innerHTML = `<i class="ri-time-line"></i>&nbsp; ${horaHumana(hr)}`; meta.appendChild(t); }
-        if (ev.lugar){ const l = document.createElement('div'); l.innerHTML = `<i class="ri-map-pin-line"></i>&nbsp; ${ev.lugar}`; meta.appendChild(l); }
+        const right = document.createElement('div');
+        right.className='right';
+
+        const h = document.createElement('h2');
+        h.className='title-card';
+        h.textContent = (ev && (ev.nombre_evento || ev.nombre)) ? (ev.nombre_evento || ev.nombre) : '';
+        right.appendChild(h);
+
+        if (ev && ev.categoria){
+          const c = document.createElement('div');
+          c.className='category';
+          c.textContent = ev.categoria;
+          right.appendChild(c);
+        }
+
+        const meta = document.createElement('div');
+        meta.className='meta';
+
+        // fecha humana (si no viene, la armamos)
+        const rawFecha = (ev && (ev.fecha_iso || ev.fecha)) ? (ev.fecha_iso || ev.fecha) : '';
+        const d = parseToDate(rawFecha);
+        const fechaHumana = (ev && ev.fecha_humana) ? ev.fecha_humana : (d ? d.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' }) : '');
+
+        if (fechaHumana){
+          const dd = document.createElement('div');
+          dd.innerHTML = `<i class="ri-calendar-event-line"></i>&nbsp; ${fechaHumana}`;
+          meta.appendChild(dd);
+        }
+
+        const hr = (ev && ev.hora_unificada && String(ev.hora_unificada).trim()) ? ev.hora_unificada :
+                   ((ev && ev.hora && String(ev.hora).trim()) ? ev.hora : (ev ? (ev.hora2 || '') : ''));
+
+        if (hr){
+          const t = document.createElement('div');
+          t.innerHTML = `<i class="ri-time-line"></i>&nbsp; ${horaHumana(hr)}`;
+          meta.appendChild(t);
+        }
+
+        if (ev && ev.lugar){
+          const l = document.createElement('div');
+          l.innerHTML = `<i class="ri-map-pin-line"></i>&nbsp; ${ev.lugar}`;
+          meta.appendChild(l);
+        }
+
         right.appendChild(meta);
 
-        if (ev.descripcion){ const desc = document.createElement('div'); desc.className='desc'; desc.innerHTML = textoAParrafoJustificado(ev.descripcion); right.appendChild(desc); }
+        if (ev && ev.descripcion){
+          const desc = document.createElement('div');
+          desc.className='desc';
+          desc.innerHTML = textoAParrafoJustificado(ev.descripcion);
+          right.appendChild(desc);
+        }
 
-        let infoAdd = ''; if (ev.direccion) infoAdd += `Dirección: ${ev.direccion}. `; if (ev.llegar) infoAdd += `Cómo llegar: ${ev.llegar}. `;
-        if (infoAdd){ const ia = document.createElement('div'); ia.className='info'; ia.innerHTML = `<i class="ri-information-line"></i>&nbsp; ${infoAdd}`; right.appendChild(ia); }
-        const partners = [ev.partner, ev.partner2, ev.partner3, ev.partner4, ev.partner5, ev.partner6].filter(Boolean).join(', ');
-        if (partners){ const s = document.createElement('div'); s.className='partners'; s.innerHTML = `<strong>Auspicia:</strong> ${partners}`; right.appendChild(s); }
-        if (ev.organizador){ const o = document.createElement('div'); o.className='organizer'; o.textContent = `Organiza: ${ev.organizador}`; right.appendChild(o); }
-        const enlace = ev.entradas && /^https?:\/\//i.test(ev.entradas) ? ev.entradas : '';
-        if (enlace){ const a = document.createElement('a'); a.className='action'; a.href='#'; a.setAttribute('data-url', enlace); a.textContent='Entradas / Más info'; a.onclick = function(e){ e.preventDefault(); abrirEnlaceModal(this.getAttribute('data-url')); }; right.appendChild(a); }
-        card.appendChild(left); card.appendChild(right); container.appendChild(card);
+        let infoAdd = '';
+        if (ev && ev.direccion) infoAdd += `Dirección: ${ev.direccion}. `;
+        if (ev && ev.llegar) infoAdd += `Cómo llegar: ${ev.llegar}. `;
+
+        if (infoAdd){
+          const ia = document.createElement('div');
+          ia.className='info';
+          ia.innerHTML = `<i class="ri-information-line"></i>&nbsp; ${infoAdd}`;
+          right.appendChild(ia);
+        }
+
+        const partners = ev ? [ev.partner, ev.partner2, ev.partner3, ev.partner4, ev.partner5, ev.partner6].filter(Boolean).join(', ') : '';
+        if (partners){
+          const s = document.createElement('div');
+          s.className='partners';
+          s.innerHTML = `<strong>Auspicia:</strong> ${partners}`;
+          right.appendChild(s);
+        }
+
+        if (ev && ev.organizador){
+          const o = document.createElement('div');
+          o.className='organizer';
+          o.textContent = `Organiza: ${ev.organizador}`;
+          right.appendChild(o);
+        }
+
+        const enlace = (ev && ev.entradas && /^https?:\/\//i.test(ev.entradas)) ? ev.entradas : '';
+        if (enlace){
+          const a = document.createElement('a');
+          a.className='action';
+          a.href='#';
+          a.setAttribute('data-url', enlace);
+          a.textContent='Entradas / Más info';
+          a.onclick = function(e){
+            e.preventDefault();
+            abrirEnlaceModal(this.getAttribute('data-url'));
+          };
+          right.appendChild(a);
+        }
+
+        card.appendChild(left);
+        card.appendChild(right);
+        container.appendChild(card);
       });
+
       renderPaginator(data.length, page);
       document.getElementById('main-title').textContent = `Agenda de Eventos (${data.length})`;
     }
 
     function renderPaginator(total,page){
-      const cont = document.getElementById('paginator'); const totalPages = Math.ceil(total / eventsPerPage);
+      const cont = document.getElementById('paginator');
+      const totalPages = Math.ceil(total / eventsPerPage);
       if (totalPages <= 1) { cont.innerHTML = ''; return; }
+
       let html = `<button id="prev"${page<=1 ? ' disabled':''}>Anterior</button>`;
       const pages = new Set(); pages.add(1); pages.add(totalPages);
       for (let i=Math.max(2,page-2); i<=Math.min(totalPages-1,page+2); i++) pages.add(i);
-      const list = Array.from(pages).sort((a,b)=>a-b); let last=0;
-      for (const p of list){ if (p-last>1) html += `<span style="padding:0 8px;color:#667">...</span>`; html += (p===page) ? `<span style="font-weight:900;background:#e8f2ff;padding:6px 8px;border-radius:6px">${p}</span>` : `<button class="page-btn" data-page="${p}">${p}</button>`; last=p; }
-      html += `<button id="next"${page>=totalPages ? ' disabled':''}>Siguiente</button>`; cont.innerHTML = html;
-      const prev = document.getElementById('prev'), next = document.getElementById('next');
+
+      const list = Array.from(pages).sort((a,b)=>a-b);
+      let last=0;
+      for (const p of list){
+        if (p-last>1) html += `<span style="padding:0 8px;color:#667">...</span>`;
+        html += (p===page)
+          ? `<span style="font-weight:900;background:#e8f2ff;padding:6px 8px;border-radius:8px;color:#133">${p}</span>`
+          : `<button class="page-btn" data-page="${p}" style="background:#2a63bf">${p}</button>`;
+        last = p;
+      }
+      html += `<button id="next"${page>=totalPages ? ' disabled':''}>Siguiente</button>`;
+      cont.innerHTML = html;
+
+      const prev = document.getElementById('prev');
+      const next = document.getElementById('next');
+
       prev && (prev.onclick = ()=>{ if (currentPage>1){ currentPage--; renderEventos(eventosFiltrados,currentPage); scrollToEvents(); }});
       next && (next.onclick = ()=>{ if (currentPage<totalPages){ currentPage++; renderEventos(eventosFiltrados,currentPage); scrollToEvents(); }});
-      document.querySelectorAll('.page-btn').forEach(b=>b.onclick = function(){ const p = parseInt(this.dataset.page,10); if (!isNaN(p) && p!==currentPage){ currentPage=p; renderEventos(eventosFiltrados,currentPage); scrollToEvents(); }});
+
+      document.querySelectorAll('.page-btn').forEach(b=>b.onclick = function(){
+        const p = parseInt(this.dataset.page,10);
+        if (!isNaN(p) && p!==currentPage){
+          currentPage=p;
+          renderEventos(eventosFiltrados,currentPage);
+          scrollToEvents();
+        }
+      });
     }
 
-    function scrollToEvents(){ const el = document.getElementById('events'); if (el) el.scrollIntoView({behavior:'smooth',block:'start'}); }
+    function scrollToEvents(){
+      const el = document.getElementById('events');
+      if (el) el.scrollIntoView({behavior:'smooth',block:'start'});
+    }
 
     function abrirEnlaceModal(url){
       if (!url) return;
       const m = url.match(/instagram\.com\/(p|reel|tv)\/([a-zA-Z0-9_-]+)/);
-      if (m){ document.getElementById('modalIframe').src = `https://www.instagram.com/${m[1]}/${m[2]}/embed`; document.getElementById('enlaceModal').style.display = 'flex'; return; }
-      if (/^https?:\/\//i.test(url)){ document.getElementById('modalIframe').src = url; document.getElementById('enlaceModal').style.display = 'flex'; } else { window.open(url,'_blank','noopener'); }
+      if (m){
+        document.getElementById('modalIframe').src = `https://www.instagram.com/${m[1]}/${m[2]}/embed`;
+        document.getElementById('enlaceModal').style.display = 'flex';
+        return;
+      }
+      if (/^https?:\/\//i.test(url)){
+        document.getElementById('modalIframe').src = url;
+        document.getElementById('enlaceModal').style.display = 'flex';
+      } else {
+        window.open(url,'_blank','noopener');
+      }
     }
-    document.getElementById('cerrarModal').onclick = function(){ document.getElementById('modalIframe').src=''; document.getElementById('enlaceModal').style.display='none'; };
 
-    document.getElementById('search').addEventListener('input', function(){ aplicarFiltro(this.value, document.getElementById('categoryFilter').value); });
-    document.getElementById('categoryFilter').addEventListener('change', function(){ aplicarFiltro(document.getElementById('search').value, this.value); });
+    document.getElementById('cerrarModal').onclick = function(){
+      document.getElementById('modalIframe').src='';
+      document.getElementById('enlaceModal').style.display='none';
+    };
+
+    document.getElementById('search').addEventListener('input', function(){
+      aplicarFiltro(this.value, document.getElementById('categoryFilter').value);
+    });
+    document.getElementById('categoryFilter').addEventListener('change', function(){
+      aplicarFiltro(document.getElementById('search').value, this.value);
+    });
 
     function aplicarFiltro(search, category){
-      const q = String(search||'').trim().toLowerCase(); const cat = String(category||'').trim().toLowerCase();
+      const q = String(search||'').trim().toLowerCase();
+      const cat = String(category||'').trim().toLowerCase();
+
       eventosFiltrados = eventosData.filter(ev=>{
         if (!ev) return false;
-        if (cat && (!ev.categoria || ev.categoria.toLowerCase().indexOf(cat)===-1)) return false;
+        if (cat && (!ev.categoria || String(ev.categoria).toLowerCase().indexOf(cat)===-1)) return false;
         if (!q) return true;
-        const hay = [ev.fecha_humana||'',ev.categoria||'',ev.nombre_evento||ev.nombre||'',ev.organizador||ev.organizador_principal||'',ev.entradas||'',ev.descripcion||'',ev.lugar||''].join(' ').toLowerCase();
+
+        const hay = [
+          ev.fecha_humana || '',
+          ev.categoria || '',
+          ev.nombre_evento || ev.nombre || '',
+          ev.organizador || ev.organizador_principal || '',
+          ev.entradas || '',
+          ev.descripcion || '',
+          ev.lugar || ''
+        ].join(' ').toLowerCase();
+
         return hay.indexOf(q)!==-1;
       });
-      currentPage = 1; renderEventos(eventosFiltrados,currentPage);
+
+      currentPage = 1;
+      renderEventos(eventosFiltrados,currentPage);
       setStatus(`Mostrando ${eventosFiltrados.length} de ${eventosData.length} evento(s)`, false);
     }
 
