@@ -317,7 +317,7 @@
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
 const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
-const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events'; // ✅
+const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
 
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
@@ -329,7 +329,6 @@ const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel
 
 let comercios = [];
 let sesion = null;
-
 let evLists = { categorias: [], localidades: [], lugares: [], partners: [] };
 let editingEventId = null;
 
@@ -378,7 +377,9 @@ function gvizGetRows(json){
   return (json && json.table && Array.isArray(json.table.rows)) ? json.table.rows : [];
 }
 
-/* ===== FIX FECHA/HORA (evita 1899) ===== */
+/* === FECHA/HORA: normalización para tabla + inputs === */
+function isIsoZ(s){ return typeof s === 'string' && /Z$/.test(s); }
+
 function toDateInputValue(v){
   if(v === undefined || v === null) return '';
   const s = String(v).trim();
@@ -395,29 +396,37 @@ function toDateInputValue(v){
   }
   const d = new Date(s);
   if(!isNaN(d.getTime())){
-    const yy = d.getFullYear();
-    const mm = String(d.getMonth()+1).padStart(2,'0');
-    const dd = String(d.getDate()).padStart(2,'0');
+    // si viene en Z, usamos UTC para evitar corrimiento
+    const yy = isIsoZ(s) ? d.getUTCFullYear() : d.getFullYear();
+    const mm = String((isIsoZ(s) ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2,'0');
+    const dd = String(isIsoZ(s) ? d.getUTCDate() : d.getDate()).padStart(2,'0');
     return `${yy}-${mm}-${dd}`;
   }
   return '';
 }
+
 function toTimeInputValue(v){
   if(v === undefined || v === null) return '';
   const s0 = String(v).trim();
   if(!s0) return '';
+
+  // "HH:MM" o "HH:MM:SS"
   const m = s0.match(/^\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*$/);
   if(m){
     const hh = String(m[1]).padStart(2,'0');
     const mm = m[2];
     return `${hh}:${mm}`;
   }
+
+  // ISO date-time (ej 1899-12-30T18:00:00.000Z)
   const d = new Date(s0);
   if(!isNaN(d.getTime())){
-    const hh = String(d.getHours()).padStart(2,'0');
-    const mm = String(d.getMinutes()).padStart(2,'0');
+    const hh = String(isIsoZ(s0) ? d.getUTCHours() : d.getHours()).padStart(2,'0');
+    const mm = String(isIsoZ(s0) ? d.getUTCMinutes() : d.getMinutes()).padStart(2,'0');
     return `${hh}:${mm}`;
   }
+
+  // fracción del día
   const n = Number(s0.replace(',','.'));
   if(!isNaN(n) && isFinite(n) && n >= 0 && n < 1){
     const totalMinutes = Math.round(n * 24 * 60);
@@ -425,7 +434,15 @@ function toTimeInputValue(v){
     const mm = String(totalMinutes % 60).padStart(2,'0');
     return `${hh}:${mm}`;
   }
+
   return '';
+}
+
+function formatDateForTable(v){
+  return toDateInputValue(v) || String(v||'');
+}
+function formatTimeForTable(v){
+  return toTimeInputValue(v) || '';
 }
 
 /* Cargar comercios (login autocomplete) */
@@ -706,10 +723,12 @@ function renderEventsList(events){
   let html = '<table><thead><tr><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Lugar</th><th>Localidad</th><th>Acciones</th></tr></thead><tbody>';
   for(const e of events){
     const eventoId = htmlEscape(e.evento_id || '');
+    const fechaTxt = htmlEscape(formatDateForTable(e.fecha));
+    const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
     html += `<tr>
       <td>${htmlEscape(e.nombre_evento || '')}<div class="events-small">${eventoId ? ('ID: '+eventoId) : ''}</div></td>
-      <td>${htmlEscape(e.fecha || '')}</td>
-      <td>${htmlEscape(e.hora2 || e.hora || '')}</td>
+      <td>${fechaTxt}</td>
+      <td>${horaTxt}</td>
       <td>${htmlEscape(e.lugar || '')}</td>
       <td>${htmlEscape(e.localidad || '')}</td>
       <td class="actions">
@@ -755,7 +774,6 @@ function renderEventsList(events){
 
         document.getElementById('ev-descripcion').value = found.descripcion || '';
 
-        // ✅ FIX: fecha/hora a formato de inputs
         document.getElementById('ev-fecha').value = toDateInputValue(found.fecha);
         document.getElementById('ev-hora').value = toTimeInputValue(found.hora);
         document.getElementById('ev-hora2').value = toTimeInputValue(found.hora2);
@@ -815,26 +833,7 @@ function cancelEventEdit(){
   evSetMsgOk('Edición cancelada.');
 }
 
-/* ====================== COMMERCE / PROMOS ====================== */
-async function commerce_post(payload){
-  const body = Object.assign({}, payload || {});
-  if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-  if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-
-  const r = await fetch(WORKER_COMMERCE_URL, {
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    mode:'cors',
-    body: JSON.stringify(body)
-  });
-
-  const text = await r.text();
-  let json;
-  try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText: text }; }
-  return { status:r.status, json };
-}
-
-/* ====================== PROMOS (original) ====================== */
+/* ====================== PROMOS / COMMERCE (sin cambios) ====================== */
 async function promos_post(pathOrUrl, payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
@@ -929,7 +928,6 @@ function renderPromosList(promos){
 /* Promos create/refresh click delegation (original) */
 document.addEventListener('click', function(e){
   if(!e.target) return;
-
   if(e.target.id === 'promo-create'){
     (async ()=>{
       if(!sesion || !sesion.id){ alert('No logueado.'); return; }
@@ -974,12 +972,13 @@ document.addEventListener('click', function(e){
     })();
     return;
   }
-
   if(e.target.id === 'promo-refresh'){
     loadPromosUI();
     return;
   }
 });
+
+function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
 
 /* ====================== DASHBOARD GET ====================== */
 let originalLoginBtnText = null;
