@@ -190,7 +190,6 @@
             <div class="promos-row-controls">
               <input id="promo-text" class="promo-input" type="text" placeholder="Texto de la promo (ej: 10% OFF)" />
               <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo">
-                <!-- texto cambiado para no insistir con “(opcional)” -->
                 <option value="">Categoría de la promo</option>
               </select>
               <input id="promo-desde" type="date" style="width:140px" />
@@ -222,19 +221,16 @@
 
               <div>
                 <label>Categoría</label>
-                <!-- texto más neutro, sin “(opcional)” -->
                 <select id="ev-categoria"><option value="">Seleccioná una categoría (si aplica)</option></select>
               </div>
 
               <div>
                 <label>Localidad</label>
-                <!-- texto más claro -->
                 <select id="ev-localidad"><option value="">Seleccioná la localidad</option></select>
               </div>
 
               <div class="full">
                 <label>Lugar</label>
-                <!-- texto más explicativo -->
                 <select id="ev-lugar"><option value="">Seleccioná un lugar de la lista (o dejá vacío)</option></select>
                 <div class="events-small">Si elegís un lugar de la lista, se completa dirección / cómo llegar automáticamente.</div>
               </div>
@@ -265,7 +261,6 @@
               </div>
 
               <div>
-                <!-- CAMBIO: Hora 2 ahora es texto libre -->
                 <label>Hora 2 / detalle horario</label>
                 <input id="ev-hora2" type="text" placeholder="Ej: A partir de las 14 hs, desde las 20 hs, etc." />
               </div>
@@ -331,6 +326,21 @@ const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN
 
 const SUPPORT_NUMBER = "5492245459957";
 const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel_acceso","verificado","gold","subnivel","nivelacceso"];
+
+/**
+ * ✅ COLUMNAS DE FEATURES EN "anunciantes"
+ * BV = Promos
+ * BW = Eventos
+ * (si luego agregás más: BX, BY, etc)
+ *
+ * OJO: en gviz usamos índice 0-based.
+ * BV es la columna 74 (A=1 ... BV=74) => índice 73
+ * BW es la columna 75 => índice 74
+ */
+const FEATURE_COL_INDEX = {
+  promos: 73,   // BV
+  eventos: 74   // BW
+};
 
 let comercios = [];
 let sesion = null;
@@ -401,7 +411,6 @@ function toDateInputValue(v){
   }
   const d = new Date(s);
   if(!isNaN(d.getTime())){
-    // si viene en Z, usamos UTC para evitar corrimiento
     const yy = isIsoZ(s) ? d.getUTCFullYear() : d.getFullYear();
     const mm = String((isIsoZ(s) ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2,'0');
     const dd = String(isIsoZ(s) ? d.getUTCDate() : d.getDate()).padStart(2,'0');
@@ -415,7 +424,6 @@ function toTimeInputValue(v){
   const s0 = String(v).trim();
   if(!s0) return '';
 
-  // "HH:MM" o "HH:MM:SS"
   const m = s0.match(/^\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*$/);
   if(m){
     const hh = String(m[1]).padStart(2,'0');
@@ -423,7 +431,6 @@ function toTimeInputValue(v){
     return `${hh}:${mm}`;
   }
 
-  // ISO date-time (ej 1899-12-30T18:00:00.000Z)
   const d = new Date(s0);
   if(!isNaN(d.getTime())){
     const hh = String(isIsoZ(s0) ? d.getUTCHours() : d.getHours()).padStart(2,'0');
@@ -431,7 +438,6 @@ function toTimeInputValue(v){
     return `${hh}:${mm}`;
   }
 
-  // fracción del día
   const n = Number(s0.replace(',','.'));
   if(!isNaN(n) && isFinite(n) && n >= 0 && n < 1){
     const totalMinutes = Math.round(n * 24 * 60);
@@ -448,6 +454,123 @@ function formatDateForTable(v){
 }
 function formatTimeForTable(v){
   return toTimeInputValue(v) || '';
+}
+
+/* ====================== ✅ FEATURES (TABS POR COLUMNAS BV/BW) ====================== */
+
+/**
+ * Convierte valores GViz típicos a boolean:
+ * - true/false
+ * - "TRUE"/"FALSE"
+ * - 1/0
+ * - "SI"/"NO" etc (por si alguna vez lo usan)
+ */
+function toBool(v){
+  if(v === true) return true;
+  if(v === false) return false;
+  if(v === null || v === undefined) return false;
+  const s = String(v).trim().toLowerCase();
+  if(s === 'true' || s === 'verdadero' || s === 'si' || s === 'sí' || s === '1' || s === 'x') return true;
+  return false;
+}
+
+/**
+ * Busca en la hoja "anunciantes" la fila del anunciante por su ID (la misma columna que usás para login/autocomplete)
+ * y trae BV/BW (promos/eventos).
+ *
+ * NOTA: Reutiliza lógica parecida a cargarComercios() para detectar el índice del ID.
+ */
+async function getAdvertiserFeaturesByIdFromSheet(advertiserId){
+  const features = { promos:false, eventos:false };
+
+  try{
+    const json = await gvizFetch(SHEET_ID, 'anunciantes');
+    const headers = gvizGetHeaders(json);
+    const rows = gvizGetRows(json);
+
+    // Detectar columna de ID (como ya hacés en cargarComercios)
+    let idxId = headers.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h));
+    if(idxId === -1) idxId = 61; // fallback como tu código
+
+    const targetId = String(advertiserId || '').trim();
+    if(!targetId) return features;
+
+    const row = rows.find(r=>{
+      const c = (r && r.c) ? r.c : [];
+      const cell = c[idxId];
+      const idVal = _cellToString(cell);
+      return String(idVal||'').trim() === targetId;
+    });
+
+    if(!row){
+      debugLog('No se encontró fila para advertiserId en Sheet:', advertiserId);
+      return features;
+    }
+
+    const c = row.c || [];
+    const promosCell = c[FEATURE_COL_INDEX.promos];
+    const eventosCell = c[FEATURE_COL_INDEX.eventos];
+
+    // En GViz, checkbox suele venir como boolean en .v
+    const promosVal = (promosCell && typeof promosCell === 'object' && 'v' in promosCell) ? promosCell.v : promosCell;
+    const eventosVal = (eventosCell && typeof eventosCell === 'object' && 'v' in eventosCell) ? eventosCell.v : eventosCell;
+
+    features.promos = toBool(promosVal);
+    features.eventos = toBool(eventosVal);
+
+    debugLog('Features (BV/BW) para', advertiserId, features);
+    return features;
+  }catch(e){
+    debugLog('Error leyendo features BV/BW', e);
+    return features;
+  }
+}
+
+/**
+ * Aplica la visibilidad de tabs/paneles.
+ * - Datos: siempre visible
+ * - Promos/Eventos: depende de features
+ *
+ * También si el usuario estaba parado en una pestaña que se oculta,
+ * lo devolvemos a Datos.
+ */
+function applyFeatureTabsVisibility(features){
+  const tabDatos = document.getElementById('tab-datos');
+  const tabPromos = document.getElementById('tab-promos');
+  const tabEventos = document.getElementById('tab-eventos');
+
+  const datosPanel = document.getElementById('datos-panel');
+  const promosPanel = document.getElementById('promos-panel');
+  const eventosPanel = document.getElementById('eventos-panel');
+
+  // Datos siempre
+  tabDatos.style.display = 'inline-block';
+  datosPanel.style.display = 'block';
+
+  // Promos
+  const allowPromos = !!(features && features.promos);
+  tabPromos.style.display = allowPromos ? 'inline-block' : 'none';
+  if(!allowPromos){
+    promosPanel.style.display = 'none';
+    tabPromos.classList.remove('tab-active');
+    tabPromos.setAttribute('aria-selected','false');
+  }
+
+  // Eventos
+  const allowEventos = !!(features && features.eventos);
+  tabEventos.style.display = allowEventos ? 'inline-block' : 'none';
+  if(!allowEventos){
+    eventosPanel.style.display = 'none';
+    tabEventos.classList.remove('tab-active');
+    tabEventos.setAttribute('aria-selected','false');
+  }
+
+  // Si el tab activo quedó oculto, forzamos volver a Datos
+  const activeIsPromos = tabPromos.classList.contains('tab-active');
+  const activeIsEventos = tabEventos.classList.contains('tab-active');
+  if((activeIsPromos && !allowPromos) || (activeIsEventos && !allowEventos)){
+    tabDatos.click();
+  }
 }
 
 /* Cargar comercios (login autocomplete) */
@@ -695,7 +818,6 @@ function buildEventPayloadFromForm(){
     descripcion: evGet('ev-descripcion'),
     fecha: evGet('ev-fecha'),
     hora: evGet('ev-hora'),
-    // Hora2 ahora es texto libre, pero se sigue enviando como campo
     hora2: evGet('ev-hora2'),
     instagram: evGet('ev-instagram'),
     entradas: evGet('ev-entradas'),
@@ -782,7 +904,6 @@ function renderEventsList(events){
 
         document.getElementById('ev-fecha').value = toDateInputValue(found.fecha);
         document.getElementById('ev-hora').value = toTimeInputValue(found.hora);
-        // Hora2 se carga como texto tal cual venga almacenado
         document.getElementById('ev-hora2').value = found.hora2 || '';
 
         document.getElementById('ev-instagram').value = found.instagram || '';
@@ -985,13 +1106,16 @@ document.addEventListener('click', function(e){
   }
 });
 
-function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }); }
-
 /* ====================== DASHBOARD GET ====================== */
 let originalLoginBtnText = null;
+
 async function mostrarPanelDashboard(){
   if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
   document.getElementById('nombre-comercio').textContent = sesion.nombre;
+
+  // ✅ 1) Antes de mostrar tabs, leemos BV/BW y aplicamos visibilidad
+  const features = await getAdvertiserFeaturesByIdFromSheet(sesion.id);
+  applyFeatureTabsVisibility(features);
 
   const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
   try{
@@ -1011,7 +1135,9 @@ async function mostrarPanelDashboard(){
     const btn = document.getElementById('btnLogin');
     if(btn){ btn.removeAttribute('disabled'); btn.textContent = originalLoginBtnText; }
 
-    setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 250);
+    // ✅ Cargamos solo lo que corresponda
+    setTimeout(()=>{ try{ if(features.promos) loadPromosUI(); }catch(e){} }, 250);
+    setTimeout(()=>{ try{ if(features.eventos) loadEventsUI(); }catch(e){} }, 250);
   }catch(err){
     document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
     mostrarPanel('dashboard');
