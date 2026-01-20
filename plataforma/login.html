@@ -331,7 +331,6 @@ const BLOCKED = ["__id","id","planilla_id","planilla id","codigo","nivel","nivel
  * ✅ COLUMNAS DE FEATURES EN "anunciantes"
  * BV = Promos
  * BW = Eventos
- * (si luego agregás más: BX, BY, etc)
  *
  * OJO: en gviz usamos índice 0-based.
  * BV es la columna 74 (A=1 ... BV=74) => índice 73
@@ -457,14 +456,6 @@ function formatTimeForTable(v){
 }
 
 /* ====================== ✅ FEATURES (TABS POR COLUMNAS BV/BW) ====================== */
-
-/**
- * Convierte valores GViz típicos a boolean:
- * - true/false
- * - "TRUE"/"FALSE"
- * - 1/0
- * - "SI"/"NO" etc (por si alguna vez lo usan)
- */
 function toBool(v){
   if(v === true) return true;
   if(v === false) return false;
@@ -474,12 +465,6 @@ function toBool(v){
   return false;
 }
 
-/**
- * Busca en la hoja "anunciantes" la fila del anunciante por su ID (la misma columna que usás para login/autocomplete)
- * y trae BV/BW (promos/eventos).
- *
- * NOTA: Reutiliza lógica parecida a cargarComercios() para detectar el índice del ID.
- */
 async function getAdvertiserFeaturesByIdFromSheet(advertiserId){
   const features = { promos:false, eventos:false };
 
@@ -488,9 +473,8 @@ async function getAdvertiserFeaturesByIdFromSheet(advertiserId){
     const headers = gvizGetHeaders(json);
     const rows = gvizGetRows(json);
 
-    // Detectar columna de ID (como ya hacés en cargarComercios)
     let idxId = headers.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h));
-    if(idxId === -1) idxId = 61; // fallback como tu código
+    if(idxId === -1) idxId = 61;
 
     const targetId = String(advertiserId || '').trim();
     if(!targetId) return features;
@@ -511,7 +495,6 @@ async function getAdvertiserFeaturesByIdFromSheet(advertiserId){
     const promosCell = c[FEATURE_COL_INDEX.promos];
     const eventosCell = c[FEATURE_COL_INDEX.eventos];
 
-    // En GViz, checkbox suele venir como boolean en .v
     const promosVal = (promosCell && typeof promosCell === 'object' && 'v' in promosCell) ? promosCell.v : promosCell;
     const eventosVal = (eventosCell && typeof eventosCell === 'object' && 'v' in eventosCell) ? eventosCell.v : eventosCell;
 
@@ -526,14 +509,6 @@ async function getAdvertiserFeaturesByIdFromSheet(advertiserId){
   }
 }
 
-/**
- * Aplica la visibilidad de tabs/paneles.
- * - Datos: siempre visible
- * - Promos/Eventos: depende de features
- *
- * También si el usuario estaba parado en una pestaña que se oculta,
- * lo devolvemos a Datos.
- */
 function applyFeatureTabsVisibility(features){
   const tabDatos = document.getElementById('tab-datos');
   const tabPromos = document.getElementById('tab-promos');
@@ -543,11 +518,9 @@ function applyFeatureTabsVisibility(features){
   const promosPanel = document.getElementById('promos-panel');
   const eventosPanel = document.getElementById('eventos-panel');
 
-  // Datos siempre
   tabDatos.style.display = 'inline-block';
   datosPanel.style.display = 'block';
 
-  // Promos
   const allowPromos = !!(features && features.promos);
   tabPromos.style.display = allowPromos ? 'inline-block' : 'none';
   if(!allowPromos){
@@ -556,7 +529,6 @@ function applyFeatureTabsVisibility(features){
     tabPromos.setAttribute('aria-selected','false');
   }
 
-  // Eventos
   const allowEventos = !!(features && features.eventos);
   tabEventos.style.display = allowEventos ? 'inline-block' : 'none';
   if(!allowEventos){
@@ -565,7 +537,6 @@ function applyFeatureTabsVisibility(features){
     tabEventos.setAttribute('aria-selected','false');
   }
 
-  // Si el tab activo quedó oculto, forzamos volver a Datos
   const activeIsPromos = tabPromos.classList.contains('tab-active');
   const activeIsEventos = tabEventos.classList.contains('tab-active');
   if((activeIsPromos && !allowPromos) || (activeIsEventos && !allowEventos)){
@@ -854,7 +825,7 @@ function renderEventsList(events){
     const fechaTxt = htmlEscape(formatDateForTable(e.fecha));
     const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
     html += `<tr>
-      <td>${htmlEscape(e.nombre_evento || '')}<div class="events-small">${eventoId ? ('ID: '+eventoId) : ''}</div></td>
+      <td>${htmlEscape(e.nombre_evento || '')}<div class="events-small">${eventoId ? ('ID: '+eventoId) : '<span style="color:#c00">SIN ID (hay que corregir el origen)</span>'}</div></td>
       <td>${fechaTxt}</td>
       <td>${horaTxt}</td>
       <td>${htmlEscape(e.lugar || '')}</td>
@@ -876,9 +847,11 @@ function renderEventsList(events){
 
       if(action === 'delete'){
         if(!confirm('Confirmar borrar evento?')) return;
-        const res = await events_post({ action:'deleteEvent', payload: { evento_id: evId } });
-        if(res.status === 200 && res.json && res.json.success){
-          evSetMsgOk('Evento borrado.');
+
+        // ✅ VIP: borrar en eventos_vip (NO en unificada)
+        const res = await events_post({ action:'deleteVipEvent', payload: { evento_id: evId } });
+        if(res.status === 200 && res.json && (res.json.success || res.json.deleted)){
+          evSetMsgOk('Evento VIP borrado.');
           await loadEventsUI();
         } else {
           evSetMsgErr('Error borrando: ' + JSON.stringify(res.json));
@@ -919,7 +892,7 @@ function renderEventsList(events){
         document.getElementById('ev-partner5').value = found.partner5 || '';
         document.getElementById('ev-partner6').value = found.partner6 || '';
 
-        evSetMsgOk('Editando evento. Modificá y tocá "Guardar cambios".');
+        evSetMsgOk('Editando evento VIP. Modificá y tocá "Guardar cambios".');
       }
     });
   });
@@ -937,7 +910,8 @@ async function loadEventsUI(){
   st.textContent = 'Cargando eventos...';
   list.innerHTML = 'Cargando eventos...';
 
-  const res = await events_post({ action:'getEvents' });
+  // ✅ VIP: traer desde eventos_vip
+  const res = await events_post({ action:'getVipEvents' });
   if(res.status !== 200){
     st.textContent = 'Error cargando eventos: ' + res.status;
     list.innerHTML = '';
@@ -949,7 +923,7 @@ async function loadEventsUI(){
   const events = data.events || [];
   window.__lastEvents = events;
   renderEventsList(events);
-  st.textContent = 'Eventos cargados: ' + events.length;
+  st.textContent = 'Eventos VIP cargados: ' + events.length;
 }
 
 function cancelEventEdit(){
@@ -1113,7 +1087,6 @@ async function mostrarPanelDashboard(){
   if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
   document.getElementById('nombre-comercio').textContent = sesion.nombre;
 
-  // ✅ 1) Antes de mostrar tabs, leemos BV/BW y aplicamos visibilidad
   const features = await getAdvertiserFeaturesByIdFromSheet(sesion.id);
   applyFeatureTabsVisibility(features);
 
@@ -1135,7 +1108,6 @@ async function mostrarPanelDashboard(){
     const btn = document.getElementById('btnLogin');
     if(btn){ btn.removeAttribute('disabled'); btn.textContent = originalLoginBtnText; }
 
-    // ✅ Cargamos solo lo que corresponda
     setTimeout(()=>{ try{ if(features.promos) loadPromosUI(); }catch(e){} }, 250);
     setTimeout(()=>{ try{ if(features.eventos) loadEventsUI(); }catch(e){} }, 250);
   }catch(err){
@@ -1229,9 +1201,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(!payload.fecha){ alert('Falta Fecha'); return; }
 
       if(btn.dataset.mode === 'edit' && editingEventId){
-        const res = await events_post({ action:'updateEvent', payload: Object.assign({ evento_id: editingEventId }, payload) });
-        if(res.status === 200 && res.json && res.json.success){
-          evSetMsgOk('Evento actualizado.');
+        // ✅ VIP: update en eventos_vip
+        const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, payload) });
+        if(res.status === 200 && res.json && (res.json.success || res.json.updated)){
+          evSetMsgOk('Evento VIP actualizado.');
           editingEventId = null;
           btn.dataset.mode = '';
           btn.textContent = 'Crear evento';
@@ -1241,9 +1214,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
           evSetMsgErr('Error actualizando: ' + JSON.stringify(res.json));
         }
       } else {
-        const res = await events_post({ action:'createEvent', payload });
+        // ✅ VIP: create en eventos_vip (genera evento_id)
+        const res = await events_post({ action:'createVipEvent', payload });
         if(res.status === 200 && res.json && (res.json.success || res.json.created)){
-          evSetMsgOk('Evento creado.');
+          evSetMsgOk('Evento VIP creado.');
           clearEventForm();
           await loadEventsUI();
         } else {
