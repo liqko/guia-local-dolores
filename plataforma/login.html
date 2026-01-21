@@ -233,8 +233,8 @@
               </div>
 
               <div class="full">
-                <label>Lugar</label>
-                <select id="ev-lugar"><option value="">Seleccioná un lugar (opcional)</option></select>
+                <label>Lugar <span class="req">*</span></label>
+                <select id="ev-lugar"><option value="">Seleccioná un lugar</option></select>
                 <div class="events-small">Si elegís un lugar, se completa dirección y cómo llegar automáticamente.</div>
               </div>
 
@@ -324,6 +324,7 @@ const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
 
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
+const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 /* ================= */
 
@@ -636,6 +637,22 @@ async function loadEventLists(){
   }
 }
 
+async function loadPromosCategorias(){
+  try {
+    const json = await gvizFetch(PROMOS_SHEET_ID, 'categorias_list');
+    const headers = gvizGetHeaders(json);
+    const rows = gvizGetRows(json);
+    let idxTitulo = headers.indexOf('titulo'); if(idxTitulo === -1) idxTitulo = 0;
+    const cats = rows.map(r => r && r.c ? _cellToString(r.c[idxTitulo]) : '')
+      .map(s=>String(s||'').trim())
+      .filter(s=>s && s.toLowerCase() !== 'titulo');
+    const uniqueCats = Array.from(new Set(cats));
+    fillSelectOptions('promo-categoria', uniqueCats, 'Categoría de la promo');
+  } catch(e){ 
+    console.error('Error cargando categorías de promos:', e);
+  }
+}
+
 function onLugarChangeUpdateDireccion(){
   const sel = document.getElementById('ev-lugar');
   const dir = document.getElementById('ev-direccion');
@@ -707,7 +724,7 @@ function renderPromosList(promos){
     return;
   }
 
-  let html = '<table><thead><tr><th>Promo</th><th>Categoria</th><th>Desde</th><th>Hasta</th><th>promo_id</th><th>otros</th><th>Acciones</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Promo</th><th>Categoria</th><th>Desde</th><th>Hasta</th><th>promo_id</th><th>otros</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
   for(const p of promos){
     const promo = htmlEscape(p.promo || '');
     const categoria = htmlEscape(p.categoria || '');
@@ -715,6 +732,9 @@ function renderPromosList(promos){
     const hasta = htmlEscape(p.hasta || '');
     const pid = htmlEscape(p.promo_id || '');
     const otros = htmlEscape(p.otros || '');
+    const isPaused = (p.pausado === true || String(p.pausado).toUpperCase() === 'TRUE');
+    const estadoTxt = isPaused ? '<span style="color:#c00">PAUSADO</span>' : '<span style="color:#060">ACTIVO</span>';
+    const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
     html += `<tr>
       <td>${promo}</td>
       <td>${categoria}</td>
@@ -722,7 +742,9 @@ function renderPromosList(promos){
       <td>${hasta}</td>
       <td style="font-size:0.9em;color:#555">${pid}</td>
       <td>${otros}</td>
+      <td>${estadoTxt}</td>
       <td>
+        <button data-promo-action="pause" data-pid="${pid}" data-paused="${isPaused}">${pauseBtnText}</button>
         <button data-promo-action="edit" data-pid="${pid}">Editar</button>
         <button data-promo-action="delete" data-pid="${pid}">Borrar</button>
       </td>
@@ -735,6 +757,20 @@ function renderPromosList(promos){
     btn.addEventListener('click', async ()=>{
       const action = btn.getAttribute('data-promo-action');
       const pid = btn.getAttribute('data-pid');
+
+      if(action === 'pause'){
+        const isPaused = btn.getAttribute('data-paused') === 'true';
+        const newPauseState = isPaused ? 'FALSE' : 'TRUE';
+        const msg = isPaused ? 'Reanudando promo...' : 'Pausando promo...';
+        setMsg('promos-msg', 'ok', msg);
+        const r = await promos_post({ action: 'updatePromo', payload: { promo_id: pid, pausado: newPauseState } });
+        if(r.status === 200 && r.json && r.json.success){
+          setMsg('promos-msg', 'ok', isPaused ? 'Promo reanudada.' : 'Promo pausada.');
+          await loadPromosUI();
+        } else {
+          setMsg('promos-msg', 'err', 'Error pausando/reanudando: ' + JSON.stringify(r.json));
+        }
+      }
 
       if(action === 'delete'){
         if(!confirm('Confirmar borrar promo?')) return;
@@ -843,18 +879,23 @@ function renderEventsList(events){
     return;
   }
 
-  let html = '<table><thead><tr><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Lugar</th><th>Localidad</th><th>Acciones</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Lugar</th><th>Localidad</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
   for(const e of events){
     const eventoId = htmlEscape(e.evento_id || '');
     const fechaTxt = htmlEscape(formatDateForTable(e.fecha));
     const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
+    const isPaused = (e.pausado === true || String(e.pausado).toUpperCase() === 'TRUE');
+    const estadoTxt = isPaused ? '<span style="color:#c00">PAUSADO</span>' : '<span style="color:#060">ACTIVO</span>';
+    const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
     html += `<tr>
       <td>${htmlEscape(e.nombre_evento || '')}<div class="events-small">${eventoId ? ('ID: '+eventoId) : '<span style="color:#c00">SIN ID</span>'}</div></td>
       <td>${fechaTxt}</td>
       <td>${horaTxt}</td>
       <td>${htmlEscape(e.lugar || '')}</td>
       <td>${htmlEscape(e.localidad || '')}</td>
+      <td>${estadoTxt}</td>
       <td class="actions">
+        <button data-ev-action="pause" data-ev-id="${eventoId}" data-paused="${isPaused}">${pauseBtnText}</button>
         <button data-ev-action="edit" data-ev-id="${eventoId}">Editar</button>
         <button data-ev-action="delete" data-ev-id="${eventoId}">Borrar</button>
       </td>
@@ -868,6 +909,20 @@ function renderEventsList(events){
       const action = btn.getAttribute('data-ev-action');
       const evId = btn.getAttribute('data-ev-id') || '';
       if(!evId){ alert('Evento sin ID.'); return; }
+
+      if(action === 'pause'){
+        const isPaused = btn.getAttribute('data-paused') === 'true';
+        const newPauseState = !isPaused;
+        const msg = isPaused ? 'Reanudando evento...' : 'Pausando evento...';
+        setMsg('eventos-msg', 'ok', msg);
+        const res = await events_post({ action:'pauseVipEvent', payload: { evento_id: evId, pause: newPauseState } });
+        if(res.status === 200 && res.json && res.json.success){
+          setMsg('eventos-msg', 'ok', isPaused ? 'Evento reanudado.' : 'Evento pausado.');
+          await loadEventsUI();
+        } else {
+          setMsg('eventos-msg', 'err', 'Error pausando/reanudando: ' + JSON.stringify(res.json));
+        }
+      }
 
       if(action === 'delete'){
         if(!confirm('Confirmar borrar evento?')) return;
@@ -967,6 +1022,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   loadEventLists().then(()=>{
     document.getElementById('ev-lugar')?.addEventListener('change', onLugarChangeUpdateDireccion);
   }).catch(()=>{});
+  loadPromosCategorias().catch(()=>{});
 
   document.getElementById('btnCrearComercio').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
@@ -1034,6 +1090,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(!payload.fecha){ alert('Falta Fecha'); return; }
       if(!payload.categoria){ alert('Falta Categoría'); return; }
       if(!payload.localidad){ alert('Falta Localidad'); return; }
+      if(!payload.lugar){ alert('Falta Lugar'); return; }
 
       if(btn.dataset.mode === 'edit' && editingEventId){
         setMsg('eventos-msg', 'ok', 'Guardando cambios...');
