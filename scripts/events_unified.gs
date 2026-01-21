@@ -36,6 +36,23 @@
  * FIX NUEVO (2026-01-20):
  *  - FREE ahora también tiene columna evento_id (estable).
  *  - syncUnificadaFromSources borra de unificada eventos que ya no existen en VIP/FREE.
+ *
+ * NUEVO (2026-01-21 - A+B+C):
+ *  A) Pausado + API VIP:
+ *     - Columna 'pausado' en EVENTS_HEADERS (unificada) y VIP_HEADERS (eventos_vip)
+ *     - Endpoint pauseVipEvent para pausar/reanudar eventos VIP por evento_id
+ *     - syncUnificadaFromSources copia campo 'pausado' desde VIP/FREE a unificada
+ *  B) Sync aux → list:
+ *     - syncAuxLugaresToList() - aux_lugares → lugares_list
+ *     - syncAuxLocalidadToList() - aux_localidad → localidad_list
+ *     - syncAuxPartnerToList() - aux_partner → partner_list
+ *     - syncAuxCategoriasToList() - aux_categorias → categorias_list
+ *     - syncAllAuxToList() - ejecuta todos los syncs
+ *     - Idempotente, evita duplicados por nombre normalizado
+ *  C) Trigger automático:
+ *     - scheduledAuxListSync() - función ejecutada periódicamente
+ *     - ensureAuxListSyncTrigger() - crea trigger cada 6 horas
+ *     - Integrado en ensureAutoSyncTriggers()
  */
 
 /* ---------- CONSTANTES (Nombres de hojas) ---------- */
@@ -63,21 +80,21 @@ const EVENTS_HEADERS = [
   'aprobado','nivel','evento_id','id_anunciante','organizador','logo_organizador','categoria','logo_categoria',
   'nombre_evento','localidad','lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram',
   'img1','img2','img3','entradas','partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3',
-  'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6','audit'
+  'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6','pausado','audit'
 ];
 
 /**
  * Encabezados para la hoja 'eventos_vip'
  * IMPORTANTE:
  * - Se mantiene el orden original.
- * - Se agrega 'evento_id' AL FINAL (para no romper el mapeo a unificada que usa offset 3).
+ * - Se agrega 'pausado' y 'evento_id' AL FINAL (para no romper el mapeo a unificada que usa offset 3).
  */
 const VIP_HEADERS = [
   'id_anunciante','organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
   'lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram','img1','img2','img3','entradas',
   'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3','partner4','logo_partner4',
   'partner5','logo_partner5','partner6','logo_partner6','audit',
-  'evento_id'
+  'pausado','evento_id'
 ];
 
 /* -------------------- AUTO-SYNC CONFIG -------------------- */
@@ -1068,6 +1085,56 @@ function deleteVipEvent(advertiserId, payload){
   return { error: 'event not found' };
 }
 
+/**
+ * Pausa o reanuda un evento VIP
+ * @param {string} advertiserId - ID del anunciante
+ * @param {object} payload - { evento_id, pause: true|false }
+ * @returns {object} - { success, paused } o { error }
+ */
+function pauseVipEvent(advertiserId, payload){
+  advertiserId = String(advertiserId || '').trim();
+  payload = payload && typeof payload === 'object' ? payload : {};
+  const eventoId = String(payload.evento_id || '').trim();
+  const pauseValue = payload.pause === true || payload.pause === 'true' || payload.pause === 'TRUE';
+
+  if (!advertiserId) return { error: 'advertiserId required' };
+  if (!eventoId) return { error: 'evento_id required' };
+
+  const sh = ensureVipSheetAndHeaders();
+  const headers = getHeaders(sh);
+  const idxEvento = headers.indexOf('evento_id');
+  const idxAdv = headers.indexOf('id_anunciante');
+  const idxPausado = headers.indexOf('pausado');
+
+  if (idxEvento === -1) return { error: 'VIP missing evento_id column' };
+
+  const rows = Math.max(0, sh.getLastRow() - 1);
+  if (!rows) return { error: 'no vip events' };
+  const data = sh.getRange(2,1,rows,headers.length).getValues();
+
+  for (let r=0;r<data.length;r++){
+    const eid = String(data[r][idxEvento] || '').trim();
+    if (eid !== eventoId) continue;
+    const adv = idxAdv !== -1 ? String(data[r][idxAdv] || '').trim() : '';
+    if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
+
+    // Escribir en columna pausado
+    if (idxPausado !== -1) {
+      sh.getRange(r + 2, idxPausado + 1).setValue(pauseValue ? 'TRUE' : 'FALSE');
+    }
+
+    // Escribir audit
+    writeAuditEventRow(sh, r + 2, pauseValue ? 'pause_vip' : 'resume_vip', advertiserId);
+
+    // Sincronizar a unificada
+    try { syncUnificadaFromSources(); } catch(e){}
+
+    return { success:true, paused: pauseValue, evento_id: eventoId };
+  }
+
+  return { error: 'event not found' };
+}
+
 /* ---------- EVENTS CRUD (compat) ---------- */
 function createEvent(advertiserId, payload) {
   if (!advertiserId) return { error: 'advertiserId required' };
@@ -1386,6 +1453,7 @@ function doPost(e) {
     if (action === 'createvipevent' || action === 'create_vip_event') return jsonResponse(createVipEvent(advertiserId, body.payload || body));
     if (action === 'updatevipevent' || action === 'update_vip_event') return jsonResponse(updateVipEvent(advertiserId, body.payload || body));
     if (action === 'deletevipevent' || action === 'delete_vip_event') return jsonResponse(deleteVipEvent(advertiserId, body.payload || body));
+    if (action === 'pausevipevent' || action === 'pause_vip_event') return jsonResponse(pauseVipEvent(advertiserId, body.payload || body));
 
     if (['createevent','create_event','create-event','updateevent','update_event','update-event','deleteevent','delete_event','pauseevent','pause_event','getevents','get_events','get-events','geteventsformatted','get_events_formatted','get-events-formatted'].indexOf(action) !== -1) {
       return jsonResponse(handleEventAction(action, advertiserId, body.payload || body, params));
@@ -1461,12 +1529,12 @@ function syncUnificadaFromSources() {
   for (let r=0; r<vipFull.rows.length; r++){
     const rowArr = vipFull.rows[r];
     const id = getIdFromRawRow(vipFull.rawHeaders, rowArr) || ('vip-noid-' + (r+1));
-    if (!seen[id]) { seen[id] = true; sources.push({ id, source:'vip', row: rowArr }); }
+    if (!seen[id]) { seen[id] = true; sources.push({ id, source:'vip', row: rowArr, headers: vipFull.rawHeaders }); }
   }
   for (let r=0; r<freeFull.rows.length; r++){
     const rowArr = freeFull.rows[r];
     const id = getIdFromRawRow(freeFull.rawHeaders, rowArr) || ('free-noid-' + (r+1)); // (ya no debería pasar)
-    if (!seen[id]) { seen[id] = true; sources.push({ id, source:'free', row: rowArr }); }
+    if (!seen[id]) { seen[id] = true; sources.push({ id, source:'free', row: rowArr, headers: freeFull.rawHeaders }); }
   }
 
   let updated = 0;
@@ -1474,6 +1542,7 @@ function syncUnificadaFromSources() {
 
   for (const item of sources) {
     const srcRow = item.row;
+    const srcHeaders = item.headers;
     const rowOut = new Array(targetHeaders.length).fill('');
 
     if (idxNivelTarget !== -1) rowOut[idxNivelTarget] = item.source || '';
@@ -1487,6 +1556,15 @@ function syncUnificadaFromSources() {
     for (let t = 3; t < targetHeaders.length; t++) {
       const s = t - 3;
       rowOut[t] = (s < srcRow.length) ? (srcRow[s] === undefined ? '' : srcRow[s]) : '';
+    }
+
+    // ✅ NUEVO: Copiar pausado si existe en origen (VIP/FREE)
+    const idxPausadoTarget = targetHeaders.indexOf('pausado');
+    if (idxPausadoTarget !== -1) {
+      const idxPausadoSrc = srcHeaders.indexOf('pausado');
+      if (idxPausadoSrc !== -1 && srcRow[idxPausadoSrc] !== undefined) {
+        rowOut[idxPausadoTarget] = srcRow[idxPausadoSrc];
+      }
     }
 
     if (idxFechaTarget !== -1) rowOut[idxFechaTarget] = normalizeDateText_(rowOut[idxFechaTarget]);
@@ -1600,6 +1678,238 @@ function onFreeEditSync(e){
   return _throttledSync_('free_edit');
 }
 
+/* ---------- SYNC AUX → LIST (B) ---------- */
+
+/**
+ * Sincroniza datos de aux_lugares a lugares_list
+ * Crea la hoja si no existe, copia headers y contenido, evita duplicados por nombre normalizado
+ * @returns {object} - Resultado del sync
+ */
+function syncAuxLugaresToList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const auxSh = ss.getSheetByName(AUX_PLACES_SHEET);
+  if (!auxSh) return { error: 'aux_lugares not found', synced: 0 };
+
+  let listSh = ss.getSheetByName(LUGARES_LIST_SHEET);
+  if (!listSh) {
+    listSh = ss.insertSheet(LUGARES_LIST_SHEET);
+  }
+
+  const auxHeaders = getHeaders(auxSh);
+  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
+  if (auxRows === 0) {
+    // Solo copiar headers si aux tiene datos
+    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
+      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+    }
+    return { synced: 0, created_sheet: !ss.getSheetByName(LUGARES_LIST_SHEET) };
+  }
+
+  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
+
+  // Escribir headers si la lista está vacía
+  if (listSh.getLastRow() === 0) {
+    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+  }
+
+  const listHeaders = getHeaders(listSh);
+  const listRows = Math.max(0, listSh.getLastRow() - 1);
+  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
+
+  // Construir mapa de nombres normalizados existentes
+  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') : 
+                  listHeaders.indexOf('lugar') !== -1 ? listHeaders.indexOf('lugar') : 0;
+  const existing = new Set();
+  for (let i = 0; i < existingData.length; i++) {
+    const name = _norm(existingData[i][nameIdx] || '');
+    if (name) existing.add(name);
+  }
+
+  // Agregar solo nuevos
+  let added = 0;
+  for (let i = 0; i < auxData.length; i++) {
+    const name = _norm(auxData[i][nameIdx] || '');
+    if (!name || existing.has(name)) continue;
+    listSh.appendRow(auxData[i]);
+    existing.add(name);
+    added++;
+  }
+
+  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
+}
+
+/**
+ * Sincroniza datos de aux_localidad a localidad_list
+ * @returns {object} - Resultado del sync
+ */
+function syncAuxLocalidadToList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const auxSh = ss.getSheetByName(AUX_LOCALIDAD_SHEET);
+  if (!auxSh) return { error: 'aux_localidad not found', synced: 0 };
+
+  let listSh = ss.getSheetByName(LOCALIDAD_LIST_SHEET);
+  if (!listSh) {
+    listSh = ss.insertSheet(LOCALIDAD_LIST_SHEET);
+  }
+
+  const auxHeaders = getHeaders(auxSh);
+  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
+  if (auxRows === 0) {
+    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
+      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+    }
+    return { synced: 0 };
+  }
+
+  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
+
+  if (listSh.getLastRow() === 0) {
+    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+  }
+
+  const listHeaders = getHeaders(listSh);
+  const listRows = Math.max(0, listSh.getLastRow() - 1);
+  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
+
+  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
+                  listHeaders.indexOf('localidad') !== -1 ? listHeaders.indexOf('localidad') : 0;
+  const existing = new Set();
+  for (let i = 0; i < existingData.length; i++) {
+    const name = _norm(existingData[i][nameIdx] || '');
+    if (name) existing.add(name);
+  }
+
+  let added = 0;
+  for (let i = 0; i < auxData.length; i++) {
+    const name = _norm(auxData[i][nameIdx] || '');
+    if (!name || existing.has(name)) continue;
+    listSh.appendRow(auxData[i]);
+    existing.add(name);
+    added++;
+  }
+
+  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
+}
+
+/**
+ * Sincroniza datos de aux_partner a partner_list
+ * @returns {object} - Resultado del sync
+ */
+function syncAuxPartnerToList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const auxSh = ss.getSheetByName(AUX_PARTNER_SHEET);
+  if (!auxSh) return { error: 'aux_partner not found', synced: 0 };
+
+  let listSh = ss.getSheetByName(PARTNER_LIST_SHEET);
+  if (!listSh) {
+    listSh = ss.insertSheet(PARTNER_LIST_SHEET);
+  }
+
+  const auxHeaders = getHeaders(auxSh);
+  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
+  if (auxRows === 0) {
+    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
+      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+    }
+    return { synced: 0 };
+  }
+
+  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
+
+  if (listSh.getLastRow() === 0) {
+    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+  }
+
+  const listHeaders = getHeaders(listSh);
+  const listRows = Math.max(0, listSh.getLastRow() - 1);
+  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
+
+  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
+                  listHeaders.indexOf('partner') !== -1 ? listHeaders.indexOf('partner') : 0;
+  const existing = new Set();
+  for (let i = 0; i < existingData.length; i++) {
+    const name = _norm(existingData[i][nameIdx] || '');
+    if (name) existing.add(name);
+  }
+
+  let added = 0;
+  for (let i = 0; i < auxData.length; i++) {
+    const name = _norm(auxData[i][nameIdx] || '');
+    if (!name || existing.has(name)) continue;
+    listSh.appendRow(auxData[i]);
+    existing.add(name);
+    added++;
+  }
+
+  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
+}
+
+/**
+ * Sincroniza datos de aux_categorias a categorias_list
+ * @returns {object} - Resultado del sync
+ */
+function syncAuxCategoriasToList() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const auxSh = ss.getSheetByName(AUX_CATS_SHEET);
+  if (!auxSh) return { error: 'aux_categorias not found', synced: 0 };
+
+  let listSh = ss.getSheetByName(CATEGORIES_SHEET_NAME);
+  if (!listSh) {
+    listSh = ss.insertSheet(CATEGORIES_SHEET_NAME);
+  }
+
+  const auxHeaders = getHeaders(auxSh);
+  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
+  if (auxRows === 0) {
+    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
+      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+    }
+    return { synced: 0 };
+  }
+
+  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
+
+  if (listSh.getLastRow() === 0) {
+    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
+  }
+
+  const listHeaders = getHeaders(listSh);
+  const listRows = Math.max(0, listSh.getLastRow() - 1);
+  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
+
+  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
+                  listHeaders.indexOf('categoria') !== -1 ? listHeaders.indexOf('categoria') : 0;
+  const existing = new Set();
+  for (let i = 0; i < existingData.length; i++) {
+    const name = _norm(existingData[i][nameIdx] || '');
+    if (name) existing.add(name);
+  }
+
+  let added = 0;
+  for (let i = 0; i < auxData.length; i++) {
+    const name = _norm(auxData[i][nameIdx] || '');
+    if (!name || existing.has(name)) continue;
+    listSh.appendRow(auxData[i]);
+    existing.add(name);
+    added++;
+  }
+
+  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
+}
+
+/**
+ * Sincroniza todas las hojas AUX a sus respectivas LIST
+ * @returns {object} - Resultados de todos los syncs
+ */
+function syncAllAuxToList() {
+  const results = {};
+  try { results.lugares = syncAuxLugaresToList(); } catch(e) { results.lugares = { error: e.message }; }
+  try { results.localidad = syncAuxLocalidadToList(); } catch(e) { results.localidad = { error: e.message }; }
+  try { results.partner = syncAuxPartnerToList(); } catch(e) { results.partner = { error: e.message }; }
+  try { results.categorias = syncAuxCategoriasToList(); } catch(e) { results.categorias = { error: e.message }; }
+  return results;
+}
+
 function ensureAutoSyncTriggers(){
   try { ensureOnEditSyncTrigger('onVipEditSync'); } catch(e){}
   try { ensureOnEditSyncTrigger('onFreeEditSync'); } catch(e){}
@@ -1607,6 +1917,8 @@ function ensureAutoSyncTriggers(){
   if (KEEP_HOURLY_MAINTENANCE) {
     try { ensureHourlyMaintenanceTrigger(); } catch(e){}
   }
+  // ✅ NUEVO: Trigger para sync aux→list cada 6 horas
+  try { ensureAuxListSyncTrigger(); } catch(e){}
 }
 
 function ensureOnEditSyncTrigger(handlerName){
@@ -1645,4 +1957,45 @@ function scheduledHourlyMaintenance(){
   Logger.log('scheduledHourlyMaintenance result: %s', JSON.stringify(res));
   try { SpreadsheetApp.getActive().toast('Auto-mantenimiento: ' + JSON.stringify(res), 'Hourly', 6); } catch(e){}
   return res;
+}
+
+/* ---------- TRIGGER AUX LIST SYNC (C) ---------- */
+
+/**
+ * Función ejecutada periódicamente para sincronizar hojas AUX a LIST
+ * Frecuencia: cada 6 horas (configurable en ensureAuxListSyncTrigger)
+ */
+function scheduledAuxListSync() {
+  const res = {};
+  try {
+    res.aux_sync = syncAllAuxToList();
+    Logger.log('scheduledAuxListSync result: %s', JSON.stringify(res));
+  } catch(e) {
+    res.error = e && e.message ? e.message : String(e);
+    Logger.log('scheduledAuxListSync error: %s', res.error);
+  }
+  try {
+    SpreadsheetApp.getActive().toast(
+      'Sync AUX→LIST: ' + JSON.stringify(res.aux_sync || res.error || 'ok'),
+      'Aux List Sync',
+      6
+    );
+  } catch(e){}
+  return res;
+}
+
+/**
+ * Asegura que existe el trigger para sincronización periódica AUX→LIST
+ * Frecuencia: cada 6 horas
+ */
+function ensureAuxListSyncTrigger() {
+  const existing = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < existing.length; i++) {
+    const t = existing[i];
+    if (t.getHandlerFunction() === 'scheduledAuxListSync' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) {
+      return; // Ya existe
+    }
+  }
+  // Crear trigger cada 6 horas
+  ScriptApp.newTrigger('scheduledAuxListSync').timeBased().everyHours(6).create();
 }
