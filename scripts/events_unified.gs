@@ -613,9 +613,31 @@ function ensureEventsSheetAndHeaders() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(EVENTS_SHEET_NAME);
   if (!sh) sh = ss.insertSheet(EVENTS_SHEET_NAME);
+  
   const desired = EVENTS_HEADERS.length;
   const currentCols = Math.max(1, sh.getLastColumn());
-  if (currentCols < desired) sh.insertColumnsAfter(currentCols, desired - currentCols);
+  
+  // Migración: si la hoja ya existe, verificar si tiene pausado antes de audit
+  const existingHeaders = sh.getLastRow() >= 1 ? 
+    sh.getRange(1,1,1,currentCols).getValues()[0].map(h => String(h||'').toLowerCase().trim()) : [];
+  
+  const hasPausado = existingHeaders.indexOf('pausado') !== -1;
+  const hasAudit = existingHeaders.indexOf('audit') !== -1;
+  
+  // Si falta pausado pero existe audit, necesitamos insertarla antes de audit
+  if (!hasPausado && hasAudit) {
+    const auditIdx = existingHeaders.indexOf('audit');
+    // Insertar columna antes de audit
+    sh.insertColumnBefore(auditIdx + 1);
+    // Actualizar header de la nueva columna
+    sh.getRange(1, auditIdx + 1).setValue('pausado');
+  }
+  
+  // Asegurar que tengamos suficientes columnas
+  const newCurrentCols = Math.max(1, sh.getLastColumn());
+  if (newCurrentCols < desired) sh.insertColumnsAfter(newCurrentCols, desired - newCurrentCols);
+  
+  // Escribir headers completos
   sh.getRange(1,1,1,desired).setValues([EVENTS_HEADERS]);
 
   // ✅ FIX: NO pre-crear 200 filas vacías
@@ -683,23 +705,32 @@ function ensureVipSheetAndHeaders(){
   if (currentCols < desired) sh.insertColumnsAfter(currentCols, desired - currentCols);
 
   // Migración suave: detectar headers existentes
-  const existingHeaders = sh.getLastRow() >= 1 ? sh.getRange(1,1,1,currentCols).getValues()[0].map(h => String(h||'').toLowerCase().trim()) : [];
-  const needsUpdate = existingHeaders.length === 0 || 
-                      existingHeaders.indexOf('evento_id') === -1 || 
-                      existingHeaders.indexOf('pausado') === -1;
+  const existingHeaders = sh.getLastRow() >= 1 ? 
+    sh.getRange(1,1,1,Math.max(1, sh.getLastColumn())).getValues()[0].map(h => String(h||'').toLowerCase().trim()) : [];
   
-  // Si no existen evento_id o pausado, o si están en orden incorrecto, reescribir headers
-  if (needsUpdate) {
+  const hasEventoId = existingHeaders.indexOf('evento_id') !== -1;
+  const hasPausado = existingHeaders.indexOf('pausado') !== -1;
+  const hasAudit = existingHeaders.indexOf('audit') !== -1;
+  
+  // Si falta alguna columna esencial, reescribir headers completos
+  if (existingHeaders.length === 0 || !hasEventoId || !hasPausado) {
     sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
   } else {
-    // Headers ya existen - verificar que evento_id esté antes de pausado
+    // Headers existen - verificar orden correcto (audit → evento_id → pausado)
+    const idxAudit = existingHeaders.indexOf('audit');
     const idxEventoId = existingHeaders.indexOf('evento_id');
     const idxPausado = existingHeaders.indexOf('pausado');
     
-    // Si están en orden incorrecto (pausado antes de evento_id), corregir
-    if (idxEventoId !== -1 && idxPausado !== -1 && idxPausado < idxEventoId) {
-      // Reescribir con orden correcto
+    // Verificar si el orden es incorrecto
+    const orderIncorrect = (idxAudit !== -1 && idxEventoId !== -1 && idxAudit > idxEventoId) ||
+                           (idxEventoId !== -1 && idxPausado !== -1 && idxEventoId > idxPausado);
+    
+    if (orderIncorrect) {
+      // Orden incorrecto - reescribir headers
+      // NOTA: esto solo corrige el header, no mueve los datos de las columnas
+      // Para mover datos, se requeriría lógica más compleja que podría romper datos existentes
       sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
+      console.warn('VIP headers tenían orden incorrecto. Se reescribieron. Verificar datos manualmente.');
     }
   }
 
@@ -1201,6 +1232,9 @@ function createEvent(advertiserId, payload) {
     setFieldLocal(lp, payload[lp] || '');
   }
 
+  // Establecer pausado en FALSE por defecto para nuevos eventos
+  setFieldLocal('pausado', 'FALSE');
+
   setFieldLocal('audit', 'created_by:dashboard at ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
 
   vipSh.appendRow(row);
@@ -1587,7 +1621,19 @@ function syncUnificadaFromSources() {
     if (idxPausadoTarget !== -1) {
       const idxPausadoSrc = srcHeaders.indexOf('pausado');
       if (idxPausadoSrc !== -1 && srcRow[idxPausadoSrc] !== undefined) {
-        rowOut[idxPausadoTarget] = srcRow[idxPausadoSrc];
+        const rawPausado = srcRow[idxPausadoSrc];
+        // Normalizar a TRUE/FALSE strings para compatibilidad con frontend
+        if (rawPausado === true || rawPausado === 'true' || rawPausado === 'TRUE' || rawPausado === 1) {
+          rowOut[idxPausadoTarget] = 'TRUE';
+        } else if (rawPausado === false || rawPausado === 'false' || rawPausado === 'FALSE' || rawPausado === 0 || rawPausado === '') {
+          rowOut[idxPausadoTarget] = 'FALSE';
+        } else {
+          // Si tiene un valor no reconocido, intentar convertir a boolean
+          rowOut[idxPausadoTarget] = rawPausado ? 'TRUE' : 'FALSE';
+        }
+      } else {
+        // Si el source no tiene pausado, dejar FALSE por defecto
+        rowOut[idxPausadoTarget] = 'FALSE';
       }
     }
 
