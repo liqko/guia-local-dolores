@@ -71,6 +71,7 @@ const LOCALIDAD_LIST_SHEET = 'localidad_list';
 const LUGARES_LIST_SHEET = 'lugares_list';
 const AUX_PARTNER_SHEET = 'aux_partner';
 const PARTNER_LIST_SHEET = 'partner_list';
+const ANUNCIANTES_AUT_SHEET = 'anunciantes_aut';
 
 /* Server secret optional (leave or change) */
 const SERVER_SECRET = 'PzbqSEw9xNrwvWruJN7njiW905uwMiBS';
@@ -87,14 +88,15 @@ const EVENTS_HEADERS = [
  * Encabezados para la hoja 'eventos_vip'
  * IMPORTANTE:
  * - Se mantiene el orden original.
- * - Se agrega 'pausado' y 'evento_id' AL FINAL (para no romper el mapeo a unificada que usa offset 3).
+ * - Se agrega 'evento_id' y 'pausado' AL FINAL (para no romper el mapeo a unificada que usa offset 3).
+ * - ORDEN CORRECTO: evento_id ANTES de pausado (corregido para evitar confusión en dashboard)
  */
 const VIP_HEADERS = [
   'id_anunciante','organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
   'lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram','img1','img2','img3','entradas',
   'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3','partner4','logo_partner4',
   'partner5','logo_partner5','partner6','logo_partner6','audit',
-  'pausado','evento_id'
+  'evento_id','pausado'
 ];
 
 /* -------------------- AUTO-SYNC CONFIG -------------------- */
@@ -680,7 +682,26 @@ function ensureVipSheetAndHeaders(){
   const currentCols = Math.max(1, sh.getLastColumn());
   if (currentCols < desired) sh.insertColumnsAfter(currentCols, desired - currentCols);
 
-  sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
+  // Migración suave: detectar headers existentes
+  const existingHeaders = sh.getLastRow() >= 1 ? sh.getRange(1,1,1,currentCols).getValues()[0].map(h => String(h||'').toLowerCase().trim()) : [];
+  const needsUpdate = existingHeaders.length === 0 || 
+                      existingHeaders.indexOf('evento_id') === -1 || 
+                      existingHeaders.indexOf('pausado') === -1;
+  
+  // Si no existen evento_id o pausado, o si están en orden incorrecto, reescribir headers
+  if (needsUpdate) {
+    sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
+  } else {
+    // Headers ya existen - verificar que evento_id esté antes de pausado
+    const idxEventoId = existingHeaders.indexOf('evento_id');
+    const idxPausado = existingHeaders.indexOf('pausado');
+    
+    // Si están en orden incorrecto (pausado antes de evento_id), corregir
+    if (idxEventoId !== -1 && idxPausado !== -1 && idxPausado < idxEventoId) {
+      // Reescribir con orden correcto
+      sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
+    }
+  }
 
   try {
     const catSh = ss.getSheetByName(CATEGORIES_SHEET_NAME);
@@ -967,6 +988,9 @@ function createVipEvent(advertiserId, payload){
     if (k === 'fecha') val = normalizeDateText_(val);
     setFieldLocal(k, val);
   });
+
+  // Establecer pausado en FALSE por defecto
+  setFieldLocal('pausado', 'FALSE');
 
   setFieldLocal('audit', 'created_vip_event at ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
 
@@ -1898,6 +1922,77 @@ function syncAuxCategoriasToList() {
 }
 
 /**
+ * Sincroniza anunciantes desde spreadsheet externo a hoja local anunciantes_aut
+ * Filtra solo los anunciantes que tienen la columna 'eventos' (BW) en TRUE
+ * @returns {object} - Resultado de la sincronización
+ */
+function syncAnunciantesAut() {
+  try {
+    // Abrir el spreadsheet externo
+    const extSs = SpreadsheetApp.openById(SPREADSHEET_ANNUNCIANTES_ID);
+    const extSh = extSs.getSheetByName('anunciantes');
+    
+    if (!extSh) {
+      return { error: 'No se encontró la pestaña "anunciantes" en el spreadsheet externo', synced: 0 };
+    }
+
+    // Leer datos del spreadsheet externo
+    const lastRow = extSh.getLastRow();
+    if (lastRow < 2) {
+      return { error: 'No hay datos en la pestaña anunciantes', synced: 0 };
+    }
+
+    const lastCol = extSh.getLastColumn();
+    const allData = extSh.getRange(1, 1, lastRow, lastCol).getValues();
+    const headers = allData[0];
+    
+    // Encontrar índice de columna BW (eventos) - columna 75 (BW es la columna 75: A=1, B=2, ..., BW=75)
+    const eventosIdx = 74; // BW es la columna 75, índice 74 (base 0)
+    
+    // Filtrar filas donde eventos = TRUE
+    const filteredRows = [];
+    for (let i = 1; i < allData.length; i++) {
+      const eventosValue = allData[i][eventosIdx];
+      // Aceptar boolean true o string "TRUE"
+      if (eventosValue === true || eventosValue === 'TRUE' || eventosValue === 'true') {
+        filteredRows.push(allData[i]);
+      }
+    }
+
+    // Obtener/crear hoja local anunciantes_aut
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    let localSh = ss.getSheetByName(ANUNCIANTES_AUT_SHEET);
+    if (!localSh) {
+      localSh = ss.insertSheet(ANUNCIANTES_AUT_SHEET);
+    }
+
+    // Limpiar hoja local y escribir headers + datos filtrados
+    localSh.clear();
+    
+    if (filteredRows.length > 0) {
+      // Escribir headers
+      localSh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      // Escribir filas filtradas
+      localSh.getRange(2, 1, filteredRows.length, headers.length).setValues(filteredRows);
+    } else {
+      // Solo headers si no hay datos filtrados
+      localSh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    }
+
+    return { 
+      synced: filteredRows.length, 
+      total_in_source: lastRow - 1,
+      message: `Se sincronizaron ${filteredRows.length} anunciantes con eventos=TRUE`
+    };
+  } catch(e) {
+    return { 
+      error: e && e.message ? e.message : String(e), 
+      synced: 0 
+    };
+  }
+}
+
+/**
  * Sincroniza todas las hojas AUX a sus respectivas LIST
  * @returns {object} - Resultados de todos los syncs
  */
@@ -1919,6 +2014,8 @@ function ensureAutoSyncTriggers(){
   }
   // ✅ NUEVO: Trigger para sync aux→list cada 6 horas
   try { ensureAuxListSyncTrigger(); } catch(e){}
+  // ✅ NUEVO: Trigger para sync anunciantes_aut cada 6 horas
+  try { ensureAnunciantesAutSyncTrigger(); } catch(e){}
 }
 
 function ensureOnEditSyncTrigger(handlerName){
@@ -1998,4 +2095,45 @@ function ensureAuxListSyncTrigger() {
   }
   // Crear trigger cada 6 horas
   ScriptApp.newTrigger('scheduledAuxListSync').timeBased().everyHours(6).create();
+}
+
+/* ---------- TRIGGER ANUNCIANTES_AUT SYNC (D) ---------- */
+
+/**
+ * Función ejecutada periódicamente para sincronizar anunciantes_aut desde spreadsheet externo
+ * Frecuencia: cada 6 horas (configurable en ensureAnunciantesAutSyncTrigger)
+ */
+function scheduledAnunciantesAutSync() {
+  const res = {};
+  try {
+    res.anunciantes_aut_sync = syncAnunciantesAut();
+    Logger.log('scheduledAnunciantesAutSync result: %s', JSON.stringify(res));
+  } catch(e) {
+    res.error = e && e.message ? e.message : String(e);
+    Logger.log('scheduledAnunciantesAutSync error: %s', res.error);
+  }
+  try {
+    SpreadsheetApp.getActive().toast(
+      'Sync Anunciantes AUT: ' + JSON.stringify(res.anunciantes_aut_sync || res.error || 'ok'),
+      'Anunciantes AUT Sync',
+      6
+    );
+  } catch(e){}
+  return res;
+}
+
+/**
+ * Asegura que existe el trigger para sincronización periódica de anunciantes_aut
+ * Frecuencia: cada 6 horas
+ */
+function ensureAnunciantesAutSyncTrigger() {
+  const existing = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < existing.length; i++) {
+    const t = existing[i];
+    if (t.getHandlerFunction() === 'scheduledAnunciantesAutSync' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) {
+      return; // Ya existe
+    }
+  }
+  // Crear trigger cada 6 horas
+  ScriptApp.newTrigger('scheduledAnunciantesAutSync').timeBased().everyHours(6).create();
 }
