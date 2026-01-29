@@ -84,6 +84,7 @@
     .event-card.vip .thumb{
       border:2px solid rgba(255,122,42,0.32);
       box-shadow:0 12px 28px rgba(255,122,42,0.18);
+      cursor:pointer;
     }
     .event-card.vip .title-card{font-size:1.55rem;letter-spacing:-0.01em;}
     .event-card.vip .desc{font-size:1.06rem;}
@@ -172,15 +173,31 @@
       box-shadow:0 10px 26px rgba(28,43,78,0.06);
       padding:14px;
       overflow:hidden;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
     }
     .ad-img{
       width:100%;
-      display:block;
       border-radius:14px;
       border:1px solid #eef3ff;
       object-fit:cover;
       max-height:320px;
+      aspect-ratio:4/5;
+      display:block;
+      background:#eee;
+      margin: 0 auto;
     }
+    @media(max-width: 600px){
+      .ad-img{
+        max-height:70vw;
+        aspect-ratio: 3/5;
+      }
+      .ad-card{
+        padding:6px;
+      }
+    }
+
     .ad-cta{
       margin-top:10px;
       width:100%;
@@ -193,7 +210,6 @@
       color:#fff;
       border:1px solid rgba(0,0,0,0.06);
     }
-    /* =========================== */
 
     .paginator{display:flex;gap:8px;justify-content:center;padding:12px;margin-top:14px;flex-wrap:wrap;}
     .paginator button{padding:8px 12px;border-radius:10px;border:none;background:var(--blue);color:#fff;font-weight:900;cursor:pointer;}
@@ -210,6 +226,88 @@
       .organizer-left{align-items:flex-start;text-align:left}
       .embed-iframe{height:460px;}
     }
+
+    /* Modal estilos */
+    .modal-img-viewer{
+      display:none;position:fixed;z-index:9999;top:0;left:0;width:100vw;height:100vh;
+      background:rgba(36,44,46,0.95);
+      justify-content:center;align-items:center;
+      transition:opacity .15s;
+      flex-direction:column;
+      padding:0;
+    }
+    .modal-img-viewer.open{ display:flex; }
+    .modal-img-viewer img{
+      max-width:94vw;
+      max-height:85vh;
+      box-shadow:0 8px 44px 0 rgba(0,0,0,0.28);
+      border-radius:16px;
+      background:#fff;
+    }
+    .modal-img-viewer .close-btn{
+      position:absolute;top:18px;right:24px;
+      font-size:2.3rem;
+      background:none;border:none;color:#fff;cursor:pointer;font-weight:900;
+      z-index:9002;
+    }
+    .modal-img-viewer .thumblist{
+      display:flex;gap:9px;margin:20px 0 0 0;
+      flex-wrap:wrap;justify-content:center;
+    }
+    .modal-img-viewer .thumblist img{
+      width:58px;height:58px;object-fit:cover;cursor:pointer;border-radius:8px;
+      border:2px solid #eee;background:#eee;transition:box-shadow .16s;
+      box-shadow:0 2px 8px rgba(21,22,29,0.12);
+      margin-bottom:6px;
+    }
+    .modal-img-viewer .thumblist img.selected{
+      border:3px solid #ff7a2a;box-shadow:0 4px 18px #ffb74d55;
+    }
+    @media(max-width:630px){
+      .modal-img-viewer img{
+        max-width:100vw;
+        max-height:63vh;
+      }
+      .modal-img-viewer .close-btn{top:10px;right:14px;}
+    }
+
+    /* Instagram Reels embeber (tamaño reel 9:16) */
+    .reel-embed-wrap {
+      width:100%;
+      max-width:420px;
+      margin: 16px auto 0 auto;
+      aspect-ratio:9/16;
+      background:#222;
+      border-radius:16px;
+      overflow:hidden;
+      box-shadow:0 8px 24px #21282d18;
+      position:relative;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+    }
+    .reel-embed-iframe {
+      width:100%;
+      height:100%;
+      border:0;
+      background:#111;
+      display:block;
+      aspect-ratio:9/16;
+    }
+    @media (max-width: 600px) {
+      .reel-embed-wrap { max-width:98vw; aspect-ratio:9/16;}
+      .reel-embed-iframe{ max-height:72vw;}
+    }
+
+    .map-link{
+      color:#2074bb;
+      font-weight:900;
+      text-decoration: underline dotted;
+      display: inline-block;
+      margin-top:7px;
+      letter-spacing:.01em;
+    }
+    .map-link i{margin-right:6px;}
   </style>
 </head>
 <body>
@@ -241,6 +339,13 @@
 
     <div class="events" id="events" aria-live="polite"></div>
     <div class="paginator" id="paginator" aria-label="Paginador"></div>
+  </div>
+
+  <!-- Modal para ver imágenes VIP -->
+  <div class="modal-img-viewer" id="modalImgViewer" tabindex="-1" aria-modal="true" role="dialog" aria-label="Galería de imágenes">
+    <button class="close-btn" id="modalImgClose" type="button" aria-label="Cerrar">&times;</button>
+    <img src="" alt="Vista ampliada" id="modalImgMain">
+    <div class="thumblist" id="modalImgThumbs"></div>
   </div>
 
   <script>
@@ -438,7 +543,6 @@
       btn.type = 'button';
       btn.textContent = 'Visitar anunciante';
       btn.onclick = function(){
-        // ✅ TODO ADENTRO: abre iframe dentro del bloque del banner
         mountEmbedBlock(el, 'Anunciante', ad.url);
         el.scrollIntoView({ behavior:'smooth', block:'center' });
       };
@@ -449,35 +553,48 @@
     }
     // ==========================
 
-    async function loadEventos(){
-      document.getElementById('events').innerHTML = '';
+    // Modal viewer para VIP
+    function showImgModal(imgArr, index) {
+      const modal = document.getElementById('modalImgViewer');
+      const modalImg = document.getElementById('modalImgMain');
+      const thumbs = document.getElementById('modalImgThumbs');
+      if (!imgArr.length) return;
+      let curIdx = (typeof index === 'number' && index<imgArr.length) ? index : 0;
 
-      try {
-        const r = await fetch(EVENTS_ENDPOINT, { cache: "no-store" });
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = await r.json();
-
-        const arr = (data && data.events) ? data.events : [];
-
-        eventosData = arr.filter(ev => {
-          const raw = (ev && (ev.fecha_iso || ev.fecha)) ? (ev.fecha_iso || ev.fecha) : '';
-          return !isPastDate(raw);
-        });
-
-        eventosData.sort((a,b)=>{
-          const da = parseToDate((a && (a.fecha_iso || a.fecha)) ? (a.fecha_iso || a.fecha) : '') || new Date(8640000000000000);
-          const db = parseToDate((b && (b.fecha_iso || b.fecha)) ? (b.fecha_iso || b.fecha) : '') || new Date(8640000000000000);
-          return da.getTime() - db.getTime();
-        });
-
-        eventosFiltrados = eventosData.slice();
-        currentPage = 1;
-
-        hydrateCategoryFilterFromEvents(eventosData);
-        renderEventos(eventosFiltrados, currentPage);
-      } catch(e){
-        document.getElementById('events').innerHTML = `<p class="error">No se pudieron cargar los datos de eventos.</p>`;
+      function setImg(idx){
+        modalImg.src = imgArr[idx];
+        Array.from(thumbs.children).forEach((img,i)=>img.classList.toggle('selected',i===idx));
       }
+      thumbs.innerHTML = '';
+      imgArr.forEach((url,i)=>{
+        const im = document.createElement('img');
+        im.src=url; im.alt="Miniatura"; im.tabIndex=0;
+        if(i===curIdx) im.classList.add('selected');
+        im.onclick=()=>{ curIdx=i; setImg(i);}
+        im.onkeyup=(e)=>{ if(e.key==='Enter') { curIdx=i; setImg(i);} }
+        thumbs.appendChild(im);
+      });
+      setImg(curIdx);
+      modal.classList.add('open');
+      document.body.style.overflow='hidden';
+      modalImg.focus && modalImg.focus();
+
+      function handleKey(e){
+        if (e.key==='Escape') { closeModal(); }
+        else if ((e.key==='ArrowLeft'||e.key==='a') && curIdx>0){ curIdx--; setImg(curIdx);}
+        else if ((e.key==='ArrowRight'||e.key==='d') && curIdx<imgArr.length-1){ curIdx++; setImg(curIdx); }
+      }
+      function closeModal(){
+        modal.classList.remove('open');
+        modalImg.src='';
+        document.body.style.overflow='';
+        document.removeEventListener('keydown', handleKey);
+      }
+      document.getElementById('modalImgClose').onclick=closeModal;
+      modal.onclick = (evt)=>{
+        if(evt.target===modal) closeModal();
+      }
+      document.addEventListener('keydown', handleKey);
     }
 
     function renderEventos(data,page=1){
@@ -497,28 +614,40 @@
 
       pageData.forEach((ev, idxOnPage)=>{
         const card = document.createElement('article');
-
         const nivelStr = (ev && ev.nivel) ? String(ev.nivel).toLowerCase() : '';
         const lvl = nivelStr.indexOf('vip') !== -1 ? 'vip' : (nivelStr.indexOf('free') !== -1 ? 'free' : '');
-
         card.className = `card event-card ${lvl}`;
-
         if (lvl){
           const b = document.createElement('div');
           b.className = `badge ${lvl}`;
           b.textContent = lvl.toUpperCase();
           card.appendChild(b);
         }
-
         const left = document.createElement('div');
         left.className = 'left';
+        // VIP image gallery logic
+        const thumbsArr = [];
+        ['img1','img2','img3'].forEach(k=>{
+          let u = safeUrl(ev && ev[k] ? ev[k] : '');
+          if(u) thumbsArr.push(u);
+        });
+        const lo = safeUrl(ev && ev.logo_organizador ? ev.logo_organizador : '');
+        if (!thumbsArr.length && lo) thumbsArr.push(lo);
 
         const img = document.createElement('img');
         img.className='thumb';
         img.alt = (ev && (ev.nombre_evento || ev.nombre)) ? (ev.nombre_evento || ev.nombre) : 'imagen evento';
 
-        const thumbUrl = pickThumbUrl(ev, lvl);
+        // Solo VIP: click para abrir galería
+        if (lvl === 'vip' && thumbsArr.length) {
+          img.style.cursor='pointer';
+          img.title = "Ver imágenes";
+          img.tabIndex=0;
+          img.addEventListener('click',()=>showImgModal(thumbsArr,0));
+          img.addEventListener('keyup',e=>{ if(e.key==='Enter' || e.key===' '){ showImgModal(thumbsArr,0);} });
+        }
 
+        const thumbUrl = thumbsArr.length?thumbsArr[0]:pickThumbUrl(ev, lvl);
         img.loading = 'lazy';
         img.src = thumbUrl ? thumbUrl : PLACEHOLDER_SVG;
         img.crossOrigin = 'anonymous';
@@ -528,7 +657,6 @@
           else this.src = PLACEHOLDER_SVG;
           this.onerror = null;
         };
-
         left.appendChild(img);
 
         if (lvl === 'vip' && ev && ev.organizador){
@@ -540,7 +668,6 @@
           `;
           left.appendChild(orgLeft);
         }
-
         const right = document.createElement('div');
         right.className='right';
 
@@ -555,10 +682,8 @@
           c.textContent = ev.categoria;
           right.appendChild(c);
         }
-
         const infoBlock = document.createElement('div');
         infoBlock.className = 'info-block';
-
         const rawFecha = (ev && (ev.fecha_iso || ev.fecha)) ? (ev.fecha_iso || ev.fecha) : '';
         const d = parseToDate(rawFecha);
         const fechaHum = (ev && ev.fecha_humana)
@@ -577,21 +702,18 @@
           line.innerHTML = `<i class="ri-calendar-event-line"></i><div class="text">${fechaHum ? fechaHum : ''}${(fechaHum && hrShown) ? ' — ' : ''}${hrShown ? hrShown : ''}</div>`;
           infoBlock.appendChild(line);
         }
-
         if (ev && ev.lugar){
           const line = document.createElement('div');
           line.className = 'line';
           line.innerHTML = `<i class="ri-map-pin-line"></i><div class="text">${ev.lugar}</div>`;
           infoBlock.appendChild(line);
         }
-
         if (ev && ev.direccion){
           const line = document.createElement('div');
           line.className = 'line';
           line.innerHTML = `<i class="ri-road-map-line"></i><div class="muted"><strong>Dirección:</strong> ${ev.direccion}</div>`;
           infoBlock.appendChild(line);
         }
-
         right.appendChild(infoBlock);
 
         if (ev && ev.descripcion){
@@ -601,23 +723,20 @@
           right.appendChild(desc);
         }
 
+        // Patrocinadores
         const partners = getPartners(ev);
         if (partners.length){
           const sponsors = document.createElement('div');
           sponsors.className = 'sponsors';
-
           const st = document.createElement('div');
           st.className = 'sponsors-title';
           st.innerHTML = `<i class="ri-hand-heart-line"></i> <span>Auspicia</span>`;
           sponsors.appendChild(st);
-
           const grid = document.createElement('div');
           grid.className = 'sponsors-grid';
-
           partners.forEach(p=>{
             const item = document.createElement('div');
             item.className = 'sponsor-item';
-
             const img = document.createElement('img');
             img.className = 'sponsor-logo';
             img.alt = p.name || 'Auspicia';
@@ -628,30 +747,49 @@
               this.src = PLACEHOLDER_SVG;
               this.onerror = null;
             };
-
             const name = document.createElement('div');
             name.className = 'sponsor-name';
             name.textContent = p.name;
-
             item.appendChild(img);
             item.appendChild(name);
             grid.appendChild(item);
           });
-
           sponsors.appendChild(grid);
           right.appendChild(sponsors);
         }
 
-        const igEmbed = getInstagramEmbedUrl(ev && ev.instagram ? ev.instagram : '');
-        if (igEmbed){
-          mountEmbedBlock(right, 'Instagram', igEmbed);
+        // Instagram Reel: Solo reel, formato 9:16
+        const rawIg = String(ev && ev.instagram ? ev.instagram : '').trim();
+        if (rawIg && /^https?:\/\/(www\.)?instagram\.com\/reel\//i.test(rawIg)) {
+          const igEmbedUrl = getInstagramEmbedUrl(rawIg);
+          if (igEmbedUrl) {
+            const wrap = document.createElement('div');
+            wrap.className = 'reel-embed-wrap';
+            const iframe = document.createElement('iframe');
+            iframe.className = 'reel-embed-iframe';
+            iframe.src = igEmbedUrl;
+            iframe.setAttribute("allowfullscreen", "true");
+            iframe.setAttribute("loading", "lazy");
+            iframe.setAttribute("referrerpolicy", "no-referrer");
+            iframe.setAttribute("style","background:#111;");
+            wrap.appendChild(iframe);
+            right.appendChild(wrap);
+          }
         }
 
+        // Sólo link externo a Google Maps
         const llegarUrl = safeUrl(ev && ev.llegar ? ev.llegar : '');
         if (llegarUrl){
-          mountEmbedBlock(right, 'Cómo llegar (mapa)', llegarUrl);
+          const mapA = document.createElement('a');
+          mapA.href=llegarUrl;
+          mapA.className = 'map-link';
+          mapA.target="_blank";
+          mapA.rel="noopener noreferrer";
+          mapA.innerHTML = `<i class="ri-map-pin-2-line"></i> Ver ubicación en Google Maps`;
+          right.appendChild(mapA);
         }
 
+        // Entradas / Más info
         const enlace = safeUrl(ev && ev.entradas ? ev.entradas : '');
         if (enlace){
           mountEmbedBlock(right, 'Entradas / Más info', enlace);
@@ -661,14 +799,13 @@
         card.appendChild(right);
         container.appendChild(card);
 
-        // ✅ Banner cada 2 tarjetas (después de la 2da, 4ta, 6ta...)
+        // Banner cada 2 tarjetas
         const isSecond = ((idxOnPage + 1) % 2 === 0);
         const notLast = (idxOnPage !== pageData.length - 1);
         if (isSecond && notLast){
           container.appendChild(createBannerAdElement());
         }
-      });
-
+      }); // END forEach
       renderPaginator(data.length, page);
       document.getElementById('main-title').textContent = `Planes para hoy en Dolores`;
     }
