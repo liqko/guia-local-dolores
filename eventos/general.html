@@ -367,6 +367,14 @@
 
     let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
 
+    // Helpers NUEVOS: fechas desde/hasta (nueva estructura de hoja)
+    function getFechaDesdeRaw(ev){
+      return (ev && (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso)) ? (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso) : '';
+    }
+    function getFechaHastaRaw(ev){
+      return (ev && (ev.fecha_hasta ?? ev.fechaHasta ?? ev.fecha_hasta_iso)) ? (ev.fecha_hasta ?? ev.fechaHasta ?? ev.fecha_hasta_iso) : '';
+    }
+
     function parseToDate(value){
       if (value === null || value === undefined || value === '') return null;
       if (Object.prototype.toString.call(value) === '[object Date]') {
@@ -384,8 +392,11 @@
       return isNaN(d.getTime()) ? null : d;
     }
 
-    function isPastDate(value){
-      const d = parseToDate(value);
+    // MODIFICADO: ahora compara con fecha_hasta si existe; si no usa fecha_desde
+    function isPastDate(desdeValue, hastaValue){
+      const dDesde = parseToDate(desdeValue);
+      const dHasta = parseToDate(hastaValue);
+      const d = dHasta || dDesde;
       if (!d) return false;
       const today = new Date();
       today.setHours(0,0,0,0);
@@ -413,6 +424,34 @@
       txt = String(txt || '').trim();
       if (!txt) return '';
       return txt.charAt(0).toUpperCase() + txt.slice(1);
+    }
+
+    // NUEVO: texto fecha humana desde/hasta
+    function formatRangoFechasHumano(ev){
+      const rawDesde = getFechaDesdeRaw(ev);
+      const rawHasta = getFechaHastaRaw(ev);
+
+      const dDesde = parseToDate(rawDesde);
+      const dHasta = parseToDate(rawHasta);
+
+      // Compatibilidad: si el backend manda "fecha_humana", se respeta
+      if (ev && ev.fecha_humana) return capitalizarPrimeraLetra(ev.fecha_humana);
+
+      const fmt = (d) => capitalizarPrimeraLetra(
+        d.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })
+      );
+
+      if (dDesde && dHasta){
+        const sameDay =
+          dDesde.getFullYear() === dHasta.getFullYear() &&
+          dDesde.getMonth() === dHasta.getMonth() &&
+          dDesde.getDate() === dHasta.getDate();
+        if (sameDay) return fmt(dDesde);
+        return `${fmt(dDesde)} — ${fmt(dHasta)}`;
+      }
+      if (dDesde) return fmt(dDesde);
+      if (dHasta) return fmt(dHasta);
+      return '';
     }
 
     function hydrateCategoryFilterFromEvents(events){
@@ -650,11 +689,10 @@
         }
         const infoBlock = document.createElement('div');
         infoBlock.className = 'info-block';
-        const rawFecha = (ev && (ev.fecha_iso || ev.fecha)) ? (ev.fecha_iso || ev.fecha) : '';
-        const d = parseToDate(rawFecha);
-        const fechaHum = (ev && ev.fecha_humana)
-          ? capitalizarPrimeraLetra(ev.fecha_humana)
-          : (d ? capitalizarPrimeraLetra(d.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })) : '');
+
+        // MODIFICADO: fecha desde/hasta
+        const fechaHum = formatRangoFechasHumano(ev);
+
         const hrRaw = (ev && ev.hora_unificada && String(ev.hora_unificada).trim()) ? ev.hora_unificada :
                       ((ev && ev.hora && String(ev.hora).trim()) ? ev.hora : (ev ? (ev.hora2 || '') : ''));
         let hrShown = horaHumana(hrRaw);
@@ -662,7 +700,8 @@
         if (fechaHum || hrShown){
           const line = document.createElement('div');
           line.className = 'line';
-          line.innerHTML = `<i class="ri-calendar-event-line"></i><div class="text">${fechaHum ? fechaHum : ''}${(fechaHum && hrShown) ? ' ��� ' : ''}${hrShown ? hrShown : ''}</div>`;
+          // FIX: separador para evitar caracteres raros
+          line.innerHTML = `<i class="ri-calendar-event-line"></i><div class="text">${fechaHum ? fechaHum : ''}${(fechaHum && hrShown) ? ' • ' : ''}${hrShown ? hrShown : ''}</div>`;
           infoBlock.appendChild(line);
         }
         if (ev && ev.lugar){
@@ -835,6 +874,8 @@
         if (!q) return true;
         const hay = [
           ev.fecha_humana || '',
+          getFechaDesdeRaw(ev) || '',
+          getFechaHastaRaw(ev) || '',
           ev.categoria || '',
           ev.nombre_evento || ev.nombre || '',
           ev.organizador || ev.organizador_principal || '',
@@ -874,15 +915,21 @@
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const data = await r.json();
         const arr = (data && data.events) ? data.events : [];
+
+        // MODIFICADO: eventos vigentes = hoy <= fecha_hasta (si existe) o fecha_desde
         eventosData = arr.filter(ev => {
-          const raw = (ev && (ev.fecha_iso || ev.fecha)) ? (ev.fecha_iso || ev.fecha) : '';
-          return !isPastDate(raw);
+          const desde = getFechaDesdeRaw(ev);
+          const hasta = getFechaHastaRaw(ev);
+          return !isPastDate(desde, hasta);
         });
+
+        // MODIFICADO: ordenar por fecha_desde
         eventosData.sort((a,b)=>{
-          const da = parseToDate((a && (a.fecha_iso || a.fecha)) ? (a.fecha_iso || a.fecha) : '') || new Date(8640000000000000);
-          const db = parseToDate((b && (b.fecha_iso || b.fecha)) ? (b.fecha_iso || b.fecha) : '') || new Date(8640000000000000);
+          const da = parseToDate(getFechaDesdeRaw(a)) || new Date(8640000000000000);
+          const db = parseToDate(getFechaDesdeRaw(b)) || new Date(8640000000000000);
           return da.getTime() - db.getTime();
         });
+
         eventosFiltrados = eventosData.slice();
         hydrateCategoryFilterFromEvents(eventosData);
         renderEventos(eventosFiltrados, 1);
