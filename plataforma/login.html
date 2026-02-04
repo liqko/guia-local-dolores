@@ -79,15 +79,45 @@
 
     .req { color:#c00; font-weight:700; margin-left:4px; }
 
+    /* ===== Mobile-first improvements (NO cambia lógica) ===== */
+    .tabs { position: sticky; top: 0; z-index: 50; padding: 10px 0; background: #fff; }
+    .tab { user-select:none; -webkit-tap-highlight-color: transparent; }
+
+    /* Cards (mobile lists) */
+    .card-list{display:flex;flex-direction:column;gap:10px}
+    .card{
+      border:1px solid #e9e9e9;
+      background:#fff;
+      border-radius:12px;
+      padding:12px;
+      box-shadow:0 1px 8px #0001;
+    }
+    .card-title{font-weight:800;margin-bottom:6px}
+    .card-meta{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:0.95em;color:#333}
+    .card-meta .full{grid-column:1/-1}
+    .card-actions{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+    .card-actions button{width:100%;padding:12px;border-radius:10px}
+
     @media (max-width:720px) {
+      .container{margin:0 auto;border-radius:0;box-shadow:none;padding:14px}
+      h2,h3{margin-top:8px}
+      .tabs{gap:6px}
+      .tab{flex:1;text-align:center;padding:10px 8px}
       .promos-row-controls { flex-direction:column; align-items:stretch; }
       .promo-select { width:100%; }
-      #promos-list table td, #promos-list table th { display:block; width:100%; }
-      #promos-list table tr { display:block; margin-bottom:10px; border-bottom:1px solid #eee; padding-bottom:10px; }
-      #promos-list table thead { display:none; }
 
+      /* En mobile NO usamos tabla "bloqueada": usamos cards */
+      #promos-list table, #eventos-list table { display:none !important; }
+      #promos-list .card-list, #eventos-list .card-list { display:flex; }
+
+      /* Botones en acciones (tabla desktop) no afecta mobile porque tabla se oculta */
       .events-grid { grid-template-columns: 1fr; }
       .events-actions button { width:100%; }
+    }
+
+    /* Desktop: ocultar cards */
+    @media (min-width:721px){
+      #promos-list .card-list, #eventos-list .card-list { display:none !important; }
     }
   </style>
 </head>
@@ -717,7 +747,49 @@ function promoCancelEdit(){
   setMsg('promos-msg', 'ok', 'Edición cancelada.');
 }
 
-function renderPromosList(promos){
+function renderPromosCards(promos){
+  const list = document.getElementById('promos-list');
+  if(!Array.isArray(promos) || promos.length === 0){
+    list.innerHTML = '<div class="small-muted">No hay promos registradas.</div>';
+    return;
+  }
+
+  let html = '<div class="card-list">';
+  for(const p of promos){
+    const promo = htmlEscape(p.promo || '');
+    const categoria = htmlEscape(p.categoria || '');
+    const desde = htmlEscape(toDateInputValue(p.desde) || (p.desde || ''));
+    const hasta = htmlEscape(toDateInputValue(p.hasta) || (p.hasta || ''));
+    const pid = htmlEscape(p.promo_id || '');
+    const otros = htmlEscape(p.otros || '');
+    const isPaused = (p.pausado === true || String(p.pausado).toUpperCase() === 'TRUE');
+    const estadoTxt = isPaused ? '<span style="color:#c00;font-weight:800">PAUSADO</span>' : '<span style="color:#060;font-weight:800">ACTIVO</span>';
+    const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
+
+    html += `
+      <div class="card">
+        <div class="card-title">${promo}</div>
+        <div class="card-meta">
+          <div><b>Categoría:</b> ${categoria || '-'}</div>
+          <div><b>Estado:</b> ${estadoTxt}</div>
+          <div><b>Desde:</b> ${desde || '-'}</div>
+          <div><b>Hasta:</b> ${hasta || '-'}</div>
+          <div class="full"><b>Descripción:</b> ${otros || '-'}</div>
+        </div>
+        <div class="card-actions">
+          <button data-promo-action="pause" data-pid="${pid}" data-paused="${isPaused}">${pauseBtnText}</button>
+          <button data-promo-action="edit" data-pid="${pid}">Editar</button>
+          <button data-promo-action="duplicate" data-pid="${pid}">Duplicar</button>
+          <button data-promo-action="delete" data-pid="${pid}" style="background:#e74c3c;color:#fff;border:0;">Borrar</button>
+        </div>
+      </div>
+    `;
+  }
+  html += '</div>';
+  list.innerHTML = html;
+}
+
+function renderPromosTable(promos){
   const list = document.getElementById('promos-list');
   if(!promos || promos.length === 0){
     list.innerHTML = '<div class="small-muted">No hay promos registradas.</div>';
@@ -753,7 +825,10 @@ function renderPromosList(promos){
   }
   html += '</tbody></table>';
   list.innerHTML = html;
+}
 
+function bindPromosListActions(){
+  const list = document.getElementById('promos-list');
   list.querySelectorAll('button[data-promo-action]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const action = btn.getAttribute('data-promo-action');
@@ -801,6 +876,7 @@ function renderPromosList(promos){
         document.getElementById('promo-otros').value = found.otros || '';
 
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
+        try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
 
       if(action === 'duplicate'){
@@ -823,6 +899,13 @@ function renderPromosList(promos){
       }
     });
   });
+}
+
+function renderPromosList(promos){
+  const isMobile = window.matchMedia && window.matchMedia('(max-width:720px)').matches;
+  if(isMobile) renderPromosCards(promos);
+  else renderPromosTable(promos);
+  bindPromosListActions();
 }
 
 async function loadPromosUI(){
@@ -892,7 +975,46 @@ function buildEventPayloadFromForm(){
   };
 }
 
-function renderEventsList(events){
+function renderEventsCards(events){
+  const list = document.getElementById('eventos-list');
+  if(!Array.isArray(events) || events.length === 0){
+    list.innerHTML = '<div class="small-muted">No hay eventos cargados.</div>';
+    return;
+  }
+
+  let html = '<div class="card-list">';
+  for(const e of events){
+    const eventoId = htmlEscape(e.evento_id || '');
+    const fechaTxt = htmlEscape(formatDateForTable(e.fecha));
+    const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
+    const isPaused = (e.pausado === true || String(e.pausado).toUpperCase() === 'TRUE');
+    const estadoTxt = isPaused ? '<span style="color:#c00;font-weight:800">PAUSADO</span>' : '<span style="color:#060;font-weight:800">ACTIVO</span>';
+    const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
+
+    html += `
+      <div class="card">
+        <div class="card-title">${htmlEscape(e.nombre_evento || '')}</div>
+        <div class="card-meta">
+          <div><b>Fecha:</b> ${fechaTxt || '-'}</div>
+          <div><b>Hora:</b> ${horaTxt || '-'}</div>
+          <div class="full"><b>Lugar:</b> ${htmlEscape(e.lugar || '') || '-'}</div>
+          <div class="full"><b>Localidad:</b> ${htmlEscape(e.localidad || '') || '-'}</div>
+          <div class="full"><b>Estado:</b> ${estadoTxt}</div>
+          <div class="full"><span class="events-small">${eventoId ? ('ID: '+eventoId) : '<span style="color:#c00">SIN ID</span>'}</span></div>
+        </div>
+        <div class="card-actions">
+          <button data-ev-action="pause" data-ev-id="${eventoId}" data-paused="${isPaused}">${pauseBtnText}</button>
+          <button data-ev-action="edit" data-ev-id="${eventoId}">Editar</button>
+          <button data-ev-action="delete" data-ev-id="${eventoId}" style="background:#e74c3c;color:#fff;border:0;">Borrar</button>
+        </div>
+      </div>
+    `;
+  }
+  html += '</div>';
+  list.innerHTML = html;
+}
+
+function renderEventsTable(events){
   const list = document.getElementById('eventos-list');
   if(!Array.isArray(events) || events.length === 0){
     list.innerHTML = '<div class="small-muted">No hay eventos cargados.</div>';
@@ -923,7 +1045,10 @@ function renderEventsList(events){
   }
   html += '</tbody></table>';
   list.innerHTML = html;
+}
 
+function bindEventsListActions(){
+  const list = document.getElementById('eventos-list');
   list.querySelectorAll('button[data-ev-action]').forEach(btn=>{
     btn.addEventListener('click', async ()=>{
       const action = btn.getAttribute('data-ev-action');
@@ -991,9 +1116,17 @@ function renderEventsList(events){
         document.getElementById('ev-partner6').value = found.partner6 || '';
 
         setMsg('eventos-msg', 'ok', 'Editando evento. Modificá y tocá "Guardar cambios".');
+        try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
     });
   });
+}
+
+function renderEventsList(events){
+  const isMobile = window.matchMedia && window.matchMedia('(max-width:720px)').matches;
+  if(isMobile) renderEventsCards(events);
+  else renderEventsTable(events);
+  bindEventsListActions();
 }
 
 async function loadEventsUI(){
