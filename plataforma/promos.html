@@ -110,7 +110,6 @@
   <div id="paginator" class="paginator"></div>
 
   <script>
-    // NUEVO DATA_URL: exec que me pasaste
     const DATA_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
 
     let comerciosData = [];
@@ -425,11 +424,28 @@
       return false;
     }
 
+    function isPromoVigenteHasta(hastaValue) {
+      if (!hastaValue) return false; // Si no hay fecha hasta, descartar
+      let fecha;
+      if (!isNaN(hastaValue) && typeof hastaValue !== "string") {
+        // formato excel numérico
+        const base = Date.UTC(1899,11,30);
+        fecha = new Date(base + Number(hastaValue) * 86400000);
+      } else {
+        fecha = new Date(hastaValue);
+      }
+      if (isNaN(fecha.getTime())) return false; // fecha inválida
+      // comparar solo fecha, no hora
+      const hoy = new Date();
+      hoy.setHours(0,0,0,0);
+      fecha.setHours(0,0,0,0);
+      return fecha >= hoy;
+    }
+
     function loadData() {
       if (!DATA_URL) { document.getElementById('cards').innerHTML = '<p style="color:#b02a2a">Falta DATA_URL</p>'; return; }
       fetch(DATA_URL).then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
       .then(raw => {
-        // Flexible: accept multiple shapes returned by the WebApp
         let data = [];
         if (Array.isArray(raw)) {
           data = raw;
@@ -444,7 +460,6 @@
         } else if (raw && typeof raw === 'object' && Object.keys(raw).length === 0) {
           data = [];
         } else {
-          // As a last resort, if object contains numeric keys convert to array (legacy)
           try {
             const maybeArray = Object.values(raw).filter(v => v && typeof v === 'object' && ('promo' in v || 'anunciante' in v));
             if (maybeArray.length) data = maybeArray;
@@ -452,10 +467,8 @@
           } catch(e){ data = []; }
         }
 
-        // Normalize items: some endpoints may return objects with spreadsheet headers as keys
         comerciosData = (Array.isArray(data) ? data : []).map(row => {
           const obj = Object.assign({}, row);
-          // allow legacy keys mapping (promo_id vs promoId etc) - but do not overwrite existing good values
           if (!obj.anunciante && obj.anunciante !== '' && (obj.nombre)) obj.anunciante = obj.nombre;
           if (!obj.direccion && obj.domicilio) obj.direccion = obj.domicilio;
           if (!obj.whatsapp && obj.whats) obj.whatsapp = obj.whats;
@@ -463,9 +476,12 @@
           return obj;
         });
 
-        // Mostrar SOLO aprobados (columna A 'aprobado', puede ser boolean/string/número)
-        comerciosData = comerciosData.filter(c => toBoolAprobado(c.aprobado));
-
+        // SOLO aprobados y con fecha HASTA válida (vigente)
+        comerciosData = comerciosData.filter(c => 
+          toBoolAprobado(c.aprobado) && 
+          c.hasta && 
+          isPromoVigenteHasta(c.hasta)
+        );
         comerciosData = comerciosData.filter(hasMeaningfulData);
 
         filtrados = comerciosData;
