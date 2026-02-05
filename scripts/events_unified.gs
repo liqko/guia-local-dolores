@@ -53,6 +53,11 @@
  *     - scheduledAuxListSync() - función ejecutada periódicamente
  *     - ensureAuxListSyncTrigger() - crea trigger cada 6 horas
  *     - Integrado en ensureAutoSyncTriggers()
+ *
+ * FIX (2026-01-21+):
+ *  - Unificada: migración suave de columna 'pausado' (si falta, se inserta ANTES de 'audit').
+ *  - No pisa headers completos en unificada (evita desorden / corrimiento de columnas).
+ *  - Normaliza 'pausado' a TRUE/FALSE (texto) al sincronizar.
  */
 
 /* ---------- CONSTANTES (Nombres de hojas) ---------- */
@@ -88,8 +93,8 @@ const EVENTS_HEADERS = [
  * Encabezados para la hoja 'eventos_vip'
  * IMPORTANTE:
  * - Se mantiene el orden original.
- * - Se agrega 'evento_id' y 'pausado' AL FINAL (para no romper el mapeo a unificada que usa offset 3).
- * - ORDEN CORRECTO: evento_id ANTES de pausado (corregido para evitar confusión en dashboard)
+ * - Se agrega 'evento_id' y 'pausado' AL FINAL.
+ * - ORDEN CORRECTO: evento_id ANTES de pausado.
  */
 const VIP_HEADERS = [
   'id_anunciante','organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
@@ -142,7 +147,6 @@ function _isIsoZ_(s){ return typeof s === 'string' && /Z$/.test(s); }
 
 /**
  * Convierte cualquier valor "hora" a texto "HH:MM".
- * Evita que Sheets muestre 1899/1900 y evita ISO raros.
  */
 function normalizeTimeText_(v){
   if (v === null || v === undefined) return '';
@@ -154,7 +158,7 @@ function normalizeTimeText_(v){
     let m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
     if (m) return String(m[1]).padStart(2,'0') + ':' + m[2];
 
-    // ISO date-time tipo 1899-12-30T18:00:00.000Z
+    // ISO date-time
     if (s.indexOf('T') !== -1) {
       const d = new Date(s);
       if (!isNaN(d.getTime())) {
@@ -266,10 +270,19 @@ function _normalizeBoolean_(v){
   const s = String(v||'').toLowerCase().trim();
   if (v === true) return true;
   if (v === false) return false;
-  if (s === 'true' || s === '1' || s === 'si' || s === 'sí' || s === 'yes') return true;
+  if (s === 'true' || s === '1' || s === 'si' || s === 'sí' || s === 'yes' || s === 'x' || s === '✓') return true;
   if (s === 'false' || s === '0' || s === 'no') return false;
   return false;
 }
+
+/**
+ * Normaliza "pausado" a texto 'TRUE'/'FALSE'
+ */
+function normalizePausadoText_(v){
+  const b = _normalizeBoolean_(v);
+  return b ? 'TRUE' : 'FALSE';
+}
+
 function _buildAprobadoMapFromUnificada_(shTarget, targetHeaders){
   const idxEvento = targetHeaders.indexOf('evento_id');
   const idxAprobado = targetHeaders.indexOf('aprobado');
@@ -321,13 +334,11 @@ function appendUnificadaRowSmart_(shTarget, targetHeaders, rowOut){
   const start = 2;
   const n = Math.max(0, lastRow - 1);
 
-  // Si no hay datos (solo header)
   if (n === 0){
     shTarget.getRange(2, 1, 1, rowOut.length).setValues([rowOut]);
     return 2;
   }
 
-  // Leemos la columna evento_id y buscamos el último id no vacío
   const ids = shTarget.getRange(start, idxEvento + 1, n, 1).getValues();
   let lastWithId = 1; // header
   for (let i = ids.length - 1; i >= 0; i--){
@@ -352,7 +363,6 @@ function ensureFreeEventoIdColumnAndFill_(){
   const headers = getHeaders(sh);
   let idxEvento = headers.indexOf('evento_id');
 
-  // Crear columna evento_id al final si no existe
   if (idxEvento === -1) {
     const newCol = sh.getLastColumn() + 1;
     sh.getRange(1, newCol).setValue('evento_id');
@@ -609,23 +619,50 @@ function enrichSourceSheetFromLists(sheetName){
 }
 
 /* ---------- CREAR Y ASEGURAR HOJAS / IMPORTRANGE ---------- */
+
+/**
+ * FIX CLAVE:
+ * - Para 'unificada' NO reescribe el header completo si ya existe,
+ *   solo asegura que exista 'pausado' ANTES de 'audit'.
+ * - Si la hoja está vacía o sin 'audit', sí crea el header completo.
+ */
 function ensureEventsSheetAndHeaders() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(EVENTS_SHEET_NAME);
   if (!sh) sh = ss.insertSheet(EVENTS_SHEET_NAME);
-  const desired = EVENTS_HEADERS.length;
-  const currentCols = Math.max(1, sh.getLastColumn());
-  if (currentCols < desired) sh.insertColumnsAfter(currentCols, desired - currentCols);
-  sh.getRange(1,1,1,desired).setValues([EVENTS_HEADERS]);
 
-  // ✅ FIX: NO pre-crear 200 filas vacías
-  try {
-    const startRow = 2;
-    const minRowsNeeded = 2;
-    if (sh.getMaxRows() < minRowsNeeded) {
-      sh.insertRowsAfter(sh.getMaxRows(), minRowsNeeded - sh.getMaxRows());
+  const currentCols = Math.max(1, sh.getLastColumn());
+  const existingHeaders = sh.getLastRow() >= 1
+    ? sh.getRange(1,1,1,currentCols).getValues()[0].map(h => String(h||'').toLowerCase().trim())
+    : [];
+
+  const hasAnyHeader = existingHeaders.some(h => h);
+  const idxAudit = existingHeaders.indexOf('audit');
+  const idxPausado = existingHeaders.indexOf('pausado');
+
+  // Si no hay headers o falta audit, inicializar con headers estándar completos
+  if (!hasAnyHeader || idxAudit === -1) {
+    const desired = EVENTS_HEADERS.length;
+    const colsNow = Math.max(1, sh.getLastColumn());
+    if (colsNow < desired) sh.insertColumnsAfter(colsNow, desired - colsNow);
+    sh.getRange(1,1,1,desired).setValues([EVENTS_HEADERS]);
+  } else {
+    // Migración suave: insertar 'pausado' ANTES de 'audit' si falta
+    if (idxPausado === -1) {
+      // Insertar columna en la posición de 'audit' (audit se desplaza a la derecha)
+      sh.insertColumnBefore(idxAudit + 1);
+      sh.getRange(1, idxAudit + 1).setValue('pausado');
     }
 
+    // Asegurar que haya al menos la cantidad mínima de columnas del estándar
+    const desiredMin = EVENTS_HEADERS.length;
+    const colsAfter = Math.max(1, sh.getLastColumn());
+    if (colsAfter < desiredMin) sh.insertColumnsAfter(colsAfter, desiredMin - colsAfter);
+  }
+
+  // Checkbox aprobado sin “precrear 200 filas”
+  try {
+    const startRow = 2;
     const rows = Math.max(0, sh.getLastRow() - 1);
     const checkboxRows = Math.max(1, rows + 5);
     const maxPossible = Math.max(0, sh.getMaxRows() - 1);
@@ -648,6 +685,7 @@ function ensureEventsSheetAndHeaders() {
     console.warn('ensureEventsSheetAndHeaders: checkbox insertion failed', e);
   }
 
+  // Limpieza de validaciones en categoria (como estaba)
   try {
     const headers = getHeaders(sh);
     const catIdx = headers.indexOf('categoria');
@@ -682,23 +720,20 @@ function ensureVipSheetAndHeaders(){
   const currentCols = Math.max(1, sh.getLastColumn());
   if (currentCols < desired) sh.insertColumnsAfter(currentCols, desired - currentCols);
 
-  // Migración suave: detectar headers existentes
-  const existingHeaders = sh.getLastRow() >= 1 ? sh.getRange(1,1,1,currentCols).getValues()[0].map(h => String(h||'').toLowerCase().trim()) : [];
-  const needsUpdate = existingHeaders.length === 0 || 
-                      existingHeaders.indexOf('evento_id') === -1 || 
+  const existingHeaders = sh.getLastRow() >= 1
+    ? sh.getRange(1,1,1,Math.max(1,sh.getLastColumn())).getValues()[0].map(h => String(h||'').toLowerCase().trim())
+    : [];
+
+  const needsUpdate = existingHeaders.length === 0 ||
+                      existingHeaders.indexOf('evento_id') === -1 ||
                       existingHeaders.indexOf('pausado') === -1;
-  
-  // Si no existen evento_id o pausado, o si están en orden incorrecto, reescribir headers
+
   if (needsUpdate) {
     sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
   } else {
-    // Headers ya existen - verificar que evento_id esté antes de pausado
     const idxEventoId = existingHeaders.indexOf('evento_id');
     const idxPausado = existingHeaders.indexOf('pausado');
-    
-    // Si están en orden incorrecto (pausado antes de evento_id), corregir
     if (idxEventoId !== -1 && idxPausado !== -1 && idxPausado < idxEventoId) {
-      // Reescribir con orden correcto
       sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
     }
   }
@@ -989,9 +1024,7 @@ function createVipEvent(advertiserId, payload){
     setFieldLocal(k, val);
   });
 
-  // Establecer pausado en FALSE por defecto
   setFieldLocal('pausado', 'FALSE');
-
   setFieldLocal('audit', 'created_vip_event at ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
 
   vipSh.appendRow(row);
@@ -1100,21 +1133,13 @@ function deleteVipEvent(advertiserId, payload){
     if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
 
     sh.deleteRow(r + 2);
-
     try { syncUnificadaFromSources(); } catch(e){}
-
     return { success:true, deleted:true, evento_id: eventoId };
   }
 
   return { error: 'event not found' };
 }
 
-/**
- * Pausa o reanuda un evento VIP
- * @param {string} advertiserId - ID del anunciante
- * @param {object} payload - { evento_id, pause: true|false }
- * @returns {object} - { success, paused } o { error }
- */
 function pauseVipEvent(advertiserId, payload){
   advertiserId = String(advertiserId || '').trim();
   payload = payload && typeof payload === 'object' ? payload : {};
@@ -1142,15 +1167,12 @@ function pauseVipEvent(advertiserId, payload){
     const adv = idxAdv !== -1 ? String(data[r][idxAdv] || '').trim() : '';
     if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
 
-    // Escribir en columna pausado
     if (idxPausado !== -1) {
       sh.getRange(r + 2, idxPausado + 1).setValue(pauseValue ? 'TRUE' : 'FALSE');
     }
 
-    // Escribir audit
     writeAuditEventRow(sh, r + 2, pauseValue ? 'pause_vip' : 'resume_vip', advertiserId);
 
-    // Sincronizar a unificada
     try { syncUnificadaFromSources(); } catch(e){}
 
     return { success:true, paused: pauseValue, evento_id: eventoId };
@@ -1373,7 +1395,9 @@ function getEventsForAdvertiserWS(advertiserId) {
     } else {
       const apro = String(obj.aprobado || '').toLowerCase();
       const paus = String(obj.pausado || '').toLowerCase();
-      if ((apro === 'true' || apro === '1' || apro === 'si' || apro === 'yes') && !(paus === 'true' || paus === '1' || paus === 'si')) out.push(obj);
+      const okAprobado = (apro === 'true' || apro === '1' || apro === 'si' || apro === 'yes');
+      const isPausado = (paus === 'true' || paus === '1' || paus === 'si' || paus === 'yes');
+      if (okAprobado && !isPausado) out.push(obj);
     }
   }
   return { events: out };
@@ -1494,14 +1518,17 @@ function doPost(e) {
 function syncUnificadaFromSources() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // ✅ NUEVO: asegurar IDs en FREE para que el sync sea estable y se pueda borrar
+  // Asegurar estructura unificada (incluye migración de 'pausado')
+  ensureEventsSheetAndHeaders();
+
+  // FREE queda como está (no se agrega funcionalidad extra)
   const ensureFreeIds = ensureFreeEventoIdColumnAndFill_();
 
   const enrVip = enrichSourceSheetFromLists(VIP_SHEET_NAME);
   const enrFree = enrichSourceSheetFromLists(FREE_SHEET_NAME);
 
   const shTarget = ss.getSheetByName(EVENTS_SHEET_NAME);
-  if (!shTarget) throw new Error("Hoja destino 'unificada' no encontrada. Ejecutá mainSetup() primero.");
+  if (!shTarget) throw new Error("Hoja destino 'unificada' no encontrada.");
 
   const shVip = ss.getSheetByName(VIP_SHEET_NAME);
   const shFree = ss.getSheetByName(FREE_SHEET_NAME);
@@ -1513,6 +1540,8 @@ function syncUnificadaFromSources() {
   const idxFechaTarget = targetHeaders.indexOf('fecha');
   const idxHoraTarget = targetHeaders.indexOf('hora');
   const idxHora2Target = targetHeaders.indexOf('hora2');
+  const idxPausadoTarget = targetHeaders.indexOf('pausado');
+
   if (idxEventoTarget === -1) throw new Error("unificada: falta columna evento_id");
 
   const aprobadoMap = _buildAprobadoMapFromUnificada_(shTarget, targetHeaders);
@@ -1557,7 +1586,7 @@ function syncUnificadaFromSources() {
   }
   for (let r=0; r<freeFull.rows.length; r++){
     const rowArr = freeFull.rows[r];
-    const id = getIdFromRawRow(freeFull.rawHeaders, rowArr) || ('free-noid-' + (r+1)); // (ya no debería pasar)
+    const id = getIdFromRawRow(freeFull.rawHeaders, rowArr) || ('free-noid-' + (r+1));
     if (!seen[id]) { seen[id] = true; sources.push({ id, source:'free', row: rowArr, headers: freeFull.rawHeaders }); }
   }
 
@@ -1577,17 +1606,20 @@ function syncUnificadaFromSources() {
       rowOut[idxAprobadoTarget] = (prev === true);
     }
 
+    // Mantener compatibilidad con “offset 3”
     for (let t = 3; t < targetHeaders.length; t++) {
       const s = t - 3;
       rowOut[t] = (s < srcRow.length) ? (srcRow[s] === undefined ? '' : srcRow[s]) : '';
     }
 
-    // ✅ NUEVO: Copiar pausado si existe en origen (VIP/FREE)
-    const idxPausadoTarget = targetHeaders.indexOf('pausado');
+    // Copiar pausado por header y normalizar
     if (idxPausadoTarget !== -1) {
       const idxPausadoSrc = srcHeaders.indexOf('pausado');
-      if (idxPausadoSrc !== -1 && srcRow[idxPausadoSrc] !== undefined) {
-        rowOut[idxPausadoTarget] = srcRow[idxPausadoSrc];
+      if (idxPausadoSrc !== -1) {
+        rowOut[idxPausadoTarget] = normalizePausadoText_(srcRow[idxPausadoSrc]);
+      } else {
+        // Si el origen no tiene pausado, dejar vacío (no agregar FREE features)
+        rowOut[idxPausadoTarget] = '';
       }
     }
 
@@ -1606,7 +1638,7 @@ function syncUnificadaFromSources() {
     }
   }
 
-  // ✅ NUEVO: BORRAR de unificada lo que ya no existe en VIP/FREE
+  // BORRAR de unificada lo que ya no existe en VIP/FREE
   const aliveIds = {};
   for (const item of sources) aliveIds[String(item.id)] = true;
 
@@ -1703,12 +1735,6 @@ function onFreeEditSync(e){
 }
 
 /* ---------- SYNC AUX → LIST (B) ---------- */
-
-/**
- * Sincroniza datos de aux_lugares a lugares_list
- * Crea la hoja si no existe, copia headers y contenido, evita duplicados por nombre normalizado
- * @returns {object} - Resultado del sync
- */
 function syncAuxLugaresToList() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const auxSh = ss.getSheetByName(AUX_PLACES_SHEET);
@@ -1722,7 +1748,6 @@ function syncAuxLugaresToList() {
   const auxHeaders = getHeaders(auxSh);
   const auxRows = Math.max(0, auxSh.getLastRow() - 1);
   if (auxRows === 0) {
-    // Solo copiar headers si aux tiene datos
     if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
       listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
     }
@@ -1731,7 +1756,6 @@ function syncAuxLugaresToList() {
 
   const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
 
-  // Escribir headers si la lista está vacía
   if (listSh.getLastRow() === 0) {
     listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
   }
@@ -1740,8 +1764,7 @@ function syncAuxLugaresToList() {
   const listRows = Math.max(0, listSh.getLastRow() - 1);
   const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
 
-  // Construir mapa de nombres normalizados existentes
-  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') : 
+  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
                   listHeaders.indexOf('lugar') !== -1 ? listHeaders.indexOf('lugar') : 0;
   const existing = new Set();
   for (let i = 0; i < existingData.length; i++) {
@@ -1749,7 +1772,6 @@ function syncAuxLugaresToList() {
     if (name) existing.add(name);
   }
 
-  // Agregar solo nuevos
   let added = 0;
   for (let i = 0; i < auxData.length; i++) {
     const name = _norm(auxData[i][nameIdx] || '');
@@ -1762,10 +1784,6 @@ function syncAuxLugaresToList() {
   return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
 }
 
-/**
- * Sincroniza datos de aux_localidad a localidad_list
- * @returns {object} - Resultado del sync
- */
 function syncAuxLocalidadToList() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const auxSh = ss.getSheetByName(AUX_LOCALIDAD_SHEET);
@@ -1815,10 +1833,6 @@ function syncAuxLocalidadToList() {
   return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
 }
 
-/**
- * Sincroniza datos de aux_partner a partner_list
- * @returns {object} - Resultado del sync
- */
 function syncAuxPartnerToList() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const auxSh = ss.getSheetByName(AUX_PARTNER_SHEET);
@@ -1868,10 +1882,6 @@ function syncAuxPartnerToList() {
   return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
 }
 
-/**
- * Sincroniza datos de aux_categorias a categorias_list
- * @returns {object} - Resultado del sync
- */
 function syncAuxCategoriasToList() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const auxSh = ss.getSheetByName(AUX_CATS_SHEET);
@@ -1921,22 +1931,15 @@ function syncAuxCategoriasToList() {
   return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
 }
 
-/**
- * Sincroniza anunciantes desde spreadsheet externo a hoja local anunciantes_aut
- * Filtra solo los anunciantes que tienen la columna 'eventos' (BW) en TRUE
- * @returns {object} - Resultado de la sincronización
- */
 function syncAnunciantesAut() {
   try {
-    // Abrir el spreadsheet externo
     const extSs = SpreadsheetApp.openById(SPREADSHEET_ANNUNCIANTES_ID);
     const extSh = extSs.getSheetByName('anunciantes');
-    
+
     if (!extSh) {
       return { error: 'No se encontró la pestaña "anunciantes" en el spreadsheet externo', synced: 0 };
     }
 
-    // Leer datos del spreadsheet externo
     const lastRow = extSh.getLastRow();
     if (lastRow < 2) {
       return { error: 'No hay datos en la pestaña anunciantes', synced: 0 };
@@ -1945,57 +1948,44 @@ function syncAnunciantesAut() {
     const lastCol = extSh.getLastColumn();
     const allData = extSh.getRange(1, 1, lastRow, lastCol).getValues();
     const headers = allData[0];
-    
-    // Encontrar índice de columna BW (eventos) - columna 75 (BW es la columna 75: A=1, B=2, ..., BW=75)
-    const eventosIdx = 74; // BW es la columna 75, índice 74 (base 0)
-    
-    // Filtrar filas donde eventos = TRUE
+
+    const eventosIdx = 74; // BW (base 0)
     const filteredRows = [];
     for (let i = 1; i < allData.length; i++) {
       const eventosValue = allData[i][eventosIdx];
-      // Aceptar boolean true o string "TRUE"
       if (eventosValue === true || eventosValue === 'TRUE' || eventosValue === 'true') {
         filteredRows.push(allData[i]);
       }
     }
 
-    // Obtener/crear hoja local anunciantes_aut
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let localSh = ss.getSheetByName(ANUNCIANTES_AUT_SHEET);
     if (!localSh) {
       localSh = ss.insertSheet(ANUNCIANTES_AUT_SHEET);
     }
 
-    // Limpiar hoja local y escribir headers + datos filtrados
     localSh.clear();
-    
+
     if (filteredRows.length > 0) {
-      // Escribir headers
       localSh.getRange(1, 1, 1, headers.length).setValues([headers]);
-      // Escribir filas filtradas
       localSh.getRange(2, 1, filteredRows.length, headers.length).setValues(filteredRows);
     } else {
-      // Solo headers si no hay datos filtrados
       localSh.getRange(1, 1, 1, headers.length).setValues([headers]);
     }
 
-    return { 
-      synced: filteredRows.length, 
+    return {
+      synced: filteredRows.length,
       total_in_source: lastRow - 1,
       message: `Se sincronizaron ${filteredRows.length} anunciantes con eventos=TRUE`
     };
   } catch(e) {
-    return { 
-      error: e && e.message ? e.message : String(e), 
-      synced: 0 
+    return {
+      error: e && e.message ? e.message : String(e),
+      synced: 0
     };
   }
 }
 
-/**
- * Sincroniza todas las hojas AUX a sus respectivas LIST
- * @returns {object} - Resultados de todos los syncs
- */
 function syncAllAuxToList() {
   const results = {};
   try { results.lugares = syncAuxLugaresToList(); } catch(e) { results.lugares = { error: e.message }; }
@@ -2012,9 +2002,7 @@ function ensureAutoSyncTriggers(){
   if (KEEP_HOURLY_MAINTENANCE) {
     try { ensureHourlyMaintenanceTrigger(); } catch(e){}
   }
-  // ✅ NUEVO: Trigger para sync aux→list cada 6 horas
   try { ensureAuxListSyncTrigger(); } catch(e){}
-  // ✅ NUEVO: Trigger para sync anunciantes_aut cada 6 horas
   try { ensureAnunciantesAutSyncTrigger(); } catch(e){}
 }
 
@@ -2056,12 +2044,6 @@ function scheduledHourlyMaintenance(){
   return res;
 }
 
-/* ---------- TRIGGER AUX LIST SYNC (C) ---------- */
-
-/**
- * Función ejecutada periódicamente para sincronizar hojas AUX a LIST
- * Frecuencia: cada 6 horas (configurable en ensureAuxListSyncTrigger)
- */
 function scheduledAuxListSync() {
   const res = {};
   try {
@@ -2081,28 +2063,17 @@ function scheduledAuxListSync() {
   return res;
 }
 
-/**
- * Asegura que existe el trigger para sincronización periódica AUX→LIST
- * Frecuencia: cada 6 horas
- */
 function ensureAuxListSyncTrigger() {
   const existing = ScriptApp.getProjectTriggers();
   for (let i = 0; i < existing.length; i++) {
     const t = existing[i];
     if (t.getHandlerFunction() === 'scheduledAuxListSync' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) {
-      return; // Ya existe
+      return;
     }
   }
-  // Crear trigger cada 6 horas
   ScriptApp.newTrigger('scheduledAuxListSync').timeBased().everyHours(6).create();
 }
 
-/* ---------- TRIGGER ANUNCIANTES_AUT SYNC (D) ---------- */
-
-/**
- * Función ejecutada periódicamente para sincronizar anunciantes_aut desde spreadsheet externo
- * Frecuencia: cada 6 horas (configurable en ensureAnunciantesAutSyncTrigger)
- */
 function scheduledAnunciantesAutSync() {
   const res = {};
   try {
@@ -2122,18 +2093,13 @@ function scheduledAnunciantesAutSync() {
   return res;
 }
 
-/**
- * Asegura que existe el trigger para sincronización periódica de anunciantes_aut
- * Frecuencia: cada 6 horas
- */
 function ensureAnunciantesAutSyncTrigger() {
   const existing = ScriptApp.getProjectTriggers();
   for (let i = 0; i < existing.length; i++) {
     const t = existing[i];
     if (t.getHandlerFunction() === 'scheduledAnunciantesAutSync' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) {
-      return; // Ya existe
+      return;
     }
   }
-  // Crear trigger cada 6 horas
   ScriptApp.newTrigger('scheduledAnunciantesAutSync').timeBased().everyHours(6).create();
 }
