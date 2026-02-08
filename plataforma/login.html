@@ -284,8 +284,13 @@
               </div>
 
               <div>
-                <label>Fecha <span class="req">*</span></label>
-                <input id="ev-fecha" type="date" />
+                <label>Fecha desde <span class="req">*</span></label>
+                <input id="ev-fecha_desde" type="date" />
+              </div>
+
+              <div>
+                <label>Fecha hasta</label>
+                <input id="ev-fecha_hasta" type="date" />
               </div>
 
               <div>
@@ -300,7 +305,7 @@
 
               <div>
                 <label>Instagram</label>
-                <input id="ev-instagram" type="text" placeholder="@usuario o link (si aplica)" />
+                <input id="ev-instagram" type="text" placeholder="@usuario o URL (texto plano, no clickeable)" />
               </div>
 
               <div class="full">
@@ -514,8 +519,11 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
           listEl.classList.add('hidden');
           const allowed = isAllowedLevel(c.nivel);
           const lvlWarningEl = document.getElementById('level-warning');
+          const pwdVal = String(document.getElementById('clave')?.value || '').trim();
+
           if(allowed){
-            document.getElementById('btnLogin')?.removeAttribute('disabled');
+            if(pwdVal.length>=1) document.getElementById('btnLogin')?.removeAttribute('disabled');
+            else document.getElementById('btnLogin')?.setAttribute('disabled','true');
             if(lvlWarningEl) lvlWarningEl.innerHTML = `<span class="success">Anunciante nivel ${c.nivel} — permitido crear cuenta / iniciar sesión.</span>`;
           } else {
             document.getElementById('btnLogin')?.setAttribute('disabled','true');
@@ -940,7 +948,7 @@ async function loadPromosUI(){
 function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function clearEventForm(){
-  const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha','ev-hora','ev-hora2','ev-instagram','ev-entradas','ev-img1','ev-img2','ev-img3',
+  const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas','ev-img1','ev-img2','ev-img3',
     'ev-partner','ev-partner2','ev-partner3','ev-partner4','ev-partner5','ev-partner6'];
   ids.forEach(id=>{
     const el = document.getElementById(id);
@@ -958,7 +966,8 @@ function buildEventPayloadFromForm(){
     direccion: evGet('ev-direccion'),
     llegar: evGet('ev-llegar'),
     descripcion: evGet('ev-descripcion'),
-    fecha: evGet('ev-fecha'),
+    fecha_desde: evGet('ev-fecha_desde'),
+    fecha_hasta: evGet('ev-fecha_hasta'),
     hora: evGet('ev-hora'),
     hora2: evGet('ev-hora2'),
     instagram: evGet('ev-instagram'),
@@ -985,7 +994,8 @@ function renderEventsCards(events){
   let html = '<div class="card-list">';
   for(const e of events){
     const eventoId = htmlEscape(e.evento_id || '');
-    const fechaTxt = htmlEscape(formatDateForTable(e.fecha));
+    const fechaDesdeTxt = htmlEscape(formatDateForTable(e.fecha_desde || e.fecha));
+    const fechaHastaTxt = htmlEscape(formatDateForTable(e.fecha_hasta || ''));
     const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
     const isPaused = (e.pausado === true || String(e.pausado).toUpperCase() === 'TRUE');
     const estadoTxt = isPaused ? '<span style="color:#c00;font-weight:800">PAUSADO</span>' : '<span style="color:#060;font-weight:800">ACTIVO</span>';
@@ -995,7 +1005,8 @@ function renderEventsCards(events){
       <div class="card">
         <div class="card-title">${htmlEscape(e.nombre_evento || '')}</div>
         <div class="card-meta">
-          <div><b>Fecha:</b> ${fechaTxt || '-'}</div>
+          <div><b>Desde:</b> ${fechaDesdeTxt || '-'}</div>
+          <div><b>Hasta:</b> ${fechaHastaTxt || '-'}</div>
           <div><b>Hora:</b> ${horaTxt || '-'}</div>
           <div class="full"><b>Lugar:</b> ${htmlEscape(e.lugar || '') || '-'}</div>
           <div class="full"><b>Localidad:</b> ${htmlEscape(e.localidad || '') || '-'}</div>
@@ -1022,17 +1033,19 @@ function renderEventsTable(events){
     return;
   }
 
-  let html = '<table><thead><tr><th>Nombre</th><th>Fecha</th><th>Hora</th><th>Lugar</th><th>Localidad</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Nombre</th><th>Desde</th><th>Hasta</th><th>Hora</th><th>Lugar</th><th>Localidad</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>';
   for(const e of events){
     const eventoId = htmlEscape(e.evento_id || '');
-    const fechaTxt = htmlEscape(formatDateForTable(e.fecha));
+    const fechaDesdeTxt = htmlEscape(formatDateForTable(e.fecha_desde || e.fecha));
+    const fechaHastaTxt = htmlEscape(formatDateForTable(e.fecha_hasta || ''));
     const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
     const isPaused = (e.pausado === true || String(e.pausado).toUpperCase() === 'TRUE');
     const estadoTxt = isPaused ? '<span style="color:#c00">PAUSADO</span>' : '<span style="color:#060">ACTIVO</span>';
     const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
     html += `<tr>
       <td>${htmlEscape(e.nombre_evento || '')}<div class="events-small">${eventoId ? ('ID: '+eventoId) : '<span style="color:#c00">SIN ID</span>'}</div></td>
-      <td>${fechaTxt}</td>
+      <td>${fechaDesdeTxt}</td>
+      <td>${fechaHastaTxt}</td>
       <td>${horaTxt}</td>
       <td>${htmlEscape(e.lugar || '')}</td>
       <td>${htmlEscape(e.localidad || '')}</td>
@@ -1100,7 +1113,8 @@ function bindEventsListActions(){
 
         document.getElementById('ev-descripcion').value = found.descripcion || '';
 
-        document.getElementById('ev-fecha').value = toDateInputValue(found.fecha);
+        document.getElementById('ev-fecha_desde').value = toDateInputValue(found.fecha_desde || found.fecha);
+        document.getElementById('ev-fecha_hasta').value = toDateInputValue(found.fecha_hasta);
         document.getElementById('ev-hora').value = toTimeInputValue(found.hora);
         document.getElementById('ev-hora2').value = found.hora2 || '';
 
@@ -1133,7 +1147,8 @@ function bindEventsListActions(){
           direccion: found.direccion || '',
           llegar: found.llegar || '',
           descripcion: found.descripcion || '',
-          fecha: toDateInputValue(found.fecha) || '',
+          fecha_desde: toDateInputValue(found.fecha_desde || found.fecha) || '',
+          fecha_hasta: toDateInputValue(found.fecha_hasta) || '',
           hora: toTimeInputValue(found.hora) || '',
           hora2: found.hora2 || '',
           instagram: found.instagram || '',
@@ -1217,6 +1232,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   document.getElementById('btnCrearComercio').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
+  // Habilitar login por cambio en clave
+  const claveEl = document.getElementById('clave');
+  claveEl.addEventListener('input', ()=>{
+    const id = String(document.getElementById('comercio-id')?.value || '').trim();
+    const nivelSeleccion = document.getElementById('comercio-buscar')?.dataset?.nivel || '';
+    const allowed = isAllowedLevel(nivelSeleccion);
+    const pwdVal = String(claveEl.value || '').trim();
+    if(id && allowed && pwdVal.length>=1) document.getElementById('btnLogin')?.removeAttribute('disabled');
+    else document.getElementById('btnLogin')?.setAttribute('disabled','true');
+  });
+
   // Promos buttons
   document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI);
   document.getElementById('promo-cancel')?.addEventListener('click', promoCancelEdit);
@@ -1278,7 +1304,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       // ✅ obligatorios
       if(!payload.nombre_evento){ alert('Falta Nombre del evento'); return; }
-      if(!payload.fecha){ alert('Falta Fecha'); return; }
+      if(!payload.fecha_desde){ alert('Falta Fecha desde'); return; }
       if(!payload.categoria){ alert('Falta Categoría'); return; }
       if(!payload.localidad){ alert('Falta Localidad'); return; }
       if(!payload.lugar){ alert('Falta Lugar'); return; }
@@ -1364,7 +1390,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     btnLogin.textContent = 'Ingresando...';
     document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
 
-    const payload = { accion:'login', comercio_id:id||'', nombre:nombre, password:clave };
+    const payload = { action:'login', comercio_id:id||'', nombre:nombre, password:clave };
     try{
       const r = await fetch(WORKER_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
