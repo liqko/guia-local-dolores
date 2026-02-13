@@ -194,11 +194,26 @@
       border-radius:14px;
       border:1px solid #eef3ff;
       object-fit:cover;
-      aspect-ratio:9/16;          /* tamaño tipo reel */
+      aspect-ratio:9/16;
       max-height:85vh;
       display:block;
       background:#eee;
       margin: 0 auto;
+    }
+    .ad-video{
+      width:min(100%, 420px);
+      border-radius:14px;
+      border:1px solid #eef3ff;
+      background:#000;
+      aspect-ratio:16/9;
+      overflow:hidden;
+      margin: 0 auto;
+    }
+    .ad-video iframe{
+      width:100%;
+      height:100%;
+      border:0;
+      background:#000;
     }
     @media(max-width: 600px){
       .ad-img{
@@ -208,6 +223,9 @@
       }
       .ad-card{
         padding:10px;
+      }
+      .ad-video{
+        width:100%;
       }
     }
     .ad-cta{
@@ -222,25 +240,37 @@
       color:#fff;
       border:1px solid rgba(0,0,0,0.06);
     }
-
-    .instagram-plain{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      margin-top:12px;
+    .ad-play{
+      margin-top:8px;
+      width:min(100%, 420px);
+      border:0;
       padding:10px 12px;
-      background:#f6f9ff;
+      border-radius:14px;
+      font-weight:900;
+      cursor:pointer;
+      background:#ff7a2a;
+      color:#222;
+      border:1px solid rgba(0,0,0,0.06);
+    }
+
+    /* Instagram embed (no clickeable) */
+    .instagram-embed{
+      margin-top:12px;
       border:1px solid #e6eefc;
       border-radius:12px;
-      color:#123;
-      font-weight:800;
-      font-size:.95rem;
+      overflow:hidden;
+      box-shadow:0 10px 26px rgba(28,43,78,0.06);
+      position:relative;
+      background:#fff;
     }
-    .instagram-plain .insta-url{
-      font-weight:900;
-      color:#132f6e;
-      text-decoration:none; /* texto plano, no link */
-      overflow-wrap:anywhere;
+    .instagram-embed iframe{
+      width:100%;
+      height:520px;
+      border:0;
+      background:#fff;
+    }
+    .instagram-embed .no-click{
+      position:absolute; inset:0; background:transparent;
     }
 
     .paginator{display:flex;gap:8px;justify-content:center;padding:12px;margin-top:14px;flex-wrap:wrap;}
@@ -257,6 +287,7 @@
       .event-card.vip::before{width:6px}
       .sponsor-item{width:92px}
       .embed-iframe{height:clamp(360px, 68vh, 520px);}
+      .instagram-embed iframe{height:460px;}
     }
 
     .modal-img-viewer{
@@ -359,15 +390,23 @@
 
     const GENERIC_FREE_LOGO = "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png";
     const PLACEHOLDER_SVG = `data:image/svg+xml;utf8,` +
-      encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><rect width='100%' height='100%' fill='#eef4ff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#7b8bb3' font-family='Arial' font-size='24'>Sin imagen</text></svg>`);
+      encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><rect width='100%' height='100%' fill='#eef4ff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' fill='#5a78b5' font-size='20' font-weight='700' font-family='Inter, Arial'>Logo no disponible</text></svg>`);
 
+    /* Banners: soporta imagen o video de YouTube; NO se repiten por página */
     const AD_BANNERS = [
-      { img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/wmxljnky7smtuxmecf4i.png", url: "https://www.guialocaldolores.com.ar" },
-      { img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/uh6x3jd0dvhin7jqtzwt.png", url: "https://www.guialocaldolores.com.ar" },
-      { img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/sz50zhc2ki0zgk9s6j0o.png", url: "https://www.guialocaldolores.com.ar" }
+      { type: "image", img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/wmxljnky7smtuxmecf4i.png", url: "https://www.guialocaldolores.com.ar" },
+      { type: "image", img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/uh6x3jd0dvhin7jqtzwt.png", url: "https://www.guialocaldolores.com.ar" },
+      { type: "image", img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/sz50zhc2ki0zgk9s6j0o.png", url: "https://www.guialocaldolores.com.ar" },
+      // ejemplo de video YouTube (reemplazar con IDs reales cuando los tengas)
+      { type: "youtube", videoId: "bM7SZ5SBzyY", url: "https://www.guialocaldolores.com.ar" }
     ];
-    function pickRandomAd(){
-      return AD_BANNERS[Math.floor(Math.random() * AD_BANNERS.length)];
+    function shuffleArray(arr){
+      const a = arr.slice();
+      for(let i=a.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [a[i],a[j]] = [a[j],a[i]];
+      }
+      return a;
     }
 
     let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
@@ -551,29 +590,64 @@
       return wrap;
     }
 
-    function createBannerAdElement(){
-      const ad = pickRandomAd();
-
+    /* Banner: crea tarjeta, CTA abre nueva pestaña; video YouTube reproducible en la tarjeta sin enlaces salientes */
+    function createBannerAdElement(ad){
       const el = document.createElement('div');
       el.className = 'ad-card';
 
-      const img = document.createElement('img');
-      img.className = 'ad-img';
-      img.alt = 'Publicidad';
-      img.loading = 'lazy';
-      img.referrerPolicy = 'no-referrer';
-      img.src = ad.img;
+      let mediaShown = false;
+
+      if (ad.type === 'youtube' && ad.videoId){
+        const thumb = document.createElement('img');
+        thumb.className = 'ad-img';
+        thumb.alt = 'Publicidad';
+        thumb.loading = 'lazy';
+        thumb.referrerPolicy = 'no-referrer';
+        thumb.src = `https://img.youtube.com/vi/${ad.videoId}/hqdefault.jpg`;
+        el.appendChild(thumb);
+
+        const play = document.createElement('button');
+        play.className = 'ad-play';
+        play.type = 'button';
+        play.textContent = 'Reproducir video';
+        play.onclick = function(){
+          if (mediaShown) return;
+          mediaShown = true;
+          thumb.remove();
+          const vid = document.createElement('div');
+          vid.className = 'ad-video';
+          const iframe = document.createElement('iframe');
+          iframe.src = `https://www.youtube-nocookie.com/embed/${ad.videoId}?autoplay=1&rel=0&modestbranding=1&iv_load_policy=3&playsinline=1`;
+          iframe.loading = 'lazy';
+          iframe.referrerPolicy = 'no-referrer';
+          // sin popups, sin navegación superior -> no se puede salir a YouTube
+          iframe.setAttribute('sandbox','allow-scripts allow-same-origin');
+          vid.appendChild(iframe);
+          el.insertBefore(vid, play);
+          play.textContent = 'Reproduciendo';
+          play.disabled = true;
+        };
+        el.appendChild(play);
+      } else {
+        const img = document.createElement('img');
+        img.className = 'ad-img';
+        img.alt = 'Publicidad';
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        img.src = ad.img;
+        el.appendChild(img);
+      }
 
       const btn = document.createElement('button');
       btn.className = 'ad-cta';
       btn.type = 'button';
       btn.textContent = 'Visitar anunciante';
       btn.onclick = function(){
-        mountEmbedBlock(el, 'Anunciante', ad.url);
-        el.scrollIntoView({ behavior:'smooth', block:'center' });
+        const u = safeUrl(ad.url);
+        if (!u) return;
+        window.open(u, '_blank', 'noopener');
       };
 
-      el.appendChild(img);
       el.appendChild(btn);
       return el;
     }
@@ -619,6 +693,15 @@
       document.addEventListener('keydown', handleKey);
     }
 
+    function computeInstagramEmbedUrl(u){
+      const s = safeUrl(u);
+      if (!s) return '';
+      // soporta /p/ y /reel/
+      const m = s.match(/https?:\/\/(www\.)?instagram\.com\/(p|reel)\/[A-Za-z0-9_-]+/);
+      if (!m) return '';
+      return s.replace(/\/$/, '') + '/embed';
+    }
+
     function renderEventos(data,page=1){
       const container = document.getElementById('events');
       container.innerHTML = '';
@@ -631,6 +714,11 @@
         document.getElementById('main-title').textContent = `Planes para hoy en Dolores`;
         return;
       }
+
+      // Ads únicos aleatorios por página
+      const adPool = shuffleArray(AD_BANNERS);
+      let adPtr = 0;
+
       pageData.forEach((ev, idxOnPage)=>{
         const card = document.createElement('article');
         const nivelStr = (ev && ev.nivel) ? String(ev.nivel).toLowerCase() : '';
@@ -732,24 +820,23 @@
           }
         }
 
-        // Instagram: mostrar texto plano (no link, no embed, no imagen)
+        // Instagram: mostrar embed visual (imagen/post/reel) sin posibilidad de clickear/abrir Instagram
         const rawIg = String(ev && ev.instagram ? ev.instagram : '').trim();
-        if (rawIg) {
+        const igEmbed = computeInstagramEmbedUrl(rawIg);
+        if (igEmbed) {
           const wrap = document.createElement('div');
-          wrap.className = "instagram-plain";
-          const icon = document.createElement('i');
-          icon.className = 'ri-instagram-line';
-          const label = document.createElement('span');
-          label.textContent = 'Instagram';
-          const sep = document.createElement('span');
-          sep.textContent = ':';
-          const urlText = document.createElement('span');
-          urlText.className = 'insta-url';
-          urlText.textContent = rawIg; // texto plano, sin enlace
-          wrap.appendChild(icon);
-          wrap.appendChild(label);
-          wrap.appendChild(sep);
-          wrap.appendChild(urlText);
+          wrap.className = 'instagram-embed';
+          const iframe = document.createElement('iframe');
+          iframe.src = igEmbed;
+          iframe.loading = 'lazy';
+          iframe.referrerPolicy = 'no-referrer';
+          // NO permitir navegación/links fuera
+          iframe.setAttribute('sandbox','allow-scripts allow-same-origin');
+          wrap.appendChild(iframe);
+          // capa para bloquear clicks
+          const blocker = document.createElement('div');
+          blocker.className = 'no-click';
+          wrap.appendChild(blocker);
           right.appendChild(wrap);
         }
 
@@ -760,7 +847,7 @@
           mapA.className = 'map-link';
           mapA.target="_blank";
           mapA.rel="noopener noreferrer";
-          mapA.innerHTML = `<i class="ri-map-pin-2-line"></i> Ver ubicación en Google Maps`;
+          mapA.innerHTML = `<i class="ri-map-pin-2-line"></i> ¿Cómo llegar?`;
           right.appendChild(mapA);
         }
         const enlace = safeUrl(ev && ev.entradas ? ev.entradas : '');
@@ -807,8 +894,8 @@
 
         const isSecond = ((idxOnPage + 1) % 2 === 0);
         const notLast = (idxOnPage !== pageData.length - 1);
-        if (isSecond && notLast){
-          container.appendChild(createBannerAdElement());
+        if (isSecond && notLast && adPtr < adPool.length){
+          container.appendChild(createBannerAdElement(adPool[adPtr++]));
         }
       });
       renderPaginator(data.length, page);
