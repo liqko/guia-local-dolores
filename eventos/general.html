@@ -643,6 +643,74 @@
       return wrap;
     }
 
+    /* Banner: CTA nueva pestaña; YouTube reproducible (como en V2), tamaño reel 9/16 */
+    function createBannerAdElement(ad){
+      const el = document.createElement('div');
+      el.className = 'ad-card';
+      let mediaShown = false;
+
+      if (ad.type === 'youtube' && (ad.videoId || ad.videoUrl)){
+        const vidId = ad.videoId || normalizeYouTubeId(ad.videoUrl);
+
+        const thumb = document.createElement('img');
+        thumb.className = 'ad-img';
+        thumb.alt = 'Publicidad';
+        thumb.loading = 'lazy';
+        thumb.src = `https://img.youtube.com/vi/${vidId}/hqdefault.jpg`;
+        el.appendChild(thumb);
+
+        const play = document.createElement('button');
+        play.className = 'ad-play';
+        play.type = 'button';
+        play.textContent = 'Reproducir video';
+        play.onclick = function(){
+          if (mediaShown) return;
+          mediaShown = true;
+          thumb.remove();
+
+          const origin = encodeURIComponent(location.origin);
+
+          const vid = document.createElement('div');
+          vid.className = 'ad-video'; // tamaño reel (9/16) controlado por CSS
+
+          const iframe = document.createElement('iframe');
+          iframe.src = `https://www.youtube.com/embed/${vidId}?enablejsapi=1&autoplay=1&mute=1&rel=0&modestbranding=1&playsinline=1&origin=${origin}`;
+          iframe.loading = 'lazy';
+          iframe.setAttribute('allow','accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+          iframe.setAttribute('allowfullscreen','true');
+          iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
+
+          vid.appendChild(iframe);
+          el.insertBefore(vid, play);
+
+          play.textContent = 'Reproduciendo';
+          play.disabled = true;
+        };
+        el.appendChild(play);
+      } else if (ad.type === 'image' && ad.img){
+        const img = document.createElement('img');
+        img.className = 'ad-img';
+        img.alt = 'Publicidad';
+        img.loading = 'lazy';
+        img.referrerPolicy = 'no-referrer';
+        img.src = ad.img;
+        el.appendChild(img);
+      }
+
+      const btn = document.createElement('button');
+      btn.className = 'ad-cta';
+      btn.type = 'button';
+      btn.textContent = 'Visitar anunciante';
+      btn.onclick = function(){
+        const u = safeUrl(ad.url);
+        if (!u) return;
+        window.open(u, '_blank', 'noopener');
+      };
+
+      el.appendChild(btn);
+      return el;
+    }
+
     /* Viewer inline dentro de la tarjeta con navegación y cierre */
     function showInlineGallery(imgArr, index, bodyEl) {
       if (!imgArr || !imgArr.length || !bodyEl) return;
@@ -805,33 +873,6 @@
 
         left.appendChild(orgInline);
 
-        /* Galería VIP arriba (cabecera) en lugar de abajo (cuerpo) */
-        if (lvl==='vip') {
-          const gal = [];
-          ['img1','img2','img3'].forEach(k=>{
-            let u = safeUrl(ev && ev[k] ? ev[k] : '');
-            if(u) gal.push(u);
-          });
-          if (gal.length > 0) {
-            const galleryTop = document.createElement('div');
-            galleryTop.className = 'gallery-bar';
-            gal.forEach((url,i)=>{
-              const gimg = document.createElement('img');
-              gimg.className = 'gallery-thumb';
-              gimg.style.aspectRatio = "1/1";
-              gimg.src = url;
-              gimg.loading = 'lazy';
-              gimg.alt = `Foto ${i+1}`;
-              gimg.tabIndex=0;
-              /* Abrir viewer inline dentro de la cabecera */
-              gimg.onclick = ()=>showInlineGallery(gal, i, head);
-              gimg.onkeyup = (e)=>{ if(e.key==="Enter"||e.key===" "){ showInlineGallery(gal, i, head); } };
-              galleryTop.appendChild(gimg);
-            });
-            left.appendChild(galleryTop);
-          }
-        }
-
         head.appendChild(left);
         /* Botones FREE/VIP eliminados según pedido: no se agregan badges */
         card.appendChild(head);
@@ -894,7 +935,31 @@
           body.appendChild(desc);
         }
 
-        /* Eliminada la galería del cuerpo para evitar duplicación */
+        if (lvl==='vip') {
+          const gal = [];
+          ['img1','img2','img3'].forEach(k=>{
+            let u = safeUrl(ev && ev[k] ? ev[k] : '');
+            if(u) gal.push(u);
+          });
+          if (gal.length > 0) {
+            const gallery = document.createElement('div');
+            gallery.className = 'gallery-bar';
+            gal.forEach((url,i)=>{
+              const gimg = document.createElement('img');
+              gimg.className = 'gallery-thumb';
+              gimg.style.aspectRatio = "1/1";
+              gimg.src = url;
+              gimg.loading = 'lazy';
+              gimg.alt = `Foto ${i+1}`;
+              gimg.tabIndex=0;
+              /* Abrir viewer dentro de la tarjeta con navegación */
+              gimg.onclick = ()=>showInlineGallery(gal, i, body);
+              gimg.onkeyup = (e)=>{ if(e.key==="Enter"||e.key===" "){ showInlineGallery(gal, i, body); } };
+              gallery.appendChild(gimg);
+            });
+            body.appendChild(gallery);
+          }
+        }
 
         const enlace = safeUrl(ev && ev.entradas ? ev.entradas : '');
         if (enlace){
