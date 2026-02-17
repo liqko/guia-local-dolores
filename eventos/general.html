@@ -23,12 +23,9 @@
       display:flex;gap:16px;align-items:center;margin-bottom:12px;flex-wrap:wrap;
       background:#fff; border:1px solid #e6eefc; border-radius:16px; padding:12px 14px;
       box-shadow:0 8px 22px rgba(33,49,86,0.06);
-      flex-direction:column; /* centrado en móviles y desktop */
-      justify-content:center;
-      text-align:center;
     }
     .logo{width:84px;height:84px;border-radius:16px;object-fit:cover;background:#fff;box-shadow:0 8px 22px rgba(33,49,86,0.08);padding:8px;}
-    .title-block{display:flex;flex-direction:column;gap:6px;align-items:center;text-align:center;}
+    .title-block{display:flex;flex-direction:column;gap:6px;}
     .title{
       font-size:2.05rem;font-weight:950;letter-spacing:-0.02em;
       color:#0f2e58;margin:0;line-height:1.06;
@@ -67,15 +64,15 @@
       width:48px;height:48px;border-radius:12px;background:#eef4ff;object-fit:cover;display:block;border:2px solid #ffb74d;box-shadow:0 4px 18px #ffb74d30;
     }
     .organizer-inline{
-      display:flex;flex-direction:column;align-items:center;gap:8px;min-width:0;
-      font-size:1rem;text-align:center;
+      display:flex;align-items:center;gap:8px;min-width:0;
+      font-size:1rem;
     }
     .organizer-inline .label{
       color:#fc781b;font-weight:900;letter-spacing:.01em;
     }
     .organizer-inline .name{
-      color:#132f6e;font-weight:900;font-size:1.08rem;line-height:1.2;
-      white-space:normal; overflow-wrap:anywhere;
+      color:#132f6e;font-weight:900;font-size:1.08rem;line-height:1;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
       max-width:72vw;
     }
 
@@ -84,7 +81,6 @@
       box-shadow:0 8px 22px rgba(0,0,0,0.08);
       letter-spacing:0.10em;font-size:.78rem;flex:0 0 auto;
       border:1px solid rgba(0,0,0,0.06);
-      display:none !important; /* ocultar botones FREE y VIP */
     }
     .badge.vip{background:linear-gradient(90deg,#ffd166,#ff7a2a);color:#3a2200;}
     .badge.free{background:#e8f1ff;color:#0e4f8a;border-color:#d6e1f3;}
@@ -158,10 +154,7 @@
       margin:0 auto 6px auto;
       display:block;
     }
-    .sponsor-name{
-      font-size:.74rem;font-weight:900;color:#233;line-height:1.15;
-      word-break:break-word; overflow-wrap:anywhere; white-space:normal;
-    }
+    .sponsor-name{font-size:.74rem;font-weight:900;color:#233;line-height:1.15;}
 
     .embed-wrap{
       margin-top:10px;
@@ -387,7 +380,6 @@
       const a = arr.slice();
       for(let i=a.length-1;i>0;i--){
         const j = Math.floor(Math.random()*(i+1));
-        [a[i],a[j]] = [a[j],a[j]];
         [a[i],a[j]] = [a[j],a[i]];
       }
       return a;
@@ -638,8 +630,44 @@
     }
 
     function showImgModal(imgArr, index) {
-      // Modal no utilizado según pedido (las imágenes deben verse dentro de la tarjeta)
-      return;
+      const modal = document.getElementById('modalImgViewer');
+      const modalImg = document.getElementById('modalImgMain');
+      const thumbs = document.getElementById('modalImgThumbs');
+      if (!imgArr.length) return;
+      let curIdx = (typeof index === 'number' && index<imgArr.length) ? index : 0;
+      function setImg(idx){
+        modalImg.src = imgArr[idx];
+        Array.from(thumbs.children).forEach((img,i)=>img.classList.toggle('selected',i===idx));
+      }
+      thumbs.innerHTML = '';
+      imgArr.forEach((url,i)=>{
+        const im = document.createElement('img');
+        im.src=url; im.alt="Miniatura"; im.tabIndex=0;
+        if(i===curIdx) im.classList.add('selected');
+        im.onclick=()=>{ curIdx=i; setImg(i);}
+        im.onkeyup=(e)=>{ if(e.key==='Enter') { curIdx=i; setImg(i);} }
+        thumbs.appendChild(im);
+      });
+      setImg(curIdx);
+      modal.classList.add('open');
+      document.body.style.overflow='hidden';
+      modalImg.focus && modalImg.focus();
+      function handleKey(e){
+        if (e.key==='Escape') { closeModal(); }
+        else if ((e.key==='ArrowLeft'||e.key==='a') && curIdx>0){ curIdx--; setImg(curIdx);}
+        else if ((e.key==='ArrowRight'||e.key==='d') && curIdx<imgArr.length-1){ curIdx++; setImg(curIdx); }
+      }
+      function closeModal(){
+        modal.classList.remove('open');
+        modalImg.src='';
+        document.body.style.overflow='';
+        document.removeEventListener('keydown', handleKey);
+      }
+      document.getElementById('modalImgClose').onclick=closeModal;
+      modal.onclick = (evt)=>{
+        if(evt.target===modal) closeModal();
+      }
+      document.addEventListener('keydown', handleKey);
     }
 
     function renderCategoryBlock(ev){
@@ -714,14 +742,6 @@
         const left = document.createElement('div');
         left.className = 'head-left';
 
-        const orgInline = document.createElement('div');
-        orgInline.className = 'organizer-inline';
-
-        const lbl = document.createElement('span');
-        lbl.className = 'label';
-        lbl.textContent = 'ORGANIZA';
-        orgInline.appendChild(lbl);
-
         const lo = safeUrl(ev && ev.logo_organizador ? ev.logo_organizador : '');
         if (lvl==='vip' && lo){
           const logoimg = document.createElement('img');
@@ -730,18 +750,28 @@
           logoimg.alt = "Logo del organizador";
           logoimg.referrerPolicy = "no-referrer";
           logoimg.loading = "lazy";
-          orgInline.appendChild(logoimg);
+          left.appendChild(logoimg);
         }
 
+        const orgInline = document.createElement('div');
+        orgInline.className = 'organizer-inline';
+        const lbl = document.createElement('span');
+        lbl.className = 'label';
+        lbl.textContent = 'Organiza:';
         const nm = document.createElement('span');
         nm.className = 'name';
         nm.textContent = ev.organizador || ev.organizador_principal || "-";
+        orgInline.appendChild(lbl);
         orgInline.appendChild(nm);
-
         left.appendChild(orgInline);
 
         head.appendChild(left);
-        /* Botones FREE/VIP eliminados según pedido: no se agregan badges */
+        if (lvl){
+          const b = document.createElement('div');
+          b.className = `badge ${lvl}`;
+          b.textContent = lvl.toUpperCase();
+          head.appendChild(b);
+        }
         card.appendChild(head);
 
         const body = document.createElement('div');
@@ -790,7 +820,7 @@
             mapA.target="_blank";
             mapA.rel="noopener noreferrer";
             mapA.innerHTML = `<i class="ri-map-pin-2-line"></i> ¿Cómo llegar?`;
-              infoBlock.appendChild(mapA);
+            infoBlock.appendChild(mapA);
           }
         }
         body.appendChild(infoBlock);
@@ -819,7 +849,8 @@
               gimg.loading = 'lazy';
               gimg.alt = `Foto ${i+1}`;
               gimg.tabIndex=0;
-              /* No abrir modal: imágenes se ven dentro de la tarjeta */
+              gimg.onclick = ()=>showImgModal(gal,i);
+              gimg.onkeyup = (e)=>{if(e.key==="Enter"||e.key===" "){showImgModal(gal,i);}};
               gallery.appendChild(gimg);
             });
             body.appendChild(gallery);
@@ -898,14 +929,14 @@
       cont.innerHTML = html;
       const prev = document.getElementById('prev');
       const next = document.getElementById('next');
-      prev && (prev.onclick = ()=>{ if (currentPage>1){ currentPage--; renderEventos(eventosFiltrados,currentPage); /* scroll eliminado para evitar trabas en móviles */ }});
-      next && (next.onclick = ()=>{ if (currentPage<totalPages){ currentPage++; renderEventos(eventosFiltrados,currentPage); /* scroll eliminado para evitar trabas en móviles */ }});
+      prev && (prev.onclick = ()=>{ if (currentPage>1){ currentPage--; renderEventos(eventosFiltrados,currentPage); scrollToEvents(); }});
+      next && (next.onclick = ()=>{ if (currentPage<totalPages){ currentPage++; renderEventos(eventosFiltrados,currentPage); scrollToEvents(); }});
       document.querySelectorAll('.page-btn').forEach(b=>b.onclick = function(){
         const p = parseInt(this.dataset.page,10);
         if (!isNaN(p) && p!==currentPage){
           currentPage=p;
           renderEventos(eventosFiltrados,currentPage);
-          /* scroll eliminado para evitar trabas en móviles */
+          scrollToEvents();
         }
       });
     }
