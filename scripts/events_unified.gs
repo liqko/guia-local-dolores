@@ -418,16 +418,18 @@ function enrichSourceSheetFromLists(sheetName){
     }
 
     // Lugar -> direccion/llegar
+    // VIP: always overwrite from aux when lugar matches; FREE: fill-only (keep if already set)
     if (idxLugar !== -1) {
       const lugarVal = row[idxLugar];
       if (lugarVal) {
         const info = lugaresMap[_norm(lugarVal)];
         if (info) {
-          if (idxDir !== -1 && (!row[idxDir] || String(row[idxDir]).trim() === '')) {
+          const overwrite = (sheetName === VIP_SHEET_NAME);
+          if (idxDir !== -1 && (overwrite || !row[idxDir] || String(row[idxDir]).trim() === '')) {
             data[i][idxDir] = info.direccion || '';
             changesPerRow[i].add(idxDir);
           }
-          if (idxLlegar !== -1 && (!row[idxLlegar] || String(row[idxLlegar]).trim() === '')) {
+          if (idxLlegar !== -1 && (overwrite || !row[idxLlegar] || String(row[idxLlegar]).trim() === '')) {
             data[i][idxLlegar] = info.llegar || '';
             changesPerRow[i].add(idxLlegar);
           }
@@ -887,6 +889,75 @@ function pauseVipEvent(advertiserId, payload){
   return { error: 'event not found' };
 }
 
+function duplicateVipEvent(advertiserId, payload){
+  advertiserId = String(advertiserId || '').trim();
+  payload = payload && typeof payload === 'object' ? payload : {};
+  const sourceEventoId = String(payload.evento_id || '').trim();
+
+  if (!advertiserId) return { error: 'advertiserId required' };
+  if (!sourceEventoId) return { error: 'evento_id required' };
+
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!sh) return { error: 'vip sheet missing' };
+  const headers = getHeaders(sh);
+  const idxEvento = headers.indexOf('evento_id');
+  const idxAdv = headers.indexOf('id_anunciante');
+  const idxPausado = headers.indexOf('pausado');
+  const idxAudit = headers.indexOf('audit');
+  if (idxEvento === -1) return { error: 'VIP missing evento_id column' };
+
+  const rows = Math.max(0, sh.getLastRow() - 1);
+  if (!rows) return { error: 'no vip events' };
+  const data = sh.getRange(2,1,rows,headers.length).getValues();
+
+  let srcRowArr = null;
+  for (let r=0;r<data.length;r++){
+    const eid = String(data[r][idxEvento] || '').trim();
+    if (eid !== sourceEventoId) continue;
+    const adv = idxAdv !== -1 ? String(data[r][idxAdv] || '').trim() : '';
+    if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
+    srcRowArr = data[r].slice();
+    break;
+  }
+  if (!srcRowArr) return { error: 'event not found' };
+
+  const newRow = srcRowArr.slice();
+  const newEventoId = _generateEventoId_('vip');
+  newRow[idxEvento] = newEventoId;
+  if (idxPausado !== -1) newRow[idxPausado] = 'FALSE';
+  if (idxAudit !== -1) {
+    const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+    newRow[idxAudit] = 'duplicated_vip ' + now + ' from ' + sourceEventoId;
+  }
+
+  // Allow overriding fields from payload
+  const allowed = new Set([
+    'organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
+    'lugar','direccion','llegar','fecha_desde','fecha_hasta','hora','hora2','descripcion','instagram',
+    'img1','img2','img3','entradas',
+    'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3',
+    'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6'
+  ]);
+  for (const k in payload){
+    const key = String(k||'').toLowerCase().trim();
+    if (!allowed.has(key)) continue;
+    const idx = headers.indexOf(key);
+    if (idx === -1) continue;
+    let val = payload[k];
+    if (key === 'hora' || key === 'hora2') val = normalizeTimeText_(val);
+    if (key === 'fecha_desde' || key === 'fecha_hasta') val = normalizeDateText_(val);
+    newRow[idx] = val;
+  }
+
+  sh.appendRow(newRow);
+  const appendedRow = sh.getLastRow();
+
+  try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
+  try { requestQuickSync_('duplicate_vip_event'); } catch(e){}
+
+  return { success:true, duplicated:true, evento_id: newEventoId, source_evento_id: sourceEventoId, row: appendedRow };
+}
+
 /* ---------- EVENTS WS (lectura para web) ---------- */
 function getEventsForAdvertiserWS(advertiserId) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET_NAME);
@@ -975,6 +1046,7 @@ function doPost(e) {
     if (action === 'updatevipevent' || action === 'update_vip_event') return jsonResponse(updateVipEvent(advertiserId, body.payload || body));
     if (action === 'deletevipevent' || action === 'delete_vip_event') return jsonResponse(deleteVipEvent(advertiserId, body.payload || body));
     if (action === 'pausevipevent' || action === 'pause_vip_event') return jsonResponse(pauseVipEvent(advertiserId, body.payload || body));
+    if (action === 'duplicatevipevent' || action === 'duplicate_vip_event' || action === 'duplicate') return jsonResponse(duplicateVipEvent(advertiserId, body.payload || body));
 
     if (['getevents','get_events','get-events'].indexOf(action) !== -1) {
       return jsonResponse(handleEventAction(action, advertiserId, body.payload || body, params));
@@ -1080,18 +1152,16 @@ function syncUnificadaFromSources() {
       rowOut[idxAprobadoTarget] = (prev === true);
     }
 
-    // Mantiene tu lógica original: columnas desde la 4ta (t=3) vienen del source corrido 3
-    for (let t = 3; t < targetHeaders.length; t++) {
-      const s = t - 3;
-      rowOut[t] = (s < srcRow.length) ? (srcRow[s] === undefined ? '' : srcRow[s]) : '';
+    // Map columns by header name (case-insensitive, trimmed) - avoids positional drift
+    for (let t = 0; t < targetHeaders.length; t++) {
+      const th = targetHeaders[t];
+      if (th === 'nivel' || th === 'evento_id' || th === 'aprobado') continue;
+      const srcIdx = srcHeaders.indexOf(th);
+      rowOut[t] = (srcIdx !== -1 && srcRow[srcIdx] !== undefined) ? srcRow[srcIdx] : '';
     }
 
-    // pausado
-    if (idxPausadoTarget !== -1) {
-      const idxPausadoSrc = srcHeaders.indexOf('pausado');
-      if (idxPausadoSrc !== -1) rowOut[idxPausadoTarget] = normalizePausadoText_(srcRow[idxPausadoSrc]);
-      else rowOut[idxPausadoTarget] = '';
-    }
+    // pausado - normalize after header mapping
+    if (idxPausadoTarget !== -1) rowOut[idxPausadoTarget] = normalizePausadoText_(rowOut[idxPausadoTarget]);
 
     // normalizaciones
     if (idxFechaDesdeTarget !== -1) rowOut[idxFechaDesdeTarget] = normalizeDateText_(rowOut[idxFechaDesdeTarget]);
@@ -1283,4 +1353,42 @@ function onEdit(e) {
 function combinePromosToUnificado(){
   try { return _throttledSync_('combinePromosToUnificado'); }
   catch(e){ return { error: e && e.message ? e.message : String(e) }; }
+}
+
+/* ---------- Self-check helpers ---------- */
+function selfCheckEventsUnified(){
+  const result = {
+    functions: {
+      createVipEvent: typeof createVipEvent === 'function',
+      updateVipEvent: typeof updateVipEvent === 'function',
+      deleteVipEvent: typeof deleteVipEvent === 'function',
+      pauseVipEvent: typeof pauseVipEvent === 'function',
+      duplicateVipEvent: typeof duplicateVipEvent === 'function',
+      syncUnificadaFromSources: typeof syncUnificadaFromSources === 'function',
+      enrichSourceSheetFromLists: typeof enrichSourceSheetFromLists === 'function'
+    },
+    sheets: {},
+    headers: {}
+  };
+
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheetNames = [EVENTS_SHEET_NAME, VIP_SHEET_NAME, FREE_SHEET_NAME];
+    for (const name of sheetNames) {
+      const sh = ss.getSheetByName(name);
+      result.sheets[name] = !!sh;
+      if (sh) {
+        const hdrs = getHeaders(sh);
+        result.headers[name] = {
+          evento_id: hdrs.indexOf('evento_id') !== -1,
+          aprobado: hdrs.indexOf('aprobado') !== -1,
+          pausado: hdrs.indexOf('pausado') !== -1
+        };
+      }
+    }
+  } catch(e) {
+    result.sheetsError = e && e.message ? e.message : String(e);
+  }
+
+  return result;
 }
