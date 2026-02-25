@@ -349,6 +349,8 @@ function enrichSourceSheetFromLists(sheetName){
   const rows = Math.max(0, sh.getLastRow() - 1);
   if (!rows) return { enriched:0, checked:0, sheet: sheetName };
 
+  const isVip = (sheetName === VIP_SHEET_NAME);
+
   /* Lugares desde aux_lugares */
   const lugaresMap = {};
   const lugaresSh = ss.getSheetByName(AUX_PLACES_SHEET);
@@ -417,17 +419,17 @@ function enrichSourceSheetFromLists(sheetName){
       }
     }
 
-    // Lugar -> direccion/llegar
+    // Lugar -> direccion/llegar (VIP: overwrite; FREE: fill if empty)
     if (idxLugar !== -1) {
       const lugarVal = row[idxLugar];
       if (lugarVal) {
         const info = lugaresMap[_norm(lugarVal)];
         if (info) {
-          if (idxDir !== -1 && (!row[idxDir] || String(row[idxDir]).trim() === '')) {
+          if (idxDir !== -1 && (isVip || !row[idxDir] || String(row[idxDir]).trim() === '')) {
             data[i][idxDir] = info.direccion || '';
             changesPerRow[i].add(idxDir);
           }
-          if (idxLlegar !== -1 && (!row[idxLlegar] || String(row[idxLlegar]).trim() === '')) {
+          if (idxLlegar !== -1 && (isVip || !row[idxLlegar] || String(row[idxLlegar]).trim() === '')) {
             data[i][idxLlegar] = info.llegar || '';
             changesPerRow[i].add(idxLlegar);
           }
@@ -460,8 +462,7 @@ function enrichSourceSheetFromLists(sheetName){
     if (changesPerRow[i].size > 0) enriched++;
   }
 
-  // Nota: dejamos esta parte tal como estaba (escritura por celda solo de las celdas que cambian)
-  // porque aquí no es la causa principal del "server error"; el problema crítico era unificada.
+  // escritura por celda solo de las celdas que cambian
   for (let i=0;i<rows;i++){
     if (changesPerRow[i].size === 0) continue;
     const rowIndex = 2 + i;
@@ -817,6 +818,83 @@ function updateVipEvent(advertiserId, payload){
   return { success:true, updated:true, evento_id: eventoId, row: foundRow };
 }
 
+function duplicateVipEvent(advertiserId, payload){
+  advertiserId = String(advertiserId || '').trim();
+  payload = payload && typeof payload === 'object' ? payload : {};
+  const srcEventoId = String(payload.evento_id || payload.source_evento_id || '').trim();
+
+  if (!advertiserId) return { error: 'advertiserId required' };
+  if (!srcEventoId) return { error: 'evento_id required' };
+
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!sh) return { error: 'vip sheet missing' };
+  const headers = getHeaders(sh);
+
+  const idxEvento = headers.indexOf('evento_id');
+  const idxAdv = headers.indexOf('id_anunciante');
+  if (idxEvento === -1) return { error: 'VIP missing evento_id column' };
+
+  const rows = Math.max(0, sh.getLastRow() - 1);
+  if (!rows) return { error: 'no vip events' };
+
+  const data = sh.getRange(2,1,rows,headers.length).getValues();
+
+  let srcRowArr = null;
+  for (let r=0;r<data.length;r++){
+    const eid = String(data[r][idxEvento] || '').trim();
+    if (eid !== srcEventoId) continue;
+
+    const adv = idxAdv !== -1 ? String(data[r][idxAdv] || '').trim() : '';
+    if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
+
+    srcRowArr = data[r];
+    break;
+  }
+  if (!srcRowArr) return { error: 'event not found' };
+
+  const newRow = srcRowArr.slice(0);
+
+  const newEventoId = _generateEventoId_('vip');
+  newRow[idxEvento] = newEventoId;
+
+  const idxPausado = headers.indexOf('pausado');
+  if (idxPausado !== -1) newRow[idxPausado] = 'FALSE';
+
+  const idxAudit = headers.indexOf('audit');
+  if (idxAudit !== -1) {
+    newRow[idxAudit] = 'duplicated_vip ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
+  }
+
+  // opcional overrides
+  const allowed = new Set([
+    'organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
+    'lugar','direccion','llegar','fecha_desde','fecha_hasta','hora','hora2','descripcion','instagram',
+    'img1','img2','img3','entradas',
+    'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3',
+    'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6'
+  ]);
+
+  for (const k in payload){
+    const key = String(k||'').toLowerCase().trim();
+    if (!allowed.has(key)) continue;
+    const idx = headers.indexOf(key);
+    if (idx === -1) continue;
+
+    let val = payload[k];
+    if (key === 'hora' || key === 'hora2') val = normalizeTimeText_(val);
+    if (key === 'fecha_desde' || key === 'fecha_hasta') val = normalizeDateText_(val);
+    newRow[idx] = val;
+  }
+
+  sh.appendRow(newRow);
+  const newSheetRow = sh.getLastRow();
+
+  try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
+  try { requestQuickSync_('duplicate_vip_event'); } catch(e){}
+
+  return { success:true, duplicated:true, from_evento_id: srcEventoId, evento_id: newEventoId, row: newSheetRow };
+}
+
 function deleteVipEvent(advertiserId, payload){
   advertiserId = String(advertiserId || '').trim();
   payload = payload && typeof payload === 'object' ? payload : {};
@@ -973,6 +1051,7 @@ function doPost(e) {
     if (action === 'getvipevents' || action === 'get_vip_events') return jsonResponse(getVipEvents(advertiserId));
     if (action === 'createvipevent' || action === 'create_vip_event') return jsonResponse(createVipEvent(advertiserId, body.payload || body));
     if (action === 'updatevipevent' || action === 'update_vip_event') return jsonResponse(updateVipEvent(advertiserId, body.payload || body));
+    if (action === 'duplicatevipevent' || action === 'duplicate_vip_event' || action === 'duplicate') return jsonResponse(duplicateVipEvent(advertiserId, body.payload || body));
     if (action === 'deletevipevent' || action === 'delete_vip_event') return jsonResponse(deleteVipEvent(advertiserId, body.payload || body));
     if (action === 'pausevipevent' || action === 'pause_vip_event') return jsonResponse(pauseVipEvent(advertiserId, body.payload || body));
 
@@ -996,7 +1075,7 @@ function syncUnificadaFromSources() {
 
   ensureFreeEventoIdColumnAndFill_();
 
-  // Enriquecer (no pisa si ya hay valores)
+  // Enriquecer (VIP pisa direccion/llegar; FREE fill-only)
   try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
   try { enrichSourceSheetFromLists(FREE_SHEET_NAME); } catch(e){}
 
@@ -1070,6 +1149,7 @@ function syncUnificadaFromSources() {
   for (const item of sources) {
     const srcRow = item.row;
     const srcHeaders = item.headers;
+
     const rowOut = new Array(targetHeaders.length).fill('');
 
     if (idxNivelTarget !== -1) rowOut[idxNivelTarget] = item.source || '';
@@ -1080,17 +1160,27 @@ function syncUnificadaFromSources() {
       rowOut[idxAprobadoTarget] = (prev === true);
     }
 
-    // Mantiene tu lógica original: columnas desde la 4ta (t=3) vienen del source corrido 3
-    for (let t = 3; t < targetHeaders.length; t++) {
-      const s = t - 3;
-      rowOut[t] = (s < srcRow.length) ? (srcRow[s] === undefined ? '' : srcRow[s]) : '';
+    // MAPEO POR HEADERS (no offset)
+    const srcIndex = {};
+    for (let i=0;i<srcHeaders.length;i++){
+      const h = String(srcHeaders[i]||'').toLowerCase().trim();
+      if (h && srcIndex[h] === undefined) srcIndex[h] = i;
+    }
+    for (let t=0; t<targetHeaders.length; t++){
+      if (t === idxNivelTarget || t === idxEventoTarget || t === idxAprobadoTarget) continue;
+
+      const th = String(targetHeaders[t]||'').toLowerCase().trim();
+      const sIdx = srcIndex[th];
+      if (sIdx === undefined) continue;
+
+      rowOut[t] = (sIdx < srcRow.length) ? (srcRow[sIdx] === undefined ? '' : srcRow[sIdx]) : '';
     }
 
-    // pausado
+    // pausado normalize
     if (idxPausadoTarget !== -1) {
       const idxPausadoSrc = srcHeaders.indexOf('pausado');
       if (idxPausadoSrc !== -1) rowOut[idxPausadoTarget] = normalizePausadoText_(srcRow[idxPausadoSrc]);
-      else rowOut[idxPausadoTarget] = '';
+      else rowOut[idxPausadoTarget] = normalizePausadoText_(rowOut[idxPausadoTarget]);
     }
 
     // normalizaciones
@@ -1277,10 +1367,4 @@ function onEdit(e) {
       try { SpreadsheetApp.getActive().toast('Autosync ERROR: ' + (err && err.message ? err.message : err), 'SYNC', 6); } catch(_){}
     }
   }
-}
-
-/* ---------- Stub para trigger faltante ---------- */
-function combinePromosToUnificado(){
-  try { return _throttledSync_('combinePromosToUnificado'); }
-  catch(e){ return { error: e && e.message ? e.message : String(e) }; }
 }
