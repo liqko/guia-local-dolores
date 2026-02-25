@@ -1,113 +1,35 @@
 /**
- * events_unified.gs
+ * Eventos Sync - versión estabilizada
  *
- * Archivo UNIFICADO para Events (usa hojas: eventos_vip, eventos_free, unificada, aux_lugares, aux_localidad)
- * - Destino principal: hoja "unificada"
- * - Orígenes: "eventos_vip" (prioridad) y "eventos_free"
- * - Funciones: createEvent / updateEvent / deleteEvent / pauseEvent / getEvents
- * - Autocompleta lugar desde "aux_lugares" / "lugares_list" (direccion, llegar)
- * - Autocompleta logos de partner desde "partner_list"
- * - Sincronizador: syncUnificadaFromSources() combina eventos_vip + eventos_free -> unificada
- * - Purga: elimina eventos con fecha anterior a hoy
- * - Enriquecido: rellena direccion/llegar, logos de partners, logo_categoria, organizador/logo_organizador (por id_anunciante) tanto en origen (VIP/FREE) como en unificada.
- *
- * FIX IMPORTANTE (2026-01-19):
- *  - Preserva la columna A (checkbox "aprobado") en unificada.
- *  - No borra el check al sincronizar (evita web en blanco).
- *
- * AGREGADO (Dashboard Eventos VIP):
- *  - Agrega soporte CRUD VIP por API (doPost):
- *      - getVipEvents
- *      - createVipEvent
- *      - updateVipEvent
- *      - deleteVipEvent
- *  - Agrega columna 'evento_id' a eventos_vip (sin romper el mapeo actual de unificada):
- *      - Se agrega AL FINAL de eventos_vip y se llena automáticamente al crear desde dashboard.
- *      - syncUnificadaFromSources usa evento_id si existe, sino genera vip-noid-* como antes.
- *
- * FIX NUEVO (2026-01-19+):
- *  - Hora/hora2 siempre como TEXTO "HH:MM" (evita 1899/1900).
- *  - Unificada: sync incremental (upsert). Nuevos eventos al final, los existentes no se mueven.
- *
- * FIX NUEVO (2026-01-19+2):
- *  - Evita “huecos” en unificada: append inteligente usando evento_id como referencia.
- *  - No pre-crea 200 filas vacías con checkboxes (evita bloque enorme vacío).
- *
- * FIX NUEVO (2026-01-20):
- *  - FREE ahora también tiene columna evento_id (estable).
- *  - syncUnificadaFromSources borra de unificada eventos que ya no existen en VIP/FREE.
- *
- * NUEVO (2026-01-21 - A+B+C):
- *  A) Pausado + API VIP:
- *     - Columna 'pausado' en EVENTS_HEADERS (unificada) y VIP_HEADERS (eventos_vip)
- *     - Endpoint pauseVipEvent para pausar/reanudar eventos VIP por evento_id
- *     - syncUnificadaFromSources copia campo 'pausado' desde VIP/FREE a unificada
- *  B) Sync aux → list:
- *     - syncAuxLugaresToList() - aux_lugares → lugares_list
- *     - syncAuxLocalidadToList() - aux_localidad → localidad_list
- *     - syncAuxPartnerToList() - aux_partner → partner_list
- *     - syncAuxCategoriasToList() - aux_categorias → categorias_list
- *     - syncAllAuxToList() - ejecuta todos los syncs
- *     - Idempotente, evita duplicados por nombre normalizado
- *  C) Trigger automático:
- *     - scheduledAuxListSync() - función ejecutada periódicamente
- *     - ensureAuxListSyncTrigger() - crea trigger cada 6 horas
- *     - Integrado en ensureAutoSyncTriggers()
- *
- * FIX (2026-01-21+):
- *  - Unificada: migración suave de columna 'pausado' (si falta, se inserta ANTES de 'audit').
- *  - No pisa headers completos en unificada (evita desorden / corrimiento de columnas).
- *  - Normaliza 'pausado' a TRUE/FALSE (texto) al sincronizar.
+ * Objetivos:
+ * - eventos_free (Google Form) y eventos_vip (webapp/login y edición manual) son fuentes.
+ * - unificada es vista materializada SOLO editable col "aprobado".
+ * - sync rápido y robusto: onEdit VIP/FREE + time trigger respaldo.
+ * - NO ejecuciones simultáneas: LockService.
+ * - evitar "server error" reduciendo llamadas: escritura por fila en 1 operación.
+ * - purga de eventos pasados: cada 6 horas (>= hoy 00:00 se mantiene).
  */
 
-/* ---------- CONSTANTES (Nombres de hojas) ---------- */
+/* ---------- HOJAS PRINCIPALES ---------- */
 const EVENTS_SHEET_NAME = 'unificada';
 const VIP_SHEET_NAME = 'eventos_vip';
 const FREE_SHEET_NAME = 'eventos_free';
 const IMPORT_SHEET_NAME = 'anunciantes_import';
-const CATEGORIES_SHEET_NAME = 'categorias_list';
-const AUX_CATS_SHEET = 'aux_categorias';
+
+/* ---------- BASE DE DATOS ÚNICA (AUX) ---------- */
+const AUX_PARTNER_SHEET = 'aux_partner';
 const AUX_PLACES_SHEET = 'aux_lugares';
 const AUX_LOCALIDAD_SHEET = 'aux_localidad';
-const SPREADSHEET_ANNUNCIANTES_ID = '170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY';
+const AUX_CATS_SHEET = 'aux_categorias';
 
-/* ---------- Nuevas constantes (listas auxiliares) ---------- */
-const LOCALIDAD_LIST_SHEET = 'localidad_list';
-const LUGARES_LIST_SHEET = 'lugares_list';
-const AUX_PARTNER_SHEET = 'aux_partner';
-const PARTNER_LIST_SHEET = 'partner_list';
-const ANUNCIANTES_AUT_SHEET = 'anunciantes_aut';
-
-/* Server secret optional (leave or change) */
+/* ---------- Server secret ---------- */
 const SERVER_SECRET = 'PzbqSEw9xNrwvWruJN7njiW905uwMiBS';
 
-/* Encabezados EXACTOS para la hoja 'unificada' */
-const EVENTS_HEADERS = [
-  'aprobado','nivel','evento_id','id_anunciante','organizador','logo_organizador','categoria','logo_categoria',
-  'nombre_evento','localidad','lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram',
-  'img1','img2','img3','entradas','partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3',
-  'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6','pausado','audit'
-];
-
-/**
- * Encabezados para la hoja 'eventos_vip'
- * IMPORTANTE:
- * - Se mantiene el orden original.
- * - Se agrega 'evento_id' y 'pausado' AL FINAL.
- * - ORDEN CORRECTO: evento_id ANTES de pausado.
- */
-const VIP_HEADERS = [
-  'id_anunciante','organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
-  'lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram','img1','img2','img3','entradas',
-  'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3','partner4','logo_partner4',
-  'partner5','logo_partner5','partner6','logo_partner6','audit',
-  'evento_id','pausado'
-];
-
 /* -------------------- AUTO-SYNC CONFIG -------------------- */
-const AUTO_SYNC_THROTTLE_SECONDS = 30;     // evita loops / múltiples sync seguidos
-const AUTO_SYNC_TIME_MINUTES = 5;          // cada cuánto corre el sync por tiempo (backup)
-const KEEP_HOURLY_MAINTENANCE = true;      // deja el maintenance cada 1h además del sync cada 5m
+const AUTO_SYNC_THROTTLE_SECONDS = 20;      // más rápido que antes sin volverse loco
+const AUTO_SYNC_TIME_MINUTES = 5;           // respaldo
+const PURGE_EVERY_HOURS = 6;                // pedido: cada 6 horas
+const KEEP_HOURLY_MAINTENANCE = false;      // desactivado: ya no hace falta el hourly extra
 
 /* ---------- UTILITARIOS ---------- */
 function getHeaders(sheet) {
@@ -122,19 +44,9 @@ function jsonResponse(obj, status) {
   return out;
 }
 function _norm(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim(); }
-function normalizeKey(s) { return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[_\-\s]/g,''); }
+function _normStrict(s){ return String(s||'').trim().toLowerCase(); }
 function SECRET_RESTRICTION() { return !!SERVER_SECRET; }
-function colLetterToIndex(letter){
-  if(!letter) return -1;
-  letter = String(letter).toUpperCase().replace(/[^A-Z]/g,'');
-  let sum = 0;
-  for(let i=0;i<letter.length;i++){
-    sum = sum * 26 + (letter.charCodeAt(i) - 64);
-  }
-  return sum;
-}
 
-/* ---------- helpers IDs ---------- */
 function _generateEventoId_(prefix){
   prefix = String(prefix || 'vip').toLowerCase().replace(/[^a-z0-9]+/g,'');
   const now = Date.now();
@@ -142,23 +54,14 @@ function _generateEventoId_(prefix){
   return `${prefix}-${now}-${rnd}`;
 }
 
-/* ---------- FIX: normalización de hora/hora2 ---------- */
 function _isIsoZ_(s){ return typeof s === 'string' && /Z$/.test(s); }
-
-/**
- * Convierte cualquier valor "hora" a texto "HH:MM".
- */
 function normalizeTimeText_(v){
   if (v === null || v === undefined) return '';
   if (typeof v === 'string') {
     const s = v.trim();
     if (!s) return '';
-
-    // HH:MM o HH:MM:SS
     let m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
     if (m) return String(m[1]).padStart(2,'0') + ':' + m[2];
-
-    // ISO date-time
     if (s.indexOf('T') !== -1) {
       const d = new Date(s);
       if (!isNaN(d.getTime())) {
@@ -168,8 +71,6 @@ function normalizeTimeText_(v){
         return hh + ':' + mm;
       }
     }
-
-    // fracción del día en string
     const n = Number(s.replace(',','.'));
     if (!isNaN(n) && isFinite(n) && n >= 0 && n < 1) {
       const totalMinutes = Math.round(n * 24 * 60);
@@ -177,28 +78,21 @@ function normalizeTimeText_(v){
       const mm = String(totalMinutes % 60).padStart(2,'0');
       return hh + ':' + mm;
     }
-
-    return s; // fallback
+    return s;
   }
-
-  // Date object
   if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
     const hh = String(v.getHours()).padStart(2,'0');
     const mm = String(v.getMinutes()).padStart(2,'0');
     return hh + ':' + mm;
   }
-
-  // fracción del día (Sheets)
   if (typeof v === 'number' && !isNaN(v) && isFinite(v) && v >= 0 && v < 1) {
     const totalMinutes = Math.round(v * 24 * 60);
     const hh = String(Math.floor(totalMinutes / 60)).padStart(2,'0');
     const mm = String(totalMinutes % 60).padStart(2,'0');
     return hh + ':' + mm;
   }
-
   return String(v).trim();
 }
-
 function normalizeDateText_(v){
   if (v === null || v === undefined || v === '') return '';
   if (Object.prototype.toString.call(v) === '[object Date]' && !isNaN(v.getTime())) {
@@ -207,7 +101,7 @@ function normalizeDateText_(v){
   return String(v).trim();
 }
 
-/* ---------- FECHA/PURGA HELPERS ---------- */
+/* ---------- FECHA/PURGA ---------- */
 function parseFechaAsDate(valor){
   if (valor === null || valor === undefined || valor === '') return null;
   if (Object.prototype.toString.call(valor) === '[object Date]' && !isNaN(valor.getTime())) return valor;
@@ -235,37 +129,45 @@ function isDateBeforeToday(dateObj){
   const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
   return d.getTime() < today.getTime();
 }
+
+/**
+ * Purga (unificada): elimina eventos pasados (fecha_hasta/fecha_desde/fecha_iso < hoy 00:00).
+ * Se ejecuta en trigger aparte cada 6 horas (más estable) y opcionalmente desde maintenance.
+ */
 function purgePastEventsFromUnificada(){
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(EVENTS_SHEET_NAME);
   if (!sh) return { removed:0, checked:0, reason:'no sheet' };
 
   const headers = getHeaders(sh);
-  const fechaIdx = headers.indexOf('fecha');
-  const fechaIsoIdx = headers.indexOf('fecha_iso');
-  if (fechaIdx === -1 && fechaIsoIdx === -1) return { removed:0, checked:0, reason:'no fecha column' };
+  const fd = headers.indexOf('fecha_desde');
+  const fh = headers.indexOf('fecha_hasta');
+  const fIso = headers.indexOf('fecha_iso');
+  if (fd === -1 && fh === -1 && fIso === -1) return { removed:0, checked:0, reason:'no fecha column' };
 
   const rows = Math.max(0, sh.getLastRow() - 1);
   if (rows === 0) return { removed:0, checked:0 };
+
   const data = sh.getRange(2,1,rows,headers.length).getValues();
 
-  let removed = 0;
-  let checked = 0;
+  let removed = 0, checked = 0;
   for (let r = data.length - 1; r >= 0; r--) {
-    const rawFecha = (fechaIdx !== -1 ? data[r][fechaIdx] : '') || (fechaIsoIdx !== -1 ? data[r][fechaIsoIdx] : '');
-    if (rawFecha === '' || rawFecha === null) continue;
+    const rawFecha =
+      (fh !== -1 ? data[r][fh] : '') ||
+      (fd !== -1 ? data[r][fd] : '') ||
+      (fIso !== -1 ? data[r][fIso] : '');
+    if (!rawFecha) continue;
+
     const d = parseFechaAsDate(rawFecha);
     if (!d) continue;
+
     checked++;
-    if (isDateBeforeToday(d)) {
-      sh.deleteRow(r + 2);
-      removed++;
-    }
+    if (isDateBeforeToday(d)) { sh.deleteRow(r + 2); removed++; }
   }
   return { removed, checked };
 }
 
-/* ---------- helpers para preservar checkboxes ---------- */
+/* ---------- Checkboxes ---------- */
 function _normalizeBoolean_(v){
   const s = String(v||'').toLowerCase().trim();
   if (v === true) return true;
@@ -274,15 +176,10 @@ function _normalizeBoolean_(v){
   if (s === 'false' || s === '0' || s === 'no') return false;
   return false;
 }
-
-/**
- * Normaliza "pausado" a texto 'TRUE'/'FALSE'
- */
 function normalizePausadoText_(v){
   const b = _normalizeBoolean_(v);
   return b ? 'TRUE' : 'FALSE';
 }
-
 function _buildAprobadoMapFromUnificada_(shTarget, targetHeaders){
   const idxEvento = targetHeaders.indexOf('evento_id');
   const idxAprobado = targetHeaders.indexOf('aprobado');
@@ -306,7 +203,11 @@ function _ensureAprobadoCheckboxesAndDefaults_(shTarget){
     const rows = Math.max(0, shTarget.getLastRow() - 1);
     if (rows <= 0) return;
 
-    const range = shTarget.getRange(startRow, 1, rows, 1);
+    const headers = getHeaders(shTarget);
+    const idxAprobado = headers.indexOf('aprobado');
+    if (idxAprobado === -1) return;
+
+    const range = shTarget.getRange(startRow, idxAprobado + 1, rows, 1);
     range.insertCheckboxes();
 
     const vals = range.getValues();
@@ -322,39 +223,87 @@ function _ensureAprobadoCheckboxesAndDefaults_(shTarget){
   }
 }
 
-/* ---------- append inteligente para evitar huecos ---------- */
-function appendUnificadaRowSmart_(shTarget, targetHeaders, rowOut){
-  const idxEvento = targetHeaders.indexOf('evento_id');
-  if (idxEvento === -1) {
-    shTarget.appendRow(rowOut);
-    return shTarget.getLastRow();
+/* ---------- Partner (AUX) ---------- */
+function getPartnerLists_(){
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sh = ss.getSheetByName(AUX_PARTNER_SHEET);
+  const partnersSet = new Set();
+  const logosSet = new Set();
+  if (sh && sh.getLastRow() >= 2) {
+    const vals = sh.getRange(2,1,sh.getLastRow()-1,2).getValues();
+    for (const r of vals) {
+      const partnerName = String(r[0]||'').trim();
+      const logoUrl = String(r[1]||'').trim();
+      if (partnerName) partnersSet.add(partnerName.trim().toLowerCase());
+      if (logoUrl) logosSet.add(logoUrl.trim());
+    }
+  }
+  return { partnersSet, logosSet };
+}
+function isPartnerHeader_(h){ return h === 'partner' || /^partner\d$/.test(h); }
+function isLogoPartnerHeader_(h){ return h === 'logo_partner' || /^logo_partner\d$/.test(h); }
+
+/**
+ * Escritura rápida (1 llamada) de una fila en UNIFICADA.
+ * - Para partner/logo_partner solo escribe si existe en aux_partner; si no, deja el valor anterior.
+ * - Permite limpiar (escribir vacío) siempre.
+ */
+function safeWriteRow_(sheet, rowIndex, headers, rowOut){
+  const { partnersSet, logosSet } = getPartnerLists_();
+
+  const lastCol = Math.max(headers.length, sheet.getLastColumn());
+  const current = sheet.getRange(rowIndex, 1, 1, lastCol).getValues()[0];
+  const next = current.slice(0);
+
+  for (let c=0;c<headers.length;c++){
+    const h = headers[c] || '';
+    const v = rowOut[c];
+
+    const isStrict = isPartnerHeader_(h) || isLogoPartnerHeader_(h);
+    if (isStrict){
+      const s = String(v||'').trim();
+      if (!s) { next[c] = ''; continue; } // limpiar permitido
+
+      const set = isPartnerHeader_(h) ? partnersSet : logosSet;
+      const key = isPartnerHeader_(h) ? s.trim().toLowerCase() : s.trim();
+      if (!set.has(key)) continue; // inválido: no pisa
+      next[c] = v;
+      continue;
+    }
+
+    next[c] = v;
   }
 
+  sheet.getRange(rowIndex, 1, 1, lastCol).setValues([next]);
+}
+
+/* ---------- Inserción en unificada ---------- */
+function appendUnificadaRowSmart_(shTarget, targetHeaders, rowOut){
+  const idxEvento = targetHeaders.indexOf('evento_id');
   const lastRow = shTarget.getLastRow();
   const start = 2;
   const n = Math.max(0, lastRow - 1);
 
+  let writeRow;
   if (n === 0){
-    shTarget.getRange(2, 1, 1, rowOut.length).setValues([rowOut]);
-    return 2;
-  }
-
-  const ids = shTarget.getRange(start, idxEvento + 1, n, 1).getValues();
-  let lastWithId = 1; // header
-  for (let i = ids.length - 1; i >= 0; i--){
-    const v = String(ids[i][0] || '').trim();
-    if (v){
-      lastWithId = start + i;
-      break;
+    shTarget.insertRowAfter(1);
+    writeRow = 2;
+  } else {
+    const ids = shTarget.getRange(start, idxEvento + 1, n, 1).getValues();
+    let lastWithId = 1; // header
+    for (let i = ids.length - 1; i >= 0; i--){
+      const v = String(ids[i][0] || '').trim();
+      if (v){ lastWithId = start + i; break; }
     }
+    shTarget.insertRowAfter(lastWithId);
+    writeRow = lastWithId + 1;
   }
 
-  const writeRow = lastWithId + 1;
-  shTarget.getRange(writeRow, 1, 1, rowOut.length).setValues([rowOut]);
+  safeWriteRow_(shTarget, writeRow, targetHeaders, rowOut);
   return writeRow;
 }
 
-/* ---------- NUEVO (2026-01-20): evento_id estable en FREE ---------- */
+/* ---------- FREE: asegurar evento_id si falta ---------- */
 function ensureFreeEventoIdColumnAndFill_(){
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(FREE_SHEET_NAME);
@@ -388,123 +337,7 @@ function ensureFreeEventoIdColumnAndFill_(){
   return { ok:true, created:(headers.indexOf('evento_id')===-1), filled };
 }
 
-/* ---------- ENRIQUECIMIENTO DESDE LISTAS (unificada) ---------- */
-function enrichUnificadaRowsFromLists() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(EVENTS_SHEET_NAME);
-  if (!sh) return { enriched:0, checked:0 };
-
-  const headers = getHeaders(sh);
-  if (headers.length === 0) return { enriched:0, checked:0 };
-
-  const rows = Math.max(0, sh.getLastRow() - 1);
-  if (rows === 0) return { enriched:0, checked:0 };
-
-  const lugaresMap = {};
-  const lugaresSh = ss.getSheetByName(LUGARES_LIST_SHEET);
-  if (lugaresSh && lugaresSh.getLastRow() >= 2) {
-    const vals = lugaresSh.getRange(2,1,lugaresSh.getLastRow()-1,3).getValues();
-    for (const r of vals) {
-      const name = _norm(r[0] || '');
-      if (!name) continue;
-      lugaresMap[name] = { direccion: r[1] || '', llegar: r[2] || '' };
-    }
-  }
-
-  const partnerLogoMap = {};
-  const partnerSh = ss.getSheetByName(PARTNER_LIST_SHEET);
-  if (partnerSh && partnerSh.getLastRow() >= 2) {
-    const vals = partnerSh.getRange(2,1,partnerSh.getLastRow()-1,2).getValues();
-    for (const r of vals) {
-      const name = _norm(r[0] || '');
-      if (!name) continue;
-      partnerLogoMap[name] = r[1] || '';
-    }
-  }
-
-  const headersCat = ss.getSheetByName(CATEGORIES_SHEET_NAME);
-
-  const idxLugar = headers.indexOf('lugar');
-  const idxDir = headers.indexOf('direccion');
-  const idxLlegar = headers.indexOf('llegar');
-  const idxCategoria = headers.indexOf('categoria');
-  const idxLogoCategoria = headers.indexOf('logo_categoria');
-  const idxIdAnunciante = headers.indexOf('id_anunciante');
-  const idxOrganizador = headers.indexOf('organizador');
-  const idxLogoOrganizador = headers.indexOf('logo_organizador');
-
-  const partnerIdx = [];
-  const logoPartnerIdx = [];
-  for (let i=1;i<=6;i++){
-    partnerIdx.push(headers.indexOf(i===1 ? 'partner' : 'partner'+i));
-    logoPartnerIdx.push(headers.indexOf(i===1 ? 'logo_partner' : 'logo_partner'+i));
-  }
-
-  const data = sh.getRange(2,1,rows,headers.length).getValues();
-  let enriched = 0;
-  const out = data.map(r => r.slice());
-
-  for (let i=0;i<data.length;i++){
-    const row = data[i];
-    let changed = false;
-
-    if (idxIdAnunciante !== -1) {
-      const advId = String(row[idxIdAnunciante] || '').trim();
-      if (advId) {
-        const adv = getAdvertiserById(advId);
-        if (adv) {
-          if (idxOrganizador !== -1) {
-            const cur = String(row[idxOrganizador] || '').trim();
-            const advName = adv._name_from_B !== undefined ? adv._name_from_B : (adv.nombre || adv.nombre_comercio || adv.b || '');
-            if (!cur && advName) { out[i][idxOrganizador] = advName; changed = true; }
-          }
-          if (idxLogoOrganizador !== -1) {
-            const curL = String(row[idxLogoOrganizador] || '').trim();
-            const advLogo = adv._logo_from_AY !== undefined ? adv._logo_from_AY : (adv.logo || adv.imagen || adv.logo_url || '');
-            if (!curL && advLogo) { out[i][idxLogoOrganizador] = advLogo; changed = true; }
-          }
-        }
-      }
-    }
-
-    if (idxLugar !== -1) {
-      const lugarVal = row[idxLugar];
-      if (lugarVal) {
-        const info = lugaresMap[_norm(lugarVal)];
-        if (info) {
-          if (idxDir !== -1 && (!row[idxDir] || String(row[idxDir]).trim() === '')) { out[i][idxDir] = info.direccion || ''; changed = true; }
-          if (idxLlegar !== -1 && (!row[idxLlegar] || String(row[idxLlegar]).trim() === '')) { out[i][idxLlegar] = info.llegar || ''; changed = true; }
-        }
-      }
-    }
-
-    if (idxCategoria !== -1 && idxLogoCategoria !== -1) {
-      const catVal = String(row[idxCategoria] || '').trim();
-      if (catVal && (!row[idxLogoCategoria] || String(row[idxLogoCategoria]).trim() === '')) {
-        const url = findLogoForCategory(catVal, headersCat);
-        if (url) { out[i][idxLogoCategoria] = url; changed = true; }
-      }
-    }
-
-    for (let j=0;j<partnerIdx.length;j++){
-      const pIdx = partnerIdx[j];
-      const lpIdx = logoPartnerIdx[j];
-      if (pIdx === -1 || lpIdx === -1) continue;
-      const pVal = String(row[pIdx] || '').trim();
-      if (pVal && (!row[lpIdx] || String(row[lpIdx]).trim() === '')) {
-        const logo = partnerLogoMap[_norm(pVal)] || '';
-        if (logo) { out[i][lpIdx] = logo; changed = true; }
-      }
-    }
-
-    if (changed) enriched++;
-  }
-
-  if (enriched > 0) sh.getRange(2,1,rows,headers.length).setValues(out);
-  return { enriched, checked: rows };
-}
-
-/* ---------- ENRIQUECIMIENTO DE HOJAS ORIGEN (VIP/FREE) ---------- */
+/* ---------- Enriquecimiento: VIP/FREE usando AUX ---------- */
 function enrichSourceSheetFromLists(sheetName){
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sh = ss.getSheetByName(sheetName);
@@ -516,8 +349,9 @@ function enrichSourceSheetFromLists(sheetName){
   const rows = Math.max(0, sh.getLastRow() - 1);
   if (!rows) return { enriched:0, checked:0, sheet: sheetName };
 
+  /* Lugares desde aux_lugares */
   const lugaresMap = {};
-  const lugaresSh = ss.getSheetByName(LUGARES_LIST_SHEET);
+  const lugaresSh = ss.getSheetByName(AUX_PLACES_SHEET);
   if (lugaresSh && lugaresSh.getLastRow() >= 2) {
     const vals = lugaresSh.getRange(2,1,lugaresSh.getLastRow()-1,3).getValues();
     for (const r of vals) {
@@ -527,14 +361,15 @@ function enrichSourceSheetFromLists(sheetName){
     }
   }
 
+  /* Partner→Logo desde aux_partner */
   const partnerLogoMap = {};
-  const partnerSh = ss.getSheetByName(PARTNER_LIST_SHEET);
+  const partnerSh = ss.getSheetByName(AUX_PARTNER_SHEET);
   if (partnerSh && partnerSh.getLastRow() >= 2) {
     const vals = partnerSh.getRange(2,1,partnerSh.getLastRow()-1,2).getValues();
     for (const r of vals) {
-      const name = _norm(r[0] || '');
+      const name = _normStrict(r[0] || '');
       if (!name) continue;
-      partnerLogoMap[name] = r[1] || '';
+      partnerLogoMap[name] = (r[1] || '').trim();
     }
   }
 
@@ -555,13 +390,14 @@ function enrichSourceSheetFromLists(sheetName){
   }
 
   const data = sh.getRange(2,1,rows,headers.length).getValues();
-  const out = data.map(r => r.slice());
+
   let enriched = 0;
+  const changesPerRow = Array.from({length: rows}, () => new Set());
 
   for (let i=0;i<data.length;i++){
     const row = data[i];
-    let changed = false;
 
+    // Advertiser info
     if (idxIdAnunciante !== -1) {
       const advId = String(row[idxIdAnunciante] || '').trim();
       if (advId) {
@@ -570,289 +406,163 @@ function enrichSourceSheetFromLists(sheetName){
           if (idxOrganizador !== -1) {
             const cur = String(row[idxOrganizador] || '').trim();
             const advName = adv._name_from_B !== undefined ? adv._name_from_B : (adv.nombre || adv.nombre_comercio || adv.b || '');
-            if (!cur && advName) { out[i][idxOrganizador] = advName; changed = true; }
+            if (!cur && advName) { data[i][idxOrganizador] = advName; changesPerRow[i].add(idxOrganizador); }
           }
           if (idxLogoOrganizador !== -1) {
             const curL = String(row[idxLogoOrganizador] || '').trim();
             const advLogo = adv._logo_from_AY !== undefined ? adv._logo_from_AY : (adv.logo || adv.imagen || adv.logo_url || '');
-            if (!curL && advLogo) { out[i][idxLogoOrganizador] = advLogo; changed = true; }
+            if (!curL && advLogo) { data[i][idxLogoOrganizador] = advLogo; changesPerRow[i].add(idxLogoOrganizador); }
           }
         }
       }
     }
 
+    // Lugar -> direccion/llegar
     if (idxLugar !== -1) {
       const lugarVal = row[idxLugar];
       if (lugarVal) {
         const info = lugaresMap[_norm(lugarVal)];
         if (info) {
-          if (idxDir !== -1 && (!row[idxDir] || String(row[idxDir]).trim() === '')) { out[i][idxDir] = info.direccion || ''; changed = true; }
-          if (idxLlegar !== -1 && (!row[idxLlegar] || String(row[idxLlegar]).trim() === '')) { out[i][idxLlegar] = info.llegar || ''; changed = true; }
+          if (idxDir !== -1 && (!row[idxDir] || String(row[idxDir]).trim() === '')) {
+            data[i][idxDir] = info.direccion || '';
+            changesPerRow[i].add(idxDir);
+          }
+          if (idxLlegar !== -1 && (!row[idxLlegar] || String(row[idxLlegar]).trim() === '')) {
+            data[i][idxLlegar] = info.llegar || '';
+            changesPerRow[i].add(idxLlegar);
+          }
         }
       }
     }
 
+    // Categoria -> logo_categoria
     if (idxCategoria !== -1 && idxLogoCategoria !== -1) {
       const catVal = String(row[idxCategoria] || '').trim();
       if (catVal && (!row[idxLogoCategoria] || String(row[idxLogoCategoria]).trim() === '')) {
         const url = findLogoForCategory(catVal);
-        if (url) { out[i][idxLogoCategoria] = url; changed = true; }
+        if (url) { data[i][idxLogoCategoria] = url; changesPerRow[i].add(idxLogoCategoria); }
       }
     }
 
+    // Partner -> logo_partner
     for (let j=0;j<partnerIdx.length;j++){
       const pIdx = partnerIdx[j];
       const lpIdx = logoPartnerIdx[j];
       if (pIdx === -1 || lpIdx === -1) continue;
       const pVal = String(row[pIdx] || '').trim();
       if (pVal && (!row[lpIdx] || String(row[lpIdx]).trim() === '')) {
-        const logo = partnerLogoMap[_norm(pVal)] || '';
-        if (logo) { out[i][lpIdx] = logo; changed = true; }
+        const key = _normStrict(pVal);
+        const logo = partnerLogoMap[key] || '';
+        if (logo) { data[i][lpIdx] = logo; changesPerRow[i].add(lpIdx); }
       }
     }
 
-    if (changed) enriched++;
+    if (changesPerRow[i].size > 0) enriched++;
   }
 
-  if (enriched > 0) sh.getRange(2,1,rows,headers.length).setValues(out);
+  // Nota: dejamos esta parte tal como estaba (escritura por celda solo de las celdas que cambian)
+  // porque aquí no es la causa principal del "server error"; el problema crítico era unificada.
+  for (let i=0;i<rows;i++){
+    if (changesPerRow[i].size === 0) continue;
+    const rowIndex = 2 + i;
+    changesPerRow[i].forEach(idx => {
+      sh.getRange(rowIndex, idx + 1).setValue(data[i][idx]);
+    });
+  }
+
   return { enriched, checked: rows, sheet: sheetName };
 }
 
-/* ---------- CREAR Y ASEGURAR HOJAS / IMPORTRANGE ---------- */
+/* ---------- Validaciones: VIP/FREE contra AUX (sin dropdown; edición excepcional permitida) ---------- */
+function fixPartnerLogoValidations(sheetName, options){
+  options = options || {};
+  const showDropdown = options.showDropdown === true ? true : false; // default: false
+  const allowInvalid = options.allowInvalid === true ? true : false; // default: false
 
-/**
- * FIX CLAVE:
- * - Para 'unificada' NO reescribe el header completo si ya existe,
- *   solo asegura que exista 'pausado' ANTES de 'audit'.
- * - Si la hoja está vacía o sin 'audit', sí crea el header completo.
- */
-function ensureEventsSheetAndHeaders() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(EVENTS_SHEET_NAME);
-  if (!sh) sh = ss.insertSheet(EVENTS_SHEET_NAME);
+  const sh = ss.getSheetByName(sheetName);
+  if (!sh) return { ok:false, reason:'sheet not found' };
+  const headers = getHeaders(sh);
 
-  const currentCols = Math.max(1, sh.getLastColumn());
-  const existingHeaders = sh.getLastRow() >= 1
-    ? sh.getRange(1,1,1,currentCols).getValues()[0].map(h => String(h||'').toLowerCase().trim())
-    : [];
+  const partnerSh = ss.getSheetByName(AUX_PARTNER_SHEET);
+  if (!partnerSh || partnerSh.getLastRow() < 2) return { ok:false, reason:'aux_partner empty' };
 
-  const hasAnyHeader = existingHeaders.some(h => h);
-  const idxAudit = existingHeaders.indexOf('audit');
-  const idxPausado = existingHeaders.indexOf('pausado');
+  const partnersRange = partnerSh.getRange(2, 1, partnerSh.getLastRow() - 1, 1);
+  const logosRange    = partnerSh.getRange(2, 2, partnerSh.getLastRow() - 1, 1);
 
-  // Si no hay headers o falta audit, inicializar con headers estándar completos
-  if (!hasAnyHeader || idxAudit === -1) {
-    const desired = EVENTS_HEADERS.length;
-    const colsNow = Math.max(1, sh.getLastColumn());
-    if (colsNow < desired) sh.insertColumnsAfter(colsNow, desired - colsNow);
-    sh.getRange(1,1,1,desired).setValues([EVENTS_HEADERS]);
-  } else {
-    // Migración suave: insertar 'pausado' ANTES de 'audit' si falta
-    if (idxPausado === -1) {
-      // Insertar columna en la posición de 'audit' (audit se desplaza a la derecha)
-      sh.insertColumnBefore(idxAudit + 1);
-      sh.getRange(1, idxAudit + 1).setValue('pausado');
-    }
-
-    // Asegurar que haya al menos la cantidad mínima de columnas del estándar
-    const desiredMin = EVENTS_HEADERS.length;
-    const colsAfter = Math.max(1, sh.getLastColumn());
-    if (colsAfter < desiredMin) sh.insertColumnsAfter(colsAfter, desiredMin - colsAfter);
-  }
-
-  // Checkbox aprobado sin “precrear 200 filas”
-  try {
-    const startRow = 2;
-    const rows = Math.max(0, sh.getLastRow() - 1);
-    const checkboxRows = Math.max(1, rows + 5);
-    const maxPossible = Math.max(0, sh.getMaxRows() - 1);
-    const finalRows = Math.min(checkboxRows, maxPossible);
-
-    if (finalRows > 0) {
-      const checkboxRange = sh.getRange(startRow, 1, finalRows, 1);
-      checkboxRange.insertCheckboxes();
-      const currentVals = checkboxRange.getValues();
-      const toWrite = [];
-      let needWrite = false;
-      for (let i=0;i<currentVals.length;i++){
-        const v = currentVals[i][0];
-        if (v === '' || v === null) { toWrite.push([false]); needWrite = true; }
-        else toWrite.push([v]);
-      }
-      if (needWrite) checkboxRange.setValues(toWrite);
-    }
-  } catch(e){
-    console.warn('ensureEventsSheetAndHeaders: checkbox insertion failed', e);
-  }
-
-  // Limpieza de validaciones en categoria (como estaba)
-  try {
-    const headers = getHeaders(sh);
-    const catIdx = headers.indexOf('categoria');
-    if (catIdx !== -1) {
+  function setStrict(idx, range){
+    if (idx !== -1) {
       const startRow = 2;
-      const maxRows = Math.max(1, sh.getMaxRows() - startRow + 1);
-      if (maxRows > 0) sh.getRange(startRow, catIdx + 1, maxRows, 1).clearDataValidations();
-    }
-  } catch (e) {
-    console.warn('ensureEventsSheetAndHeaders: clearing category validations failed', e);
-  }
-
-  return sh;
-}
-
-function ensureAnunciantesImport() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(IMPORT_SHEET_NAME);
-  if (!sh) sh = ss.insertSheet(IMPORT_SHEET_NAME);
-  const sep = (ss.getSpreadsheetLocale()||'').toLowerCase().startsWith('en') ? ',' : ';';
-  sh.getRange('A1').setFormula('=IMPORTRANGE("https://docs.google.com/spreadsheets/d/' + SPREADSHEET_ANNUNCIANTES_ID + '"' + sep + '"' + 'anunciantes!A:ZZ")');
-  return sh;
-}
-
-/* ---------- ENSURE VIP SHEET & validations ---------- */
-function ensureVipSheetAndHeaders(){
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sh = ss.getSheetByName(VIP_SHEET_NAME);
-  if (!sh) sh = ss.insertSheet(VIP_SHEET_NAME);
-
-  const desired = VIP_HEADERS.length;
-  const currentCols = Math.max(1, sh.getLastColumn());
-  if (currentCols < desired) sh.insertColumnsAfter(currentCols, desired - currentCols);
-
-  const existingHeaders = sh.getLastRow() >= 1
-    ? sh.getRange(1,1,1,Math.max(1,sh.getLastColumn())).getValues()[0].map(h => String(h||'').toLowerCase().trim())
-    : [];
-
-  const needsUpdate = existingHeaders.length === 0 ||
-                      existingHeaders.indexOf('evento_id') === -1 ||
-                      existingHeaders.indexOf('pausado') === -1;
-
-  if (needsUpdate) {
-    sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
-  } else {
-    const idxEventoId = existingHeaders.indexOf('evento_id');
-    const idxPausado = existingHeaders.indexOf('pausado');
-    if (idxEventoId !== -1 && idxPausado !== -1 && idxPausado < idxEventoId) {
-      sh.getRange(1,1,1,desired).setValues([VIP_HEADERS]);
+      const maxRows = Math.max(0, sh.getMaxRows() - 1);
+      const target = sh.getRange(startRow, idx + 1, maxRows, 1);
+      const rule = SpreadsheetApp.newDataValidation()
+        .requireValueInRange(range, showDropdown)
+        .setAllowInvalid(allowInvalid)
+        .build();
+      target.setDataValidation(rule);
     }
   }
 
+  setStrict(headers.indexOf('partner'), partnersRange);
+  setStrict(headers.indexOf('partner2'), partnersRange);
+  setStrict(headers.indexOf('partner3'), partnersRange);
+  setStrict(headers.indexOf('partner4'), partnersRange);
+  setStrict(headers.indexOf('partner5'), partnersRange);
+  setStrict(headers.indexOf('partner6'), partnersRange);
+
+  setStrict(headers.indexOf('logo_partner'), logosRange);
+  setStrict(headers.indexOf('logo_partner2'), logosRange);
+  setStrict(headers.indexOf('logo_partner3'), logosRange);
+  setStrict(headers.indexOf('logo_partner4'), logosRange);
+  setStrict(headers.indexOf('logo_partner5'), logosRange);
+  setStrict(headers.indexOf('logo_partner6'), logosRange);
+
+  return { ok:true };
+}
+
+/* ---------- Eliminar validaciones en UNIFICADA (quitar desplegables/errores) ---------- */
+function clearUnificadaValidations(){
   try {
-    const catSh = ss.getSheetByName(CATEGORIES_SHEET_NAME);
-    if (catSh && catSh.getLastRow() >= 2) {
-      const catRange = catSh.getRange(2,1,Math.max(1,catSh.getLastRow()-1),1);
-      const colIdx = VIP_HEADERS.indexOf('categoria') + 1;
-      if (colIdx > 0) {
-        const targetRange = sh.getRange(2, colIdx, Math.max(0, sh.getMaxRows()-1),1);
-        const rule = SpreadsheetApp.newDataValidation().requireValueInRange(catRange, true).setAllowInvalid(false).build();
-        targetRange.setDataValidation(rule);
-      }
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(EVENTS_SHEET_NAME);
+    if (!sh) return { ok:false, reason:'unificada not found' };
+
+    const headers = getHeaders(sh);
+    const lastCol = Math.max(1, sh.getLastColumn());
+    const maxRows = Math.max(0, sh.getMaxRows() - 1);
+    const startRow = 2;
+
+    const idxAprobado = headers.indexOf('aprobado');
+    const idxPausado  = headers.indexOf('pausado');
+
+    for (let c=1; c<=lastCol; c++){
+      const isKeep = ((c-1) === idxAprobado) || ((c-1) === idxPausado);
+      if (isKeep) continue;
+      const rng = sh.getRange(startRow, c, maxRows, 1);
+      try { rng.setDataValidation(null); } catch(e){}
     }
 
-    const locSh = ss.getSheetByName(LOCALIDAD_LIST_SHEET);
-    if (locSh && locSh.getLastRow() >= 2) {
-      const locRange = locSh.getRange(2,1,Math.max(1,locSh.getLastRow()-1),1);
-      const colIdx = VIP_HEADERS.indexOf('localidad') + 1;
-      if (colIdx > 0) {
-        const targetRange = sh.getRange(2, colIdx, Math.max(0, sh.getMaxRows()-1),1);
-        const rule = SpreadsheetApp.newDataValidation().requireValueInRange(locRange, true).setAllowInvalid(false).build();
-        targetRange.setDataValidation(rule);
-      }
+    if (idxAprobado !== -1) {
+      const rngA = sh.getRange(startRow, idxAprobado+1, maxRows, 1);
+      try { rngA.insertCheckboxes(); } catch(e){}
+    }
+    if (idxPausado !== -1) {
+      const rngP = sh.getRange(startRow, idxPausado+1, maxRows, 1);
+      try { rngP.insertCheckboxes(); } catch(e){}
     }
 
-    const lugaresSh = ss.getSheetByName(LUGARES_LIST_SHEET);
-    if (lugaresSh && lugaresSh.getLastRow() >= 2) {
-      const lugRange = lugaresSh.getRange(2,1,Math.max(1,lugaresSh.getLastRow()-1),1);
-      const colIdx = VIP_HEADERS.indexOf('lugar') + 1;
-      if (colIdx > 0) {
-        const targetRange = sh.getRange(2, colIdx, Math.max(0, sh.getMaxRows()-1),1);
-        const rule = SpreadsheetApp.newDataValidation().requireValueInRange(lugRange, true).setAllowInvalid(false).build();
-        targetRange.setDataValidation(rule);
-      }
-    }
-
-    const partnerSh = ss.getSheetByName(PARTNER_LIST_SHEET);
-    if (partnerSh && partnerSh.getLastRow() >= 2) {
-      const pRange = partnerSh.getRange(2,1,Math.max(1,partnerSh.getLastRow()-1),1);
-      for (let i=1;i<=6;i++){
-        const partnerName = i === 1 ? 'partner' : ('partner' + i);
-        const colIdx = VIP_HEADERS.indexOf(partnerName) + 1;
-        if (colIdx > 0) {
-          const targetRange = sh.getRange(2, colIdx, Math.max(0, sh.getMaxRows()-1),1);
-          const rule = SpreadsheetApp.newDataValidation().requireValueInRange(pRange, true).setAllowInvalid(false).build();
-          targetRange.setDataValidation(rule);
-        }
-      }
-    }
+    return { ok:true };
   } catch(e){
-    console.warn('ensureVipSheetAndHeaders: validation setup failed', e);
+    return { ok:false, error:e && e.message ? e.message : String(e) };
   }
-
-  return sh;
 }
 
-/* ---------- FIND PLACE & WRITE PLACE DETAILS ---------- */
-function findPlaceDetailsSimple(placeName){
-  if(!placeName) return { found:false };
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const sh = ss.getSheetByName(AUX_PLACES_SHEET);
-  if(!sh) return { found:false };
-  const lastRow = Math.max(1, sh.getLastRow());
-  const lastCol = Math.max(1, sh.getLastColumn());
-  if (lastRow < 2) return { found:false };
-
-  const rawHeaders = sh.getRange(1,1,1,lastCol).getValues()[0].map(h=>String(h||'').toLowerCase().trim());
-  const data = sh.getRange(2,1,lastRow-1,lastCol).getValues();
-  const targetNorm = _norm(placeName);
-
-  const idxName = rawHeaders.findIndex(h => /lugar|nombre|venue|site|sede/.test(h));
-  const idxDireccion = rawHeaders.findIndex(h => /direccion|address|domicilio/.test(h));
-  const idxLlegar = rawHeaders.findIndex(h => /llegar|maps|como_llegar|como llegar|link_maps/.test(h));
-  const idxLat = rawHeaders.findIndex(h => /lat|latitude|latitud/.test(h));
-  const idxLng = rawHeaders.findIndex(h => /lng|lon|long|longitude|longitud/.test(h));
-
-  for (let r=0; r<data.length; r++){
-    const candidate = (idxName !== -1 && idxName < data[r].length) ? String(data[r][idxName]||'') : '';
-    if (_norm(candidate) === targetNorm) {
-      return {
-        found: true,
-        lugar: candidate || placeName,
-        direccion: (idxDireccion !== -1 && idxDireccion < data[r].length) ? String(data[r][idxDireccion]||'') : '',
-        llegar: (idxLlegar !== -1 && idxLlegar < data[r].length) ? String(data[r][idxLlegar]||'') : '',
-        lat: (idxLat !== -1 && idxLat < data[r].length) ? data[r][idxLat] : '',
-        lng: (idxLng !== -1 && idxLng < data[r].length) ? data[r][idxLng] : '',
-        sourceRow: r+2
-      };
-    }
-  }
-  return { found:false };
-}
-function writePlaceDetailsToRow(sheet, targetRowIndex, details){
-  if(!sheet || !targetRowIndex || !details) return;
-  const headers = getHeaders(sheet);
-  function setIf(namesArr, value){
-    for(const n of namesArr){
-      const idx = headers.indexOf(n);
-      if (idx !== -1) {
-        sheet.getRange(targetRowIndex, idx+1).setValue(value);
-        return true;
-      }
-    }
-    return false;
-  }
-  setIf(['direccion','address','domicilio'], details.direccion || '');
-  setIf(['llegar','como_llegar','maps'], details.llegar || '');
-  if (details.lat !== undefined) setIf(['lat','latitude','latitud'], details.lat);
-  if (details.lng !== undefined) setIf(['lng','lon','long','longitude','longitud'], details.lng);
-}
-
-/* ---------- findLogoForCategory ---------- */
-function findLogoForCategory(title, catSh) {
+/* ---------- Categorías (AUX_CATS) ---------- */
+function findLogoForCategory(title) {
   title = String(title || '').trim();
   if (!title) return '';
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  if (!catSh) catSh = ss.getSheetByName(CATEGORIES_SHEET_NAME);
+  const catSh = ss.getSheetByName(AUX_CATS_SHEET);
   if (!catSh) return '';
   const last = Math.max(1, catSh.getLastRow());
   if (last < 2) return '';
@@ -863,7 +573,7 @@ function findLogoForCategory(title, catSh) {
   return '';
 }
 
-/* ---------- getAdvertiserById ---------- */
+/* ---------- Advertiser (import) ---------- */
 function getAdvertiserById(id) {
   if (!id) return null;
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -918,6 +628,7 @@ function getAdvertiserById(id) {
   for (let r=0; r<data.length; r++) {
     const rowObj = {};
     for (let c=0;c<hdrs.length;c++) rowObj[hdrs[c] || ('col'+(c+1))] = data[r][c];
+
     if (idColByHeader !== -1) {
       const v = String(data[r][idColByHeader - 1] || '').trim();
       if (v && String(v) === String(id)) {
@@ -926,6 +637,7 @@ function getAdvertiserById(id) {
         return rowObj;
       }
     }
+
     for (const cand of idHeaderCandidates) {
       if (rowObj[cand] !== undefined && String(rowObj[cand]).trim() === String(id)) {
         if (nameCol !== -1 && rowObj._name_from_B === undefined) rowObj._name_from_B = (nameCol <= lastCol ? data[r][nameCol-1] : undefined);
@@ -933,6 +645,7 @@ function getAdvertiserById(id) {
         return rowObj;
       }
     }
+
     for (let c=0;c<hdrs.length;c++){
       if (String(data[r][c]).trim() === String(id)) {
         if (nameCol !== -1) rowObj._name_from_B = data[r][nameCol - 1];
@@ -944,11 +657,11 @@ function getAdvertiserById(id) {
   return null;
 }
 
-/* ---------- Audit write ---------- */
+/* ---------- Audit ---------- */
 function writeAuditEventRow(sheet, row, action, advertiserId) {
   try {
     const now = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss');
-    const auditText = action + ' via worker at ' + now + ' by ' + advertiserId;
+    const auditText = action + ' at ' + now + ' by ' + advertiserId;
     const headers = getHeaders(sheet);
     let auditIdx = headers.indexOf('audit');
     if (auditIdx === -1) {
@@ -959,20 +672,20 @@ function writeAuditEventRow(sheet, row, action, advertiserId) {
     }
     const cell = sheet.getRange(row, auditIdx + 1);
     const existing = String(cell.getValue() || '').trim();
-    if (!existing) cell.setValue(auditText);
-    else cell.setValue(existing + ' | ' + auditText);
-  } catch(e){ try { sheet.getRange(row, 1).setValue('audit_error'); } catch(err){} }
+    cell.setValue(existing ? (existing + ' | ' + auditText) : auditText);
+  } catch(e){}
 }
 
 /* ======================================================================
-   CRUD VIP para Dashboard
+   CRUD VIP (webapp/login)
    ====================================================================== */
 
 function getVipEvents(advertiserId){
   advertiserId = String(advertiserId || '').trim();
   if (!advertiserId) return { events: [], count: 0 };
 
-  const sh = ensureVipSheetAndHeaders();
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!sh) return { events: [], count: 0 };
   const headers = getHeaders(sh);
   const rows = Math.max(0, sh.getLastRow() - 1);
   if (!rows) return { events: [], count: 0 };
@@ -996,7 +709,8 @@ function createVipEvent(advertiserId, payload){
   payload = payload && typeof payload === 'object' ? payload : {};
   if (!advertiserId) return { error: 'advertiserId required' };
 
-  const vipSh = ensureVipSheetAndHeaders();
+  const vipSh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!vipSh) return { error: 'vip sheet missing' };
   const headers = getHeaders(vipSh);
   const row = new Array(headers.length).fill('');
 
@@ -1011,27 +725,30 @@ function createVipEvent(advertiserId, payload){
 
   const keys = [
     'organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
-    'lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram',
+    'lugar','direccion','llegar','fecha_desde','fecha_hasta','hora','hora2','descripcion','instagram',
     'img1','img2','img3','entradas',
     'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3',
     'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6'
   ];
 
+  const fecha_desde = payload.fecha_desde || payload.fecha || '';
+  const fecha_hasta = payload.fecha_hasta || '';
+
   keys.forEach(k => {
-    let val = payload[k] || '';
+    let val = (k === 'fecha_desde') ? fecha_desde : (k === 'fecha_hasta' ? fecha_hasta : (payload[k] || ''));
     if (k === 'hora' || k === 'hora2') val = normalizeTimeText_(val);
-    if (k === 'fecha') val = normalizeDateText_(val);
+    if (k === 'fecha_desde' || k === 'fecha_hasta') val = normalizeDateText_(val);
     setFieldLocal(k, val);
   });
 
   setFieldLocal('pausado', 'FALSE');
-  setFieldLocal('audit', 'created_vip_event at ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
+  setFieldLocal('audit', 'created_vip ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
 
   vipSh.appendRow(row);
   const newRow = vipSh.getLastRow();
 
   try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
-  try { syncUnificadaFromSources(); } catch(e){}
+  try { requestQuickSync_('create_vip_event'); } catch(e){}
 
   return { success:true, created:true, evento_id: newEventoId, row: newRow };
 }
@@ -1044,11 +761,11 @@ function updateVipEvent(advertiserId, payload){
   if (!advertiserId) return { error: 'advertiserId required' };
   if (!eventoId) return { error: 'evento_id required' };
 
-  const sh = ensureVipSheetAndHeaders();
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!sh) return { error: 'vip sheet missing' };
   const headers = getHeaders(sh);
   const idxEvento = headers.indexOf('evento_id');
   const idxAdv = headers.indexOf('id_anunciante');
-
   if (idxEvento === -1) return { error: 'VIP missing evento_id column' };
 
   const rows = Math.max(0, sh.getLastRow() - 1);
@@ -1068,7 +785,7 @@ function updateVipEvent(advertiserId, payload){
 
   const allowed = new Set([
     'organizador','logo_organizador','categoria','logo_categoria','nombre_evento','localidad',
-    'lugar','direccion','llegar','fecha','hora','hora2','descripcion','instagram',
+    'lugar','direccion','llegar','fecha_desde','fecha_hasta','hora','hora2','descripcion','instagram',
     'img1','img2','img3','entradas',
     'partner','logo_partner','partner2','logo_partner2','partner3','logo_partner3',
     'partner4','logo_partner4','partner5','logo_partner5','partner6','logo_partner6'
@@ -1076,34 +793,26 @@ function updateVipEvent(advertiserId, payload){
 
   for (const k in payload){
     const key = String(k||'').toLowerCase().trim();
+    if (key === 'fecha') {
+      const idxFd = headers.indexOf('fecha_desde');
+      if (idxFd !== -1) sh.getRange(foundRow, idxFd+1).setValue(normalizeDateText_(payload[k]));
+      continue;
+    }
     if (!allowed.has(key)) continue;
     const idx = headers.indexOf(key);
     if (idx === -1) continue;
 
     let val = payload[k];
     if (key === 'hora' || key === 'hora2') val = normalizeTimeText_(val);
-    if (key === 'fecha') val = normalizeDateText_(val);
+    if (key === 'fecha_desde' || key === 'fecha_hasta') val = normalizeDateText_(val);
 
     sh.getRange(foundRow, idx+1).setValue(val);
   }
 
-  try {
-    const catIdx = headers.indexOf('categoria');
-    const logoCatIdx = headers.indexOf('logo_categoria');
-    if (catIdx !== -1 && logoCatIdx !== -1) {
-      const catVal = String(sh.getRange(foundRow, catIdx+1).getValue() || '').trim();
-      const curLogo = String(sh.getRange(foundRow, logoCatIdx+1).getValue() || '').trim();
-      if (catVal && !curLogo) {
-        const url = findLogoForCategory(catVal);
-        if (url) sh.getRange(foundRow, logoCatIdx+1).setValue(url);
-      }
-    }
-  } catch(e){}
-
   writeAuditEventRow(sh, foundRow, 'update_vip', advertiserId);
 
   try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
-  try { syncUnificadaFromSources(); } catch(e){}
+  try { requestQuickSync_('update_vip_event'); } catch(e){}
 
   return { success:true, updated:true, evento_id: eventoId, row: foundRow };
 }
@@ -1116,7 +825,8 @@ function deleteVipEvent(advertiserId, payload){
   if (!advertiserId) return { error: 'advertiserId required' };
   if (!eventoId) return { error: 'evento_id required' };
 
-  const sh = ensureVipSheetAndHeaders();
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!sh) return { error: 'vip sheet missing' };
   const headers = getHeaders(sh);
   const idxEvento = headers.indexOf('evento_id');
   const idxAdv = headers.indexOf('id_anunciante');
@@ -1133,7 +843,7 @@ function deleteVipEvent(advertiserId, payload){
     if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
 
     sh.deleteRow(r + 2);
-    try { syncUnificadaFromSources(); } catch(e){}
+    try { requestQuickSync_('delete_vip_event'); } catch(e){}
     return { success:true, deleted:true, evento_id: eventoId };
   }
 
@@ -1149,12 +859,12 @@ function pauseVipEvent(advertiserId, payload){
   if (!advertiserId) return { error: 'advertiserId required' };
   if (!eventoId) return { error: 'evento_id required' };
 
-  const sh = ensureVipSheetAndHeaders();
+  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(VIP_SHEET_NAME);
+  if (!sh) return { error: 'vip sheet missing' };
   const headers = getHeaders(sh);
   const idxEvento = headers.indexOf('evento_id');
   const idxAdv = headers.indexOf('id_anunciante');
   const idxPausado = headers.indexOf('pausado');
-
   if (idxEvento === -1) return { error: 'VIP missing evento_id column' };
 
   const rows = Math.max(0, sh.getLastRow() - 1);
@@ -1167,214 +877,17 @@ function pauseVipEvent(advertiserId, payload){
     const adv = idxAdv !== -1 ? String(data[r][idxAdv] || '').trim() : '';
     if (adv !== advertiserId) return { error: 'event belongs to another advertiser' };
 
-    if (idxPausado !== -1) {
-      sh.getRange(r + 2, idxPausado + 1).setValue(pauseValue ? 'TRUE' : 'FALSE');
-    }
-
+    if (idxPausado !== -1) sh.getRange(r + 2, idxPausado + 1).setValue(pauseValue ? 'TRUE' : 'FALSE');
     writeAuditEventRow(sh, r + 2, pauseValue ? 'pause_vip' : 'resume_vip', advertiserId);
 
-    try { syncUnificadaFromSources(); } catch(e){}
-
+    try { requestQuickSync_('pause_vip_event'); } catch(e){}
     return { success:true, paused: pauseValue, evento_id: eventoId };
   }
 
   return { error: 'event not found' };
 }
 
-/* ---------- EVENTS CRUD (compat) ---------- */
-function createEvent(advertiserId, payload) {
-  if (!advertiserId) return { error: 'advertiserId required' };
-  if (!payload || typeof payload !== 'object') payload = {};
-
-  const vipSh = ensureVipSheetAndHeaders();
-  const headers = getHeaders(vipSh);
-  const row = new Array(headers.length).fill('');
-
-  function setFieldLocal(name, value){
-    const idx = headers.indexOf(String(name||'').toLowerCase().trim());
-    if (idx !== -1) row[idx] = value;
-  }
-
-  setFieldLocal('id_anunciante', advertiserId);
-  setFieldLocal('organizador', payload.organizador || '');
-  setFieldLocal('logo_organizador', payload.logo_organizador || '');
-  setFieldLocal('categoria', payload.categoria || '');
-  setFieldLocal('logo_categoria', payload.logo_categoria || '');
-  setFieldLocal('nombre_evento', payload.nombre_evento || payload.nombre || '');
-  setFieldLocal('localidad', payload.localidad || '');
-  setFieldLocal('lugar', payload.lugar || '');
-  setFieldLocal('direccion', payload.direccion || '');
-  setFieldLocal('llegar', payload.llegar || '');
-
-  setFieldLocal('fecha', normalizeDateText_(payload.fecha || ''));
-  setFieldLocal('hora', normalizeTimeText_(payload.hora || ''));
-  setFieldLocal('hora2', normalizeTimeText_(payload.hora2 || ''));
-
-  setFieldLocal('descripcion', payload.descripcion || '');
-  setFieldLocal('instagram', payload.instagram || '');
-  setFieldLocal('img1', payload.img1 || '');
-  setFieldLocal('img2', payload.img2 || '');
-  setFieldLocal('img3', payload.img3 || '');
-  setFieldLocal('entradas', payload.entradas || '');
-  for (let i=1;i<=6;i++){
-    const p = i===1 ? 'partner' : 'partner'+i;
-    const lp = i===1 ? 'logo_partner' : ('logo_partner' + i);
-    setFieldLocal(p, payload[p] || '');
-    setFieldLocal(lp, payload[lp] || '');
-  }
-
-  setFieldLocal('audit', 'created_by:dashboard at ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm:ss'));
-
-  vipSh.appendRow(row);
-  const newRow = vipSh.getLastRow();
-
-  try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
-  try { syncUnificadaFromSources(); } catch(e){}
-
-  return { success:true, created:true, sheet: VIP_SHEET_NAME, row: newRow };
-}
-
-function updateEvent(advertiserId, payload) {
-  if (!advertiserId) return { error: 'advertiserId required' };
-  if (!payload || !payload.evento_id) return { error: 'evento_id required for update' };
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET_NAME);
-  if (!sh) return { error: 'events sheet missing' };
-  const headers = getHeaders(sh);
-  const rows = Math.max(0, sh.getLastRow() - 1);
-  if (rows === 0) return { error: 'no events' };
-  const idCol = headers.indexOf('evento_id');
-  const data = sh.getRange(2,1,rows,headers.length).getValues();
-  let found = -1;
-  for (let r=0;r<data.length;r++){
-    const rowId = String(data[r][idCol] || '');
-    const rowAdv = (headers.indexOf('id_anunciante') !== -1) ? String(data[r][headers.indexOf('id_anunciante')] || '') : '';
-    if (rowId === String(payload.evento_id) && (rowAdv === String(advertiserId) || !rowAdv)) { found = r + 2; break; }
-  }
-  if (found === -1) return { error: 'event not found or mismatch advertiser' };
-
-  const allowed = ['nombre_evento','fecha','hora','hora2','lugar','localidad','descripcion','entradas','img1','img2','img3','categoria','instagram','partner','logo_partner'];
-  for (const k in payload) {
-    const key = String(k).toLowerCase().trim();
-    if (allowed.indexOf(key) === -1) continue;
-    const idx = headers.indexOf(key);
-    if (idx === -1) continue;
-
-    let val = payload[k];
-    if (key === 'hora' || key === 'hora2') val = normalizeTimeText_(val);
-    if (key === 'fecha') val = normalizeDateText_(val);
-
-    sh.getRange(found, idx+1).setValue(val);
-  }
-
-  try {
-    const catIdx = headers.indexOf('categoria');
-    const logoCatIdx = headers.indexOf('logo_categoria');
-    if (catIdx !== -1) {
-      const catVal = String(sh.getRange(found, catIdx+1).getValue() || '').trim();
-      if (catVal && logoCatIdx !== -1) {
-        const url = findLogoForCategory(catVal);
-        if (url) sh.getRange(found, logoCatIdx+1).setValue(url);
-      }
-    }
-  } catch(e){}
-
-  try {
-    if (payload.lugar) {
-      const details = findPlaceDetailsSimple(payload.lugar);
-      if (details && details.found) writePlaceDetailsToRow(sh, found, details);
-    }
-  } catch(e){}
-
-  writeAuditEventRow(sh, found, 'update', advertiserId);
-  return { success:true, updated:true, row: found };
-}
-
-function deleteEvent(advertiserId, payload) {
-  if (!advertiserId) return { error: 'advertiserId required' };
-  if (!payload || !payload.evento_id) return { error: 'evento_id required for delete' };
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET_NAME);
-  if (!sh) return { error: 'events sheet missing' };
-  const headers = getHeaders(sh);
-  const rows = Math.max(0, sh.getLastRow() - 1);
-  if (rows === 0) return { error: 'no events' };
-  const idCol = headers.indexOf('evento_id');
-  const data = sh.getRange(2,1,rows,headers.length).getValues();
-  for (let r=0;r<data.length;r++){
-    const rowId = String(data[r][idCol] || '');
-    const rowAdv = (headers.indexOf('id_anunciante') !== -1) ? String(data[r][headers.indexOf('id_anunciante')] || '') : '';
-    if (rowId === String(payload.evento_id) && (rowAdv === String(advertiserId) || !rowAdv)) {
-      sh.deleteRow(r + 2);
-      return { success:true, deleted:true };
-    }
-  }
-  return { error: 'event not found or mismatch advertiser' };
-}
-
-function pauseEvent(advertiserId, payload) {
-  if (!advertiserId) return { error: 'advertiserId required' };
-  if (!payload || !payload.evento_id) return { error: 'evento_id required for pause' };
-  const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET_NAME);
-  if (!sh) return { error: 'events sheet missing' };
-  const headers = getHeaders(sh);
-  const rows = Math.max(0, sh.getLastRow() - 1);
-  if (rows === 0) return { error: 'no events' };
-  const idCol = headers.indexOf('evento_id');
-  const pausedCol = headers.indexOf('pausado');
-  const data = sh.getRange(2,1,rows,headers.length).getValues();
-  for (let r=0;r<data.length;r++){
-    const rowId = String(data[r][idCol] || '');
-    const rowAdv = (headers.indexOf('id_anunciante') !== -1) ? String(data[r][headers.indexOf('id_anunciante')] || '') : '';
-    if (rowId === String(payload.evento_id) && (rowAdv === String(advertiserId) || !rowAdv)) {
-      let destCol = pausedCol;
-      if (destCol === -1) {
-        const newColIndex = Math.max(1, sh.getLastColumn()) + 1;
-        sh.insertColumnAfter(sh.getLastColumn());
-        sh.getRange(1, newColIndex).setValue('pausado');
-        destCol = newColIndex - 1;
-      }
-      sh.getRange(r + 2, destCol + 1).setValue(payload.pause ? 'TRUE' : 'FALSE');
-      writeAuditEventRow(sh, r + 2, payload.pause ? 'pause' : 'resume', advertiserId);
-      return { success:true, paused: !!payload.pause };
-    }
-  }
-  return { error:'event not found or mismatch advertiser' };
-}
-
-/* ---------- FORMATTING HELPERS ---------- */
-function fechaHumana(valor) {
-  if (!valor) return "";
-  valor = String(valor).trim();
-  let m = valor.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return formatoFechaEsp(new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10)));
-  m = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) return formatoFechaEsp(new Date(parseInt(m[3],10), parseInt(m[2],10)-1, parseInt(m[1],10)));
-  m = valor.match(/^Date\((\d{4}),\s*(\d+),\s*(\d+)(?:,\s*(\d+),\s*(\d+))?/);
-  if (m) return formatoFechaEsp(new Date(parseInt(m[1],10), parseInt(m[2],10), parseInt(m[3],10)));
-  const parsed = new Date(valor);
-  if (!isNaN(parsed.getTime())) return formatoFechaEsp(parsed);
-  return valor;
-}
-function formatoFechaEsp(fecha){
-  const dias = ["domingo","lunes","martes","miércoles","jueves","viernes","sábado"];
-  const meses = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
-  return `${dias[fecha.getDay()]} ${fecha.getDate()} de ${meses[fecha.getMonth()]} de ${fecha.getFullYear()}`;
-}
-function horaHumana(h) {
-  if (!h) return "";
-  const hhmm = normalizeTimeText_(h);
-  if (!hhmm) return "";
-  const m = hhmm.match(/^(\d{2}):(\d{2})$/);
-  if (m) return `${m[1]}:${m[2]} hs`;
-  return hhmm;
-}
-function horaUnificadaObj(obj) {
-  const h2 = obj && obj.hora2 ? String(obj.hora2||'').trim() : '';
-  const h1 = obj && obj.hora ? String(obj.hora||'').trim() : '';
-  const chosen = h2 !== '' ? h2 : h1;
-  return chosen ? horaHumana(chosen) : '';
-}
-
-/* ---------- getEventsForAdvertiserWS / Formatted ---------- */
+/* ---------- EVENTS WS (lectura para web) ---------- */
 function getEventsForAdvertiserWS(advertiserId) {
   const sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(EVENTS_SHEET_NAME);
   if (!sh) return { events: [] };
@@ -1383,6 +896,7 @@ function getEventsForAdvertiserWS(advertiserId) {
   if (rows === 0) return { events: [] };
   const data = sh.getRange(2,1,rows,headers.length).getValues();
   const out = [];
+
   for (let r=0;r<data.length;r++){
     const obj = {};
     for (let c=0;c<headers.length;c++) obj[headers[c]] = data[r][c];
@@ -1402,40 +916,17 @@ function getEventsForAdvertiserWS(advertiserId) {
   }
   return { events: out };
 }
-function getEventsFormattedForAdvertiser(advertiserId, options) {
-  options = options || {};
-  const base = getEventsForAdvertiserWS(advertiserId);
-  const evs = base.events || [];
-  const formatted = evs.map(e => {
-    const copy = Object.assign({}, e);
-    const fechaVal = (copy.fecha && String(copy.fecha).trim()) ? String(copy.fecha).trim() : (copy.fecha_iso ? String(copy.fecha_iso) : '');
-    copy.fecha_humana = fechaHumana(fechaVal);
-    copy.hora_unificada = horaUnificadaObj(copy);
-    return copy;
-  });
-  return { events: formatted, count: formatted.length };
-}
 
-/* ---------- Router ---------- */
+/* ---------- Router + WebApp ---------- */
 function handleEventAction(action, advertiserId, payload, params) {
   const act = String(action||'').trim().replace(/\s+/g,'').replace(/-+/g,'_').toLowerCase();
-  if (act === 'createevent' || act === 'create_event' || act === 'create-event') return createEvent(advertiserId, payload || {});
-  if (act === 'updateevent' || act === 'update_event' || act === 'update-event') return updateEvent(advertiserId, payload || {});
-  if (act === 'deleteevent' || act === 'delete_event' || act === 'delete-event') return deleteEvent(advertiserId, payload || {});
-  if (act === 'pauseevent' || act === 'pause_event' || act === 'pause-event') return pauseEvent(advertiserId, payload || {});
   if (act === 'getevents' || act === 'get_events' || act === 'get-events') {
     const adv = advertiserId || (params && (params.advertiserId || params.id || params.advertiserID)) || '';
     return getEventsForAdvertiserWS(adv);
   }
-  if (act === 'geteventsformatted' || act === 'get_events_formatted' || act === 'get-events-formatted') {
-    const adv = advertiserId || (params && (params.advertiserId || params.id || params.advertiserID)) || '';
-    const includeAll = (params && (params.includeAll === '1' || params.includeAll === 'true')) || false;
-    return getEventsFormattedForAdvertiser(adv, { includeAll: includeAll });
-  }
   return { error: 'unknown event action: ' + action };
 }
 
-/* ---------- WebApp handlers ---------- */
 function doGet(e) {
   try {
     const params = e && e.parameter ? e.parameter : {};
@@ -1443,19 +934,7 @@ function doGet(e) {
     let action = rawAction.replace(/\s+/g,'').replace(/-+/g,'_').toLowerCase();
     const secret = String(params.serverSecret || '');
 
-    const formatParam = (params.format || params.formato || '').toLowerCase();
-    if (!action && formatParam === 'human') action = 'geteventsformatted';
-
-    if (!action) {
-      if (params.id) {
-        if (SECRET_RESTRICTION() && secret !== SERVER_SECRET) return jsonResponse({ error: 'unauthorized' }, 401);
-        const adv = getAdvertiserById(params.id);
-        if (!adv) return jsonResponse({ error: 'advertiser_not_found', id: params.id }, 404);
-        return jsonResponse(Object.assign(adv, { receivedAction: '(implicit getAdvertiser by id)' }));
-      }
-      action = 'getevents';
-    }
-
+    if (!action) action = 'getevents';
     if (SECRET_RESTRICTION() && action !== 'getevents' && secret !== SERVER_SECRET) return jsonResponse({ error: 'unauthorized' }, 401);
 
     if (action === 'getevents' || action === 'get_events' || action === 'get-events') {
@@ -1463,14 +942,7 @@ function doGet(e) {
       return jsonResponse(Object.assign(getEventsForAdvertiserWS(advertiserId), { receivedAction: rawAction || '(implicit getEvents)' }));
     }
 
-    if (action === 'geteventsformatted' || action === 'get_events_formatted' || action === 'get-events-formatted') {
-      const advertiserId = params.advertiserId || params.advertiserID || params.id || '';
-      const includeAll = (params.includeAll === '1' || params.includeAll === 'true' || params.includeAll === 'yes');
-      const resp = getEventsFormattedForAdvertiser(advertiserId, { includeAll: includeAll });
-      return jsonResponse(Object.assign(resp, { receivedAction: rawAction || 'getEventsFormatted', includeAll: includeAll }));
-    }
-
-    return jsonResponse({ error: 'unknown action', receivedParams: params, hint: 'expected action=getEvents or action=getEventsFormatted or id parameter' }, 400);
+    return jsonResponse({ error: 'unknown action', receivedParams: params }, 400);
   } catch (err) {
     return jsonResponse({ error: err.message }, 500);
   }
@@ -1478,11 +950,12 @@ function doGet(e) {
 
 function doPost(e) {
   try {
+    try { ensureAutoSyncTriggers(); } catch(_){}
+
     let body = {};
     try { body = e && e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {}; }
     catch(parseErr) {
       const raw = e && e.postData && e.postData.contents ? e.postData.contents : '';
-      console.warn('doPost: JSON.parse failed for body, raw:', raw);
       body = { _raw: raw };
     }
 
@@ -1503,29 +976,29 @@ function doPost(e) {
     if (action === 'deletevipevent' || action === 'delete_vip_event') return jsonResponse(deleteVipEvent(advertiserId, body.payload || body));
     if (action === 'pausevipevent' || action === 'pause_vip_event') return jsonResponse(pauseVipEvent(advertiserId, body.payload || body));
 
-    if (['createevent','create_event','create-event','updateevent','update_event','update-event','deleteevent','delete_event','pauseevent','pause_event','getevents','get_events','get-events','geteventsformatted','get_events_formatted','get-events-formatted'].indexOf(action) !== -1) {
+    if (['getevents','get_events','get-events'].indexOf(action) !== -1) {
       return jsonResponse(handleEventAction(action, advertiserId, body.payload || body, params));
     }
 
-    return jsonResponse({ error: 'unknown action', receivedAction: detectedRaw, receivedBody: body, receivedParams: params }, 400);
+    return jsonResponse({ error: 'unknown action', receivedAction: detectedRaw }, 400);
   } catch(err) {
-    console.error('doPost error', err);
     return jsonResponse({ error: err.message }, 500);
   }
 }
 
-/* ---------- Sync incremental: unificada (upsert + delete missing) ---------- */
+/* ---------- Sync unificada (core) ---------- */
 function syncUnificadaFromSources() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
 
-  // Asegurar estructura unificada (incluye migración de 'pausado')
-  ensureEventsSheetAndHeaders();
+  // Validaciones VIP/FREE contra AUX (sin dropdown, edición excepcional permitida)
+  try { fixPartnerLogoValidations(VIP_SHEET_NAME, { showDropdown:false, allowInvalid:true }); } catch(e){}
+  try { fixPartnerLogoValidations(FREE_SHEET_NAME, { showDropdown:false, allowInvalid:true }); } catch(e){}
 
-  // FREE queda como está (no se agrega funcionalidad extra)
-  const ensureFreeIds = ensureFreeEventoIdColumnAndFill_();
+  ensureFreeEventoIdColumnAndFill_();
 
-  const enrVip = enrichSourceSheetFromLists(VIP_SHEET_NAME);
-  const enrFree = enrichSourceSheetFromLists(FREE_SHEET_NAME);
+  // Enriquecer (no pisa si ya hay valores)
+  try { enrichSourceSheetFromLists(VIP_SHEET_NAME); } catch(e){}
+  try { enrichSourceSheetFromLists(FREE_SHEET_NAME); } catch(e){}
 
   const shTarget = ss.getSheetByName(EVENTS_SHEET_NAME);
   if (!shTarget) throw new Error("Hoja destino 'unificada' no encontrada.");
@@ -1537,7 +1010,8 @@ function syncUnificadaFromSources() {
   const idxAprobadoTarget = targetHeaders.indexOf('aprobado');
   const idxNivelTarget = targetHeaders.indexOf('nivel');
   const idxEventoTarget = targetHeaders.indexOf('evento_id');
-  const idxFechaTarget = targetHeaders.indexOf('fecha');
+  const idxFechaDesdeTarget = targetHeaders.indexOf('fecha_desde');
+  const idxFechaHastaTarget = targetHeaders.indexOf('fecha_hasta');
   const idxHoraTarget = targetHeaders.indexOf('hora');
   const idxHora2Target = targetHeaders.indexOf('hora2');
   const idxPausadoTarget = targetHeaders.indexOf('pausado');
@@ -1606,30 +1080,28 @@ function syncUnificadaFromSources() {
       rowOut[idxAprobadoTarget] = (prev === true);
     }
 
-    // Mantener compatibilidad con “offset 3”
+    // Mantiene tu lógica original: columnas desde la 4ta (t=3) vienen del source corrido 3
     for (let t = 3; t < targetHeaders.length; t++) {
       const s = t - 3;
       rowOut[t] = (s < srcRow.length) ? (srcRow[s] === undefined ? '' : srcRow[s]) : '';
     }
 
-    // Copiar pausado por header y normalizar
+    // pausado
     if (idxPausadoTarget !== -1) {
       const idxPausadoSrc = srcHeaders.indexOf('pausado');
-      if (idxPausadoSrc !== -1) {
-        rowOut[idxPausadoTarget] = normalizePausadoText_(srcRow[idxPausadoSrc]);
-      } else {
-        // Si el origen no tiene pausado, dejar vacío (no agregar FREE features)
-        rowOut[idxPausadoTarget] = '';
-      }
+      if (idxPausadoSrc !== -1) rowOut[idxPausadoTarget] = normalizePausadoText_(srcRow[idxPausadoSrc]);
+      else rowOut[idxPausadoTarget] = '';
     }
 
-    if (idxFechaTarget !== -1) rowOut[idxFechaTarget] = normalizeDateText_(rowOut[idxFechaTarget]);
+    // normalizaciones
+    if (idxFechaDesdeTarget !== -1) rowOut[idxFechaDesdeTarget] = normalizeDateText_(rowOut[idxFechaDesdeTarget]);
+    if (idxFechaHastaTarget !== -1) rowOut[idxFechaHastaTarget] = normalizeDateText_(rowOut[idxFechaHastaTarget]);
     if (idxHoraTarget !== -1) rowOut[idxHoraTarget] = normalizeTimeText_(rowOut[idxHoraTarget]);
     if (idxHora2Target !== -1) rowOut[idxHora2Target] = normalizeTimeText_(rowOut[idxHora2Target]);
 
     const existingRowNum = idToRow[String(item.id)];
     if (existingRowNum) {
-      shTarget.getRange(existingRowNum, 1, 1, rowOut.length).setValues([rowOut]);
+      safeWriteRow_(shTarget, existingRowNum, targetHeaders, rowOut);
       updated++;
     } else {
       const newRow = appendUnificadaRowSmart_(shTarget, targetHeaders, rowOut);
@@ -1638,7 +1110,7 @@ function syncUnificadaFromSources() {
     }
   }
 
-  // BORRAR de unificada lo que ya no existe en VIP/FREE
+  // borrar de unificada los que ya no existen en vip/free
   const aliveIds = {};
   for (const item of sources) aliveIds[String(item.id)] = true;
 
@@ -1656,362 +1128,88 @@ function syncUnificadaFromSources() {
   }
 
   _ensureAprobadoCheckboxesAndDefaults_(shTarget);
-
-  const purgeResult = purgePastEventsFromUnificada();
-  const enrichResult = enrichUnificadaRowsFromLists();
+  clearUnificadaValidations();
 
   return {
-    vip_source_rows: vipFull.rows.length,
-    free_source_rows: freeFull.rows.length,
     updated_existing_rows: updated,
     appended_new_rows: appended,
-    deleted_from_unificada_missing_in_sources: deleted,
-    purged_past_events: purgeResult,
-    enriched_from_lists: enrichResult,
-    enriched_vip: enrVip,
-    enriched_free: enrFree,
-    free_ids_ensure: ensureFreeIds,
-    preserved_aprobado_count: Object.keys(aprobadoMap).length
+    deleted_from_unificada_missing_in_sources: deleted
   };
 }
 
-/* ---------- Triggers / Auto-sync helpers ---------- */
-function syncUnificadaFromSourcesAndLog(){
-  const res = syncUnificadaFromSources();
-  try { SpreadsheetApp.getActive().toast(
-    'Sync upd: ' + (res.updated_existing_rows || 0) +
-    ' | new: ' + (res.appended_new_rows || 0) +
-    ' | del: ' + (res.deleted_from_unificada_missing_in_sources || 0) +
-    ' | purga: ' + (res.purged_past_events ? res.purged_past_events.removed : 0),
-    'Sincronización', 6); } catch(e){}
-  return res;
+/* ---------- Protección unificada ---------- */
+function protectUnificadaSheet(){
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sh = ss.getSheetByName(EVENTS_SHEET_NAME);
+    if (!sh) return { ok:false, reason:'unificada not found' };
+
+    const old = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    old.forEach(p => { try { p.remove(); } catch(e){} });
+
+    const protection = sh.protect();
+    protection.setDescription('Unificada: sólo columna "aprobado" editable');
+    protection.setWarningOnly(false);
+    try { protection.removeEditors(protection.getEditors()); } catch(e){}
+
+    const headers = getHeaders(sh);
+    const idxAprobado = headers.indexOf('aprobado');
+    if (idxAprobado !== -1) {
+      const rng = sh.getRange(2, idxAprobado + 1, Math.max(0, sh.getMaxRows() - 1), 1);
+      protection.setUnprotectedRanges([rng]);
+    }
+
+    clearUnificadaValidations();
+    return { ok:true };
+  } catch(e){
+    return { ok:false, error: e && e.message ? e.message : String(e) };
+  }
 }
 
-function _shouldSkipSyncForEdit_(e){
-  try {
-    const range = e && e.range;
-    if (!range) return true;
-    const sheet = range.getSheet();
-    if (!sheet) return true;
-
-    const sheetName = sheet.getName();
-    if (sheetName === EVENTS_SHEET_NAME) return true;
-    if (sheetName !== VIP_SHEET_NAME && sheetName !== FREE_SHEET_NAME) return true;
-    return false;
-  } catch(err){
-    return true;
-  }
+/* ---------- Sync wrapper: throttle + lock ---------- */
+function requestQuickSync_(reason){
+  return _throttledSync_(reason || 'quick');
 }
 
 function _throttledSync_(reason){
-  const THROTTLE_SECONDS = AUTO_SYNC_THROTTLE_SECONDS;
   const props = PropertiesService.getScriptProperties();
   const last = Number(props.getProperty('LAST_SYNC_TS') || '0');
   const now = Date.now();
-  if (now - last < THROTTLE_SECONDS * 1000) return { skipped:true, reason:'throttled' };
-  props.setProperty('LAST_SYNC_TS', String(now));
+  if (now - last < AUTO_SYNC_THROTTLE_SECONDS * 1000) {
+    return { skipped:true, reason:'throttled', last_sync_ts:last, now:now };
+  }
+
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(8000)) return { skipped:true, reason:'locked' };
+
   try {
-    const res = syncUnificadaFromSources();
+    props.setProperty('LAST_SYNC_TS', String(now));
     props.setProperty('LAST_SYNC_REASON', String(reason||''));
-    return res;
+    return syncUnificadaFromSources();
   } catch (e) {
     props.setProperty('LAST_SYNC_TS', String(0));
     throw e;
+  } finally {
+    try { lock.releaseLock(); } catch(_){}
   }
 }
 
-function onVipEditSync(e){
-  if (_shouldSkipSyncForEdit_(e)) return;
-  const sheetName = e.range.getSheet().getName();
-  if (sheetName !== VIP_SHEET_NAME) return;
-  return _throttledSync_('vip_edit');
-}
-
-function onFreeEditSync(e){
-  if (_shouldSkipSyncForEdit_(e)) return;
-  const sheetName = e.range.getSheet().getName();
-  if (sheetName !== FREE_SHEET_NAME) return;
-  return _throttledSync_('free_edit');
-}
-
-/* ---------- SYNC AUX → LIST (B) ---------- */
-function syncAuxLugaresToList() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const auxSh = ss.getSheetByName(AUX_PLACES_SHEET);
-  if (!auxSh) return { error: 'aux_lugares not found', synced: 0 };
-
-  let listSh = ss.getSheetByName(LUGARES_LIST_SHEET);
-  if (!listSh) {
-    listSh = ss.insertSheet(LUGARES_LIST_SHEET);
-  }
-
-  const auxHeaders = getHeaders(auxSh);
-  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
-  if (auxRows === 0) {
-    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
-      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-    }
-    return { synced: 0, created_sheet: !ss.getSheetByName(LUGARES_LIST_SHEET) };
-  }
-
-  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
-
-  if (listSh.getLastRow() === 0) {
-    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-  }
-
-  const listHeaders = getHeaders(listSh);
-  const listRows = Math.max(0, listSh.getLastRow() - 1);
-  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
-
-  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
-                  listHeaders.indexOf('lugar') !== -1 ? listHeaders.indexOf('lugar') : 0;
-  const existing = new Set();
-  for (let i = 0; i < existingData.length; i++) {
-    const name = _norm(existingData[i][nameIdx] || '');
-    if (name) existing.add(name);
-  }
-
-  let added = 0;
-  for (let i = 0; i < auxData.length; i++) {
-    const name = _norm(auxData[i][nameIdx] || '');
-    if (!name || existing.has(name)) continue;
-    listSh.appendRow(auxData[i]);
-    existing.add(name);
-    added++;
-  }
-
-  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
-}
-
-function syncAuxLocalidadToList() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const auxSh = ss.getSheetByName(AUX_LOCALIDAD_SHEET);
-  if (!auxSh) return { error: 'aux_localidad not found', synced: 0 };
-
-  let listSh = ss.getSheetByName(LOCALIDAD_LIST_SHEET);
-  if (!listSh) {
-    listSh = ss.insertSheet(LOCALIDAD_LIST_SHEET);
-  }
-
-  const auxHeaders = getHeaders(auxSh);
-  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
-  if (auxRows === 0) {
-    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
-      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-    }
-    return { synced: 0 };
-  }
-
-  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
-
-  if (listSh.getLastRow() === 0) {
-    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-  }
-
-  const listHeaders = getHeaders(listSh);
-  const listRows = Math.max(0, listSh.getLastRow() - 1);
-  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
-
-  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
-                  listHeaders.indexOf('localidad') !== -1 ? listHeaders.indexOf('localidad') : 0;
-  const existing = new Set();
-  for (let i = 0; i < existingData.length; i++) {
-    const name = _norm(existingData[i][nameIdx] || '');
-    if (name) existing.add(name);
-  }
-
-  let added = 0;
-  for (let i = 0; i < auxData.length; i++) {
-    const name = _norm(auxData[i][nameIdx] || '');
-    if (!name || existing.has(name)) continue;
-    listSh.appendRow(auxData[i]);
-    existing.add(name);
-    added++;
-  }
-
-  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
-}
-
-function syncAuxPartnerToList() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const auxSh = ss.getSheetByName(AUX_PARTNER_SHEET);
-  if (!auxSh) return { error: 'aux_partner not found', synced: 0 };
-
-  let listSh = ss.getSheetByName(PARTNER_LIST_SHEET);
-  if (!listSh) {
-    listSh = ss.insertSheet(PARTNER_LIST_SHEET);
-  }
-
-  const auxHeaders = getHeaders(auxSh);
-  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
-  if (auxRows === 0) {
-    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
-      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-    }
-    return { synced: 0 };
-  }
-
-  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
-
-  if (listSh.getLastRow() === 0) {
-    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-  }
-
-  const listHeaders = getHeaders(listSh);
-  const listRows = Math.max(0, listSh.getLastRow() - 1);
-  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
-
-  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
-                  listHeaders.indexOf('partner') !== -1 ? listHeaders.indexOf('partner') : 0;
-  const existing = new Set();
-  for (let i = 0; i < existingData.length; i++) {
-    const name = _norm(existingData[i][nameIdx] || '');
-    if (name) existing.add(name);
-  }
-
-  let added = 0;
-  for (let i = 0; i < auxData.length; i++) {
-    const name = _norm(auxData[i][nameIdx] || '');
-    if (!name || existing.has(name)) continue;
-    listSh.appendRow(auxData[i]);
-    existing.add(name);
-    added++;
-  }
-
-  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
-}
-
-function syncAuxCategoriasToList() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const auxSh = ss.getSheetByName(AUX_CATS_SHEET);
-  if (!auxSh) return { error: 'aux_categorias not found', synced: 0 };
-
-  let listSh = ss.getSheetByName(CATEGORIES_SHEET_NAME);
-  if (!listSh) {
-    listSh = ss.insertSheet(CATEGORIES_SHEET_NAME);
-  }
-
-  const auxHeaders = getHeaders(auxSh);
-  const auxRows = Math.max(0, auxSh.getLastRow() - 1);
-  if (auxRows === 0) {
-    if (auxHeaders.length > 0 && listSh.getLastRow() === 0) {
-      listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-    }
-    return { synced: 0 };
-  }
-
-  const auxData = auxSh.getRange(2, 1, auxRows, auxHeaders.length).getValues();
-
-  if (listSh.getLastRow() === 0) {
-    listSh.getRange(1, 1, 1, auxHeaders.length).setValues([auxHeaders]);
-  }
-
-  const listHeaders = getHeaders(listSh);
-  const listRows = Math.max(0, listSh.getLastRow() - 1);
-  const existingData = listRows > 0 ? listSh.getRange(2, 1, listRows, listHeaders.length).getValues() : [];
-
-  const nameIdx = listHeaders.indexOf('nombre') !== -1 ? listHeaders.indexOf('nombre') :
-                  listHeaders.indexOf('categoria') !== -1 ? listHeaders.indexOf('categoria') : 0;
-  const existing = new Set();
-  for (let i = 0; i < existingData.length; i++) {
-    const name = _norm(existingData[i][nameIdx] || '');
-    if (name) existing.add(name);
-  }
-
-  let added = 0;
-  for (let i = 0; i < auxData.length; i++) {
-    const name = _norm(auxData[i][nameIdx] || '');
-    if (!name || existing.has(name)) continue;
-    listSh.appendRow(auxData[i]);
-    existing.add(name);
-    added++;
-  }
-
-  return { synced: added, total_in_aux: auxRows, total_in_list: listSh.getLastRow() - 1 };
-}
-
-function syncAnunciantesAut() {
+/* ---------- Purga wrapper (cada 6 horas) ---------- */
+function scheduledPurgeOldEvents(){
+  // lock también para que no se pise con sync
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(8000)) return { skipped:true, reason:'locked' };
   try {
-    const extSs = SpreadsheetApp.openById(SPREADSHEET_ANNUNCIANTES_ID);
-    const extSh = extSs.getSheetByName('anunciantes');
-
-    if (!extSh) {
-      return { error: 'No se encontró la pestaña "anunciantes" en el spreadsheet externo', synced: 0 };
-    }
-
-    const lastRow = extSh.getLastRow();
-    if (lastRow < 2) {
-      return { error: 'No hay datos en la pestaña anunciantes', synced: 0 };
-    }
-
-    const lastCol = extSh.getLastColumn();
-    const allData = extSh.getRange(1, 1, lastRow, lastCol).getValues();
-    const headers = allData[0];
-
-    const eventosIdx = 74; // BW (base 0)
-    const filteredRows = [];
-    for (let i = 1; i < allData.length; i++) {
-      const eventosValue = allData[i][eventosIdx];
-      if (eventosValue === true || eventosValue === 'TRUE' || eventosValue === 'true') {
-        filteredRows.push(allData[i]);
-      }
-    }
-
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    let localSh = ss.getSheetByName(ANUNCIANTES_AUT_SHEET);
-    if (!localSh) {
-      localSh = ss.insertSheet(ANUNCIANTES_AUT_SHEET);
-    }
-
-    localSh.clear();
-
-    if (filteredRows.length > 0) {
-      localSh.getRange(1, 1, 1, headers.length).setValues([headers]);
-      localSh.getRange(2, 1, filteredRows.length, headers.length).setValues(filteredRows);
-    } else {
-      localSh.getRange(1, 1, 1, headers.length).setValues([headers]);
-    }
-
-    return {
-      synced: filteredRows.length,
-      total_in_source: lastRow - 1,
-      message: `Se sincronizaron ${filteredRows.length} anunciantes con eventos=TRUE`
-    };
-  } catch(e) {
-    return {
-      error: e && e.message ? e.message : String(e),
-      synced: 0
-    };
+    return purgePastEventsFromUnificada();
+  } finally {
+    try { lock.releaseLock(); } catch(_){}
   }
 }
 
-function syncAllAuxToList() {
-  const results = {};
-  try { results.lugares = syncAuxLugaresToList(); } catch(e) { results.lugares = { error: e.message }; }
-  try { results.localidad = syncAuxLocalidadToList(); } catch(e) { results.localidad = { error: e.message }; }
-  try { results.partner = syncAuxPartnerToList(); } catch(e) { results.partner = { error: e.message }; }
-  try { results.categorias = syncAuxCategoriasToList(); } catch(e) { results.categorias = { error: e.message }; }
-  return results;
-}
-
+/* ---------- Triggers (instalación automática) ---------- */
 function ensureAutoSyncTriggers(){
-  try { ensureOnEditSyncTrigger('onVipEditSync'); } catch(e){}
-  try { ensureOnEditSyncTrigger('onFreeEditSync'); } catch(e){}
   try { ensureTimedSyncTrigger(); } catch(e){}
-  if (KEEP_HOURLY_MAINTENANCE) {
-    try { ensureHourlyMaintenanceTrigger(); } catch(e){}
-  }
-  try { ensureAuxListSyncTrigger(); } catch(e){}
-  try { ensureAnunciantesAutSyncTrigger(); } catch(e){}
-}
-
-function ensureOnEditSyncTrigger(handlerName){
-  const existing = ScriptApp.getProjectTriggers();
-  for (let i=0;i<existing.length;i++){
-    if (existing[i].getHandlerFunction() === handlerName && existing[i].getEventType() === ScriptApp.EventType.ON_EDIT) return;
-  }
-  ScriptApp.newTrigger(handlerName).forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+  try { ensurePurgeTriggerEvery6Hours_(); } catch(e){}
 }
 
 function ensureTimedSyncTrigger(){
@@ -2023,83 +1221,66 @@ function ensureTimedSyncTrigger(){
   ScriptApp.newTrigger('scheduledQuickSync').timeBased().everyMinutes(AUTO_SYNC_TIME_MINUTES).create();
 }
 
-function scheduledQuickSync(){
-  return _throttledSync_('time_based_quick_sync');
-}
-
-function ensureHourlyMaintenanceTrigger(){
+function ensurePurgeTriggerEvery6Hours_(){
   const existing = ScriptApp.getProjectTriggers();
   for (let i=0;i<existing.length;i++){
     const t = existing[i];
-    if (t.getHandlerFunction() === 'scheduledHourlyMaintenance' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) return;
+    if (t.getHandlerFunction() === 'scheduledPurgeOldEvents' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) return;
   }
-  ScriptApp.newTrigger('scheduledHourlyMaintenance').timeBased().everyHours(1).create();
+  ScriptApp.newTrigger('scheduledPurgeOldEvents').timeBased().everyHours(PURGE_EVERY_HOURS).create();
 }
 
-function scheduledHourlyMaintenance(){
-  const res = {};
-  try { res.sync = syncUnificadaFromSources(); } catch(e){ res.sync_error = e && e.message ? e.message : String(e); }
-  Logger.log('scheduledHourlyMaintenance result: %s', JSON.stringify(res));
-  try { SpreadsheetApp.getActive().toast('Auto-mantenimiento: ' + JSON.stringify(res), 'Hourly', 6); } catch(e){}
-  return res;
-}
+function scheduledQuickSync(){ return _throttledSync_('time_based_quick_sync'); }
 
-function scheduledAuxListSync() {
-  const res = {};
-  try {
-    res.aux_sync = syncAllAuxToList();
-    Logger.log('scheduledAuxListSync result: %s', JSON.stringify(res));
-  } catch(e) {
-    res.error = e && e.message ? e.message : String(e);
-    Logger.log('scheduledAuxListSync error: %s', res.error);
+/**
+ * Botón nuclear: borra TODOS los triggers del proyecto y crea solo los recomendados.
+ * Esto evita que queden triggers viejos (onVipEditSync/onFreeEditSync/etc) rompiendo todo.
+ */
+function resetAllTriggersToRecommended(){
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i=0;i<triggers.length;i++){
+    try { ScriptApp.deleteTrigger(triggers[i]); } catch(e){}
   }
-  try {
-    SpreadsheetApp.getActive().toast(
-      'Sync AUX→LIST: ' + JSON.stringify(res.aux_sync || res.error || 'ok'),
-      'Aux List Sync',
-      6
-    );
-  } catch(e){}
-  return res;
+  ensureAutoSyncTriggers();
+  return { ok:true, deleted: triggers.length, created: 'scheduledQuickSync + scheduledPurgeOldEvents (and built-in onEdit/onOpen)' };
 }
 
-function ensureAuxListSyncTrigger() {
-  const existing = ScriptApp.getProjectTriggers();
-  for (let i = 0; i < existing.length; i++) {
-    const t = existing[i];
-    if (t.getHandlerFunction() === 'scheduledAuxListSync' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) {
-      return;
+/* ---------- onOpen + onEdit ---------- */
+function onOpen(){
+  try { ensureAutoSyncTriggers(); } catch(e){}
+  try { protectUnificadaSheet(); } catch(e){}
+}
+
+function onEdit(e) {
+  if (!e) return;
+  const range = e.range;
+  const sheet = range && range.getSheet ? range.getSheet() : null;
+  if (!sheet) return;
+  const sheetName = sheet.getName();
+
+  // UNIFICADA: solo col aprobado
+  if (sheetName === EVENTS_SHEET_NAME) {
+    const headers = getHeaders(sheet);
+    const idxAprobado = headers.indexOf('aprobado');
+    const editedCol = range.getColumn();
+    if (idxAprobado !== -1 && editedCol !== (idxAprobado + 1)) {
+      try { SpreadsheetApp.getActive().toast('Unificada: edición no permitida (solo "aprobado"). Restaurando...', 'UNIFICADA', 4); } catch(_){}
+      try { _throttledSync_('unificada_illegal_edit_restore'); } catch(_){}
+    }
+    return;
+  }
+
+  // VIP/FREE: sync rápido, pero con throttle+lock
+  if (sheetName === VIP_SHEET_NAME || sheetName === FREE_SHEET_NAME) {
+    try { _throttledSync_(sheetName + '_edit'); }
+    catch(err) {
+      try { SpreadsheetApp.getActive().toast('Autosync ERROR: ' + (err && err.message ? err.message : err), 'SYNC', 6); } catch(_){}
     }
   }
-  ScriptApp.newTrigger('scheduledAuxListSync').timeBased().everyHours(6).create();
 }
 
-function scheduledAnunciantesAutSync() {
-  const res = {};
-  try {
-    res.anunciantes_aut_sync = syncAnunciantesAut();
-    Logger.log('scheduledAnunciantesAutSync result: %s', JSON.stringify(res));
-  } catch(e) {
-    res.error = e && e.message ? e.message : String(e);
-    Logger.log('scheduledAnunciantesAutSync error: %s', res.error);
-  }
-  try {
-    SpreadsheetApp.getActive().toast(
-      'Sync Anunciantes AUT: ' + JSON.stringify(res.anunciantes_aut_sync || res.error || 'ok'),
-      'Anunciantes AUT Sync',
-      6
-    );
-  } catch(e){}
-  return res;
-}
-
-function ensureAnunciantesAutSyncTrigger() {
-  const existing = ScriptApp.getProjectTriggers();
-  for (let i = 0; i < existing.length; i++) {
-    const t = existing[i];
-    if (t.getHandlerFunction() === 'scheduledAnunciantesAutSync' && t.getEventType() === ScriptApp.EventType.TIME_DRIVEN) {
-      return;
-    }
-  }
-  ScriptApp.newTrigger('scheduledAnunciantesAutSync').timeBased().everyHours(6).create();
+/* ---------- Stub para trigger faltante ---------- */
+function combinePromosToUnificado(){
+  try { return _throttledSync_('combinePromosToUnificado'); }
+  catch(e){ return { error: e && e.message ? e.message : String(e) }; }
 }
