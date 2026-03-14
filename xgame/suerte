@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Juego de 20 Fichas</title>
+  <style>
+    :root{
+      --bg:#0b1220; --card:#111a2e; --card2:#162242;
+      --accent:#4f8cff; --text:#e5e7eb; --muted:#9ca3af;
+    }
+    *{ box-sizing:border-box; }
+    body{
+      margin:0;
+      font-family:system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: radial-gradient(1200px 600px at 20% 10%, #142042 0%, var(--bg) 55%);
+      color:var(--text);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+    .wrap{ width:min(980px, 100%); display:flex; gap:18px; flex-direction:column; }
+    header{ display:flex; gap:12px; align-items:center; justify-content:space-between; flex-wrap:wrap; }
+    h1{ margin:0; font-size:20px; }
+    .controls{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+
+    button{
+      border:0;
+      padding:10px 14px;
+      border-radius:10px;
+      background:linear-gradient(180deg, #5aa0ff, #2f6dff);
+      color:white;
+      font-weight:700;
+      cursor:pointer;
+      box-shadow:0 10px 25px rgba(47,109,255,.25);
+    }
+    button.secondary{
+      background:linear-gradient(180deg, #263251, #1a2440);
+      box-shadow:none;
+      color:var(--text);
+      border:1px solid rgba(255,255,255,.08);
+    }
+    button:disabled{ opacity:.55; cursor:not-allowed; box-shadow:none; }
+
+    .status{ display:flex; gap:10px; flex-wrap:wrap; color:var(--muted); font-size:14px; }
+    .pill{
+      padding:6px 10px;
+      border-radius:999px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.08);
+      color:var(--text);
+      font-size:13px;
+    }
+
+    .grid{ display:grid; grid-template-columns: repeat(5, 1fr); gap:12px; }
+    @media (max-width: 720px){ .grid{ grid-template-columns: repeat(4, 1fr); } }
+    @media (max-width: 520px){ .grid{ grid-template-columns: repeat(3, 1fr); } }
+
+    .tile{ position:relative; height:120px; border-radius:14px; perspective: 900px; user-select:none; }
+    .tile-inner{
+      position:absolute; inset:0;
+      transition: transform 600ms cubic-bezier(.2,.8,.2,1);
+      transform-style:preserve-3d;
+      border-radius:14px;
+    }
+    .tile.flipped .tile-inner{ transform: rotateY(180deg); }
+
+    .face{
+      position:absolute; inset:0; border-radius:14px;
+      display:flex; align-items:center; justify-content:center;
+      padding:10px;
+      backface-visibility:hidden;
+      border:1px solid rgba(255,255,255,.08);
+    }
+    .front{ background:linear-gradient(180deg, var(--card2), var(--card)); }
+    .front .num{
+      width:44px; height:44px;
+      display:grid; place-items:center;
+      border-radius:12px;
+      background:rgba(255,255,255,.06);
+      border:1px solid rgba(255,255,255,.10);
+      font-weight:800;
+    }
+    .back{ transform: rotateY(180deg); text-align:center; font-weight:800; line-height:1.15; }
+    .back small{ display:block; margin-top:8px; font-weight:600; color:rgba(255,255,255,.85); }
+
+    .tile.selectable .front{
+      outline:2px solid rgba(79,140,255,.55);
+      box-shadow:0 0 0 6px rgba(79,140,255,.12);
+      cursor:pointer;
+    }
+
+    .result-premio{ background:linear-gradient(180deg, rgba(52,211,153,.35), rgba(17,26,46,.85)); }
+    .result-otra { background:linear-gradient(180deg, rgba(251,191,36,.35), rgba(17,26,46,.85)); }
+    .result-50   { background:linear-gradient(180deg, rgba(79,140,255,.35), rgba(17,26,46,.85)); }
+    .result-nada { background:linear-gradient(180deg, rgba(248,113,113,.18), rgba(17,26,46,.85)); }
+
+    .log{
+      background:rgba(255,255,255,.04);
+      border:1px solid rgba(255,255,255,.08);
+      border-radius:14px;
+      padding:12px;
+      color:var(--muted);
+      font-size:14px;
+    }
+    .log b{ color:var(--text); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Juego: 20 fichas (barajado por partida)</h1>
+      <div class="controls">
+        <button id="btnSpin">Pulsar (seleccionar ficha)</button>
+        <button id="btnRevealAll" class="secondary" disabled>Ver valores (todas)</button>
+        <button id="btnNewGame" class="secondary">Nuevo juego (barajar)</button>
+      </div>
+      <div class="status">
+        <span class="pill">Intentos restantes: <b id="tries">1</b></span>
+        <span class="pill">Estado: <b id="state">Listo</b></span>
+      </div>
+    </header>
+
+    <section id="grid" class="grid" aria-label="Fichas"></section>
+
+    <div class="log" id="log">
+      Pulsa <b>Pulsar</b> para seleccionar una ficha al azar. Luego toca esa ficha para voltearla.
+    </div>
+  </div>
+
+  <script>
+    const TOTAL = 20;
+
+    function buildAndShuffleBoard() {
+      const board = [];
+      board.push({ type: "premio", label: "¡PREMIO REAL!", sub: "Felicidades", css: "result-premio" }); // 1
+      board.push({ type: "otra", label: "OPORTUNIDAD EXTRA", sub: "Ganas 1 intento más", css: "result-otra" }); // 1
+      board.push({ type: "50", label: "50% OFF", sub: "En el siguiente juego", css: "result-50" }); // 2
+      board.push({ type: "50", label: "50% OFF", sub: "En el siguiente juego", css: "result-50" });
+
+      while (board.length < TOTAL) {
+        board.push({ type: "nada", label: "Gracias por participar", sub: "Suerte a la próxima", css: "result-nada" });
+      }
+
+      // shuffle Fisher-Yates
+      for (let i = board.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [board[i], board[j]] = [board[j], board[i]];
+      }
+      return board;
+    }
+
+    let board = [];               // premios asignados a cada ficha (barajado por partida)
+    let flipped = new Set();
+    let selectedIndex = null;
+    let triesLeft = 1;
+
+    let hasPlayed = false;
+    let revealAll = false;
+
+    const grid = document.getElementById("grid");
+    const btnSpin = document.getElementById("btnSpin");
+    const btnRevealAll = document.getElementById("btnRevealAll");
+    const btnNewGame = document.getElementById("btnNewGame");
+    const triesEl = document.getElementById("tries");
+    const stateEl = document.getElementById("state");
+    const logEl = document.getElementById("log");
+
+    function setState(t){ stateEl.textContent = t; }
+    function setLog(html){ logEl.innerHTML = html; }
+    function updateTries(){ triesEl.textContent = String(triesLeft); }
+
+    function pickSelectableTile() {
+      const available = [];
+      for (let i = 0; i < TOTAL; i++) if (!flipped.has(i)) available.push(i);
+      if (!available.length) return null;
+      return available[Math.floor(Math.random() * available.length)];
+    }
+
+    function render() {
+      grid.innerHTML = "";
+      for (let i = 0; i < TOTAL; i++) {
+        const isFlipped = flipped.has(i);
+        const isSelectable = (selectedIndex === i && !isFlipped);
+
+        // Si revealAll=true, forzamos que TODAS aparezcan "flipped visualmente".
+        const showBack = isFlipped || revealAll;
+        const prize = board[i];
+
+        const tile = document.createElement("div");
+        tile.className = "tile" + (showBack ? " flipped" : "") + (isSelectable ? " selectable" : "");
+        tile.setAttribute("role", "button");
+        tile.setAttribute("tabindex", "0");
+        tile.setAttribute("aria-label", `Ficha ${i + 1}`);
+
+        const inner = document.createElement("div");
+        inner.className = "tile-inner";
+
+        const front = document.createElement("div");
+        front.className = "face front";
+        const num = document.createElement("div");
+        num.className = "num";
+        num.textContent = i + 1;
+        front.appendChild(num);
+
+        const back = document.createElement("div");
+        back.className = "face back " + prize.css;
+        back.innerHTML = `${prize.label}<small>${prize.sub}</small>`;
+
+        inner.appendChild(front);
+        inner.appendChild(back);
+        tile.appendChild(inner);
+
+        tile.addEventListener("click", () => onTileClick(i));
+        tile.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") onTileClick(i);
+        });
+
+        grid.appendChild(tile);
+      }
+    }
+
+    function onSpin() {
+      if (triesLeft <= 0) return;
+
+      if (selectedIndex !== null && !flipped.has(selectedIndex)) {
+        setLog("Primero voltea la ficha seleccionada antes de pulsar otra vez.");
+        return;
+      }
+
+      selectedIndex = pickSelectableTile();
+      if (selectedIndex === null) {
+        setState("Terminado");
+        setLog("Ya no quedan fichas por voltear.");
+        btnSpin.disabled = true;
+        return;
+      }
+
+      setState("Ficha seleccionada");
+      setLog(`Se seleccionó la ficha <b>${selectedIndex + 1}</b>. Ahora tócala para voltearla.`);
+      render();
+    }
+
+    function onTileClick(i) {
+      if (triesLeft <= 0) return;
+
+      if (selectedIndex === null) {
+        setLog("Primero pulsa <b>Pulsar</b> para seleccionar una ficha.");
+        return;
+      }
+      if (i !== selectedIndex) {
+        setLog(`Solo puedes voltear la ficha <b>${selectedIndex + 1}</b> (la seleccionada).`);
+        return;
+      }
+      if (flipped.has(i)) return;
+
+      triesLeft -= 1;
+      flipped.add(i);
+
+      hasPlayed = true;
+      btnRevealAll.disabled = false;
+
+      const prize = board[i];
+      if (prize.type === "otra") triesLeft += 1;
+
+      updateTries();
+      setState(triesLeft > 0 ? "Puedes pulsar de nuevo" : "Sin intentos");
+
+      if (prize.type === "premio") {
+        setLog(`Resultado: <b>${prize.label}</b>.`);
+      } else if (prize.type === "otra") {
+        setLog(`Resultado: <b>${prize.label}</b>. Te queda(n) <b>${triesLeft}</b> intento(s).`);
+      } else if (prize.type === "50") {
+        setLog(`Resultado: <b>${prize.label}</b>.`);
+      } else {
+        setLog(`Resultado: <b>${prize.label}</b>.`);
+      }
+
+      selectedIndex = null;
+      btnSpin.disabled = triesLeft <= 0;
+      render();
+    }
+
+    function onRevealAll() {
+      if (!hasPlayed) return;
+      revealAll = !revealAll;
+      btnRevealAll.textContent = revealAll ? "Ocultar valores" : "Ver valores (todas)";
+      setLog(revealAll
+        ? "Se revelaron los valores de TODAS las fichas. Para el siguiente participante, usa <b>Nuevo juego (barajar)</b>."
+        : "Valores ocultos. Puedes seguir jugando si te quedan intentos."
+      );
+      render();
+    }
+
+    function newGame() {
+      board = buildAndShuffleBoard(); // aquí está la clave: cambia cada partida
+      flipped = new Set();
+      selectedIndex = null;
+      triesLeft = 1;
+      hasPlayed = false;
+      revealAll = false;
+
+      btnSpin.disabled = false;
+      btnRevealAll.disabled = true;
+      btnRevealAll.textContent = "Ver valores (todas)";
+      updateTries();
+      setState("Listo");
+      setLog('Pulsa <b>Pulsar</b> para seleccionar una ficha al azar. Luego toca esa ficha para voltearla.');
+      render();
+    }
+
+    btnSpin.addEventListener("click", onSpin);
+    btnRevealAll.addEventListener("click", onRevealAll);
+    btnNewGame.addEventListener("click", newGame);
+
+    newGame();
+  </script>
+</body>
+</html>
