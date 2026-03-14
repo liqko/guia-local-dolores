@@ -7,7 +7,7 @@
   <style>
     :root{
       --bg:#0b1220; --card:#111a2e; --card2:#162242;
-      --accent:#4f8cff; --text:#e5e7eb; --muted:#9ca3af;
+      --text:#e5e7eb; --muted:#9ca3af;
     }
     *{ box-sizing:border-box; }
     body{
@@ -59,6 +59,7 @@
     @media (max-width: 520px){ .grid{ grid-template-columns: repeat(3, 1fr); } }
 
     .tile{ position:relative; height:120px; border-radius:14px; perspective: 900px; user-select:none; }
+    .tile[aria-disabled="true"]{ opacity:.65; }
     .tile-inner{
       position:absolute; inset:0;
       transition: transform 600ms cubic-bezier(.2,.8,.2,1);
@@ -74,7 +75,7 @@
       backface-visibility:hidden;
       border:1px solid rgba(255,255,255,.08);
     }
-    .front{ background:linear-gradient(180deg, var(--card2), var(--card)); }
+    .front{ background:linear-gradient(180deg, var(--card2), var(--card)); cursor:pointer; }
     .front .num{
       width:44px; height:44px;
       display:grid; place-items:center;
@@ -85,12 +86,6 @@
     }
     .back{ transform: rotateY(180deg); text-align:center; font-weight:800; line-height:1.15; }
     .back small{ display:block; margin-top:8px; font-weight:600; color:rgba(255,255,255,.85); }
-
-    .tile.selectable .front{
-      outline:2px solid rgba(79,140,255,.55);
-      box-shadow:0 0 0 6px rgba(79,140,255,.12);
-      cursor:pointer;
-    }
 
     .result-premio{ background:linear-gradient(180deg, rgba(52,211,153,.35), rgba(17,26,46,.85)); }
     .result-otra { background:linear-gradient(180deg, rgba(251,191,36,.35), rgba(17,26,46,.85)); }
@@ -111,9 +106,8 @@
 <body>
   <div class="wrap">
     <header>
-      <h1>Juego: 20 fichas (barajado por partida)</h1>
+      <h1>Elige 1 ficha (20 en total)</h1>
       <div class="controls">
-        <button id="btnSpin">Pulsar (seleccionar ficha)</button>
         <button id="btnRevealAll" class="secondary" disabled>Ver valores (todas)</button>
         <button id="btnNewGame" class="secondary">Nuevo juego (barajar)</button>
       </div>
@@ -126,7 +120,7 @@
     <section id="grid" class="grid" aria-label="Fichas"></section>
 
     <div class="log" id="log">
-      Pulsa <b>Pulsar</b> para seleccionar una ficha al azar. Luego toca esa ficha para voltearla.
+      Toca una ficha para voltearla. Solo tienes <b>1</b> intento (puede aparecer “oportunidad extra”).
     </div>
   </div>
 
@@ -139,12 +133,10 @@
       board.push({ type: "otra", label: "OPORTUNIDAD EXTRA", sub: "Ganas 1 intento más", css: "result-otra" }); // 1
       board.push({ type: "50", label: "50% OFF", sub: "En el siguiente juego", css: "result-50" }); // 2
       board.push({ type: "50", label: "50% OFF", sub: "En el siguiente juego", css: "result-50" });
-
       while (board.length < TOTAL) {
         board.push({ type: "nada", label: "Gracias por participar", sub: "Suerte a la próxima", css: "result-nada" });
       }
 
-      // shuffle Fisher-Yates
       for (let i = board.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [board[i], board[j]] = [board[j], board[i]];
@@ -152,16 +144,14 @@
       return board;
     }
 
-    let board = [];               // premios asignados a cada ficha (barajado por partida)
+    let board = [];
     let flipped = new Set();
-    let selectedIndex = null;
     let triesLeft = 1;
 
     let hasPlayed = false;
     let revealAll = false;
 
     const grid = document.getElementById("grid");
-    const btnSpin = document.getElementById("btnSpin");
     const btnRevealAll = document.getElementById("btnRevealAll");
     const btnNewGame = document.getElementById("btnNewGame");
     const triesEl = document.getElementById("tries");
@@ -172,28 +162,19 @@
     function setLog(html){ logEl.innerHTML = html; }
     function updateTries(){ triesEl.textContent = String(triesLeft); }
 
-    function pickSelectableTile() {
-      const available = [];
-      for (let i = 0; i < TOTAL; i++) if (!flipped.has(i)) available.push(i);
-      if (!available.length) return null;
-      return available[Math.floor(Math.random() * available.length)];
-    }
-
     function render() {
       grid.innerHTML = "";
       for (let i = 0; i < TOTAL; i++) {
         const isFlipped = flipped.has(i);
-        const isSelectable = (selectedIndex === i && !isFlipped);
-
-        // Si revealAll=true, forzamos que TODAS aparezcan "flipped visualmente".
         const showBack = isFlipped || revealAll;
         const prize = board[i];
 
         const tile = document.createElement("div");
-        tile.className = "tile" + (showBack ? " flipped" : "") + (isSelectable ? " selectable" : "");
+        tile.className = "tile" + (showBack ? " flipped" : "");
         tile.setAttribute("role", "button");
         tile.setAttribute("tabindex", "0");
         tile.setAttribute("aria-label", `Ficha ${i + 1}`);
+        tile.setAttribute("aria-disabled", (triesLeft <= 0 && !revealAll) ? "true" : "false");
 
         const inner = document.createElement("div");
         inner.className = "tile-inner";
@@ -222,40 +203,16 @@
       }
     }
 
-    function onSpin() {
-      if (triesLeft <= 0) return;
-
-      if (selectedIndex !== null && !flipped.has(selectedIndex)) {
-        setLog("Primero voltea la ficha seleccionada antes de pulsar otra vez.");
-        return;
-      }
-
-      selectedIndex = pickSelectableTile();
-      if (selectedIndex === null) {
-        setState("Terminado");
-        setLog("Ya no quedan fichas por voltear.");
-        btnSpin.disabled = true;
-        return;
-      }
-
-      setState("Ficha seleccionada");
-      setLog(`Se seleccionó la ficha <b>${selectedIndex + 1}</b>. Ahora tócala para voltearla.`);
-      render();
-    }
-
     function onTileClick(i) {
-      if (triesLeft <= 0) return;
+      if (revealAll) return;         // si está en modo "ver valores", no jugar
+      if (triesLeft <= 0) return;    // sin intentos
 
-      if (selectedIndex === null) {
-        setLog("Primero pulsa <b>Pulsar</b> para seleccionar una ficha.");
+      if (flipped.has(i)) {
+        setLog("Esa ficha ya fue volteada. Elige otra (si te quedan intentos).");
         return;
       }
-      if (i !== selectedIndex) {
-        setLog(`Solo puedes voltear la ficha <b>${selectedIndex + 1}</b> (la seleccionada).`);
-        return;
-      }
-      if (flipped.has(i)) return;
 
+      // consumir intento y voltear
       triesLeft -= 1;
       flipped.add(i);
 
@@ -266,7 +223,7 @@
       if (prize.type === "otra") triesLeft += 1;
 
       updateTries();
-      setState(triesLeft > 0 ? "Puedes pulsar de nuevo" : "Sin intentos");
+      setState(triesLeft > 0 ? "Puedes elegir otra ficha" : "Sin intentos");
 
       if (prize.type === "premio") {
         setLog(`Resultado: <b>${prize.label}</b>.`);
@@ -278,8 +235,6 @@
         setLog(`Resultado: <b>${prize.label}</b>.`);
       }
 
-      selectedIndex = null;
-      btnSpin.disabled = triesLeft <= 0;
       render();
     }
 
@@ -288,30 +243,27 @@
       revealAll = !revealAll;
       btnRevealAll.textContent = revealAll ? "Ocultar valores" : "Ver valores (todas)";
       setLog(revealAll
-        ? "Se revelaron los valores de TODAS las fichas. Para el siguiente participante, usa <b>Nuevo juego (barajar)</b>."
-        : "Valores ocultos. Puedes seguir jugando si te quedan intentos."
+        ? "Se revelaron los valores de TODAS las fichas. Para el siguiente participante, presiona <b>Nuevo juego (barajar)</b>."
+        : "Valores ocultos. Si aún te quedan intentos, puedes seguir eligiendo fichas."
       );
       render();
     }
 
     function newGame() {
-      board = buildAndShuffleBoard(); // aquí está la clave: cambia cada partida
+      board = buildAndShuffleBoard();  // asignación aleatoria por partida
       flipped = new Set();
-      selectedIndex = null;
       triesLeft = 1;
       hasPlayed = false;
       revealAll = false;
 
-      btnSpin.disabled = false;
       btnRevealAll.disabled = true;
       btnRevealAll.textContent = "Ver valores (todas)";
       updateTries();
       setState("Listo");
-      setLog('Pulsa <b>Pulsar</b> para seleccionar una ficha al azar. Luego toca esa ficha para voltearla.');
+      setLog('Toca una ficha para voltearla. Solo tienes <b>1</b> intento (puede aparecer “oportunidad extra”).');
       render();
     }
 
-    btnSpin.addEventListener("click", onSpin);
     btnRevealAll.addEventListener("click", onRevealAll);
     btnNewGame.addEventListener("click", newGame);
 
