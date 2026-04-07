@@ -313,9 +313,22 @@
                 <input id="ev-entradas" type="text" placeholder="Link o texto sobre entradas (si corresponde)" />
               </div>
 
-              <div class="full"><label>Imagen 1 (URL)</label><input id="ev-img1" type="text" placeholder="https://... (si tenés imagen)" /></div>
-              <div class="full"><label>Imagen 2 (URL)</label><input id="ev-img2" type="text" placeholder="https://... (opcional)" /></div>
-              <div class="full"><label>Imagen 3 (URL)</label><input id="ev-img3" type="text" placeholder="https://... (opcional)" /></div>
+              <!-- IMÁGENES: BLOQUEADAS (solo por Google Form) -->
+              <div class="full">
+                <label>Imágenes</label>
+                <div class="small-muted">
+                  Las imágenes se cargan / modifican desde un formulario (Google). Guardá el evento y luego tocá “Cargar / Modificar imágenes”.
+                </div>
+              </div>
+
+              <div class="full"><label>Imagen 1</label><input id="ev-img1" class="blocked" type="text" disabled value="(se carga desde formulario)" /></div>
+              <div class="full"><label>Imagen 2</label><input id="ev-img2" class="blocked" type="text" disabled value="(se carga desde formulario)" /></div>
+              <div class="full"><label>Imagen 3</label><input id="ev-img3" class="blocked" type="text" disabled value="(se carga desde formulario)" /></div>
+
+              <div class="full">
+                <button id="ev-images" class="secondary" type="button" disabled>Cargar / Modificar imágenes</button>
+                <div class="events-small">Se abre en una pestaña nueva.</div>
+              </div>
 
               <div><label>Partner 1</label><select id="ev-partner"><option value="">Seleccioná un partner (opcional)</option></select></div>
               <div><label>Partner 2</label><select id="ev-partner2"><option value="">Seleccioná un partner (opcional)</option></select></div>
@@ -361,6 +374,10 @@ const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
+
+/* ✅ Form imágenes eventos (prefill evento_id) */
+const EVENT_IMAGES_FORM_PREFILL_BASE =
+  "https://docs.google.com/forms/d/e/1FAIpQLSePjX6Qlc38bNUlgI3iS_TaKOdwsP0ozfhS0XRb-d1jqCj2KQ/viewform?usp=pp_url&entry.2132836597=";
 /* ================= */
 
 const SUPPORT_NUMBER = "5492245459957";
@@ -369,6 +386,9 @@ let comercios = [];
 let sesion = null;
 let evLists = { categorias: [], localidades: [], lugares: [], partners: [] };
 let editingEventId = null;
+
+/* ✅ último evento creado (para habilitar botón imágenes en modo "crear") */
+let lastCreatedEventId = null;
 
 // ✅ Promos: edición sin prompts
 let editingPromoId = null;
@@ -477,6 +497,13 @@ function toTimeInputValue(v){
 
 function formatDateForTable(v){ return toDateInputValue(v) || String(v||''); }
 function formatTimeForTable(v){ return toTimeInputValue(v) || ''; }
+
+/* ✅ Abrir Google Form para imágenes (evento_id prellenado) */
+function openImagesFormForEvent(eventoId){
+  const id = String(eventoId || '').trim();
+  if(!id){ alert('Primero guardá el evento (no hay evento_id todavía).'); return; }
+  window.open(EVENT_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
+}
 
 /* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
@@ -688,7 +715,7 @@ async function loadPromosCategorias(){
       .filter(s=>s && s.toLowerCase() !== 'titulo');
     const uniqueCats = Array.from(new Set(cats));
     fillSelectOptions('promo-categoria', uniqueCats, 'Categoría de la promo');
-  } catch(e){ 
+  } catch(e){
     console.error('Error cargando categorías de promos:', e);
   }
 }
@@ -780,7 +807,7 @@ function renderPromosCards(promos){
       <div class="card">
         <div class="card-title">${promo}</div>
         <div class="card-meta">
-          <div><b>Categoría:</b> ${categoria || '-'}</div>
+          <div><b>Categor��a:</b> ${categoria || '-'}</div>
           <div><b>Estado:</b> ${estadoTxt}</div>
           <div><b>Desde:</b> ${desde || '-'}</div>
           <div><b>Hasta:</b> ${hasta || '-'}</div>
@@ -950,13 +977,24 @@ async function loadPromosUI(){
 function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function clearEventForm(){
-  const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas','ev-img1','ev-img2','ev-img3',
+  const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas',
     'ev-partner','ev-partner2','ev-partner3','ev-partner4','ev-partner5','ev-partner6'];
   ids.forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     el.value = '';
   });
+
+  // imágenes: se muestran bloqueadas
+  const i1 = document.getElementById('ev-img1'); if(i1) i1.value = '(se carga desde formulario)';
+  const i2 = document.getElementById('ev-img2'); if(i2) i2.value = '(se carga desde formulario)';
+  const i3 = document.getElementById('ev-img3'); if(i3) i3.value = '(se carga desde formulario)';
+
+  // botón imágenes
+  document.getElementById('ev-images')?.setAttribute('disabled','true');
+
+  // tracking
+  lastCreatedEventId = null;
 }
 
 function buildEventPayloadFromForm(){
@@ -974,9 +1012,11 @@ function buildEventPayloadFromForm(){
     hora2: evGet('ev-hora2'),
     instagram: evGet('ev-instagram'),
     entradas: evGet('ev-entradas'),
-    img1: evGet('ev-img1'),
-    img2: evGet('ev-img2'),
-    img3: evGet('ev-img3'),
+
+    /* ✅ IMPORTANTE:
+       img1/img2/img3 NO van en el payload.
+       Se cargan solo por Google Form y el script backend las guarda en la planilla VIP. */
+
     partner: evGet('ev-partner'),
     partner2: evGet('ev-partner2'),
     partner3: evGet('ev-partner3'),
@@ -1103,6 +1143,8 @@ function bindEventsListActions(){
         if(!found){ alert('No se encontró el evento en la lista (refrescá).'); return; }
 
         editingEventId = evId;
+        lastCreatedEventId = null;
+
         const btnCreate = document.getElementById('ev-create');
         btnCreate.textContent = 'Guardar cambios';
         btnCreate.dataset.mode = 'edit';
@@ -1122,9 +1164,11 @@ function bindEventsListActions(){
 
         document.getElementById('ev-instagram').value = found.instagram || '';
         document.getElementById('ev-entradas').value = found.entradas || '';
-        document.getElementById('ev-img1').value = found.img1 || '';
-        document.getElementById('ev-img2').value = found.img2 || '';
-        document.getElementById('ev-img3').value = found.img3 || '';
+
+        // Imágenes: solo display bloqueado
+        const i1 = document.getElementById('ev-img1'); if(i1) i1.value = found.img1 || '(se carga desde formulario)';
+        const i2 = document.getElementById('ev-img2'); if(i2) i2.value = found.img2 || '(se carga desde formulario)';
+        const i3 = document.getElementById('ev-img3'); if(i3) i3.value = found.img3 || '(se carga desde formulario)';
 
         document.getElementById('ev-partner').value = found.partner || '';
         document.getElementById('ev-partner2').value = found.partner2 || '';
@@ -1133,7 +1177,10 @@ function bindEventsListActions(){
         document.getElementById('ev-partner5').value = found.partner5 || '';
         document.getElementById('ev-partner6').value = found.partner6 || '';
 
-        setMsg('eventos-msg', 'ok', 'Editando evento. Modificá y tocá "Guardar cambios".');
+        // ✅ habilitar botón "Cargar / Modificar imágenes" en edición
+        document.getElementById('ev-images')?.removeAttribute('disabled');
+
+        setMsg('eventos-msg', 'ok', 'Editando evento. Para imágenes: tocá "Cargar / Modificar imágenes".');
         try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
 
@@ -1155,9 +1202,6 @@ function bindEventsListActions(){
           hora2: found.hora2 || '',
           instagram: found.instagram || '',
           entradas: found.entradas || '',
-          img1: found.img1 || '',
-          img2: found.img2 || '',
-          img3: found.img3 || '',
           partner: found.partner || '',
           partner2: found.partner2 || '',
           partner3: found.partner3 || '',
@@ -1167,7 +1211,7 @@ function bindEventsListActions(){
         };
         const res = await events_post({ action:'createVipEvent', payload: copyPayload });
         if(res.status === 200 && res.json && (res.json.success || res.json.created)){
-          setMsg('eventos-msg', 'ok', 'Evento duplicado.');
+          setMsg('eventos-msg', 'ok', 'Evento duplicado. Si querés imágenes, abrí el formulario desde el evento editado.');
           await loadEventsUI();
         } else {
           setMsg('eventos-msg', 'err', 'Error duplicando: ' + JSON.stringify(res.json));
@@ -1214,10 +1258,14 @@ async function loadEventsUI(){
 
 function cancelEventEdit(){
   editingEventId = null;
+  lastCreatedEventId = null;
+
   const btn = document.getElementById('ev-create');
   btn.dataset.mode = '';
   btn.textContent = 'Crear evento';
+
   clearEventForm();
+
   setMsg('eventos-msg', 'ok', 'Edición cancelada.');
 }
 
@@ -1233,6 +1281,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
   loadPromosCategorias().catch(()=>{});
 
   document.getElementById('btnCrearComercio').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
+
+  // ✅ Botón imágenes (abre form con evento_id prellenado)
+  document.getElementById('ev-images')?.addEventListener('click', ()=>{
+    const eid = editingEventId || lastCreatedEventId || '';
+    openImagesFormForEvent(eid);
+  });
 
   // Habilitar login por cambio en clave
   const claveEl = document.getElementById('clave');
@@ -1315,8 +1369,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
         setMsg('eventos-msg', 'ok', 'Guardando cambios...');
         const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, payload) });
         if(res.status === 200 && res.json && (res.json.success || res.json.updated)){
-          setMsg('eventos-msg', 'ok', 'Evento actualizado.');
+          setMsg('eventos-msg', 'ok', 'Evento actualizado. Para imágenes: tocá "Cargar / Modificar imágenes".');
           editingEventId = null;
+          lastCreatedEventId = null;
+
           btn.dataset.mode = '';
           btn.textContent = 'Crear evento';
           clearEventForm();
@@ -1328,7 +1384,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
         setMsg('eventos-msg', 'ok', 'Creando evento...');
         const res = await events_post({ action:'createVipEvent', payload });
         if(res.status === 200 && res.json && (res.json.success || res.json.created)){
-          setMsg('eventos-msg', 'ok', 'Evento creado.');
+          const createdId = (res.json && res.json.evento_id) ? String(res.json.evento_id).trim() : '';
+          lastCreatedEventId = createdId;
+
+          setMsg('eventos-msg', 'ok', 'Evento creado. Ahora tocá “Cargar / Modificar imágenes”.');
+
+          // habilitar botón imágenes (sin abrir automático)
+          document.getElementById('ev-images')?.removeAttribute('disabled');
+
+          // reset form + refrescar lista
           clearEventForm();
           await loadEventsUI();
         } else {
