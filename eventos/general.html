@@ -696,6 +696,41 @@
       return s;
     }
 
+    /* ✅ FIX IMÁGENES:
+       - Las celdas img1/img2/img3 pueden venir con 1 o más URLs separadas por coma/salto de línea
+       - Drive "uc?export=view&id=" a veces no se renderiza bien en <img>
+       - Convertimos a: https://lh3.googleusercontent.com/d/FILE_ID
+    */
+    function extractUrls(raw){
+      const s = String(raw || '').trim();
+      if (!s) return [];
+      return s.split(/[\n,]+/).map(x=>x.trim()).filter(Boolean);
+    }
+
+    function driveToImgSrc(url){
+      const s = String(url || '').trim();
+      if (!s) return '';
+
+      let m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if(!m) m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if(!m) m = s.match(/uc\?export=view&id=([a-zA-Z0-9_-]+)/);
+
+      const fileId = m ? m[1] : '';
+      if(!fileId) return s;
+
+      return 'https://lh3.googleusercontent.com/d/' + fileId;
+    }
+
+    function getImageUrlsFromEventField(raw){
+      const urls = extractUrls(raw);
+      const out = [];
+      for (const u0 of urls){
+        const u = safeUrl(driveToImgSrc(u0));
+        if (u) out.push(u);
+      }
+      return out;
+    }
+
     // --- Instagram embed helpers ---
     function normalizeInstagramUrlForEmbed(raw){
       const u = safeUrl(raw);
@@ -1057,12 +1092,13 @@
           mountInstagramEmbedNonClickable(body, ig);
         }
 
-        // GALERÍA con img1..img3
+        // ✅ GALERÍA con img1..img3 (soporta 1 o varios links por celda)
         const gal = [];
         ['img1','img2','img3'].forEach(k=>{
-          let u = safeUrl(ev && ev[k] ? ev[k] : '');
-          if(u) gal.push(u);
+          const urls = getImageUrlsFromEventField(ev && ev[k] ? ev[k] : '');
+          urls.forEach(u=>gal.push(u));
         });
+
         if (gal.length > 0) {
           let cur = 0;
           const galleryWrap = document.createElement('div');
@@ -1073,10 +1109,18 @@
           displayImg.src = gal[cur];
           displayImg.alt = `Foto ${cur+1}`;
           displayImg.loading = 'lazy';
+          displayImg.referrerPolicy = 'no-referrer';
           displayImg.tabIndex = 0;
           displayImg.style.cursor = gal.length > 1 ? 'pointer' : 'default';
           displayImg.onclick = ()=> showImgModal(gal,cur);
           displayImg.onkeyup = (e)=>{if((e.key==="Enter"||e.key===" ") && gal.length>1){showImgModal(gal,cur);}};
+
+          // fallback si alguna url falla
+          displayImg.onerror = function(){
+            this.onerror = null;
+            this.src = PLACEHOLDER_SVG;
+            this.style.objectFit = 'contain';
+          };
 
           galleryWrap.appendChild(displayImg);
 
