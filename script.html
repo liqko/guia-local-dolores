@@ -1,1 +1,248 @@
+// Apps Script: lectura robusta + proxy /commerce (con set_clave actualizado)
+// REEMPLAZAR entero: copia todo este archivo y pegalo en el editor del WebApp.
+const MAIN_SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY"; // ID de la planilla principal
 
+function _parseParams(e){
+  const params = {};
+  if(e && e.parameter) Object.keys(e.parameter).forEach(k => params[k] = e.parameter[k]);
+  if(e && e.postData && e.postData.type && e.postData.contents){
+    try{ Object.assign(params, JSON.parse(e.postData.contents)); }catch(_){}
+  }
+  return params;
+}
+
+function _respond(obj){
+  // responde JSON simple
+  return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function _rowToObj(headers, row){
+  const obj = {};
+  for(let i=0;i<headers.length;i++) obj[headers[i]] = row[i] !== undefined ? row[i] : '';
+  return obj;
+}
+
+function _toNumberNivel(v){
+  if(v===undefined||v===null) return NaN;
+  const s = String(v).trim().replace(',', '.');
+  if(s==='') return NaN;
+  const n = parseFloat(s);
+  return isNaN(n)?NaN:n;
+}
+
+function _nivelOK(obj){
+  const val = obj['nivel'] || obj['Nivel'] || obj['NIVEL'] || '';
+  const n = _toNumberNivel(val);
+  return !isNaN(n) && n >= 5;
+}
+
+function _findInSheetByHeaders(values, id, nombre){
+  if(!values || values.length < 2) return null;
+  const headers = values[0].map(h => String(h||'').trim().toLowerCase());
+  for(let r=1;r<values.length;r++){
+    const row = values[r];
+    const obj = _rowToObj(headers, row);
+    if(id && String((obj['id']||'')).trim() === String(id).trim()) return obj;
+    if(nombre && String((obj['nombre']||'')).trim().toLowerCase() === String(nombre).trim().toLowerCase()) return obj;
+  }
+  return null;
+}
+
+function _findInSpreadsheetAllSheets(ss, id, nombre){
+  const sheets = ss.getSheets();
+  for(let i=0;i<sheets.length;i++){
+    try{
+      const values = sheets[i].getDataRange().getValues();
+      const found = _findInSheetByHeaders(values, id, nombre);
+      if(found){
+        if(!found.__found_sheet) found.__found_sheet = sheets[i].getName();
+        return found;
+      }
+    }catch(e){ continue; }
+  }
+  return null;
+}
+
+/**
+ * Busca la fila (sheet + rowIndex + headers + objeto fila) donde coincida el id.
+ * Retorna { sheet, headers, rowIndex (1-based), rowObj, found_sheet } o null.
+ */
+function _findRowByIdInSpreadsheet(ss, id){
+  if(!id) return null;
+  const sheets = ss.getSheets();
+  for(let i=0;i<sheets.length;i++){
+    const sh = sheets[i];
+    try{
+      const values = sh.getDataRange().getValues();
+      if(!values || values.length < 2) continue;
+      const headers = values[0].map(h => String(h||'').trim().toLowerCase());
+      // intentar columnas con encabezado id directo
+      const idCandidates = ['__id','id','planilla_id','planilla id','codigo'];
+      let idxIdHeader = -1;
+      for(let c=0;c<idCandidates.length;c++){
+        const pos = headers.indexOf(idCandidates[c]);
+        if(pos !== -1){ idxIdHeader = pos; break; }
+      }
+      if(idxIdHeader !== -1){
+        for(let r=1;r<values.length;r++){
+          if(values[r][idxIdHeader] !== undefined && String(values[r][idxIdHeader]).trim() === String(id).trim()){
+            return { sheet: sh, headers: headers, rowIndex: r+1, rowObj: _rowToObj(headers, values[r]), found_sheet: sh.getName() };
+          }
+        }
+      } else {
+        // heurística: buscar el id en cualquier columna
+        for(let r=1;r<values.length;r++){
+          for(let c=0;c<values[r].length;c++){
+            if(values[r][c] !== undefined && String(values[r][c]).trim() === String(id).trim()){
+              return { sheet: sh, headers: headers, rowIndex: r+1, rowObj: _rowToObj(headers, values[r]), found_sheet: sh.getName() };
+            }
+          }
+        }
+      }
+    }catch(e){ continue; }
+  }
+  return null;
+}
+
+function _tryFind(params){
+  const id = (params.id || '').toString().trim();
+  const nombre = (params.nombre || '').toString().trim();
+  const planillaId = (params.planilla_id || '').toString().trim();
+
+  if(planillaId){
+    try{
+      const ss = SpreadsheetApp.openById(planillaId);
+      const found = _findInSpreadsheetAllSheets(ss, id, nombre);
+      if(found){
+        if(!_nivelOK(found)) return { error:'Nivel insuficiente', nivel: found['nivel']||'', source:'planilla_propia', found_sheet: found.__found_sheet };
+        found.planilla_id = planillaId;
+        return { found, source:'planilla_propia' };
+      }
+    }catch(e){
+      return { error: 'No se pudo abrir planilla_id: ' + planillaId + ' (' + String(e) + ')' };
+    }
+  }
+
+  try{
+    const mainSS = SpreadsheetApp.openById(MAIN_SHEET_ID);
+    const foundMain = _findInSpreadsheetAllSheets(mainSS, id, nombre);
+    if(foundMain){
+      if(!_nivelOK(foundMain)) return { error:'Nivel insuficiente', nivel: foundMain['nivel']||'', source:'planilla_principal', found_sheet: foundMain.__found_sheet };
+      foundMain.planilla_id = MAIN_SHEET_ID;
+      return { found: foundMain, source:'planilla_principal' };
+    }
+  }catch(e){
+    return { error: 'Error leyendo planilla principal: ' + String(e) };
+  }
+
+  return { error: 'No encontrado' };
+}
+
+function doGet(e){
+  const params = _parseParams(e);
+  if(!params.id && !params.nombre) return _respond({ error: 'Falta id o nombre' });
+  const res = _tryFind(params);
+  return _respond(res.found ? res.found : res);
+}
+
+/**
+ * setClave: escribe la clave en la planilla (columna 'clave' o la crea si falta)
+ * Espera params: { __id: 'xxx', clave: 'miClave', planilla_id: 'opcional' }
+ * Responde { aprobado:true, ... } en caso de éxito (para compatibilidad con front)
+ */
+function _setClave(params){
+  const id = (params.__id || params.id || '').toString().trim();
+  const clave = (params.clave || params.password || params.key || '').toString();
+  if(!id) return { success:false, message: 'Falta __id' };
+  if(!clave) return { success:false, message: 'Falta clave' };
+
+  // Primero intentar planilla_id si viene
+  const planillaIdParam = (params.planilla_id || '').toString().trim();
+  let ss;
+  try{
+    if(planillaIdParam){
+      ss = SpreadsheetApp.openById(planillaIdParam);
+    } else {
+      ss = SpreadsheetApp.openById(MAIN_SHEET_ID);
+    }
+  }catch(e){
+    return { success:false, message: 'No se pudo abrir planilla: ' + (planillaIdParam || MAIN_SHEET_ID) + ' (' + String(e) + ')' };
+  }
+
+  // Buscar la fila en la/las hojas de la planilla abierta
+  const found = _findRowByIdInSpreadsheet(ss, id);
+  if(!found) return { success:false, message: 'No se encontró fila con id ' + id };
+
+  const sheet = found.sheet;
+  const headers = found.headers;
+  const rowIndex = found.rowIndex;
+  const rowObj = found.rowObj;
+
+  // buscar columna 'clave' (index en headers)
+  let idxClave = headers.indexOf('clave'); // 0-based in headers array
+  if(idxClave === -1){
+    // Si no existe, crear columna nueva al final con encabezado 'clave'
+    const currentCols = Math.max(1, sheet.getLastColumn());
+    const newColIndex = currentCols + 1;
+    try{
+      sheet.getRange(1, newColIndex).setValue('clave');
+      idxClave = newColIndex - 1;
+    }catch(e){
+      return { success:false, message: 'No se pudo crear columna clave: ' + String(e) };
+    }
+  }
+
+  // escribir la clave en la fila encontrada
+  try{
+    sheet.getRange(rowIndex, idxClave + 1).setValue(clave);
+  }catch(e){
+    return { success:false, message: 'Error al escribir clave: ' + String(e) };
+  }
+
+  // Respuesta con formato similar al que usa el frontend (aprobado:true)
+  return {
+    aprobado: true,
+    nombre: rowObj['nombre'] || '',
+    nivel: rowObj['nivel'] || '',
+    subnivel: rowObj['subnivel'] || '',
+    segmento: rowObj['segmento'] || '',
+    planilla_id: ss.getId(),
+    message: 'Clave registrada en fila ' + rowIndex + ', columna ' + (idxClave + 1)
+  };
+}
+
+/**
+ * doPost robusto:
+ * - parsing tolerante de body/form
+ * - detecta variantes de acción: 'set_clave', 'setclave', 'set-password'
+ * - si es set_clave llama a _setClave (o handleSetClave si preferís otro nombre)
+ * - si no, delega a doGet para mantener comportamiento de lectura
+ */
+function doPost(e){
+  try{
+    // parsear parámetros de forma tolerante
+    const params = _parseParams(e);
+
+    // detectar acción (variantes posibles)
+    const accionRaw = (params.accion || params.action || params.cmd || '').toString().trim().toLowerCase();
+    const isSetClave = accionRaw === 'set_clave' || accionRaw === 'setclave' || accionRaw === 'set-password';
+
+    if(isSetClave){
+      // procesar set_clave aquí y evitar cualquier appendRow en modificaciones
+      const res = (typeof _setClave === 'function') ? _setClave(params) : _setClave(params); // llamar a _setClave (definida en este archivo)
+      return _respond(res);
+    }
+
+    // si no es set_clave, comportarse como lectura
+    return doGet(e);
+
+  }catch(err){
+    return _respond({ success:false, error: String(err) });
+  }
+}
+
+// Opcional: manejador OPTIONS para preflight (responde OK)
+// Nota: Apps Script limita headers; el manejo de CORS se suele resolver en el Worker o en las cabeceras del WebApp.
+function doOptions(e){
+  return _respond({ ok:true });
+}
