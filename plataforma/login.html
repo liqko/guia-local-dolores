@@ -184,10 +184,6 @@
 
     <div id="panel-registro" class="panel">
       <h2>Generar contraseña / Registrar acceso</h2>
-      <p class="muted-note">
-        Este flujo sirve para generar la contraseña directamente para un anunciante que ya tiene su anuncio cargado en la guía.
-        Si tu anuncio NO está en la guía, volvé al apartado "Ingresar" y solicitá la creación del anuncio mediante el formulario.
-      </p>
 
       <label>Buscar anuncio (seleccioná el anuncio ya publicado)</label>
       <div style="position:relative;">
@@ -203,6 +199,7 @@
 
       <div style="display:flex;gap:8px;">
         <button id="btnGenerarClave" class="primary" style="flex:1" disabled>Generar y registrar contraseña</button>
+        <button id="btnCambiarClave" class="secondary" style="flex:1" disabled>Cambiar contraseña</button>
       </div>
 
       <div id="reg-msg"></div>
@@ -212,7 +209,10 @@
       </div>
 
       <div style="margin-top:10px" class="small-muted">
-        Nota técnica: cuando generes la contraseña aquí, el sistema intentará registrarla automáticamente en la hoja "anunciantes" en la columna BG (encabezado "clave"). Si preferís que el equipo la registre manualmente o necesitás soporte, contactá a soporte por WhatsApp.
+        Si necesitás soporte, contactá a soporte por WhatsApp
+      </div>
+      <div style="margin-top:8px;">
+        <button id="btnWhatsappRegistro" class="btn-whatsapp" type="button">💬 WhatsApp Soporte</button>
       </div>
     </div>
 
@@ -572,7 +572,16 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   inputEl.addEventListener('input', function(){
     const val=this.value.trim().toLowerCase(); listEl.innerHTML='';
     document.getElementById('level-warning').textContent = '';
-    if(val.length<2){ listEl.classList.add('hidden'); idEl.value=''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnGenerarClave')?.setAttribute('disabled','true'); return; }
+    if(val.length<2){
+      listEl.classList.add('hidden');
+      idEl.value='';
+      document.getElementById('btnLogin')?.setAttribute('disabled','true');
+      if(modoRegistro){
+        document.getElementById('btnGenerarClave')?.setAttribute('disabled','true');
+        document.getElementById('btnCambiarClave')?.setAttribute('disabled','true');
+      }
+      return;
+    }
     const matches = comercios.filter(c=>c.nombre.toLowerCase().includes(val));
     if(matches.length){
       matches.slice(0,20).forEach(c=>{
@@ -602,10 +611,12 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
             const pwdConfirm = document.getElementById('nueva-clave-confirm');
             if(allowed){
               document.getElementById('btnGenerarClave')?.removeAttribute('disabled');
+              document.getElementById('btnCambiarClave')?.removeAttribute('disabled');
               pwdInput.removeAttribute('disabled');
               pwdConfirm.removeAttribute('disabled');
             } else {
               document.getElementById('btnGenerarClave')?.setAttribute('disabled','true');
+              document.getElementById('btnCambiarClave')?.setAttribute('disabled','true');
               pwdInput.setAttribute('disabled','true');
               pwdConfirm.setAttribute('disabled','true');
             }
@@ -625,7 +636,16 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
     }
   });
   inputEl.addEventListener('blur', ()=> setTimeout(()=>listEl.classList.add('hidden'),180));
-  inputEl.addEventListener('change', function(){ if(this.value===''){ idEl.value=''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnGenerarClave')?.setAttribute('disabled','true'); } });
+  inputEl.addEventListener('change', function(){
+    if(this.value===''){
+      idEl.value='';
+      document.getElementById('btnLogin')?.setAttribute('disabled','true');
+      if(modoRegistro){
+        document.getElementById('btnGenerarClave')?.setAttribute('disabled','true');
+        document.getElementById('btnCambiarClave')?.setAttribute('disabled','true');
+      }
+    }
+  });
 }
 
 /* ====================== Lists de eventos (_list) ====================== */
@@ -1340,8 +1360,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 
   const btnGenerarClave = document.getElementById('btnGenerarClave');
-  btnGenerarClave?.addEventListener('click', async (e)=>{
-    e.preventDefault();
+  const btnCambiarClave = document.getElementById('btnCambiarClave');
+  const btnWhatsappRegistro = document.getElementById('btnWhatsappRegistro');
+  btnWhatsappRegistro?.addEventListener('click', ()=>{
+    openWhatsApp('Necesito soporte con mi acceso en Guía Local Dolores.');
+  });
+
+  async function guardarClaveDesdePanel(actionType){
+    const isChange = actionType === 'change';
+    const triggerButton = isChange ? btnCambiarClave : btnGenerarClave;
+    if(!triggerButton) return;
     const regMsg = document.getElementById('reg-msg');
     const id = String(document.getElementById('comercio-id2')?.value || '').trim();
     const nombre = String(document.getElementById('comercio-buscar2')?.value || '').trim();
@@ -1352,10 +1380,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(nuevaClave.length < 4){ if(regMsg) regMsg.innerHTML = "<span class='error'>La contraseña debe tener al menos 4 caracteres.</span>"; return; }
     if(nuevaClave !== nuevaClaveConfirm){ if(regMsg) regMsg.innerHTML = "<span class='error'>Las contraseñas no coinciden.</span>"; return; }
 
-    const originalText = btnGenerarClave.textContent || 'Generar y registrar contraseña';
-    btnGenerarClave.setAttribute('disabled','true');
-    btnGenerarClave.textContent = 'Registrando...';
-    if(regMsg) regMsg.innerHTML = "<span>Registrando contraseña...</span>";
+    const originalTextGenerar = btnGenerarClave?.textContent || 'Generar y registrar contraseña';
+    const originalTextCambiar = btnCambiarClave?.textContent || 'Cambiar contraseña';
+    btnGenerarClave?.setAttribute('disabled','true');
+    btnCambiarClave?.setAttribute('disabled','true');
+    triggerButton.textContent = isChange ? 'Actualizando...' : 'Registrando...';
+    if(regMsg) regMsg.innerHTML = "<span>" + (isChange ? 'Actualizando contraseña...' : 'Registrando contraseña...') + "</span>";
 
     const payload = {
       action:'set_clave',
@@ -1370,20 +1400,37 @@ document.addEventListener('DOMContentLoaded', ()=>{
       let res;
       try{ res = JSON.parse(text); }catch(err){ res = { success:false, message:text }; }
 
-      if(r.status===200 && res && res.success){
-        if(regMsg) regMsg.innerHTML = "<span class='success'>" + (res.message || 'Contraseña registrada correctamente.') + "</span>";
+      const savedOk = !!(res && (res.success || res.aprobado === true));
+      if(r.status===200 && savedOk){
+        if(regMsg) regMsg.innerHTML = "<span class='success'>" + (res.message || (isChange ? 'Contraseña actualizada.' : 'Contraseña registrada.')) + "</span>";
         return;
       }
 
-      if(regMsg) regMsg.innerHTML = "<span class='error'>" + (res && res.message ? res.message : 'No se pudo registrar la contraseña. Verificá que el anuncio exista y volvé a intentarlo.') + "</span>";
+      if(regMsg) regMsg.innerHTML = "<span class='error'>" + (res && res.message ? res.message : 'No se pudo guardar la contraseña.') + "</span>";
     }catch(err){
-      if(regMsg) regMsg.innerHTML = "<span class='error'>Error de conexión al registrar la contraseña.</span>";
+      if(regMsg) regMsg.innerHTML = "<span class='error'>Error de conexión.</span>";
     } finally {
-      btnGenerarClave.textContent = originalText;
+      if(btnGenerarClave) btnGenerarClave.textContent = originalTextGenerar;
+      if(btnCambiarClave) btnCambiarClave.textContent = originalTextCambiar;
       const nivelSeleccion = document.getElementById('comercio-buscar2')?.dataset?.nivel || '';
-      if(id && isAllowedLevel(nivelSeleccion)) btnGenerarClave.removeAttribute('disabled');
-      else btnGenerarClave.setAttribute('disabled','true');
+      const enabled = id && isAllowedLevel(nivelSeleccion);
+      if(enabled){
+        btnGenerarClave?.removeAttribute('disabled');
+        btnCambiarClave?.removeAttribute('disabled');
+      } else {
+        btnGenerarClave?.setAttribute('disabled','true');
+        btnCambiarClave?.setAttribute('disabled','true');
+      }
     }
+  }
+
+  btnGenerarClave?.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    await guardarClaveDesdePanel('register');
+  });
+  btnCambiarClave?.addEventListener('click', async (e)=>{
+    e.preventDefault();
+    await guardarClaveDesdePanel('change');
   });
 
   // Promos buttons
