@@ -551,13 +551,35 @@ function cargarComercios(callback){
       const json=JSON.parse(jsonText);
       const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
       let idxNombre = cols.findIndex(h=>/nombre|comercio|title|titulo/.test(h)); if(idxNombre===-1) idxNombre=1;
-      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h)); if(idxId===-1) idxId=61;
+      const idxIdAnunciante = cols.findIndex(h=>h==='id_anunciante');
+      const idxIdPlanilla = cols.findIndex(h=>h==='planilla_id');
+      const idxIdCodigo = cols.findIndex(h=>h==='codigo');
+      const idxIdDirecto = cols.findIndex(h=>h==='__id' || h==='id');
+      let idxId = idxIdAnunciante;
+      if(idxId===-1) idxId = idxIdDirecto;
+      if(idxId===-1) idxId = idxIdPlanilla;
+      if(idxId===-1) idxId = idxIdCodigo;
+      if(idxId===-1) idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h));
+      if(idxId===-1) idxId=61;
       let idxNivel = cols.findIndex(h=>/nivel|nivel_acceso|nivelacceso/.test(h));
+      const cellVal = (row, idx)=> (idx!==-1 && row.c && row.c[idx] && row.c[idx].v!==undefined && row.c[idx].v!==null) ? String(row.c[idx].v).trim() : '';
+      const firstNonEmpty = (...vals)=>{
+        for(const v of vals){
+          const sv = String(v || '').trim();
+          if(sv) return sv;
+        }
+        return '';
+      };
       comercios=(json.table.rows||[]).map(row=>{
-        const nombre = (row.c && row.c[idxNombre] && row.c[idxNombre].v)?row.c[idxNombre].v:'';
-        const id = (row.c && row.c[idxId] && row.c[idxId].v)?row.c[idxId].v:'';
-        const nivel = (idxNivel!==-1 && row.c && row.c[idxNivel] && row.c[idxNivel].v)?row.c[idxNivel].v:'';
-        return { nombre, id, nivel };
+        const nombre = cellVal(row, idxNombre);
+        const idDirecto = cellVal(row, idxIdDirecto);
+        const idAnunciante = cellVal(row, idxIdAnunciante);
+        const planillaId = cellVal(row, idxIdPlanilla);
+        const codigo = cellVal(row, idxIdCodigo);
+        const idFallback = cellVal(row, idxId);
+        const id = firstNonEmpty(idAnunciante, idDirecto, planillaId, codigo, idFallback);
+        const nivel = cellVal(row, idxNivel);
+        return { nombre, id, nivel, __id: firstNonEmpty(idDirecto, idAnunciante, id), id_anunciante: idAnunciante, planilla_id: planillaId, comercio_id: firstNonEmpty(idAnunciante, idDirecto, planillaId, id), codigo };
       }).filter(c=>c.nombre);
       callback && callback();
     }catch(e){
@@ -572,6 +594,18 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
   inputEl.addEventListener('input', function(){
     const val=this.value.trim().toLowerCase(); listEl.innerHTML='';
     document.getElementById('level-warning').textContent = '';
+    idEl.value='';
+    inputEl.dataset.selectedId='';
+    inputEl.dataset.__id='';
+    inputEl.dataset.id_anunciante='';
+    inputEl.dataset.planilla_id='';
+    inputEl.dataset.comercio_id='';
+    document.getElementById('btnLogin')?.setAttribute('disabled','true');
+    if(modoRegistro){
+      document.getElementById('btnGenerarClave')?.setAttribute('disabled','true');
+      document.getElementById('nueva-clave')?.setAttribute('disabled','true');
+      document.getElementById('nueva-clave-confirm')?.setAttribute('disabled','true');
+    }
     if(val.length<2){ listEl.classList.add('hidden'); idEl.value=''; document.getElementById('btnLogin')?.setAttribute('disabled','true'); if(modoRegistro) document.getElementById('btnGenerarClave')?.setAttribute('disabled','true'); return; }
     const matches = comercios.filter(c=>c.nombre.toLowerCase().includes(val));
     if(matches.length){
@@ -580,7 +614,13 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
         let lvlLabel = c.nivel ? ` — nivel ${c.nivel}` : '';
         item.textContent=c.nombre + (c.id?(' ('+c.id+')'):'' ) + lvlLabel;
         item.onclick=function(){
-          inputEl.value=c.nombre; idEl.value=c.id||''; inputEl.dataset.nivel = c.nivel || '';
+          const selectedId = String(c.id || c.__id || c.id_anunciante || c.planilla_id || c.codigo || '').trim();
+          inputEl.value=c.nombre; idEl.value=selectedId; inputEl.dataset.nivel = c.nivel || '';
+          inputEl.dataset.selectedId = selectedId;
+          inputEl.dataset.__id = String(c.__id || selectedId);
+          inputEl.dataset.id_anunciante = String(c.id_anunciante || selectedId);
+          inputEl.dataset.planilla_id = String(c.planilla_id || '');
+          inputEl.dataset.comercio_id = String(c.comercio_id || selectedId);
           listEl.classList.add('hidden');
           const allowed = isAllowedLevel(c.nivel);
           const lvlWarningEl = document.getElementById('level-warning');
@@ -774,6 +814,22 @@ async function postJson(url, body){
   let json;
   try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText:text }; }
   return { status:r.status, json };
+}
+function shouldRetryPasswordRegister(status, res){
+  const msg = String((res && (res.message || res.error || res.rawText)) || '').toLowerCase();
+  return status === 404 || status === 405 || status === 501 || msg.includes('unknown action') || msg.includes('unknown endpoint') || msg.includes('not found') || msg.includes('cannot post');
+}
+async function postPasswordRegister(payload){
+  const urls = [WORKER_COMMERCE_URL, WORKER_URL];
+  let last = { status:0, json:null };
+  for(let i=0; i<urls.length; i++){
+    const out = await postJson(urls[i], payload);
+    last = out;
+    if(out.status===200 && out.json && out.json.success) return { ok:true, status:out.status, json:out.json };
+    if(i < urls.length - 1 && shouldRetryPasswordRegister(out.status, out.json)) continue;
+    break;
+  }
+  return { ok:false, status:last.status, json:last.json };
 }
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]; }); }
 
@@ -1343,8 +1399,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
   btnGenerarClave?.addEventListener('click', async (e)=>{
     e.preventDefault();
     const regMsg = document.getElementById('reg-msg');
-    const id = String(document.getElementById('comercio-id2')?.value || '').trim();
-    const nombre = String(document.getElementById('comercio-buscar2')?.value || '').trim();
+    const regInput = document.getElementById('comercio-buscar2');
+    const idHidden = String(document.getElementById('comercio-id2')?.value || '').trim();
+    const nombre = String(regInput?.value || '').trim();
+    const id = idHidden || String(regInput?.dataset?.selectedId || regInput?.dataset?.__id || regInput?.dataset?.id_anunciante || regInput?.dataset?.planilla_id || '').trim();
+    const idAnunciante = String(regInput?.dataset?.id_anunciante || id).trim();
+    const idPlanilla = String(regInput?.dataset?.planilla_id || '').trim();
+    const idComercio = String(regInput?.dataset?.comercio_id || idAnunciante || id).trim();
+    const idInternal = String(regInput?.dataset?.__id || idAnunciante || id).trim();
     const nuevaClave = String(document.getElementById('nueva-clave')?.value || '').trim();
     const nuevaClaveConfirm = String(document.getElementById('nueva-clave-confirm')?.value || '').trim();
 
@@ -1359,23 +1421,27 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     const payload = {
       action:'set_clave',
+      accion:'set_clave',
       id,
-      __id:id,
-      clave:nuevaClave
+      __id:idInternal,
+      comercio_id:idComercio,
+      id_anunciante:idAnunciante,
+      planilla_id:idPlanilla,
+      advertiserId:idAnunciante || id,
+      advertiserID:idAnunciante || id,
+      nombre,
+      clave:nuevaClave,
+      password:nuevaClave,
+      payload:{ action:'set_clave', id, __id:idInternal, comercio_id:idComercio, clave:nuevaClave, password:nuevaClave, nombre }
     };
 
     try{
-      const r = await fetch(WORKER_COMMERCE_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
-      const text = await r.text();
-      let res;
-      try{ res = JSON.parse(text); }catch(err){ res = { success:false, message:text }; }
-
-      if(r.status===200 && res && res.success){
-        if(regMsg) regMsg.innerHTML = "<span class='success'>" + (res.message || 'Contraseña registrada correctamente.') + "</span>";
+      const out = await postPasswordRegister(payload);
+      if(out.ok && out.json){
+        if(regMsg) regMsg.innerHTML = "<span class='success'>" + (out.json.message || 'Contraseña registrada correctamente.') + "</span>";
         return;
       }
-
-      if(regMsg) regMsg.innerHTML = "<span class='error'>" + (res && res.message ? res.message : 'No se pudo registrar la contraseña. Verificá que el anuncio exista y volvé a intentarlo.') + "</span>";
+      if(regMsg) regMsg.innerHTML = "<span class='error'>" + (out && out.json && out.json.message ? out.json.message : 'No se pudo registrar la contraseña. Verificá que el anuncio exista y volvé a intentarlo.') + "</span>";
     }catch(err){
       if(regMsg) regMsg.innerHTML = "<span class='error'>Error de conexión al registrar la contraseña.</span>";
     } finally {
