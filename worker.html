@@ -10,8 +10,10 @@
 // - SERVER_SECRET: se inyecta como serverSecret
 // - API_KEY, SHEET_ID: para login contra Google Sheets API
 
-const APPSCRIPT_COMMERCE_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
-const APPSCRIPT_EVENTS_URL  = "https://script.google.com/macros/s/AKfycbxTqt5VG9d4mBPYA92t75q1_n1YBMM5nQ1fMz_SsI1_hdEcspBs6EPwXRGR_cWv_HNzkA/exec";
+const APPSCRIPT_COMMERCE_URL  = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
+// Apps Script que maneja set_clave (guardar contraseña en hoja anunciantes)
+const APPSCRIPT_SAVECLAVE_URL = "https://script.google.com/macros/s/AKfycbxXg42gqv4QhenQV_Sd0GCc_RWfM1ZqKcl3XYK8k9w0zB5uNycpWI1X1yhRCWRRBNg/exec";
+const APPSCRIPT_EVENTS_URL    = "https://script.google.com/macros/s/AKfycbxTqt5VG9d4mBPYA92t75q1_n1YBMM5nQ1fMz_SsI1_hdEcspBs6EPwXRGR_cWv_HNzkA/exec";
 
 // ✅ Apps Script de MENU (el que creaste en el spreadsheet "menu")
 const APPSCRIPT_MENU_URL    = "https://script.google.com/macros/s/AKfycbyMm4yeanngveXDr1snp5K1ZxCQkIo0TW1Zn9LHsrn8qZGRDiP8mRuVCiNzOdHMqAoXpw/exec";
@@ -133,7 +135,7 @@ function getAdvertiserIdFromHeaders(headers){
 }
 
 /* ------------------ Generic Proxy to Apps Script ------------------ */
-async function proxyToAppsScript(request, env, targetBaseUrl){
+async function proxyToAppsScript(request, env, targetBaseUrl, saveClaveUrl = null){
   const url = new URL(request.url);
 
   if(request.method === 'GET'){
@@ -172,6 +174,9 @@ async function proxyToAppsScript(request, env, targetBaseUrl){
       if(String(saveClave).trim()) parsed.clave = String(saveClave);
     }
 
+    // Usar URL alternativa para set_clave si se proporcionó
+    const effectiveUrl = (isSetClave && saveClaveUrl) ? saveClaveUrl : targetBaseUrl;
+
     // inject serverSecret
     parsed.serverSecret = env.SERVER_SECRET || '';
 
@@ -186,8 +191,8 @@ async function proxyToAppsScript(request, env, targetBaseUrl){
 
     // Non-JSON: forward as-is
     if(!contentType.includes('application/json')){
-      const sep = targetBaseUrl.indexOf('?') === -1 ? '?' : '&';
-      const target = targetBaseUrl + url.search + (env.SERVER_SECRET ? (sep + 'serverSecret=' + encodeURIComponent(env.SERVER_SECRET)) : '');
+      const sep = effectiveUrl.indexOf('?') === -1 ? '?' : '&';
+      const target = effectiveUrl + url.search + (env.SERVER_SECRET ? (sep + 'serverSecret=' + encodeURIComponent(env.SERVER_SECRET)) : '');
       try {
         const resp = await fetch(target, {
           method: 'POST',
@@ -217,7 +222,7 @@ async function proxyToAppsScript(request, env, targetBaseUrl){
 
     // JSON: forward normalized JSON
     try {
-      const resp = await fetch(targetBaseUrl + url.search, {
+      const resp = await fetch(effectiveUrl + url.search, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(parsed)
@@ -261,9 +266,9 @@ export default {
       return await handleLoginRequest(request, env);
     }
 
-    // COMMERCE (promos/comercios)
+    // COMMERCE (promos/comercios) — set_clave se reenvía a APPSCRIPT_SAVECLAVE_URL
     if((url.pathname === '/commerce' || url.pathname === '/commerce/') && (request.method === 'GET' || request.method === 'POST')){
-      return await proxyToAppsScript(request, env, APPSCRIPT_COMMERCE_URL);
+      return await proxyToAppsScript(request, env, APPSCRIPT_COMMERCE_URL, APPSCRIPT_SAVECLAVE_URL);
     }
 
     // EVENTS
