@@ -1,0 +1,266 @@
+// Worker listo - reemplazar todo el código actual por este archivo
+//
+// Qué hace:
+// - /login: valida contra hoja "anunciantes" del libro de comercios (SHEET_ID env)
+// - /commerce: proxy al Apps Script de COMERCIOS/PROMOS (APPSCRIPT_COMMERCE_URL)
+// - /events: proxy al Apps Script de EVENTOS (APPSCRIPT_EVENTS_URL)
+// - /menu: proxy al Apps Script de MENU (APPSCRIPT_MENU_URL) ✅ NUEVO
+//
+// Variables esperadas en env:
+// - SERVER_SECRET: se inyecta como serverSecret
+// - API_KEY, SHEET_ID: para login contra Google Sheets API
+
+const APPSCRIPT_COMMERCE_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
+const APPSCRIPT_EVENTS_URL  = "https://script.google.com/macros/s/AKfycbxTqt5VG9d4mBPYA92t75q1_n1YBMM5nQ1fMz_SsI1_hdEcspBs6EPwXRGR_cWv_HNzkA/exec";
+
+// ✅ Apps Script de MENU (el que creaste en el spreadsheet "menu")
+const APPSCRIPT_MENU_URL    = "https://script.google.com/macros/s/AKfycbyMm4yeanngveXDr1snp5K1ZxCQkIo0TW1Zn9LHsrn8qZGRDiP8mRuVCiNzOdHMqAoXpw/exec";
+
+const RANGE_ANUNCIANTES = 'anunciantes!A1:ZZ';
+
+function corsHeaders(){
+  return {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization"
+  };
+}
+function jsonResponse(obj, status = 200){
+  return new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json", ...corsHeaders() } });
+}
+
+/* ------------------ Helpers para Sheets (anunciantes) ------------------ */
+async function fetchAnunciantesRows(env){
+  const API_KEY = env.API_KEY;
+  const SHEET_ID = env.SHEET_ID || "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
+  if(!API_KEY) throw new Error('No API_KEY configured in Worker env');
+  if(!SHEET_ID) throw new Error('No SHEET_ID configured in Worker env');
+
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${encodeURIComponent(RANGE_ANUNCIANTES)}?key=${API_KEY}`;
+  const r = await fetch(url, { cache: 'no-store' });
+  if(!r.ok){
+    const text = await r.text().catch(()=>'<no body>');
+    const err = new Error('Sheets API error ' + r.status);
+    err.details = { status: r.status, body: text };
+    throw err;
+  }
+  const j = await r.json();
+  const values = j.values || [];
+  if(values.length === 0) return { headers: [], rows: [] };
+  const headers = values[0].map(h => String(h||'').trim().toLowerCase());
+  const rows = [];
+  for(let i=1;i<values.length;i++){
+    const arr = values[i];
+    const obj = {};
+    for(let c=0;c<headers.length;c++){
+      if(!headers[c]) continue;
+      obj[headers[c]] = (arr && arr[c] !== undefined) ? arr[c] : '';
+    }
+    rows.push(obj);
+  }
+  return { headers, rows };
+}
+
+/* ------------------ Login handler (usa anunciantes) ------------------ */
+function truthy(v){ if(v===undefined||v===null) return false; const s=String(v).trim().toLowerCase(); return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s); }
+function responseWithError(message, status=400){ return jsonResponse({ success:false, message }, status); }
+
+async function handleLoginRequest(request, env){
+  let body = {};
+  try{ body = await request.json(); } catch(e){ return responseWithError('Payload inválido', 400); }
+
+  const idProvided = String(body.comercio_id || body.id || body.planilla_id || '').trim();
+  const nombreProvided = String(body.nombre || body.comercio_nombre || '').trim();
+  const claveProvided = String(body.password || body.clave || '').trim();
+
+  if(!claveProvided) return responseWithError('Falta password', 400);
+  if(!idProvided && !nombreProvided) return responseWithError('Falta id o nombre de comercio', 400);
+
+  let sheet;
+  try{ sheet = await fetchAnunciantesRows(env); } catch(err){
+    return jsonResponse({ success:false, message:'Sheets API error', details: err.details || String(err.message||err) }, 500);
+  }
+
+  const rows = sheet.rows || [];
+  let found = null;
+
+  if(idProvided){
+    found = rows.find(r => {
+      const candidates = [r['id'], r['planilla_id'], r['codigo'], r['sheet id'], r['planilla id']];
+      return candidates.some(c => String(c||'').trim() === idProvided);
+    });
+  }
+
+  if(!found && nombreProvided){
+    const q = nombreProvided.trim().toLowerCase();
+    found = rows.find(r => String((r['nombre']||'')).trim().toLowerCase() === q) ||
+            rows.find(r => String((r['nombre']||'')).trim().toLowerCase().includes(q));
+  }
+
+  if(!found) return jsonResponse({ success:false, message:'Comercio no encontrado' }, 401);
+
+  const aprobado = found['aprobado'] || found['activo'] || found['publicado'] || '';
+  if(aprobado && !truthy(aprobado)) return jsonResponse({ success:false, message:'Comercio no aprobado' }, 401);
+
+  const claveEnHoja = String(found['clave'] || found['password'] || found['pass'] || '').trim();
+  if(!claveEnHoja || claveEnHoja !== claveProvided) return jsonResponse({ success:false, message:'Nombre o clave incorrectos' }, 401);
+
+  const out = {
+    success:true,
+    message:'Login OK',
+    id: found['id']||found['planilla_id']||found['codigo']||'',
+    nombre: found['nombre']||'',
+    nivel: found['nivel']||'',
+    planilla_id: found['planilla_id']||''
+  };
+  return jsonResponse(out, 200);
+}
+
+/* ------------------ Utilities advertiserId ------------------ */
+function getAdvertiserIdFromCookies(cookieHeader) {
+  if (!cookieHeader) return '';
+  const parts = cookieHeader.split(';').map(s => s.trim());
+  for (const p of parts) {
+    if (p.startsWith('advertiserId=')) return decodeURIComponent(p.split('=')[1]||'');
+    if (p.startsWith('advertiser_id=')) return decodeURIComponent(p.split('=')[1]||'');
+  }
+  return '';
+}
+function getAdvertiserIdFromHeaders(headers){
+  if(!headers) return '';
+  const h = headers.get ? (headers.get('x-advertiser-id') || headers.get('x-advertiserid') || headers.get('x-advertiser-id')) : (headers['x-advertiser-id']||headers['x-advertiserid']||'');
+  return h || '';
+}
+
+/* ------------------ Generic Proxy to Apps Script ------------------ */
+async function proxyToAppsScript(request, env, targetBaseUrl){
+  const url = new URL(request.url);
+
+  if(request.method === 'GET'){
+    const sep = url.search ? '&' : '?';
+    const secretParam = env.SERVER_SECRET ? ('serverSecret=' + encodeURIComponent(env.SERVER_SECRET)) : '';
+    const target = targetBaseUrl + url.search + (secretParam ? sep + secretParam : '');
+
+    try {
+      const r = await fetch(target, { method: 'GET' });
+      const text = await r.text();
+      try { const j = JSON.parse(text); return new Response(JSON.stringify(j), { status: r.status, headers: { "Content-Type":"application/json", ...corsHeaders() } }); }
+      catch(e){ return jsonResponse({ error:'invalid_json_from_apps_script', text }, 502); }
+    } catch(err) {
+      return jsonResponse({ error:'worker_fetch_error', message: String(err) }, 502);
+    }
+  }
+
+  if(request.method === 'POST'){
+    const raw = await request.text();
+    let parsed = {};
+    let contentType = (request.headers.get('content-type') || '');
+    try { parsed = raw && contentType.includes('application/json') ? JSON.parse(raw) : {}; } catch(e){ parsed = {}; }
+
+    // inject serverSecret
+    parsed.serverSecret = env.SERVER_SECRET || '';
+
+    // advertiserId detection (para compatibilidad con tu sistema actual)
+    const advertiserFromTop = parsed.advertiserId || parsed.advertiserID || parsed.__id;
+    const advertiserFromPayload = parsed.payload && (parsed.payload.advertiserId || parsed.payload.advertiserID || parsed.payload.__id);
+    const advertiserFromQuery = url.searchParams.get('advertiserId') || url.searchParams.get('id') || '';
+    const advertiserFromHeader = getAdvertiserIdFromHeaders(request.headers);
+    const advertiserFromCookie = getAdvertiserIdFromCookies(request.headers.get('cookie') || '');
+
+    parsed.advertiserId = String(advertiserFromTop || advertiserFromPayload || advertiserFromQuery || advertiserFromHeader || advertiserFromCookie || '').trim();
+
+    // Non-JSON: forward as-is
+    if(!contentType.includes('application/json')){
+      const sep = targetBaseUrl.indexOf('?') === -1 ? '?' : '&';
+      const target = targetBaseUrl + url.search + (env.SERVER_SECRET ? (sep + 'serverSecret=' + encodeURIComponent(env.SERVER_SECRET)) : '');
+      try {
+        const resp = await fetch(target, {
+          method: 'POST',
+          headers: request.headers,
+          body: raw
+        });
+        const respText = await resp.text();
+        const contentTypeResp = resp.headers.get('content-type') || '';
+
+        if(contentTypeResp.indexOf('application/json') !== -1){
+          return new Response(respText, { status: resp.status, headers: { "Content-Type":"application/json", ...corsHeaders() } });
+        }
+        if(contentTypeResp.indexOf('text/html') !== -1 || respText.trim().startsWith('<!DOCTYPE')){
+          const snippet = respText.substring(0,1600);
+          return jsonResponse({ error:'apps_script_html_response', message:'Apps Script returned HTML (quota/limit)', status: resp.status, text_snippet: snippet }, 502);
+        }
+        try {
+          const j = JSON.parse(respText);
+          return new Response(JSON.stringify(j), { status: resp.status, headers: { "Content-Type":"application/json", ...corsHeaders() } });
+        } catch(e){
+          return jsonResponse({ error:'invalid_json', text: respText }, 502);
+        }
+      } catch(err){
+        return jsonResponse({ error:'worker_fetch_error', message: String(err) }, 502);
+      }
+    }
+
+    // JSON: forward normalized JSON
+    try {
+      const resp = await fetch(targetBaseUrl + url.search, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(parsed)
+      });
+
+      const contentTypeResp = resp.headers.get('content-type') || '';
+      const respText = await resp.text();
+
+      if(contentTypeResp.indexOf('application/json') !== -1){
+        return new Response(respText, { status: resp.status, headers: { "Content-Type":"application/json", ...corsHeaders() } });
+      }
+      if(contentTypeResp.indexOf('text/html') !== -1 || respText.trim().startsWith('<!DOCTYPE')){
+        const snippet = respText.substring(0,1600);
+        return jsonResponse({ error:'apps_script_html_response', message:'Apps Script returned HTML (quota/limit)', status: resp.status, text_snippet: snippet }, 502);
+      }
+      try {
+        const j = JSON.parse(respText);
+        return new Response(JSON.stringify(j), { status: resp.status, headers: { "Content-Type":"application/json", ...corsHeaders() } });
+      } catch(e){
+        return jsonResponse({ error:'invalid_json', text: respText }, 502);
+      }
+    } catch(err){
+      return jsonResponse({ error:'worker_fetch_error', message: String(err) }, 502);
+    }
+  }
+
+  return jsonResponse({ error:'method_not_allowed' }, 405);
+}
+
+/* ------------------ Main fetch ------------------ */
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
+    if(request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders() });
+
+    // Health
+    if(url.pathname === '/' || url.pathname === '') return jsonResponse({ ok:true, msg:'Worker activo' }, 200);
+
+    // Login
+    if((url.pathname === '/login' || url.pathname === '/login/') && request.method === 'POST'){
+      return await handleLoginRequest(request, env);
+    }
+
+    // COMMERCE (promos/comercios)
+    if((url.pathname === '/commerce' || url.pathname === '/commerce/') && (request.method === 'GET' || request.method === 'POST')){
+      return await proxyToAppsScript(request, env, APPSCRIPT_COMMERCE_URL);
+    }
+
+    // EVENTS
+    if((url.pathname === '/events' || url.pathname === '/events/') && (request.method === 'GET' || request.method === 'POST')){
+      return await proxyToAppsScript(request, env, APPSCRIPT_EVENTS_URL);
+    }
+
+    // ✅ MENU (nuevo)
+    if((url.pathname === '/menu' || url.pathname === '/menu/') && (request.method === 'GET' || request.method === 'POST')){
+      return await proxyToAppsScript(request, env, APPSCRIPT_MENU_URL);
+    }
+
+    return new Response('Not found', { status:404, headers: corsHeaders() });
+  }
+};
