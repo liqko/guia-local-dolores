@@ -192,9 +192,11 @@
       </div>
       <input type="hidden" id="comercio-id2">
 
-      <label>Contraseña</label>
+      <label>Contraseña actual</label>
+      <input type="password" id="clave-actual" placeholder="Ingresá tu contraseña actual" minlength="1" disabled>
+      <label>Nueva contraseña</label>
       <input type="password" id="nueva-clave" placeholder="Ingresá la nueva contraseña (mínimo 4 caracteres)" minlength="4" disabled>
-      <label>Confirmar contraseña</label>
+      <label>Confirmar nueva contraseña</label>
       <input type="password" id="nueva-clave-confirm" placeholder="Repetí la contraseña" minlength="4" disabled>
 
       <div style="display:flex;gap:8px;">
@@ -607,16 +609,19 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false){
             }
           }
           if(modoRegistro){
+            const pwdCurrent = document.getElementById('clave-actual');
             const pwdInput = document.getElementById('nueva-clave');
             const pwdConfirm = document.getElementById('nueva-clave-confirm');
             if(allowed){
               document.getElementById('btnGenerarClave')?.removeAttribute('disabled');
               document.getElementById('btnCambiarClave')?.removeAttribute('disabled');
+              pwdCurrent.removeAttribute('disabled');
               pwdInput.removeAttribute('disabled');
               pwdConfirm.removeAttribute('disabled');
             } else {
               document.getElementById('btnGenerarClave')?.setAttribute('disabled','true');
               document.getElementById('btnCambiarClave')?.setAttribute('disabled','true');
+              pwdCurrent.setAttribute('disabled','true');
               pwdInput.setAttribute('disabled','true');
               pwdConfirm.setAttribute('disabled','true');
             }
@@ -1373,10 +1378,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const regMsg = document.getElementById('reg-msg');
     const id = String(document.getElementById('comercio-id2')?.value || '').trim();
     const nombre = String(document.getElementById('comercio-buscar2')?.value || '').trim();
+    const claveActual = String(document.getElementById('clave-actual')?.value || '').trim();
     const nuevaClave = String(document.getElementById('nueva-clave')?.value || '').trim();
     const nuevaClaveConfirm = String(document.getElementById('nueva-clave-confirm')?.value || '').trim();
 
     if(!id || !nombre){ if(regMsg) regMsg.innerHTML = "<span class='error'>Seleccioná un comercio válido de la lista.</span>"; return; }
+    if(isChange && !claveActual){ if(regMsg) regMsg.innerHTML = "<span class='error'>Ingresá tu contraseña actual.</span>"; return; }
     if(nuevaClave.length < 4){ if(regMsg) regMsg.innerHTML = "<span class='error'>La contraseña debe tener al menos 4 caracteres.</span>"; return; }
     if(nuevaClave !== nuevaClaveConfirm){ if(regMsg) regMsg.innerHTML = "<span class='error'>Las contraseñas no coinciden.</span>"; return; }
 
@@ -1395,6 +1402,23 @@ document.addEventListener('DOMContentLoaded', ()=>{
     };
 
     try{
+      if(isChange){
+        if(regMsg) regMsg.innerHTML = "<span>Validando contraseña actual...</span>";
+        const validarResp = await fetch(WORKER_URL, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ id, comercio_id:id, nombre, clave:claveActual }),
+          mode:'cors'
+        });
+        const validarText = await validarResp.text();
+        let validarJson;
+        try{ validarJson = JSON.parse(validarText); }catch(err){ validarJson = null; }
+        if(validarResp.status !== 200 || !(validarJson && validarJson.success)){
+          if(regMsg) regMsg.innerHTML = "<span class='error'>La contraseña actual no es correcta</span>";
+          return;
+        }
+      }
+
       const r = await fetch(WORKER_COMMERCE_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
       let res;
@@ -1402,7 +1426,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       const savedOk = !!(res && (res.success || res.aprobado === true));
       if(r.status===200 && savedOk){
-        if(regMsg) regMsg.innerHTML = "<span class='success'>" + (isChange ? 'Contraseña actualizada.' : 'Clave registrada exitosamente') + "</span>";
+        if(regMsg) regMsg.innerHTML = "<span class='success'>" + (isChange ? 'Clave actualizada exitosamente' : 'Clave registrada exitosamente') + "</span>";
         return;
       }
 
