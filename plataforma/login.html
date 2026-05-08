@@ -58,6 +58,9 @@
     .tab { padding:8px 14px; border-radius:8px; cursor:pointer; background:#f0f0f0; border:1px solid #e0e0e0; color:#333; font-weight:600; }
     .tab.tab-active { background:#3dc879; color:#fff; border-color:#2a8; }
     .panel-section { padding:6px 0 0 0; }
+    .dashboard-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
+    .dashboard-module-btn{margin:0}
+    .placeholder-panel-box{background:#fbfbff;border:1px solid #e6e8ff;padding:14px;border-radius:8px}
 
     /* Hide promo_id column */
     #promos-list table th:nth-child(5), #promos-list table td:nth-child(5) { display:none; }
@@ -265,7 +268,7 @@
     </div>
 
     <div id="panel-dashboard" class="panel">
-      <div style="font-size:1.2em;margin-bottom:10px">¡Hola <span id="nombre-comercio"></span>!</div>
+      <div style="font-size:1.2em;margin-bottom:10px">Hola <span id="nombre-comercio"></span>, ¿en qué vas a trabajar hoy?</div>
 
       <div class="dashboard-top-actions">
         <a id="link-support_dashboard" href="#" target="_blank" class="btn-whatsapp" aria-label="Contactar soporte por WhatsApp">💬 WhatsApp Soporte</a>
@@ -273,14 +276,28 @@
       </div>
 
       <div class="tabs" role="tablist" aria-label="Secciones">
-        <div id="tab-datos" class="tab tab-active" role="tab" aria-selected="true">Datos</div>
+        <div id="tab-inicio" class="tab tab-active" role="tab" aria-selected="true">Inicio</div>
         <div id="tab-promos" class="tab" role="tab" aria-selected="false">Promos</div>
         <div id="tab-eventos" class="tab" role="tab" aria-selected="false">Eventos</div>
+        <div id="tab-menu" class="tab" role="tab" aria-selected="false">Menu</div>
+        <div id="tab-vouchers" class="tab" role="tab" aria-selected="false">Vouchers</div>
+        <div id="tab-entradas" class="tab" role="tab" aria-selected="false">Entradas</div>
+        <div id="tab-gifcards" class="tab" role="tab" aria-selected="false">Gifcards</div>
+        <div id="tab-actividades" class="tab" role="tab" aria-selected="false">Actividades</div>
+        <div id="tab-reservas" class="tab" role="tab" aria-selected="false">Reservas</div>
+        <div id="tab-modificar-datos" class="tab" role="tab" aria-selected="false">Modificar datos</div>
       </div>
 
       <div class="panel-section">
-        <!-- Datos -->
-        <div id="datos-panel">
+        <!-- Inicio -->
+        <div id="inicio-panel">
+          <h3>Inicio</h3>
+          <div class="small-muted">Elegí un módulo para continuar.</div>
+          <div id="dashboard-modules" class="dashboard-modules"></div>
+        </div>
+
+        <!-- Modificar datos -->
+        <div id="modificar-datos-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <h3>Datos del Anunciante</h3>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
@@ -428,6 +445,19 @@
           </div>
 
           <div id="eventos-list" style="margin-top:12px">Cargando eventos...</div>
+        </div>
+
+        <!-- Menu -->
+        <div id="menu-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
+          <h3>Menu</h3>
+          <div class="small-muted" style="margin-bottom:8px">Gestión de menú del anunciante.</div>
+          <iframe id="menu-iframe" title="Módulo menú" style="width:100%;min-height:720px;border:1px solid #eee;border-radius:8px;background:#fff" loading="lazy"></iframe>
+        </div>
+
+        <!-- Placeholders -->
+        <div id="placeholder-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
+          <h3 id="placeholder-title"></h3>
+          <div class="placeholder-panel-box">Estamos trabajando en el desarrollo de esta función.</div>
         </div>
       </div>
 
@@ -1643,6 +1673,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       campos.forEach(c=> html += `<div><label>${c}</label><input type="text" name="${c}" value="${datos[c]||''}" /></div>`);
       html += `<input type="hidden" name="__id" value="${sesion.id}"/>`;
       document.getElementById('campos-datos-comercio').innerHTML = html;
+      if(typeof window.updateDashboardModulesFromData === 'function'){
+        window.updateDashboardModulesFromData(datos);
+      }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Solicito modificación de datos\\nComercio: ' + sesion.nombre + '\\nId: ' + sesion.id)}`;
       mostrarPanel('dashboard');
@@ -1654,6 +1687,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
+      if(typeof window.updateDashboardModulesFromData === 'function'){
+        window.updateDashboardModulesFromData({});
+      }
       mostrarPanel('dashboard');
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
     }
@@ -1722,31 +1758,213 @@ document.addEventListener('DOMContentLoaded', ()=>{
     mostrarPanelDashboard();
   }
 
-  // Tabs
+  // Tabs / módulos dashboard
   (function(){
-    const tabDatos = document.getElementById('tab-datos');
+    const tabInicio = document.getElementById('tab-inicio');
     const tabPromos = document.getElementById('tab-promos');
     const tabEventos = document.getElementById('tab-eventos');
-    const datosPanel = document.getElementById('datos-panel');
+    const tabMenu = document.getElementById('tab-menu');
+    const tabVouchers = document.getElementById('tab-vouchers');
+    const tabEntradas = document.getElementById('tab-entradas');
+    const tabGifcards = document.getElementById('tab-gifcards');
+    const tabActividades = document.getElementById('tab-actividades');
+    const tabReservas = document.getElementById('tab-reservas');
+    const tabModificarDatos = document.getElementById('tab-modificar-datos');
+    const inicioPanel = document.getElementById('inicio-panel');
+    const datosPanel = document.getElementById('modificar-datos-panel');
     const promosPanel = document.getElementById('promos-panel');
     const eventosPanel = document.getElementById('eventos-panel');
+    const menuPanel = document.getElementById('menu-panel');
+    const menuIframe = document.getElementById('menu-iframe');
+    const placeholderPanel = document.getElementById('placeholder-panel');
+    const placeholderTitle = document.getElementById('placeholder-title');
+    const dashboardModules = document.getElementById('dashboard-modules');
+
+    const moduleDefs = [
+      { key:'promos', label:'Promos' },
+      { key:'eventos', label:'Eventos' },
+      { key:'menu', label:'Menu' },
+      { key:'vouchers', label:'Vouchers' },
+      { key:'entradas', label:'Entradas' },
+      { key:'gifcards', label:'Gifcards' },
+      { key:'actividades', label:'Actividades' },
+      { key:'reservas', label:'Reservas' },
+      { key:'modificar_datos', label:'Modificar datos' }
+    ];
+
+    const tabs = {
+      inicio: tabInicio,
+      promos: tabPromos,
+      eventos: tabEventos,
+      menu: tabMenu,
+      vouchers: tabVouchers,
+      entradas: tabEntradas,
+      gifcards: tabGifcards,
+      actividades: tabActividades,
+      reservas: tabReservas,
+      modificar_datos: tabModificarDatos
+    };
+
+    const aliasByModule = {
+      promos: ['promos','promo'],
+      eventos: ['eventos','evento'],
+      menu: ['menu','menus','carta'],
+      vouchers: ['vouchers','voucher','beneficios','beneficio'],
+      entradas: ['entradas','entrada'],
+      gifcards: ['gifcards','gifcard','giftcards','giftcard'],
+      actividades: ['actividades','actividad'],
+      reservas: ['reservas','reserva']
+    };
+
+    let enabledModules = new Set(['promos','eventos','modificar_datos']);
+
+    function normalizeKey(k){
+      return String(k || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    function isTruthy(v){
+      if(v === true || v === 1) return true;
+      const s = String(v || '').trim().toLowerCase();
+      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
+    }
+
+    function detectEnabledModules(datos){
+      const out = new Set();
+      const data = datos && typeof datos === 'object' ? datos : {};
+      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
+      let hasCapabilityFields = false;
+
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        const aliases = aliasByModule[modKey].map(normalizeKey);
+        let foundField = false;
+        let foundEnabled = false;
+        for(const item of entries){
+          if(aliases.includes(item.norm)){
+            foundField = true;
+            if(isTruthy(item.value)){ foundEnabled = true; break; }
+          }
+        }
+        if(foundField) hasCapabilityFields = true;
+        if(foundEnabled) out.add(modKey);
+      });
+
+      if(!hasCapabilityFields){
+        out.add('promos');
+        out.add('eventos');
+      }
+      out.add('modificar_datos');
+      return out;
+    }
+
+    function setTabActive(key){
+      Object.keys(tabs).forEach((k)=>{
+        const tab = tabs[k];
+        if(!tab) return;
+        const isActive = k === key;
+        tab.classList.toggle('tab-active', isActive);
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+    }
 
     function hideAll(){
+      inicioPanel.style.display='none';
       datosPanel.style.display='none';
       promosPanel.style.display='none';
       eventosPanel.style.display='none';
-      tabDatos.classList.remove('tab-active'); tabDatos.setAttribute('aria-selected','false');
-      tabPromos.classList.remove('tab-active'); tabPromos.setAttribute('aria-selected','false');
-      tabEventos.classList.remove('tab-active'); tabEventos.setAttribute('aria-selected','false');
+      menuPanel.style.display='none';
+      placeholderPanel.style.display='none';
+      setTabActive('');
     }
-    function showDatos(){ hideAll(); datosPanel.style.display='block'; tabDatos.classList.add('tab-active'); tabDatos.setAttribute('aria-selected','true'); }
-    function showPromos(){ hideAll(); promosPanel.style.display='block'; tabPromos.classList.add('tab-active'); tabPromos.setAttribute('aria-selected','true'); setTimeout(()=>loadPromosUI(),50); }
-    function showEventos(){ hideAll(); eventosPanel.style.display='block'; tabEventos.classList.add('tab-active'); tabEventos.setAttribute('aria-selected','true'); setTimeout(()=>loadEventsUI(),50); }
 
-    tabDatos.addEventListener('click', (e)=>{ e.preventDefault(); showDatos(); });
+    function ensureMenuLoaded(){
+      if(menuIframe.dataset.loaded === '1') return;
+      if(!sesion || !sesion.id) return;
+      menuIframe.src = `../menu/modelo.html?id=${encodeURIComponent(sesion.id)}`;
+      menuIframe.dataset.loaded = '1';
+    }
+
+    function showPlaceholder(moduleLabel, tabKey){
+      hideAll();
+      placeholderTitle.textContent = moduleLabel;
+      placeholderPanel.style.display='block';
+      setTabActive(tabKey);
+    }
+
+    function showInicio(){ hideAll(); inicioPanel.style.display='block'; setTabActive('inicio'); }
+    function showModificarDatos(){ hideAll(); datosPanel.style.display='block'; setTabActive('modificar_datos'); }
+    function showPromos(){ hideAll(); promosPanel.style.display='block'; setTabActive('promos'); setTimeout(()=>loadPromosUI(),50); }
+    function showEventos(){ hideAll(); eventosPanel.style.display='block'; setTabActive('eventos'); setTimeout(()=>loadEventsUI(),50); }
+    function showMenu(){ hideAll(); menuPanel.style.display='block'; setTabActive('menu'); ensureMenuLoaded(); }
+    function showVouchers(){ showPlaceholder('Vouchers', 'vouchers'); }
+    function showEntradas(){ showPlaceholder('Entradas', 'entradas'); }
+    function showGifcards(){ showPlaceholder('Gifcards', 'gifcards'); }
+    function showActividades(){ showPlaceholder('Actividades', 'actividades'); }
+    function showReservas(){ showPlaceholder('Reservas', 'reservas'); }
+
+    const showByModule = {
+      promos: showPromos,
+      eventos: showEventos,
+      menu: showMenu,
+      vouchers: showVouchers,
+      entradas: showEntradas,
+      gifcards: showGifcards,
+      actividades: showActividades,
+      reservas: showReservas,
+      modificar_datos: showModificarDatos
+    };
+
+    function renderDashboardModules(){
+      dashboardModules.innerHTML = '';
+      const enabled = moduleDefs.filter(m => enabledModules.has(m.key));
+      if(enabled.length === 0){
+        dashboardModules.innerHTML = `<div class="small-muted">No hay módulos habilitados para este anunciante.</div>`;
+        return;
+      }
+      enabled.forEach((mod)=>{
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'secondary dashboard-module-btn';
+        btn.textContent = mod.label;
+        btn.addEventListener('click', ()=>{
+          const showFn = showByModule[mod.key];
+          if(typeof showFn === 'function') showFn();
+        });
+        dashboardModules.appendChild(btn);
+      });
+    }
+
+    function applyEnabledModulesVisibility(){
+      moduleDefs.forEach((mod)=>{
+        const tab = tabs[mod.key];
+        if(!tab) return;
+        tab.style.display = enabledModules.has(mod.key) ? '' : 'none';
+      });
+      renderDashboardModules();
+    }
+
+    window.updateDashboardModulesFromData = function(datos){
+      enabledModules = detectEnabledModules(datos);
+      applyEnabledModulesVisibility();
+      showInicio();
+    };
+
+    tabInicio.addEventListener('click', (e)=>{ e.preventDefault(); showInicio(); });
     tabPromos.addEventListener('click', (e)=>{ e.preventDefault(); showPromos(); });
     tabEventos.addEventListener('click', (e)=>{ e.preventDefault(); showEventos(); });
-    showDatos();
+    tabMenu.addEventListener('click', (e)=>{ e.preventDefault(); showMenu(); });
+    tabVouchers.addEventListener('click', (e)=>{ e.preventDefault(); showVouchers(); });
+    tabEntradas.addEventListener('click', (e)=>{ e.preventDefault(); showEntradas(); });
+    tabGifcards.addEventListener('click', (e)=>{ e.preventDefault(); showGifcards(); });
+    tabActividades.addEventListener('click', (e)=>{ e.preventDefault(); showActividades(); });
+    tabReservas.addEventListener('click', (e)=>{ e.preventDefault(); showReservas(); });
+    tabModificarDatos.addEventListener('click', (e)=>{ e.preventDefault(); showModificarDatos(); });
+
+    applyEnabledModulesVisibility();
+    showInicio();
   })();
 });
 </script>
