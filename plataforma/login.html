@@ -60,6 +60,13 @@
     .panel-section { padding:6px 0 0 0; }
     .dashboard-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
     .dashboard-module-btn{margin:0}
+    .data-fields-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+    .data-field-card{background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:8px}
+    .data-field-card label{margin-top:0}
+    .data-field-card input{margin-bottom:0}
+    .data-field-card.image-field{display:flex;flex-direction:column;gap:8px}
+    .data-field-card.image-field button{margin-bottom:0}
+    .data-image-note{margin-bottom:12px}
     .placeholder-panel-box{background:#fbfbff;border:1px solid #e6e8ff;padding:14px;border-radius:8px}
 
     /* Hide promo_id column */
@@ -68,11 +75,6 @@
     #promos-list table td:last-child { text-align:right; width:140px; }
     #promos-list table td:last-child button { display:block; width:90px; margin:8px auto; }
     #promos-list table td { padding-top:14px; padding-bottom:14px; }
-
-    /* Support button – overrides only unique sizing from .btn-danger */
-    #btnContactSupportData { width:100%; text-align:center; padding:12px; border-radius:8px; font-weight:700; }
-    #btnContactSupportData:hover{ background:#ec6557; box-shadow:0 4px 14px rgba(231,76,60,.30); }
-    #btnContactSupportData:active{ background:#c0392b; transform:scale(.98); }
 
     /* Events UI */
     .events-card{margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px}
@@ -275,7 +277,7 @@
         <button id="logout-btn" class="btn-danger" style="margin-bottom:0">Cerrar sesión</button>
       </div>
 
-      <div class="tabs" role="tablist" aria-label="Secciones">
+      <div id="dashboard-tabs" class="tabs" role="tablist" aria-label="Secciones">
         <div id="tab-inicio" class="tab tab-active" role="tab" aria-selected="true">Inicio</div>
         <div id="tab-promos" class="tab" role="tab" aria-selected="false">Promos</div>
         <div id="tab-eventos" class="tab" role="tab" aria-selected="false">Eventos</div>
@@ -301,7 +303,6 @@
           <h3>Datos del Anunciante</h3>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
-            <button id="btnContactSupportData" class="btn-danger" type="button">SI NECESITAS HACER CAMBIOS EN TUS DATOS, CONTACTA A SOPORTE</button>
             <div id="msg-datos-comercio"></div>
           </form>
         </div>
@@ -480,6 +481,7 @@ const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN
 /* ✅ Form imágenes eventos (prefill evento_id) */
 const EVENT_IMAGES_FORM_PREFILL_BASE =
   "https://docs.google.com/forms/d/e/1FAIpQLSePjX6Qlc38bNUlgI3iS_TaKOdwsP0ozfhS0XRb-d1jqCj2KQ/viewform?usp=pp_url&entry.2132836597=";
+const COMMERCE_IMAGES_FORM_PREFILL_BASE = EVENT_IMAGES_FORM_PREFILL_BASE;
 /* ================= */
 
 const SUPPORT_NUMBER = "5492245459957";
@@ -494,6 +496,21 @@ let lastCreatedEventId = null;
 
 // ✅ Promos: edición sin prompts
 let editingPromoId = null;
+
+const COMMERCE_DATA_FIELDS = [
+  "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
+  "direccion","lat","lng","maps","telefono",
+  "direccion2","lat2","lng2","maps2","telefono2",
+  "direccion3","lat3","lng3","maps3","telefono3",
+  "direccion4","lat4","lng4","maps4","telefono4",
+  "direccion5","lat5","lng5","maps5","telefono5",
+  "direccion6","lat6","lng6","maps6","telefono6",
+  "whatsapp","whatsapp2","whatsapp3","mail",
+  "instagram","facebook","youtube","tiktok","linkedin",
+  "logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
+  "link"
+];
+const COMMERCE_IMAGE_FIELDS = new Set(["logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"]);
 
 function debugLog(...args){ console.log(...args); }
 
@@ -604,6 +621,12 @@ function openImagesFormForEvent(eventoId){
   const id = String(eventoId || '').trim();
   if(!id){ alert('Evento sin ID.'); return; }
   window.open(EVENT_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
+}
+
+function openImagesFormForCommerce(comercioId){
+  const id = String(comercioId || '').trim();
+  if(!id){ alert('Anunciante sin ID.'); return; }
+  window.open(COMMERCE_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
 }
 
 /* ====================== Autocomplete comercios ====================== */
@@ -858,6 +881,58 @@ async function postJson(url, body){
   return { status:r.status, json };
 }
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]; }); }
+
+function buildCommerceFieldsMarkup(datos){
+  const values = (datos && typeof datos === 'object') ? datos : {};
+  let html = '<div class="data-fields-grid">';
+  let imageNoteRendered = false;
+
+  COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
+    const rawValue = values[fieldName];
+    const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
+    if(COMMERCE_IMAGE_FIELDS.has(fieldName)){
+      if(!imageNoteRendered){
+        html += `
+          <div class="data-image-note info-banner" style="grid-column:1 / -1">
+            <b>Imágenes (solo por formulario)</b><br><br>
+            Las imágenes se administran desde un <b>formulario de Google</b>, igual que en <b>eventos</b>.<br><br>
+            Tocá <b>"Cargar / Modificar imágenes"</b>, enviá el formulario y luego refrescá los datos para ver los cambios.
+          </div>
+        `;
+        imageNoteRendered = true;
+      }
+      html += `
+        <div class="data-field-card image-field">
+          <label>${htmlEscape(fieldName)}</label>
+          <input class="blocked" type="text" disabled value="${htmlEscape(fieldValue || '(se carga desde formulario)')}" />
+          <button type="button" class="secondary" data-commerce-image-field="${htmlEscape(fieldName)}">Cargar / Modificar imágenes</button>
+        </div>
+      `;
+      return;
+    }
+
+    html += `
+      <div class="data-field-card">
+        <label>${htmlEscape(fieldName)}</label>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" />
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  html += `<input type="hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
+  return html;
+}
+
+function bindCommerceImageButtons(){
+  const container = document.getElementById('campos-datos-comercio');
+  if(!container) return;
+  container.querySelectorAll('button[data-commerce-image-field]').forEach((btn)=>{
+    btn.addEventListener('click', ()=>{
+      openImagesFormForCommerce(sesion && sesion.id);
+    });
+  });
+}
 
 function setMsg(elId, kind, msg){
   const el = document.getElementById(elId);
@@ -1668,16 +1743,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(datos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${datos.error}`; mostrarPanel('dashboard'); return; }
       if(datos.planilla_id && datos.planilla_id !== sesion.planilla_id){ sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
 
-      const campos = ["nombre","nivel","subnivel","segmento","categoria","tags","adicionales","pie","descripcion","direccion","lat","lng","telefono","whatsapp","mail","instagram","facebook","youtube","tiktok","linkedin","logo","verificado","gold","img1","img2","img3","img4","link"];
-      let html = '';
-      campos.forEach(c=> html += `<div><label>${c}</label><input type="text" name="${c}" value="${datos[c]||''}" /></div>`);
-      html += `<input type="hidden" name="__id" value="${sesion.id}"/>`;
-      document.getElementById('campos-datos-comercio').innerHTML = html;
+      document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
+      bindCommerceImageButtons();
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(datos);
       }
 
-      document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Solicito modificación de datos\\nComercio: ' + sesion.nombre + '\\nId: ' + sesion.id)}`;
+      document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\\nComercio: ' + sesion.nombre + '\\nId: ' + sesion.id)}`;
       mostrarPanel('dashboard');
 
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
@@ -1770,6 +1842,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const tabActividades = document.getElementById('tab-actividades');
     const tabReservas = document.getElementById('tab-reservas');
     const tabModificarDatos = document.getElementById('tab-modificar-datos');
+    const dashboardTabs = document.getElementById('dashboard-tabs');
     const inicioPanel = document.getElementById('inicio-panel');
     const datosPanel = document.getElementById('modificar-datos-panel');
     const promosPanel = document.getElementById('promos-panel');
@@ -1880,6 +1953,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTabActive('');
     }
 
+    function setDashboardTabsVisible(isVisible){
+      if(!dashboardTabs) return;
+      dashboardTabs.style.display = isVisible ? '' : 'none';
+    }
+
     function ensureMenuLoaded(){
       if(menuIframe.dataset.loaded === '1') return;
       if(!sesion || !sesion.id) return;
@@ -1894,16 +1972,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTabActive(tabKey);
     }
 
-    function showInicio(){ hideAll(); inicioPanel.style.display='block'; setTabActive('inicio'); }
-    function showModificarDatos(){ hideAll(); datosPanel.style.display='block'; setTabActive('modificar_datos'); }
-    function showPromos(){ hideAll(); promosPanel.style.display='block'; setTabActive('promos'); setTimeout(()=>loadPromosUI(),50); }
-    function showEventos(){ hideAll(); eventosPanel.style.display='block'; setTabActive('eventos'); setTimeout(()=>loadEventsUI(),50); }
-    function showMenu(){ hideAll(); menuPanel.style.display='block'; setTabActive('menu'); ensureMenuLoaded(); }
-    function showVouchers(){ showPlaceholder('Vouchers', 'vouchers'); }
-    function showEntradas(){ showPlaceholder('Entradas', 'entradas'); }
-    function showGifcards(){ showPlaceholder('Gifcards', 'gifcards'); }
-    function showActividades(){ showPlaceholder('Actividades', 'actividades'); }
-    function showReservas(){ showPlaceholder('Reservas', 'reservas'); }
+    function showInicio(){ hideAll(); setDashboardTabsVisible(false); inicioPanel.style.display='block'; setTabActive('inicio'); }
+    function showModificarDatos(){ hideAll(); setDashboardTabsVisible(true); datosPanel.style.display='block'; setTabActive('modificar_datos'); }
+    function showPromos(){ hideAll(); setDashboardTabsVisible(true); promosPanel.style.display='block'; setTabActive('promos'); setTimeout(()=>loadPromosUI(),50); }
+    function showEventos(){ hideAll(); setDashboardTabsVisible(true); eventosPanel.style.display='block'; setTabActive('eventos'); setTimeout(()=>loadEventsUI(),50); }
+    function showMenu(){ hideAll(); setDashboardTabsVisible(true); menuPanel.style.display='block'; setTabActive('menu'); ensureMenuLoaded(); }
+    function showVouchers(){ setDashboardTabsVisible(true); showPlaceholder('Vouchers', 'vouchers'); }
+    function showEntradas(){ setDashboardTabsVisible(true); showPlaceholder('Entradas', 'entradas'); }
+    function showGifcards(){ setDashboardTabsVisible(true); showPlaceholder('Gifcards', 'gifcards'); }
+    function showActividades(){ setDashboardTabsVisible(true); showPlaceholder('Actividades', 'actividades'); }
+    function showReservas(){ setDashboardTabsVisible(true); showPlaceholder('Reservas', 'reservas'); }
 
     const showByModule = {
       promos: showPromos,
