@@ -303,6 +303,9 @@
           <h3>Datos del Anunciante</h3>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
+            <div style="margin-top:10px;">
+              <button id="btnGuardarDatosComercio" class="primary" type="submit">Guardar cambios</button>
+            </div>
             <div id="msg-datos-comercio"></div>
           </form>
         </div>
@@ -410,23 +413,19 @@
                 <input id="ev-entradas" type="text" placeholder="Link o texto sobre entradas (si corresponde)" />
               </div>
 
-              <!-- IMÁGENES: BLOQUEADAS (solo por Google Form) -->
+              <!-- IMÁGENES -->
               <div class="full">
-                <label>Imágenes (solo por formulario)</label>
+                <label>Imágenes (URL)</label>
                 <div class="small-muted">
-                  <b>Importante:</b> las imágenes <b>NO</b> se cargan ni se editan desde el panel.<br>
-                  Las imágenes se administran desde un <b>formulario de Google</b> asociado a <b>cada evento</b>.<br><br>
-                  <b>Cómo hacerlo:</b><br>
-                  1) Creá el evento o elegí un evento existente desde la lista (abajo).<br>
-                  2) En ese evento, tocá <b>"Cargar / Modificar imágenes"</b> (está en los botones del evento, debajo de "Duplicar").<br>
-                  3) Enviá el formulario con las imágenes.<br>
-                  4) Volvé al panel y tocá <b>"Refrescar lista"</b> para ver los cambios.
+                  Subí la imagen a tu Drive o similar.<br>
+                  Asegurate de que el enlace sea público.<br>
+                  Pegá la URL acá.
                 </div>
               </div>
 
-              <div class="full"><label>Imagen 1</label><input id="ev-img1" class="blocked" type="text" disabled value="(se carga desde formulario)" /></div>
-              <div class="full"><label>Imagen 2</label><input id="ev-img2" class="blocked" type="text" disabled value="(se carga desde formulario)" /></div>
-              <div class="full"><label>Imagen 3</label><input id="ev-img3" class="blocked" type="text" disabled value="(se carga desde formulario)" /></div>
+              <div class="full"><label>Imagen 1</label><input id="ev-img1" type="text" placeholder="https://..." /></div>
+              <div class="full"><label>Imagen 2</label><input id="ev-img2" type="text" placeholder="https://..." /></div>
+              <div class="full"><label>Imagen 3</label><input id="ev-img3" type="text" placeholder="https://..." /></div>
 
               <div><label>Partner 1</label><select id="ev-partner"><option value="">Seleccioná un partner (opcional)</option></select></div>
               <div><label>Partner 2</label><select id="ev-partner2"><option value="">Seleccioná un partner (opcional)</option></select></div>
@@ -513,9 +512,10 @@ const COMMERCE_DATA_FIELDS = [
 ];
 const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
-  <b>Imágenes (solo por formulario)</b><br><br>
-  Las imágenes se administran desde un <b>formulario de Google</b>, igual que en <b>eventos</b>.<br><br>
-  Tocá <b>"Cargar / Modificar imágenes"</b>, enviá el formulario y luego refrescá los datos para ver los cambios.
+  <b>Imágenes (URL)</b><br>
+  Subí la imagen a tu Drive o similar.<br>
+  Asegurate de que el enlace sea público.<br>
+  Pegá la URL acá.
 `;
 
 function debugLog(...args){ console.log(...args); }
@@ -908,8 +908,7 @@ function buildCommerceFieldsMarkup(datos){
       html += `
         <div class="data-field-card image-field">
           <label>${htmlEscape(fieldName)}</label>
-          <input class="blocked" type="text" disabled value="${htmlEscape(fieldValue || '(se carga desde formulario)')}" />
-          <button type="button" class="secondary" data-commerce-image-field="${htmlEscape(fieldName)}">Cargar / Modificar imágenes</button>
+          <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" placeholder="https://..." />
         </div>
       `;
       return;
@@ -924,20 +923,8 @@ function buildCommerceFieldsMarkup(datos){
   });
 
   html += '</div>';
-  html += `<input type="hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
+  html += `<input type="hidden" id="commerce-id-hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
   return html;
-}
-
-function bindCommerceImageButtons(){
-  const container = document.getElementById('campos-datos-comercio');
-  if(!container) return;
-  if(container.hasAttribute('data-images-bound')) return;
-  container.addEventListener('click', (event)=>{
-    const btn = event.target.closest('button[data-commerce-image-field]');
-    if(!btn || !container.contains(btn)) return;
-    openImagesFormForCommerce(sesion && sesion.id);
-  });
-  container.setAttribute('data-images-bound', 'true');
 }
 
 function setMsg(elId, kind, msg){
@@ -957,6 +944,19 @@ async function promos_post(payload){
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
+}
+function buildCommerceSavePayload(){
+  const form = document.getElementById('form-datos-comercio');
+  const payload = { action:'set_datos' };
+  const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
+  if(id){
+    payload.id = id;
+    payload.__id = id;
+  }
+  COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
+    payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+  });
+  return payload;
 }
 
 /* ====================== Promos UI (nuevo, similar a eventos) ====================== */
@@ -1184,10 +1184,10 @@ function clearEventForm(){
     el.value = '';
   });
 
-  // imágenes: se muestran bloqueadas
-  const i1 = document.getElementById('ev-img1'); if(i1) i1.value = '(se carga desde formulario)';
-  const i2 = document.getElementById('ev-img2'); if(i2) i2.value = '(se carga desde formulario)';
-  const i3 = document.getElementById('ev-img3'); if(i3) i3.value = '(se carga desde formulario)';
+  // imágenes por URL
+  const i1 = document.getElementById('ev-img1'); if(i1) i1.value = '';
+  const i2 = document.getElementById('ev-img2'); if(i2) i2.value = '';
+  const i3 = document.getElementById('ev-img3'); if(i3) i3.value = '';
 
   // tracking
   lastCreatedEventId = null;
@@ -1208,10 +1208,9 @@ function buildEventPayloadFromForm(){
     hora2: evGet('ev-hora2'),
     instagram: evGet('ev-instagram'),
     entradas: evGet('ev-entradas'),
-
-    /* ✅ IMPORTANTE:
-       img1/img2/img3 NO van en el payload.
-       Se cargan solo por Google Form y el script backend las guarda en la planilla VIP. */
+    img1: evGet('ev-img1'),
+    img2: evGet('ev-img2'),
+    img3: evGet('ev-img3'),
 
     partner: evGet('ev-partner'),
     partner2: evGet('ev-partner2'),
@@ -1255,7 +1254,6 @@ function renderEventsCards(events){
           <button data-ev-action="pause" data-ev-id="${eventoId}" data-paused="${isPaused}">${pauseBtnText}</button>
           <button data-ev-action="edit" data-ev-id="${eventoId}">Editar</button>
           <button data-ev-action="duplicate" data-ev-id="${eventoId}">Duplicar</button>
-          <button data-ev-img-id="${eventoId}" ${eventoId ? '' : 'disabled'}>Cargar / Modificar imágenes</button>
           <button data-ev-action="delete" data-ev-id="${eventoId}" style="background:#e74c3c;color:#fff;border:0;">Borrar</button>
         </div>
       </div>
@@ -1294,23 +1292,11 @@ function renderEventsTable(events){
         <button data-ev-action="edit" data-ev-id="${eventoId}">Editar</button>
         <button data-ev-action="delete" data-ev-id="${eventoId}">Borrar</button>
         <button data-ev-action="duplicate" data-ev-id="${eventoId}">Duplicar</button>
-        <button data-ev-img-id="${eventoId}" ${eventoId ? '' : 'disabled'}>Cargar / Modificar imágenes</button>
       </td>
     </tr>`;
   }
   html += '</tbody></table>';
   list.innerHTML = html;
-}
-
-function bindEventImageButtons(){
-  const list = document.getElementById('eventos-list');
-  if(!list) return;
-  list.querySelectorAll('button[data-ev-img-id]').forEach(btn=>{
-    btn.addEventListener('click', ()=>{
-      const evId = btn.getAttribute('data-ev-img-id') || '';
-      openImagesFormForEvent(evId);
-    });
-  });
 }
 
 function bindEventsListActions(){
@@ -1374,10 +1360,10 @@ function bindEventsListActions(){
         document.getElementById('ev-instagram').value = found.instagram || '';
         document.getElementById('ev-entradas').value = found.entradas || '';
 
-        // Imágenes: solo display bloqueado
-        const i1 = document.getElementById('ev-img1'); if(i1) i1.value = found.img1 || '(se carga desde formulario)';
-        const i2 = document.getElementById('ev-img2'); if(i2) i2.value = found.img2 || '(se carga desde formulario)';
-        const i3 = document.getElementById('ev-img3'); if(i3) i3.value = found.img3 || '(se carga desde formulario)';
+        // Imágenes por URL
+        const i1 = document.getElementById('ev-img1'); if(i1) i1.value = found.img1 || '';
+        const i2 = document.getElementById('ev-img2'); if(i2) i2.value = found.img2 || '';
+        const i3 = document.getElementById('ev-img3'); if(i3) i3.value = found.img3 || '';
 
         document.getElementById('ev-partner').value = found.partner || '';
         document.getElementById('ev-partner2').value = found.partner2 || '';
@@ -1386,7 +1372,7 @@ function bindEventsListActions(){
         document.getElementById('ev-partner5').value = found.partner5 || '';
         document.getElementById('ev-partner6').value = found.partner6 || '';
 
-        setMsg('eventos-msg', 'ok', 'Editando evento. Para imágenes: usá el botón del evento en la lista de abajo.');
+        setMsg('eventos-msg', 'ok', 'Editando evento.');
         try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
 
@@ -1417,7 +1403,7 @@ function bindEventsListActions(){
         };
         const res = await events_post({ action:'createVipEvent', payload: copyPayload });
         if(res.status === 200 && res.json && (res.json.success || res.json.created)){
-          setMsg('eventos-msg', 'ok', 'Evento duplicado. Para cargar imágenes, usá el botón del evento correspondiente en la lista.');
+          setMsg('eventos-msg', 'ok', 'Evento duplicado.');
           await loadEventsUI();
         } else {
           setMsg('eventos-msg', 'err', 'Error duplicando: ' + JSON.stringify(res.json));
@@ -1434,7 +1420,6 @@ function renderEventsList(events){
 
   // binders
   bindEventsListActions();
-  bindEventImageButtons();
 }
 
 async function loadEventsUI(){
@@ -1503,6 +1488,35 @@ document.addEventListener('DOMContentLoaded', ()=>{
   loadPromosCategorias().catch(()=>{});
 
   document.getElementById('btnCrearComercioPanel').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
+
+  document.getElementById('form-datos-comercio')?.addEventListener('submit', async (e)=>{
+    e.preventDefault();
+    if(!sesion || !sesion.id){
+      setMsg('msg-datos-comercio', 'err', 'No logueado.');
+      return;
+    }
+    const btn = document.getElementById('btnGuardarDatosComercio');
+    const originalText = btn?.textContent || 'Guardar cambios';
+    btn?.setAttribute('disabled', 'true');
+    if(btn) btn.textContent = 'Guardando...';
+    setMsg('msg-datos-comercio', 'ok', 'Guardando cambios...');
+
+    try{
+      const payload = buildCommerceSavePayload();
+      const r = await promos_post(payload);
+      const savedOk = !!(r.json && (r.json.success || r.json.updated || r.json.aprobado === true));
+      if(r.status === 200 && savedOk){
+        setMsg('msg-datos-comercio', 'ok', 'Datos guardados.');
+      } else {
+        setMsg('msg-datos-comercio', 'err', (r.json && r.json.message) ? r.json.message : 'No se pudieron guardar los datos.');
+      }
+    }catch(err){
+      setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
+    } finally {
+      btn?.removeAttribute('disabled');
+      if(btn) btn.textContent = originalText;
+    }
+  });
 
   // Habilitar login por cambio en clave
   const claveEl = document.getElementById('clave');
@@ -1721,7 +1735,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
           const createdId = (res.json && res.json.evento_id) ? String(res.json.evento_id).trim() : '';
           lastCreatedEventId = createdId;
 
-          setMsg('eventos-msg', 'ok', 'Evento creado. Ahora bajá a la lista, buscá el evento y tocá "Cargar / Modificar imágenes".');
+          setMsg('eventos-msg', 'ok', 'Evento creado.');
 
           clearEventForm();
           await loadEventsUI();
@@ -1750,7 +1764,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(datos.planilla_id && datos.planilla_id !== sesion.planilla_id){ sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
-      bindCommerceImageButtons();
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(datos);
       }
