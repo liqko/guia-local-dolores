@@ -65,8 +65,8 @@
     .data-field-card label{margin-top:0}
     .data-field-card input{margin-bottom:0}
     .data-field-card.image-field{display:flex;flex-direction:column;gap:8px}
-    .data-field-card.image-field button{margin-bottom:0}
     .data-image-note{margin-bottom:12px}
+    .data-form-actions{margin-top:10px}
     .placeholder-panel-box{background:#fbfbff;border:1px solid #e6e8ff;padding:14px;border-radius:8px}
 
     /* Hide promo_id column */
@@ -303,7 +303,7 @@
           <h3>Datos del Anunciante</h3>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
-            <div style="margin-top:10px;">
+            <div class="data-form-actions">
               <button id="btnGuardarDatosComercio" class="primary" type="submit">Guardar cambios</button>
             </div>
             <div id="msg-datos-comercio"></div>
@@ -418,7 +418,7 @@
                 <label>Imágenes (URL)</label>
                 <div class="small-muted">
                   Subí la imagen a tu Drive o similar.<br>
-                  Asegurate de que el enlace sea público.<br>
+                  Asegurá que el enlace sea público.<br>
                   Pegá la URL acá.
                 </div>
               </div>
@@ -514,7 +514,7 @@ const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> 
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
   <b>Imágenes (URL)</b><br>
   Subí la imagen a tu Drive o similar.<br>
-  Asegurate de que el enlace sea público.<br>
+  Asegurá que el enlace sea público.<br>
   Pegá la URL acá.
 `;
 
@@ -887,6 +887,16 @@ async function postJson(url, body){
   return { status:r.status, json };
 }
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]; }); }
+function isHttpUrl(value){
+  const s = String(value || '').trim();
+  if(!s) return true;
+  try {
+    const u = new URL(s);
+    return u.protocol === 'http:' || u.protocol === 'https:';
+  } catch(e){
+    return false;
+  }
+}
 
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
@@ -944,6 +954,9 @@ async function promos_post(payload){
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
+}
+async function commerce_post(payload){
+  return promos_post(payload);
 }
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
@@ -1503,12 +1516,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     try{
       const payload = buildCommerceSavePayload();
-      const r = await promos_post(payload);
-      const savedOk = !!(r.json && (r.json.success || r.json.updated || r.json.aprobado === true));
-      if(r.status === 200 && savedOk){
+      const invalidImageField = Array.from(COMMERCE_IMAGE_FIELDS).find((fieldName)=> !isHttpUrl(payload[fieldName]));
+      if(invalidImageField){
+        setMsg('msg-datos-comercio', 'err', `La URL de ${invalidImageField} no es válida.`);
+        return;
+      }
+      const response = await commerce_post(payload);
+      const savedOk = !!(response.json && (response.json.success || response.json.updated || response.json.aprobado === true));
+      if(response.status === 200 && savedOk){
         setMsg('msg-datos-comercio', 'ok', 'Datos guardados.');
       } else {
-        setMsg('msg-datos-comercio', 'err', (r.json && r.json.message) ? r.json.message : 'No se pudieron guardar los datos.');
+        setMsg('msg-datos-comercio', 'err', (response.json && response.json.message) ? response.json.message : 'No se pudieron guardar los datos.');
       }
     }catch(err){
       setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
@@ -1712,6 +1730,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(!payload.categoria){ alert('Falta Categoría'); return; }
       if(!payload.localidad){ alert('Falta Localidad'); return; }
       if(!payload.lugar){ alert('Falta Lugar'); return; }
+      const invalidEventImageField = ['img1','img2','img3'].find((fieldName)=> !isHttpUrl(payload[fieldName]));
+      if(invalidEventImageField){ alert(`La URL de ${invalidEventImageField} no es válida.`); return; }
 
       if(btn.dataset.mode === 'edit' && editingEventId){
         setMsg('eventos-msg', 'ok', 'Guardando cambios...');
