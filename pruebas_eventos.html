@@ -422,6 +422,43 @@
       margin-top:4px;
     }
     .map-link i{margin-right:6px;}
+
+    /* Estilos para Banners Publicitarios (Tomados del archivo comercial)[cite: 6] */
+    .banner-tarjeta {
+      width: 100%; text-align: center; margin: 1em 0;
+      display: flex; justify-content: center; position: relative; flex-direction: column; align-items: center; gap: 0.6rem;
+    }
+    .banner-tarjeta .cta-btn {
+      z-index: 60; display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.45em 0.8em;
+      background: #ff7f50; color: #fff; border-radius: 0.6em; text-decoration: none; font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.18); border: none; cursor: pointer; font-size: 0.95rem; margin-top: 0.2rem;
+    }
+    @media (max-width:420px){ .banner-tarjeta .cta-btn { padding: 0.36em 0.6em; font-size: 0.9rem; } }
+    .banner-tarjeta img {
+      max-width: 320px !important; width: 90vw !important; height: auto !important;
+      border-radius: 1em; box-shadow: 0 2px 10px #0003; display: inline-block;
+    }
+    .banner-tarjeta .banner-media {
+      width: min(90vw, 360px); max-width: 360px; aspect-ratio: 9 / 16;
+      display: flex; align-items: center; justify-content: center; background: #000;
+      border-radius: 1em; overflow: hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.15); position: relative;
+    }
+    .banner-tarjeta .banner-media iframe,
+    .banner-tarjeta .banner-media video,
+    .banner-tarjeta .banner-media img {
+      width: 100%; height: 100%; object-fit: contain; display: block; border: none;
+    }
+    .banner-tarjeta.has-cta .banner-media { cursor: default; }
+    @media (max-width:600px) {
+      .banner-tarjeta img { max-width: 36px; width: 22vw; }
+      .banner-tarjeta .banner-media { width: min(90vw, 300px); aspect-ratio: 9 / 16; border-radius: 0.9em; }
+    }
+    .replay-btn {
+      z-index: 61; display: none; align-items: center; gap: 0.45rem; padding: 0.45em 0.8em;
+      background: #ff7f50; color: #fff; border-radius: 0.6em; font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.18); border: none; cursor: pointer; font-size: 0.95rem;
+    }
+    .replay-btn:hover { background:#e66f3f; }
   </style>
 </head>
 <body>
@@ -458,8 +495,349 @@
     const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getevents&serverSecret=" + encodeURIComponent(SERVER_SECRET);
     const SUMA_EVENTO_URL = "https://www.guialocaldolores.com.ar/suma-tu-evento/";
 
-    const PLACEHOLDER_SVG = `data:image/svg+xml;utf8,` +
-      encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><rect width='100%' height='100%' fill='#eef4ff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='22' fill='#889'>Auspicia</text></svg>`);
+    // Origen de datos de banners publicitarios (extraído del archivo comercial)[cite: 6]
+    const banners = [
+      { url: "https://www.guialocaldolores.com.ar/fuego-libre/", img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317401/v49zp00ozrcwq6trzuvq.png", cta: "https://www.guialocaldolores.com.ar/fuego-libre" },
+      { media: "https://youtube.com/shorts/Cym2V9muLGQ?feature=share", poster: "https://via.placeholder.com/320x180.png?text=Poster+Video", cta: "https://www.guialocaldolores.com.ar/fuego-libre" },
+      { media: "https://youtube.com/shorts/XBJOogweSiE", poster: "https://via.placeholder.com/320x180.png?text=Poster+Video", cta: "https://www.guialocaldolores.com.ar/fuego-libre" },
+      { media: "https://youtube.com/shorts/cS6hG2KoXVI?feature=share", poster: "https://via.placeholder.com/320x180.png?text=Poster+Video", cta: "https://www.guialocaldolores.com.ar/fuego-libre" },
+      { url: "https://www.guialocaldolores.com.ar/fuego-libre/", img: "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761317400/wmxljnky7smtuxmecf4i.png", cta: "https://www.guialocaldolores.com.ar/fuego-libre" }
+    ];
+
+    function isVideoFile(url){ return typeof url === 'string' && /\.(mp4|webm|ogg)(\?.*)?$/i.test(url); }
+    function isYouTube(url){ return typeof url === 'string' && /youtu(be\.com|\.be)/i.test(url); }
+    function getYouTubeEmbedUrl(url, autoplay){
+      try{
+        let id = '';
+        const u = new URL(url);
+        if(u.hostname.includes('youtu.be')){ id = u.pathname.slice(1); }
+        else { id = u.searchParams.get('v') || ''; if(!id){ const parts = u.pathname.split('/'); id = parts.pop(); } }
+        if(!id) return '';
+        const params = new URLSearchParams({rel:0,playsinline:1});
+        if(autoplay) params.set('autoplay','1');
+        params.set('mute','1');
+        params.set('modestbranding','1');
+        return `https://www.youtube.com/embed/${id}?${params.toString()}`;
+      }catch(e){ return ''; }
+    }
+
+    function renderBanner(banner, idx){
+      const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
+      const defaultCta = "https://www.guialocaldolores.com.ar";
+      const cta = banner.cta && banner.cta.trim() ? banner.cta.trim() : defaultCta;
+      const replayButton = `<button class="replay-btn" data-target-id="${id}" aria-label="Reproducir aquí">Reproducir aquí</button>`;
+
+      if(banner.img){
+        return `
+          <div class="banner-tarjeta has-cta" data-cta="${cta}">
+            <div id="${id}" class="banner-media" data-cta="${cta}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}><img src="${banner.img}" alt="Banner"></div>
+            ${replayButton}
+            <a class="cta-btn" href="${cta}" target="_blank" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
+          </div>
+        `;
+      }
+
+      if(banner.media && isVideoFile(banner.media)){
+        const posterAttr = banner.poster ? `poster="${banner.poster}"` : '';
+        return `
+          <div class="banner-tarjeta has-cta" data-cta="${cta}">
+            <div id="${id}" class="banner-media" data-cta="${cta}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}>
+              <video class="banner-media-video" data-src="${banner.media}" ${posterAttr} muted playsinline preload="metadata" controls></video>
+            </div>
+            ${replayButton}
+            <a class="cta-btn" href="${cta}" target="_blank" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
+          </div>
+        `;
+      }
+
+      if(banner.media && isYouTube(banner.media)){
+        const embed = getYouTubeEmbedUrl(banner.media, true) || banner.media;
+        return `
+          <div class="banner-tarjeta has-cta" data-cta="${cta}">
+            <div id="${id}" class="banner-media" data-src="${embed}" data-cta="${cta}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}></div>
+            ${replayButton}
+            <a class="cta-btn" href="${cta}" target="_blank" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
+          </div>
+        `;
+      }
+      return '';
+    }
+
+    function initBannerObservers(){
+      const observerOptions = { root: null, rootMargin: '0px', threshold: 0.5 };
+      const callback = function(entries, obs){
+        entries.forEach(async entry => {
+          const target = entry.target;
+          if(!target) return;
+
+          if(target.tagName && target.tagName.toLowerCase() === 'video'){
+            const videoEl = target;
+            const dataSrc = videoEl.dataset ? videoEl.dataset.src : videoEl.getAttribute('data-src');
+            if(entry.isIntersecting){
+              if(!videoEl.src && dataSrc){ videoEl.src = dataSrc; try{ videoEl.load(); }catch(e){} }
+              try{ const p = videoEl.play(); if(p && typeof p.then === 'function'){ p.catch(()=>{}); } }catch(e){}
+            } else { try{ videoEl.pause(); }catch(e){} }
+            try {
+              const container = videoEl.closest('.banner-tarjeta');
+              const replayBtn = container ? container.querySelector('.replay-btn') : null;
+              videoEl.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
+            } catch(e){}
+            return;
+          }
+
+          if(entry.isIntersecting){
+            if(target.querySelector && target.querySelector('iframe')) { try{ obs.unobserve(target); }catch(e){} return; }
+            const ds = target.dataset ? target.dataset.src : target.getAttribute('data-src');
+            if(ds){
+              try {
+                if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
+                  let embedUrl = ds;
+                  const sep = ds.includes('?') ? '&' : '?';
+                  const extraParams = 'enablejsapi=1&rel=0&modestbranding=1&playsinline=1';
+                  if(!/enablejsapi=1/.test(ds)) embedUrl = ds + sep + extraParams;
+                  const iframe = document.createElement('iframe');
+                  const iframeId = `yt-embed-${Math.floor(Math.random()*1000000)}`;
+                  iframe.setAttribute('id', iframeId);
+                  iframe.setAttribute('src', embedUrl);
+                  iframe.setAttribute('frameborder', '0');
+                  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                  iframe.setAttribute('allowfullscreen', 'true');
+                  iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
+                  iframe.style.width = '100%';
+                  iframe.style.height = '100%';
+                  iframe.style.border = 'none';
+                  target.innerHTML = '';
+                  target.appendChild(iframe);
+                  const poster = (target.dataset && target.dataset.poster) ? target.dataset.poster : '';
+                  target.dataset.embedUrl = embedUrl;
+                  pendingYouTubePlayers.push({ iframeId, containerEl: target, embedUrl, poster });
+                  ensureYouTubeAPI();
+                } else if(isVideoFile(ds)){
+                  const video = document.createElement('video');
+                  video.src = ds; video.muted = true; video.playsInline = true; video.autoplay = true; video.preload = 'metadata'; video.controls = true;
+                  video.style.width = '100%'; video.style.height = '100%'; video.style.border = 'none';
+                  target.innerHTML = ''; target.appendChild(video);
+                  try{ video.play(); }catch(e){}
+                  try{
+                    const container = target.closest('.banner-tarjeta');
+                    const replayBtn = container ? container.querySelector('.replay-btn') : null;
+                    video.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
+                  }catch(e){}
+                } else {
+                  const iframe = document.createElement('iframe');
+                  iframe.setAttribute('src', ds);
+                  iframe.setAttribute('frameborder', '0');
+                  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+                  iframe.setAttribute('allowfullscreen', 'true');
+                  iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
+                  iframe.style.width = '100%';
+                  iframe.style.height = '100%';
+                  iframe.style.border = 'none';
+                  target.innerHTML = '';
+                  target.appendChild(iframe);
+                }
+                attachCtaHandlers(); attachReplayHandlers();
+              } catch(err){ console.warn('Error loading embed:', err); }
+              try{ obs.unobserve(target); }catch(e){}
+              return;
+            }
+            if(target.querySelector && target.querySelector('img')) { try{ obs.unobserve(target); }catch(e){} return; }
+          }
+        });
+      };
+
+      const observer = new IntersectionObserver(callback, observerOptions);
+      document.querySelectorAll('.banner-tarjeta video.banner-media-video').forEach(v => {
+        try { if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src'); observer.observe(v); } catch(e){}
+      });
+      document.querySelectorAll('.banner-tarjeta .banner-media').forEach(el => {
+        try {
+          const hasImg = el.querySelector && el.querySelector('img');
+          const hasVideo = el.querySelector && el.querySelector('video');
+          const hasIframe = el.querySelector && el.querySelector('iframe');
+          const ds = el.dataset ? el.dataset.src : el.getAttribute('data-src');
+          if(hasImg || hasIframe){
+          } else if(hasVideo){
+            const v = el.querySelector('video');
+            if(v) { if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src'); observer.observe(v); }
+          } else { if(ds) observer.observe(el); }
+        } catch(e){}
+      });
+    }
+
+    const pendingYouTubePlayers = [];
+    let youtubeApiLoading = false;
+    let youtubeApiReady = false;
+
+    function ensureYouTubeAPI(){
+      if (youtubeApiReady) { createPendingYouTubePlayers(); return; }
+      if (youtubeApiLoading) return;
+      youtubeApiLoading = true;
+      const tag = document.createElement('script');
+      tag.src = "https://www.youtube.com/iframe_api";
+      tag.async = true;
+      document.head.appendChild(tag);
+      window.onYouTubeIframeAPIReady = function() { youtubeApiReady = true; createPendingYouTubePlayers(); };
+    }
+
+    function createPendingYouTubePlayers(){
+      while(pendingYouTubePlayers.length){
+        const item = pendingYouTubePlayers.shift();
+        try{
+          const { iframeId, containerEl, embedUrl, poster } = item;
+          if(!window.YT || !YT.Player) { pendingYouTubePlayers.unshift(item); break; }
+          const player = new YT.Player(iframeId, {
+            events: {
+              onStateChange: function(e){
+                if(e.data === YT.PlayerState.ENDED){
+                  try{
+                    const bannerContainer = containerEl.closest('.banner-tarjeta');
+                    const replayBtn = bannerContainer ? bannerContainer.querySelector('.replay-btn') : null;
+                    containerEl.innerHTML = '';
+                    let posterUrl = poster || '';
+                    if(!posterUrl && embedUrl){
+                      try { const u = new URL(embedUrl); let vid = ''; if(u.hostname.includes('youtu.be')) vid = u.pathname.slice(1); else vid = u.searchParams.get('v') || (u.pathname.split('/').pop()); if(vid) posterUrl = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`; } catch(e){}
+                    }
+                    if(posterUrl){
+                      const img = document.createElement('img');
+                      img.src = posterUrl; img.alt = 'Banner'; img.style.maxWidth = '320px'; img.style.width = '90vw'; img.style.borderRadius = '1em';
+                      containerEl.appendChild(img);
+                    }
+                    containerEl.dataset.embedUrl = embedUrl;
+                    if(replayBtn) replayBtn.style.display = 'inline-flex';
+                  }catch(err){ try{ containerEl.innerHTML = ''; }catch(e){} }
+                }
+              }
+            }
+          });
+        }catch(e){ console.warn('createPendingYouTubePlayers error', e); }
+      }
+    }
+
+    function attachCtaHandlers(){
+      try {
+        const bannersEl = document.querySelectorAll('.banner-tarjeta');
+        bannersEl.forEach(b => {
+          const cta = b.querySelector('.cta-btn');
+          const media = b.querySelector('.banner-media');
+          const ctaUrl = (b.dataset && b.dataset.cta) ? b.dataset.cta : (cta ? cta.getAttribute('href') : '');
+          if(ctaUrl){
+            b.classList.add('has-cta');
+            if(media) media.setAttribute('data-cta', ctaUrl);
+          } else { b.classList.remove('has-cta'); }
+          if(cta){
+            cta.onclick = function(e){
+              e.preventDefault();
+              try { window.open(ctaUrl, '_blank', 'noopener'); } catch(err){ location.href = ctaUrl; }
+            };
+          }
+          if(media){
+            const hasInteractive = !!(media.querySelector('video') || media.querySelector('iframe'));
+            if(!hasInteractive){
+              media.onclick = function(e){
+                if(!ctaUrl) return;
+                const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
+                if(tag === 'img'){ e.preventDefault(); try { window.open(ctaUrl, '_blank', 'noopener'); } catch(err){ location.href = ctaUrl; } }
+              };
+            } else {
+              media.onclick = null;
+            }
+          }
+        });
+      } catch (err) { console.warn('attachCtaHandlers error', err); }
+    }
+
+    function replayBannerMediaById(id){
+      try{
+        const container = document.getElementById(id);
+        if(!container) return;
+        const bannerContainer = container.closest('.banner-tarjeta');
+        const replayBtn = bannerContainer ? bannerContainer.querySelector('.replay-btn') : null;
+        const existingVideo = container.querySelector('video');
+        const existingIframe = container.querySelector('iframe');
+        if(existingVideo){
+          try{ existingVideo.currentTime = 0; const p = existingVideo.play(); if(p && typeof p.then === 'function'){ p.catch(()=>{}); } if(replayBtn) replayBtn.style.display = 'none'; }catch(e){}
+          return;
+        }
+        if(existingIframe){
+          if(replayBtn) replayBtn.style.display = 'none';
+          return;
+        }
+        const ds = container.dataset ? (container.dataset.src || container.dataset.embedUrl) : (container.getAttribute('data-src') || '');
+        if(ds && (ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1)){
+          let embedUrl = ds;
+          const sep = ds.includes('?') ? '&' : '?';
+          const extraParams = 'enablejsapi=1&rel=0&modestbranding=1&playsinline=1&autoplay=1&mute=1';
+          if(!/enablejsapi=1/.test(ds)) embedUrl = ds + sep + extraParams;
+          const iframe = document.createElement('iframe');
+          const iframeId = `yt-embed-${Math.floor(Math.random()*1000000)}`;
+          iframe.setAttribute('id', iframeId);
+          iframe.setAttribute('src', embedUrl);
+          iframe.setAttribute('frameborder', '0');
+          iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+          iframe.setAttribute('allowfullscreen', 'true');
+          iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
+          iframe.style.width = '100%';
+          iframe.style.height = '100%';
+          iframe.style.border = 'none';
+          container.innerHTML = '';
+          container.appendChild(iframe);
+          pendingYouTubePlayers.push({ iframeId, containerEl: container, embedUrl, poster: (container.dataset ? container.dataset.poster : '') });
+          ensureYouTubeAPI();
+          if(replayBtn) replayBtn.style.display = 'none';
+          return;
+        }
+        if(ds && isVideoFile(ds)){
+          const video = document.createElement('video');
+          video.src = ds; video.muted = true; video.playsInline = true; video.autoplay = true; video.preload = 'metadata'; video.controls = true;
+          video.style.width = '100%'; video.style.height = '100%'; video.style.border = 'none';
+          container.innerHTML = '';
+          container.appendChild(video);
+          try{ video.play(); }catch(e){}
+          video.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
+          if(replayBtn) replayBtn.style.display = 'none';
+          return;
+        }
+      }catch(e){}
+    }
+
+    function attachReplayHandlers(){
+      try{
+        const buttons = document.querySelectorAll('.banner-tarjeta .replay-btn');
+        buttons.forEach(btn => {
+          if(btn._wired) return;
+          btn._wired = true;
+          const targetId = btn.getAttribute('data-target-id');
+          btn.onclick = function(e){ e.preventDefault(); replayBannerMediaById(targetId); };
+        });
+      }catch(e){}
+    }
+
+    function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
+    function bannerKey(b) { return (b && (b.img || b.media || b.url || b.cta)) ? (b.img || b.media || b.url || b.cta) : JSON.stringify(b); }
+    function buildBannerSequence(slots) {
+      if (!banners || !banners.length || slots <= 0) return [];
+      const seq = []; let attempts = 0;
+      while (seq.length < slots && attempts < 20) {
+        const pool = banners.slice(); shuffleArray(pool);
+        for (let i = 0; i < pool.length && seq.length < slots; i++) {
+          const candidate = pool[i];
+          if (seq.length > 0 && bannerKey(seq[seq.length - 1]) === bannerKey(candidate)) {
+            const altIdx = pool.findIndex((p, idx) => idx > i && bannerKey(p) !== bannerKey(seq[seq.length - 1]));
+            if (altIdx !== -1) seq.push(pool.splice(altIdx, 1)[0]); else seq.push(candidate);
+          } else { seq.push(candidate); }
+        }
+        attempts++;
+      }
+      let i = 0;
+      while (seq.length < slots) {
+        const candidate = banners[i % banners.length];
+        if (seq.length === 0 || bannerKey(seq[seq.length - 1]) !== bannerKey(candidate)) seq.push(candidate);
+        else { i++; if (i > banners.length * 5) seq.push(candidate); }
+        i++;
+      }
+      return seq.slice(0, slots);
+    }
 
     let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
 
@@ -735,7 +1113,10 @@
         return;
       }
 
-      pageData.forEach((ev)=>{
+      const slots = Math.floor(pageData.length / 2);
+      const bannerSeq = buildBannerSequence(slots);
+
+      pageData.forEach((ev, idx)=>{
         const card = document.createElement('article');
         const nivelStr = (ev && ev.nivel) ? String(ev.nivel).toLowerCase() : '';
         const lvl = nivelStr.includes('vip') ? 'vip' : (nivelStr.includes('free') ? 'free' : '');
@@ -929,9 +1310,26 @@
 
         card.appendChild(body);
         container.appendChild(card);
+
+        // Ubicación de banners publicitarios cada 2 tarjetas de eventos[cite: 5, 6]
+        if ((idx + 1) % 2 === 0 && (idx + 1) < pageData.length) {
+          const slotIndex = Math.floor((idx + 1) / 2) - 1;
+          const banner = bannerSeq[slotIndex];
+          if (banner) {
+            const bannerHtml = renderBanner(banner, `inter-${idx}`);
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = bannerHtml;
+            while(tempDiv.firstChild){
+              container.appendChild(tempDiv.firstChild);
+            }
+          }
+        }
       });
 
       renderPaginator(totalItems, currentPage);
+      initBannerObservers();
+      attachCtaHandlers();
+      attachReplayHandlers();
     }
 
     function renderPaginator(total, page){
