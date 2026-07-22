@@ -53,6 +53,7 @@
       word-break:break-word;
     }
     .subtitle{margin:0;color:var(--muted);font-weight:650;font-size:1.02rem;word-break:break-word;}
+    .status{display:none !important;}
 
     .controls{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0 18px;align-items:center;width:100%;max-width:100%;}
     .search{
@@ -201,6 +202,7 @@
       text-overflow:ellipsis;
       white-space:nowrap;
     }
+    .category-icons{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
     .category-icon{
       width:28px;height:28px;object-fit:contain;border-radius:6px;background:#fff;
       border:1px solid #e6eefc;padding:2px;
@@ -373,7 +375,7 @@
       pointer-events:auto;
     }
 
-    /* Estilos de Banners Publicitarios (Tomados de comercial)[cite: 6] */
+    /* Estilos de banners publicitarios idénticos al archivo de Comercial */
     .banner-tarjeta {
       width: 100%; text-align: center; margin: 1em 0;
       display: flex; justify-content: center; position: relative; flex-direction: column; align-items: center; gap: 0.6rem;
@@ -488,18 +490,20 @@
   </div>
 
   <script>
+    let banners = [];
+    const urlBanners = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
+
     const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxTqt5VG9d4mBPYA92t75q1_n1YBMM5nQ1fMz_SsI1_hdEcspBs6EPwXRGR_cWv_HNzkA/exec";
     const SERVER_SECRET = "PzbqSEw9xNrwvWruJN7njiW905uwMiBS";
     const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getevents&serverSecret=" + encodeURIComponent(SERVER_SECRET);
-    const urlBanners = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
+    const SUMA_EVENTO_URL = "https://www.guialocaldolores.com.ar/suma-tu-evento/";
 
     const PLACEHOLDER_SVG = `data:image/svg+xml;utf8,` +
       encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='480' height='320'><rect width='100%' height='100%' fill='#eef4ff'/><text x='50%' y='50%' dominant-baseline='middle' text-anchor='middle' font-size='22' fill='#889'>Auspicia</text></svg>`);
 
     let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
-    let banners = [];
 
-    // Funciones de utilidad para banners publicitarios (Tomadas de comercial)[cite: 6]
+    // Funciones auxiliares para manejo de medios de banners (exactas a Comercial)
     function isVideoFile(url){ return typeof url === 'string' && /\.(mp4|webm|ogg)(\?.*)?$/i.test(url); }
     function isYouTube(url){ return typeof url === 'string' && /youtu(be\.com|\.be)/i.test(url); }
     function getYouTubeEmbedUrl(url, autoplay){
@@ -517,6 +521,234 @@
       }catch(e){ return ''; }
     }
 
+    function getFechaDesdeRaw(ev){
+      return (ev && (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso)) ? (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso) : '';
+    }
+    function getFechaHastaRaw(ev){
+      return (ev && (ev.fecha_hasta ?? ev.fechaHasta ?? ev.fecha_hasta_iso)) ? (ev.fecha_hasta ?? ev.fechaHasta ?? ev.fecha_hasta_iso) : '';
+    }
+
+    function parseToDate(value){
+      if (value === null || value === undefined || value === '') return null;
+      if (Object.prototype.toString.call(value) === '[object Date]') {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? null : d;
+      }
+      const s = String(value).trim();
+      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (m) return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
+      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (m) return new Date(parseInt(m[3],10), parseInt(m[2],10)-1, parseInt(m[1],10));
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    }
+
+    function isPastDate(desdeValue, hastaValue){
+      const dDesde = parseToDate(desdeValue);
+      const dHasta = parseToDate(hastaValue);
+      const d = dHasta || dDesde;
+      if (!d) return false;
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const onlyDate = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+      return onlyDate.getTime() < today.getTime();
+    }
+
+    function horaHumana(h){
+      if (!h) return "";
+      h = String(h).trim();
+      let m = h.match(/^Date\(\d{4},\d{1,2},\d{1,2},(\d{1,2}),(\d{1,2})/);
+      if (m) return `${String(m[1]).padStart(2,'0')}:${String(m[2]).padStart(2,'0')} hs`;
+      m = h.match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);
+      if (m) return `${String(m[1]).padStart(2,'0')}:${m[2]} hs`;
+      return h;
+    }
+
+    function textoAParrafoJustificado(texto){
+      if (!texto) return "";
+      const partes = texto.split(/\n\s*\n/).length>1 ? texto.split(/\n\s*\n/) : texto.split(/\n/);
+      return partes.map(p=>`<p style="margin:6px 0 6px 0;text-align:justify">${p.trim()}</p>`).join("");
+    }
+
+    function capitalizarPrimeraLetra(txt){
+      txt = String(txt || '').trim();
+      if (!txt) return '';
+      return txt.charAt(0).toUpperCase() + txt.slice(1);
+    }
+
+    function formatRangoFechasHumano(ev){
+      const rawDesde = getFechaDesdeRaw(ev);
+      const rawHasta = getFechaHastaRaw(ev);
+      const dDesde = parseToDate(rawDesde);
+      const dHasta = parseToDate(rawHasta);
+
+      const fmt = (d) => capitalizarPrimeraLetra(
+        d.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })
+      );
+
+      if (dDesde && dHasta){
+        const sameDay =
+          dDesde.getFullYear() === dHasta.getFullYear() &&
+          dDesde.getMonth() === dHasta.getMonth() &&
+          dDesde.getDate() === dHasta.getDate();
+        if (sameDay) return fmt(dDesde);
+        return `Desde ${fmt(dDesde)} a ${fmt(dHasta)}`;
+      }
+      if (dDesde) return fmt(dDesde);
+      if (dHasta) return fmt(dHasta);
+      return '';
+    }
+
+    function hydrateCategoryFilterFromEvents(events){
+      const select = document.getElementById('categoryFilter');
+      if (!select) return;
+      const current = select.value || '';
+      const cats = new Set();
+      (events || []).forEach(ev=>{
+        const c = ev && ev.categoria ? String(ev.categoria).trim() : '';
+        if (c) cats.add(c);
+      });
+      const arr = Array.from(cats).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
+      select.innerHTML = '<option value="">Todas las categorías</option>';
+      arr.forEach(c=>{
+        const o = document.createElement('option');
+        o.value = c;
+        o.textContent = c;
+        select.appendChild(o);
+      });
+      if (current && arr.includes(current)) select.value = current;
+    }
+
+    function safeUrl(u){
+      const s = String(u || '').trim();
+      if (!s) return '';
+      if (!/^https?:\/\//i.test(s)) return '';
+      return s;
+    }
+
+    function extractUrls(raw){
+      const s = String(raw || '').trim();
+      if (!s) return [];
+      return s.split(/[\n,]+/).map(x=>x.trim()).filter(Boolean);
+    }
+
+    function driveToImgSrc(url){
+      const s = String(url || '').trim();
+      if (!s) return '';
+      let m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if(!m) m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+      if(!m) m = s.match(/uc\?export=view&id=([a-zA-Z0-9_-]+)/);
+      const fileId = m ? m[1] : '';
+      if(!fileId) return s;
+      return 'https://lh3.googleusercontent.com/d/' + fileId;
+    }
+
+    function getImageUrlsFromEventField(raw){
+      const urls = extractUrls(raw);
+      const out = [];
+      for (const u0 of urls){
+        const u = safeUrl(driveToImgSrc(u0));
+        if (u) out.push(u);
+      }
+      return out;
+    }
+
+    function normalizeInstagramUrlForEmbed(raw){
+      const u = safeUrl(raw);
+      if (!u) return '';
+      const m = u.match(/https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/([A-Za-z0-9_-]+)\/?/i);
+      if (!m) return '';
+      return `https://www.instagram.com/${m[2]}/${m[3]}/embed`;
+    }
+
+    function mountInstagramEmbedNonClickable(parentEl, instagramUrl){
+      const embedUrl = normalizeInstagramUrlForEmbed(instagramUrl);
+      if (!embedUrl) return null;
+      const box = document.createElement('div');
+      box.className = 'ig-embed-box';
+      const ifr = document.createElement('iframe');
+      ifr.className = 'embed-iframe';
+      ifr.src = embedUrl;
+      ifr.loading = 'lazy';
+      ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+      const overlay = document.createElement('div');
+      overlay.className = 'ig-embed-overlay';
+      box.appendChild(ifr);
+      box.appendChild(overlay);
+      parentEl.appendChild(box);
+      return box;
+    }
+
+    function getPartners(ev){
+      const names = [ev.partner, ev.partner2, ev.partner3, ev.partner4, ev.partner5, ev.partner6]
+        .map(x=>String(x||'').trim())
+        .filter(Boolean);
+      const logos = [ev.logo_partner, ev.logo_partner2, ev.logo_partner3, ev.logo_partner4, ev.logo_partner5, ev.logo_partner6]
+        .map(x=>String(x||'').trim());
+      const items = [];
+      for (let i=0;i<names.length;i++){
+        items.push({ name: names[i], logo: safeUrl(logos[i]) || '' });
+      }
+      return items;
+    }
+
+    function showImgModal(imgArr, index) {
+      const modal = document.getElementById('modalImgViewer');
+      const modalImg = document.getElementById('modalImgMain');
+      const thumbs = document.getElementById('modalImgThumbs');
+      if (!imgArr.length) return;
+      let curIdx = (typeof index === 'number' && index<imgArr.length) ? index : 0;
+      function setImg(idx){
+        modalImg.src = imgArr[idx];
+        Array.from(thumbs.children).forEach((img,i)=>img.classList.toggle('selected',i===idx));
+      }
+      thumbs.innerHTML = '';
+      imgArr.forEach((url,i)=>{
+        const im = document.createElement('img');
+        im.src=url; im.alt="Miniatura";
+        if(i===curIdx) im.classList.add('selected');
+        im.onclick=()=>{ curIdx=i; setImg(i);}
+        thumbs.appendChild(im);
+      });
+      setImg(curIdx);
+      modal.classList.add('open');
+      document.body.style.overflow='hidden';
+      function closeModal(){
+        modal.classList.remove('open');
+        modalImg.src='';
+        document.body.style.overflow='';
+        document.removeEventListener('keydown', handleKey);
+      }
+      function handleKey(e){ if (e.key==='Escape') closeModal(); }
+      document.getElementById('modalImgClose').onclick = closeModal;
+      modal.onclick = (evt)=>{ if(evt.target===modal) closeModal(); };
+      document.addEventListener('keydown', handleKey);
+    }
+
+    function renderCategoryBlock(ev){
+      const group = document.createElement('div');
+      group.className = 'category-group';
+      const raw = String(ev && ev.logo_categoria ? ev.logo_categoria : '').trim();
+      const iconUrls = raw ? raw.split(',').map(s=>safeUrl(s.trim())).filter(Boolean) : [];
+
+      if (iconUrls.length){
+        const firstIcon = document.createElement('img');
+        firstIcon.className = 'category-icon';
+        firstIcon.src = iconUrls[0];
+        firstIcon.alt = 'Icono categoría';
+        group.appendChild(firstIcon);
+      }
+      const catText = String(ev && ev.categoria ? ev.categoria : '').trim();
+      if (catText){
+        const chip = document.createElement('div');
+        chip.className = 'category-text';
+        chip.textContent = catText;
+        group.appendChild(chip);
+      }
+      return group;
+    }
+
+    // Funciones de gestión de Banners dinámicos (Idénticas a Comercial)
     function renderBanner(banner, idx){
       const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
       const defaultCta = "https://www.guialocaldolores.com.ar";
@@ -835,248 +1067,6 @@
       return seq.slice(0, slots);
     }
 
-    // Funciones de procesamiento de fechas, eventos y renderizado
-    function getFechaDesdeRaw(ev){
-      return (ev && (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso)) ? (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso) : '';
-    }
-    function getFechaHastaRaw(ev){
-      return (ev && (ev.fecha_hasta ?? ev.fechaHasta ?? ev.fecha_hasta_iso)) ? (ev.fecha_hasta ?? ev.fechaHasta ?? ev.fecha_hasta_iso) : '';
-    }
-
-    function parseToDate(value){
-      if (value === null || value === undefined || value === '') return null;
-      if (Object.prototype.toString.call(value) === '[object Date]') {
-        const d = new Date(value);
-        return isNaN(d.getTime()) ? null : d;
-      }
-      const s = String(value).trim();
-      let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-      if (m) return new Date(parseInt(m[1],10), parseInt(m[2],10)-1, parseInt(m[3],10));
-      m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-      if (m) return new Date(parseInt(m[3],10), parseInt(m[2],10)-1, parseInt(m[1],10));
-      const d = new Date(s);
-      return isNaN(d.getTime()) ? null : d;
-    }
-
-    function horaHumana(h){
-      if (!h) return "";
-      h = String(h).trim();
-      let m = h.match(/^Date\(\d{4},\d{1,2},\d{1,2},(\d{1,2}),(\d{1,2})/);
-      if (m) return `${String(m[1]).padStart(2,'0')}:${String(m[2]).padStart(2,'0')} hs`;
-      m = h.match(/^(\d{1,2}):(\d{2})(:\d{2})?$/);
-      if (m) return `${String(m[1]).padStart(2,'0')}:${m[2]} hs`;
-      return h;
-    }
-
-    function textoAParrafoJustificado(texto){
-      if (!texto) return "";
-      const partes = texto.split(/\n\s*\n/).length>1 ? texto.split(/\n\s*\n/) : texto.split(/\n/);
-      return partes.map(p=>`<p style="margin:6px 0 6px 0;text-align:justify">${p.trim()}</p>`).join("");
-    }
-
-    function capitalizarPrimeraLetra(txt){
-      txt = String(txt || '').trim();
-      if (!txt) return '';
-      return txt.charAt(0).toUpperCase() + txt.slice(1);
-    }
-
-    function formatRangoFechasHumano(ev){
-      const rawDesde = getFechaDesdeRaw(ev);
-      const rawHasta = getFechaHastaRaw(ev);
-      const dDesde = parseToDate(rawDesde);
-      const dHasta = parseToDate(rawHasta);
-
-      const fmt = (d) => capitalizarPrimeraLetra(
-        d.toLocaleDateString('es-AR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })
-      );
-
-      if (dDesde && dHasta){
-        const sameDay =
-          dDesde.getFullYear() === dHasta.getFullYear() &&
-          dDesde.getMonth() === dHasta.getMonth() &&
-          dDesde.getDate() === dHasta.getDate();
-        if (sameDay) return fmt(dDesde);
-        return `Desde ${fmt(dDesde)} a ${fmt(dHasta)}`;
-      }
-      if (dDesde) return fmt(dDesde);
-      if (dHasta) return fmt(dHasta);
-      return '';
-    }
-
-    function hydrateCategoryFilterFromEvents(events){
-      const select = document.getElementById('categoryFilter');
-      if (!select) return;
-      const current = select.value || '';
-      const cats = new Set();
-      (events || []).forEach(ev=>{
-        const c = ev && ev.categoria ? String(ev.categoria).trim() : '';
-        if (c) cats.add(c);
-      });
-      const arr = Array.from(cats).sort((a,b)=>a.localeCompare(b,'es',{sensitivity:'base'}));
-      select.innerHTML = '<option value="">Todas las categorías</option>';
-      arr.forEach(c=>{
-        const o = document.createElement('option');
-        o.value = c;
-        o.textContent = c;
-        select.appendChild(o);
-      });
-      if (current && arr.includes(current)) select.value = current;
-    }
-
-    function safeUrl(u){
-      const s = String(u || '').trim();
-      if (!s) return '';
-      if (!/^https?:\/\//i.test(s)) return '';
-      return s;
-    }
-
-    function extractUrls(raw){
-      const s = String(raw || '').trim();
-      if (!s) return [];
-      return s.split(/[\n,]+/).map(x=>x.trim()).filter(Boolean);
-    }
-
-    function driveToImgSrc(url){
-      const s = String(url || '').trim();
-      if (!s) return '';
-      let m = s.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      if(!m) m = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-      if(!m) m = s.match(/uc\?export=view&id=([a-zA-Z0-9_-]+)/);
-      const fileId = m ? m[1] : '';
-      if(!fileId) return s;
-      return 'https://lh3.googleusercontent.com/d/' + fileId;
-    }
-
-    function getImageUrlsFromEventField(raw){
-      const urls = extractUrls(raw);
-      const out = [];
-      for (const u0 of urls){
-        const u = safeUrl(driveToImgSrc(u0));
-        if (u) out.push(u);
-      }
-      return out;
-    }
-
-    function normalizeInstagramUrlForEmbed(raw){
-      const u = safeUrl(raw);
-      if (!u) return '';
-      const m = u.match(/https?:\/\/(www\.)?instagram\.com\/(p|reel|tv)\/([A-Za-z0-9_-]+)\/?/i);
-      if (!m) return '';
-      return `https://www.instagram.com/${m[2]}/${m[3]}/embed`;
-    }
-
-    function mountInstagramEmbedNonClickable(parentEl, instagramUrl){
-      const embedUrl = normalizeInstagramUrlForEmbed(instagramUrl);
-      if (!embedUrl) return null;
-      const box = document.createElement('div');
-      box.className = 'ig-embed-box';
-      const ifr = document.createElement('iframe');
-      ifr.className = 'embed-iframe';
-      ifr.src = embedUrl;
-      ifr.loading = 'lazy';
-      ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin');
-      const overlay = document.createElement('div');
-      overlay.className = 'ig-embed-overlay';
-      box.appendChild(ifr);
-      box.appendChild(overlay);
-      parentEl.appendChild(box);
-      return box;
-    }
-
-    function getPartners(ev){
-      const names = [ev.partner, ev.partner2, ev.partner3, ev.partner4, ev.partner5, ev.partner6]
-        .map(x=>String(x||'').trim())
-        .filter(Boolean);
-      const logos = [ev.logo_partner, ev.logo_partner2, ev.logo_partner3, ev.logo_partner4, ev.logo_partner5, ev.logo_partner6]
-        .map(x=>String(x||'').trim());
-      const items = [];
-      for (let i=0;i<names.length;i++){
-        items.push({ name: names[i], logo: safeUrl(logos[i]) || '' });
-      }
-      return items;
-    }
-
-    function mountEmbedBlock(rightEl, title, url){
-      const wrap = document.createElement('div');
-      wrap.className = 'embed-wrap';
-      const head = document.createElement('div');
-      head.className = 'embed-head';
-      const label = document.createElement('span');
-      label.textContent = title;
-      const close = document.createElement('button');
-      close.className = 'embed-close';
-      close.type = 'button';
-      close.textContent = 'Ocultar';
-      close.onclick = ()=> wrap.remove();
-      head.appendChild(label);
-      head.appendChild(close);
-      const ifr = document.createElement('iframe');
-      ifr.className = 'embed-iframe';
-      ifr.src = url;
-      ifr.loading = 'lazy';
-      ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms allow-presentation allow-popups');
-      wrap.appendChild(head);
-      wrap.appendChild(ifr);
-      rightEl.appendChild(wrap);
-      return wrap;
-    }
-
-    function showImgModal(imgArr, index) {
-      const modal = document.getElementById('modalImgViewer');
-      const modalImg = document.getElementById('modalImgMain');
-      const thumbs = document.getElementById('modalImgThumbs');
-      if (!imgArr.length) return;
-      let curIdx = (typeof index === 'number' && index<imgArr.length) ? index : 0;
-      function setImg(idx){
-        modalImg.src = imgArr[idx];
-        Array.from(thumbs.children).forEach((img,i)=>img.classList.toggle('selected',i===idx));
-      }
-      thumbs.innerHTML = '';
-      imgArr.forEach((url,i)=>{
-        const im = document.createElement('img');
-        im.src=url; im.alt="Miniatura";
-        if(i===curIdx) im.classList.add('selected');
-        im.onclick=()=>{ curIdx=i; setImg(i);}
-        thumbs.appendChild(im);
-      });
-      setImg(curIdx);
-      modal.classList.add('open');
-      document.body.style.overflow='hidden';
-      function closeModal(){
-        modal.classList.remove('open');
-        modalImg.src='';
-        document.body.style.overflow='';
-        document.removeEventListener('keydown', handleKey);
-      }
-      function handleKey(e){ if (e.key==='Escape') closeModal(); }
-      document.getElementById('modalImgClose').onclick = closeModal;
-      modal.onclick = (evt)=>{ if(evt.target===modal) closeModal(); };
-      document.addEventListener('keydown', handleKey);
-    }
-
-    function renderCategoryBlock(ev){
-      const group = document.createElement('div');
-      group.className = 'category-group';
-      const raw = String(ev && ev.logo_categoria ? ev.logo_categoria : '').trim();
-      const iconUrls = raw ? raw.split(',').map(s=>safeUrl(s.trim())).filter(Boolean) : [];
-
-      if (iconUrls.length){
-        const firstIcon = document.createElement('img');
-        firstIcon.className = 'category-icon';
-        firstIcon.src = iconUrls[0];
-        firstIcon.alt = 'Icono categoría';
-        group.appendChild(firstIcon);
-      }
-      const catText = String(ev && ev.categoria ? ev.categoria : '').trim();
-      if (catText){
-        const chip = document.createElement('div');
-        chip.className = 'category-text';
-        chip.textContent = catText;
-        group.appendChild(chip);
-      }
-      return group;
-    }
-
     function renderEventos(data, page = 1){
       const container = document.getElementById('events');
       container.innerHTML = '';
@@ -1097,66 +1087,50 @@
         return;
       }
 
+      // Lógica de inserción aleatoria de banners integrada igual que en Comercial
+      let htmlContent = '';
       const slots = Math.floor(pageData.length / 2);
       const bannerSeq = buildBannerSequence(slots);
 
       pageData.forEach((ev, idx)=>{
-        const card = document.createElement('article');
         const nivelStr = (ev && ev.nivel) ? String(ev.nivel).toLowerCase() : '';
         const lvl = nivelStr.includes('vip') ? 'vip' : (nivelStr.includes('free') ? 'free' : '');
-        card.className = `card event-card ${lvl}`;
-
-        const head = document.createElement('div');
-        head.className = 'card-head';
-        const left = document.createElement('div');
-        left.className = 'head-left';
-
-        const orgInline = document.createElement('div');
-        orgInline.className = 'organizer-inline';
-        const lbl = document.createElement('span');
-        lbl.className = 'label';
-        lbl.textContent = 'Organiza:';
-        orgInline.appendChild(lbl);
-
+        
+        let cardHtml = `<article class="card event-card ${lvl}">`;
+        
+        // Head
+        cardHtml += `<div class="card-head"><div class="head-left"><div class="organizer-inline">`;
+        cardHtml += `<span class="label">Organiza:</span>`;
         const lo = safeUrl(ev && ev.logo_organizador ? ev.logo_organizador : '');
         if (lo){
-          const logoimg = document.createElement('img');
-          logoimg.className = 'logo-organizador-head';
-          logoimg.src = lo;
-          logoimg.alt = "Logo organizador";
-          orgInline.appendChild(logoimg);
+          cardHtml += `<img class="logo-organizador-head" src="${lo}" alt="Logo organizador">`;
         }
+        cardHtml += `<span class="name">${ev.organizador || ev.organizador_principal || "-"}</span>`;
+        cardHtml += `</div></div></div>`;
 
-        const nm = document.createElement('span');
-        nm.className = 'name';
-        nm.textContent = ev.organizador || ev.organizador_principal || "-";
-        orgInline.appendChild(nm);
+        // Body
+        cardHtml += `<div class="card-body">`;
+        cardHtml += `<h2 class="title-card">${(ev && (ev.nombre_evento || ev.nombre)) ? (ev.nombre_evento || ev.nombre) : ''}</h2>`;
 
-        left.appendChild(orgInline);
-        head.appendChild(left);
-        card.appendChild(head);
-
-        const body = document.createElement('div');
-        body.className = 'card-body';
-
-        const h = document.createElement('h2');
-        h.className='title-card';
-        h.textContent = (ev && (ev.nombre_evento || ev.nombre)) ? (ev.nombre_evento || ev.nombre) : '';
-        body.appendChild(h);
-
-        body.appendChild(renderCategoryBlock(ev));
+        // Categoría icon/text
+        const rawCat = String(ev && ev.logo_categoria ? ev.logo_categoria : '').trim();
+        const iconUrls = rawCat ? rawCat.split(',').map(s=>safeUrl(s.trim())).filter(Boolean) : [];
+        cardHtml += `<div class="category-group">`;
+        if (iconUrls.length){
+          cardHtml += `<img class="category-icon" src="${iconUrls[0]}" alt="Icono categoría">`;
+        }
+        const catText = String(ev && ev.categoria ? ev.categoria : '').trim();
+        if (catText){
+          cardHtml += `<div class="category-text">${catText}</div>`;
+        }
+        cardHtml += `</div>`;
 
         const localidad = (ev && (ev.localidad ?? ev.localidad_evento ?? ev.ciudad ?? ev.locality)) ? String((ev.localidad ?? ev.localidad_evento ?? ev.ciudad ?? ev.locality) || '').trim() : '';
         if (localidad){
-          const locLine = document.createElement('div');
-          locLine.className = 'line';
-          locLine.style.marginTop = '8px';
-          locLine.innerHTML = `<i class="ri-pushpin-2-line"></i><div class="text">${localidad}</div>`;
-          body.appendChild(locLine);
+          cardHtml += `<div class="line" style="margin-top:8px;"><i class="ri-pushpin-2-line"></i><div class="text">${localidad}</div></div>`;
         }
 
-        const infoBlock = document.createElement('div');
-        infoBlock.className = 'info-block';
+        cardHtml += `<div class="info-block">`;
         const fechaHum = formatRangoFechasHumano(ev);
         const hrRaw = (ev && ev.hora_unificada && String(ev.hora_unificada).trim()) ? ev.hora_unificada :
                       ((ev && ev.hora && String(ev.hora).trim()) ? ev.hora : (ev ? (ev.hora2 || '') : ''));
@@ -1164,46 +1138,22 @@
         if (/^Sat\s+Dec\s+30\s+1899/i.test(String(hrShown || ''))) hrShown = '';
         
         if (fechaHum || hrShown){
-          const line = document.createElement('div');
-          line.className = 'line';
-          line.innerHTML = `<i class="ri-calendar-event-line"></i><div class="text">${fechaHum ? fechaHum : ''}${(fechaHum && hrShown) ? ' • ' : ''}${hrShown ? hrShown : ''}</div>`;
-          infoBlock.appendChild(line);
+          cardHtml += `<div class="line"><i class="ri-calendar-event-line"></i><div class="text">${fechaHum ? fechaHum : ''}${(fechaHum && hrShown) ? ' • ' : ''}${hrShown ? hrShown : ''}</div></div>`;
         }
         if (ev && ev.lugar){
-          const line = document.createElement('div');
-          line.className = 'line';
-          line.innerHTML = `<i class="ri-map-pin-line"></i><div class="text">${ev.lugar}</div>`;
-          infoBlock.appendChild(line);
+          cardHtml += `<div class="line"><i class="ri-map-pin-line"></i><div class="text">${ev.lugar}</div></div>`;
         }
         if (ev && ev.direccion){
-          const line = document.createElement('div');
-          line.className = 'line';
-          line.innerHTML = `<i class="ri-road-map-line"></i><div class="muted"><strong>Dirección:</strong> ${ev.direccion}</div>`;
-          infoBlock.appendChild(line);
-
+          cardHtml += `<div class="line"><i class="ri-road-map-line"></i><div class="muted"><strong>Dirección:</strong> ${ev.direccion}</div></div>`;
           const llegarUrl = safeUrl(ev && ev.llegar ? ev.llegar : '');
           if (llegarUrl){
-            const mapA = document.createElement('a');
-            mapA.href = llegarUrl;
-            mapA.className = 'map-link';
-            mapA.target = "_blank";
-            mapA.rel = "noopener noreferrer";
-            mapA.innerHTML = `<i class="ri-map-pin-2-line"></i> ¿Cómo llegar?`;
-            infoBlock.appendChild(mapA);
+            cardHtml += `<a href="${llegarUrl}" class="map-link" target="_blank" rel="noopener noreferrer"><i class="ri-map-pin-2-line"></i> ¿Cómo llegar?</a>`;
           }
         }
-        body.appendChild(infoBlock);
+        cardHtml += `</div>`;
 
         if (ev && ev.descripcion){
-          const desc = document.createElement('div');
-          desc.className = 'desc';
-          desc.innerHTML = textoAParrafoJustificado(ev.descripcion);
-          body.appendChild(desc);
-        }
-
-        const ig = (ev && ev.instagram) ? String(ev.instagram).trim() : '';
-        if (ig){
-          mountInstagramEmbedNonClickable(body, ig);
+          cardHtml += `<div class="desc">${textoAParrafoJustificado(ev.descripcion)}</div>`;
         }
 
         const gal = [];
@@ -1213,146 +1163,32 @@
         });
 
         if (gal.length > 0) {
-          let cur = 0;
-          const galleryWrap = document.createElement('div');
-          galleryWrap.className = 'card-gallery-block';
-
-          const displayImg = document.createElement('img');
-          displayImg.className = 'gallery-mainimg';
-          displayImg.src = gal[cur];
-          displayImg.alt = `Foto ${cur+1}`;
-          displayImg.style.cursor = gal.length > 1 ? 'pointer' : 'default';
-          displayImg.onclick = ()=> showImgModal(gal, cur);
-
-          displayImg.onerror = function(){
-            this.onerror = null;
-            this.src = PLACEHOLDER_SVG;
-            this.style.objectFit = 'contain';
-          };
-          galleryWrap.appendChild(displayImg);
-
-          if(gal.length > 1){
-            const nav = document.createElement('div');
-            nav.className = 'gallery-nav-btns';
-            const prevBtn = document.createElement('button');
-            prevBtn.textContent = "Anterior";
-            prevBtn.disabled = cur === 0;
-            prevBtn.onclick = ()=>{ if(cur > 0){ cur--; updateImg(); } };
-            
-            const nextBtn = document.createElement('button');
-            nextBtn.textContent = "Siguiente";
-            nextBtn.disabled = cur === gal.length - 1;
-            nextBtn.onclick = ()=>{ if(cur < gal.length - 1){ cur++; updateImg(); } };
-
-            function updateImg(){
-              displayImg.src = gal[cur];
-              displayImg.alt = `Foto ${cur+1}`;
-              prevBtn.disabled = cur === 0;
-              nextBtn.disabled = cur === gal.length - 1;
-            }
-
-            nav.appendChild(prevBtn);
-            nav.appendChild(nextBtn);
-            galleryWrap.appendChild(nav);
-          }
-          body.appendChild(galleryWrap);
+          cardHtml += `<div class="card-gallery-block">`;
+          cardHtml += `<img class="gallery-mainimg" src="${gal[0]}" alt="Foto 1" style="cursor:${gal.length > 1 ? 'pointer' : 'default'};" onclick='showImgModal(${JSON.stringify(gal)}, 0)'>`;
+          cardHtml += `</div>`;
         }
 
-        const enlace = safeUrl(ev && ev.entradas ? ev.entradas : '');
-        if (enlace){
-          mountEmbedBlock(body, 'Entradas / Inscripción', enlace);
-        }
+        cardHtml += `</div></article>`;
+        htmlContent += cardHtml;
 
-        const partners = getPartners(ev);
-        if (partners.length){
-          const sponsors = document.createElement('div');
-          sponsors.className = 'sponsors';
-          const st = document.createElement('div');
-          st.className = 'sponsors-title';
-          st.innerHTML = `<i class="ri-hand-heart-line"></i> <span>Auspicia</span>`;
-          sponsors.appendChild(st);
-          const grid = document.createElement('div');
-          grid.className = 'sponsors-grid';
-          partners.forEach(p=>{
-            const item = document.createElement('div');
-            item.className = 'sponsor-item';
-            const img = document.createElement('img');
-            img.className = 'sponsor-logo';
-            img.alt = p.name || 'Sponsor';
-            img.src = p.logo || PLACEHOLDER_SVG;
-            img.onerror = function(){
-              this.onerror = null;
-              this.src = PLACEHOLDER_SVG;
-              this.style.objectFit = 'contain';
-            };
-            item.appendChild(img);
-            const nameEl = document.createElement('div');
-            nameEl.className = 'sponsor-name';
-            nameEl.textContent = p.name;
-            item.appendChild(nameEl);
-            grid.appendChild(item);
-          });
-          sponsors.appendChild(grid);
-          body.appendChild(sponsors);
-        }
-
-        card.appendChild(body);
-        container.appendChild(card);
-
-        // Inserción dinámica de banners publicitarios intercalados cada 2 elementos (Tomado de comercial)[cite: 6]
+        // Inserción de Banner cada 2 eventos
         if ((idx + 1) % 2 === 0 && (idx + 1) < pageData.length) {
           const slotIndex = Math.floor((idx + 1) / 2) - 1;
           const banner = bannerSeq[slotIndex];
-          if (banner) {
-            const bannerHtml = renderBanner(banner, `inter-${idx}`);
-            const range = document.createRange();
-            const bannerFragment = range.createContextualFragment(bannerHtml);
-            container.appendChild(bannerFragment);
-          }
+          if (banner) htmlContent += renderBanner(banner, `inter-ev-${idx}`);
         }
       });
 
-      initBannerObservers();
-      attachCtaHandlers();
-      attachReplayHandlers();
-
-      buildPaginator(totalPages);
+      container.innerHTML = htmlContent;
+      initBannerObservers(); attachCtaHandlers(); attachReplayHandlers();
     }
 
-    function buildPaginator(totalPages){
-      const paginator = document.getElementById('paginator');
-      paginator.innerHTML = '';
-      for (let i=1; i<=totalPages; i++){
-        const btn = document.createElement('button');
-        btn.textContent = i;
-        if (i === currentPage) btn.disabled = true;
-        btn.onclick = () => renderEventos(eventosFiltrados, i);
-        paginator.appendChild(btn);
-      }
-    }
-
-    function filtrarEventos(){
-      const q = (document.getElementById('search').value || '').toLowerCase().trim();
-      const cat = document.getElementById('categoryFilter').value;
-      eventosFiltrados = eventosData.filter(ev=>{
-        const matchCat = !cat || String(ev.categoria || '').trim() === cat;
-        if (!matchCat) return false;
-        if (!q) return true;
-        const haystack = [
-          ev.nombre_evento, ev.nombre, ev.organizador, ev.organizador_principal,
-          ev.lugar, ev.localidad, ev.categoria, ev.descripcion
-        ].map(x => String(x || '').toLowerCase()).join(' ');
-        return haystack.includes(q);
-      });
-      renderEventos(eventosFiltrados, 1);
-    }
-
-    // Inicialización y Carga Paralela de Datos y Banners
+    // Carga inicial conectada con Google Sheets para Banners y Eventos
     Promise.all([
-      fetch(EVENTS_ENDPOINT).then(res => res.json()),
+      fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => []),
       fetch(urlBanners).then(res => res.json()).catch(() => [])
-    ])
-    .then(([res, rawBanners]) => {
+    ]).then(([resEvents, rawBanners]) => {
+      // Cargar Banners Dinámicos
       if (rawBanners && Array.isArray(rawBanners)) {
         banners = rawBanners
           .filter(b => {
@@ -1367,27 +1203,79 @@
           }));
       }
 
-      const list = Array.isArray(res) ? res : (res.events || res.data || []);
-      eventosData = list.filter(ev => {
-        const apr = String(ev.aprobado || '').trim().toLowerCase();
-        return apr === 'true' || apr === '1' || apr === 'x';
+      let rawList = [];
+      if (Array.isArray(resEvents)) rawList = resEvents;
+      else if (resEvents && Array.isArray(resEvents.eventos)) rawList = resEvents.eventos;
+      else if (resEvents && Array.isArray(resEvents.data)) rawList = resEvents.data;
+
+      eventosData = rawList.filter(ev => {
+        if (!ev) return false;
+        const apr = String(ev.aprobado || ev.status || '').trim().toLowerCase();
+        if (apr !== 'true' && apr !== '1' && apr !== 'x' && apr !== 'si') return false;
+        const desde = getFechaDesdeRaw(ev);
+        const hasta = getFechaHastaRaw(ev);
+        if (isPastDate(desde, hasta)) return false;
+        return true;
       });
 
       hydrateCategoryFilterFromEvents(eventosData);
-      eventosFiltrados = [...eventosData];
-      renderEventos(eventosFiltrados, 1);
-
-      document.getElementById('search').addEventListener('input', filtrarEventos);
-      document.getElementById('categoryFilter').addEventListener('change', filtrarEventos);
-    })
-    .catch(err => {
-      console.error('Error al cargar datos:', err);
+      filtrarEventos();
+    }).catch(err => {
+      console.error("Error al cargar datos:", err);
       document.getElementById('events').innerHTML = `<p class="error" style="text-align:center;padding:20px;">Error al cargar los eventos.</p>`;
     });
 
-    document.getElementById('btnSumaEvento').onclick = () => {
-      window.open("https://www.guialocaldolores.com.ar/suma-tu-evento/", "_blank");
-    };
+    function filtrarEventos(){
+      const q = (document.getElementById('search').value || '').toLowerCase().trim();
+      const cat = document.getElementById('categoryFilter').value;
+
+      eventosFiltrados = eventosData.filter(ev => {
+        if (cat) {
+          const c = ev && ev.categoria ? String(ev.categoria).trim() : '';
+          if (c !== cat) return false;
+        }
+        if (q) {
+          const matchStr = [
+            ev.nombre_evento, ev.nombre, ev.organizador, ev.lugar,
+            ev.direccion, ev.localidad, ev.categoria, ev.descripcion
+          ].map(x => String(x || '').toLowerCase()).join(' ');
+          if (!matchStr.includes(q)) return false;
+        }
+        return true;
+      });
+
+      renderPaginationControls();
+      renderEventos(eventosFiltrados, 1);
+    }
+
+    function renderPaginationControls(){
+      const paginator = document.getElementById('paginator');
+      paginator.innerHTML = '';
+      const totalPages = Math.ceil(eventosFiltrados.length / eventsPerPage) || 1;
+      if (totalPages <= 1) return;
+
+      const prevBtn = document.createElement('button');
+      prevBtn.textContent = 'Anterior';
+      prevBtn.disabled = currentPage === 1;
+      prevBtn.onclick = () => { if (currentPage > 1) { renderEventos(eventosFiltrados, currentPage - 1); renderPaginationControls(); } };
+      paginator.appendChild(prevBtn);
+
+      const span = document.createElement('span');
+      span.style.padding = '8px 12px';
+      span.style.fontWeight = '900';
+      span.textContent = `Página ${currentPage} de ${totalPages}`;
+      paginator.appendChild(span);
+
+      const nextBtn = document.createElement('button');
+      nextBtn.textContent = 'Siguiente';
+      nextBtn.disabled = currentPage === totalPages;
+      nextBtn.onclick = () => { if (currentPage < totalPages) { renderEventos(eventosFiltrados, currentPage + 1); renderPaginationControls(); } };
+      paginator.appendChild(nextBtn);
+    }
+
+    document.getElementById('search').addEventListener('input', filtrarEventos);
+    document.getElementById('categoryFilter').addEventListener('change', filtrarEventos);
+    document.getElementById('btnSumaEvento').onclick = () => { window.open(SUMA_EVENTO_URL, '_blank', 'noopener'); };
   </script>
 </body>
 </html>
