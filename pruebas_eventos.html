@@ -131,8 +131,6 @@
     @media (max-width:600px) { #banner-inicio img { max-width: 36px; width: 22vw; } }
     .top-button{position:fixed;bottom:30px;right:30px;z-index:2000;background:#fff;color:#006699;font-size:2rem;padding:0.45em 0.55em;border-radius:50%;box-shadow:0 2px 8px rgba(0,0,0,0.14);border:none;display:none;align-items:center;justify-content:center;cursor:pointer;}
     .top-button:hover{background:#f5e1d4;}
-    .nivel-1 .sin-direccion-social { background: #444; color: #fff; border-radius: 0.5em; padding: 0.5em 0.7em; text-align: center; font-style: italic; font-size: 1.05em; margin-bottom: 0.5em; }
-    .nivel-1 .sin-direccion-social i { color: #fff !important;}
     .banner-tarjeta {
       width: 100%; text-align: center; margin: 1em 0;
       display: flex; justify-content: center; position: relative; flex-direction: column; align-items: center; gap: 0.6rem;
@@ -203,10 +201,27 @@
     </a>
   </div>
   <button id="topBtn" class="top-button" aria-label="Volver arriba" title="Volver arriba" onclick="window.scrollTo({ top: 0, behavior: 'smooth' });">▲</button>
-  <div id="modalImg" style="display:none;"></div>
 
   <script>
     let banners = [];
+
+    // Normalizador seguro sin expresiones regulares problemáticas para iOS/Webviews
+    const normalizar = texto => {
+      if (!texto) return "";
+      return String(texto)
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .trim();
+    };
+
+    // Validación flexible de aprobación (soporta true, "TRUE", "1", 1, "x", "SI")
+    const isAprobado = v => {
+      if (v === undefined || v === null) return false;
+      if (typeof v === 'boolean') return v;
+      const str = String(v).trim().toLowerCase();
+      return str === 'true' || str === '1' || str === 'x' || str === 'si';
+    };
 
     async function fetchInstagramImage(url) {
       try {
@@ -242,23 +257,21 @@
     const urlBanners = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
 
     Promise.all([
-      fetch(urlAnunciantes).then(res => res.json()),
+      fetch(urlAnunciantes).then(res => res.json()).catch(() => []),
       fetch(urlBanners).then(res => res.json()).catch(() => [])
     ])
-      .then(([data, rawBanners]) => {
-        if (rawBanners && Array.isArray(rawBanners)) {
-          banners = rawBanners
-            .filter(b => {
-              const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
-              return apr === 'true' || apr === '1' || apr === 'x';
-            })
-            .map(b => ({
-              img: (b.img || b.url || '').trim(),
-              media: (b.media || '').trim(),
-              cta: (b.cta || '').trim(),
-              poster: (b.poster || '').trim()
-            }));
-        }
+      .then(([rawData, rawBanners]) => {
+        const data = Array.isArray(rawData) ? rawData : [];
+        const bannersData = Array.isArray(rawBanners) ? rawBanners : [];
+
+        banners = bannersData
+          .filter(b => isAprobado(b.aprobado))
+          .map(b => ({
+            img: (b.img || b.url || '').trim(),
+            media: (b.media || '').trim(),
+            cta: (b.cta || '').trim(),
+            poster: (b.poster || '').trim()
+          }));
 
         const buscadorGlobal = document.getElementById('buscadorGlobal');
         const contenedor = document.getElementById('contenedor');
@@ -268,24 +281,24 @@
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
-        const normalizar = texto => texto ? texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim() : "";
 
         function capitalizarFrase(str){
-          let parts = (str||"").toLowerCase().split('/');
+          if (!str) return "";
+          let parts = String(str).toLowerCase().split('/');
           parts = parts.map((p, i) => (i===0 ? p.replace(/(?:^|\s|-)\S/g, l => l.toUpperCase()) : p));
           return parts.join('/');
         }
-        const isAprobado = v => (typeof v === "boolean") ? v : (typeof v === "string" ? v.trim().toLowerCase() === "true" : false);
+
         function limpiarCampos(item){ const nuevo={}; for (let k in item){ if(!/^agregar\s/i.test(k)) nuevo[k]=item[k]; } return nuevo; }
         const anunciantesData = data.filter(item => isAprobado(item.aprobado)).map(limpiarCampos);
 
-        // Filtrar específicamente por el segmento de Eventos
+        // Filtro flexible por segmento "eventos"
         const serviciosData = anunciantesData.filter(item => {
-          const segmentos = (item.segmento || '').split(',').map(s => normalizar(s));
-          return segmentos.includes('eventos');
+          const segStr = normalizar(item.segmento || '');
+          return segStr.includes('evento');
         });
 
-        function limpiarValorCategoria(valor) { return valor.replace(/^"+|"+$/g, '').trim(); }
+        function limpiarValorCategoria(valor) { return (valor || '').replace(/^"+|"+$/g, '').trim(); }
         function obtenerCategoriasUnicas() {
           const todas = serviciosData.flatMap(item => (item.categoria || '').split(',').map(cat => cat.trim())).filter(Boolean);
           return [...new Set(todas)].sort();
@@ -295,22 +308,13 @@
           selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
             categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
         }
-        function obtenerValoresUnicos(campo, filtro={}) {
+        function obtenerValoresUnicos(campo) {
           return [...new Set(
-            serviciosData
-              .filter(item => {
-                let ok = true;
-                for (let k in filtro) {
-                  if (!filtro[k]) continue;
-                  if (!((item[k]||"").split(",").map(t=>t.trim()).includes(filtro[k]))) ok = false;
-                }
-                return ok;
-              })
-              .flatMap(item =>
-                campo === "categoria"
-                  ? [limpiarValorCategoria((item[campo] || "").trim())]
-                  : (item[campo] || "").split(",").map(r => r.trim()).filter(Boolean)
-              )
+            serviciosData.flatMap(item =>
+              campo === "categoria"
+                ? [limpiarValorCategoria((item[campo] || "").trim())]
+                : (item[campo] || "").split(",").map(r => r.trim()).filter(Boolean)
+            )
           )].filter(Boolean).sort();
         }
         function actualizarSegmentos() {
@@ -324,15 +328,15 @@
         actualizarCategorias();
 
         function renderInsignias(item) {
-          const segmentos = (item.segmento || '').split(',').map(r => normalizar(r));
+          const segmentos = normalizar(item.segmento || '');
           let logosHtml = '';
           if (segmentos.includes('parque termal')) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png" alt="Logo Parque Termal" class="insignia-logo" />`;
           if (segmentos.includes('termales mall')) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png" alt="Logo Termales Mall" class="insignia-logo" />`;
           if (segmentos.includes('hecho en dolores')) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png" alt="Hecho en Dolores" class="insignia-logo" />`;
-          if (item.pet && item.pet.trim() && item.pet.trim().toLowerCase() === 'x') logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/scjanucodtyoqc7vun39.png" alt="PET Friendly" class="insignia-logo" />`;
-          if (item.triple && item.triple.trim()) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771945138/eyfui7zlebldsz0ppezo.png" alt="Triple" class="insignia-logo" />`;
-          if (item.eco && item.eco.trim()) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771945473/xemwacpcgrp5drodwfwj.png" alt="Eco" class="insignia-logo" />`;
-          if (item.gayf && item.gayf.trim()) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771944845/zjc73urynvy3aqrnfvub.png" alt="Gay Friendly" class="insignia-logo" />`;
+          if (item.pet && String(item.pet).trim().toLowerCase() === 'x') logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/scjanucodtyoqc7vun39.png" alt="PET Friendly" class="insignia-logo" />`;
+          if (item.triple && String(item.triple).trim()) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771945138/eyfui7zlebldsz0ppezo.png" alt="Triple" class="insignia-logo" />`;
+          if (item.eco && String(item.eco).trim()) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771945473/xemwacpcgrp5drodwfwj.png" alt="Eco" class="insignia-logo" />`;
+          if (item.gayf && String(item.gayf).trim()) logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771944845/zjc73urynvy3aqrnfvub.png" alt="Gay Friendly" class="insignia-logo" />`;
           return logosHtml ? `<div class="termales-logo-container">${logosHtml}</div>` : '';
         }
 
@@ -343,14 +347,14 @@
             const u = new URL(url);
             const parts = u.pathname.replace(/^\/+|\/+$/g, '').split('/');
             if(u.hostname.includes('youtube')) {
-              if(parts[0].startsWith('@')) return parts[0];
+              if(parts[0] && parts[0].startsWith('@')) return parts[0];
               if(['channel','user','c'].includes(parts[0])) return parts[1]||'';
               return parts[0]||'';
             }
-            if(u.hostname.includes('tiktok')) return '@'+parts[0];
+            if(u.hostname.includes('tiktok')) return '@'+(parts[0]||'');
             if(u.hostname.includes('linkedin')) return parts.slice(1).join('/');
             return parts[0]||'';
-          } catch { return url; }
+          } catch(e) { return url; }
         }
 
         function renderRedesNivel3(item) {
@@ -437,15 +441,16 @@
         }
 
         function renderCard(item, galeriaId) {
-          const nivelVisual = Number(item.nivel);
+          const nivelVisual = Number(item.nivel) || 3;
           let html = `<div class="card nivel-${nivelVisual}">`;
           html += `<div class="badge-icons">`;
           if((item.verificado||'').toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
           if((item.gold||'').toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
           html += `</div>`;
+
           if (nivelVisual === 1 || nivelVisual === 2 || nivelVisual === 5 || nivelVisual === 6) {
             if(item.logo){ html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`; }
-            html += `<div class="nombre">${item.nombre}</div>`;
+            html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.pie){ html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`; }
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -477,7 +482,7 @@
             if(nivelVisual===2) html+=`<div class="leyenda-nivel-3">ESPACIO GRATUITO/BONIFICADO</div><span class="segmento-doble"></span>`;
           }
           else if (nivelVisual === 3) {
-            html += `<div class="nombre">${item.nombre}</div>`;
+            html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -487,7 +492,7 @@
               const dir = item[`direccion${idx}`]; const tel = item[`telefono${idx}`]; const wh = item[`whatsapp${idx}`];
               if(dir && !foundDir){
                 contactoHtml += `<div><i class="fas fa-map-marker-alt"></i> ${dir}</div><span class="espaciado"></span>`;
-                if(tel) html += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`;
+                if(tel) contactoHtml += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`;
                 if(wh) contactoHtml += `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${wh}</div><span class="espaciado"></span>`;
                 foundDir = true;
               }
@@ -510,7 +515,7 @@
           }
           else if (nivelVisual === 4) {
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
-            html += `<div class="nombre">${item.nombre}</div>`;
+            html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -986,8 +991,8 @@
           let filtrados = serviciosData.filter(item => {
             let coincideSegmento = true;
             if (segmentoSeleccionado) {
-              const segmentos = (item.segmento || "").split(",").map(r => normalizar(r));
-              coincideSegmento = segmentos.includes(normalizar(segmentoSeleccionado));
+              const segStr = normalizar(item.segmento || '');
+              coincideSegmento = segStr.includes(normalizar(segmentoSeleccionado));
             }
             let coincideCategoria = true;
             if (categoriaSeleccionada) {
@@ -1017,7 +1022,6 @@
           const fin = inicio + resultadosPorPagina;
           const normalesPaginadas = normales.slice(inicio, fin);
 
-          // Ocultar o mostrar el zócalo completo de paginación
           const paginadorZocalo = document.getElementById('paginador-abajo');
           if (paginadorZocalo) {
             if (totalPaginas <= 1 || normales.length === 0) {
