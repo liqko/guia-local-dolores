@@ -375,9 +375,16 @@
       pointer-events:auto;
     }
 
-    .paginator{display:flex;gap:8px;justify-content:center;padding:12px;margin-top:14px;flex-wrap:wrap;max-width:100%;}
-    .paginator button{padding:8px 12px;border-radius:10px;border:none;background:#1f5fb8;color:#fff;font-weight:900;cursor:pointer;}
-    .paginator button[disabled]{background:#c7d7f6;cursor:not-allowed;}
+    /* Paginación estilo Comercial */
+    .paginacion-zocalo{ display:flex; justify-content:center; align-items:center; background:#f5e1d4; border-radius:1.5em; padding:0.6em; margin:1.2em auto; width:100%; min-width: 0; max-width:100%; box-sizing:border-box;}
+    .pagination-bar{ display:inline-block; vertical-align:middle; margin:0 10px; background:#eaf0ea; border-radius:1.5em; padding:0.4em 1.1em; font-size:1em; width:auto; white-space:nowrap;}
+    .pagination-bar button,.pagination-bar span{ margin:0 2px; padding:3px 10px; border:none; background:none; border-radius:4px; cursor:pointer; font-size:1em;}
+    .pagination-bar span.active{ background:#006699; color:#fff; border:none; cursor:default; font-weight:bold;}
+    .pagination-bar button[disabled]{opacity:0.5;cursor:not-allowed;}
+    .pagination-bar button:hover:not([disabled]),.pagination-bar button:focus{ background:#f5e1d4; color:#006699; outline:none;}
+    .pagination-bar span{color:#444;font-weight:500;}
+    .pagination-bar span.dots{ cursor:default; background:none !important; color:#aaa; padding:3px 6px;}
+
     .error{color:var(--danger);font-weight:900;}
 
     .modal-img-viewer{
@@ -482,7 +489,14 @@
     </div>
 
     <div class="events" id="events" aria-live="polite"></div>
-    <div class="paginator" id="paginator" aria-label="Paginador"></div>
+
+    <!-- Paginación estilo Comercial -->
+    <div class="paginacion-zocalo" id="paginador-abajo">
+      <button onclick="cambiarPagina('prev')" id="btnAnterior" disabled>Anterior</button>
+      <span id="paginationBar" class="pagination-bar"></span>
+      <button onclick="cambiarPagina('next')" id="btnSiguiente">Siguiente</button>
+    </div>
+
     <div id="banner-inicio" style="text-align:center;margin:1em 0;">
       <a href="https://www.guialocaldolores.com.ar" target="_blank" rel="noopener noreferrer">
         <img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321337/pbevfyejywvofxvqxdvl.png" alt="Ir a Inicio">
@@ -1309,9 +1323,24 @@
       return seq.slice(0, slots);
     }
 
+    function cambiarPagina(dir){
+      const totalPages = Math.ceil(eventosFiltrados.length / eventsPerPage) || 1;
+      if (dir === 'prev' && currentPage > 1) {
+        renderEventos(eventosFiltrados, currentPage - 1);
+      } else if (dir === 'next' && currentPage < totalPages) {
+        renderEventos(eventosFiltrados, currentPage + 1);
+      }
+    }
+
     function renderEventos(data, page = 1){
       const container = document.getElementById('events');
       container.innerHTML = '';
+
+      // MODIFICACIÓN DE SCROLL: Desplaza la vista suavemente hasta el título principal
+      const mainTitle = document.getElementById('main-title');
+      if (mainTitle) {
+        mainTitle.scrollIntoView({ behavior: 'smooth' });
+      }
 
       const totalItems = data.length;
       const totalPages = Math.ceil(totalItems / eventsPerPage) || 1;
@@ -1323,11 +1352,15 @@
       const end = start + eventsPerPage;
       const pageData = data.slice(start, end);
 
+      const paginadorAbajo = document.getElementById('paginador-abajo');
+
       if (!pageData.length){
         container.innerHTML = `<p style="color:#b02a2a;font-weight:800;text-align:center;padding:20px;">No hay eventos para mostrar con ese criterio.</p>`;
-        document.getElementById('paginator').innerHTML = '';
+        if (paginadorAbajo) paginadorAbajo.style.display = 'none';
         return;
       }
+
+      if (paginadorAbajo) paginadorAbajo.style.display = 'flex';
 
       const slots = Math.floor(pageData.length / 2);
       const bannerSeq = buildBannerSequence(slots);
@@ -1357,38 +1390,64 @@
     }
 
     function renderPagination(totalPages, page){
-      const paginator = document.getElementById('paginator');
-      paginator.innerHTML = '';
-      if (totalPages <= 1) return;
+      const paginador = document.getElementById('paginador-abajo');
+      const btnAnterior = document.getElementById('btnAnterior');
+      const btnSiguiente = document.getElementById('btnSiguiente');
+      const paginationBar = document.getElementById('paginationBar');
 
-      const prev = document.createElement('button');
-      prev.textContent = 'Anterior';
-      prev.disabled = page === 1;
-      prev.onclick = ()=> {
-        renderEventos(eventosFiltrados, page - 1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      };
-      paginator.appendChild(prev);
+      if (!paginador || !btnAnterior || !btnSiguiente || !paginationBar) return;
 
-      for (let i=1; i<=totalPages; i++){
-        const b = document.createElement('button');
-        b.textContent = i;
-        if (i === page) b.disabled = true;
-        b.onclick = ()=> {
-          renderEventos(eventosFiltrados, i);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        };
-        paginator.appendChild(b);
+      if (totalPages <= 1) {
+        paginador.style.display = 'none';
+        return;
       }
 
-      const next = document.createElement('button');
-      next.textContent = 'Siguiente';
-      next.disabled = page === totalPages;
-      next.onclick = ()=> {
-        renderEventos(eventosFiltrados, page + 1);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      };
-      paginator.appendChild(next);
+      btnAnterior.disabled = (page === 1);
+      btnSiguiente.disabled = (page === totalPages);
+
+      paginationBar.innerHTML = '';
+
+      const delta = 2;
+      const range = [];
+      const rangeWithDots = [];
+      let l;
+
+      for (let i = 1; i <= totalPages; i++) {
+        if (i === 1 || i === totalPages || (i >= page - delta && i <= page + delta)) {
+          range.push(i);
+        }
+      }
+
+      for (let i of range) {
+        if (l) {
+          if (i - l === 2) {
+            rangeWithDots.push(l + 1);
+          } else if (i - l !== 1) {
+            rangeWithDots.push('...');
+          }
+        }
+        rangeWithDots.push(i);
+        l = i;
+      }
+
+      rangeWithDots.forEach(item => {
+        if (item === '...') {
+          const span = document.createElement('span');
+          span.className = 'dots';
+          span.textContent = '...';
+          paginationBar.appendChild(span);
+        } else if (item === page) {
+          const span = document.createElement('span');
+          span.className = 'active';
+          span.textContent = item;
+          paginationBar.appendChild(span);
+        } else {
+          const btn = document.createElement('button');
+          btn.textContent = item;
+          btn.onclick = () => renderEventos(eventosFiltrados, item);
+          paginationBar.appendChild(btn);
+        }
+      });
     }
 
     Promise.all([
@@ -1399,19 +1458,19 @@
         if (rawBanners && Array.isArray(rawBanners)) {
           banners = rawBanners
             .filter(b => {
-              const apr = (b.aprobado !== undefined && b.aprobado !== null) ? String(b.aprobado).trim().toLowerCase() : '';
-              return apr === 'true' || apr === '1' || apr === 'x' || apr === 'si' || apr === 's';
+              const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
+              return apr === 'true' || apr === '1' || apr === 'x';
             })
             .map(b => ({
-              img: (b.img || b.url || b.imagen || '').trim(),
-              media: (b.media || b.video || '').trim(),
-              cta: (b.cta || b.link || '').trim(),
+              img: (b.img || b.url || '').trim(),
+              media: (b.media || '').trim(),
+              cta: (b.cta || '').trim(),
               poster: (b.poster || '').trim()
             }));
         }
 
         const rawList = Array.isArray(response) ? response : (response.data || response.events || []);
-        
+
         eventosData = rawList.map(ev => {
           const desde = getFechaDesdeRaw(ev);
           const hasta = getFechaHastaRaw(ev);
@@ -1462,7 +1521,6 @@
         return searchable.includes(q);
       });
       renderEventos(eventosFiltrados, 1);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
     document.getElementById('btnSumaEvento').onclick = () => {
