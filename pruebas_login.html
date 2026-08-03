@@ -146,10 +146,12 @@
       #promos-list table, #eventos-list table { display:none !important; }
       #promos-list .card-list, #eventos-list .card-list { display:flex; }
 
+      /* Botones en acciones (tabla desktop) no afecta mobile porque tabla se oculta */
       .events-grid { grid-template-columns: 1fr; }
       .events-actions button { width:100%; }
     }
 
+    /* Desktop: ocultar cards */
     @media (min-width:721px){
       #promos-list .card-list, #eventos-list .card-list { display:none !important; }
     }
@@ -368,12 +370,19 @@
 
               <div class="full">
                 <label>Dirección (auto)</label>
-                <input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />
+                <div id="ev-direccion-wrapper">
+                  <input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />
+                </div>
               </div>
 
               <div class="full">
                 <label>Cómo llegar (auto)</label>
                 <input id="ev-llegar" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />
+              </div>
+
+              <div class="full">
+                <label>Link de Maps (auto)</label>
+                <input id="ev-maps" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />
               </div>
 
               <div class="full">
@@ -475,9 +484,12 @@ const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 
+/* ✅ Form imágenes eventos (prefill evento_id) */
 const EVENT_IMAGES_FORM_PREFILL_BASE =
   "https://docs.google.com/forms/d/e/1FAIpQLSePjX6Qlc38bNUlgI3iS_TaKOdwsP0ozfhS0XRb-d1jqCj2KQ/viewform?usp=pp_url&entry.2132836597=";
+/* Modificar datos reutiliza el mismo flujo de formulario externo que eventos. */
 const COMMERCE_IMAGES_FORM_PREFILL_BASE = EVENT_IMAGES_FORM_PREFILL_BASE;
+/* ================= */
 
 const SUPPORT_NUMBER = "5492245459957";
 
@@ -485,7 +497,11 @@ let comercios = [];
 let sesion = null;
 let evLists = { categorias: [], localidades: [], lugares: [], partners: [] };
 let editingEventId = null;
+
+/* ✅ último evento creado (para habilitar botón imágenes en modo "crear") */
 let lastCreatedEventId = null;
+
+// ✅ Promos: edición sin prompts
 let editingPromoId = null;
 
 const COMMERCE_DATA_FIELDS = [
@@ -572,12 +588,13 @@ function toDateInputValue(v){
   if(!isNaN(d.getTime())){
     const yy = isIsoZ(s) ? d.getUTCFullYear() : d.getFullYear();
     const mm = String((isIsoZ(s) ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2,'0');
-    const dd = String((isIsoZ(s) ? d.getUTCDate() : d.getDate()).padStart(2,'0');
+    const dd = String(isIsoZ(s) ? d.getUTCDate() : d.getDate()).padStart(2,'0');
     return `${yy}-${mm}-${dd}`;
   }
   return '';
 }
 
+/* ✅ FIX: NO usar Date para hora => evita cambios por zona horaria */
 function toTimeInputValue(v){
   if(v === undefined || v === null) return '';
   const s0 = String(v).trim();
@@ -725,7 +742,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroCon
   });
 }
 
-/* ====================== Lists de eventos ====================== */
+/* ====================== Lists de eventos (_list) ====================== */
 function fillSelectOptions(selectId, items, placeholderText){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -745,6 +762,33 @@ function fillSelectOptions(selectId, items, placeholderText){
   });
   try { if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current; } catch(e){}
 }
+
+function fillUniqueLugaresSelect(selectId, lugares, placeholderText){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const current = sel.value || '';
+  sel.innerHTML = '';
+  const p = document.createElement('option');
+  p.value = '';
+  p.textContent = placeholderText || 'Seleccioná un lugar';
+  sel.appendChild(p);
+
+  const seen = new Set();
+  lugares.forEach(o=>{
+    const name = String(o.lugar || '').trim();
+    if(!name) return;
+    const k = name.toLowerCase();
+    if(!seen.has(k)){
+      seen.add(k);
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  });
+  try { if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current; } catch(e){}
+}
+
 function fillSelectOptionsFromObjects(selectId, items, keyName, placeholderText){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -764,6 +808,7 @@ function fillSelectOptionsFromObjects(selectId, items, keyName, placeholderText)
   });
   try { if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current; } catch(e){}
 }
+
 async function loadEventLists(){
   try {
     const json = await gvizFetch(EVENTS_SHEET_ID, 'aux_categorias');
@@ -792,19 +837,19 @@ async function loadEventLists(){
     let idxLugar = headers.indexOf('lugar'); if(idxLugar === -1) idxLugar = 0;
     let idxDir = headers.indexOf('direccion'); if(idxDir === -1) idxDir = 1;
     let idxLlegar = headers.indexOf('llegar'); if(idxLlegar === -1) idxLlegar = 2;
+    let idxMaps = headers.indexOf('maps'); if(idxMaps === -1) idxMaps = headers.indexOf('mapa'); if(idxMaps === -1) idxMaps = headers.indexOf('link_maps');
 
     const lugares = rows.map(r=>{
       const c = r && r.c ? r.c : [];
-      return { lugar:_cellToString(c[idxLugar]), direccion:_cellToString(c[idxDir]), llegar:_cellToString(c[idxLlegar]) };
+      return {
+        lugar: _cellToString(c[idxLugar]),
+        direccion: _cellToString(c[idxDir]),
+        llegar: _cellToString(c[idxLlegar]),
+        maps: idxMaps !== -1 ? _cellToString(c[idxMaps]) : ''
+      };
     }).filter(o=>o.lugar && o.lugar.toLowerCase() !== 'lugar');
 
-    const seen = new Set();
-    const uniq = [];
-    for(const o of lugares){
-      const k = o.lugar.toLowerCase();
-      if(!seen.has(k)){ seen.add(k); uniq.push(o); }
-    }
-    evLists.lugares = uniq;
+    evLists.lugares = lugares;
   } catch(e){ evLists.lugares = []; }
 
   try {
@@ -830,7 +875,7 @@ async function loadEventLists(){
 
   fillSelectOptions('ev-categoria', evLists.categorias, 'Seleccioná una categoría');
   fillSelectOptions('ev-localidad', evLists.localidades, 'Seleccioná la localidad');
-  fillSelectOptionsFromObjects('ev-lugar', evLists.lugares, 'lugar', 'Seleccioná un lugar (opcional)');
+  fillUniqueLugaresSelect('ev-lugar', evLists.lugares, 'Seleccioná un lugar');
   for(let i=1;i<=6;i++){
     const id = (i===1) ? 'ev-partner' : ('ev-partner'+i);
     fillSelectOptionsFromObjects(id, evLists.partners, 'partner', 'Seleccioná un partner (opcional)');
@@ -855,13 +900,51 @@ async function loadPromosCategorias(){
 
 function onLugarChangeUpdateDireccion(){
   const sel = document.getElementById('ev-lugar');
-  const dir = document.getElementById('ev-direccion');
+  const wrapper = document.getElementById('ev-direccion-wrapper');
   const lleg = document.getElementById('ev-llegar');
-  if(!sel || !dir || !lleg) return;
-  const val = String(sel.value||'').trim().toLowerCase();
-  const found = evLists.lugares.find(o => String(o.lugar||'').trim().toLowerCase() === val);
-  dir.value = found ? (found.direccion || '') : '';
-  lleg.value = found ? (found.llegar || '') : '';
+  const mapsEl = document.getElementById('ev-maps');
+  if(!sel || !wrapper) return;
+
+  const val = String(sel.value || '').trim().toLowerCase();
+  const matches = evLists.lugares.filter(o => String(o.lugar || '').trim().toLowerCase() === val);
+
+  if(matches.length === 0){
+    wrapper.innerHTML = `<input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />`;
+    if(lleg) lleg.value = '';
+    if(mapsEl) mapsEl.value = '';
+    return;
+  }
+
+  if(matches.length === 1){
+    const match = matches[0];
+    wrapper.innerHTML = `<input id="ev-direccion" type="text" value="${htmlEscape(match.direccion || '')}" readonly />`;
+    if(lleg) lleg.value = match.llegar || '';
+    if(mapsEl) mapsEl.value = match.maps || '';
+  } else {
+    let optionsHtml = `<option value="">Seleccioná una dirección (${matches.length} disponibles)</option>`;
+    matches.forEach((m, idx)=>{
+      const addr = m.direccion || `Dirección ${idx + 1}`;
+      optionsHtml += `<option value="${htmlEscape(addr)}" data-idx="${idx}">${htmlEscape(addr)}</option>`;
+    });
+    wrapper.innerHTML = `<select id="ev-direccion">${optionsHtml}</select>`;
+
+    if(lleg) lleg.value = '';
+    if(mapsEl) mapsEl.value = '';
+
+    const newDirSelect = document.getElementById('ev-direccion');
+    newDirSelect.addEventListener('change', function(){
+      const selectedOpt = this.options[this.selectedIndex];
+      const idx = selectedOpt ? selectedOpt.getAttribute('data-idx') : null;
+      if(idx !== null && idx !== undefined && matches[idx]){
+        const match = matches[idx];
+        if(lleg) lleg.value = match.llegar || '';
+        if(mapsEl) mapsEl.value = match.maps || '';
+      } else {
+        if(lleg) lleg.value = '';
+        if(mapsEl) mapsEl.value = '';
+      }
+    });
+  }
 }
 
 /* ====================== API helpers ====================== */
@@ -935,25 +1018,18 @@ async function events_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_EVENTS_URL, body);
 }
-
 async function promos_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-  if(sesion && sesion.id){
-    if(!body.advertiserId) body.advertiserId = String(sesion.id);
-    if(!body.id) body.id = String(sesion.id);
-    if(!body.comercio_id) body.comercio_id = String(sesion.id);
-  }
+  if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
 }
-
 async function commerce_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
 }
-
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
   const payload = { action:'set_datos' };
@@ -1085,7 +1161,7 @@ function bindPromosListActions(){
         const msg = isPaused ? 'Reanudando promo...' : 'Pausando promo...';
         setMsg('promos-msg', 'ok', msg);
         const r = await promos_post({ action: 'updatePromo', payload: { promo_id: pid, pausado: newPauseState } });
-        if(r.status === 200 && r.json && (r.json.success || r.json.updated)){
+        if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', isPaused ? 'Promo reanudada.' : 'Promo pausada.');
           await loadPromosUI();
         } else {
@@ -1097,7 +1173,7 @@ function bindPromosListActions(){
         if(!confirm('Confirmar borrar promo?')) return;
         setMsg('promos-msg', 'ok', 'Borrando promo...');
         const r = await promos_post({ action: 'deletePromo', payload: { promo_id: pid } });
-        if(r.status === 200 && r.json && (r.json.success || r.json.deleted)){
+        if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo borrada.');
           await loadPromosUI();
         } else {
@@ -1174,7 +1250,7 @@ async function loadPromosUI(){
   }
 
   const data = res.json || {};
-  const promos = data.promos || data.rows || data.data || [];
+  const promos = data.promos || data.rows || [];
   window.__lastPromos = promos;
 
   renderPromosList(promos);
@@ -1185,13 +1261,18 @@ async function loadPromosUI(){
 function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function clearEventForm(){
-  const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas',
+  const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-maps','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas',
     'ev-partner','ev-partner2','ev-partner3','ev-partner4','ev-partner5','ev-partner6'];
   ids.forEach(id=>{
     const el = document.getElementById(id);
     if(!el) return;
     el.value = '';
   });
+
+  const wrapper = document.getElementById('ev-direccion-wrapper');
+  if(wrapper){
+    wrapper.innerHTML = `<input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />`;
+  }
 
   const i1 = document.getElementById('ev-img1'); if(i1) i1.value = '';
   const i2 = document.getElementById('ev-img2'); if(i2) i2.value = '';
@@ -1208,6 +1289,7 @@ function buildEventPayloadFromForm(){
     lugar: evGet('ev-lugar'),
     direccion: evGet('ev-direccion'),
     llegar: evGet('ev-llegar'),
+    maps: evGet('ev-maps'),
     descripcion: evGet('ev-descripcion'),
     fecha_desde: evGet('ev-fecha_desde'),
     fecha_hasta: evGet('ev-fecha_hasta'),
@@ -1357,6 +1439,13 @@ function bindEventsListActions(){
         document.getElementById('ev-lugar').value = found.lugar || '';
         onLugarChangeUpdateDireccion();
 
+        const dirEl = document.getElementById('ev-direccion');
+        if(dirEl) dirEl.value = found.direccion || '';
+        const mapsEl = document.getElementById('ev-maps');
+        if(mapsEl) mapsEl.value = found.maps || '';
+        const llegEl = document.getElementById('ev-llegar');
+        if(llegEl) llegEl.value = found.llegar || '';
+
         document.getElementById('ev-descripcion').value = found.descripcion || '';
 
         document.getElementById('ev-fecha_desde').value = toDateInputValue(found.fecha_desde || found.fecha);
@@ -1393,6 +1482,7 @@ function bindEventsListActions(){
           lugar: found.lugar || '',
           direccion: found.direccion || '',
           llegar: found.llegar || '',
+          maps: found.maps || '',
           descripcion: found.descripcion || '',
           fecha_desde: toDateInputValue(found.fecha_desde || found.fecha) || '',
           fecha_hasta: toDateInputValue(found.fecha_hasta) || '',
@@ -1463,6 +1553,7 @@ function cancelEventEdit(){
   btn.textContent = 'Crear evento';
 
   clearEventForm();
+
   setMsg('eventos-msg', 'ok', 'Edición cancelada.');
 }
 
@@ -1591,6 +1682,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }catch(err){
           parseOk = false;
           validarJson = null;
+          debugLog('Error parseando validación de contraseña actual', err);
         }
         if(validarResp.status === 401){
           if(regMsg) regMsg.innerHTML = "<span class='error'>La contraseña actual no es correcta.</span>";
@@ -1652,13 +1744,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   });
 
-  // Promos buttons
   document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI);
   document.getElementById('promo-cancel')?.addEventListener('click', promoCancelEdit);
 
   document.getElementById('promo-create')?.addEventListener('click', async (e)=>{
     e.preventDefault();
-    if(!sesion || !sesion.id){ setMsg('promos-msg', 'err', 'No logueado.'); return; }
+    if(!sesion || !sesion.id){ alert('No logueado.'); return; }
 
     const btn = document.getElementById('promo-create');
     btn.setAttribute('disabled','true');
@@ -1670,15 +1761,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
 
-      if(!promo){
-        setMsg('promos-msg', 'err', 'Ingresá el texto de la promo.');
-        return;
-      }
+      if(!promo){ alert('Ingresá texto de promo'); return; }
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
         const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
-        if(r.status === 200 && r.json && (r.json.success || r.json.updated)){
+        if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
           promoClearForm();
@@ -1702,7 +1790,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 
-  // Eventos botones
   document.getElementById('ev-refresh')?.addEventListener('click', loadEventsUI);
   document.getElementById('ev-cancel')?.addEventListener('click', cancelEventEdit);
 
@@ -1743,7 +1830,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
         if(res.status === 200 && res.json && (res.json.success || res.json.created)){
           const createdId = (res.json && res.json.evento_id) ? String(res.json.evento_id).trim() : '';
           lastCreatedEventId = createdId;
+
           setMsg('eventos-msg', 'ok', 'Evento creado.');
+
           clearEventForm();
           await loadEventsUI();
         } else {
@@ -1755,7 +1844,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 
-  // Login
   const btnLogin = document.getElementById('btnLogin');
   const originalLoginBtnText = btnLogin ? (btnLogin.textContent || 'Ingresar') : 'Ingresar';
 
@@ -1836,7 +1924,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   };
 
-  // Logout
   document.getElementById('logout-btn').addEventListener('click', ()=>{
     localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id');
     sesion=null;
@@ -1854,7 +1941,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     mostrarPanelDashboard();
   }
 
-  // Tabs / módulos dashboard
   (function(){
     const tabInicio = document.getElementById('tab-inicio');
     const tabPromos = document.getElementById('tab-promos');
