@@ -330,6 +330,15 @@
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
             </div>
 
+            <!-- Checkboxes para incluir datos del anunciante -->
+            <div style="margin-top:10px;display:flex;gap:14px;flex-wrap:wrap;font-size:0.9em;align-items:center;background:#f4f5fc;padding:8px 12px;border-radius:6px;border:1px solid #e0e2f5;">
+              <span style="font-weight:600;color:#444;">Incluir datos del anunciante:</span>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-weight:normal;margin:0;"><input type="checkbox" id="promo-inc-dir" /> Dirección</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-weight:normal;margin:0;"><input type="checkbox" id="promo-inc-tel" /> Teléfono</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-weight:normal;margin:0;"><input type="checkbox" id="promo-inc-wa" /> WhatsApp</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-weight:normal;margin:0;"><input type="checkbox" id="promo-inc-redes" /> Redes</label>
+            </div>
+
             <div id="promos-msg" style="margin-top:8px"></div>
           </div>
 
@@ -409,7 +418,7 @@
               </div>
 
               <div class="full">
-                <label>Entradas</label>
+                <label>Entradas/Inscripción</label>
                 <input id="ev-entradas" type="text" placeholder="Link o texto sobre entradas (si corresponde)" />
               </div>
 
@@ -975,7 +984,7 @@ function buildCommerceSavePayload(){
   return payload;
 }
 
-/* ====================== Promos UI (nuevo, similar a eventos) ====================== */
+/* ====================== Promos UI (modificado con tildes para datos de origen) ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function promoSetCreateMode(){
@@ -992,6 +1001,10 @@ function promoClearForm(){
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
+  document.getElementById('promo-inc-dir').checked = false;
+  document.getElementById('promo-inc-tel').checked = false;
+  document.getElementById('promo-inc-wa').checked = false;
+  document.getElementById('promo-inc-redes').checked = false;
 }
 function promoCancelEdit(){
   promoSetCreateMode();
@@ -1127,6 +1140,11 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
 
+        document.getElementById('promo-inc-dir').checked = !!(found.direccion);
+        document.getElementById('promo-inc-tel').checked = !!(found.telefono);
+        document.getElementById('promo-inc-wa').checked = !!(found.whatsapp);
+        document.getElementById('promo-inc-redes').checked = !!(found.instagram || found.facebook || found.redes);
+
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
@@ -1140,7 +1158,13 @@ function bindPromosListActions(){
           categoria: found.categoria || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
-          otros: found.otros || ''
+          otros: found.otros || '',
+          direccion: found.direccion || '',
+          telefono: found.telefono || '',
+          whatsapp: found.whatsapp || '',
+          instagram: found.instagram || '',
+          facebook: found.facebook || '',
+          redes: found.redes || ''
         }});
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
@@ -1685,11 +1709,32 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
 
+      const incDir = document.getElementById('promo-inc-dir')?.checked;
+      const incTel = document.getElementById('promo-inc-tel')?.checked;
+      const incWa = document.getElementById('promo-inc-wa')?.checked;
+      const incRedes = document.getElementById('promo-inc-redes')?.checked;
+      const commerceData = window.__lastCommerceData || {};
+
       if(!promo){ alert('Ingresá texto de promo'); return; }
+
+      const promoPayload = {
+        promo,
+        categoria,
+        desde: desde||'',
+        hasta: hasta||'',
+        otros: otros||'',
+        direccion: incDir ? (commerceData.direccion || '') : '',
+        telefono: incTel ? (commerceData.telefono || '') : '',
+        whatsapp: incWa ? (commerceData.whatsapp || '') : '',
+        instagram: incRedes ? (commerceData.instagram || '') : '',
+        facebook: incRedes ? (commerceData.facebook || '') : '',
+        redes: incRedes ? (commerceData.instagram || commerceData.facebook || '') : ''
+      };
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
-        const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        promoPayload.promo_id = editingPromoId;
+        const r = await promos_post({ action: 'updatePromo', payload: promoPayload });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -1700,7 +1745,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
       } else {
         setMsg('promos-msg', 'ok', 'Creando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: { promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const r = await promos_post({ action: 'createPromo', payload: promoPayload });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -1785,6 +1830,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(datos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${datos.error}`; mostrarPanel('dashboard'); return; }
       if(datos.planilla_id && datos.planilla_id !== sesion.planilla_id){ sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
 
+      window.__lastCommerceData = datos; // Guardar datos del anunciante para promos
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(datos);
