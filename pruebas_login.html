@@ -643,13 +643,17 @@ function cargarComercios(callback){
       const json=JSON.parse(jsonText);
       const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
       let idxNombre = cols.findIndex(h=>/nombre|comercio|title|titulo/.test(h)); if(idxNombre===-1) idxNombre=1;
-      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h)); if(idxId===-1) idxId=61;
+      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo|comercio_id/.test(h));
+      if(idxId === -1) idxId = cols.findIndex(h => h.includes('id'));
+      if(idxId === -1) idxId = 0;
       let idxNivel = cols.findIndex(h=>/nivel|nivel_acceso|nivelacceso/.test(h));
       comercios=(json.table.rows||[]).map(row=>{
-        const nombre = (row.c && row.c[idxNombre] && row.c[idxNombre].v)?row.c[idxNombre].v:'';
-        const id = (row.c && row.c[idxId] && row.c[idxId].v)?row.c[idxId].v:'';
-        const nivel = (idxNivel!==-1 && row.c && row.c[idxNivel] && row.c[idxNivel].v)?row.c[idxNivel].v:'';
-        return { nombre, id, nivel };
+        const cRow = row && row.c ? row.c : [];
+        const nombre = (cRow[idxNombre] && cRow[idxNombre].v)?cRow[idxNombre].v:'';
+        let id = (cRow[idxId] && cRow[idxId].v)?cRow[idxId].v:'';
+        if(!id && cRow[0] && cRow[0].v) id = cRow[0].v;
+        const nivel = (idxNivel!==-1 && cRow[idxNivel] && cRow[idxNivel].v)?cRow[idxNivel].v:'';
+        return { nombre: String(nombre).trim(), id: String(id).trim(), nivel: String(nivel).trim() };
       }).filter(c=>c.nombre);
       callback && callback();
     }catch(e){
@@ -1024,6 +1028,7 @@ function buildCommerceSavePayload(){
   if(id){
     payload.id = id;
     payload.__id = id;
+    payload.comercio_id = id;
   }
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
@@ -1645,6 +1650,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       action:'set_clave',
       id,
       __id:id,
+      comercio_id:id,
       clave:nuevaClave
     };
 
@@ -1654,7 +1660,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const validarResp = await fetch(WORKER_URL, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ id, nombre, clave: claveActual }),
+          body: JSON.stringify({ id, comercio_id: id, nombre, clave: claveActual }),
           mode:'cors'
         });
         const validarText = await validarResp.text();
@@ -1834,16 +1840,22 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
 
-    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
+    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     try{
       const r = await fetch(url, { method:'GET', mode:'cors' });
-      const datos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
-      if(datos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${datos.error}`; mostrarPanel('dashboard'); return; }
-      if(datos.planilla_id && datos.planilla_id !== sesion.planilla_id){ sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
+      const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
+      if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
+      
+      const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
+      const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
+      if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
+        sesion.planilla_id = newPlanillaId; 
+        localStorage.setItem('planilla_id', newPlanillaId); 
+      }
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
       if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData(datos);
+        window.updateDashboardModulesFromData(rawDatos);
       }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
@@ -1879,7 +1891,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     btnLogin.textContent = 'Ingresando...';
     document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
 
-    const payload = { action:'login', comercio_id:id||'', nombre:nombre, password:clave };
+    const payload = { action:'login', comercio_id:id||'', id:id||'', nombre:nombre, password:clave };
     try{
       const r = await fetch(WORKER_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
@@ -1888,10 +1900,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       if(r.status===200 && res.success){
         btnLogin.textContent = 'Cargando datos...';
-        localStorage.setItem('comercio_id', res.id || id);
+        const resolvedId = res.id || res.comercio_id || id;
+        localStorage.setItem('comercio_id', resolvedId);
         localStorage.setItem('comercio_nombre', res.nombre || nombre);
         if(res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
-        sesion = { id: res.id || id, nombre: res.nombre || nombre, planilla_id: res.planilla_id || '' };
+        sesion = { id: resolvedId, nombre: res.nombre || nombre, planilla_id: res.planilla_id || '' };
         document.getElementById('login-msg').innerHTML = "<span class='success'>"+(res.message||'Ingresado')+"</span>";
         setTimeout(()=> mostrarPanelDashboard(), 300);
         return;
@@ -2000,7 +2013,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     function detectEnabledModules(datos){
       const out = new Set();
-      const data = datos && typeof datos === 'object' ? datos : {};
+      const raw = datos && typeof datos === 'object' ? datos : {};
+      const data = raw.data || raw.anunciante || raw;
       const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
       let hasCapabilityFields = false;
 
