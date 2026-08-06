@@ -370,7 +370,9 @@
 
               <div class="full">
                 <label>Dirección (auto)</label>
-                <input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />
+                <div id="ev-direccion-wrapper">
+                  <input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />
+                </div>
               </div>
 
               <div class="full">
@@ -499,12 +501,12 @@ let editingPromoId = null;
 
 const COMMERCE_DATA_FIELDS = [
   "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
-  "direccion","lat","lng","maps","telefono",
-  "direccion2","lat2","lng2","maps2","telefono2",
-  "direccion3","lat3","lng3","maps3","telefono3",
-  "direccion4","lat4","lng4","maps4","telefono4",
-  "direccion5","lat5","lng5","maps5","telefono5",
-  "direccion6","lat6","lng6","maps6","telefono6",
+  "direccion","maps","telefono",
+  "direccion2","maps2","telefono2",
+  "direccion3","maps3","telefono3",
+  "direccion4","maps4","telefono4",
+  "direccion5","maps5","telefono5",
+  "direccion6","maps6","telefono6",
   "whatsapp","whatsapp2","whatsapp3","mail",
   "instagram","facebook","youtube","tiktok","linkedin",
   "logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
@@ -581,7 +583,7 @@ function toDateInputValue(v){
   if(!isNaN(d.getTime())){
     const yy = isIsoZ(s) ? d.getUTCFullYear() : d.getFullYear();
     const mm = String((isIsoZ(s) ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2,'0');
-    const dd = String(isIsoZ(s) ? d.getUTCDate() : d.getDate()).padStart(2,'0');
+    const dd = String((isIsoZ(s) ? d.getUTCDate() : d.getDate())).padStart(2,'0');
     return `${yy}-${mm}-${dd}`;
   }
   return '';
@@ -593,7 +595,6 @@ function toTimeInputValue(v){
   const s0 = String(v).trim();
   if(!s0) return '';
 
-  // Caso ideal: "HH:MM" o "H:MM" o "HH:MM:SS"
   let m = s0.match(/^\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*$/);
   if(m){
     const hh = String(m[1]).padStart(2,'0');
@@ -601,13 +602,11 @@ function toTimeInputValue(v){
     return `${hh}:${mm}`;
   }
 
-  // Caso ISO / texto con hora adentro (sin convertir zona horaria)
   m = s0.match(/T(\d{2}):(\d{2})/);
   if(m) return `${m[1]}:${m[2]}`;
   m = s0.match(/\b(\d{2}):(\d{2})(?::\d{2})?\b/);
   if(m) return `${m[1]}:${m[2]}`;
 
-  // Caso número de Sheets (fracción del día)
   const n = Number(s0.replace(',','.'));
   if(!isNaN(n) && isFinite(n) && n >= 0 && n < 1){
     const totalMinutes = Math.round(n * 24 * 60);
@@ -622,7 +621,6 @@ function toTimeInputValue(v){
 function formatDateForTable(v){ return toDateInputValue(v) || String(v||''); }
 function formatTimeForTable(v){ return toTimeInputValue(v) || ''; }
 
-/* ✅ Abrir Google Form para imágenes (evento_id prellenado) */
 function openImagesFormForEvent(eventoId){
   const id = String(eventoId || '').trim();
   if(!id){ alert('Evento sin ID.'); return; }
@@ -645,13 +643,17 @@ function cargarComercios(callback){
       const json=JSON.parse(jsonText);
       const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
       let idxNombre = cols.findIndex(h=>/nombre|comercio|title|titulo/.test(h)); if(idxNombre===-1) idxNombre=1;
-      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo/.test(h)); if(idxId===-1) idxId=61;
+      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo|comercio_id/.test(h));
+      if(idxId === -1) idxId = cols.findIndex(h => h.includes('id'));
+      if(idxId === -1) idxId = 0;
       let idxNivel = cols.findIndex(h=>/nivel|nivel_acceso|nivelacceso/.test(h));
       comercios=(json.table.rows||[]).map(row=>{
-        const nombre = (row.c && row.c[idxNombre] && row.c[idxNombre].v)?row.c[idxNombre].v:'';
-        const id = (row.c && row.c[idxId] && row.c[idxId].v)?row.c[idxId].v:'';
-        const nivel = (idxNivel!==-1 && row.c && row.c[idxNivel] && row.c[idxNivel].v)?row.c[idxNivel].v:'';
-        return { nombre, id, nivel };
+        const cRow = row && row.c ? row.c : [];
+        const nombre = (cRow[idxNombre] && cRow[idxNombre].v)?cRow[idxNombre].v:'';
+        let id = (cRow[idxId] && cRow[idxId].v)?cRow[idxId].v:'';
+        if(!id && cRow[0] && cRow[0].v) id = cRow[0].v;
+        const nivel = (idxNivel!==-1 && cRow[idxNivel] && cRow[idxNivel].v)?cRow[idxNivel].v:'';
+        return { nombre: String(nombre).trim(), id: String(id).trim(), nivel: String(nivel).trim() };
       }).filter(c=>c.nombre);
       callback && callback();
     }catch(e){
@@ -702,7 +704,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroCon
           } else {
             document.getElementById('btnLogin')?.setAttribute('disabled','true');
             if(lvlWarningEl){
-              if(c.nivel) lvlWarningEl.innerHTML = `<span class="error">Anunciante nivel ${c.nivel} — NO puede crear cuenta ni iniciar sesión desde aquí. Para otras consultas contactá soporte.</span>`;
+              if(c.nivel) lvlWarningEl.innerHTML = `<span class="error">Anunciante nivel ${c.nivel} — NO puede crear cuenta ni iniciar sesión desde aquí. For otras consultas contactá soporte.</span>`;
               else lvlWarningEl.innerHTML = `<span class="error">No hay información de nivel para este anunciante — no es posible crear cuenta desde aquí.</span>`;
             }
           }
@@ -759,6 +761,33 @@ function fillSelectOptions(selectId, items, placeholderText){
   });
   try { if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current; } catch(e){}
 }
+
+function fillUniqueLugaresSelect(selectId, lugares, placeholderText){
+  const sel = document.getElementById(selectId);
+  if(!sel) return;
+  const current = sel.value || '';
+  sel.innerHTML = '';
+  const p = document.createElement('option');
+  p.value = '';
+  p.textContent = placeholderText || 'Seleccioná un lugar';
+  sel.appendChild(p);
+
+  const seen = new Set();
+  lugares.forEach(o=>{
+    const name = String(o.lugar || '').trim();
+    if(!name) return;
+    const k = name.toLowerCase();
+    if(!seen.has(k)){
+      seen.add(k);
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      sel.appendChild(opt);
+    }
+  });
+  try { if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current; } catch(e){}
+}
+
 function fillSelectOptionsFromObjects(selectId, items, keyName, placeholderText){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -778,6 +807,7 @@ function fillSelectOptionsFromObjects(selectId, items, keyName, placeholderText)
   });
   try { if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current; } catch(e){}
 }
+
 async function loadEventLists(){
   try {
     const json = await gvizFetch(EVENTS_SHEET_ID, 'aux_categorias');
@@ -809,16 +839,14 @@ async function loadEventLists(){
 
     const lugares = rows.map(r=>{
       const c = r && r.c ? r.c : [];
-      return { lugar:_cellToString(c[idxLugar]), direccion:_cellToString(c[idxDir]), llegar:_cellToString(c[idxLlegar]) };
+      return {
+        lugar: _cellToString(c[idxLugar]),
+        direccion: _cellToString(c[idxDir]),
+        llegar: _cellToString(c[idxLlegar])
+      };
     }).filter(o=>o.lugar && o.lugar.toLowerCase() !== 'lugar');
 
-    const seen = new Set();
-    const uniq = [];
-    for(const o of lugares){
-      const k = o.lugar.toLowerCase();
-      if(!seen.has(k)){ seen.add(k); uniq.push(o); }
-    }
-    evLists.lugares = uniq;
+    evLists.lugares = lugares;
   } catch(e){ evLists.lugares = []; }
 
   try {
@@ -844,7 +872,7 @@ async function loadEventLists(){
 
   fillSelectOptions('ev-categoria', evLists.categorias, 'Seleccioná una categoría');
   fillSelectOptions('ev-localidad', evLists.localidades, 'Seleccioná la localidad');
-  fillSelectOptionsFromObjects('ev-lugar', evLists.lugares, 'lugar', 'Seleccioná un lugar (opcional)');
+  fillUniqueLugaresSelect('ev-lugar', evLists.lugares, 'Seleccioná un lugar');
   for(let i=1;i<=6;i++){
     const id = (i===1) ? 'ev-partner' : ('ev-partner'+i);
     fillSelectOptionsFromObjects(id, evLists.partners, 'partner', 'Seleccioná un partner (opcional)');
@@ -869,13 +897,45 @@ async function loadPromosCategorias(){
 
 function onLugarChangeUpdateDireccion(){
   const sel = document.getElementById('ev-lugar');
-  const dir = document.getElementById('ev-direccion');
+  const wrapper = document.getElementById('ev-direccion-wrapper');
   const lleg = document.getElementById('ev-llegar');
-  if(!sel || !dir || !lleg) return;
-  const val = String(sel.value||'').trim().toLowerCase();
-  const found = evLists.lugares.find(o => String(o.lugar||'').trim().toLowerCase() === val);
-  dir.value = found ? (found.direccion || '') : '';
-  lleg.value = found ? (found.llegar || '') : '';
+  if(!sel || !wrapper) return;
+
+  const val = String(sel.value || '').trim().toLowerCase();
+  const matches = evLists.lugares.filter(o => String(o.lugar || '').trim().toLowerCase() === val);
+
+  if(matches.length === 0){
+    wrapper.innerHTML = `<input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />`;
+    if(lleg) lleg.value = '';
+    return;
+  }
+
+  if(matches.length === 1){
+    const match = matches[0];
+    wrapper.innerHTML = `<input id="ev-direccion" type="text" value="${htmlEscape(match.direccion || '')}" readonly />`;
+    if(lleg) lleg.value = match.llegar || '';
+  } else {
+    let optionsHtml = `<option value="">Seleccioná una dirección (${matches.length} disponibles)</option>`;
+    matches.forEach((m, idx)=>{
+      const addr = m.direccion || `Dirección ${idx + 1}`;
+      optionsHtml += `<option value="${htmlEscape(addr)}" data-idx="${idx}">${htmlEscape(addr)}</option>`;
+    });
+    wrapper.innerHTML = `<select id="ev-direccion">${optionsHtml}</select>`;
+
+    if(lleg) lleg.value = '';
+
+    const newDirSelect = document.getElementById('ev-direccion');
+    newDirSelect.addEventListener('change', function(){
+      const selectedOpt = this.options[this.selectedIndex];
+      const idx = selectedOpt ? selectedOpt.getAttribute('data-idx') : null;
+      if(idx !== null && idx !== undefined && matches[idx]){
+        const match = matches[idx];
+        if(lleg) lleg.value = match.llegar || '';
+      } else {
+        if(lleg) lleg.value = '';
+      }
+    });
+  }
 }
 
 /* ====================== API helpers ====================== */
@@ -906,6 +966,8 @@ function buildCommerceFieldsMarkup(datos){
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
+    const upperName = fieldName.toUpperCase();
+
     if(COMMERCE_IMAGE_FIELDS.has(fieldName)){
       if(!imageNoteRendered){
         html += `
@@ -917,19 +979,38 @@ function buildCommerceFieldsMarkup(datos){
       }
       html += `
         <div class="data-field-card image-field">
-          <label>${htmlEscape(fieldName)}</label>
+          <label><strong>${htmlEscape(upperName)}</strong></label>
           <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" placeholder="https://..." />
         </div>
       `;
       return;
     }
 
-    html += `
-      <div class="data-field-card">
-        <label>${htmlEscape(fieldName)}</label>
-        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" />
-      </div>
-    `;
+    let maxLengthAttr = '';
+    let maxLengthNum = null;
+    if(fieldName === 'pie') { maxLengthAttr = ' maxlength="100"'; maxLengthNum = 100; }
+    else if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
+    else if(fieldName === 'tags') { maxLengthAttr = ' maxlength="300"'; maxLengthNum = 300; }
+    else if(fieldName === 'adicionales') { maxLengthAttr = ' maxlength="150"'; maxLengthNum = 150; }
+
+    const restrictionHtml = maxLengthNum ? ` <span style="color:#c00; font-weight:normal; font-size:0.9em;">(Hasta ${maxLengthNum} caracteres)</span>` : '';
+    const labelHtml = `<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
+
+    if(fieldName === 'descripcion'){
+      html += `
+        <div class="data-field-card" style="grid-column: 1 / -1;">
+          <label>${labelHtml}</label>
+          <textarea name="${htmlEscape(fieldName)}" rows="3"${maxLengthAttr}>${htmlEscape(fieldValue)}</textarea>
+        </div>
+      `;
+    } else {
+      html += `
+        <div class="data-field-card">
+          <label>${labelHtml}</label>
+          <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
+        </div>
+      `;
+    }
   });
 
   html += '</div>';
@@ -968,6 +1049,7 @@ function buildCommerceSavePayload(){
   if(id){
     payload.id = id;
     payload.__id = id;
+    payload.comercio_id = id;
   }
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
@@ -975,7 +1057,7 @@ function buildCommerceSavePayload(){
   return payload;
 }
 
-/* ====================== Promos UI (nuevo, similar a eventos) ====================== */
+/* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function promoSetCreateMode(){
@@ -1188,7 +1270,7 @@ async function loadPromosUI(){
   st.textContent = 'Promos cargadas: ' + promos.length;
 }
 
-/* ====================== Events UI (VIP) ====================== */
+/* ====================== Events UI ====================== */
 function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function clearEventForm(){
@@ -1200,12 +1282,15 @@ function clearEventForm(){
     el.value = '';
   });
 
-  // imágenes por URL
+  const wrapper = document.getElementById('ev-direccion-wrapper');
+  if(wrapper){
+    wrapper.innerHTML = `<input id="ev-direccion" type="text" placeholder="(se completa solo si elegís un lugar)" disabled />`;
+  }
+
   const i1 = document.getElementById('ev-img1'); if(i1) i1.value = '';
   const i2 = document.getElementById('ev-img2'); if(i2) i2.value = '';
   const i3 = document.getElementById('ev-img3'); if(i3) i3.value = '';
 
-  // tracking
   lastCreatedEventId = null;
 }
 
@@ -1366,6 +1451,11 @@ function bindEventsListActions(){
         document.getElementById('ev-lugar').value = found.lugar || '';
         onLugarChangeUpdateDireccion();
 
+        const dirEl = document.getElementById('ev-direccion');
+        if(dirEl) dirEl.value = found.direccion || '';
+        const llegEl = document.getElementById('ev-llegar');
+        if(llegEl) llegEl.value = found.llegar || '';
+
         document.getElementById('ev-descripcion').value = found.descripcion || '';
 
         document.getElementById('ev-fecha_desde').value = toDateInputValue(found.fecha_desde || found.fecha);
@@ -1376,7 +1466,6 @@ function bindEventsListActions(){
         document.getElementById('ev-instagram').value = found.instagram || '';
         document.getElementById('ev-entradas').value = found.entradas || '';
 
-        // Imágenes por URL
         const i1 = document.getElementById('ev-img1'); if(i1) i1.value = found.img1 || '';
         const i2 = document.getElementById('ev-img2'); if(i2) i2.value = found.img2 || '';
         const i3 = document.getElementById('ev-img3'); if(i3) i3.value = found.img3 || '';
@@ -1433,8 +1522,6 @@ function renderEventsList(events){
   const isMobile = window.matchMedia && window.matchMedia('(max-width:720px)').matches;
   if(isMobile) renderEventsCards(events);
   else renderEventsTable(events);
-
-  // binders
   bindEventsListActions();
 }
 
@@ -1538,7 +1625,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 
-  // Habilitar login por cambio en clave
   const claveEl = document.getElementById('clave');
   claveEl.addEventListener('input', ()=>{
     const id = String(document.getElementById('comercio-id')?.value || '').trim();
@@ -1585,6 +1671,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       action:'set_clave',
       id,
       __id:id,
+      comercio_id:id,
       clave:nuevaClave
     };
 
@@ -1594,7 +1681,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const validarResp = await fetch(WORKER_URL, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ id, nombre, clave: claveActual }),
+          body: JSON.stringify({ id, comercio_id: id, nombre, clave: claveActual }),
           mode:'cors'
         });
         const validarText = await validarResp.text();
@@ -1667,7 +1754,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   });
 
-  // Promos buttons
   document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI);
   document.getElementById('promo-cancel')?.addEventListener('click', promoCancelEdit);
 
@@ -1714,7 +1800,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 
-  // Eventos botones
   document.getElementById('ev-refresh')?.addEventListener('click', loadEventsUI);
   document.getElementById('ev-cancel')?.addEventListener('click', cancelEventEdit);
 
@@ -1726,7 +1811,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try{
       const payload = buildEventPayloadFromForm();
 
-      // ✅ obligatorios
       if(!payload.nombre_evento){ alert('Falta Nombre del evento'); return; }
       if(!payload.fecha_desde){ alert('Falta Fecha desde'); return; }
       if(!payload.categoria){ alert('Falta Categoría'); return; }
@@ -1770,7 +1854,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   });
 
-  // Login
   const btnLogin = document.getElementById('btnLogin');
   const originalLoginBtnText = btnLogin ? (btnLogin.textContent || 'Ingresar') : 'Ingresar';
 
@@ -1778,16 +1861,22 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
 
-    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
+    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     try{
       const r = await fetch(url, { method:'GET', mode:'cors' });
-      const datos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
-      if(datos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${datos.error}`; mostrarPanel('dashboard'); return; }
-      if(datos.planilla_id && datos.planilla_id !== sesion.planilla_id){ sesion.planilla_id = datos.planilla_id; localStorage.setItem('planilla_id', datos.planilla_id); }
+      const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
+      if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
+      
+      const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
+      const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
+      if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
+        sesion.planilla_id = newPlanillaId; 
+        localStorage.setItem('planilla_id', newPlanillaId); 
+      }
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
       if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData(datos);
+        window.updateDashboardModulesFromData(rawDatos);
       }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
@@ -1795,7 +1884,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
 
-      // Cargar listas (promos/eventos) cuando corresponda
       setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 250);
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
@@ -1824,7 +1912,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     btnLogin.textContent = 'Ingresando...';
     document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
 
-    const payload = { action:'login', comercio_id:id||'', nombre:nombre, password:clave };
+    const payload = { action:'login', comercio_id:id||'', id:id||'', nombre:nombre, password:clave };
     try{
       const r = await fetch(WORKER_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
@@ -1833,10 +1921,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       if(r.status===200 && res.success){
         btnLogin.textContent = 'Cargando datos...';
-        localStorage.setItem('comercio_id', res.id || id);
+        const resolvedId = res.id || res.comercio_id || id;
+        localStorage.setItem('comercio_id', resolvedId);
         localStorage.setItem('comercio_nombre', res.nombre || nombre);
         if(res.planilla_id) localStorage.setItem('planilla_id', res.planilla_id);
-        sesion = { id: res.id || id, nombre: res.nombre || nombre, planilla_id: res.planilla_id || '' };
+        sesion = { id: resolvedId, nombre: res.nombre || nombre, planilla_id: res.planilla_id || '' };
         document.getElementById('login-msg').innerHTML = "<span class='success'>"+(res.message||'Ingresado')+"</span>";
         setTimeout(()=> mostrarPanelDashboard(), 300);
         return;
@@ -1852,7 +1941,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
   };
 
-  // Logout
   document.getElementById('logout-btn').addEventListener('click', ()=>{
     localStorage.removeItem('comercio_id'); localStorage.removeItem('comercio_nombre'); localStorage.removeItem('planilla_id');
     sesion=null;
@@ -1861,7 +1949,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     mostrarPanel('login');
   });
 
-  // Auto login
   if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){
     sesion = {
       id: localStorage.getItem('comercio_id'),
@@ -1871,7 +1958,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     mostrarPanelDashboard();
   }
 
-  // Tabs / módulos dashboard
   (function(){
     const tabInicio = document.getElementById('tab-inicio');
     const tabPromos = document.getElementById('tab-promos');
@@ -1948,7 +2034,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     function detectEnabledModules(datos){
       const out = new Set();
-      const data = datos && typeof datos === 'object' ? datos : {};
+      const raw = datos && typeof datos === 'object' ? datos : {};
+      const data = raw.data || raw.anunciante || raw;
       const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
       let hasCapabilityFields = false;
 
@@ -1999,6 +2086,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       dashboardTabs.style.display = isVisible ? '' : 'none';
     }
 
+    function setInicioTabVisible(isVisible){
+      if(!tabInicio) return;
+      tabInicio.style.display = isVisible ? '' : 'none';
+    }
+
     function ensureMenuLoaded(){
       if(menuIframe.dataset.loaded === '1') return;
       if(!sesion || !sesion.id) return;
@@ -2013,16 +2105,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTabActive(tabKey);
     }
 
-    function showInicio(){ hideAll(); setDashboardTabsVisible(false); inicioPanel.style.display='block'; setTabActive('inicio'); }
-    function showModificarDatos(){ hideAll(); setDashboardTabsVisible(true); datosPanel.style.display='block'; setTabActive('modificar_datos'); }
-    function showPromos(){ hideAll(); setDashboardTabsVisible(true); promosPanel.style.display='block'; setTabActive('promos'); setTimeout(()=>loadPromosUI(),50); }
-    function showEventos(){ hideAll(); setDashboardTabsVisible(true); eventosPanel.style.display='block'; setTabActive('eventos'); setTimeout(()=>loadEventsUI(),50); }
-    function showMenu(){ hideAll(); setDashboardTabsVisible(true); menuPanel.style.display='block'; setTabActive('menu'); ensureMenuLoaded(); }
-    function showVouchers(){ setDashboardTabsVisible(true); showPlaceholder('Vouchers', 'vouchers'); }
-    function showEntradas(){ setDashboardTabsVisible(true); showPlaceholder('Entradas', 'entradas'); }
-    function showGifcards(){ setDashboardTabsVisible(true); showPlaceholder('Gifcards', 'gifcards'); }
-    function showActividades(){ setDashboardTabsVisible(true); showPlaceholder('Actividades', 'actividades'); }
-    function showReservas(){ setDashboardTabsVisible(true); showPlaceholder('Reservas', 'reservas'); }
+    function showInicio(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(false); inicioPanel.style.display='block'; setTabActive(''); }
+    function showModificarDatos(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); datosPanel.style.display='block'; setTabActive('modificar_datos'); }
+    function showPromos(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); promosPanel.style.display='block'; setTabActive('promos'); setTimeout(()=>loadPromosUI(),50); }
+    function showEventos(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); eventosPanel.style.display='block'; setTabActive('eventos'); setTimeout(()=>loadEventsUI(),50); }
+    function showMenu(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); menuPanel.style.display='block'; setTabActive('menu'); ensureMenuLoaded(); }
+    function showVouchers(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Vouchers', 'vouchers'); }
+    function showEntradas(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Entradas', 'entradas'); }
+    function showGifcards(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Gifcards', 'gifcards'); }
+    function showActividades(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Actividades', 'actividades'); }
+    function showReservas(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Reservas', 'reservas'); }
 
     const showByModule = {
       promos: showPromos,
@@ -2068,22 +2160,20 @@ document.addEventListener('DOMContentLoaded', ()=>{
     window.updateDashboardModulesFromData = function(datos){
       enabledModules = detectEnabledModules(datos);
       applyEnabledModulesVisibility();
-      showInicio();
     };
 
-    tabInicio.addEventListener('click', (e)=>{ e.preventDefault(); showInicio(); });
-    tabPromos.addEventListener('click', (e)=>{ e.preventDefault(); showPromos(); });
-    tabEventos.addEventListener('click', (e)=>{ e.preventDefault(); showEventos(); });
-    tabMenu.addEventListener('click', (e)=>{ e.preventDefault(); showMenu(); });
-    tabVouchers.addEventListener('click', (e)=>{ e.preventDefault(); showVouchers(); });
-    tabEntradas.addEventListener('click', (e)=>{ e.preventDefault(); showEntradas(); });
-    tabGifcards.addEventListener('click', (e)=>{ e.preventDefault(); showGifcards(); });
-    tabActividades.addEventListener('click', (e)=>{ e.preventDefault(); showActividades(); });
-    tabReservas.addEventListener('click', (e)=>{ e.preventDefault(); showReservas(); });
-    tabModificarDatos.addEventListener('click', (e)=>{ e.preventDefault(); showModificarDatos(); });
+    tabInicio.addEventListener('click', showInicio);
+    tabPromos.addEventListener('click', showPromos);
+    tabEventos.addEventListener('click', showEventos);
+    tabMenu.addEventListener('click', showMenu);
+    tabVouchers.addEventListener('click', showVouchers);
+    tabEntradas.addEventListener('click', showEntradas);
+    tabGifcards.addEventListener('click', showGifcards);
+    tabActividades.addEventListener('click', showActividades);
+    tabReservas.addEventListener('click', showReservas);
+    tabModificarDatos.addEventListener('click', showModificarDatos);
 
     applyEnabledModulesVisibility();
-    showInicio();
   })();
 });
 </script>
