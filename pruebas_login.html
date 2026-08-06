@@ -1582,11 +1582,11 @@ async function loadEventsUI(){
   window.__lastEvents = events;
   renderEventsList(events);
 
-  const maxEvents = parseInt(sesion.eventos_cant || 0, 10) || 0;
-  const loadedEvents = events.length;
+  const maxEvents = parseInt(data.eventos_cant !== undefined ? data.eventos_cant : (sesion.eventos_cant || 0), 10) || 0;
+  const loadedEvents = parseInt(data.count !== undefined ? data.count : events.length, 10) || 0;
   const availableEvents = Math.max(0, maxEvents - loadedEvents);
 
-  st.innerHTML = `Tiene ${maxEvents} eventos habilitados. Eventos cargados: ${loadedEvents}. Eventos disponibles: ${availableEvents}.`;
+  st.innerHTML = `Total permitido: ${maxEvents} | Eventos cargados: ${loadedEvents} | Eventos disponibles: ${availableEvents}`;
 
   const btnCreate = document.getElementById('ev-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
@@ -2154,108 +2154,76 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
 
     function hideAll(){
-      inicioPanel.style.display='none';
-      datosPanel.style.display='none';
-      promosPanel.style.display='none';
-      eventosPanel.style.display='none';
-      menuPanel.style.display='none';
-      placeholderPanel.style.display='none';
-      setTabActive('');
+      if(inicioPanel) inicioPanel.classList.add('hidden-panel');
+      if(datosPanel) datosPanel.classList.add('hidden-panel');
+      if(promosPanel) promosPanel.classList.add('hidden-panel');
+      if(eventosPanel) eventosPanel.classList.add('hidden-panel');
+      if(menuPanel) menuPanel.classList.add('hidden-panel');
+      if(placeholderPanel) placeholderPanel.classList.add('hidden-panel');
     }
 
-    function setDashboardTabsVisible(isVisible){
-      if(!dashboardTabs) return;
-      dashboardTabs.style.display = isVisible ? '' : 'none';
-    }
-
-    function setInicioTabVisible(isVisible){
-      if(!tabInicio) return;
-      tabInicio.style.display = isVisible ? '' : 'none';
-    }
-
-    function ensureMenuLoaded(){
-      if(menuIframe.dataset.loaded === '1') return;
-      if(!sesion || !sesion.id) return;
-      menuIframe.src = `../menu/modelo.html?id=${encodeURIComponent(sesion.id)}`;
-      menuIframe.dataset.loaded = '1';
-    }
-
-    function showPlaceholder(moduleLabel, tabKey){
+    function showTab(key){
+      setTabActive(key);
       hideAll();
-      placeholderTitle.textContent = moduleLabel;
-      placeholderPanel.style.display='block';
-      setTabActive(tabKey);
-    }
-
-    function showInicio(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(false); inicioPanel.style.display='block'; setTabActive(''); }
-    function showModificarDatos(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); datosPanel.style.display='block'; setTabActive('modificar_datos'); }
-    function showPromos(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); promosPanel.style.display='block'; setTabActive('promos'); setTimeout(()=>loadPromosUI(),50); }
-    function showEventos(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); eventosPanel.style.display='block'; setTabActive('eventos'); setTimeout(()=>loadEventsUI(),50); }
-    function showMenu(){ hideAll(); setDashboardTabsVisible(true); setInicioTabVisible(true); menuPanel.style.display='block'; setTabActive('menu'); ensureMenuLoaded(); }
-    function showVouchers(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Vouchers', 'vouchers'); }
-    function showEntradas(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Entradas', 'entradas'); }
-    function showGifcards(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Gifcards', 'gifcards'); }
-    function showActividades(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Actividades', 'actividades'); }
-    function showReservas(){ setDashboardTabsVisible(true); setInicioTabVisible(true); showPlaceholder('Reservas', 'reservas'); }
-
-    const showByModule = {
-      promos: showPromos,
-      eventos: showEventos,
-      menu: showMenu,
-      vouchers: showVouchers,
-      entradas: showEntradas,
-      gifcards: showGifcards,
-      actividades: showActividades,
-      reservas: showReservas,
-      modificar_datos: showModificarDatos
-    };
-
-    function renderDashboardModules(){
-      dashboardModules.innerHTML = '';
-      const enabled = moduleDefs.filter(m => enabledModules.has(m.key));
-      if(enabled.length === 0){
-        dashboardModules.innerHTML = `<div class="small-muted">No hay módulos habilitados para este anunciante.</div>`;
-        return;
+      if(key === 'inicio'){
+        if(inicioPanel) inicioPanel.classList.remove('hidden-panel');
+      } else if(key === 'modificar_datos'){
+        if(datosPanel) datosPanel.classList.remove('hidden-panel');
+      } else if(key === 'promos'){
+        if(promosPanel) promosPanel.classList.remove('hidden-panel');
+      } else if(key === 'eventos'){
+        if(eventosPanel) eventosPanel.classList.remove('hidden-panel');
+      } else if(key === 'menu'){
+        if(menuPanel) {
+          menuPanel.classList.remove('hidden-panel');
+          if(sesion && sesion.id && menuIframe && !menuIframe.src){
+            menuIframe.src = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
+          }
+        }
+      } else {
+        if(placeholderPanel) {
+          placeholderPanel.classList.remove('hidden-panel');
+          const def = moduleDefs.find(m => m.key === key);
+          if(placeholderTitle) placeholderTitle.textContent = def ? def.label : key;
+        }
       }
-      enabled.forEach((mod)=>{
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'secondary dashboard-module-btn';
-        btn.textContent = mod.label;
-        btn.addEventListener('click', ()=>{
-          const showFn = showByModule[mod.key];
-          if(typeof showFn === 'function') showFn();
-        });
-        dashboardModules.appendChild(btn);
-      });
     }
 
-    function applyEnabledModulesVisibility(){
-      moduleDefs.forEach((mod)=>{
-        const tab = tabs[mod.key];
+    Object.keys(tabs).forEach((k)=>{
+      const tab = tabs[k];
+      if(!tab) return;
+      tab.addEventListener('click', ()=>{
+        if(!enabledModules.has(k) && k !== 'inicio' && k !== 'modificar_datos') return;
+        showTab(k);
+      });
+    });
+
+    window.updateDashboardModulesFromData = function(rawDatos){
+      enabledModules = detectEnabledModules(rawDatos);
+      Object.keys(tabs).forEach((k)=>{
+        const tab = tabs[k];
         if(!tab) return;
-        tab.style.display = enabledModules.has(mod.key) ? '' : 'none';
+        if(k === 'inicio' || k === 'modificar_datos' || enabledModules.has(k)){
+          tab.style.display = '';
+        } else {
+          tab.style.display = 'none';
+        }
       });
-      renderDashboardModules();
-    }
 
-    window.updateDashboardModulesFromData = function(datos){
-      enabledModules = detectEnabledModules(datos);
-      applyEnabledModulesVisibility();
+      if(dashboardModules){
+        dashboardModules.innerHTML = '';
+        moduleDefs.forEach((mod)=>{
+          if(mod.key === 'modificar_datos') return;
+          if(enabledModules.has(mod.key)){
+            const btn = document.createElement('button');
+            btn.className = 'secondary dashboard-module-btn';
+            btn.textContent = mod.label;
+            btn.onclick = ()=> showTab(mod.key);
+            dashboardModules.appendChild(btn);
+          }
+        });
+      }
     };
-
-    tabInicio.addEventListener('click', showInicio);
-    tabPromos.addEventListener('click', showPromos);
-    tabEventos.addEventListener('click', showEventos);
-    tabMenu.addEventListener('click', showMenu);
-    tabVouchers.addEventListener('click', showVouchers);
-    tabEntradas.addEventListener('click', showEntradas);
-    tabGifcards.addEventListener('click', showGifcards);
-    tabActividades.addEventListener('click', showActividades);
-    tabReservas.addEventListener('click', showReservas);
-    tabModificarDatos.addEventListener('click', showModificarDatos);
-
-    applyEnabledModulesVisibility();
   })();
 });
 </script>
