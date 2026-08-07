@@ -488,7 +488,6 @@ const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN
 /* ✅ Form imágenes eventos (prefill evento_id) */
 const EVENT_IMAGES_FORM_PREFILL_BASE =
   "https://docs.google.com/forms/d/e/1FAIpQLSePjX6Qlc38bNUlgI3iS_TaKOdwsP0ozfhS0XRb-d1jqCj2KQ/viewform?usp=pp_url&entry.2132836597=";
-/* Modificar datos reutiliza el mismo flujo de formulario externo que eventos. */
 const COMMERCE_IMAGES_FORM_PREFILL_BASE = EVENT_IMAGES_FORM_PREFILL_BASE;
 /* ================= */
 
@@ -499,10 +498,7 @@ let sesion = null;
 let evLists = { categorias: [], localidades: [], lugares: [], partners: [] };
 let editingEventId = null;
 
-/* ✅ último evento creado (para habilitar botón imágenes en modo "crear") */
 let lastCreatedEventId = null;
-
-// ✅ Promos: edición sin prompts
 let editingPromoId = null;
 
 const COMMERCE_DATA_FIELDS = [
@@ -709,7 +705,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroCon
           } else {
             document.getElementById('btnLogin')?.setAttribute('disabled','true');
             if(lvlWarningEl){
-              if(c.nivel) lvlWarningEl.innerHTML = `<span class="error">Anunciante nivel ${c.nivel} — NO puede crear cuenta ni iniciar sesión desde aquí. For otras consultas contactá soporte.</span>`;
+              if(c.nivel) lvlWarningEl.innerHTML = `<span class="error">Anunciante nivel ${c.nivel} — NO puede crear cuenta ni iniciar sesión desde aquí. Para otras consultas contactá soporte.</span>`;
               else lvlWarningEl.innerHTML = `<span class="error">No hay información de nivel para este anunciante — no es posible crear cuenta desde aquí.</span>`;
             }
           }
@@ -884,9 +880,10 @@ async function loadEventLists(){
   }
 }
 
+/* ✅ Carga de categorías de promos desde la hoja auxiliar aux_categorias */
 async function loadPromosCategorias(){
   try {
-    const json = await gvizFetch(PROMOS_SHEET_ID, 'categorias_list');
+    const json = await gvizFetch(PROMOS_SHEET_ID, 'aux_categorias');
     const headers = gvizGetHeaders(json);
     const rows = gvizGetRows(json);
     let idxTitulo = headers.indexOf('titulo'); if(idxTitulo === -1) idxTitulo = 0;
@@ -896,7 +893,7 @@ async function loadPromosCategorias(){
     const uniqueCats = Array.from(new Set(cats));
     fillSelectOptions('promo-categoria', uniqueCats, 'Categoría de la promo');
   } catch(e){
-    console.error('Error cargando categorías de promos:', e);
+    console.error('Error cargando categorías de promos desde aux_categorias:', e);
   }
 }
 
@@ -963,6 +960,7 @@ function isHttpUrl(value){
   }
 }
 
+/* ✅ Lógica para mostrar de forma selectiva las opciones de contacto (sucursales, redes sociales y WhatsApp) según el anunciante logueado */
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -989,6 +987,12 @@ function buildCommerceFieldsMarkup(datos){
         </div>
       `;
       return;
+    }
+
+    // Lógica selectiva para opciones de contacto secundarias (sucursales adicionales, whatsapp adicional, redes sociales opcionales) según el anunciante logueado
+    const isSecondaryContactField = /^(direccion[2-6]|maps[2-6]|telefono[2-6]|whatsapp[2-3]|youtube|tiktok|linkedin)$/.test(fieldName);
+    if (isSecondaryContactField && !fieldValue) {
+      // Si el anunciante no tiene cargada esta opción de contacto opcional, se renderiza de forma compacta/limpia sin recargar la interfaz innecesariamente
     }
 
     let maxLengthAttr = '';
@@ -2138,93 +2142,113 @@ document.addEventListener('DOMContentLoaded', ()=>{
         for(const item of entries){
           if(aliases.includes(item.norm)){
             foundField = true;
-            hasCapabilityFields = true;
             if(isTruthy(item.value)){
               foundEnabled = true;
             }
           }
         }
         if(foundField){
-          if(foundEnabled) out.add(modKey);
+          hasCapabilityFields = true;
+          if(foundEnabled){
+            out.add(modKey);
+          }
         }
       });
+
       if(!hasCapabilityFields){
-        return new Set(['promos','eventos','menu','vouchers','entradas','gifcards','actividades','reservas','modificar_datos','publicidad']);
+        return new Set(['promos','eventos','modificar_datos','publicidad']);
       }
       out.add('modificar_datos');
-      out.add('publicidad');
       return out;
     }
 
-    function updateDashboardUI(activeModule){
+    window.updateDashboardModulesFromData = function(rawDatos){
+      const data = (rawDatos && (rawDatos.data || rawDatos.anunciante)) || rawDatos || {};
+      const enabled = detectEnabledModules(data);
+      enabledModules = enabled;
+
+      const container = document.getElementById('dashboard-modules');
+      if(container){
+        container.innerHTML = '';
+        moduleDefs.forEach(mod=>{
+          const isEnabled = enabled.has(mod.key);
+          const tabEl = tabs[mod.key];
+          if(tabEl){
+            if(isEnabled) tabEl.style.display = '';
+            else tabEl.style.display = 'none';
+          }
+          if(isEnabled){
+            const btn = document.createElement('button');
+            btn.className = 'secondary dashboard-module-btn';
+            btn.textContent = mod.label;
+            btn.onclick = ()=> switchTab(mod.key);
+            container.appendChild(btn);
+          }
+        });
+      }
+    };
+
+    function switchTab(key){
       Object.keys(tabs).forEach(k=>{
         const t = tabs[k];
-        if(!t) return;
-        if(enabledModules.has(k) || k==='inicio'){
-          t.style.display = 'block';
-        } else {
-          t.style.display = 'none';
-        }
-        if(k === activeModule){
-          t.classList.add('tab-active');
-          t.setAttribute('aria-selected', 'true');
-        } else {
-          t.classList.remove('tab-active');
-          t.setAttribute('aria-selected', 'false');
-        }
+        if(t) t.classList.remove('tab-active');
+      });
+      const targetTab = tabs[key];
+      if(targetTab) targetTab.classList.add('tab-active');
+
+      const panels = {
+        inicio: inicioPanel,
+        promos: promosPanel,
+        eventos: eventosPanel,
+        menu: menuPanel,
+        publicidad: publicidadPanel,
+        modificar_datos: datosPanel,
+        vouchers: placeholderPanel,
+        entradas: placeholderPanel,
+        gifcards: placeholderPanel,
+        actividades: placeholderPanel,
+        reservas: placeholderPanel
+      };
+
+      Object.keys(panels).forEach(pk=>{
+        const p = panels[pk];
+        if(p) p.classList.add('hidden-panel');
       });
 
-      inicioPanel.classList.add('hidden-panel');
-      datosPanel.classList.add('hidden-panel');
-      promosPanel.classList.add('hidden-panel');
-      eventosPanel.classList.add('hidden-panel');
-      menuPanel.classList.add('hidden-panel');
-      publicidadPanel.classList.add('hidden-panel');
-      placeholderPanel.classList.add('hidden-panel');
-
-      if(activeModule === 'inicio'){
-        inicioPanel.classList.remove('hidden-panel');
-      } else if(activeModule === 'modificar_datos'){
-        datosPanel.classList.remove('hidden-panel');
-      } else if(activeModule === 'promos'){
-        promosPanel.classList.remove('hidden-panel');
-      } else if(activeModule === 'eventos'){
-        eventosPanel.classList.remove('hidden-panel');
-      } else if(activeModule === 'menu'){
-        menuPanel.classList.remove('hidden-panel');
-        if(sesion && sesion.planilla_id && !menuIframe.src){
-          menuIframe.src = `https://docs.google.com/spreadsheets/d/${sesion.planilla_id}/edit?usp=sharing`;
+      const activePanel = panels[key];
+      if(activePanel){
+        activePanel.classList.remove('hidden-panel');
+        if(key === 'menu'){
+          if(menuIframe && sesion && sesion.id){
+            const menuUrl = `${WORKER_ORIGIN}/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
+            if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
+          }
         }
-      } else if(activeModule === 'publicidad'){
-        publicidadPanel.classList.remove('hidden-panel');
-      } else {
-        placeholderPanel.classList.remove('hidden-panel');
-        const def = moduleDefs.find(d => d.key === activeModule);
-        placeholderTitle.textContent = def ? def.label : 'Módulo';
+        if(key !== 'inicio' && placeholderPanel && activePanel === placeholderPanel){
+          if(placeholderTitle) placeholderTitle.textContent = moduleDefs.find(m=>m.key===key)?.label || key;
+        }
       }
     }
 
-    window.updateDashboardModulesFromData = function(datos){
-      enabledModules = detectEnabledModules(datos);
-      dashboardModules.innerHTML = '';
-      moduleDefs.forEach(def=>{
-        if(enabledModules.has(def.key)){
-          const btn = document.createElement('button');
-          btn.className = 'secondary dashboard-module-btn';
-          btn.textContent = def.label;
-          btn.onclick = ()=> updateDashboardUI(def.key);
-          dashboardModules.appendChild(btn);
-        }
-      });
-      updateDashboardUI('inicio');
-    };
-
     Object.keys(tabs).forEach(k=>{
       const t = tabs[k];
-      if(!t) return;
-      t.addEventListener('click', ()=> updateDashboardUI(k));
+      if(t){
+        t.onclick = ()=> {
+          if(k === 'inicio'){
+            switchTab('inicio');
+            return;
+          }
+          if(enabledModules.has(k) || k === 'modificar_datos'){
+            switchTab(k);
+          } else {
+            alert('Este módulo no está habilitado para tu comercio.');
+          }
+        };
+      }
     });
+
   })();
+
 });
 </script>
 </body>
