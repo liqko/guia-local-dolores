@@ -52,11 +52,6 @@
     .promos-row-controls button.primary{margin-top:0}
     .promo-input { flex:1; min-width:160px; }
     .promo-select { width:220px; min-width:140px; }
-    
-    /* Promo Options Container */
-    #promo-options-container { width:100%; display:flex; flex-wrap:wrap; gap:12px; background:#f4f5fa; padding:10px; border-radius:6px; border:1px solid #e1e4ed; margin-top:8px; margin-bottom:8px; }
-    #promo-options-container label { display:flex; align-items:center; gap:6px; font-weight:normal; margin:0; cursor:pointer; font-size:0.95em; }
-    #promo-options-container input[type="checkbox"] { width:auto; margin:0; cursor:pointer; }
 
     /* Tabs */
     .tabs { display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap; }
@@ -330,12 +325,15 @@
               <input id="promo-hasta" type="date" style="width:140px" />
               <input id="promo-otros" class="promo-input" type="text" placeholder="Descripción (ej: Hasta agotar stock 50 unidades)" style="max-width:300px" />
 
-              <!-- Contenedor dinámico para mostrar opciones de contacto disponibles -->
-              <div id="promo-options-container"></div>
-
               <button id="promo-create" class="primary" style="min-width:140px">Crear promo</button>
               <button id="promo-cancel" class="secondary" style="min-width:140px">Cancelar edición</button>
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
+            </div>
+
+            <!-- CONTENEDOR DE OPCIONES DE CONTACTO DINÁMICO -->
+            <div id="promo-options-container" style="display:none; margin-top:12px; padding:10px; border:1px dashed #ccc; border-radius:6px; background:#fff;">
+              <div class="small-muted" style="margin-bottom:8px; font-weight:bold;">Opciones de contacto a mostrar en la promo (Tildá las que apliquen):</div>
+              <div id="promo-options-list" style="display:flex; flex-wrap:wrap; gap:12px;"></div>
             </div>
 
             <div id="promos-msg" style="margin-top:8px"></div>
@@ -493,9 +491,11 @@ const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
 
+/* ✅ Form imágenes eventos (prefill evento_id) */
 const EVENT_IMAGES_FORM_PREFILL_BASE =
   "https://docs.google.com/forms/d/e/1FAIpQLSePjX6Qlc38bNUlgI3iS_TaKOdwsP0ozfhS0XRb-d1jqCj2KQ/viewform?usp=pp_url&entry.2132836597=";
 const COMMERCE_IMAGES_FORM_PREFILL_BASE = EVENT_IMAGES_FORM_PREFILL_BASE;
+/* ================= */
 
 const SUPPORT_NUMBER = "5492245459957";
 
@@ -506,7 +506,6 @@ let editingEventId = null;
 
 let lastCreatedEventId = null;
 let editingPromoId = null;
-let lastCommerceData = {};
 
 const COMMERCE_DATA_FIELDS = [
   "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
@@ -521,14 +520,8 @@ const COMMERCE_DATA_FIELDS = [
   "logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
   "link"
 ];
-const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
-const COMMERCE_IMAGE_UPLOAD_NOTE = `
-  <b>Imágenes (URL)</b><br>
-  Subí la imagen a tu Drive o similar.<br>
-  Asegurá que el enlace sea público.<br>
-  Pegá la URL acá.
-`;
 
+/* Campos verificables dinámicamente para las Promos */
 const PROMO_CONTACT_FIELDS = [
   "direccion","maps","telefono",
   "direccion2","maps2","telefono2",
@@ -539,6 +532,14 @@ const PROMO_CONTACT_FIELDS = [
   "whatsapp","whatsapp2","whatsapp3",
   "instagram","facebook","youtube","tiktok","linkedin"
 ];
+
+const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
+const COMMERCE_IMAGE_UPLOAD_NOTE = `
+  <b>Imágenes (URL)</b><br>
+  Subí la imagen a tu Drive o similar.<br>
+  Asegurá que el enlace sea público.<br>
+  Pegá la URL acá.
+`;
 
 function debugLog(...args){ console.log(...args); }
 
@@ -557,6 +558,7 @@ function isAllowedLevel(levelStr){
   return n === 1 || n === 2 || n >= 5;
 }
 
+/* GViz helpers */
 function _cellToString(cell){
   if(cell === undefined || cell === null) return '';
   if(typeof cell === 'object' && 'v' in cell) return String(cell.v).trim();
@@ -581,6 +583,7 @@ function gvizGetRows(json){
   return (json && json.table && Array.isArray(json.table.rows)) ? json.table.rows : [];
 }
 
+/* === FECHA/HORA === */
 function isIsoZ(s){ return typeof s === 'string' && /Z$/.test(s); }
 
 function toDateInputValue(v){
@@ -650,6 +653,7 @@ function openImagesFormForCommerce(comercioId){
   window.open(COMMERCE_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
 }
 
+/* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -757,6 +761,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroCon
   });
 }
 
+/* ====================== Lists de eventos (_list) ====================== */
 function fillSelectOptions(selectId, items, placeholderText){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -894,6 +899,7 @@ async function loadEventLists(){
   }
 }
 
+/* ✅ Carga de categorías de promos desde la hoja auxiliar aux_categorias */
 async function loadPromosCategorias(){
   try {
     const json = await gvizFetch(PROMOS_SHEET_ID, 'aux_categorias');
@@ -953,6 +959,7 @@ function onLugarChangeUpdateDireccion(){
   }
 }
 
+/* ====================== API helpers ====================== */
 async function postJson(url, body){
   const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'cors', body: JSON.stringify(body) });
   const text = await r.text();
@@ -972,6 +979,7 @@ function isHttpUrl(value){
   }
 }
 
+/* ✅ Lógica para mostrar de forma selectiva las opciones de contacto (sucursales, redes sociales y WhatsApp) según el anunciante logueado */
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -1000,9 +1008,10 @@ function buildCommerceFieldsMarkup(datos){
       return;
     }
 
+    // Lógica selectiva para opciones de contacto secundarias (sucursales adicionales, whatsapp adicional, redes sociales opcionales) según el anunciante logueado
     const isSecondaryContactField = /^(direccion[2-6]|maps[2-6]|telefono[2-6]|whatsapp[2-3]|youtube|tiktok|linkedin)$/.test(fieldName);
     if (isSecondaryContactField && !fieldValue) {
-      // Oculto dinámicamente si no hay datos
+      // Si el anunciante no tiene cargada esta opción de contacto opcional, se renderiza de forma compacta/limpia sin recargar la interfaz innecesariamente
     }
 
     let maxLengthAttr = '';
@@ -1076,52 +1085,36 @@ function buildCommerceSavePayload(){
   return payload;
 }
 
-/* ====================== Lógica Opciones de Contacto en Promos ====================== */
-function updatePromoOptionsContainer(existingPromo = null){
-  const container = document.getElementById('promo-options-container');
-  if(!container) return;
-  container.innerHTML = '';
-
-  const commerceData = lastCommerceData || {};
-  let availableFieldsCount = 0;
-
-  PROMO_CONTACT_FIELDS.forEach(field => {
-    const val = commerceData[field];
-    if(val !== undefined && val !== null && String(val).trim() !== ''){
-      availableFieldsCount++;
-      const isChecked = existingPromo ? isTruthy(existingPromo[field]) : false;
-      
-      const labelEl = document.createElement('label');
-      const checkboxEl = document.createElement('input');
-      checkboxEl.type = 'checkbox';
-      checkboxEl.name = `promo_opt_${field}`;
-      checkboxEl.dataset.field = field;
-      checkboxEl.checked = isChecked;
-
-      labelEl.appendChild(checkboxEl);
-      labelEl.appendChild(document.createTextNode(` ${field.toUpperCase()}: ${String(val).substring(0, 35)}`));
-      container.appendChild(labelEl);
-    }
-  });
-
-  if(availableFieldsCount === 0){
-    container.innerHTML = '<div class="small-muted" style="width:100%">No hay opciones de contacto disponibles en el perfil del anunciante (hoja aux_anunciantes).</div>';
-  }
-}
-
-function getPromoOptionsPayload(){
-  const container = document.getElementById('promo-options-container');
-  if(!container) return {};
-  const optionsPayload = {};
-  container.querySelectorAll('input[type="checkbox"][data-field]').forEach(chk => {
-    const fieldName = chk.getAttribute('data-field');
-    optionsPayload[fieldName] = chk.checked ? 'TRUE' : 'FALSE';
-  });
-  return optionsPayload;
-}
-
 /* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
+
+/* Función que dibuja los checkboxes del contenedor evaluando la variable de sesión */
+function renderPromoContactOptions(promoData = null) {
+  const list = document.getElementById('promo-options-list');
+  const container = document.getElementById('promo-options-container');
+  if (!list || !container) return;
+
+  if (!sesion || !sesion.contactData || Object.keys(sesion.contactData).length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+
+  container.style.display = 'block';
+  let html = '';
+  for (const field of PROMO_CONTACT_FIELDS) {
+    if (sesion.contactData[field]) {
+      let isChecked = false;
+      if (promoData) {
+         isChecked = (promoData[field] === true || String(promoData[field]).toUpperCase() === 'TRUE');
+      }
+      html += `<label style="display:inline-flex; align-items:center; font-weight:normal; margin:0; cursor:pointer; background:#f0f2f5; padding:4px 8px; border-radius:4px; border:1px solid #e0e0e0;">
+                 <input type="checkbox" id="promo-opt-${field}" value="${field}" ${isChecked ? 'checked' : ''} style="width:auto; margin:0 6px 0 0; cursor:pointer;" />
+                 <span style="font-size:0.9em; text-transform:uppercase; color:#333;">${field}</span>
+               </label>`;
+    }
+  }
+  list.innerHTML = html;
+}
 
 function promoSetCreateMode(){
   editingPromoId = null;
@@ -1130,7 +1123,6 @@ function promoSetCreateMode(){
     btn.textContent = 'Crear promo';
     btn.dataset.mode = '';
   }
-  updatePromoOptionsContainer(null);
 }
 function promoClearForm(){
   document.getElementById('promo-text').value = '';
@@ -1138,7 +1130,7 @@ function promoClearForm(){
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
-  updatePromoOptionsContainer(null);
+  renderPromoContactOptions();
 }
 function promoCancelEdit(){
   promoSetCreateMode();
@@ -1276,7 +1268,8 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
 
-        updatePromoOptionsContainer(found);
+        // Renderizado del histórico de opciones de contacto guardadas en la promo 
+        renderPromoContactOptions(found);
 
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
@@ -1293,19 +1286,25 @@ function bindPromosListActions(){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ alert('No se encontró la promo (refrescá).'); return; }
         setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        
-        const duplicatePayload = {
+
+        const contactPayload = {};
+        if (sesion && sesion.contactData) {
+            for (const field of PROMO_CONTACT_FIELDS) {
+                if (sesion.contactData[field]) {
+                    contactPayload[field] = (found[field] === true || String(found[field]).toUpperCase() === 'TRUE') ? 'TRUE' : 'FALSE';
+                }
+            }
+        }
+
+        const r = await promos_post({ action: 'createPromo', payload: {
           promo: found.promo || '',
           categoria: found.categoria || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
-          otros: found.otros || ''
-        };
-        PROMO_CONTACT_FIELDS.forEach(field => {
-          if(found[field] !== undefined) duplicatePayload[field] = found[field];
-        });
-
-        const r = await promos_post({ action: 'createPromo', payload: duplicatePayload });
+          otros: found.otros || '',
+          ...contactPayload
+        }});
+        
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
           await loadPromosUI();
@@ -1733,8 +1732,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const savedOk = !!(response.json && (response.json.success || response.json.updated || response.json.aprobado === true));
       if(response.status === 200 && savedOk){
         setMsg('msg-datos-comercio', 'ok', 'Datos guardados.');
-        lastCommerceData = payload;
-        updatePromoOptionsContainer(null);
       } else {
         setMsg('msg-datos-comercio', 'err', 'No se pudieron guardar los datos: ' + ((response.json && (response.json.message || response.json.error)) ? (response.json.message || response.json.error) : 'sin detalle'));
       }
@@ -1891,16 +1888,26 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const desde = promoGet('promo-desde');
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
-      const optionsPayload = getPromoOptionsPayload();
 
       if(!promo){ alert('Ingresá texto de promo'); return; }
 
+      // Extraer datos configurados del contenedor de opciones de contacto
+      const contactPayload = {};
+      if (sesion && sesion.contactData) {
+          for (const field of PROMO_CONTACT_FIELDS) {
+              if (sesion.contactData[field]) {
+                  const cb = document.getElementById(`promo-opt-${field}`);
+                  contactPayload[field] = cb && cb.checked ? 'TRUE' : 'FALSE';
+              }
+          }
+      }
+
+      const payloadObj = { promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'', ...contactPayload };
+
       if(btn.dataset.mode === 'edit' && editingPromoId){
+        payloadObj.promo_id = editingPromoId;
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
-        const r = await promos_post({
-          action: 'updatePromo',
-          payload: Object.assign({ promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' }, optionsPayload)
-        });
+        const r = await promos_post({ action: 'updatePromo', payload: payloadObj });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -1918,10 +1925,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
 
         setMsg('promos-msg', 'ok', 'Creando promo...');
-        const r = await promos_post({
-          action: 'createPromo',
-          payload: Object.assign({ promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' }, optionsPayload)
-        });
+        const r = await promos_post({ action: 'createPromo', payload: payloadObj });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -2010,7 +2014,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
       
       const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
-      lastCommerceData = datos;
       const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
@@ -2023,7 +2026,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
-      updatePromoOptionsContainer(null);
+
+      /* Lógica de recolección de los datos de contacto cargados para inyectar en las Promos */
+      sesion.contactData = {};
+      PROMO_CONTACT_FIELDS.forEach(field => {
+        if (datos[field] && String(datos[field]).trim() !== '') {
+          sesion.contactData[field] = true;
+        }
+      });
+      renderPromoContactOptions();
 
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(rawDatos);
@@ -2158,36 +2169,75 @@ document.addEventListener('DOMContentLoaded', ()=>{
       { key:'gifcards', label:'Gifcards' },
       { key:'actividades', label:'Actividades' },
       { key:'reservas', label:'Reservas' },
-      { key:'modificar_datos', label:'Modificar datos' },
+      { key:'modificar-datos', label:'Modificar datos' },
       { key:'publicidad', label:'Publicidad' }
     ];
 
-    const tabs = {
-      inicio: tabInicio,
-      promos: tabPromos,
-      eventos: tabEventos,
-      menu: tabMenu,
-      vouchers: tabVouchers,
-      entradas: tabEntradas,
-      gifcards: tabGifcards,
-      actividades: tabActividades,
-      reservas: tabReservas,
-      modificar_datos: tabModificarDatos,
-      publicidad: tabPublicidad
+    function showTabPanel(key){
+      document.querySelectorAll('.tab').forEach(t=>t.classList.remove('tab-active'));
+      const activeTab = document.getElementById('tab-'+key);
+      if(activeTab) activeTab.classList.add('tab-active');
+
+      inicioPanel.style.display='none';
+      datosPanel.style.display='none';
+      promosPanel.style.display='none';
+      eventosPanel.style.display='none';
+      menuPanel.style.display='none';
+      publicidadPanel.style.display='none';
+      placeholderPanel.style.display='none';
+
+      if(key==='inicio') inicioPanel.style.display='block';
+      else if(key==='modificar-datos') datosPanel.style.display='block';
+      else if(key==='promos') promosPanel.style.display='block';
+      else if(key==='eventos') eventosPanel.style.display='block';
+      else if(key==='publicidad') publicidadPanel.style.display='block';
+      else if(key==='menu'){
+        menuPanel.style.display='block';
+        if(sesion && sesion.planilla_id && !menuIframe.src){
+          menuIframe.src = `https://liqkomenu.liqkoargentina.workers.dev/panel?planilla_id=${encodeURIComponent(sesion.planilla_id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}`;
+        }
+      }
+      else {
+        placeholderTitle.textContent = document.getElementById('tab-'+key)?.textContent || key;
+        placeholderPanel.style.display='block';
+      }
+    }
+
+    tabInicio.addEventListener('click', ()=>showTabPanel('inicio'));
+    tabPromos.addEventListener('click', ()=>showTabPanel('promos'));
+    tabEventos.addEventListener('click', ()=>showTabPanel('eventos'));
+    tabMenu.addEventListener('click', ()=>showTabPanel('menu'));
+    tabVouchers.addEventListener('click', ()=>showTabPanel('vouchers'));
+    tabEntradas.addEventListener('click', ()=>showTabPanel('entradas'));
+    tabGifcards.addEventListener('click', ()=>showTabPanel('gifcards'));
+    tabActividades.addEventListener('click', ()=>showTabPanel('actividades'));
+    tabReservas.addEventListener('click', ()=>showTabPanel('reservas'));
+    tabModificarDatos.addEventListener('click', ()=>showTabPanel('modificar-datos'));
+    tabPublicidad.addEventListener('click', ()=>showTabPanel('publicidad'));
+
+    window.updateDashboardModulesFromData = function(data){
+      let html='';
+      const activeModules = Array.isArray(data.modulos_activos) ? data.modulos_activos : [];
+      moduleDefs.forEach(mod=>{
+        const isDatos = (mod.key === 'modificar-datos');
+        const isActive = isDatos || activeModules.includes(mod.key);
+        if(isActive){
+          html += `<button class="primary dashboard-module-btn" onclick="document.getElementById('tab-${mod.key}').click()">Ir a ${mod.label}</button>`;
+        }
+      });
+      if(html==='') html = '<div class="small-muted">No hay módulos adicionales habilitados.</div>';
+      dashboardModules.innerHTML = html;
+
+      const tabsToHide = ['tab-promos','tab-eventos','tab-menu','tab-vouchers','tab-entradas','tab-gifcards','tab-actividades','tab-reservas','tab-publicidad'];
+      tabsToHide.forEach(k=>{
+        const t = document.getElementById(k);
+        if(t){
+          const mKey = k.replace('tab-','');
+          t.style.display = activeModules.includes(mKey) ? 'block' : 'none';
+        }
+      });
     };
 
-    function normalizeKey(k){
-      return String(k || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-    }
-
-    function isTruthy(v){
-      if(v === true || v === 'true' || v === 'TRUE' || v === '1' || v === 1) return true;
-      return false;
-    }
   })();
 });
 </script>
