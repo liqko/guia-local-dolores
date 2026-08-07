@@ -330,9 +330,6 @@
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
             </div>
 
-            <!-- Contenedor dinámico de opciones (redes, whatsapp, sucursales) -->
-            <div id="promo-options-container" style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;"></div>
-
             <div id="promos-msg" style="margin-top:8px"></div>
           </div>
 
@@ -491,6 +488,7 @@ const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN
 /* ✅ Form imágenes eventos (prefill evento_id) */
 const EVENT_IMAGES_FORM_PREFILL_BASE =
   "https://docs.google.com/forms/d/e/1FAIpQLSePjX6Qlc38bNUlgI3iS_TaKOdwsP0ozfhS0XRb-d1jqCj2KQ/viewform?usp=pp_url&entry.2132836597=";
+/* Modificar datos reutiliza el mismo flujo de formulario externo que eventos. */
 const COMMERCE_IMAGES_FORM_PREFILL_BASE = EVENT_IMAGES_FORM_PREFILL_BASE;
 /* ================= */
 
@@ -500,20 +498,12 @@ let comercios = [];
 let sesion = null;
 let evLists = { categorias: [], localidades: [], lugares: [], partners: [] };
 let editingEventId = null;
-let lastCreatedEventId = null;
-let editingPromoId = null;
 
-const PROMO_OPTIONAL_FIELDS = [
-  'instagram', 'facebook', 'youtube', 'tiktok', 'linkedin',
-  'whatsapp', 'whatsapp2', 'whatsapp3',
-  'direccion', 'maps', 'telefono',
-  'direccion1', 'maps1', 'telefono1',
-  'direccion2', 'maps2', 'telefono2',
-  'direccion3', 'maps3', 'telefono3',
-  'direccion4', 'maps4', 'telefono4',
-  'direccion5', 'maps5', 'telefono5',
-  'direccion6', 'maps6', 'telefono6'
-];
+/* ✅ último evento creado (para habilitar botón imágenes en modo "crear") */
+let lastCreatedEventId = null;
+
+// ✅ Promos: edición sin prompts
+let editingPromoId = null;
 
 const COMMERCE_DATA_FIELDS = [
   "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
@@ -896,7 +886,7 @@ async function loadEventLists(){
 
 async function loadPromosCategorias(){
   try {
-    const json = await gvizFetch(PROMOS_SHEET_ID, 'aux_categorias');
+    const json = await gvizFetch(PROMOS_SHEET_ID, 'categorias_list');
     const headers = gvizGetHeaders(json);
     const rows = gvizGetRows(json);
     let idxTitulo = headers.indexOf('titulo'); if(idxTitulo === -1) idxTitulo = 0;
@@ -906,51 +896,7 @@ async function loadPromosCategorias(){
     const uniqueCats = Array.from(new Set(cats));
     fillSelectOptions('promo-categoria', uniqueCats, 'Categoría de la promo');
   } catch(e){
-    console.error('Error cargando categorías de promos desde aux_categorias:', e);
-  }
-}
-
-function renderPromoDataOptions(datos, selectedValues = {}){
-  const container = document.getElementById('promo-options-container');
-  if(!container) return;
-  container.innerHTML = '';
-  
-  if(!datos || typeof datos !== 'object') {
-    container.innerHTML = '<span class="small-muted">Cargá o guardá datos de tu comercio para ver sucursales y redes disponibles.</span>';
-    return;
-  }
-
-  let countAdded = 0;
-  PROMO_OPTIONAL_FIELDS.forEach(field => {
-    const val = datos[field];
-    if(val !== undefined && val !== null && String(val).trim() !== ''){
-      countAdded++;
-      const isChecked = selectedValues[field] === true || selectedValues[field] === 'true' || String(selectedValues[field]).toUpperCase() === 'TRUE';
-      
-      const label = document.createElement('label');
-      label.style.display = 'inline-flex';
-      label.style.alignItems = 'center';
-      label.style.gap = '4px';
-      label.style.background = '#f0f4ff';
-      label.style.padding = '4px 8px';
-      label.style.borderRadius = '4px';
-      label.style.fontSize = '0.9em';
-      label.style.cursor = 'pointer';
-      label.style.margin = '2px';
-
-      const input = document.createElement('input');
-      input.type = 'checkbox';
-      input.id = `promo-opt-${field}`;
-      input.checked = isChecked;
-
-      label.appendChild(input);
-      label.appendChild(document.createTextNode(field.toUpperCase()));
-      container.appendChild(label);
-    }
-  });
-
-  if(countAdded === 0){
-    container.innerHTML = '<span class="small-muted">No hay sucursales, teléfonos o redes cargados en los datos de tu comercio.</span>';
+    console.error('Error cargando categorías de promos:', e);
   }
 }
 
@@ -1133,7 +1079,6 @@ function promoClearForm(){
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
-  renderPromoDataOptions(window.__lastCommerceData, {});
 }
 function promoCancelEdit(){
   promoSetCreateMode();
@@ -1271,8 +1216,6 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
 
-        renderPromoDataOptions(window.__lastCommerceData, found);
-
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
@@ -1288,19 +1231,13 @@ function bindPromosListActions(){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ alert('No se encontró la promo (refrescá).'); return; }
         setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        
-        const dupPayload = {
+        const r = await promos_post({ action: 'createPromo', payload: {
           promo: found.promo || '',
           categoria: found.categoria || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
           otros: found.otros || ''
-        };
-        PROMO_OPTIONAL_FIELDS.forEach(field => {
-          if(found[field] !== undefined) dupPayload[field] = found[field];
-        });
-
-        const r = await promos_post({ action: 'createPromo', payload: dupPayload });
+        }});
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
           await loadPromosUI();
@@ -1887,24 +1824,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       if(!promo){ alert('Ingresá texto de promo'); return; }
 
-      const promoPayload = {
-        promo,
-        categoria,
-        desde: desde||'',
-        hasta: hasta||'',
-        otros: otros||''
-      };
-
-      PROMO_OPTIONAL_FIELDS.forEach(field => {
-        const chk = document.getElementById(`promo-opt-${field}`);
-        if(chk){
-          promoPayload[field] = chk.checked ? 'TRUE' : 'FALSE';
-        }
-      });
-
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
-        const r = await promos_post({ action: 'updatePromo', payload: Object.assign({ promo_id: editingPromoId }, promoPayload) });
+        const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -1922,7 +1844,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
 
         setMsg('promos-msg', 'ok', 'Creando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: promoPayload });
+        const r = await promos_post({ action: 'createPromo', payload: { promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -2011,8 +1933,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
       
       const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
-      window.__lastCommerceData = datos;
-
       const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
@@ -2025,8 +1945,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
-      renderPromoDataOptions(datos, {});
-
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(rawDatos);
       }
@@ -2111,7 +2029,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     localStorage.removeItem('promos_cant');
     localStorage.removeItem('eventos_cant');
     sesion=null;
-    window.__lastCommerceData = null;
     btnLogin.removeAttribute('disabled');
     btnLogin.textContent = originalLoginBtnText;
     mostrarPanel('login');
@@ -2204,85 +2121,109 @@ document.addEventListener('DOMContentLoaded', ()=>{
     function isTruthy(v){
       if(v === true || v === 1) return true;
       const s = String(v || '').trim().toLowerCase();
-      return ['true','1','si','yes','on','activo','habilitado'].includes(s);
+      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
     }
 
-    function switchTab(name){
-      Object.keys(tabs).forEach(k=>{
-        const el = tabs[k];
-        if(!el) return;
-        if(k === name) el.classList.remove('hidden','hidden-panel');
-        else el.classList.add('hidden-panel');
-      });
+    function detectEnabledModules(datos){
+      const out = new Set();
+      const raw = datos && typeof datos === 'object' ? datos : {};
+      const data = raw.data || raw.anunciante || raw;
+      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
+      let hasCapabilityFields = false;
 
-      dashboardTabs?.querySelectorAll('.tab').forEach(t=>t.classList.remove('tab-active'));
-      const activeTabEl = document.getElementById('tab-' + name.replace('_','-'));
-      if(activeTabEl) activeTabEl.classList.add('tab-active');
-
-      if(name === 'menu' && sesion){
-        const menuUrl = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
-        if(menuIframe && menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
-      }
-    }
-
-    window.updateDashboardModulesFromData = function(rawObj){
-      const obj = rawObj && (rawObj.data || rawObj.anunciante || rawObj) ? (rawObj.data || rawObj.anunciante || rawObj) : {};
-      enabledModules = new Set(['modificar_datos']);
-
-      moduleDefs.forEach(m=>{
-        if(m.key === 'modificar_datos') return;
-        const aliases = aliasByModule[m.key] || [m.key];
-        let foundVal = undefined;
-        for(const k of Object.keys(obj)){
-          const nk = normalizeKey(k);
-          if(aliases.some(alias => nk === normalizeKey(alias))){
-            foundVal = obj[k];
-            break;
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        const aliases = aliasByModule[modKey].map(normalizeKey);
+        let foundField = false;
+        let foundEnabled = false;
+        for(const item of entries){
+          if(aliases.includes(item.norm)){
+            foundField = true;
+            hasCapabilityFields = true;
+            if(isTruthy(item.value)){
+              foundEnabled = true;
+            }
           }
         }
-        if(foundVal !== undefined){
-          if(isTruthy(foundVal)) enabledModules.add(m.key);
+        if(foundField){
+          if(foundEnabled) out.add(modKey);
+        }
+      });
+      if(!hasCapabilityFields){
+        return new Set(['promos','eventos','menu','vouchers','entradas','gifcards','actividades','reservas','modificar_datos','publicidad']);
+      }
+      out.add('modificar_datos');
+      out.add('publicidad');
+      return out;
+    }
+
+    function updateDashboardUI(activeModule){
+      Object.keys(tabs).forEach(k=>{
+        const t = tabs[k];
+        if(!t) return;
+        if(enabledModules.has(k) || k==='inicio'){
+          t.style.display = 'block';
         } else {
-          enabledModules.add(m.key);
+          t.style.display = 'none';
+        }
+        if(k === activeModule){
+          t.classList.add('tab-active');
+          t.setAttribute('aria-selected', 'true');
+        } else {
+          t.classList.remove('tab-active');
+          t.setAttribute('aria-selected', 'false');
         }
       });
 
-      Object.keys(tabs).forEach(k=>{
-        const tabEl = tabs[k];
-        if(!tabEl) return;
-        if(k === 'inicio' || k === 'modificar_datos') return;
-        if(enabledModules.has(k)) tabEl.style.display = '';
-        else tabEl.style.display = 'none';
-      });
+      inicioPanel.classList.add('hidden-panel');
+      datosPanel.classList.add('hidden-panel');
+      promosPanel.classList.add('hidden-panel');
+      eventosPanel.classList.add('hidden-panel');
+      menuPanel.classList.add('hidden-panel');
+      publicidadPanel.classList.add('hidden-panel');
+      placeholderPanel.classList.add('hidden-panel');
 
-      if(dashboardModules){
-        dashboardModules.innerHTML = '';
-        moduleDefs.forEach(m=>{
-          if(m.key === 'modificar_datos') return;
-          if(enabledModules.has(m.key)){
-            const btn = document.createElement('button');
-            btn.className = 'secondary dashboard-module-btn';
-            btn.textContent = m.label;
-            btn.onclick = ()=> switchTab(m.key);
-            dashboardModules.appendChild(btn);
-          }
-        });
+      if(activeModule === 'inicio'){
+        inicioPanel.classList.remove('hidden-panel');
+      } else if(activeModule === 'modificar_datos'){
+        datosPanel.classList.remove('hidden-panel');
+      } else if(activeModule === 'promos'){
+        promosPanel.classList.remove('hidden-panel');
+      } else if(activeModule === 'eventos'){
+        eventosPanel.classList.remove('hidden-panel');
+      } else if(activeModule === 'menu'){
+        menuPanel.classList.remove('hidden-panel');
+        if(sesion && sesion.planilla_id && !menuIframe.src){
+          menuIframe.src = `https://docs.google.com/spreadsheets/d/${sesion.planilla_id}/edit?usp=sharing`;
+        }
+      } else if(activeModule === 'publicidad'){
+        publicidadPanel.classList.remove('hidden-panel');
+      } else {
+        placeholderPanel.classList.remove('hidden-panel');
+        const def = moduleDefs.find(d => d.key === activeModule);
+        placeholderTitle.textContent = def ? def.label : 'Módulo';
       }
+    }
+
+    window.updateDashboardModulesFromData = function(datos){
+      enabledModules = detectEnabledModules(datos);
+      dashboardModules.innerHTML = '';
+      moduleDefs.forEach(def=>{
+        if(enabledModules.has(def.key)){
+          const btn = document.createElement('button');
+          btn.className = 'secondary dashboard-module-btn';
+          btn.textContent = def.label;
+          btn.onclick = ()=> updateDashboardUI(def.key);
+          dashboardModules.appendChild(btn);
+        }
+      });
+      updateDashboardUI('inicio');
     };
 
-    tabInicio?.addEventListener('click', ()=> switchTab('inicio'));
-    tabPromos?.addEventListener('click', ()=> switchTab('promos'));
-    tabEventos?.addEventListener('click', ()=> switchTab('eventos'));
-    tabMenu?.addEventListener('click', ()=> switchTab('menu'));
-    tabVouchers?.addEventListener('click', ()=> switchTab('vouchers'));
-    tabEntradas?.addEventListener('click', ()=> switchTab('entradas'));
-    tabGifcards?.addEventListener('click', ()=> switchTab('gifcards'));
-    tabActividades?.addEventListener('click', ()=> switchTab('actividades'));
-    tabReservas?.addEventListener('click', ()=> switchTab('reservas'));
-    tabModificarDatos?.addEventListener('click', ()=> switchTab('modificar_datos'));
-    tabPublicidad?.addEventListener('click', ()=> switchTab('publicidad'));
-
-    switchTab('inicio');
+    Object.keys(tabs).forEach(k=>{
+      const t = tabs[k];
+      if(!t) return;
+      t.addEventListener('click', ()=> updateDashboardUI(k));
+    });
   })();
 });
 </script>
