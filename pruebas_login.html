@@ -310,6 +310,10 @@
               <button id="promo-cancel" class="secondary" style="min-width:140px">Cancelar edición</button>
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
             </div>
+            
+            <!-- Casillas de verificación dinámicas a partir de dirección -->
+            <div id="promo-optional-fields" style="margin-top:12px;border-top:1px dashed #d0d4ee;padding-top:10px;"></div>
+
             <div id="promos-msg" style="margin-top:8px"></div>
           </div>
           <div id="promos-list" style="margin-top:12px">Cargando promos...</div>
@@ -449,6 +453,7 @@ let editingPromoId = null;
 /* ✅ Auxiliares de Anunciantes y Categorías conectados con aux_anunciantes */
 let auxAnunciantesFields = [];
 let auxAnunciantesCategorias = [];
+window.__currentCommerceData = {};
 
 const COMMERCE_DATA_FIELDS = [
   "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
@@ -470,6 +475,18 @@ const COMMERCE_IMAGE_UPLOAD_NOTE = `
   Asegurá que el enlace sea público.<br>
   Pegá la URL acá.
 `;
+
+const PROMO_OPTIONAL_FIELDS = [
+  "direccion","maps","telefono",
+  "direccion1","maps1","telefono1",
+  "direccion2","maps2","telefono2",
+  "direccion3","maps3","telefono3",
+  "direccion4","maps4","telefono4",
+  "direccion5","maps5","telefono5",
+  "direccion6","maps6","telefono6",
+  "whatsapp","whatsapp2","whatsapp3",
+  "instagram","facebook","youtube","tiktok","linkedin"
+];
 
 function debugLog(...args){ console.log(...args); }
 
@@ -598,18 +615,6 @@ function toTimeInputValue(v){
 
 function formatDateForTable(v){ return toDateInputValue(v) || String(v||''); }
 function formatTimeForTable(v){ return toTimeInputValue(v) || ''; }
-
-function openImagesFormForEvent(eventoId){
-  const id = String(eventoId || '').trim();
-  if(!id){ alert('Evento sin ID.'); return; }
-  window.open(EVENT_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
-}
-
-function openImagesFormForCommerce(comercioId){
-  const id = String(comercioId || '').trim();
-  if(!id){ alert('Anunciante sin ID.'); return; }
-  window.open(COMMERCE_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
-}
 
 /* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
@@ -928,38 +933,65 @@ function isHttpUrl(value){
   }
 }
 
-/* ✅ Generación visual de casilleros de publicación basados en aux_anunciantes con casillas de verificación a partir de direccion si contienen datos */
+/* ✅ Renderizado de casillas de verificación opcionales para Promos a partir de dirección */
+function renderPromoOptionalFieldsCheckboxes(promoData = {}) {
+  const container = document.getElementById('promo-optional-fields');
+  if(!container) return;
+  const commerceData = window.__currentCommerceData || {};
+  
+  const fieldsToCheck = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : PROMO_OPTIONAL_FIELDS;
+  let html = '<div style="font-weight:600;margin-bottom:6px;font-size:0.95em;">Datos de ubicación y contacto a incluir en la promo:</div><div style="display:flex;flex-wrap:wrap;gap:10px;">';
+  let count = 0;
+
+  fieldsToCheck.forEach(field => {
+    const isTarget = /^(direccion|maps|telefono|whatsapp|direccion\d+|maps\d+|telefono\d+|whatsapp\d+|instagram|facebook|youtube|tiktok|linkedin)$/i.test(field);
+    if(!isTarget) return;
+
+    const val = commerceData[field];
+    if(val && String(val).trim() !== '') {
+      count++;
+      const isChecked = promoData[field] !== undefined ? (promoData[field] !== '' && promoData[field] !== null && promoData[field] !== false) : true;
+      html += `
+        <label style="display:inline-flex;align-items:center;gap:6px;background:#fff;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:0.9em;cursor:pointer;">
+          <input type="checkbox" id="promo-opt-${field}" value="1" ${isChecked ? 'checked' : ''} />
+          <span><b>${htmlEscape(field.toUpperCase())}:</b> ${htmlEscape(val)}</span>
+        </label>
+      `;
+    }
+  });
+
+  if(count === 0){
+    container.innerHTML = '<div class="small-muted">No hay datos de dirección o contacto cargados en el perfil para incluir.</div>';
+  } else {
+    container.innerHTML = html + '</div>';
+  }
+}
+
+function getPromoOptionalFieldsPayload() {
+  const payload = {};
+  const fieldsToCheck = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : PROMO_OPTIONAL_FIELDS;
+  fieldsToCheck.forEach(field => {
+    const chk = document.getElementById(`promo-opt-${field}`);
+    if(chk && chk.checked){
+      payload[field] = window.__currentCommerceData[field] || '';
+    } else {
+      payload[field] = '';
+    }
+  });
+  return payload;
+}
+
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
   let imageNoteRendered = false;
 
   const fieldsToUse = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : COMMERCE_DATA_FIELDS;
-  let startCheck = false;
 
   fieldsToUse.forEach((fieldName)=>{
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
     const upperName = fieldName.toUpperCase();
-
-    if(fieldName.toLowerCase() === 'direccion'){
-      startCheck = true;
-    }
-
-    let checkboxHtml = '';
-    if(startCheck && fieldValue !== ''){
-      const pubKey = `pub_${fieldName}`;
-      const pubVal = values[pubKey];
-      const isChecked = pubVal === true || String(pubVal).toUpperCase() === 'TRUE' || pubVal === '1' || pubVal === 1 || pubVal === undefined;
-      const checkedAttr = isChecked ? ' checked' : '';
-      checkboxHtml = `
-        <div style="margin-top:6px; font-size:0.9em;">
-          <label style="display:inline-flex; align-items:center; gap:6px; font-weight:normal; cursor:pointer;">
-            <input type="checkbox" name="pub_${htmlEscape(fieldName)}" value="1"${checkedAttr} style="width:auto; margin-bottom:0;" /> Publicar este dato
-          </label>
-        </div>
-      `;
-    }
 
     if(COMMERCE_IMAGE_FIELDS.has(fieldName) || /^(logo|img\d+)$/.test(fieldName)){
       if(!imageNoteRendered){
@@ -974,7 +1006,6 @@ function buildCommerceFieldsMarkup(datos){
         <div class="data-field-card image-field">
           <label><strong>${htmlEscape(upperName)}</strong></label>
           <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" placeholder="https://..." />
-          ${checkboxHtml}
         </div>
       `;
       return;
@@ -995,7 +1026,6 @@ function buildCommerceFieldsMarkup(datos){
         <div class="data-field-card" style="grid-column: 1 / -1;">
           <label>${labelHtml}</label>
           <textarea name="${htmlEscape(fieldName)}" rows="3"${maxLengthAttr}>${htmlEscape(fieldValue)}</textarea>
-          ${checkboxHtml}
         </div>
       `;
     } else {
@@ -1003,7 +1033,6 @@ function buildCommerceFieldsMarkup(datos){
         <div class="data-field-card">
           <label>${labelHtml}</label>
           <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
-          ${checkboxHtml}
         </div>
       `;
     }
@@ -1048,17 +1077,8 @@ function buildCommerceSavePayload(){
     payload.comercio_id = id;
   }
   const fieldsToUse = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : COMMERCE_DATA_FIELDS;
-  let startCheck = false;
   fieldsToUse.forEach((fieldName)=>{
-    const val = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
-    payload[fieldName] = val;
-    if(fieldName.toLowerCase() === 'direccion') startCheck = true;
-    if(startCheck && val !== ''){
-      const cb = form?.querySelector(`[name="pub_${fieldName}"]`);
-      if(cb){
-        payload[`pub_${fieldName}`] = cb.checked ? 'TRUE' : 'FALSE';
-      }
-    }
+    payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
   });
   return payload;
 }
@@ -1073,6 +1093,7 @@ function promoSetCreateMode(){
     btn.textContent = 'Crear promo';
     btn.dataset.mode = '';
   }
+  renderPromoOptionalFieldsCheckboxes({});
 }
 function promoClearForm(){
   document.getElementById('promo-text').value = '';
@@ -1080,6 +1101,7 @@ function promoClearForm(){
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
+  renderPromoOptionalFieldsCheckboxes({});
 }
 function promoCancelEdit(){
   promoSetCreateMode();
@@ -1215,6 +1237,8 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
 
+        renderPromoOptionalFieldsCheckboxes(found);
+
         setMsg('promos-msg', 'ok', 'Editando promo.');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
@@ -1230,13 +1254,16 @@ function bindPromosListActions(){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ alert('No se encontró la promo (refrescá).'); return; }
         setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: {
+        
+        const dupPayload = Object.assign({
           promo: found.promo || '',
           categoria: found.categoria || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
           otros: found.otros || ''
-        }});
+        }, getPromoOptionalFieldsPayload());
+
+        const r = await promos_post({ action: 'createPromo', payload: dupPayload });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
           await loadPromosUI();
@@ -1784,13 +1811,25 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const desde = promoGet('promo-desde');
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
+      const optionalPayload = getPromoOptionalFieldsPayload();
 
       if(!promo){ alert('Ingresá texto de promo'); return; }
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
         const comercioId = sesion && sesion.id ? String(sesion.id).trim() : '';
-        const r = await promos_post({ action: 'updatePromo', payload: { comercio_id: comercioId, id: comercioId, promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const updateData = Object.assign({
+          comercio_id: comercioId,
+          id: comercioId,
+          promo_id: editingPromoId,
+          promo,
+          categoria,
+          desde: desde||'',
+          hasta: hasta||'',
+          otros: otros||''
+        }, optionalPayload);
+
+        const r = await promos_post({ action: 'updatePromo', payload: updateData });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -1809,7 +1848,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
         setMsg('promos-msg', 'ok', 'Creando promo...');
         const comercioId = sesion && sesion.id ? String(sesion.id).trim() : '';
-        const r = await promos_post({ action: 'createPromo', payload: { comercio_id: comercioId, id: comercioId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const createData = Object.assign({
+          comercio_id: comercioId,
+          id: comercioId,
+          promo,
+          categoria,
+          desde: desde||'',
+          hasta: hasta||'',
+          otros: otros||''
+        }, optionalPayload);
+
+        const r = await promos_post({ action: 'createPromo', payload: createData });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -1895,6 +1944,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
       
       const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
+      window.__currentCommerceData = datos;
+      renderPromoOptionalFieldsCheckboxes({});
+
       const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
@@ -1991,6 +2043,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     localStorage.removeItem('promos_cant');
     localStorage.removeItem('eventos_cant');
     sesion=null;
+    window.__currentCommerceData = {};
     btnLogin.removeAttribute('disabled');
     btnLogin.textContent = originalLoginBtnText;
     mostrarPanel('login');
@@ -2054,64 +2107,110 @@ document.addEventListener('DOMContentLoaded', ()=>{
       modificar_datos: tabModificarDatos
     };
 
-    const panels = {
-      inicio: inicioPanel,
-      promos: promosPanel,
-      eventos: eventosPanel,
-      menu: menuPanel,
-      vouchers: placeholderPanel,
-      entradas: placeholderPanel,
-      gifcards: placeholderPanel,
-      actividades: placeholderPanel,
-      reservas: placeholderPanel,
-      modificar_datos: datosPanel
+    const aliasByModule = {
+      promos: ['promos','promo'],
+      eventos: ['eventos','evento','vip'],
+      menu: ['menu','menú'],
+      vouchers: ['vouchers','voucher'],
+      entradas: ['entradas','entrada','tickets','ticket'],
+      gifcards: ['gifcards','giftcards','tarjetas'],
+      actividades: ['actividades','actividad'],
+      reservas: ['reservas','reserva','turnos'],
+      modificar_datos: ['modificar datos','datos','perfil']
     };
 
-    function switchTab(key){
-      Object.values(tabs).forEach(t => t && t.classList.remove('tab-active'));
-      Object.values(panels).forEach(p => {
-        if(p && p !== placeholderPanel) p.classList.add('hidden-panel');
-      });
-      placeholderPanel.classList.add('hidden-panel');
-
-      if(tabs[key]) tabs[key].classList.add('tab-active');
-      if(panels[key]){
-        if(panels[key] === placeholderPanel){
-          const def = moduleDefs.find(m => m.key === key);
-          placeholderTitle.textContent = def ? def.label : key;
-          placeholderPanel.classList.remove('hidden-panel');
-        } else {
-          panels[key].classList.remove('hidden-panel');
-        }
-      }
-      if(key === 'menu'){
-        if(sesion && sesion.id){
-          const menuUrl = `https://liqkoargentina.github.io/menu/?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
-          if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
-        }
-      }
+    function normalizeName(s){
+      return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
     }
 
-    Object.keys(tabs).forEach(k => {
-      tabs[k]?.addEventListener('click', () => switchTab(k));
-    });
+    function matchModuleKey(rawKey){
+      const k = normalizeName(rawKey);
+      for(const modKey of Object.keys(aliasByModule)){
+        for(const alias of aliasByModule[modKey]){
+          if(k === alias || k.includes(alias)) return modKey;
+        }
+      }
+      return 'placeholder';
+    }
 
-    dashboardModules.innerHTML = moduleDefs.map(m => `
-      <button class="secondary dashboard-module-btn" data-module="${m.key}">${m.label}</button>
-    `).join('');
+    function hideAllPanels(){
+      inicioPanel?.classList.add('hidden-panel');
+      datosPanel?.classList.add('hidden-panel');
+      promosPanel?.classList.add('hidden-panel');
+      eventosPanel?.classList.add('hidden-panel');
+      menuPanel?.classList.add('hidden-panel');
+      placeholderPanel?.classList.add('hidden-panel');
+    }
 
-    dashboardModules.querySelectorAll('button[data-module]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const mod = btn.getAttribute('data-module');
-        if(tabs[mod]) switchTab(mod);
+    function setActiveTab(targetKey){
+      Object.keys(tabs).forEach(k=>{
+        const tabEl = tabs[k];
+        if(!tabEl) return;
+        if(k === targetKey){
+          tabEl.classList.add('tab-active');
+          tabEl.setAttribute('aria-selected', 'true');
+        } else {
+          tabEl.classList.remove('tab-active');
+          tabEl.setAttribute('aria-selected', 'false');
+        }
       });
-    });
+    }
 
-    window.updateDashboardModulesFromData = function(data){
-      // Optional customization based on data if needed
+    function switchModule(modKey){
+      hideAllPanels();
+      if(modKey === 'inicio'){
+        setActiveTab('inicio');
+        inicioPanel?.classList.remove('hidden-panel');
+      } else if(modKey === 'promos'){
+        setActiveTab('promos');
+        promosPanel?.classList.remove('hidden-panel');
+        setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 50);
+      } else if(modKey === 'eventos'){
+        setActiveTab('eventos');
+        eventosPanel?.classList.remove('hidden-panel');
+        setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 50);
+      } else if(modKey === 'menu'){
+        setActiveTab('menu');
+        menuPanel?.classList.remove('hidden-panel');
+        if(sesion && sesion.id){
+          const menuUrl = `https://liqkoargentina.github.io/panel-menu/?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
+          if(menuIframe && menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
+        }
+      } else if(modKey === 'modificar_datos'){
+        setActiveTab('modificar-datos');
+        datosPanel?.classList.remove('hidden-panel');
+      } else {
+        setActiveTab(modKey);
+        placeholderPanel?.classList.remove('hidden-panel');
+        const foundDef = moduleDefs.find(m => m.key === modKey);
+        if(placeholderTitle) placeholderTitle.textContent = foundDef ? foundDef.label : 'Módulo';
+      }
+      try{ dashboardTabs?.scrollIntoView({ behavior:'smooth', block:'nearest' }); }catch(e){}
+    }
+
+    window.updateDashboardModulesFromData = function(rawDatos){
+      const datos = (rawDatos && (rawDatos.data || rawDatos.anunciante)) ? (rawDatos.data || rawDatos.anunciante) : (rawDatos || {});
+      const buttonsHtml = moduleDefs.map(m=>{
+        return `<button class="secondary dashboard-module-btn" type="button" data-module="${m.key}">${m.label}</button>`;
+      }).join('');
+      if(dashboardModules) dashboardModules.innerHTML = buttonsHtml;
+
+      dashboardModules?.querySelectorAll('button[data-module]').forEach(btn=>{
+        btn.addEventListener('click', ()=>{
+          const mKey = btn.getAttribute('data-module');
+          switchModule(mKey);
+        });
+      });
     };
 
-    switchTab('inicio');
+    Object.keys(tabs).forEach(k=>{
+      const tabEl = tabs[k];
+      if(!tabEl) return;
+      tabEl.addEventListener('click', ()=>{
+        if(k === 'modificar-datos') switchModule('modificar_datos');
+        else switchModule(k);
+      });
+    });
   })();
 });
 </script>
