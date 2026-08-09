@@ -928,18 +928,38 @@ function isHttpUrl(value){
   }
 }
 
-/* ✅ Generación visual de casilleros de publicación basados en aux_anunciantes con fallback seguro */
+/* ✅ Generación visual de casilleros de publicación basados en aux_anunciantes con casillas de verificación a partir de direccion si contienen datos */
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
   let imageNoteRendered = false;
 
   const fieldsToUse = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : COMMERCE_DATA_FIELDS;
+  let startCheck = false;
 
   fieldsToUse.forEach((fieldName)=>{
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
     const upperName = fieldName.toUpperCase();
+
+    if(fieldName.toLowerCase() === 'direccion'){
+      startCheck = true;
+    }
+
+    let checkboxHtml = '';
+    if(startCheck && fieldValue !== ''){
+      const pubKey = `pub_${fieldName}`;
+      const pubVal = values[pubKey];
+      const isChecked = pubVal === true || String(pubVal).toUpperCase() === 'TRUE' || pubVal === '1' || pubVal === 1 || pubVal === undefined;
+      const checkedAttr = isChecked ? ' checked' : '';
+      checkboxHtml = `
+        <div style="margin-top:6px; font-size:0.9em;">
+          <label style="display:inline-flex; align-items:center; gap:6px; font-weight:normal; cursor:pointer;">
+            <input type="checkbox" name="pub_${htmlEscape(fieldName)}" value="1"${checkedAttr} style="width:auto; margin-bottom:0;" /> Publicar este dato
+          </label>
+        </div>
+      `;
+    }
 
     if(COMMERCE_IMAGE_FIELDS.has(fieldName) || /^(logo|img\d+)$/.test(fieldName)){
       if(!imageNoteRendered){
@@ -954,6 +974,7 @@ function buildCommerceFieldsMarkup(datos){
         <div class="data-field-card image-field">
           <label><strong>${htmlEscape(upperName)}</strong></label>
           <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" placeholder="https://..." />
+          ${checkboxHtml}
         </div>
       `;
       return;
@@ -974,6 +995,7 @@ function buildCommerceFieldsMarkup(datos){
         <div class="data-field-card" style="grid-column: 1 / -1;">
           <label>${labelHtml}</label>
           <textarea name="${htmlEscape(fieldName)}" rows="3"${maxLengthAttr}>${htmlEscape(fieldValue)}</textarea>
+          ${checkboxHtml}
         </div>
       `;
     } else {
@@ -981,6 +1003,7 @@ function buildCommerceFieldsMarkup(datos){
         <div class="data-field-card">
           <label>${labelHtml}</label>
           <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
+          ${checkboxHtml}
         </div>
       `;
     }
@@ -1025,8 +1048,17 @@ function buildCommerceSavePayload(){
     payload.comercio_id = id;
   }
   const fieldsToUse = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : COMMERCE_DATA_FIELDS;
+  let startCheck = false;
   fieldsToUse.forEach((fieldName)=>{
-    payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+    const val = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+    payload[fieldName] = val;
+    if(fieldName.toLowerCase() === 'direccion') startCheck = true;
+    if(startCheck && val !== ''){
+      const cb = form?.querySelector(`[name="pub_${fieldName}"]`);
+      if(cb){
+        payload[`pub_${fieldName}`] = cb.checked ? 'TRUE' : 'FALSE';
+      }
+    }
   });
   return payload;
 }
@@ -2022,114 +2054,65 @@ document.addEventListener('DOMContentLoaded', ()=>{
       modificar_datos: tabModificarDatos
     };
 
-    const aliasByModule = {
-      promos: ['promos','promo'],
-      eventos: ['eventos','evento'],
-      menu: ['menu','menus','carta'],
-      vouchers: ['vouchers','voucher','beneficios','beneficio'],
-      entradas: ['entradas','entrada'],
-      gifcards: ['gifcards','gifcard','giftcards','giftcard'],
-      actividades: ['actividades','actividad'],
-      reservas: ['reservas','reserva']
+    const panels = {
+      inicio: inicioPanel,
+      promos: promosPanel,
+      eventos: eventosPanel,
+      menu: menuPanel,
+      vouchers: placeholderPanel,
+      entradas: placeholderPanel,
+      gifcards: placeholderPanel,
+      actividades: placeholderPanel,
+      reservas: placeholderPanel,
+      modificar_datos: datosPanel
     };
 
-    function normalizeKey(k){
-      return String(k || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-    }
-
-    function isTruthy(v){
-      if(v === true || v === 1) return true;
-      const s = String(v || '').trim().toLowerCase();
-      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
-    }
-
-    function detectEnabledModules(datos){
-      const out = new Set();
-      const raw = datos && typeof datos === 'object' ? datos : {};
-      const data = raw.data || raw.anunciante || raw;
-      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
-      let hasCapabilityFields = false;
-
-      Object.keys(aliasByModule).forEach((modKey)=>{
-        const aliases = aliasByModule[modKey].map(normalizeKey);
-        let foundField = false;
-        let foundEnabled = false;
-        for(const item of entries){
-          if(aliases.includes(item.norm)){
-            foundField = true;
-            if(isTruthy(item.value)){ foundEnabled = true; break; }
-          }
-        }
-        if(foundField) hasCapabilityFields = true;
-        if(foundEnabled) out.add(modKey);
+    function switchTab(key){
+      Object.values(tabs).forEach(t => t && t.classList.remove('tab-active'));
+      Object.values(panels).forEach(p => {
+        if(p && p !== placeholderPanel) p.classList.add('hidden-panel');
       });
+      placeholderPanel.classList.add('hidden-panel');
 
-      if(!hasCapabilityFields){
-        out.add('promos');
-        out.add('eventos');
-      }
-      out.add('modificar_datos');
-      return out;
-    }
-
-    window.updateDashboardModulesFromData = function(datos){
-      const enabled = detectEnabledModules(datos);
-      Object.keys(tabs).forEach((k)=>{
-        if(k === 'inicio') return;
-        const tabEl = tabs[k];
-        if(!tabEl) return;
-        if(enabled.has(k)) tabEl.style.display = '';
-        else tabEl.style.display = 'none';
-      });
-
-      if(dashboardModules){
-        dashboardModules.innerHTML = '';
-        moduleDefs.forEach((mod)=>{
-          if(!enabled.has(mod.key)) return;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'secondary dashboard-module-btn';
-          btn.textContent = mod.label;
-          btn.onclick = ()=> {
-            const t = tabs[mod.key];
-            if(t) t.click();
-          };
-          dashboardModules.appendChild(btn);
-        });
-      }
-    };
-
-    Object.keys(tabs).forEach((key)=>{
-      const t = tabs[key];
-      if(!t) return;
-      t.addEventListener('click', ()=>{
-        Object.values(tabs).forEach(x=>x?.classList.remove('tab-active'));
-        t.classList.add('tab-active');
-
-        [inicioPanel, datosPanel, promosPanel, eventosPanel, menuPanel, placeholderPanel].forEach(p=>p?.classList.add('hidden-panel'));
-
-        if(key === 'inicio') inicioPanel?.classList.remove('hidden-panel');
-        else if(key === 'modificar_datos') datosPanel?.classList.remove('hidden-panel');
-        else if(key === 'promos') promosPanel?.classList.remove('hidden-panel');
-        else if(key === 'eventos') eventosPanel?.classList.remove('hidden-panel');
-        else if(key === 'menu'){
-          menuPanel?.classList.remove('hidden-panel');
-          if(menuIframe && sesion && sesion.id){
-            const menuUrl = `${WORKER_ORIGIN}/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}`;
-            if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
-          }
+      if(tabs[key]) tabs[key].classList.add('tab-active');
+      if(panels[key]){
+        if(panels[key] === placeholderPanel){
+          const def = moduleDefs.find(m => m.key === key);
+          placeholderTitle.textContent = def ? def.label : key;
+          placeholderPanel.classList.remove('hidden-panel');
         } else {
-          placeholderPanel?.classList.remove('hidden-panel');
-          placeholderTitle.textContent = t.textContent || key;
+          panels[key].classList.remove('hidden-panel');
         }
+      }
+      if(key === 'menu'){
+        if(sesion && sesion.id){
+          const menuUrl = `https://liqkoargentina.github.io/menu/?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
+          if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
+        }
+      }
+    }
+
+    Object.keys(tabs).forEach(k => {
+      tabs[k]?.addEventListener('click', () => switchTab(k));
+    });
+
+    dashboardModules.innerHTML = moduleDefs.map(m => `
+      <button class="secondary dashboard-module-btn" data-module="${m.key}">${m.label}</button>
+    `).join('');
+
+    dashboardModules.querySelectorAll('button[data-module]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mod = btn.getAttribute('data-module');
+        if(tabs[mod]) switchTab(mod);
       });
     });
-  })();
 
+    window.updateDashboardModulesFromData = function(data){
+      // Optional customization based on data if needed
+    };
+
+    switchTab('inicio');
+  })();
 });
 </script>
 </body>
