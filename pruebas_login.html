@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Panel Comercios - Login & Dashboard</title>
+  <title>Panel Comercios - Login Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
     body{font-family:Arial,Helvetica,sans-serif;background:#f6f7fb;margin:0;padding:0}
@@ -294,8 +294,8 @@
         <!-- Inicio -->
         <div id="inicio-panel">
           <h3>Inicio</h3>
-          <div class="small-muted">Utilizá las pestañas superiores para navegar por las distintas opciones.</div>
-          <div id="dashboard-modules" class="dashboard-modules" style="display:none;"></div>
+          <div class="small-muted">Elegí un módulo para continuar.</div>
+          <div id="dashboard-modules" class="dashboard-modules"></div>
         </div>
 
         <!-- Modificar datos -->
@@ -589,6 +589,7 @@ function toDateInputValue(v){
   return '';
 }
 
+/* ✅ FIX: NO usar Date para hora => evita cambios por zona horaria */
 function toTimeInputValue(v){
   if(v === undefined || v === null) return '';
   const s0 = String(v).trim();
@@ -2097,6 +2098,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       reservas: ['reservas','reserva']
     };
 
+    let enabledModules = new Set(['promos','eventos','modificar_datos']);
+
     function normalizeKey(k){
       return String(k || '')
         .toLowerCase()
@@ -2106,4 +2109,110 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }
 
     function isTruthy(v){
-      if(v === true || v === 1) return true
+      if(v === true || v === 1) return true;
+      const s = String(v || '').trim().toLowerCase();
+      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
+    }
+
+    function detectEnabledModules(datos){
+      const out = new Set();
+      const raw = datos && typeof datos === 'object' ? datos : {};
+      const data = raw.data || raw.anunciante || raw;
+      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
+      let hasCapabilityFields = false;
+
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        const aliases = aliasByModule[modKey].map(normalizeKey);
+        let foundField = false;
+        let foundEnabled = false;
+        for(const item of entries){
+          if(aliases.includes(item.norm)){
+            foundField = true;
+            if(isTruthy(item.value)){ foundEnabled = true; break; }
+          }
+        }
+        if(foundField) hasCapabilityFields = true;
+        if(foundEnabled) out.add(modKey);
+      });
+
+      if(!hasCapabilityFields){
+        out.add('promos');
+        out.add('eventos');
+      }
+      out.add('modificar_datos');
+      return out;
+    }
+
+    function setTabActive(key){
+      Object.keys(tabs).forEach((k)=>{
+        const tab = tabs[k];
+        if(!tab) return;
+        const isActive = k === key;
+        tab.classList.toggle('tab-active', isActive);
+        tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+      });
+    }
+
+    function hideAll(){
+      if(inicioPanel) inicioPanel.classList.add('hidden-panel');
+      if(datosPanel) datosPanel.classList.add('hidden-panel');
+      if(promosPanel) promosPanel.classList.add('hidden-panel');
+      if(eventosPanel) eventosPanel.classList.add('hidden-panel');
+      if(menuPanel) menuPanel.classList.add('hidden-panel');
+      if(placeholderPanel) placeholderPanel.classList.add('hidden-panel');
+    }
+
+    function showTab(key){
+      setTabActive(key);
+      hideAll();
+      if(key === 'inicio'){
+        if(inicioPanel) inicioPanel.classList.remove('hidden-panel');
+      } else if(key === 'modificar_datos'){
+        if(datosPanel) datosPanel.classList.remove('hidden-panel');
+      } else if(key === 'promos'){
+        if(promosPanel) promosPanel.classList.remove('hidden-panel');
+      } else if(key === 'eventos'){
+        if(eventosPanel) eventosPanel.classList.remove('hidden-panel');
+      } else if(key === 'menu'){
+        if(menuPanel) {
+          menuPanel.classList.remove('hidden-panel');
+          if(sesion && sesion.id && menuIframe && !menuIframe.src){
+            menuIframe.src = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
+          }
+        }
+      } else {
+        if(placeholderPanel) {
+          placeholderPanel.classList.remove('hidden-panel');
+          const def = moduleDefs.find(m => m.key === key);
+          if(placeholderTitle) placeholderTitle.textContent = def ? def.label : key;
+        }
+      }
+    }
+
+    Object.keys(tabs).forEach((k)=>{
+      const tab = tabs[k];
+      if(!tab) return;
+      tab.addEventListener('click', ()=>{
+        if(!enabledModules.has(k) && k !== 'inicio' && k !== 'modificar_datos') return;
+        showTab(k);
+      });
+    });
+
+    window.updateDashboardModulesFromData = function(rawDatos){
+      enabledModules = detectEnabledModules(rawDatos);
+      Object.keys(tabs).forEach((k)=>{
+        const tab = tabs[k];
+        if(!tab) return;
+        if(k === 'inicio' || k === 'modificar_datos' || enabledModules.has(k)){
+          tab.style.display = '';
+        } else {
+          tab.style.display = 'none';
+        }
+      });
+
+    };
+  })();
+});
+</script>
+</body>
+</html>
