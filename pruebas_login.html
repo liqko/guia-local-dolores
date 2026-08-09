@@ -58,6 +58,8 @@
     .tab { padding:8px 14px; border-radius:8px; cursor:pointer; background:#f0f0f0; border:1px solid #e0e0e0; color:#333; font-weight:600; }
     .tab.tab-active { background:#3dc879; color:#fff; border-color:#2a8; }
     .panel-section { padding:6px 0 0 0; }
+    .dashboard-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
+    .dashboard-module-btn{margin:0}
     .data-fields-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
     .data-field-card{background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:8px}
     .data-field-card label{margin-top:0}
@@ -273,7 +275,8 @@
         <!-- Inicio -->
         <div id="inicio-panel">
           <h3>Inicio</h3>
-          <div class="small-muted">Bienvenido al panel de gestión. Utilizá la barra superior para navegar entre las secciones.</div>
+          <div class="small-muted">Elegí un módulo para continuar.</div>
+          <div id="dashboard-modules" class="dashboard-modules"></div>
         </div>
 
         <!-- Modificar datos -->
@@ -423,7 +426,6 @@
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
 const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
-const WORKER_PROMOS_URL = WORKER_ORIGIN + '/promos';
 const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
 
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
@@ -444,6 +446,7 @@ let editingEventId = null;
 let lastCreatedEventId = null;
 let editingPromoId = null;
 
+/* ✅ Auxiliares de Anunciantes y Categorías conectados con aux_anunciantes */
 let auxAnunciantesFields = [];
 let auxAnunciantesCategorias = [];
 
@@ -485,6 +488,7 @@ function isAllowedLevel(levelStr){
   return n === 1 || n === 2 || n >= 5;
 }
 
+/* GViz helpers */
 function _cellToString(cell){
   if(cell === undefined || cell === null) return '';
   if(typeof cell === 'object' && 'v' in cell) return String(cell.v).trim();
@@ -509,6 +513,7 @@ function gvizGetRows(json){
   return (json && json.table && Array.isArray(json.table.rows)) ? json.table.rows : [];
 }
 
+/* === CARGA DE AUXILIARES (aux_anunciantes, categorías y casilleros) === */
 async function loadAuxAnunciantes(){
   try {
     const json = await gvizFetch(SHEET_ID, 'aux_anunciantes');
@@ -540,6 +545,7 @@ async function loadAuxAnunciantes(){
   }
 }
 
+/* === FECHA/HORA === */
 function isIsoZ(s){ return typeof s === 'string' && /Z$/.test(s); }
 
 function toDateInputValue(v){
@@ -605,6 +611,7 @@ function openImagesFormForCommerce(comercioId){
   window.open(COMMERCE_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
 }
 
+/* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -705,6 +712,7 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroCon
   });
 }
 
+/* ====================== Lists de eventos ====================== */
 function fillSelectOptions(selectId, items, placeholderText){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -844,7 +852,7 @@ async function loadEventLists(){
 
 async function loadPromosCategorias(){
   try {
-    const json = await gvizFetch(PROMOS_SHEET_ID, 'aux_categorias');
+    const json = await gvizFetch(PROMOS_SHEET_ID, 'categorias_list');
     const headers = gvizGetHeaders(json);
     const rows = gvizGetRows(json);
     let idxTitulo = headers.indexOf('titulo'); if(idxTitulo === -1) idxTitulo = 0;
@@ -900,6 +908,7 @@ function onLugarChangeUpdateDireccion(){
   }
 }
 
+/* ====================== API helpers ====================== */
 async function postJson(url, body){
   const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'cors', body: JSON.stringify(body) });
   const text = await r.text();
@@ -919,6 +928,7 @@ function isHttpUrl(value){
   }
 }
 
+/* ✅ Generación visual de casilleros de publicación basados en aux_anunciantes con fallback seguro */
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -993,40 +1003,35 @@ async function events_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_EVENTS_URL, body);
 }
-
 async function promos_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_PROMOS_URL, body);
+  return postJson(WORKER_COMMERCE_URL, body);
 }
-
 async function commerce_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
 }
-
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
-  const data = {};
+  const payload = { action:'set_datos' };
   const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
   if(id){
-    data.id = id;
-    data.__id = id;
-    data.comercio_id = id;
+    payload.id = id;
+    payload.__id = id;
+    payload.comercio_id = id;
   }
   const fieldsToUse = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : COMMERCE_DATA_FIELDS;
   fieldsToUse.forEach((fieldName)=>{
-    data[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+    payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
   });
-  return {
-    action: 'update_datos',
-    payload: data
-  };
+  return payload;
 }
 
+/* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function promoSetCreateMode(){
@@ -1255,6 +1260,9 @@ async function loadPromosUI(){
     else btnCreate.removeAttribute('disabled');
   }
 }
+
+/* ====================== Events UI ====================== */
+function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function clearEventForm(){
   const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas',
@@ -1556,6 +1564,7 @@ function cancelEventEdit(){
   loadEventsUI();
 }
 
+/* ====================== INIT ====================== */
 document.addEventListener('DOMContentLoaded', ()=>{
   showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
   showAutocomplete(
@@ -1595,8 +1604,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     try{
       const payload = buildCommerceSavePayload();
-      const payloadData = payload.payload || payload;
-      const invalidImageField = Array.from(COMMERCE_IMAGE_FIELDS).find((fieldName)=> !isHttpUrl(payloadData[fieldName]));
+      const invalidImageField = Array.from(COMMERCE_IMAGE_FIELDS).find((fieldName)=> !isHttpUrl(payload[fieldName]));
       if(invalidImageField){
         setMsg('msg-datos-comercio', 'err', `La URL de ${invalidImageField} no es válida.`);
         return;
@@ -1843,6 +1851,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const btnLogin = document.getElementById('btnLogin');
   const originalLoginBtnText = btnLogin ? (btnLogin.textContent || 'Ingresar') : 'Ingresar';
 
+  /* ✅ Carga robusta de datos del anunciante por ID conectado al Worker */
   async function mostrarPanelDashboard(){
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
@@ -1866,6 +1875,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
+      if(typeof window.updateDashboardModulesFromData === 'function'){
+        window.updateDashboardModulesFromData(rawDatos);
+      }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
       mostrarPanel('dashboard');
@@ -1876,6 +1888,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
+      if(typeof window.updateDashboardModulesFromData === 'function'){
+        window.updateDashboardModulesFromData({});
+      }
       mostrarPanel('dashboard');
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
     }
@@ -1971,6 +1986,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const tabActividades = document.getElementById('tab-actividades');
     const tabReservas = document.getElementById('tab-reservas');
     const tabModificarDatos = document.getElementById('tab-modificar-datos');
+    const dashboardTabs = document.getElementById('dashboard-tabs');
     const inicioPanel = document.getElementById('inicio-panel');
     const datosPanel = document.getElementById('modificar-datos-panel');
     const promosPanel = document.getElementById('promos-panel');
@@ -1979,6 +1995,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const menuIframe = document.getElementById('menu-iframe');
     const placeholderPanel = document.getElementById('placeholder-panel');
     const placeholderTitle = document.getElementById('placeholder-title');
+    const dashboardModules = document.getElementById('dashboard-modules');
+
+    const moduleDefs = [
+      { key:'promos', label:'Promos' },
+      { key:'eventos', label:'Eventos' },
+      { key:'menu', label:'Menu' },
+      { key:'vouchers', label:'Vouchers' },
+      { key:'entradas', label:'Entradas' },
+      { key:'gifcards', label:'Gifcards' },
+      { key:'actividades', label:'Actividades' },
+      { key:'reservas', label:'Reservas' },
+      { key:'modificar_datos', label:'Modificar datos' }
+    ];
 
     const tabs = {
       inicio: tabInicio,
@@ -1993,30 +2022,114 @@ document.addEventListener('DOMContentLoaded', ()=>{
       modificar_datos: tabModificarDatos
     };
 
-    Object.keys(tabs).forEach(key => {
-      tabs[key]?.addEventListener('click', () => {
-        Object.keys(tabs).forEach(k => tabs[k]?.classList.remove('tab-active'));
-        tabs[key]?.classList.add('tab-active');
+    const aliasByModule = {
+      promos: ['promos','promo'],
+      eventos: ['eventos','evento'],
+      menu: ['menu','menus','carta'],
+      vouchers: ['vouchers','voucher','beneficios','beneficio'],
+      entradas: ['entradas','entrada'],
+      gifcards: ['gifcards','gifcard','giftcards','giftcard'],
+      actividades: ['actividades','actividad'],
+      reservas: ['reservas','reserva']
+    };
 
-        [inicioPanel, datosPanel, promosPanel, eventosPanel, menuPanel, placeholderPanel].forEach(p => p?.classList.add('hidden-panel'));
+    function normalizeKey(k){
+      return String(k || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
+    }
+
+    function isTruthy(v){
+      if(v === true || v === 1) return true;
+      const s = String(v || '').trim().toLowerCase();
+      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
+    }
+
+    function detectEnabledModules(datos){
+      const out = new Set();
+      const raw = datos && typeof datos === 'object' ? datos : {};
+      const data = raw.data || raw.anunciante || raw;
+      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
+      let hasCapabilityFields = false;
+
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        const aliases = aliasByModule[modKey].map(normalizeKey);
+        let foundField = false;
+        let foundEnabled = false;
+        for(const item of entries){
+          if(aliases.includes(item.norm)){
+            foundField = true;
+            if(isTruthy(item.value)){ foundEnabled = true; break; }
+          }
+        }
+        if(foundField) hasCapabilityFields = true;
+        if(foundEnabled) out.add(modKey);
+      });
+
+      if(!hasCapabilityFields){
+        out.add('promos');
+        out.add('eventos');
+      }
+      out.add('modificar_datos');
+      return out;
+    }
+
+    window.updateDashboardModulesFromData = function(datos){
+      const enabled = detectEnabledModules(datos);
+      Object.keys(tabs).forEach((k)=>{
+        if(k === 'inicio') return;
+        const tabEl = tabs[k];
+        if(!tabEl) return;
+        if(enabled.has(k)) tabEl.style.display = '';
+        else tabEl.style.display = 'none';
+      });
+
+      if(dashboardModules){
+        dashboardModules.innerHTML = '';
+        moduleDefs.forEach((mod)=>{
+          if(!enabled.has(mod.key)) return;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary dashboard-module-btn';
+          btn.textContent = mod.label;
+          btn.onclick = ()=> {
+            const t = tabs[mod.key];
+            if(t) t.click();
+          };
+          dashboardModules.appendChild(btn);
+        });
+      }
+    };
+
+    Object.keys(tabs).forEach((key)=>{
+      const t = tabs[key];
+      if(!t) return;
+      t.addEventListener('click', ()=>{
+        Object.values(tabs).forEach(x=>x?.classList.remove('tab-active'));
+        t.classList.add('tab-active');
+
+        [inicioPanel, datosPanel, promosPanel, eventosPanel, menuPanel, placeholderPanel].forEach(p=>p?.classList.add('hidden-panel'));
 
         if(key === 'inicio') inicioPanel?.classList.remove('hidden-panel');
         else if(key === 'modificar_datos') datosPanel?.classList.remove('hidden-panel');
         else if(key === 'promos') promosPanel?.classList.remove('hidden-panel');
         else if(key === 'eventos') eventosPanel?.classList.remove('hidden-panel');
-        else if(key === 'menu') {
+        else if(key === 'menu'){
           menuPanel?.classList.remove('hidden-panel');
-          if(menuIframe && sesion){
-            const menuUrl = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
+          if(menuIframe && sesion && sesion.id){
+            const menuUrl = `${WORKER_ORIGIN}/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}`;
             if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
           }
         } else {
           placeholderPanel?.classList.remove('hidden-panel');
-          if(placeholderTitle) placeholderTitle.textContent = tabs[key].textContent;
+          placeholderTitle.textContent = t.textContent || key;
         }
       });
     });
   })();
+
 });
 </script>
 </body>
