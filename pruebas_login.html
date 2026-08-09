@@ -310,10 +310,6 @@
               <button id="promo-cancel" class="secondary" style="min-width:140px">Cancelar edición</button>
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
             </div>
-            
-            <!-- Casillas de verificación dinámicas a partir de dirección -->
-            <div id="promo-optional-fields" style="margin-top:12px;border-top:1px dashed #d0d4ee;padding-top:10px;"></div>
-
             <div id="promos-msg" style="margin-top:8px"></div>
           </div>
           <div id="promos-list" style="margin-top:12px">Cargando promos...</div>
@@ -453,7 +449,6 @@ let editingPromoId = null;
 /* ✅ Auxiliares de Anunciantes y Categorías conectados con aux_anunciantes */
 let auxAnunciantesFields = [];
 let auxAnunciantesCategorias = [];
-window.__currentCommerceData = {};
 
 const COMMERCE_DATA_FIELDS = [
   "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
@@ -475,18 +470,6 @@ const COMMERCE_IMAGE_UPLOAD_NOTE = `
   Asegurá que el enlace sea público.<br>
   Pegá la URL acá.
 `;
-
-const PROMO_OPTIONAL_FIELDS = [
-  "direccion","maps","telefono",
-  "direccion1","maps1","telefono1",
-  "direccion2","maps2","telefono2",
-  "direccion3","maps3","telefono3",
-  "direccion4","maps4","telefono4",
-  "direccion5","maps5","telefono5",
-  "direccion6","maps6","telefono6",
-  "whatsapp","whatsapp2","whatsapp3",
-  "instagram","facebook","youtube","tiktok","linkedin"
-];
 
 function debugLog(...args){ console.log(...args); }
 
@@ -615,6 +598,18 @@ function toTimeInputValue(v){
 
 function formatDateForTable(v){ return toDateInputValue(v) || String(v||''); }
 function formatTimeForTable(v){ return toTimeInputValue(v) || ''; }
+
+function openImagesFormForEvent(eventoId){
+  const id = String(eventoId || '').trim();
+  if(!id){ alert('Evento sin ID.'); return; }
+  window.open(EVENT_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
+}
+
+function openImagesFormForCommerce(comercioId){
+  const id = String(comercioId || '').trim();
+  if(!id){ alert('Anunciante sin ID.'); return; }
+  window.open(COMMERCE_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
+}
 
 /* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
@@ -933,54 +928,7 @@ function isHttpUrl(value){
   }
 }
 
-/* ✅ Renderizado de casillas de verificación opcionales para Promos a partir de dirección */
-function renderPromoOptionalFieldsCheckboxes(promoData = {}) {
-  const container = document.getElementById('promo-optional-fields');
-  if(!container) return;
-  const commerceData = window.__currentCommerceData || {};
-  
-  const fieldsToCheck = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : PROMO_OPTIONAL_FIELDS;
-  let html = '<div style="font-weight:600;margin-bottom:6px;font-size:0.95em;">Datos de ubicación y contacto a incluir en la promo:</div><div style="display:flex;flex-wrap:wrap;gap:10px;">';
-  let count = 0;
-
-  fieldsToCheck.forEach(field => {
-    const isTarget = /^(direccion|maps|telefono|whatsapp|direccion\d+|maps\d+|telefono\d+|whatsapp\d+|instagram|facebook|youtube|tiktok|linkedin)$/i.test(field);
-    if(!isTarget) return;
-
-    const val = commerceData[field];
-    if(val && String(val).trim() !== '') {
-      count++;
-      const isChecked = promoData[field] !== undefined ? (promoData[field] !== '' && promoData[field] !== null && promoData[field] !== false) : true;
-      html += `
-        <label style="display:inline-flex;align-items:center;gap:6px;background:#fff;padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:0.9em;cursor:pointer;">
-          <input type="checkbox" id="promo-opt-${field}" value="1" ${isChecked ? 'checked' : ''} />
-          <span><b>${htmlEscape(field.toUpperCase())}:</b> ${htmlEscape(val)}</span>
-        </label>
-      `;
-    }
-  });
-
-  if(count === 0){
-    container.innerHTML = '<div class="small-muted">No hay datos de dirección o contacto cargados en el perfil para incluir.</div>';
-  } else {
-    container.innerHTML = html + '</div>';
-  }
-}
-
-function getPromoOptionalFieldsPayload() {
-  const payload = {};
-  const fieldsToCheck = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : PROMO_OPTIONAL_FIELDS;
-  fieldsToCheck.forEach(field => {
-    const chk = document.getElementById(`promo-opt-${field}`);
-    if(chk && chk.checked){
-      payload[field] = window.__currentCommerceData[field] || '';
-    } else {
-      payload[field] = '';
-    }
-  });
-  return payload;
-}
-
+/* ✅ Generación visual de casilleros de publicación basados en aux_anunciantes con fallback seguro */
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -1093,7 +1041,6 @@ function promoSetCreateMode(){
     btn.textContent = 'Crear promo';
     btn.dataset.mode = '';
   }
-  renderPromoOptionalFieldsCheckboxes({});
 }
 function promoClearForm(){
   document.getElementById('promo-text').value = '';
@@ -1101,7 +1048,6 @@ function promoClearForm(){
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
-  renderPromoOptionalFieldsCheckboxes({});
 }
 function promoCancelEdit(){
   promoSetCreateMode();
@@ -1237,8 +1183,6 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
 
-        renderPromoOptionalFieldsCheckboxes(found);
-
         setMsg('promos-msg', 'ok', 'Editando promo.');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
@@ -1254,16 +1198,13 @@ function bindPromosListActions(){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ alert('No se encontró la promo (refrescá).'); return; }
         setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        
-        const dupPayload = Object.assign({
+        const r = await promos_post({ action: 'createPromo', payload: {
           promo: found.promo || '',
           categoria: found.categoria || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
           otros: found.otros || ''
-        }, getPromoOptionalFieldsPayload());
-
-        const r = await promos_post({ action: 'createPromo', payload: dupPayload });
+        }});
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
           await loadPromosUI();
@@ -1811,25 +1752,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const desde = promoGet('promo-desde');
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
-      const optionalPayload = getPromoOptionalFieldsPayload();
 
       if(!promo){ alert('Ingresá texto de promo'); return; }
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
         const comercioId = sesion && sesion.id ? String(sesion.id).trim() : '';
-        const updateData = Object.assign({
-          comercio_id: comercioId,
-          id: comercioId,
-          promo_id: editingPromoId,
-          promo,
-          categoria,
-          desde: desde||'',
-          hasta: hasta||'',
-          otros: otros||''
-        }, optionalPayload);
-
-        const r = await promos_post({ action: 'updatePromo', payload: updateData });
+        const r = await promos_post({ action: 'updatePromo', payload: { comercio_id: comercioId, id: comercioId, promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -1848,17 +1777,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
         setMsg('promos-msg', 'ok', 'Creando promo...');
         const comercioId = sesion && sesion.id ? String(sesion.id).trim() : '';
-        const createData = Object.assign({
-          comercio_id: comercioId,
-          id: comercioId,
-          promo,
-          categoria,
-          desde: desde||'',
-          hasta: hasta||'',
-          otros: otros||''
-        }, optionalPayload);
-
-        const r = await promos_post({ action: 'createPromo', payload: createData });
+        const r = await promos_post({ action: 'createPromo', payload: { comercio_id: comercioId, id: comercioId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -1944,9 +1863,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
       
       const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
-      window.__currentCommerceData = datos;
-      renderPromoOptionalFieldsCheckboxes({});
-
       const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
@@ -2043,7 +1959,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     localStorage.removeItem('promos_cant');
     localStorage.removeItem('eventos_cant');
     sesion=null;
-    window.__currentCommerceData = {};
     btnLogin.removeAttribute('disabled');
     btnLogin.textContent = originalLoginBtnText;
     mostrarPanel('login');
@@ -2109,109 +2024,112 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     const aliasByModule = {
       promos: ['promos','promo'],
-      eventos: ['eventos','evento','vip'],
-      menu: ['menu','menú'],
-      vouchers: ['vouchers','voucher'],
-      entradas: ['entradas','entrada','tickets','ticket'],
-      gifcards: ['gifcards','giftcards','tarjetas'],
+      eventos: ['eventos','evento'],
+      menu: ['menu','menus','carta'],
+      vouchers: ['vouchers','voucher','beneficios','beneficio'],
+      entradas: ['entradas','entrada'],
+      gifcards: ['gifcards','gifcard','giftcards','giftcard'],
       actividades: ['actividades','actividad'],
-      reservas: ['reservas','reserva','turnos'],
-      modificar_datos: ['modificar datos','datos','perfil']
+      reservas: ['reservas','reserva']
     };
 
-    function normalizeName(s){
-      return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    function normalizeKey(k){
+      return String(k || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]/g, '');
     }
 
-    function matchModuleKey(rawKey){
-      const k = normalizeName(rawKey);
-      for(const modKey of Object.keys(aliasByModule)){
-        for(const alias of aliasByModule[modKey]){
-          if(k === alias || k.includes(alias)) return modKey;
+    function isTruthy(v){
+      if(v === true || v === 1) return true;
+      const s = String(v || '').trim().toLowerCase();
+      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
+    }
+
+    function detectEnabledModules(datos){
+      const out = new Set();
+      const raw = datos && typeof datos === 'object' ? datos : {};
+      const data = raw.data || raw.anunciante || raw;
+      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
+      let hasCapabilityFields = false;
+
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        const aliases = aliasByModule[modKey].map(normalizeKey);
+        let foundField = false;
+        let foundEnabled = false;
+        for(const item of entries){
+          if(aliases.includes(item.norm)){
+            foundField = true;
+            if(isTruthy(item.value)){ foundEnabled = true; break; }
+          }
         }
+        if(foundField) hasCapabilityFields = true;
+        if(foundEnabled) out.add(modKey);
+      });
+
+      if(!hasCapabilityFields){
+        out.add('promos');
+        out.add('eventos');
       }
-      return 'placeholder';
+      out.add('modificar_datos');
+      return out;
     }
 
-    function hideAllPanels(){
-      inicioPanel?.classList.add('hidden-panel');
-      datosPanel?.classList.add('hidden-panel');
-      promosPanel?.classList.add('hidden-panel');
-      eventosPanel?.classList.add('hidden-panel');
-      menuPanel?.classList.add('hidden-panel');
-      placeholderPanel?.classList.add('hidden-panel');
-    }
-
-    function setActiveTab(targetKey){
-      Object.keys(tabs).forEach(k=>{
+    window.updateDashboardModulesFromData = function(datos){
+      const enabled = detectEnabledModules(datos);
+      Object.keys(tabs).forEach((k)=>{
+        if(k === 'inicio') return;
         const tabEl = tabs[k];
         if(!tabEl) return;
-        if(k === targetKey){
-          tabEl.classList.add('tab-active');
-          tabEl.setAttribute('aria-selected', 'true');
-        } else {
-          tabEl.classList.remove('tab-active');
-          tabEl.setAttribute('aria-selected', 'false');
-        }
+        if(enabled.has(k)) tabEl.style.display = '';
+        else tabEl.style.display = 'none';
       });
-    }
 
-    function switchModule(modKey){
-      hideAllPanels();
-      if(modKey === 'inicio'){
-        setActiveTab('inicio');
-        inicioPanel?.classList.remove('hidden-panel');
-      } else if(modKey === 'promos'){
-        setActiveTab('promos');
-        promosPanel?.classList.remove('hidden-panel');
-        setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 50);
-      } else if(modKey === 'eventos'){
-        setActiveTab('eventos');
-        eventosPanel?.classList.remove('hidden-panel');
-        setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 50);
-      } else if(modKey === 'menu'){
-        setActiveTab('menu');
-        menuPanel?.classList.remove('hidden-panel');
-        if(sesion && sesion.id){
-          const menuUrl = `https://liqkoargentina.github.io/panel-menu/?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
-          if(menuIframe && menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
-        }
-      } else if(modKey === 'modificar_datos'){
-        setActiveTab('modificar-datos');
-        datosPanel?.classList.remove('hidden-panel');
-      } else {
-        setActiveTab(modKey);
-        placeholderPanel?.classList.remove('hidden-panel');
-        const foundDef = moduleDefs.find(m => m.key === modKey);
-        if(placeholderTitle) placeholderTitle.textContent = foundDef ? foundDef.label : 'Módulo';
-      }
-      try{ dashboardTabs?.scrollIntoView({ behavior:'smooth', block:'nearest' }); }catch(e){}
-    }
-
-    window.updateDashboardModulesFromData = function(rawDatos){
-      const datos = (rawDatos && (rawDatos.data || rawDatos.anunciante)) ? (rawDatos.data || rawDatos.anunciante) : (rawDatos || {});
-      const buttonsHtml = moduleDefs.map(m=>{
-        return `<button class="secondary dashboard-module-btn" type="button" data-module="${m.key}">${m.label}</button>`;
-      }).join('');
-      if(dashboardModules) dashboardModules.innerHTML = buttonsHtml;
-
-      dashboardModules?.querySelectorAll('button[data-module]').forEach(btn=>{
-        btn.addEventListener('click', ()=>{
-          const mKey = btn.getAttribute('data-module');
-          switchModule(mKey);
+      if(dashboardModules){
+        dashboardModules.innerHTML = '';
+        moduleDefs.forEach((mod)=>{
+          if(!enabled.has(mod.key)) return;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'secondary dashboard-module-btn';
+          btn.textContent = mod.label;
+          btn.onclick = ()=> {
+            const t = tabs[mod.key];
+            if(t) t.click();
+          };
+          dashboardModules.appendChild(btn);
         });
-      });
+      }
     };
 
-    Object.keys(tabs).forEach(k=>{
-      const tabEl = tabs[k];
-      if(!tabEl) return;
-      tabEl.addEventListener('click', ()=>{
-        if(k === 'modificar-datos') switchModule('modificar_datos');
-        else switchModule(k);
+    Object.keys(tabs).forEach((key)=>{
+      const t = tabs[key];
+      if(!t) return;
+      t.addEventListener('click', ()=>{
+        Object.values(tabs).forEach(x=>x?.classList.remove('tab-active'));
+        t.classList.add('tab-active');
+
+        [inicioPanel, datosPanel, promosPanel, eventosPanel, menuPanel, placeholderPanel].forEach(p=>p?.classList.add('hidden-panel'));
+
+        if(key === 'inicio') inicioPanel?.classList.remove('hidden-panel');
+        else if(key === 'modificar_datos') datosPanel?.classList.remove('hidden-panel');
+        else if(key === 'promos') promosPanel?.classList.remove('hidden-panel');
+        else if(key === 'eventos') eventosPanel?.classList.remove('hidden-panel');
+        else if(key === 'menu'){
+          menuPanel?.classList.remove('hidden-panel');
+          if(menuIframe && sesion && sesion.id){
+            const menuUrl = `${WORKER_ORIGIN}/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}`;
+            if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
+          }
+        } else {
+          placeholderPanel?.classList.remove('hidden-panel');
+          placeholderTitle.textContent = t.textContent || key;
+        }
       });
     });
   })();
+
 });
 </script>
 </body>
