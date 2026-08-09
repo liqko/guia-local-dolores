@@ -58,8 +58,6 @@
     .tab { padding:8px 14px; border-radius:8px; cursor:pointer; background:#f0f0f0; border:1px solid #e0e0e0; color:#333; font-weight:600; }
     .tab.tab-active { background:#3dc879; color:#fff; border-color:#2a8; }
     .panel-section { padding:6px 0 0 0; }
-    .dashboard-modules{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
-    .dashboard-module-btn{margin:0}
     .data-fields-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
     .data-field-card{background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:8px}
     .data-field-card label{margin-top:0}
@@ -272,11 +270,10 @@
       </div>
 
       <div class="panel-section">
-        <!-- Inicio -->
+        <!-- Inicio (Menú duplicado inferior eliminado limpiamente) -->
         <div id="inicio-panel">
           <h3>Inicio</h3>
-          <div class="small-muted">Elegí un módulo para continuar.</div>
-          <div id="dashboard-modules" class="dashboard-modules"></div>
+          <div class="small-muted">Bienvenido al panel de gestión. Utilizá la barra superior para navegar entre las secciones.</div>
         </div>
 
         <!-- Modificar datos -->
@@ -850,9 +847,10 @@ async function loadEventLists(){
   }
 }
 
+/* ✅ Corrección en la carga de categorías para apuntar a aux_categorias */
 async function loadPromosCategorias(){
   try {
-    const json = await gvizFetch(PROMOS_SHEET_ID, 'categorias_list');
+    const json = await gvizFetch(PROMOS_SHEET_ID, 'aux_categorias');
     const headers = gvizGetHeaders(json);
     const rows = gvizGetRows(json);
     let idxTitulo = headers.indexOf('titulo'); if(idxTitulo === -1) idxTitulo = 0;
@@ -1851,7 +1849,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const btnLogin = document.getElementById('btnLogin');
   const originalLoginBtnText = btnLogin ? (btnLogin.textContent || 'Ingresar') : 'Ingresar';
 
-  /* ✅ Carga robusta de datos del anunciante por ID conectado al Worker */
   async function mostrarPanelDashboard(){
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
@@ -1875,9 +1872,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
-      if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData(rawDatos);
-      }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
       mostrarPanel('dashboard');
@@ -1888,9 +1882,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
-      if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData({});
-      }
       mostrarPanel('dashboard');
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
     }
@@ -1986,7 +1977,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const tabActividades = document.getElementById('tab-actividades');
     const tabReservas = document.getElementById('tab-reservas');
     const tabModificarDatos = document.getElementById('tab-modificar-datos');
-    const dashboardTabs = document.getElementById('dashboard-tabs');
     const inicioPanel = document.getElementById('inicio-panel');
     const datosPanel = document.getElementById('modificar-datos-panel');
     const promosPanel = document.getElementById('promos-panel');
@@ -1995,19 +1985,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const menuIframe = document.getElementById('menu-iframe');
     const placeholderPanel = document.getElementById('placeholder-panel');
     const placeholderTitle = document.getElementById('placeholder-title');
-    const dashboardModules = document.getElementById('dashboard-modules');
-
-    const moduleDefs = [
-      { key:'promos', label:'Promos' },
-      { key:'eventos', label:'Eventos' },
-      { key:'menu', label:'Menu' },
-      { key:'vouchers', label:'Vouchers' },
-      { key:'entradas', label:'Entradas' },
-      { key:'gifcards', label:'Gifcards' },
-      { key:'actividades', label:'Actividades' },
-      { key:'reservas', label:'Reservas' },
-      { key:'modificar_datos', label:'Modificar datos' }
-    ];
 
     const tabs = {
       inicio: tabInicio,
@@ -2022,114 +1999,31 @@ document.addEventListener('DOMContentLoaded', ()=>{
       modificar_datos: tabModificarDatos
     };
 
-    const aliasByModule = {
-      promos: ['promos','promo'],
-      eventos: ['eventos','evento'],
-      menu: ['menu','menus','carta'],
-      vouchers: ['vouchers','voucher','beneficios','beneficio'],
-      entradas: ['entradas','entrada'],
-      gifcards: ['gifcards','gifcard','giftcards','giftcard'],
-      actividades: ['actividades','actividad'],
-      reservas: ['reservas','reserva']
-    };
+    // Tab switching logic
+    Object.keys(tabs).forEach(key => {
+      tabs[key]?.addEventListener('click', () => {
+        Object.keys(tabs).forEach(k => tabs[k]?.classList.remove('tab-active'));
+        tabs[key]?.classList.add('tab-active');
 
-    function normalizeKey(k){
-      return String(k || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9]/g, '');
-    }
-
-    function isTruthy(v){
-      if(v === true || v === 1) return true;
-      const s = String(v || '').trim().toLowerCase();
-      return ['true','1','si','sí','x','✓','aprobado','ok'].includes(s);
-    }
-
-    function detectEnabledModules(datos){
-      const out = new Set();
-      const raw = datos && typeof datos === 'object' ? datos : {};
-      const data = raw.data || raw.anunciante || raw;
-      const entries = Object.keys(data).map((k)=>({ norm: normalizeKey(k), value: data[k] }));
-      let hasCapabilityFields = false;
-
-      Object.keys(aliasByModule).forEach((modKey)=>{
-        const aliases = aliasByModule[modKey].map(normalizeKey);
-        let foundField = false;
-        let foundEnabled = false;
-        for(const item of entries){
-          if(aliases.includes(item.norm)){
-            foundField = true;
-            if(isTruthy(item.value)){ foundEnabled = true; break; }
-          }
-        }
-        if(foundField) hasCapabilityFields = true;
-        if(foundEnabled) out.add(modKey);
-      });
-
-      if(!hasCapabilityFields){
-        out.add('promos');
-        out.add('eventos');
-      }
-      out.add('modificar_datos');
-      return out;
-    }
-
-    window.updateDashboardModulesFromData = function(datos){
-      const enabled = detectEnabledModules(datos);
-      Object.keys(tabs).forEach((k)=>{
-        if(k === 'inicio') return;
-        const tabEl = tabs[k];
-        if(!tabEl) return;
-        if(enabled.has(k)) tabEl.style.display = '';
-        else tabEl.style.display = 'none';
-      });
-
-      if(dashboardModules){
-        dashboardModules.innerHTML = '';
-        moduleDefs.forEach((mod)=>{
-          if(!enabled.has(mod.key)) return;
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'secondary dashboard-module-btn';
-          btn.textContent = mod.label;
-          btn.onclick = ()=> {
-            const t = tabs[mod.key];
-            if(t) t.click();
-          };
-          dashboardModules.appendChild(btn);
-        });
-      }
-    };
-
-    Object.keys(tabs).forEach((key)=>{
-      const t = tabs[key];
-      if(!t) return;
-      t.addEventListener('click', ()=>{
-        Object.values(tabs).forEach(x=>x?.classList.remove('tab-active'));
-        t.classList.add('tab-active');
-
-        [inicioPanel, datosPanel, promosPanel, eventosPanel, menuPanel, placeholderPanel].forEach(p=>p?.classList.add('hidden-panel'));
+        [inicioPanel, datosPanel, promosPanel, eventosPanel, menuPanel, placeholderPanel].forEach(p => p?.classList.add('hidden-panel'));
 
         if(key === 'inicio') inicioPanel?.classList.remove('hidden-panel');
         else if(key === 'modificar_datos') datosPanel?.classList.remove('hidden-panel');
         else if(key === 'promos') promosPanel?.classList.remove('hidden-panel');
         else if(key === 'eventos') eventosPanel?.classList.remove('hidden-panel');
-        else if(key === 'menu'){
+        else if(key === 'menu') {
           menuPanel?.classList.remove('hidden-panel');
-          if(menuIframe && sesion && sesion.id){
-            const menuUrl = `${WORKER_ORIGIN}/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}`;
+          if(menuIframe && sesion){
+            const menuUrl = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
             if(menuIframe.src !== menuUrl) menuIframe.src = menuUrl;
           }
         } else {
           placeholderPanel?.classList.remove('hidden-panel');
-          placeholderTitle.textContent = t.textContent || key;
+          if(placeholderTitle) placeholderTitle.textContent = tabs[key].textContent;
         }
       });
     });
   })();
-
 });
 </script>
 </body>
