@@ -270,7 +270,7 @@
       </div>
 
       <div class="panel-section">
-        <!-- Inicio (Menú duplicado inferior eliminado limpiamente) -->
+        <!-- Inicio -->
         <div id="inicio-panel">
           <h3>Inicio</h3>
           <div class="small-muted">Bienvenido al panel de gestión. Utilizá la barra superior para navegar entre las secciones.</div>
@@ -423,6 +423,7 @@
 const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
 const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
 const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
+const WORKER_PROMOS_URL = WORKER_ORIGIN + '/promos';
 const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
 
 const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
@@ -443,7 +444,6 @@ let editingEventId = null;
 let lastCreatedEventId = null;
 let editingPromoId = null;
 
-/* ✅ Auxiliares de Anunciantes y Categorías conectados con aux_anunciantes */
 let auxAnunciantesFields = [];
 let auxAnunciantesCategorias = [];
 
@@ -485,7 +485,6 @@ function isAllowedLevel(levelStr){
   return n === 1 || n === 2 || n >= 5;
 }
 
-/* GViz helpers */
 function _cellToString(cell){
   if(cell === undefined || cell === null) return '';
   if(typeof cell === 'object' && 'v' in cell) return String(cell.v).trim();
@@ -510,7 +509,6 @@ function gvizGetRows(json){
   return (json && json.table && Array.isArray(json.table.rows)) ? json.table.rows : [];
 }
 
-/* === CARGA DE AUXILIARES (aux_anunciantes, categorías y casilleros) === */
 async function loadAuxAnunciantes(){
   try {
     const json = await gvizFetch(SHEET_ID, 'aux_anunciantes');
@@ -542,7 +540,6 @@ async function loadAuxAnunciantes(){
   }
 }
 
-/* === FECHA/HORA === */
 function isIsoZ(s){ return typeof s === 'string' && /Z$/.test(s); }
 
 function toDateInputValue(v){
@@ -608,7 +605,6 @@ function openImagesFormForCommerce(comercioId){
   window.open(COMMERCE_IMAGES_FORM_PREFILL_BASE + encodeURIComponent(id), '_blank');
 }
 
-/* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
   const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
   fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
@@ -709,7 +705,6 @@ function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroCon
   });
 }
 
-/* ====================== Lists de eventos ====================== */
 function fillSelectOptions(selectId, items, placeholderText){
   const sel = document.getElementById(selectId);
   if(!sel) return;
@@ -847,7 +842,6 @@ async function loadEventLists(){
   }
 }
 
-/* ✅ Corrección en la carga de categorías para apuntar a aux_categorias */
 async function loadPromosCategorias(){
   try {
     const json = await gvizFetch(PROMOS_SHEET_ID, 'aux_categorias');
@@ -906,7 +900,6 @@ function onLugarChangeUpdateDireccion(){
   }
 }
 
-/* ====================== API helpers ====================== */
 async function postJson(url, body){
   const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'cors', body: JSON.stringify(body) });
   const text = await r.text();
@@ -926,7 +919,6 @@ function isHttpUrl(value){
   }
 }
 
-/* ✅ Generación visual de casilleros de publicación basados en aux_anunciantes con fallback seguro */
 function buildCommerceFieldsMarkup(datos){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -1001,35 +993,40 @@ async function events_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_EVENTS_URL, body);
 }
+
 async function promos_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_COMMERCE_URL, body);
+  return postJson(WORKER_PROMOS_URL, body);
 }
+
 async function commerce_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
 }
+
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
-  const payload = { action:'set_datos' };
+  const data = {};
   const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
   if(id){
-    payload.id = id;
-    payload.__id = id;
-    payload.comercio_id = id;
+    data.id = id;
+    data.__id = id;
+    data.comercio_id = id;
   }
   const fieldsToUse = (auxAnunciantesFields.length > 0) ? auxAnunciantesFields : COMMERCE_DATA_FIELDS;
   fieldsToUse.forEach((fieldName)=>{
-    payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+    data[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
   });
-  return payload;
+  return {
+    action: 'update_datos',
+    payload: data
+  };
 }
 
-/* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function promoSetCreateMode(){
@@ -1258,9 +1255,6 @@ async function loadPromosUI(){
     else btnCreate.removeAttribute('disabled');
   }
 }
-
-/* ====================== Events UI ====================== */
-function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function clearEventForm(){
   const ids = ['ev-nombre_evento','ev-categoria','ev-localidad','ev-lugar','ev-direccion','ev-llegar','ev-descripcion','ev-fecha_desde','ev-fecha_hasta','ev-hora','ev-hora2','ev-instagram','ev-entradas',
@@ -1562,7 +1556,6 @@ function cancelEventEdit(){
   loadEventsUI();
 }
 
-/* ====================== INIT ====================== */
 document.addEventListener('DOMContentLoaded', ()=>{
   showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
   showAutocomplete(
@@ -1602,7 +1595,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     try{
       const payload = buildCommerceSavePayload();
-      const invalidImageField = Array.from(COMMERCE_IMAGE_FIELDS).find((fieldName)=> !isHttpUrl(payload[fieldName]));
+      const payloadData = payload.payload || payload;
+      const invalidImageField = Array.from(COMMERCE_IMAGE_FIELDS).find((fieldName)=> !isHttpUrl(payloadData[fieldName]));
       if(invalidImageField){
         setMsg('msg-datos-comercio', 'err', `La URL de ${invalidImageField} no es válida.`);
         return;
@@ -1999,7 +1993,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       modificar_datos: tabModificarDatos
     };
 
-    // Tab switching logic
     Object.keys(tabs).forEach(key => {
       tabs[key]?.addEventListener('click', () => {
         Object.keys(tabs).forEach(k => tabs[k]?.classList.remove('tab-active'));
