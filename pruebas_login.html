@@ -101,6 +101,8 @@
     .events-small { font-size:12px; color:#444; }
 
     .req { color:#c00; font-weight:700; margin-left:4px; }
+    .quota-status { margin-top:6px; line-height:1.45; }
+    .quota-status strong { font-weight:700; }
 
     /* ===== CTA navigation buttons (login panel) ===== */
     .btn-cta {
@@ -333,16 +335,22 @@
 
           <div style="margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:10px;border-radius:6px">
             <div class="promo-text-row">
-              <label class="promo-text-label" for="promo-text">Texto de la promo <span class="promo-text-limit">(Hasta 300 caracteres)</span></label>
-              <input id="promo-text" class="promo-input" type="text" maxlength="300" placeholder="Texto de la promo (ej: 10% OFF)" />
+              <label class="promo-text-label" for="promo-text">Texto de la promo <span class="req">*</span> <span class="promo-text-limit">(Hasta 300 caracteres)</span></label>
+              <input id="promo-text" class="promo-input" type="text" maxlength="300" placeholder="Texto de la promo (ej: 10% OFF)" required />
             </div>
 
             <div class="promo-extra-row">
-              <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo">
-                <option value="">Categoría de la promo</option>
-              </select>
-              <input id="promo-desde" type="date" style="width:140px" />
-              <input id="promo-hasta" type="date" style="width:140px" />
+              <label style="margin:0;min-width:220px;flex:1">Categoría <span class="req">*</span>
+                <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo" required>
+                  <option value="">Categoría de la promo</option>
+                </select>
+              </label>
+              <label style="margin:0">Fecha desde <span class="req">*</span>
+                <input id="promo-desde" type="date" style="width:140px" required />
+              </label>
+              <label style="margin:0">Fecha hasta <span class="req">*</span>
+                <input id="promo-hasta" type="date" style="width:140px" required />
+              </label>
               <input id="promo-otros" class="promo-input" type="text" placeholder="Descripción (ej: Hasta agotar stock 50 unidades)" style="max-width:300px" />
             </div>
 
@@ -1120,6 +1128,34 @@ function buildCommerceSavePayload(){
   return payload;
 }
 
+/* ====================== Cuotas de publicaciones ====================== */
+function isPausedRecord(item){
+  return !!(item && (item.pausado === true || String(item.pausado).trim().toUpperCase() === 'TRUE'));
+}
+
+function getPublicationQuota(items, enabledRaw){
+  const enabled = Math.max(0, parseInt(enabledRaw || 0, 10) || 0);
+  const rows = Array.isArray(items) ? items : [];
+  const totalLimit = enabled * 2;
+  const published = rows.length;
+  const active = rows.filter(item => !isPausedRecord(item)).length;
+  const available = Math.max(0, enabled - active);
+  const publishedAvailable = Math.max(0, totalLimit - published);
+  return { enabled, totalLimit, published, active, available, publishedAvailable };
+}
+
+function quotaCreateAllowed(quota){
+  return quota.enabled > 0 && quota.published < quota.totalLimit && quota.active < quota.enabled;
+}
+
+function quotaStatusHtml(kind, quota){
+  const label = kind === 'promos' ? 'Promos' : 'Eventos';
+  return `<div class="quota-status"><strong>${label} habilitados:</strong> ${quota.enabled}
+    | <strong>Publicados:</strong> ${quota.published}/${quota.totalLimit}
+    | <strong>Activos:</strong> ${quota.active}/${quota.enabled}
+    | <strong>Disponibles:</strong> ${quota.available}</div>`;
+}
+
 /* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
@@ -1339,6 +1375,13 @@ function bindPromosListActions(){
       if(action === 'pause'){
         const isPaused = btn.getAttribute('data-paused') === 'true';
         const newPauseState = isPaused ? 'FALSE' : 'TRUE';
+        if(isPaused){
+          const promoQuota = getPublicationQuota(window.__lastPromos || [], sesion.promos_cant);
+          if(promoQuota.active >= promoQuota.enabled){
+            alert(`No hay unidades disponibles: ya hay ${promoQuota.active} promos activas de ${promoQuota.enabled} habilitadas.`);
+            return;
+          }
+        }
         const msg = isPaused ? 'Reanudando promo...' : 'Pausando promo...';
         setMsg('promos-msg', 'ok', msg);
         const r = await promos_post({ action: 'updatePromo', payload: { promo_id: pid, pausado: newPauseState } });
@@ -1387,10 +1430,15 @@ function bindPromosListActions(){
       }
 
       if(action === 'duplicate'){
-        const maxPromos = parseInt(sesion.promos_cant || 0, 10) || 0;
-        const loadedPromos = (window.__lastPromos || []).length;
-        if(maxPromos > 0 && loadedPromos >= maxPromos){
-          alert('Has alcanzado el límite de promos habilitadas.');
+        const promoQuota = getPublicationQuota(window.__lastPromos || [], sesion.promos_cant);
+        if(!quotaCreateAllowed(promoQuota)){
+          if(promoQuota.published >= promoQuota.totalLimit){
+            alert(`Has alcanzado el límite de ${promoQuota.totalLimit} promos publicadas (el doble de las ${promoQuota.enabled} habilitadas).`);
+          } else if(promoQuota.active >= promoQuota.enabled){
+            alert(`No tenés unidades disponibles: hay ${promoQuota.active} promos activas de ${promoQuota.enabled} habilitadas. Pausá una promo para liberar una unidad.`);
+          } else {
+            alert('No hay promos habilitadas para publicar.');
+          }
           return;
         }
 
@@ -1458,15 +1506,12 @@ async function loadPromosUI(){
 
   renderPromosList(promos);
 
-  const maxPromos = parseInt(sesion.promos_cant || 0, 10) || 0;
-  const loadedPromos = promos.length;
-  const availablePromos = Math.max(0, maxPromos - loadedPromos);
-
-  st.innerHTML = `Tiene ${maxPromos} promos habilitadas. Promos cargadas: ${loadedPromos}. Promos disponibles: ${availablePromos}.`;
+  const promoQuota = getPublicationQuota(promos, sesion.promos_cant);
+  st.innerHTML = quotaStatusHtml('promos', promoQuota);
 
   const btnCreate = document.getElementById('promo-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
-    if(loadedPromos >= maxPromos && maxPromos > 0){
+    if(!quotaCreateAllowed(promoQuota)){
       btnCreate.setAttribute('disabled', 'true');
     } else {
       btnCreate.removeAttribute('disabled');
@@ -1615,6 +1660,13 @@ function bindEventsListActions(){
       if(action === 'pause'){
         const isPaused = btn.getAttribute('data-paused') === 'true';
         const newPauseState = !isPaused;
+        if(isPaused){
+          const eventQuota = getPublicationQuota(window.__lastEvents || [], sesion.eventos_cant);
+          if(eventQuota.active >= eventQuota.enabled){
+            alert(`No hay unidades disponibles: ya hay ${eventQuota.active} eventos activos de ${eventQuota.enabled} habilitados.`);
+            return;
+          }
+        }
         const msg = isPaused ? 'Reanudando evento...' : 'Pausando evento...';
         setMsg('eventos-msg', 'ok', msg);
         const res = await events_post({ action:'pauseVipEvent', payload: { evento_id: evId, pause: newPauseState } });
@@ -1687,10 +1739,15 @@ function bindEventsListActions(){
       }
 
       if(action === 'duplicate'){
-        const maxEvents = parseInt(sesion.eventos_cant || 0, 10) || 0;
-        const loadedEvents = (window.__lastEvents || []).length;
-        if(maxEvents > 0 && loadedEvents >= maxEvents){
-          alert('Has alcanzado el límite de eventos habilitados.');
+        const eventQuota = getPublicationQuota(window.__lastEvents || [], sesion.eventos_cant);
+        if(!quotaCreateAllowed(eventQuota)){
+          if(eventQuota.published >= eventQuota.totalLimit){
+            alert(`Has alcanzado el límite de ${eventQuota.totalLimit} eventos publicados (el doble de los ${eventQuota.enabled} habilitados).`);
+          } else if(eventQuota.active >= eventQuota.enabled){
+            alert(`No tenés unidades disponibles: hay ${eventQuota.active} eventos activos de ${eventQuota.enabled} habilitados. Pausá un evento para liberar una unidad.`);
+          } else {
+            alert('No hay eventos habilitados para publicar.');
+          }
           return;
         }
 
@@ -1763,15 +1820,14 @@ async function loadEventsUI(){
   window.__lastEvents = events;
   renderEventsList(events);
 
-  const maxEvents = parseInt(data.eventos_cant !== undefined ? data.eventos_cant : (sesion.eventos_cant || 0), 10) || 0;
-  const loadedEvents = parseInt(data.count !== undefined ? data.count : events.length, 10) || 0;
-  const availableEvents = Math.max(0, maxEvents - loadedEvents);
+  const eventEnabled = parseInt(data.eventos_cant !== undefined ? data.eventos_cant : (sesion.eventos_cant || 0), 10) || 0;
+  const eventQuota = getPublicationQuota(events, eventEnabled);
 
-  st.innerHTML = `Total permitido: ${maxEvents} | Eventos cargados: ${loadedEvents} | Eventos disponibles: ${availableEvents}`;
+  st.innerHTML = quotaStatusHtml('eventos', eventQuota);
 
   const btnCreate = document.getElementById('ev-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
-    if(loadedEvents >= maxEvents && maxEvents > 0){
+    if(!quotaCreateAllowed(eventQuota)){
       btnCreate.setAttribute('disabled', 'true');
     } else {
       btnCreate.removeAttribute('disabled');
@@ -1998,7 +2054,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
 
-      if(!promo){ alert('Ingresá texto de promo'); return; }
+      if(!promo){ alert('Ingresá texto de promo (obligatorio).'); return; }
+      if(!categoria){ alert('Seleccioná una categoría (obligatorio).'); return; }
+      if(!desde){ alert('Ingresá Fecha desde (obligatorio).'); return; }
+      if(!hasta){ alert('Ingresá Fecha hasta (obligatorio).'); return; }
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
@@ -2015,10 +2074,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
           setMsg('promos-msg', 'err', 'Error actualizando: ' + JSON.stringify(r.json));
         }
       } else {
-        const maxPromos = parseInt(sesion.promos_cant || 0, 10) || 0;
-        const loadedPromos = (window.__lastPromos || []).length;
-        if(maxPromos > 0 && loadedPromos >= maxPromos){
-          alert('Has alcanzado el límite de promos habilitadas.');
+        const promoQuota = getPublicationQuota(window.__lastPromos || [], sesion.promos_cant);
+        if(!quotaCreateAllowed(promoQuota)){
+          if(promoQuota.published >= promoQuota.totalLimit){
+            alert(`Has alcanzado el límite de ${promoQuota.totalLimit} promos publicadas (el doble de las ${promoQuota.enabled} habilitadas).`);
+          } else if(promoQuota.active >= promoQuota.enabled){
+            alert(`No tenés unidades disponibles: hay ${promoQuota.active} promos activas de ${promoQuota.enabled} habilitadas. Pausá una promo para liberar una unidad.`);
+          } else {
+            alert('No hay promos habilitadas para publicar.');
+          }
           return;
         }
 
@@ -2075,10 +2139,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
           setMsg('eventos-msg', 'err', 'Error actualizando: ' + JSON.stringify(res.json));
         }
       } else {
-        const maxEvents = parseInt(sesion.eventos_cant || 0, 10) || 0;
-        const loadedEvents = (window.__lastEvents || []).length;
-        if(maxEvents > 0 && loadedEvents >= maxEvents){
-          alert('Has alcanzado el límite de eventos habilitados.');
+        const eventQuota = getPublicationQuota(window.__lastEvents || [], sesion.eventos_cant);
+        if(!quotaCreateAllowed(eventQuota)){
+          if(eventQuota.published >= eventQuota.totalLimit){
+            alert(`Has alcanzado el límite de ${eventQuota.totalLimit} eventos publicados (el doble de los ${eventQuota.enabled} habilitados).`);
+          } else if(eventQuota.active >= eventQuota.enabled){
+            alert(`No tenés unidades disponibles: hay ${eventQuota.active} eventos activos de ${eventQuota.enabled} habilitados. Pausá un evento para liberar una unidad.`);
+          } else {
+            alert('No hay eventos habilitados para publicar.');
+          }
           return;
         }
 
