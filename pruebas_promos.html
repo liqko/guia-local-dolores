@@ -62,12 +62,6 @@
     .fecha-row { display:flex; align-items:center; gap:8px; }
     .info-row { display:flex; align-items:center; gap:8px; color:#24324d; }
     .info-row .icon { color:#ff4e50; font-size:1.1rem; min-width:26px; text-align:center; }
-    .contact-block { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
-    .contact-item { display:flex; align-items:flex-start; gap:8px; color:#24324d; }
-    .contact-item .icon { color:#ff4e50; font-size:1.1rem; min-width:26px; text-align:center; margin-top:2px; }
-    .contact-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:2px; }
-    .btn-contact { display:inline-flex; align-items:center; gap:7px; padding:8px 11px; background:#fff; color:#0e5076; font-weight:800; border:1px solid rgba(14,80,118,.18); border-radius:10px; text-decoration:none; }
-    .btn-contact:hover { background:#f3f8fb; }
     .btn-maps { display:inline-flex; align-items:center; gap:8px; padding:10px 14px; background:linear-gradient(90deg,#0e76a8 0%, #0e5076 100%); color:#fff; font-weight:800; border-radius:12px; text-decoration:none; box-shadow:0 6px 26px rgba(14,80,118,0.18); border:none; font-size:1em; transition:.12s; }
     .btn-maps:hover { background:linear-gradient(90deg,#0e5076 0%, #0e76a8 100%); }
     .socials { display:flex; gap:8px; align-items:center; margin-top:8px; }
@@ -169,62 +163,28 @@
       return encodeUrl(s);
     }
 
-    function getWhatsAppLinks(com) {
-      if (!com) return [];
-      const values = [com.whatsapp, com.whatsapp2, com.whatsapp3];
-      return values
-        .filter(v => v !== null && v !== undefined && String(v).trim() !== '')
-        .map(v => makeWhatsAppLink(v))
-        .filter(Boolean);
-    }
-
-    function getContactEntries(com) {
-      if (!com) return [];
-      const entries = [];
-
-      for (let i = 0; i <= 6; i++) {
-        const suffix = i === 0 ? '' : String(i);
-        const direccion = com['direccion' + suffix];
-        const maps = com['maps' + suffix];
-        const telefono = com['telefono' + suffix];
-
-        if (direccion && String(direccion).trim()) {
-          entries.push({ direccion: String(direccion).trim(), maps: maps, telefono: telefono });
-        } else if ((maps && String(maps).trim()) || (telefono && String(telefono).trim())) {
-          entries.push({ direccion: '', maps: maps, telefono: telefono });
-        }
-      }
-      return entries;
-    }
-
-    function buildContactHtml(com) {
-      const entries = getContactEntries(com);
-      const parts = [];
-
-      entries.forEach((entry, idx) => {
-        const label = idx === 0 ? '' : ` <strong>(${idx + 1})</strong>`;
-        if (entry.direccion) {
-          parts.push(`<div class="contact-item"><i class="ri-map-pin-line icon"></i><span>${escapeHtml(entry.direccion)}${label}</span></div>`);
-        }
-
-        const actions = [];
-        if (entry.maps && String(entry.maps).trim()) {
-          const mapHref = makeMapLink(entry.maps, entry.direccion);
-          if (mapHref) actions.push(`<a class="btn-contact" href="${safeUrl(mapHref)}" target="_blank" rel="noopener"><i class="ri-map-pin-2-line"></i> COMO LLEGAR${idx ? ' ' + (idx + 1) : ''}</a>`);
-        }
-
-        if (entry.telefono && String(entry.telefono).trim()) {
-          const tel = encodeTel(entry.telefono);
-          actions.push(`<a class="btn-contact" href="tel:${escapeHtml(tel)}"><i class="ri-phone-line"></i>${escapeHtml(entry.telefono)}</a>`);
-        }
-
-        if (actions.length) parts.push(`<div class="contact-actions">${actions.join('')}</div>`);
+    function getWhatsAppForCom(com, phoneComparison) {
+      if (!com) return "";
+      const candidates = [];
+      if (com.whatsapp) candidates.push(com.whatsapp);
+      const extras = com.extras || {};
+      const keys = ['whatsapp','whatsapp_url','whatsapp_link','wa','wpp','wsp','whats','whats_app','whatsappnumber','whatsapp_num'];
+      keys.forEach(k => { if (k in extras && extras[k]) candidates.push(extras[k]); });
+      Object.keys(extras).forEach(k => {
+        if (/^(?:wa|wpp|whats|whatsapp)/i.test(k) && extras[k]) candidates.push(extras[k]);
       });
 
-      if (!parts.length) return '';
-      return `<div class="contact-block">${parts.join('')}</div>`;
+      for (let i = 0; i < candidates.length; i++) {
+        const v = candidates[i];
+        if (!v) continue;
+        const str = String(v).trim();
+        if (!str) continue;
+        const link = makeWhatsAppLink(str);
+        if (!link) continue;
+        return link;
+      }
+      return "";
     }
-
 
     function makeMapLink(llegarVal, domicilioVal) {
       if (llegarVal && String(llegarVal).trim()) {
@@ -308,6 +268,72 @@
       return `<div class="cat-label" style="margin-top:8px">${imgHtml}${escapeHtml(com.categoria)}</div>`;
     }
 
+
+    function getField(com, key) {
+      return com && com[key] !== undefined && com[key] !== null
+        ? String(com[key]).trim()
+        : '';
+    }
+
+    function buildContactRows(com) {
+      const rows = [];
+      for (let i = 0; i <= 6; i++) {
+        const suffix = i === 0 ? '' : String(i);
+        const direccion = getField(com, 'direccion' + suffix);
+        const maps = getField(com, 'maps' + suffix);
+        const telefono = getField(com, 'telefono' + suffix);
+
+        if (!direccion && !maps && !telefono) continue;
+
+        let actions = '';
+        if (maps) {
+          actions += `<a class="btn-maps" style="padding:7px 10px;font-size:.86rem" href="${safeUrl(maps)}" target="_blank" rel="noopener"><i class="ri-map-pin-line"></i> COMO LLEGAR</a>`;
+        }
+        if (telefono) {
+          actions += ` <a class="btn-maps" style="padding:7px 10px;font-size:.86rem;background:linear-gradient(90deg,#1a8a3a,#116b2c)" href="tel:${encodeURIComponent(telefono)}"><i class="ri-phone-line"></i> LLAMAR</a>`;
+        }
+
+        rows.push(`
+          <div class="contact-location">
+            ${direccion ? `<div class="info-row"><i class="ri-map-pin-line icon"></i>${escapeHtml(direccion)}</div>` : ''}
+            ${actions ? `<div class="contact-actions">${actions}</div>` : ''}
+          </div>
+        `);
+      }
+      return rows.join('');
+    }
+
+    function buildSocialLinks(com) {
+      const socials = [];
+
+      const whatsapps = ['whatsapp', 'whatsapp2', 'whatsapp3'];
+      whatsapps.forEach((key, idx) => {
+        const value = getField(com, key);
+        if (!value) return;
+        const href = makeWhatsAppLink(value);
+        if (href) {
+          socials.push(`<a href="${safeUrl(href)}" target="_blank" rel="noopener" title="WhatsApp${idx ? ' ' + (idx + 1) : ''}"><i class="ri-whatsapp-line"></i></a>`);
+        }
+      });
+
+      const networks = [
+        ['instagram', 'Instagram', 'ri-instagram-line'],
+        ['facebook', 'Facebook', 'ri-facebook-line'],
+        ['youtube', 'YouTube', 'ri-youtube-line'],
+        ['tiktok', 'TikTok', 'ri-tiktok-line'],
+        ['linkedin', 'LinkedIn', 'ri-linkedin-line']
+      ];
+
+      networks.forEach(([key, title, icon]) => {
+        const value = getField(com, key);
+        if (!value) return;
+        const href = safeUrl(value);
+        if (href) socials.push(`<a href="${href}" target="_blank" rel="noopener" title="${title}"><i class="${icon}"></i></a>`);
+      });
+
+      return socials.length ? `<div class="socials">${socials.join('')}</div>` : '';
+    }
+
     function renderCards(data, page = 1) {
       const cardsDiv = document.getElementById('cards');
       cardsDiv.innerHTML = '';
@@ -337,19 +363,12 @@
         const desdeHtml = com.desde ? `<div><div class="date-label">DESDE</div><div class="fecha-row date-desde"><i class="ri-calendar-event-line"></i> ${fechaHumana(com.desde)}</div></div>` : '';
         const hastaHtml = com.hasta ? `<div><div class="date-label">HASTA</div><div class="fecha-row date-hasta"><i class="ri-calendar-event-line"></i> ${fechaHumana(com.hasta)}</div></div>` : '';
 
-        const contactHtml = buildContactHtml(com);
+        const contactoHtml = buildContactRows(com);
+        const contactoSection = contactoHtml
+          ? `<div class="extras-container"><div style="font-weight:900;margin-bottom:8px;color:#ff4e50">CONTACTO Y UBICACIONES</div>${contactoHtml}</div>`
+          : '';
 
-        const socials = [];
-        getWhatsAppLinks(com).forEach((waLink, idx) => {
-          const href = safeUrl(waLink) || waLink;
-          if (href) socials.push(`<a href="${href}" target="_blank" rel="noopener" title="WhatsApp${idx ? ' ' + (idx + 1) : ''}"><i class="ri-whatsapp-line"></i></a>`);
-        });
-        if (com.instagram && safeUrl(com.instagram)) socials.push(`<a href="${safeUrl(com.instagram)}" target="_blank" rel="noopener" title="Instagram"><i class="ri-instagram-line"></i></a>`);
-        if (com.facebook && safeUrl(com.facebook)) socials.push(`<a href="${safeUrl(com.facebook)}" target="_blank" rel="noopener" title="Facebook"><i class="ri-facebook-line"></i></a>`);
-        if (com.youtube && safeUrl(com.youtube)) socials.push(`<a href="${safeUrl(com.youtube)}" target="_blank" rel="noopener" title="YouTube"><i class="ri-youtube-line"></i></a>`);
-        if (com.tiktok && safeUrl(com.tiktok)) socials.push(`<a href="${safeUrl(com.tiktok)}" target="_blank" rel="noopener" title="TikTok"><i class="ri-tiktok-line"></i></a>`);
-        if (com.linkedin && safeUrl(com.linkedin)) socials.push(`<a href="${safeUrl(com.linkedin)}" target="_blank" rel="noopener" title="LinkedIn"><i class="ri-linkedin-line"></i></a>`);
-        const socialsHtml = socials.length ? `<div class="socials">${socials.join('')}</div>` : '';
+        const socialsHtml = buildSocialLinks(com);
 
         let extrasBadges = '';
         if (com.extras) {
@@ -376,7 +395,7 @@
           ${desdeHtml}
           ${hastaHtml}
           ${extrasBadges}
-          ${contactHtml}
+          ${contactoSection}
           ${socialsHtml}
           ${allExtrasHtml}
           ${extrasKeys.length ? `<button class="vermas" onclick="toggleExtras(this)"><i class="ri-add-line"></i> VER MÁS</button>` : ''}
@@ -435,14 +454,7 @@
 
     function hasMeaningfulData(c) {
       if (!c) return false;
-      const props = [
-        'anunciante','nombre','promo','categoria','direccion','maps','telefono',
-        'direccion1','maps1','telefono1','direccion2','maps2','telefono2',
-        'direccion3','maps3','telefono3','direccion4','maps4','telefono4',
-        'direccion5','maps5','telefono5','direccion6','maps6','telefono6',
-        'instagram','facebook','youtube','tiktok','linkedin',
-        'whatsapp','whatsapp2','whatsapp3','logo','llegar','otros'
-      ];
+      const props = ['anunciante','nombre','promo','categoria','direccion','telefono','instagram','facebook','youtube','tiktok','linkedin','logo','llegar','otros'];
       for (let i=0;i<props.length;i++){
         const k = props[i];
         if (k in c && c[k] !== null && c[k] !== undefined && String(c[k]).trim() !== '') return true;
@@ -484,6 +496,7 @@
 
     function loadData() {
       if (!DATA_URL) { document.getElementById('cards').innerHTML = '<p style="color:#b02a2a">Falta DATA_URL</p>'; return; }
+      document.getElementById('cards').innerHTML = '<p style="font-weight:800">Cargando promos...</p>';
       fetch(DATA_URL).then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
       .then(raw => {
         let data = [];
@@ -517,9 +530,10 @@
         });
 
         // SOLO aprobados y con fecha HASTA válida (vigente)
-        comerciosData = comerciosData.filter(c => 
-          toBoolAprobado(c.aprobado) && 
-          c.hasta && 
+        comerciosData = comerciosData.filter(c =>
+          toBoolAprobado(c.aprobado) &&
+          !toBoolAprobado(c.pausado) &&
+          c.hasta &&
           isPromoVigenteHasta(c.hasta)
         );
         comerciosData = comerciosData.filter(hasMeaningfulData);
