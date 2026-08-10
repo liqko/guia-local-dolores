@@ -58,6 +58,17 @@
     .promo-text-row .promo-input { width:100%; box-sizing:border-box; min-width:0; }
     .promo-extra-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
 
+    .promo-contact-box{margin-top:12px;background:#fff;border:1px solid #e6e8ff;border-radius:8px;padding:12px}
+    .promo-contact-title{font-weight:700;margin-bottom:4px}
+    .promo-contact-note{font-size:.9em;color:#555;margin-bottom:10px}
+    .promo-contact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:8px}
+    .promo-contact-card{display:flex;align-items:flex-start;gap:9px;background:#fbfbff;border:1px solid #e8e8ef;border-radius:8px;padding:9px}
+    .promo-contact-card input[type="checkbox"]{width:auto;margin:3px 0 0;flex:0 0 auto}
+    .promo-contact-card-content{min-width:0}
+    .promo-contact-label{font-weight:700;display:block;margin:0 0 3px}
+    .promo-contact-value{font-size:.92em;color:#444;overflow-wrap:anywhere;word-break:break-word}
+    .promo-contact-empty{font-size:.92em;color:#777;padding:8px 0}
+
     /* Tabs */
     .tabs { display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap; }
     .tab { padding:8px 14px; border-radius:8px; cursor:pointer; background:#f0f0f0; border:1px solid #e0e0e0; color:#333; font-weight:600; }
@@ -333,7 +344,17 @@
               <input id="promo-desde" type="date" style="width:140px" />
               <input id="promo-hasta" type="date" style="width:140px" />
               <input id="promo-otros" class="promo-input" type="text" placeholder="Descripción (ej: Hasta agotar stock 50 unidades)" style="max-width:300px" />
+            </div>
 
+            <div id="promo-contact-box" class="promo-contact-box">
+              <div class="promo-contact-title">Datos del anunciante para esta promo</div>
+              <div class="promo-contact-note">Marcá las casillas de los datos que querés guardar/publicar en esta promo. Solo aparecen campos que tienen un dato real en <b>aux_anunciantes</b>.</div>
+              <div id="promo-contact-fields" class="promo-contact-grid">
+                <div class="promo-contact-empty">Cargando datos del anunciante...</div>
+              </div>
+            </div>
+
+            <div class="promo-extra-row" style="margin-top:10px">
               <button id="promo-create" class="primary" style="min-width:140px">Crear promo</button>
               <button id="promo-cancel" class="secondary" style="min-width:140px">Cancelar edición</button>
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
@@ -507,6 +528,39 @@ let lastCreatedEventId = null;
 
 // ✅ Promos: edición sin prompts
 let editingPromoId = null;
+
+// Campos que pueden seleccionarse para guardar/publicar en cada promo.
+// El nombre del campo de destino coincide exactamente con aux_anunciantes.
+const PROMO_CONTACT_FIELDS = [
+  'instagram','facebook','youtube','tiktok','linkedin',
+  'direccion','maps','telefono',
+  'direccion1','maps1','telefono1',
+  'direccion2','maps2','telefono2',
+  'direccion3','maps3','telefono3',
+  'direccion4','maps4','telefono4',
+  'direccion5','maps5','telefono5',
+  'direccion6','maps6','telefono6',
+  'whatsapp','whatsapp2','whatsapp3'
+];
+
+const PROMO_CONTACT_LABELS = {
+  instagram:'Instagram', facebook:'Facebook', youtube:'YouTube', tiktok:'TikTok', linkedin:'LinkedIn',
+  direccion:'Dirección', maps:'Maps', telefono:'Teléfono',
+  direccion1:'Dirección 1', maps1:'Maps 1', telefono1:'Teléfono 1',
+  direccion2:'Dirección 2', maps2:'Maps 2', telefono2:'Teléfono 2',
+  direccion3:'Dirección 3', maps3:'Maps 3', telefono3:'Teléfono 3',
+  direccion4:'Dirección 4', maps4:'Maps 4', telefono4:'Teléfono 4',
+  direccion5:'Dirección 5', maps5:'Maps 5', telefono5:'Teléfono 5',
+  direccion6:'Dirección 6', maps6:'Maps 6', telefono6:'Teléfono 6',
+  whatsapp:'WhatsApp', whatsapp2:'WhatsApp 2', whatsapp3:'WhatsApp 3'
+};
+
+const PROMO_CONTACT_GROUPS = {
+  'Redes sociales':['instagram','facebook','youtube','tiktok','linkedin'],
+  'Ubicaciones y contacto':['direccion','maps','telefono','direccion1','maps1','telefono1','direccion2','maps2','telefono2','direccion3','maps3','telefono3','direccion4','maps4','telefono4','direccion5','maps5','telefono5','direccion6','maps6','telefono6','whatsapp','whatsapp2','whatsapp3']
+};
+
+let promoAdvertiserData = {};
 
 const COMMERCE_DATA_FIELDS = [
   "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
@@ -1069,6 +1123,104 @@ function buildCommerceSavePayload(){
 /* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
+function promoHasRealValue(value){
+  if(value === undefined || value === null) return false;
+  const s = String(value).trim();
+  return s !== '' && s !== 'null' && s !== 'undefined';
+}
+
+function promoGetSelectedContactPayload(sourceData){
+  const data = (sourceData && typeof sourceData === 'object') ? sourceData : {};
+  const payload = {};
+
+  PROMO_CONTACT_FIELDS.forEach((fieldName)=>{
+    const checkbox = document.querySelector(`#promo-contact-fields input[data-promo-contact="${fieldName}"]`);
+    if(!checkbox) return;
+
+    // Si está marcada, se escribe exactamente el valor de aux_anunciantes.
+    // Si está desmarcada, se manda vacío para no publicar ese dato.
+    payload[fieldName] = checkbox.checked ? String(data[fieldName] ?? '').trim() : '';
+  });
+
+  return payload;
+}
+
+function promoRenderContactFields(sourceData, selectedValues){
+  const container = document.getElementById('promo-contact-fields');
+  if(!container) return;
+
+  const data = (sourceData && typeof sourceData === 'object') ? sourceData : {};
+  const selected = (selectedValues && typeof selectedValues === 'object') ? selectedValues : null;
+
+  let html = '';
+  let rendered = 0;
+
+  Object.entries(PROMO_CONTACT_GROUPS).forEach(([groupName, fields])=>{
+    const groupItems = fields.filter(fieldName => promoHasRealValue(data[fieldName]));
+    if(!groupItems.length) return;
+
+    html += `<div style="grid-column:1 / -1;font-weight:700;margin-top:${rendered ? '8px' : '0'}">${htmlEscape(groupName)}</div>`;
+
+    groupItems.forEach((fieldName)=>{
+      const sourceValue = String(data[fieldName]).trim();
+      const existingValue = selected && promoHasRealValue(selected[fieldName]) ? String(selected[fieldName]).trim() : '';
+      const checked = selected ? (existingValue !== '') : false;
+      const label = PROMO_CONTACT_LABELS[fieldName] || fieldName;
+
+      html += `
+        <label class="promo-contact-card">
+          <input type="checkbox"
+                 data-promo-contact="${htmlEscape(fieldName)}"
+                 data-promo-source-value="${htmlEscape(sourceValue)}"
+                 ${checked ? 'checked' : ''}>
+          <span class="promo-contact-card-content">
+            <span class="promo-contact-label">${htmlEscape(label)}</span>
+            <span class="promo-contact-value">${htmlEscape(sourceValue)}</span>
+          </span>
+        </label>
+      `;
+      rendered++;
+    });
+  });
+
+  container.innerHTML = rendered
+    ? html
+    : '<div class="promo-contact-empty">El anunciante no tiene datos cargados en estos campos de aux_anunciantes.</div>';
+}
+
+async function loadPromoAdvertiserData(selectedValues){
+  const container = document.getElementById('promo-contact-fields');
+  if(!container) return {};
+
+  if(!sesion || !sesion.id){
+    container.innerHTML = '<div class="promo-contact-empty">Iniciá sesión para cargar los datos del anunciante.</div>';
+    return {};
+  }
+
+  try{
+    // Esta acción está implementada en promo script y busca por id_comercio
+    // directamente en aux_anunciantes.
+    const res = await promos_post({ action:'getAnunciante' });
+    const body = res.json || {};
+
+    if(res.status === 200 && body.success && body.advertiser){
+      promoAdvertiserData = body.advertiser;
+    } else {
+      // Fallback: el /commerce ya cargó los datos del anunciante en dashboard.
+      promoAdvertiserData = (window.__commerceAdvertiserData && typeof window.__commerceAdvertiserData === 'object')
+        ? window.__commerceAdvertiserData
+        : {};
+    }
+  }catch(err){
+    promoAdvertiserData = (window.__commerceAdvertiserData && typeof window.__commerceAdvertiserData === 'object')
+      ? window.__commerceAdvertiserData
+      : {};
+  }
+
+  promoRenderContactFields(promoAdvertiserData, selectedValues);
+  return promoAdvertiserData;
+}
+
 function promoSetCreateMode(){
   editingPromoId = null;
   const btn = document.getElementById('promo-create');
@@ -1083,6 +1235,12 @@ function promoClearForm(){
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
+
+  // Nueva promo: por seguridad no se seleccionan automáticamente
+  // todos los datos personales/contacto.
+  document.querySelectorAll('#promo-contact-fields input[data-promo-contact]').forEach(cb => {
+    cb.checked = false;
+  });
 }
 function promoCancelEdit(){
   promoSetCreateMode();
@@ -1220,6 +1378,10 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
 
+        // En edición, una casilla queda marcada solo si la promo tiene
+        // actualmente un valor real en esa columna.
+        promoRenderContactFields(promoAdvertiserData, found);
+
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
@@ -1235,13 +1397,18 @@ function bindPromosListActions(){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ alert('No se encontró la promo (refrescá).'); return; }
         setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: {
+        const duplicateContactPayload = {};
+        PROMO_CONTACT_FIELDS.forEach((fieldName)=>{
+          duplicateContactPayload[fieldName] = promoHasRealValue(found[fieldName]) ? String(found[fieldName]).trim() : '';
+        });
+
+        const r = await promos_post({ action: 'createPromo', payload: Object.assign({
           promo: found.promo || '',
           categoria: found.categoria || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
           otros: found.otros || ''
-        }});
+        }, duplicateContactPayload) });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
           await loadPromosUI();
@@ -1272,6 +1439,11 @@ async function loadPromosUI(){
 
   st.textContent = 'Cargando promos...';
   list.innerHTML = 'Cargando promos...';
+
+  // Carga desde aux_anunciantes del anunciante actualmente logueado.
+  // Se hace antes de renderizar/editar para que las casillas muestren
+  // únicamente campos con datos reales.
+  await loadPromoAdvertiserData();
 
   const res = await promos_post({ action: 'getPromos' });
   if(res.status !== 200){
@@ -1830,7 +2002,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
-        const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const contactPayload = promoGetSelectedContactPayload(promoAdvertiserData);
+        const r = await promos_post({ action: 'updatePromo', payload: Object.assign({
+          promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||''
+        }, contactPayload) });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -1848,7 +2023,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
 
         setMsg('promos-msg', 'ok', 'Creando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: { promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const contactPayload = promoGetSelectedContactPayload(promoAdvertiserData);
+        const r = await promos_post({ action: 'createPromo', payload: Object.assign({
+          promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||''
+        }, contactPayload) });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -1937,6 +2115,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
       
       const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
+      window.__commerceAdvertiserData = datos || {};
+      promoAdvertiserData = datos || {};
       const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
