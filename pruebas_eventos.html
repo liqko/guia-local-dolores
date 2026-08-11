@@ -1,3 +1,8 @@
+Biblioteca
+/
+eventos_responsive_integrado_anunciantes_fix_filtro_v2.txt
+
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -24,6 +29,7 @@
       color:#122;
       touch-action:pan-y;
       overscroll-behavior:auto;
+      overflow-y:visible;
       -webkit-overflow-scrolling:touch;
       width:100%;
       max-width:100%;
@@ -682,6 +688,8 @@
     } catch(e) {}
     const initialOrganizerFilter = String(initialParams.get('organizador') || (bridgedEventFilter && bridgedEventFilter.organizador) || '').trim();
     const initialAdvertiserIdFilter = String(initialParams.get('anunciante_id') || (bridgedEventFilter && bridgedEventFilter.anunciante_id) || '').trim();
+    const initialEventKeys = Array.isArray(bridgedEventFilter && bridgedEventFilter.event_keys)
+      ? bridgedEventFilter.event_keys.map(v=>String(v || '')).filter(Boolean) : [];
     function normalizeMatchText(value){
       return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
     }
@@ -689,11 +697,22 @@
       return [obj && obj.id, obj && obj.comercio_id, obj && obj.advertiserId, obj && obj.advertiser_id]
         .map(v=>String(v || '').trim()).filter(Boolean);
     }
+    function eventBridgeKey(ev){
+      const nombre = normalizeMatchText(ev && (ev.nombre_evento || ev.nombre));
+      const desde = String(ev && (ev.fecha_desde || ev.fechaDesde || ev.fecha_desde_iso || ev.fecha || '') || '').trim();
+      const hasta = String(ev && (ev.fecha_hasta || ev.fechaHasta || ev.fecha_hasta_iso || '') || '').trim();
+      const org = normalizeMatchText(ev && (ev.organizador || ev.organizador_principal));
+      return [nombre, desde, hasta, org].join('|');
+    }
     function matchesInitialAdvertiser(ev){
+      /* Primero usamos las claves exactas que COM ya determinó como eventos de este anunciante. */
+      if(initialEventKeys.length && initialEventKeys.includes(eventBridgeKey(ev))) return true;
+      /* Respaldo 1: ID compartido entre anunciante y evento. */
       if(initialAdvertiserIdFilter){
         const ids = objectAdvertiserIds(ev);
         if(ids.includes(initialAdvertiserIdFilter)) return true;
       }
+      /* Respaldo 2: nombre exacto normalizado del organizador. */
       if(initialOrganizerFilter){
         const wanted = normalizeMatchText(initialOrganizerFilter);
         return [ev && ev.organizador, ev && ev.organizador_principal]
@@ -1720,11 +1739,17 @@
 
         hydrateCategoryFilterFromEvents(eventosData);
 
-        if(initialOrganizerFilter || initialAdvertiserIdFilter){
+        if(initialEventKeys.length || initialOrganizerFilter || initialAdvertiserIdFilter){
           eventosFiltrados = eventosData.filter(matchesInitialAdvertiser);
           const searchEl = document.getElementById('search');
           if(searchEl && initialOrganizerFilter) searchEl.value = initialOrganizerFilter;
           renderEventos(eventosFiltrados, 1);
+          const subtitleEl = document.getElementById('subtitle');
+          if(subtitleEl && initialOrganizerFilter){
+            subtitleEl.textContent = eventosFiltrados.length
+              ? `Eventos activos de ${initialOrganizerFilter}`
+              : `No encontramos eventos activos de ${initialOrganizerFilter}`;
+          }
         } else {
           eventosFiltrados = [...eventosData];
           renderEventos(eventosFiltrados, 1);
