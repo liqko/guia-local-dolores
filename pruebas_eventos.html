@@ -664,6 +664,30 @@
 
     let eventosData = [], eventosFiltrados = [], currentPage = 1, eventsPerPage = 6;
 
+    /* Integración desde fichas de anunciantes. Si no hay parámetros, la página funciona exactamente como antes. */
+    const initialParams = new URLSearchParams(window.location.search);
+    const initialOrganizerFilter = String(initialParams.get('organizador') || '').trim();
+    const initialAdvertiserIdFilter = String(initialParams.get('anunciante_id') || '').trim();
+    function normalizeMatchText(value){
+      return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+    }
+    function objectAdvertiserIds(obj){
+      return [obj && obj.id, obj && obj.comercio_id, obj && obj.advertiserId, obj && obj.advertiser_id]
+        .map(v=>String(v || '').trim()).filter(Boolean);
+    }
+    function matchesInitialAdvertiser(ev){
+      if(initialAdvertiserIdFilter){
+        const ids = objectAdvertiserIds(ev);
+        if(ids.includes(initialAdvertiserIdFilter)) return true;
+      }
+      if(initialOrganizerFilter){
+        const wanted = normalizeMatchText(initialOrganizerFilter);
+        return [ev && ev.organizador, ev && ev.organizador_principal]
+          .some(v => normalizeMatchText(v) === wanted);
+      }
+      return false;
+    }
+
     function getFechaDesdeRaw(ev){
       return (ev && (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso)) ? (ev.fecha_desde ?? ev.fechaDesde ?? ev.fecha_desde_iso) : '';
     }
@@ -1680,9 +1704,17 @@
           return dateA - dateB;
         });
 
-        eventosFiltrados = [...eventosData];
         hydrateCategoryFilterFromEvents(eventosData);
-        renderEventos(eventosFiltrados, 1);
+
+        if(initialOrganizerFilter || initialAdvertiserIdFilter){
+          eventosFiltrados = eventosData.filter(matchesInitialAdvertiser);
+          const searchEl = document.getElementById('search');
+          if(searchEl && initialOrganizerFilter) searchEl.value = initialOrganizerFilter;
+          renderEventos(eventosFiltrados, 1);
+        } else {
+          eventosFiltrados = [...eventosData];
+          renderEventos(eventosFiltrados, 1);
+        }
       })
       .catch(err => {
         console.error(err);
