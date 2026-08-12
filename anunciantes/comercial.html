@@ -341,16 +341,23 @@
     const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL + "?action=getevents&serverSecret=" + encodeURIComponent(EVENTS_SERVER_SECRET);
     const EVENTS_PAGE_URL = 'https://www.guialocaldolores.com.ar/eventos/';
 
-    /* Integración con Promos: mismo origen que la página pública de Promos. */
-    const PROMOS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
-    const PROMOS_ENDPOINT = PROMOS_WEBAPP_URL + "?action=getpromos";
+    /* Integración con Promos.
+       Se lee directamente la hoja "promos" mediante OpenSheet, igual que anunciantes y banners.
+       Esto evita que un fallo/redirección del WebApp de Apps Script deje rawPromosResponse vacío silenciosamente. */
+    const PROMOS_ENDPOINT = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/promos';
     const PROMOS_PAGE_URL = 'https://www.guialocaldolores.com.ar/promos/';
 
     Promise.all([
       fetch(urlAnunciantes).then(res => res.json()),
       fetch(urlBanners).then(res => res.json()).catch(() => []),
       fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => []),
-      fetch(PROMOS_ENDPOINT).then(res => res.json()).catch(() => [])
+      fetch(PROMOS_ENDPOINT).then(res => {
+        if(!res.ok) throw new Error('Promos HTTP ' + res.status);
+        return res.json();
+      }).catch(err => {
+        console.error('Error cargando promos para tarjetas:', err);
+        return [];
+      })
     ])
       .then(([data, rawBanners, rawEventsResponse, rawPromosResponse]) => {
         // Cargar Banners dinámicos desde Google Sheets
@@ -405,8 +412,16 @@
           return only.getTime() >= today.getTime();
         }
         function advertiserIds(obj){
-          return [obj && obj.id, obj && obj.comercio_id, obj && obj.advertiserId, obj && obj.advertiser_id]
-            .map(v=>String(v || '').trim()).filter(Boolean);
+          return [
+            obj && obj.id,
+            obj && obj.__id,
+            obj && obj.id_comercio,
+            obj && obj.id_anunciante,
+            obj && obj.comercio_id,
+            obj && obj.advertiserId,
+            obj && obj.advertiser_id,
+            obj && obj.planilla_id
+          ].map(v=>String(v || '').trim()).filter(Boolean);
         }
         function eventRelatedAdvertiserNames(ev){
           const raw = [
@@ -491,12 +506,7 @@
           if(!p || !promoBool(p.aprobado)) return false;
           if(promoBool(p.pausado)) return false;
           const today = new Date(); today.setHours(0,0,0,0);
-          const desde = promoDate(p.desde);
           const hasta = promoDate(p.hasta);
-          if(desde){
-            const d = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate());
-            if(d.getTime() > today.getTime()) return false;
-          }
           if(!hasta) return false;
           const h = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
           return h.getTime() >= today.getTime();
