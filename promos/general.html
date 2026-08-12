@@ -75,6 +75,12 @@
 
     .paginator { display:flex; justify-content:center; gap:16px; margin:18px 0 40px; align-items:center; }
     .paginator button { padding:8px 14px; background:linear-gradient(90deg,#ff4e50,#f9d423); color:#fff; border:none; border-radius:8px; font-weight:800; cursor:pointer; }
+    .promo-filter-notice{
+      display:none;max-width:880px;margin:10px auto 0;padding:10px 14px;
+      background:rgba(255,255,255,.9);border:1px solid rgba(255,78,80,.25);
+      border-radius:12px;text-align:center;font-weight:800;color:#24324d;
+      box-sizing:border-box;width:calc(100% - 20px);
+    }
 
     @media (max-width:900px) {
       .search-box { width:92%; max-width:680px; }
@@ -105,6 +111,7 @@
     <input id="search" class="search-box" placeholder="Buscar por nombre, categoría o promo...">
   </div>
 
+  <div id="promoFilterNotice" class="promo-filter-notice"></div>
   <div id="categoriesBar" class="categories-bar"></div>
   <div id="cards" class="cards-container"></div>
   <div id="paginator" class="paginator"></div>
@@ -118,6 +125,69 @@
     const itemsPerPage = 10;
     let categoriasSet = new Set();
     let categoriaFiltro = "";
+
+    const PROMOS_FILTER_STORAGE_KEY = 'gld_promos_filter';
+    let incomingPromoFilter = null;
+
+    function normalizeFilterText(v){
+      return String(v || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+    }
+    function promoFilterKey(p){
+      const pid = String(p && p.promo_id || '').trim();
+      if(pid) return 'id:' + pid;
+      const nombre = normalizeFilterText(p && (p.anunciante || p.nombre));
+      const promo = normalizeFilterText(p && p.promo);
+      const desde = String(p && p.desde || '').trim();
+      const hasta = String(p && p.hasta || '').trim();
+      return ['fallback', nombre, promo, desde, hasta].join('|');
+    }
+    function readIncomingPromoFilter(){
+      let fromStorage = null;
+      try{
+        const raw = localStorage.getItem(PROMOS_FILTER_STORAGE_KEY);
+        if(raw){
+          const parsed = JSON.parse(raw);
+          const age = Date.now() - Number(parsed.ts || 0);
+          if(age >= 0 && age <= 10 * 60 * 1000) fromStorage = parsed;
+          localStorage.removeItem(PROMOS_FILTER_STORAGE_KEY);
+        }
+      }catch(e){}
+
+      let fromQuery = null;
+      try{
+        const qs = new URLSearchParams(window.location.search || '');
+        const id = String(qs.get('id_comercio') || '').trim();
+        const anunciante = String(qs.get('anunciante') || '').trim();
+        if(id || anunciante) fromQuery = { id_comercio:id, anunciante };
+      }catch(e){}
+
+      return fromStorage || fromQuery;
+    }
+    function promoMatchesIncomingFilter(p, filter){
+      if(!filter) return true;
+
+      const keys = Array.isArray(filter.promo_keys) ? filter.promo_keys.filter(Boolean) : [];
+      if(keys.length && keys.includes(promoFilterKey(p))) return true;
+
+      const wantedId = String(filter.id_comercio || '').trim();
+      const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || '') || '').trim();
+      if(wantedId && promoId && wantedId === promoId) return true;
+
+      const wantedName = normalizeFilterText(filter.anunciante);
+      const promoName = normalizeFilterText(p && (p.anunciante || p.nombre || p.comercio));
+      return !!wantedName && promoName === wantedName;
+    }
+    function showPromoFilterNotice(filter, count){
+      const el = document.getElementById('promoFilterNotice');
+      if(!el || !filter) return;
+      const name = String(filter.anunciante || '').trim();
+      el.style.display = 'block';
+      if(count > 0){
+        el.textContent = name ? `Promos activas de ${name}` : 'Promos activas del anunciante seleccionado';
+      }else{
+        el.textContent = name ? `No encontramos promos activas de ${name}` : 'No encontramos promos activas para este anunciante';
+      }
+    }
 
     function fechaHumana(fecha) {
       if (!fecha) return "";
@@ -423,6 +493,11 @@
       if (typeof v === 'number') return v === 1;
       return false;
     }
+    function toBoolPausado(v){
+      if (v === true || v === 1) return true;
+      const t = String(v || '').trim().toLowerCase();
+      return t === 'true' || t === '1' || t === 'sí' || t === 'si' || t === 'x';
+    }
 
     function isPromoVigenteHasta(hastaValue) {
       if (!hastaValue) return false; // Si no hay fecha hasta, descartar
@@ -476,13 +551,20 @@
           return obj;
         });
 
-        // SOLO aprobados y con fecha HASTA válida (vigente)
+        // SOLO aprobados, no pausados y con fecha HASTA válida (vigente)
         comerciosData = comerciosData.filter(c => 
-          toBoolAprobado(c.aprobado) && 
+          toBoolAprobado(c.aprobado) &&
+          !toBoolPausado(c.pausado) &&
           c.hasta && 
           isPromoVigenteHasta(c.hasta)
         );
         comerciosData = comerciosData.filter(hasMeaningfulData);
+
+        incomingPromoFilter = readIncomingPromoFilter();
+        if(incomingPromoFilter){
+          comerciosData = comerciosData.filter(c => promoMatchesIncomingFilter(c, incomingPromoFilter));
+          showPromoFilterNotice(incomingPromoFilter, comerciosData.length);
+        }
 
         filtrados = comerciosData;
         categoriasSet = new Set(comerciosData.map(c => c.categoria).filter(Boolean));
