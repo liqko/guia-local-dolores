@@ -1,3 +1,8 @@
+Biblioteca
+/
+ev_html_roles_publicos.txt
+
+
 <!DOCTYPE html>
 <html lang="es">
 <head>
@@ -332,6 +337,12 @@
 
     .sponsors{margin-top:8px;max-width:100%;}
     .sponsors-title{font-weight:950;color:#132f6e;margin-bottom:8px;display:flex;gap:8px;align-items:center;}
+    .partners-role-group{margin-top:12px;}
+    .partners-role-group:first-child{margin-top:0;}
+    .partners-role-title{font-weight:950;color:#132f6e;margin-bottom:8px;display:flex;gap:8px;align-items:center;padding-bottom:5px;border-bottom:1px solid #e6eefc;}
+    .partners-role-title.coorganizador{color:#8e44ad;}
+    .partners-role-title.auspiciante{color:#132f6e;}
+    .partners-role-title.sponsor{color:#c05a00;}
     .sponsors-grid{display:block;width:100%;max-width:100%;text-align:left;}
     .sponsor-item{
       width:100%;
@@ -940,17 +951,33 @@
       return panel;
     }
 
+    function normalizePartnerRole(raw){
+      const s = String(raw || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      if (!s) return 'Auspiciante';
+      if (s.includes('co-organ') || s.includes('coorgan')) return 'Co-organizador';
+      if (s.includes('sponsor')) return 'Sponsor';
+      if (s.includes('auspic')) return 'Auspiciante';
+      return String(raw || '').trim() || 'Auspiciante';
+    }
+
     function getPartners(ev){
-      const names = [ev.partner, ev.partner2, ev.partner3, ev.partner4, ev.partner5, ev.partner6]
-        .map(x=>String(x||'').trim())
-        .filter(Boolean);
-      const logos = [ev.logo_partner, ev.logo_partner2, ev.logo_partner3, ev.logo_partner4, ev.logo_partner5, ev.logo_partner6]
-        .map(x=>String(x||'').trim());
       const items = [];
-      for (let i=0;i<names.length;i++){
-        items.push({ name: names[i], logo: safeUrl(logos[i]) || '' });
+      for (let i=1;i<=6;i++){
+        const suffix = i === 1 ? '' : String(i);
+        const name = String(ev && ev['partner'+suffix] || '').trim();
+        if (!name) continue;
+        const logo = String(ev && ev['logo_partner'+suffix] || '').trim();
+        const role = normalizePartnerRole(ev && ev['rol_partner'+suffix]);
+        items.push({ name, logo: safeUrl(logo) || '', role });
       }
       return items;
+    }
+
+    function partnerRoleMeta(role){
+      const normalized = normalizePartnerRole(role);
+      if (normalized === 'Co-organizador') return { key:'coorganizador', label:'Co-organiza', icon:'ri-team-line' };
+      if (normalized === 'Sponsor') return { key:'sponsor', label:'Sponsor', icon:'ri-megaphone-line' };
+      return { key:'auspiciante', label:'Auspicia', icon:'ri-hand-heart-line' };
     }
 
     function mountEmbedBlock(rightEl, title, url){
@@ -1224,31 +1251,42 @@
       if (lvl !== 'free' && partners.length){
         const sponsors = document.createElement('div');
         sponsors.className = 'sponsors';
-        const st = document.createElement('div');
-        st.className = 'sponsors-title';
-        st.innerHTML = `<i class="ri-hand-heart-line"></i> <span>Auspicia</span>`;
-        sponsors.appendChild(st);
-        const grid = document.createElement('div');
-        grid.className = 'sponsors-grid';
-        partners.forEach(p=>{
-          const item = document.createElement('div');
-          item.className = 'sponsor-item';
-          const img = document.createElement('img');
-          img.className = 'sponsor-logo';
-          img.src = p.logo || PLACEHOLDER_SVG;
-          img.alt = p.name;
-          img.onerror = function(){
-            this.onerror = null;
-            this.src = PLACEHOLDER_SVG;
-          };
-          const name = document.createElement('div');
-          name.className = 'sponsor-name';
-          name.textContent = p.name;
-          item.appendChild(img);
-          item.appendChild(name);
-          grid.appendChild(item);
+
+        const roleOrder = ['Co-organizador','Auspiciante','Sponsor'];
+        roleOrder.forEach(roleName=>{
+          const groupItems = partners.filter(p => normalizePartnerRole(p.role) === roleName);
+          if (!groupItems.length) return;
+
+          const meta = partnerRoleMeta(roleName);
+          const group = document.createElement('div');
+          group.className = 'partners-role-group';
+
+          const st = document.createElement('div');
+          st.className = `partners-role-title ${meta.key}`;
+          st.innerHTML = `<i class="${meta.icon}"></i> <span>${meta.label}</span>`;
+          group.appendChild(st);
+
+          const grid = document.createElement('div');
+          grid.className = 'sponsors-grid';
+          groupItems.forEach(p=>{
+            const item = document.createElement('div');
+            item.className = 'sponsor-item';
+            const img = document.createElement('img');
+            img.className = 'sponsor-logo';
+            img.src = p.logo || PLACEHOLDER_SVG;
+            img.alt = p.name;
+            img.onerror = function(){ this.onerror = null; this.src = PLACEHOLDER_SVG; };
+            const name = document.createElement('div');
+            name.className = 'sponsor-name';
+            name.textContent = p.name;
+            item.appendChild(img);
+            item.appendChild(name);
+            grid.appendChild(item);
+          });
+          group.appendChild(grid);
+          sponsors.appendChild(group);
         });
-        sponsors.appendChild(grid);
+
         body.appendChild(sponsors);
       }
 
