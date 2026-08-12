@@ -188,6 +188,15 @@
       text-align:center;
     }
     .eventos-activos-btn:hover,.eventos-activos-btn:focus{background:#00547d;outline:2px solid #fff;outline-offset:2px;}
+    .promos-activas-btn{
+      display:flex;align-items:center;justify-content:center;gap:.5rem;
+      width:100%;min-height:48px;margin-top:.55rem;padding:.78rem 1rem;
+      border-radius:.75rem;background:#ff6a00;color:#fff !important;
+      text-decoration:none !important;font-weight:800;font-style:normal;
+      box-shadow:0 3px 10px rgba(255,106,0,.22);box-sizing:border-box;
+      text-align:center;
+    }
+    .promos-activas-btn:hover,.promos-activas-btn:focus{background:#e65f00;outline:2px solid #fff;outline-offset:2px;}
 
     @media (max-width:700px){
       body{font-size:16px;}
@@ -332,12 +341,18 @@
     const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL + "?action=getevents&serverSecret=" + encodeURIComponent(EVENTS_SERVER_SECRET);
     const EVENTS_PAGE_URL = 'https://www.guialocaldolores.com.ar/eventos/';
 
+    /* Integración con Promos: mismo origen que la página pública de Promos. */
+    const PROMOS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
+    const PROMOS_ENDPOINT = PROMOS_WEBAPP_URL + "?action=getpromos";
+    const PROMOS_PAGE_URL = 'https://www.guialocaldolores.com.ar/promos/';
+
     Promise.all([
       fetch(urlAnunciantes).then(res => res.json()),
       fetch(urlBanners).then(res => res.json()).catch(() => []),
-      fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => [])
+      fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => []),
+      fetch(PROMOS_ENDPOINT).then(res => res.json()).catch(() => [])
     ])
-      .then(([data, rawBanners, rawEventsResponse]) => {
+      .then(([data, rawBanners, rawEventsResponse, rawPromosResponse]) => {
         // Cargar Banners dinámicos desde Google Sheets
         if (rawBanners && Array.isArray(rawBanners)) {
           banners = rawBanners
@@ -446,6 +461,84 @@
           };
           const payload = encodeURIComponent(JSON.stringify(bridgePayload));
           return `<a class="eventos-activos-btn" href="${EVENTS_PAGE_URL}?${params.toString()}" target="_top" data-event-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.eventFilter||''));d.ts=Date.now();localStorage.setItem('gld_eventos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-calendar-days"></i> ${label}</a>`;
+        }
+
+        /* Índice local de promos activas. */
+        const rawPromosList = Array.isArray(rawPromosResponse)
+          ? rawPromosResponse
+          : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+
+        function promoBool(v){
+          if(v === true || v === 1) return true;
+          return ['true','1','si','sí','x','✓','aprobado','ok'].includes(String(v || '').trim().toLowerCase());
+        }
+        function promoDate(value){
+          if(value === null || value === undefined || value === '') return null;
+          if(typeof value === 'number' && isFinite(value)){
+            const base = Date.UTC(1899,11,30);
+            const d = new Date(base + Number(value) * 86400000);
+            return isNaN(d.getTime()) ? null : d;
+          }
+          const s = String(value).trim();
+          let m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if(m) return new Date(Number(m[1]), Number(m[2])-1, Number(m[3]));
+          m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+          if(m) return new Date(Number(m[3]), Number(m[2])-1, Number(m[1]));
+          const d = new Date(s);
+          return isNaN(d.getTime()) ? null : d;
+        }
+        function promoIsActive(p){
+          if(!p || !promoBool(p.aprobado)) return false;
+          if(promoBool(p.pausado)) return false;
+          const today = new Date(); today.setHours(0,0,0,0);
+          const desde = promoDate(p.desde);
+          const hasta = promoDate(p.hasta);
+          if(desde){
+            const d = new Date(desde.getFullYear(), desde.getMonth(), desde.getDate());
+            if(d.getTime() > today.getTime()) return false;
+          }
+          if(!hasta) return false;
+          const h = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
+          return h.getTime() >= today.getTime();
+        }
+        function promoMatchesAdvertiser(p, item){
+          const itemIds = advertiserIds(item);
+          const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || p.advertiserId || '') || '').trim();
+          if(promoId && itemIds.includes(promoId)) return true;
+          const itemName = normalizar(item && item.nombre);
+          const promoName = normalizar(p && (p.anunciante || p.nombre || p.comercio));
+          return !!itemName && promoName === itemName;
+        }
+        const activePromos = rawPromosList.filter(promoIsActive);
+        function activePromosForAdvertiser(item){
+          return activePromos.filter(p => promoMatchesAdvertiser(p, item));
+        }
+        function promoBridgeKey(p){
+          const pid = String(p && p.promo_id || '').trim();
+          if(pid) return 'id:' + pid;
+          const nombre = normalizar(p && (p.anunciante || p.nombre));
+          const promo = normalizar(p && p.promo);
+          const desde = String(p && p.desde || '').trim();
+          const hasta = String(p && p.hasta || '').trim();
+          return ['fallback', nombre, promo, desde, hasta].join('|');
+        }
+        function renderPromosActivasButton(item){
+          const matches = activePromosForAdvertiser(item);
+          if(!matches.length) return '';
+          const ids = advertiserIds(item);
+          const params = new URLSearchParams();
+          params.set('anunciante', String(item.nombre || '').trim());
+          if(ids.length) params.set('id_comercio', ids[0]);
+
+          const label = matches.length === 1 ? 'Ver promo activa' : `Ver ${matches.length} promos activas`;
+          const safeName = String(item.nombre || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          const bridgePayload = {
+            anunciante: String(item.nombre || '').trim(),
+            id_comercio: ids.length ? ids[0] : '',
+            promo_keys: matches.map(promoBridgeKey).filter(Boolean)
+          };
+          const payload = encodeURIComponent(JSON.stringify(bridgePayload));
+          return `<a class="promos-activas-btn" href="${PROMOS_PAGE_URL}?${params.toString()}" target="_top" data-promo-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.promoFilter||''));d.ts=Date.now();localStorage.setItem('gld_promos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-tags"></i> ${label}</a>`;
         }
 
         function capitalizarFrase(str){
@@ -714,6 +807,7 @@
             if(webMailHtml){ html += `<div class="web-mail-bloque">${webMailHtml}</div><span class="segmento-doble"></span>`; }
           }
           html += renderEventosActivosButton(item);
+          html += renderPromosActivasButton(item);
           html+=`</div>`;
           return html;
         }
