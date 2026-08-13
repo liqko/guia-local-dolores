@@ -389,6 +389,43 @@
     }
 
     const ANUNCIANTES_API = "https://script.google.com/macros/s/AKfycbzom6il-vhSMAnsNp0ipfTHqf2ha-nOtwVEv7xR9gcc6u01UiL9AVG9O-dZedCUvaGS/exec";
+
+    function jsonpApi(params={}) {
+      return new Promise((resolve, reject) => {
+        const callbackName = '__gld_jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000000);
+        const script = document.createElement('script');
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Tiempo de espera agotado al consultar la API'));
+        }, 15000);
+
+        function cleanup(){
+          clearTimeout(timer);
+          try{ delete window[callbackName]; }catch(e){ window[callbackName] = undefined; }
+          if(script.parentNode) script.parentNode.removeChild(script);
+        }
+
+        window[callbackName] = data => {
+          cleanup();
+          resolve(data);
+        };
+
+        const u = new URL(ANUNCIANTES_API);
+        Object.entries(params).forEach(([k,v]) => {
+          if(v !== undefined && v !== null && String(v) !== '') u.searchParams.set(k, v);
+        });
+        u.searchParams.set('callback', callbackName);
+        u.searchParams.set('_ts', Date.now());
+
+        script.onerror = () => {
+          cleanup();
+          reject(new Error('No se pudo cargar la API'));
+        };
+
+        script.src = u.toString();
+        document.head.appendChild(script);
+      });
+    }
     const queryInicial = new URLSearchParams(window.location.search);
     const paisSeleccionado = queryInicial.get('pais_id') || '';
     const provinciaSeleccionada = queryInicial.get('provincia_id') || '';
@@ -414,7 +451,7 @@
     async function cargarGuiaSeleccionada(){
       try {
         const [dataResponse, rawBanners, rawEventsResponse, rawPromosResponse] = await Promise.all([
-          fetch(urlAnunciantes).then(res => res.json()),
+          jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}),
           fetch(urlBanners).then(res => res.json()).catch(() => []),
           fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => []),
           fetch(PROMOS_ENDPOINT).then(res => {
@@ -1381,38 +1418,31 @@
       }
     }
 
-    const URL_PAISES = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/paises';
-    const URL_PROVINCIAS = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/provincias';
-    const URL_CIUDADES = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/ciudades';
-
-    function catalogoActivo(v) {
-      if (v === undefined || v === null || String(v).trim() === '') return true;
-      const s = String(v).trim().toLowerCase();
-      return ['true','1','x','si','sí','activo','activa'].includes(s);
-    }
-
-    function ordenarCatalogo(rows) {
-      return (rows || [])
-        .filter(r => catalogoActivo(r.activo !== undefined ? r.activo : r.estado))
-        .sort((a,b) => {
-          const oa = Number(a.orden || 999999);
-          const ob = Number(b.orden || 999999);
-          if (oa !== ob) return oa - ob;
-          return String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es');
-        });
-    }
-
     function opciones(select, rows, idField) {
       const placeholder = select.options[0]
         ? select.options[0].outerHTML
         : '<option value="">Seleccionar</option>';
+
       select.innerHTML = placeholder;
 
-      rows.forEach(r => {
+      (rows || []).forEach(r => {
         const id = String(r[idField] || '').trim();
         const nombre = String(r.nombre || '').trim();
-        if (id && nombre) select.add(new Option(nombre, id));
+        if(id && nombre) {
+          const op = document.createElement('option');
+          op.value = id;
+          op.textContent = nombre;
+          select.appendChild(op);
+        }
       });
+    }
+
+    async function cargarBootstrap() {
+      const data = await jsonpApi({action:'bootstrap'});
+      if(!data || data.success !== true) {
+        throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
+      }
+      return data;
     }
 
     async function iniciarUbicacion() {
@@ -1430,35 +1460,48 @@
       });
 
       try {
-        const [paisesRaw, provinciasRaw, ciudadesRaw] = await Promise.all([
-          fetch(URL_PAISES, {cache:'no-store'}).then(r => r.json()),
-          fetch(URL_PROVINCIAS, {cache:'no-store'}).then(r => r.json()),
-          fetch(URL_CIUDADES, {cache:'no-store'}).then(r => r.json())
-        ]);
+        error.textContent = 'Cargando ubicaciones…';
 
-        const paises = ordenarCatalogo(paisesRaw);
-        const provincias = ordenarCatalogo(provinciasRaw);
-        const ciudades = ordenarCatalogo(ciudadesRaw);
+        const boot = await cargarBootstrap();
+        const paises = Array.isArray(boot.paises) ? boot.paises : [];
+        const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
+        const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
+
+        if(!paises.length) {
+          throw new Error('El API no devolvió países.');
+        }
 
         opciones(paisSel, paises, 'pais_id');
+        error.textContent = '';
 
         paisSel.addEventListener('change', () => {
-          const pid = paisSel.value;
-          const filtradas = provincias.filter(p => String(p.pais_id || '').trim() === pid);
+          const paisId = String(paisSel.value || '').trim();
+
+          const filtradas = provincias.filter(p =>
+            String(p.pais_id || '').trim() === paisId
+          );
+
           provSel.innerHTML = '<option value="">Seleccionar provincia</option>';
           ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
+
           opciones(provSel, filtradas, 'provincia_id');
-          provSel.disabled = !pid;
+
+          provSel.disabled = !paisId || filtradas.length === 0;
           ciudadSel.disabled = true;
           btn.disabled = true;
         });
 
         provSel.addEventListener('change', () => {
-          const prid = provSel.value;
-          const filtradas = ciudades.filter(c => String(c.provincia_id || '').trim() === prid);
+          const provinciaId = String(provSel.value || '').trim();
+
+          const filtradas = ciudades.filter(c =>
+            String(c.provincia_id || '').trim() === provinciaId
+          );
+
           ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
           opciones(ciudadSel, filtradas, 'ciudad_id');
-          ciudadSel.disabled = !prid;
+
+          ciudadSel.disabled = !provinciaId || filtradas.length === 0;
           btn.disabled = true;
         });
 
@@ -1468,6 +1511,7 @@
 
         btn.addEventListener('click', () => {
           if(!paisSel.value || !provSel.value || !ciudadSel.value) return;
+
           const u = new URL(window.location.href);
           u.searchParams.set('pais_id', paisSel.value);
           u.searchParams.set('provincia_id', provSel.value);
@@ -1476,23 +1520,34 @@
         });
 
         if(paisSeleccionado && provinciaSeleccionada && ciudadSeleccionada) {
-          const paisObj = paises.find(x => String(x.pais_id || '').trim() === paisSeleccionado);
-          const provObj = provincias.find(x => String(x.provincia_id || '').trim() === provinciaSeleccionada);
-          const ciuObj = ciudades.find(x => String(x.ciudad_id || '').trim() === ciudadSeleccionada);
+          const paisObj = paises.find(x =>
+            String(x.pais_id || '').trim() === paisSeleccionado
+          );
+          const provObj = provincias.find(x =>
+            String(x.provincia_id || '').trim() === provinciaSeleccionada
+          );
+          const ciuObj = ciudades.find(x =>
+            String(x.ciudad_id || '').trim() === ciudadSeleccionada
+          );
 
-          const lugar = [ciuObj && ciuObj.nombre, provObj && provObj.nombre, paisObj && paisObj.nombre]
-            .filter(Boolean).join(', ');
+          if(!paisObj || !provObj || !ciuObj) {
+            throw new Error('La ubicación indicada en la URL no existe en los catálogos.');
+          }
 
-          document.getElementById('ubicacionTexto').textContent = lugar || 'Guía Local';
-          document.getElementById('tituloGuia').textContent =
-            ciuObj && ciuObj.nombre ? `Guía Local · ${ciuObj.nombre}` : 'Guía Local';
+          const lugar = [ciuObj.nombre, provObj.nombre, paisObj.nombre]
+            .filter(Boolean)
+            .join(', ');
+
+          document.getElementById('ubicacionTexto').textContent = lugar;
+          document.getElementById('tituloGuia').textContent = `Guía Local · ${ciuObj.nombre}`;
 
           overlay.classList.add('oculto');
           await cargarGuiaSeleccionada();
         }
+
       } catch(e) {
-        console.error('Error cargando catálogos territoriales:', e);
-        error.textContent = 'No se pudieron cargar país, provincia y ciudad.';
+        console.error('Error inicializando ubicación:', e);
+        error.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
       }
     }
 
