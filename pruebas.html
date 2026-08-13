@@ -1437,12 +1437,31 @@
       });
     }
 
-    async function cargarBootstrap() {
-      const data = await jsonpApi({action:'bootstrap'});
+    async function apiCatalogo(action, params={}) {
+      const data = await jsonpApi(Object.assign({action}, params));
       if(!data || data.success !== true) {
-        throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
+        throw new Error((data && (data.error || data.message)) || `Error en ${action}`);
       }
-      return data;
+      return Array.isArray(data.results) ? data.results : [];
+    }
+
+    function opciones(select, rows, idField) {
+      const placeholder = select.options[0]
+        ? select.options[0].outerHTML
+        : '<option value="">Seleccionar</option>';
+
+      select.innerHTML = placeholder;
+
+      (rows || []).forEach(r => {
+        const id = String(r[idField] || '').trim();
+        const nombre = String(r.nombre || '').trim();
+        if(!id || !nombre) return;
+
+        const op = document.createElement('option');
+        op.value = id;
+        op.textContent = nombre;
+        select.appendChild(op);
+      });
     }
 
     async function iniciarUbicacion() {
@@ -1459,52 +1478,78 @@
         window.location.href = u.toString();
       });
 
-      try {
-        error.textContent = 'Cargando ubicaciones…';
+      async function cargarProvincias() {
+        error.textContent = '';
+        provSel.disabled = true;
+        ciudadSel.disabled = true;
+        btn.disabled = true;
 
-        const boot = await cargarBootstrap();
-        const paises = Array.isArray(boot.paises) ? boot.paises : [];
-        const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
-        const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
+        provSel.innerHTML = '<option value="">Seleccionar provincia</option>';
+        ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
 
-        if(!paises.length) {
-          throw new Error('El API no devolvió países.');
+        const paisId = String(paisSel.value || '').trim();
+        if(!paisId) return;
+
+        try {
+          const provincias = await apiCatalogo('provincias', {pais_id:paisId});
+
+          if(!provincias.length) {
+            error.textContent = `No hay provincias asociadas al país ${paisId}.`;
+            return;
+          }
+
+          opciones(provSel, provincias, 'provincia_id');
+          provSel.disabled = false;
+
+          if(provincias.length === 1) {
+            provSel.value = String(provincias[0].provincia_id || '').trim();
+            await cargarCiudades();
+          }
+        } catch(e) {
+          error.textContent = 'Error cargando provincias: ' + (e.message || e);
         }
+      }
+
+      async function cargarCiudades() {
+        error.textContent = '';
+        ciudadSel.disabled = true;
+        btn.disabled = true;
+        ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
+
+        const provinciaId = String(provSel.value || '').trim();
+        if(!provinciaId) return;
+
+        try {
+          const ciudades = await apiCatalogo('ciudades', {provincia_id:provinciaId});
+
+          if(!ciudades.length) {
+            error.textContent = `No hay ciudades asociadas a la provincia ${provinciaId}.`;
+            return;
+          }
+
+          opciones(ciudadSel, ciudades, 'ciudad_id');
+          ciudadSel.disabled = false;
+
+          if(ciudades.length === 1) {
+            ciudadSel.value = String(ciudades[0].ciudad_id || '').trim();
+            btn.disabled = false;
+          }
+        } catch(e) {
+          error.textContent = 'Error cargando ciudades: ' + (e.message || e);
+        }
+      }
+
+      try {
+        error.textContent = 'Cargando países…';
+        const paises = await apiCatalogo('paises');
+
+        if(!paises.length) throw new Error('La API no devolvió países.');
 
         opciones(paisSel, paises, 'pais_id');
         error.textContent = '';
 
-        paisSel.addEventListener('change', () => {
-          const paisId = String(paisSel.value || '').trim();
-
-          const filtradas = provincias.filter(p =>
-            String(p.pais_id || '').trim() === paisId
-          );
-
-          provSel.innerHTML = '<option value="">Seleccionar provincia</option>';
-          ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
-
-          opciones(provSel, filtradas, 'provincia_id');
-
-          provSel.disabled = !paisId || filtradas.length === 0;
-          ciudadSel.disabled = true;
-          btn.disabled = true;
-        });
-
-        provSel.addEventListener('change', () => {
-          const provinciaId = String(provSel.value || '').trim();
-
-          const filtradas = ciudades.filter(c =>
-            String(c.provincia_id || '').trim() === provinciaId
-          );
-
-          ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
-          opciones(ciudadSel, filtradas, 'ciudad_id');
-
-          ciudadSel.disabled = !provinciaId || filtradas.length === 0;
-          btn.disabled = true;
-        });
-
+        paisSel.addEventListener('change', cargarProvincias);
+        provSel.addEventListener('change', cargarCiudades);
         ciudadSel.addEventListener('change', () => {
           btn.disabled = !ciudadSel.value;
         });
@@ -1519,27 +1564,30 @@
           window.location.href = u.toString();
         });
 
+        if(paises.length === 1) {
+          paisSel.value = String(paises[0].pais_id || '').trim();
+          await cargarProvincias();
+        }
+
         if(paisSeleccionado && provinciaSeleccionada && ciudadSeleccionada) {
-          const paisObj = paises.find(x =>
-            String(x.pais_id || '').trim() === paisSeleccionado
-          );
-          const provObj = provincias.find(x =>
-            String(x.provincia_id || '').trim() === provinciaSeleccionada
-          );
-          const ciuObj = ciudades.find(x =>
-            String(x.ciudad_id || '').trim() === ciudadSeleccionada
-          );
+          paisSel.value = paisSeleccionado;
+          await cargarProvincias();
 
-          if(!paisObj || !provObj || !ciuObj) {
-            throw new Error('La ubicación indicada en la URL no existe en los catálogos.');
-          }
+          provSel.value = provinciaSeleccionada;
+          await cargarCiudades();
 
-          const lugar = [ciuObj.nombre, provObj.nombre, paisObj.nombre]
-            .filter(Boolean)
-            .join(', ');
+          ciudadSel.value = ciudadSeleccionada;
+          btn.disabled = false;
 
-          document.getElementById('ubicacionTexto').textContent = lugar;
-          document.getElementById('tituloGuia').textContent = `Guía Local · ${ciuObj.nombre}`;
+          const paisNombre = paisSel.options[paisSel.selectedIndex]?.text || '';
+          const provNombre = provSel.options[provSel.selectedIndex]?.text || '';
+          const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
+
+          document.getElementById('ubicacionTexto').textContent =
+            [ciudadNombre, provNombre, paisNombre].filter(Boolean).join(', ');
+
+          document.getElementById('tituloGuia').textContent =
+            ciudadNombre ? `Guía Local · ${ciudadNombre}` : 'Guía Local';
 
           overlay.classList.add('oculto');
           await cargarGuiaSeleccionada();
@@ -1547,7 +1595,7 @@
 
       } catch(e) {
         console.error('Error inicializando ubicación:', e);
-        error.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
+        error.textContent = 'Error: ' + (e.message || e);
       }
     }
 
