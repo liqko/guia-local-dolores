@@ -1437,12 +1437,16 @@
       });
     }
 
-    async function apiCatalogo(action, params={}) {
-      const data = await jsonpApi(Object.assign({action}, params));
+    async function cargarBootstrap() {
+      const data = await jsonpApi({action:'bootstrap'});
       if(!data || data.success !== true) {
-        throw new Error((data && (data.error || data.message)) || `Error en ${action}`);
+        throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
       }
-      return Array.isArray(data.results) ? data.results : [];
+      return data;
+    }
+
+    function normId(v){
+      return String(v || '').trim().toLowerCase();
     }
 
     function opciones(select, rows, idField) {
@@ -1464,6 +1468,26 @@
       });
     }
 
+    function perteneceAProvincia(provincia, paisSeleccionado, paises){
+      const ref = normId(provincia && (provincia.pais_id || provincia.pais));
+      if(!ref) return false;
+
+      const pais = (paises || []).find(p => normId(p.pais_id) === normId(paisSeleccionado));
+      if(!pais) return false;
+
+      return ref === normId(pais.pais_id) || ref === normId(pais.nombre);
+    }
+
+    function perteneceACiudad(ciudad, provinciaSeleccionada, provincias){
+      const ref = normId(ciudad && (ciudad.provincia_id || ciudad.provincia));
+      if(!ref) return false;
+
+      const provincia = (provincias || []).find(p => normId(p.provincia_id) === normId(provinciaSeleccionada));
+      if(!provincia) return false;
+
+      return ref === normId(provincia.provincia_id) || ref === normId(provincia.nombre);
+    }
+
     async function iniciarUbicacion() {
       const overlay = document.getElementById('ubicacionOverlay');
       const paisSel = document.getElementById('paisInicial');
@@ -1478,78 +1502,91 @@
         window.location.href = u.toString();
       });
 
-      async function cargarProvincias() {
-        error.textContent = '';
-        provSel.disabled = true;
-        ciudadSel.disabled = true;
-        btn.disabled = true;
-
-        provSel.innerHTML = '<option value="">Seleccionar provincia</option>';
-        ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
-
-        const paisId = String(paisSel.value || '').trim();
-        if(!paisId) return;
-
-        try {
-          const provincias = await apiCatalogo('provincias', {pais_id:paisId});
-
-          if(!provincias.length) {
-            error.textContent = `No hay provincias asociadas al país ${paisId}.`;
-            return;
-          }
-
-          opciones(provSel, provincias, 'provincia_id');
-          provSel.disabled = false;
-
-          if(provincias.length === 1) {
-            provSel.value = String(provincias[0].provincia_id || '').trim();
-            await cargarCiudades();
-          }
-        } catch(e) {
-          error.textContent = 'Error cargando provincias: ' + (e.message || e);
-        }
-      }
-
-      async function cargarCiudades() {
-        error.textContent = '';
-        ciudadSel.disabled = true;
-        btn.disabled = true;
-        ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
-
-        const provinciaId = String(provSel.value || '').trim();
-        if(!provinciaId) return;
-
-        try {
-          const ciudades = await apiCatalogo('ciudades', {provincia_id:provinciaId});
-
-          if(!ciudades.length) {
-            error.textContent = `No hay ciudades asociadas a la provincia ${provinciaId}.`;
-            return;
-          }
-
-          opciones(ciudadSel, ciudades, 'ciudad_id');
-          ciudadSel.disabled = false;
-
-          if(ciudades.length === 1) {
-            ciudadSel.value = String(ciudades[0].ciudad_id || '').trim();
-            btn.disabled = false;
-          }
-        } catch(e) {
-          error.textContent = 'Error cargando ciudades: ' + (e.message || e);
-        }
-      }
-
       try {
-        error.textContent = 'Cargando países…';
-        const paises = await apiCatalogo('paises');
+        error.textContent = 'Cargando ubicaciones…';
 
-        if(!paises.length) throw new Error('La API no devolvió países.');
+        // UNA SOLA llamada al servidor para toda la pantalla inicial.
+        const boot = await cargarBootstrap();
+
+        const paises = Array.isArray(boot.paises) ? boot.paises : [];
+        const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
+        const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
+
+        if(!paises.length) throw new Error('No hay países cargados.');
 
         opciones(paisSel, paises, 'pais_id');
         error.textContent = '';
 
-        paisSel.addEventListener('change', cargarProvincias);
-        provSel.addEventListener('change', cargarCiudades);
+        function cargarProvinciasLocal() {
+          const paisId = String(paisSel.value || '').trim();
+
+          provSel.innerHTML = '<option value="">Seleccionar provincia</option>';
+          ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
+          ciudadSel.disabled = true;
+          btn.disabled = true;
+
+          if(!paisId) {
+            provSel.disabled = true;
+            return [];
+          }
+
+          const filtradas = provincias.filter(p => perteneceAProvincia(p, paisId, paises));
+          opciones(provSel, filtradas, 'provincia_id');
+          provSel.disabled = filtradas.length === 0;
+
+          if(!filtradas.length) {
+            error.textContent = `No encuentro provincias vinculadas a ${paisId}. Revisar pais_id en la hoja provincias.`;
+          } else {
+            error.textContent = '';
+          }
+
+          return filtradas;
+        }
+
+        function cargarCiudadesLocal() {
+          const provinciaId = String(provSel.value || '').trim();
+
+          ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
+          btn.disabled = true;
+
+          if(!provinciaId) {
+            ciudadSel.disabled = true;
+            return [];
+          }
+
+          const filtradas = ciudades.filter(c => perteneceACiudad(c, provinciaId, provincias));
+          opciones(ciudadSel, filtradas, 'ciudad_id');
+          ciudadSel.disabled = filtradas.length === 0;
+
+          if(!filtradas.length) {
+            error.textContent = `No encuentro ciudades vinculadas a ${provinciaId}. Revisar provincia_id en la hoja ciudades.`;
+          } else {
+            error.textContent = '';
+          }
+
+          return filtradas;
+        }
+
+        paisSel.addEventListener('change', () => {
+          const ps = cargarProvinciasLocal();
+          if(ps.length === 1) {
+            provSel.value = String(ps[0].provincia_id || '').trim();
+            const cs = cargarCiudadesLocal();
+            if(cs.length === 1) {
+              ciudadSel.value = String(cs[0].ciudad_id || '').trim();
+              btn.disabled = false;
+            }
+          }
+        });
+
+        provSel.addEventListener('change', () => {
+          const cs = cargarCiudadesLocal();
+          if(cs.length === 1) {
+            ciudadSel.value = String(cs[0].ciudad_id || '').trim();
+            btn.disabled = false;
+          }
+        });
+
         ciudadSel.addEventListener('change', () => {
           btn.disabled = !ciudadSel.value;
         });
@@ -1564,17 +1601,29 @@
           window.location.href = u.toString();
         });
 
+        // Si sólo hay una opción en cada nivel, entra prácticamente sin espera.
         if(paises.length === 1) {
           paisSel.value = String(paises[0].pais_id || '').trim();
-          await cargarProvincias();
+
+          const ps = cargarProvinciasLocal();
+          if(ps.length === 1) {
+            provSel.value = String(ps[0].provincia_id || '').trim();
+
+            const cs = cargarCiudadesLocal();
+            if(cs.length === 1) {
+              ciudadSel.value = String(cs[0].ciudad_id || '').trim();
+              btn.disabled = false;
+            }
+          }
         }
 
+        // Restaurar selección desde URL.
         if(paisSeleccionado && provinciaSeleccionada && ciudadSeleccionada) {
           paisSel.value = paisSeleccionado;
-          await cargarProvincias();
+          cargarProvinciasLocal();
 
           provSel.value = provinciaSeleccionada;
-          await cargarCiudades();
+          cargarCiudadesLocal();
 
           ciudadSel.value = ciudadSeleccionada;
           btn.disabled = false;
@@ -1595,7 +1644,7 @@
 
       } catch(e) {
         console.error('Error inicializando ubicación:', e);
-        error.textContent = 'Error: ' + (e.message || e);
+        error.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
       }
     }
 
