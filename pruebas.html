@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover" />
   <title>Guía Local</title>
-  <link rel="stylesheet" href="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <style>
     body {
       font-family:'Segoe UI','Roboto',Arial,sans-serif;
@@ -336,6 +336,29 @@
       padding-top:0 !important;
     }
 
+  
+    .guia-loading{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      gap:.7rem;
+      width:100%;
+      max-width:980px;
+      margin:.8rem auto;
+      padding:1rem;
+      box-sizing:border-box;
+      background:rgba(255,255,255,.92);
+      border-radius:.8rem;
+      font-style:normal;
+      font-weight:700;
+      color:#006699;
+    }
+    .guia-loading-spinner{
+      width:24px;height:24px;border:3px solid #d8e8ef;border-top-color:#006699;
+      border-radius:50%;animation:gld-spin .8s linear infinite;flex:0 0 auto;
+    }
+    @keyframes gld-spin{to{transform:rotate(360deg)}}
+
   </style>
 </head>
 <body class="esperando-ubicacion">
@@ -528,30 +551,22 @@
         const guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
           || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada});
 
-        const [dataResponse, rawBanners, rawEventsResponse, rawPromosResponse] = await Promise.all([
-          guiaPromise,
-          bannersPromise,
-          eventsPromise,
-          promosPromise
-        ]);
+        const contenedorCarga = document.getElementById('contenedor');
+        const destacadasCarga = document.getElementById('destacadasBar');
+        if(destacadasCarga) destacadasCarga.innerHTML = '';
+        if(contenedorCarga){
+          contenedorCarga.innerHTML = `<div class="guia-loading"><span class="guia-loading-spinner"></span><span>Cargando comercios y servicios…</span></div>`;
+        }
+
+        // La guía se espera sola. Eventos, promos y banners siguen cargando en paralelo
+        // y se incorporan después, sin bloquear la aparición de las tarjetas.
+        const dataResponse = await guiaPromise;
+        let rawBanners = [];
+        let rawEventsResponse = [];
+        let rawPromosResponse = [];
         const data = Array.isArray(dataResponse)
           ? dataResponse
           : ((dataResponse && (dataResponse.results || dataResponse.data)) || []);
-        // Cargar Banners dinámicos desde Google Sheets
-        if (rawBanners && Array.isArray(rawBanners)) {
-          banners = rawBanners
-            .filter(b => {
-              const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
-              return apr === 'true' || apr === '1' || apr === 'x';
-            })
-            .map(b => ({
-              img: (b.img || b.url || '').trim(),
-              media: (b.media || '').trim(),
-              cta: (b.cta || '').trim(),
-              poster: (b.poster || '').trim()
-            }));
-        }
-
         const buscadorGlobal = document.getElementById('buscadorGlobal');
         const contenedor = document.getElementById('contenedor');
         const destacadasBar = document.getElementById('destacadasBar');
@@ -563,9 +578,7 @@
         const normalizar = texto => texto ? texto.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").trim() : "";
 
         /* Índice local de eventos activos para mostrar el botón solamente cuando corresponde. */
-        const rawEventsList = Array.isArray(rawEventsResponse)
-          ? rawEventsResponse
-          : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
+        let rawEventsList = [];
 
         function parseEventDate(value){
           if(value === null || value === undefined || value === '') return null;
@@ -622,7 +635,7 @@
           if(!itemName) return false;
           return eventRelatedAdvertiserNames(ev).includes(itemName);
         }
-        const activeEvents = rawEventsList.filter(eventIsActive);
+        let activeEvents = [];
         function activeEventsForAdvertiser(item){
           return activeEvents.filter(ev => eventMatchesAdvertiser(ev, item));
         }
@@ -656,9 +669,7 @@
         }
 
         /* Índice local de promos activas. */
-        const rawPromosList = Array.isArray(rawPromosResponse)
-          ? rawPromosResponse
-          : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+        let rawPromosList = [];
 
         function promoBool(v){
           if(v === true || v === 1) return true;
@@ -696,7 +707,7 @@
           const promoName = normalizar(p && (p.anunciante || p.nombre || p.comercio));
           return !!itemName && promoName === itemName;
         }
-        const activePromos = rawPromosList.filter(promoIsActive);
+        let activePromos = [];
         function activePromosForAdvertiser(item){
           return activePromos.filter(p => promoMatchesAdvertiser(p, item));
         }
@@ -1509,7 +1520,45 @@
         }
 
         buscadorGlobal.addEventListener('input', () => { paginaActual = 1; render(); });
+
+        // Primer render: sólo con los datos de la guía.
         render();
+
+        // Segundo plano: al terminar eventos/promos/banners, se enriquecen las tarjetas
+        // sin haber bloqueado la primera visualización.
+        Promise.all([bannersPromise, eventsPromise, promosPromise])
+          .then(([bannersLoaded, eventsLoaded, promosLoaded]) => {
+            rawBanners = Array.isArray(bannersLoaded) ? bannersLoaded : [];
+            rawEventsResponse = eventsLoaded || [];
+            rawPromosResponse = promosLoaded || [];
+
+            if (rawBanners.length) {
+              banners = rawBanners
+                .filter(b => {
+                  const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
+                  return apr === 'true' || apr === '1' || apr === 'x';
+                })
+                .map(b => ({
+                  img: (b.img || b.url || '').trim(),
+                  media: (b.media || '').trim(),
+                  cta: (b.cta || '').trim(),
+                  poster: (b.poster || '').trim()
+                }));
+            }
+
+            rawEventsList = Array.isArray(rawEventsResponse)
+              ? rawEventsResponse
+              : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
+            activeEvents = rawEventsList.filter(eventIsActive);
+
+            rawPromosList = Array.isArray(rawPromosResponse)
+              ? rawPromosResponse
+              : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+            activePromos = rawPromosList.filter(promoIsActive);
+
+            render();
+          })
+          .catch(err => console.warn('Carga secundaria incompleta:', err));
 
         window.addEventListener('scroll', () => {
           const topBtn = document.getElementById('topBtn');
