@@ -490,7 +490,7 @@
     let provinciaSeleccionada = queryInicial.get('provincia_id') || '';
     let ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
 
-    let catalogosGlobales = { segmentos: [], categorias: [] };
+    let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [] };
     const guiaPrefetchCache = new Map();
 
     function guiaKey(paisId, provinciaId, ciudadId){
@@ -767,7 +767,7 @@
 
         function obtenerValoresUnicos(campo, filtro={}) {
           if(campo === 'segmento'){
-            return catalogosGlobales.segmentos
+            return catalogosGlobales.segmentosPublicos
               .map(x => String(x.nombre || '').trim())
               .filter(Boolean)
               .sort((a,b) => a.localeCompare(b,'es'));
@@ -778,7 +778,7 @@
         function actualizarSegmentos() {
           const segmentosUnicos = obtenerValoresUnicos('segmento');
           selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
-            (catalogosGlobales.segmentos || [])
+            (catalogosGlobales.segmentosPublicos || [])
               .filter(s => String(s.segmento_id || '').trim() && String(s.nombre || '').trim())
               .map(s => `<option value="${String(s.segmento_id).trim()}">${String(s.nombre).trim()}</option>`)
               .join('');
@@ -789,37 +789,36 @@
         actualizarCategorias();
 
         function renderInsignias(item) {
-          const normalizarSegmento = v => normalizar(String(v || ''));
+          const segmentosNorm = new Set();
 
-          let segmentos = [];
+          const agregar = valor => {
+            if(!valor) return;
+            String(valor).split(',').forEach(v => {
+              const raw = String(v || '').trim();
+              if(!raw) return;
 
-          // Nombre de segmento ya resuelto por la API.
-          if(item.segmento){
-            segmentos.push(...String(item.segmento).split(',').map(normalizarSegmento));
-          }
+              const byId = (catalogosGlobales.segmentos || []).find(s =>
+                String(s.segmento_id || '').trim() === raw
+              );
 
-          // Respaldo por ID contra el catálogo maestro, para no depender
-          // de cómo venga representado el segmento en cada tarjeta.
-          if(item.segmento_id && Array.isArray(catalogosGlobales.segmentos)){
-            const seg = catalogosGlobales.segmentos.find(s =>
-              String(s.segmento_id || '').trim() === String(item.segmento_id || '').trim()
-            );
-            if(seg && seg.nombre) segmentos.push(normalizarSegmento(seg.nombre));
-          }
+              segmentosNorm.add(normalizar(byId && byId.nombre ? byId.nombre : raw));
+            });
+          };
 
-          segmentos = [...new Set(segmentos.filter(Boolean))];
+          agregar(item.segmento_id);
+          agregar(item.segmento);
 
           let logosHtml = '';
 
-          if (segmentos.includes('parque termal')) {
+          if (segmentosNorm.has('parque termal')) {
             logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png" alt="Logo Parque Termal" class="insignia-logo" />`;
           }
 
-          if (segmentos.includes('termales mall')) {
+          if (segmentosNorm.has('termales mall')) {
             logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png" alt="Logo Termales Mall" class="insignia-logo" />`;
           }
 
-          if (segmentos.includes('hecho en dolores')) {
+          if (segmentosNorm.has('hecho en dolores')) {
             logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png" alt="Hecho en Dolores" class="insignia-logo" />`;
           }
 
@@ -1749,6 +1748,12 @@
         const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
         const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
         catalogosGlobales.segmentos = Array.isArray(boot.segmentos) ? boot.segmentos : [];
+        catalogosGlobales.segmentosPublicos = Array.isArray(boot.segmentos_publicos)
+          ? boot.segmentos_publicos
+          : catalogosGlobales.segmentos.filter(s => {
+              const v = String(s.visible_publico ?? '').trim().toLowerCase();
+              return v === 'true' || v === '1' || v === 'x' || v === 'si' || v === 'sí';
+            });
         catalogosGlobales.categorias = Array.isArray(boot.categorias) ? boot.categorias : [];
 
         if(!paises.length) throw new Error('No hay países cargados.');
