@@ -427,9 +427,36 @@
       });
     }
     const queryInicial = new URLSearchParams(window.location.search);
-    const paisSeleccionado = queryInicial.get('pais_id') || '';
-    const provinciaSeleccionada = queryInicial.get('provincia_id') || '';
-    const ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
+    let paisSeleccionado = queryInicial.get('pais_id') || '';
+    let provinciaSeleccionada = queryInicial.get('provincia_id') || '';
+    let ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
+
+    let catalogosGlobales = { segmentos: [], categorias: [] };
+    const guiaPrefetchCache = new Map();
+
+    function guiaKey(paisId, provinciaId, ciudadId){
+      return [paisId, provinciaId, ciudadId].map(v => String(v || '').trim()).join('|');
+    }
+
+    function prefetchGuia(paisId, provinciaId, ciudadId){
+      if(!paisId || !provinciaId || !ciudadId) return null;
+      const key = guiaKey(paisId, provinciaId, ciudadId);
+      if(!guiaPrefetchCache.has(key)){
+        guiaPrefetchCache.set(
+          key,
+          jsonpApi({
+            action:'guia',
+            pais_id:paisId,
+            provincia_id:provinciaId,
+            ciudad_id:ciudadId
+          }).catch(err => {
+            guiaPrefetchCache.delete(key);
+            throw err;
+          })
+        );
+      }
+      return guiaPrefetchCache.get(key);
+    }
     const urlAnunciantes = ANUNCIANTES_API + '?action=guia'
       + '&pais_id=' + encodeURIComponent(paisSeleccionado)
       + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
@@ -448,19 +475,28 @@
     const PROMOS_ENDPOINT = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/promos';
     const PROMOS_PAGE_URL = 'https://www.guialocaldolores.com.ar/promos/';
 
+    // Precarga en paralelo desde el arranque. Cuando el usuario entra a la guía
+    // estos recursos normalmente ya están disponibles.
+    const bannersPromise = fetch(urlBanners).then(res => res.json()).catch(() => []);
+    const eventsPromise = fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => []);
+    const promosPromise = fetch(PROMOS_ENDPOINT).then(res => {
+      if(!res.ok) throw new Error('Promos HTTP ' + res.status);
+      return res.json();
+    }).catch(err => {
+      console.error('Error cargando promos para tarjetas:', err);
+      return [];
+    });
+
     async function cargarGuiaSeleccionada(){
       try {
+        const guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
+          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada});
+
         const [dataResponse, rawBanners, rawEventsResponse, rawPromosResponse] = await Promise.all([
-          jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}),
-          fetch(urlBanners).then(res => res.json()).catch(() => []),
-          fetch(EVENTS_ENDPOINT).then(res => res.json()).catch(() => []),
-          fetch(PROMOS_ENDPOINT).then(res => {
-            if(!res.ok) throw new Error('Promos HTTP ' + res.status);
-            return res.json();
-          }).catch(err => {
-            console.error('Error cargando promos para tarjetas:', err);
-            return [];
-          })
+          guiaPromise,
+          bannersPromise,
+          eventsPromise,
+          promosPromise
         ]);
         const data = Array.isArray(dataResponse)
           ? dataResponse
@@ -667,32 +703,28 @@
 
         function limpiarValorCategoria(valor) { return valor.replace(/^"+|"+$/g, '').trim(); }
         function obtenerCategoriasUnicas() {
-          const todas = serviciosData.flatMap(item => (item.categoria || '').split(',').map(cat => cat.trim())).filter(Boolean);
-          return [...new Set(todas)].sort();
+          return catalogosGlobales.categorias
+            .map(x => String(x.nombre || '').trim())
+            .filter(Boolean)
+            .sort((a,b) => a.localeCompare(b,'es'));
         }
+
         function actualizarCategorias() {
           const categoriasUnicas = obtenerCategoriasUnicas();
           selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
             categoriasUnicas.map(cat => `<option value="${cat}">${cat}</option>`).join('');
         }
+
         function obtenerValoresUnicos(campo, filtro={}) {
-          return [...new Set(
-            serviciosData
-              .filter(item => {
-                let ok = true;
-                for (let k in filtro) {
-                  if (!filtro[k]) continue;
-                  if (!((item[k]||"").split(",").map(t=>t.trim()).includes(filtro[k]))) ok = false;
-                }
-                return ok;
-              })
-              .flatMap(item =>
-                campo === "categoria"
-                  ? [limpiarValorCategoria((item[campo] || "").trim())]
-                  : (item[campo] || "").split(",").map(r => r.trim()).filter(Boolean)
-              )
-          )].filter(Boolean).sort();
+          if(campo === 'segmento'){
+            return catalogosGlobales.segmentos
+              .map(x => String(x.nombre || '').trim())
+              .filter(Boolean)
+              .sort((a,b) => a.localeCompare(b,'es'));
+          }
+          return [];
         }
+
         function actualizarSegmentos() {
           const segmentosUnicos = obtenerValoresUnicos('segmento');
           selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
@@ -1497,9 +1529,20 @@
       const error = document.getElementById('ubicacionError');
 
       document.getElementById('cambiarCiudad').addEventListener('click', () => {
-        const u = new URL(window.location.href);
-        u.search = '';
-        window.location.href = u.toString();
+        overlay.classList.remove('oculto');
+
+        if(paisSeleccionado){
+          paisSel.value = paisSeleccionado;
+          cargarProvinciasLocal();
+        }
+        if(provinciaSeleccionada){
+          provSel.value = provinciaSeleccionada;
+          cargarCiudadesLocal();
+        }
+        if(ciudadSeleccionada){
+          ciudadSel.value = ciudadSeleccionada;
+          btn.disabled = false;
+        }
       });
 
       try {
@@ -1511,6 +1554,8 @@
         const paises = Array.isArray(boot.paises) ? boot.paises : [];
         const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
         const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
+        catalogosGlobales.segmentos = Array.isArray(boot.segmentos) ? boot.segmentos : [];
+        catalogosGlobales.categorias = Array.isArray(boot.categorias) ? boot.categorias : [];
 
         if(!paises.length) throw new Error('No hay países cargados.');
 
@@ -1575,6 +1620,7 @@
             if(cs.length === 1) {
               ciudadSel.value = String(cs[0].ciudad_id || '').trim();
               btn.disabled = false;
+              prefetchGuia(paisSel.value, provSel.value, ciudadSel.value);
             }
           }
         });
@@ -1589,16 +1635,36 @@
 
         ciudadSel.addEventListener('change', () => {
           btn.disabled = !ciudadSel.value;
+          if(ciudadSel.value && paisSel.value && provSel.value){
+            prefetchGuia(paisSel.value, provSel.value, ciudadSel.value);
+          }
         });
 
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
           if(!paisSel.value || !provSel.value || !ciudadSel.value) return;
 
+          paisSeleccionado = paisSel.value;
+          provinciaSeleccionada = provSel.value;
+          ciudadSeleccionada = ciudadSel.value;
+
           const u = new URL(window.location.href);
-          u.searchParams.set('pais_id', paisSel.value);
-          u.searchParams.set('provincia_id', provSel.value);
-          u.searchParams.set('ciudad_id', ciudadSel.value);
-          window.location.href = u.toString();
+          u.searchParams.set('pais_id', paisSeleccionado);
+          u.searchParams.set('provincia_id', provinciaSeleccionada);
+          u.searchParams.set('ciudad_id', ciudadSeleccionada);
+          history.replaceState(null, '', u.toString());
+
+          const paisNombre = paisSel.options[paisSel.selectedIndex]?.text || '';
+          const provNombre = provSel.options[provSel.selectedIndex]?.text || '';
+          const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
+
+          document.getElementById('ubicacionTexto').textContent =
+            [ciudadNombre, provNombre, paisNombre].filter(Boolean).join(', ');
+
+          document.getElementById('tituloGuia').textContent =
+            ciudadNombre ? `Guía Local · ${ciudadNombre}` : 'Guía Local';
+
+          overlay.classList.add('oculto');
+          await cargarGuiaSeleccionada();
         });
 
         // Si sólo hay una opción en cada nivel, entra prácticamente sin espera.
@@ -1613,6 +1679,7 @@
             if(cs.length === 1) {
               ciudadSel.value = String(cs[0].ciudad_id || '').trim();
               btn.disabled = false;
+              prefetchGuia(paisSel.value, provSel.value, ciudadSel.value);
             }
           }
         }
