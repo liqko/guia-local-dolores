@@ -173,7 +173,17 @@
     @media (min-width:721px){
       #promos-list .card-list, #eventos-list .card-list { display:none !important; }
     }
-  </style>
+  
+    .commerce-classification{grid-column:1/-1;background:#eef7ff;border:1px solid #cfe5f5;padding:10px;border-radius:8px;margin-bottom:4px}
+    .commerce-sedes-wrap{margin-top:14px}
+    .commerce-sede-card{border:1px solid #ddd;background:#fafafa;padding:12px;border-radius:10px;margin-bottom:12px}
+    .commerce-sede-title{font-weight:800;margin-bottom:8px}
+    .commerce-sede-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+    .commerce-micrositios{background:#fff8e8;border:1px solid #f2d28b;padding:12px;border-radius:10px;margin-top:14px}
+    .commerce-micrositios-grid{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+    .commerce-micrositio-option{display:flex;gap:8px;align-items:flex-start}
+    .commerce-micrositio-option input{width:auto;margin:3px 0 0}
+</style>
 </head>
 <body>
   <div class="container">
@@ -512,7 +522,6 @@ const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
 const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
 const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
 
-const SHEET_ID = "170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY";
 const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
@@ -571,17 +580,18 @@ const PROMO_CONTACT_GROUPS = {
 let promoAdvertiserData = {};
 
 const COMMERCE_DATA_FIELDS = [
-  "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
-  "direccion","maps","telefono",
-  "direccion2","maps2","telefono2",
-  "direccion3","maps3","telefono3",
-  "direccion4","maps4","telefono4",
-  "direccion5","maps5","telefono5",
-  "direccion6","maps6","telefono6",
-  "whatsapp","whatsapp2","whatsapp3","mail",
-  "instagram","facebook","youtube","tiktok","linkedin",
+  "nombre","actividad","pie","descripcion","tags","adicionales",
+  "telefono","telefono2","telefono3","telefono4","telefono5",
+  "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
+  "mail","instagram","facebook","youtube","tiktok","linkedin",
   "logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
   "link"
+];
+
+const COMMERCE_SEDE_FIELDS = [
+  "nombre_sede","direccion","pais_id","provincia_id","ciudad_id","codigo_postal",
+  "lat","lng","maps","telefono","whatsapp","mail",
+  "instagram","facebook","youtube","tiktok","linkedin"
 ];
 const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
@@ -605,7 +615,7 @@ function parseLevel(levelStr){
 function isAllowedLevel(levelStr){
   const n = parseLevel(levelStr);
   if(isNaN(n)) return false;
-  return n === 1 || n === 2 || n >= 5;
+  return n !== 3;
 }
 
 /* GViz helpers */
@@ -705,33 +715,22 @@ function openImagesFormForCommerce(comercioId){
 }
 
 /* ====================== Autocomplete comercios ====================== */
-function cargarComercios(callback){
-  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
-  fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
-    try{
-      const start=text.indexOf('{'), end=text.lastIndexOf('}');
-      const jsonText=text.slice(start,end+1);
-      const json=JSON.parse(jsonText);
-      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
-      let idxNombre = cols.findIndex(h=>/nombre|comercio|title|titulo/.test(h)); if(idxNombre===-1) idxNombre=1;
-      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo|comercio_id/.test(h));
-      if(idxId === -1) idxId = cols.findIndex(h => h.includes('id'));
-      if(idxId === -1) idxId = 0;
-      let idxNivel = cols.findIndex(h=>/nivel|nivel_acceso|nivelacceso/.test(h));
-      comercios=(json.table.rows||[]).map(row=>{
-        const cRow = row && row.c ? row.c : [];
-        const nombre = (cRow[idxNombre] && cRow[idxNombre].v)?cRow[idxNombre].v:'';
-        let id = (cRow[idxId] && cRow[idxId].v)?cRow[idxId].v:'';
-        if(!id && cRow[0] && cRow[0].v) id = cRow[0].v;
-        const nivel = (idxNivel!==-1 && cRow[idxNivel] && cRow[idxNivel].v)?cRow[idxNivel].v:'';
-        return { nombre: String(nombre).trim(), id: String(id).trim(), nivel: String(nivel).trim() };
-      }).filter(c=>c.nombre);
-      callback && callback();
-    }catch(e){
-      debugLog('Error parseando lista de comercios', e);
-      callback && callback();
-    }
-  }).catch(err=>{ debugLog('Error fetch lista de comercios', err); callback && callback(); });
+async function cargarComercios(callback){
+  try{
+    const r = await fetch(`${WORKER_ORIGIN}/search`, { cache:'no-store', mode:'cors' });
+    const j = await r.json();
+    comercios = Array.isArray(j.results)
+      ? j.results.map(c => ({
+          nombre:String(c.nombre || '').trim(),
+          id:String(c.id || '').trim(),
+          nivel:String(c.nivel || '').trim()
+        })).filter(c => c.nombre && c.id)
+      : [];
+  }catch(err){
+    debugLog('Error cargando anunciantes desde Worker', err);
+    comercios = [];
+  }
+  callback && callback();
 }
 
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroConfig={}){
@@ -1029,31 +1028,40 @@ function isHttpUrl(value){
   }
 }
 
-function buildCommerceFieldsMarkup(datos){
+function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], micrositios=[]){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
+
+  const segmentosTxt = Array.isArray(clasificacion.segmentos)
+    ? clasificacion.segmentos.join(', ')
+    : String(clasificacion.segmento || '');
+  const categoriasTxt = Array.isArray(clasificacion.categorias)
+    ? clasificacion.categorias.join(', ')
+    : String(clasificacion.categoria || '');
+
+  if(segmentosTxt || categoriasTxt){
+    html += `<div class="commerce-classification">
+      <strong>Clasificación actual</strong><br>
+      ${segmentosTxt ? `Segmentos: ${htmlEscape(segmentosTxt)}<br>` : ''}
+      ${categoriasTxt ? `Categorías: ${htmlEscape(categoriasTxt)}` : ''}
+    </div>`;
+  }
+
   let imageNoteRendered = false;
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
-    const rawValue = values[fieldName];
-    const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
+    const fieldValue = values[fieldName] === undefined || values[fieldName] === null ? '' : String(values[fieldName]);
     const upperName = fieldName.toUpperCase();
 
     if(COMMERCE_IMAGE_FIELDS.has(fieldName)){
       if(!imageNoteRendered){
-        html += `
-          <div class="data-image-note info-banner" style="grid-column:1 / -1">
-            ${COMMERCE_IMAGE_UPLOAD_NOTE}
-          </div>
-        `;
+        html += `<div class="data-image-note info-banner" style="grid-column:1 / -1">${COMMERCE_IMAGE_UPLOAD_NOTE}</div>`;
         imageNoteRendered = true;
       }
-      html += `
-        <div class="data-field-card image-field">
-          <label><strong>${htmlEscape(upperName)}</strong></label>
-          <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" placeholder="https://..." />
-        </div>
-      `;
+      html += `<div class="data-field-card image-field">
+        <label><strong>${htmlEscape(upperName)}</strong></label>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" placeholder="https://..." />
+      </div>`;
       return;
     }
 
@@ -1064,28 +1072,69 @@ function buildCommerceFieldsMarkup(datos){
     else if(fieldName === 'tags') { maxLengthAttr = ' maxlength="300"'; maxLengthNum = 300; }
     else if(fieldName === 'adicionales') { maxLengthAttr = ' maxlength="150"'; maxLengthNum = 150; }
 
-    const restrictionHtml = maxLengthNum ? ` <span style="color:#c00; font-weight:normal; font-size:0.9em;">(Hasta ${maxLengthNum} caracteres)</span>` : '';
-    const labelHtml = `<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
+    const restrictionHtml = maxLengthNum
+      ? ` <span style="color:#c00;font-weight:normal;font-size:.9em">(Hasta ${maxLengthNum} caracteres)</span>`
+      : '';
 
     if(fieldName === 'descripcion'){
-      html += `
-        <div class="data-field-card" style="grid-column: 1 / -1;">
-          <label>${labelHtml}</label>
-          <textarea name="${htmlEscape(fieldName)}" rows="3"${maxLengthAttr}>${htmlEscape(fieldValue)}</textarea>
-        </div>
-      `;
-    } else {
-      html += `
-        <div class="data-field-card">
-          <label>${labelHtml}</label>
-          <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
-        </div>
-      `;
+      html += `<div class="data-field-card" style="grid-column:1/-1">
+        <label><strong>${htmlEscape(upperName)}</strong>${restrictionHtml}</label>
+        <textarea name="${htmlEscape(fieldName)}" rows="3"${maxLengthAttr}>${htmlEscape(fieldValue)}</textarea>
+      </div>`;
+    }else{
+      html += `<div class="data-field-card">
+        <label><strong>${htmlEscape(upperName)}</strong>${restrictionHtml}</label>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
+      </div>`;
     }
   });
 
   html += '</div>';
   html += `<input type="hidden" id="commerce-id-hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
+
+  html += '<div class="commerce-sedes-wrap"><h3>Sedes</h3>';
+  const sedeList = Array.isArray(sedes) ? sedes : [];
+
+  sedeList.forEach((sede, index)=>{
+    html += `<div class="commerce-sede-card">
+      <div class="commerce-sede-title">${htmlEscape(sede.nombre_sede || `Sede ${index+1}`)}</div>
+      <input type="hidden" name="sede_id" value="${htmlEscape(sede.sede_id || '')}">
+      <div class="commerce-sede-grid">`;
+
+    COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
+      const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
+      const readonly = fieldName === 'codigo_postal' ? ' readonly' : '';
+      html += `<div class="data-field-card">
+        <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}"${readonly}>
+      </div>`;
+    });
+
+    html += '</div></div>';
+  });
+
+  if(!sedeList.length){
+    html += '<div class="small-muted">Este anunciante todavía no tiene sedes cargadas.</div>';
+  }
+  html += '</div>';
+
+  const micList = Array.isArray(micrositios) ? micrositios : [];
+  if(micList.length){
+    html += `<div class="commerce-micrositios">
+      <strong>Espacios vinculados a tu ubicación</strong>
+      <div class="small-muted">Marcá los espacios a los que realmente pertenece este anunciante.</div>
+      <div class="commerce-micrositios-grid">`;
+
+    micList.forEach(m=>{
+      html += `<label class="commerce-micrositio-option">
+        <input type="checkbox" name="micrositio_id" value="${htmlEscape(m.segmento_id || '')}"${m.asignado ? ' checked' : ''}>
+        <span>${htmlEscape(m.nombre || m.segmento_id || '')}</span>
+      </label>`;
+    });
+
+    html += '</div></div>';
+  }
+
   return html;
 }
 
@@ -1126,6 +1175,43 @@ function buildCommerceSavePayload(){
     payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
   });
   return payload;
+}
+
+function buildCommerceSedesPayload(){
+  const form = document.getElementById('form-datos-comercio');
+  const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
+  const sedes = Array.from(form?.querySelectorAll('.commerce-sede-card') || []).map(card => {
+    const sede = { sede_id:String(card.querySelector('[name="sede_id"]')?.value || '').trim() };
+    COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
+      sede[fieldName] = String(card.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+    });
+    return sede;
+  });
+  return { action:'set_sedes', id, __id:id, comercio_id:id, sedes };
+}
+
+function buildCommerceMicrositiosPayload(){
+  const form = document.getElementById('form-datos-comercio');
+  const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
+  const micrositio_ids = Array.from(form?.querySelectorAll('[name="micrositio_id"]:checked') || [])
+    .map(el => String(el.value || '').trim())
+    .filter(Boolean);
+  return { action:'set_micrositios', id, __id:id, comercio_id:id, micrositio_ids };
+}
+
+function buildLegacyContactView(datos, sedes){
+  const out = Object.assign({}, datos || {});
+  const list = Array.isArray(sedes) ? sedes : [];
+
+  list.slice(0, 6).forEach((s, idx)=>{
+    const suffix = idx === 0 ? '' : String(idx + 1);
+    out['direccion' + suffix] = s.direccion || '';
+    out['maps' + suffix] = s.maps || '';
+    if(!out['telefono' + suffix]) out['telefono' + suffix] = s.telefono || '';
+    if(!out['whatsapp' + suffix]) out['whatsapp' + suffix] = s.whatsapp || '';
+  });
+
+  return out;
 }
 
 /* ====================== Cuotas de publicaciones ====================== */
@@ -1895,11 +1981,27 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }
       const response = await commerce_post(payload);
       const savedOk = !!(response.json && (response.json.success || response.json.updated || response.json.aprobado === true));
-      if(response.status === 200 && savedOk){
-        setMsg('msg-datos-comercio', 'ok', 'Datos guardados.');
-      } else {
+      if(response.status !== 200 || !savedOk){
         setMsg('msg-datos-comercio', 'err', 'No se pudieron guardar los datos: ' + ((response.json && (response.json.message || response.json.error)) ? (response.json.message || response.json.error) : 'sin detalle'));
+        return;
       }
+
+      const sedePayload = buildCommerceSedesPayload();
+      if(sedePayload.sedes.length){
+        const sedeResponse = await commerce_post(sedePayload);
+        if(!(sedeResponse.status === 200 && sedeResponse.json && (sedeResponse.json.success || sedeResponse.json.updated))){
+          setMsg('msg-datos-comercio', 'err', 'Los datos generales se guardaron, pero hubo un error guardando las sedes.');
+          return;
+        }
+      }
+
+      const micResponse = await commerce_post(buildCommerceMicrositiosPayload());
+      if(!(micResponse.status === 200 && micResponse.json && (micResponse.json.success || micResponse.json.updated))){
+        setMsg('msg-datos-comercio', 'err', 'Datos y sedes guardados, pero hubo un error actualizando los espacios/micrositios.');
+        return;
+      }
+
+      setMsg('msg-datos-comercio', 'ok', 'Datos, sedes y espacios actualizados.');
     }catch(err){
       setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
     } finally {
@@ -2183,23 +2285,30 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
       
-      const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
-      window.__commerceAdvertiserData = datos || {};
-      promoAdvertiserData = datos || {};
-      const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
+      const datos = rawDatos.datos || rawDatos.data || rawDatos.anunciante || rawDatos;
+      const administracion = rawDatos.administracion || {};
+      const clasificacion = rawDatos.clasificacion || {};
+      const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
+      const micrositios = Array.isArray(rawDatos.micrositios_disponibles) ? rawDatos.micrositios_disponibles : [];
+
+      const legacyContact = buildLegacyContactView(datos, sedes);
+      window.__commerceAdvertiserData = legacyContact;
+      promoAdvertiserData = legacyContact;
+
+      const newPlanillaId = rawDatos.planilla_id || administracion.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
         localStorage.setItem('planilla_id', newPlanillaId); 
       }
 
-      sesion.promos_cant = datos.promos_cant || 0;
-      sesion.eventos_cant = datos.eventos_cant || 0;
+      sesion.promos_cant = administracion.promos_cant || datos.promos_cant || 0;
+      sesion.eventos_cant = administracion.eventos_cant || datos.eventos_cant || 0;
       localStorage.setItem('promos_cant', sesion.promos_cant);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
-      document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
+      document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes, micrositios);
       if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData(rawDatos);
+        window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
       }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
