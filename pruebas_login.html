@@ -718,7 +718,16 @@ function openImagesFormForCommerce(comercioId){
 async function cargarComercios(callback){
   try{
     const r = await fetch(`${WORKER_ORIGIN}/search`, { cache:'no-store', mode:'cors' });
-    const j = await r.json();
+    const text = await r.text();
+
+    let j;
+    try{ j = JSON.parse(text); }
+    catch(e){ throw new Error('Worker devolvió una respuesta no JSON'); }
+
+    if(!r.ok || !j || j.success === false){
+      throw new Error((j && (j.message || j.error)) || `HTTP ${r.status}`);
+    }
+
     comercios = Array.isArray(j.results)
       ? j.results.map(c => ({
           nombre:String(c.nombre || '').trim(),
@@ -726,9 +735,21 @@ async function cargarComercios(callback){
           nivel:String(c.nivel || '').trim()
         })).filter(c => c.nombre && c.id)
       : [];
+
+    if(!comercios.length){
+      throw new Error('El Worker respondió correctamente pero devolvió 0 anunciantes');
+    }
+
+    const msg = document.getElementById('login-msg');
+    if(msg) msg.innerHTML = '';
   }catch(err){
     debugLog('Error cargando anunciantes desde Worker', err);
     comercios = [];
+
+    const msg = document.getElementById('login-msg');
+    if(msg){
+      msg.innerHTML = `<span class="error">No se pudo cargar el listado de anunciantes: ${htmlEscape(err.message || err)}</span>`;
+    }
   }
   callback && callback();
 }
