@@ -495,7 +495,9 @@
     let provinciaSeleccionada = queryInicial.get('provincia_id') || '';
     let ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
 
-    let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [] };
+    let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
+    let relacionesSedesGlobales = {};
+    let metaPorIdGlobal = {};
     const guiaPrefetchCache = new Map();
 
     function guiaKey(paisId, provinciaId, ciudadId){
@@ -750,140 +752,143 @@
           return parts.join('/');
         }
         function limpiarCampos(item){ const nuevo={}; for (let k in item){ if(!/^agregar\s/i.test(k)) nuevo[k]=item[k]; } return nuevo; }
-        const anunciantesData = data.map(limpiarCampos);
+
+        function relKey(v){
+          return normalizar(String(v || ''));
+        }
+
+        function hidratarItem(item){
+          const out = limpiarCampos(item || {});
+          const id = String(out.id || '').trim();
+          const meta = metaPorIdGlobal[id] || {};
+
+          // Recuperar campos que no deben desaparecer de la tarjeta.
+          out.link = String(meta.link || out.link || '').trim();
+          out.verificado = meta.verificado !== undefined ? meta.verificado : out.verificado;
+          out.gold = meta.gold !== undefined ? meta.gold : out.gold;
+
+          out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
+            const sede = Object.assign({}, raw);
+            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || {actividades:[],acciones:[],nodos:[]};
+            sede.relaciones = {
+              actividades:Array.isArray(rel.actividades)?rel.actividades:[],
+              acciones:Array.isArray(rel.acciones)?rel.acciones:[],
+              nodos:Array.isArray(rel.nodos)?rel.nodos:[]
+            };
+            return sede;
+          });
+
+          const acts=[], accs=[], nods=[];
+          out.sedes.forEach(s=>{
+            const rel=s.relaciones||{};
+            (rel.actividades||[]).forEach(x=>{if(!acts.some(y=>String(y.actividad_id)===String(x.actividad_id))) acts.push(x);});
+            (rel.acciones||[]).forEach(x=>{if(!accs.some(y=>String(y.accion_id)===String(x.accion_id))) accs.push(x);});
+            (rel.nodos||[]).forEach(x=>{if(!nods.some(y=>String(y.nodo_id)===String(x.nodo_id))) nods.push(x);});
+          });
+
+          out.actividades_clave=acts;
+          out.acciones=accs;
+          out.nodos=nods;
+          return out;
+        }
+
+        const anunciantesData = data.map(hidratarItem);
         const serviciosData = anunciantesData;
 
-        function cargarSelectClasificacion() {
-          const segmentos = (catalogosGlobales.segmentosPublicos || [])
-            .filter(s => String(s.segmento_id || '').trim() && String(s.nombre || '').trim())
-            .sort((a,b) => String(a.nombre).localeCompare(String(b.nombre),'es'));
+        function cargarSelectClasificacion(){
+          selectClasificacion.innerHTML='<option value="">Segmentos y categorías</option>';
 
-          const categorias = (catalogosGlobales.categorias || [])
-            .filter(c => String(c.categoria_id || '').trim() && String(c.nombre || '').trim())
-            .sort((a,b) => String(a.nombre).localeCompare(String(b.nombre),'es'));
+          const segs=(catalogosGlobales.segmentosPublicos||[])
+            .filter(x=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim())
+            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
 
-          selectClasificacion.innerHTML = '<option value="">Segmentos y categorías</option>';
+          const cats=(catalogosGlobales.categorias||[])
+            .filter(x=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim())
+            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
 
-          if(segmentos.length){
-            const grupo = document.createElement('optgroup');
-            grupo.label = 'SEGMENTOS';
-            segmentos.forEach(s => {
-              const op = document.createElement('option');
-              op.value = 'SEG:' + String(s.segmento_id).trim();
-              op.textContent = String(s.nombre).trim();
-              grupo.appendChild(op);
+          if(segs.length){
+            const g=document.createElement('optgroup'); g.label='SEGMENTOS';
+            segs.forEach(x=>{
+              const o=document.createElement('option');
+              o.value='SEG:'+String(x.segmento_id).trim(); o.textContent=String(x.nombre).trim(); g.appendChild(o);
             });
-            selectClasificacion.appendChild(grupo);
+            selectClasificacion.appendChild(g);
           }
 
-          if(categorias.length){
-            const grupo = document.createElement('optgroup');
-            grupo.label = 'CATEGORÍAS';
-            categorias.forEach(c => {
-              const op = document.createElement('option');
-              op.value = 'CAT:' + String(c.categoria_id).trim();
-              op.textContent = String(c.nombre).trim();
-              grupo.appendChild(op);
+          if(cats.length){
+            const g=document.createElement('optgroup'); g.label='CATEGORÍAS';
+            cats.forEach(x=>{
+              const o=document.createElement('option');
+              o.value='CAT:'+String(x.categoria_id).trim(); o.textContent=String(x.nombre).trim(); g.appendChild(o);
             });
-            selectClasificacion.appendChild(grupo);
+            selectClasificacion.appendChild(g);
           }
         }
 
-        function cargarSelectActividadAccion() {
-          const actividades = (catalogosGlobales.actividades || [])
-            .filter(a => String(a.actividad_id || '').trim() && String(a.nombre || '').trim())
-            .sort((a,b) => String(a.nombre).localeCompare(String(b.nombre),'es'));
+        function cargarSelectActividadAccion(){
+          selectActividadAccion.innerHTML='<option value="">Actividades y acciones</option>';
 
-          const acciones = (catalogosGlobales.acciones || [])
-            .filter(a => String(a.accion_id || '').trim() && String(a.nombre || '').trim())
-            .sort((a,b) => String(a.nombre).localeCompare(String(b.nombre),'es'));
+          const acts=(catalogosGlobales.actividades||[])
+            .filter(x=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim())
+            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
 
-          selectActividadAccion.innerHTML = '<option value="">Actividades y acciones</option>';
+          const accs=(catalogosGlobales.acciones||[])
+            .filter(x=>String(x.accion_id||'').trim() && String(x.nombre||'').trim())
+            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
 
-          if(actividades.length){
-            const grupo = document.createElement('optgroup');
-            grupo.label = 'ACTIVIDADES';
-            actividades.forEach(a => {
-              const op = document.createElement('option');
-              op.value = 'ACT:' + String(a.actividad_id).trim();
-              op.textContent = String(a.nombre).trim();
-              grupo.appendChild(op);
+          if(acts.length){
+            const g=document.createElement('optgroup'); g.label='ACTIVIDADES';
+            acts.forEach(x=>{
+              const o=document.createElement('option');
+              o.value='ACT:'+String(x.actividad_id).trim(); o.textContent=String(x.nombre).trim(); g.appendChild(o);
             });
-            selectActividadAccion.appendChild(grupo);
+            selectActividadAccion.appendChild(g);
           }
 
-          if(acciones.length){
-            const grupo = document.createElement('optgroup');
-            grupo.label = 'ACCIONES';
-            acciones.forEach(a => {
-              const op = document.createElement('option');
-              op.value = 'ACC:' + String(a.accion_id).trim();
-              op.textContent = String(a.nombre).trim();
-              grupo.appendChild(op);
+          if(accs.length){
+            const g=document.createElement('optgroup'); g.label='ACCIONES';
+            accs.forEach(x=>{
+              const o=document.createElement('option');
+              o.value='ACC:'+String(x.accion_id).trim(); o.textContent=String(x.nombre).trim(); g.appendChild(o);
             });
-            selectActividadAccion.appendChild(grupo);
+            selectActividadAccion.appendChild(g);
           }
         }
-
-        selectClasificacion.addEventListener('change', () => {
-          paginaActual = 1;
-          render();
-        });
-
-        selectActividadAccion.addEventListener('change', () => {
-          paginaActual = 1;
-          render();
-        });
 
         cargarSelectClasificacion();
         cargarSelectActividadAccion();
 
-        function renderInsignias(item) {
-          let logosHtml = '';
-          const used = new Set();
+        selectClasificacion.addEventListener('change',()=>{paginaActual=1;render();});
+        selectActividadAccion.addEventListener('change',()=>{paginaActual=1;render();});
 
-          function addBadge(url, alt){
-            const u = String(url || '').trim();
+        function renderInsignias(item) {
+          let logosHtml='';
+          const used=new Set();
+
+          function add(url,alt){
+            const u=String(url||'').trim();
             if(!u || used.has(u)) return;
             used.add(u);
-            logosHtml += `<img src="${u}" alt="${String(alt || 'Insignia').replace(/"/g,'&quot;')}" class="insignia-logo" />`;
+            logosHtml += `<img src="${u}" alt="${String(alt||'Insignia').replace(/"/g,'&quot;')}" class="insignia-logo" />`;
           }
 
-          // Insignias relacionales: actividad clave, acción y nodo.
-          (item.actividades_clave || []).forEach(x => addBadge(x && x.insignia, x && x.nombre));
-          (item.acciones || []).forEach(x => addBadge(x && x.insignia, x && x.nombre));
-          (item.nodos || []).forEach(x => addBadge(x && x.insignia, x && x.nombre));
+          (item.actividades_clave||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+          (item.acciones||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+          (item.nodos||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
 
-          // Compatibilidad con las insignias históricas que todavía no estén cargadas
-          // explícitamente como nodos/acciones.
-          const segmentosNorm = new Set();
-
-          const agregar = valor => {
-            if(!valor) return;
-            String(valor).split(/[;,]/).forEach(v => {
-              const raw = String(v || '').trim();
+          const segmentosNorm=new Set();
+          [item.segmento_id,item.segmento].forEach(valor=>{
+            String(valor||'').split(/[;,]/).forEach(v=>{
+              const raw=String(v||'').trim();
               if(!raw) return;
-
-              const byId = (catalogosGlobales.segmentos || []).find(s =>
-                String(s.segmento_id || '').trim() === raw
-              );
-
-              segmentosNorm.add(normalizar(byId && byId.nombre ? byId.nombre : raw));
+              const byId=(catalogosGlobales.segmentos||[]).find(s=>String(s.segmento_id||'').trim()===raw);
+              segmentosNorm.add(normalizar(byId&&byId.nombre?byId.nombre:raw));
             });
-          };
+          });
 
-          agregar(item.segmento_id);
-          agregar(item.segmento);
-
-          if(segmentosNorm.has('parque termal')){
-            addBadge('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png','Parque Termal');
-          }
-          if(segmentosNorm.has('termales mall')){
-            addBadge('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png','Termales Mall');
-          }
-          if(segmentosNorm.has('hecho en dolores')){
-            addBadge('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png','Hecho en Dolores');
-          }
+          if(segmentosNorm.has('parque termal')) add('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png','Parque Termal');
+          if(segmentosNorm.has('termales mall')) add('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png','Termales Mall');
+          if(segmentosNorm.has('hecho en dolores')) add('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png','Hecho en Dolores');
 
           return logosHtml ? `<div class="termales-logo-container">${logosHtml}</div>` : '';
         }
@@ -1050,11 +1055,9 @@
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
             html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.__sede_individual && item.sedes && item.sedes[0]){
-              const ns = nombreSedeVisible(item.sedes[0].nombre_sede);
+              const ns=sedeNombreVisible(item.sedes[0].nombre_sede);
               if(ns) html += `<div class="actividad-ficha">${ns}</div>`;
-            } else if(item.actividad) {
-              html += `<div class="actividad-ficha">${item.actividad}</div>`;
-            }
+            } else if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -1074,11 +1077,9 @@
           else if (nivelVisual === 3) {
             html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.__sede_individual && item.sedes && item.sedes[0]){
-              const ns = nombreSedeVisible(item.sedes[0].nombre_sede);
+              const ns=sedeNombreVisible(item.sedes[0].nombre_sede);
               if(ns) html += `<div class="actividad-ficha">${ns}</div>`;
-            } else if(item.actividad) {
-              html += `<div class="actividad-ficha">${item.actividad}</div>`;
-            }
+            } else if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -1090,11 +1091,9 @@
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
             html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.__sede_individual && item.sedes && item.sedes[0]){
-              const ns = nombreSedeVisible(item.sedes[0].nombre_sede);
+              const ns=sedeNombreVisible(item.sedes[0].nombre_sede);
               if(ns) html += `<div class="actividad-ficha">${ns}</div>`;
-            } else if(item.actividad) {
-              html += `<div class="actividad-ficha">${item.actividad}</div>`;
-            }
+            } else if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -1548,7 +1547,7 @@
             item && item.segmento
           ]
             .filter(Boolean)
-            .flatMap(v => String(v).split(/[;,]/))
+            .flatMap(v => String(v).split(','))
             .map(v => String(v).trim())
             .filter(Boolean);
 
@@ -1579,7 +1578,7 @@
             item && item.categoria
           ]
             .filter(Boolean)
-            .flatMap(v => String(v).split(/[;,]/))
+            .flatMap(v => String(v).split(','))
             .map(v => String(v).trim())
             .filter(Boolean);
 
@@ -1604,106 +1603,73 @@
           return [...new Set(ids)];
         }
 
-        function sedeActividadIds(sede) {
-          return (((sede || {}).relaciones || {}).actividades || [])
-            .map(a => String(a && a.actividad_id || '').trim())
-            .filter(Boolean);
-        }
-
-        function sedeAccionIds(sede) {
-          return (((sede || {}).relaciones || {}).acciones || [])
-            .map(a => String(a && a.accion_id || '').trim())
-            .filter(Boolean);
-        }
-
-        function sedeCoincideActividadAccion(sede, filtro) {
-          filtro = String(filtro || '').trim();
-          if(!filtro) return true;
-
-          if(filtro.startsWith('ACT:')){
-            return sedeActividadIds(sede).includes(filtro.slice(4));
-          }
-
-          if(filtro.startsWith('ACC:')){
-            return sedeAccionIds(sede).includes(filtro.slice(4));
-          }
-
-          return true;
-        }
-
-        function nombreSedeVisible(nombre) {
-          const raw = String(nombre || '').trim();
+        function sedeNombreVisible(nombre){
+          const raw=String(nombre||'').trim();
           if(!raw) return '';
-          const n = normalizar(raw);
-          if(n === 'sede' || n === 'sede principal') return '';
+          const n=normalizar(raw);
+          if(n==='sede' || n==='sede principal') return '';
           return raw;
         }
 
-        function tarjetaSoloSede(item, sede) {
-          const out = Object.assign({}, item);
-          out.sedes = [sede];
-          out.__sede_individual = true;
-          out.__sede_id = String((sede && sede.sede_id) || '').trim();
+        function sedeActIds(sede){
+          return ((((sede||{}).relaciones||{}).actividades)||[])
+            .map(x=>String(x.actividad_id||'').trim()).filter(Boolean);
+        }
+        function sedeAccIds(sede){
+          return ((((sede||{}).relaciones||{}).acciones)||[])
+            .map(x=>String(x.accion_id||'').trim()).filter(Boolean);
+        }
 
-          // Cuando el filtro es por actividad/acción, la tarjeta representa UNA sede.
-          // Por eso contactos, imágenes y relaciones deben salir sólo de esa sede.
+        function sedeCumpleSegundoFiltro(sede,filtro){
+          filtro=String(filtro||'').trim();
+          if(!filtro) return true;
+          if(filtro.startsWith('ACT:')) return sedeActIds(sede).includes(filtro.slice(4));
+          if(filtro.startsWith('ACC:')) return sedeAccIds(sede).includes(filtro.slice(4));
+          return true;
+        }
+
+        function tarjetaDeSede(item,sede){
+          const out=Object.assign({},item);
+          out.__sede_individual=true;
+          out.sedes=[sede];
+
           [
             'telefono','telefono2','telefono3','telefono4','telefono5',
             'whatsapp','whatsapp2','whatsapp3','whatsapp4','whatsapp5',
-            'mail','mail2','mail3',
-            'instagram','facebook','youtube','tiktok','linkedin'
-          ].forEach(k => out[k] = (sede && sede[k]) || '');
+            'mail','mail2','mail3','instagram','facebook','youtube','tiktok','linkedin'
+          ].forEach(k=>out[k]=(sede&&sede[k])||'');
 
-          for(let i=1;i<=10;i++){
-            out['img'+i] = (sede && sede['img'+i]) || '';
-          }
+          for(let i=1;i<=10;i++) out['img'+i]=(sede&&sede['img'+i])||'';
 
-          const rel = (sede && sede.relaciones) || {};
-          out.actividades_clave = Array.isArray(rel.actividades) ? rel.actividades : [];
-          out.acciones = Array.isArray(rel.acciones) ? rel.acciones : [];
-          out.nodos = Array.isArray(rel.nodos) ? rel.nodos : [];
+          const rel=(sede&&sede.relaciones)||{};
+          out.actividades_clave=Array.isArray(rel.actividades)?rel.actividades:[];
+          out.acciones=Array.isArray(rel.acciones)?rel.acciones:[];
+          out.nodos=Array.isArray(rel.nodos)?rel.nodos:[];
 
-          // Compatibilidad con campos de sede que todavía usa la tarjeta.
-          out.direccion = (sede && sede.direccion) || '';
-          out.maps = (sede && sede.maps) || '';
-          out.lat = (sede && sede.lat) || '';
-          out.lng = (sede && sede.lng) || '';
-          out.ciudad = (sede && sede.ciudad) || '';
-          out.provincia = (sede && sede.provincia) || '';
-          out.pais = (sede && sede.pais) || '';
-
+          out.direccion=(sede&&sede.direccion)||'';
+          out.maps=(sede&&sede.maps)||'';
+          out.lat=(sede&&sede.lat)||'';
+          out.lng=(sede&&sede.lng)||'';
+          out.ciudad=(sede&&sede.ciudad)||'';
           return out;
         }
 
-        function coincideTextoLibre(item, qGlobal) {
-          if(!qGlobal) return true;
-
-          const relacionesTexto = []
-            .concat(
-              (item.actividades_clave || []).map(x => x && x.nombre),
-              (item.acciones || []).map(x => x && x.nombre),
-              (item.nodos || []).map(x => x && x.nombre),
-              (item.sedes || []).flatMap(s => [
-                s && s.nombre_sede, s && s.direccion,
-                s && s.ciudad, s && s.provincia, s && s.pais
-              ])
-            )
-            .filter(Boolean)
-            .join(' ');
-
+        function textoGlobalItem(item){
           return [
-            item.nombre,item.segmento,item.categoria,item.actividad,
-            item.tags,item.adicionales,item.pie,item.descripcion,
-            relacionesTexto
-          ].some(v => normalizar(v || '').includes(qGlobal));
+            item.nombre,item.segmento,item.categoria,item.actividad,item.tags,item.adicionales,
+            item.pie,item.descripcion,item.link,
+            ...(item.actividades_clave||[]).map(x=>x&&x.nombre),
+            ...(item.acciones||[]).map(x=>x&&x.nombre),
+            ...(item.nodos||[]).map(x=>x&&x.nombre),
+            ...(item.sedes||[]).flatMap(s=>[s&&s.nombre_sede,s&&s.direccion,s&&s.ciudad,s&&s.provincia,s&&s.pais])
+          ].filter(Boolean).join(' ');
         }
 
         function render() {
           const qGlobal = normalizar(buscadorGlobal.value.trim());
           const clasificacion = String(selectClasificacion.value || '').trim();
-          const actividadAccion = String(selectActividadAccion.value || '').trim();
+          const segundoFiltro = String(selectActividadAccion.value || '').trim();
 
-          // Primero filtramos por Segmento/Categoría a nivel anunciante.
           let base = serviciosData.filter(item => {
             if(clasificacion.startsWith('SEG:')){
               return canonicalSegmentoIds(item).includes(clasificacion.slice(4));
@@ -1714,29 +1680,24 @@
             return true;
           });
 
-          // REGLA DE PRESENTACIÓN:
-          // si hay un filtro estructurado (Segmento/Categoría o Actividad/Acción),
-          // cada sede pasa a ser una tarjeta independiente.
-          if(clasificacion || actividadAccion){
-            base = base.flatMap(item => {
-              const sedes = Array.isArray(item.sedes) ? item.sedes : [];
-              if(!sedes.length) return [];
-
-              return sedes
-                .filter(sede => sedeCoincideActividadAccion(sede, actividadAccion))
-                .map(sede => tarjetaSoloSede(item, sede));
-            });
+          // Con filtros estructurados la unidad de resultado es la SEDE.
+          if(clasificacion || segundoFiltro){
+            base = base.flatMap(item =>
+              (Array.isArray(item.sedes)?item.sedes:[])
+                .filter(sede=>sedeCumpleSegundoFiltro(sede,segundoFiltro))
+                .map(sede=>tarjetaDeSede(item,sede))
+            );
           }
 
-          // Si no hay filtros estructurados, mantenemos la ficha normal del anunciante.
-          let filtrados = base
-            .filter(item => coincideTextoLibre(item, qGlobal))
-            .sort((a, b) => {
-              if (Number(b.nivel) !== Number(a.nivel)) {
-                return Number(b.nivel) - Number(a.nivel);
-              }
-              return Number(a.subnivel) - Number(b.subnivel);
-            });
+          let filtrados = base.filter(item => {
+            if(!qGlobal) return true;
+            return normalizar(textoGlobalItem(item)).includes(qGlobal);
+          }).sort((a, b) => {
+            if (Number(b.nivel) !== Number(a.nivel)) {
+              return Number(b.nivel) - Number(a.nivel);
+            }
+            return Number(a.subnivel) - Number(b.subnivel);
+          });
 
           const destacadas = (paginaActual === 1) ? getDestacadas(filtrados) : [];
           const normales = filtrados.filter(item => !(Number(item.nivel) === 6));
@@ -1757,6 +1718,10 @@
         }
 
         buscadorGlobal.addEventListener('input', () => {
+          if (buscadorGlobal.value.trim()) {
+            selectClasificacion.value = '';
+            selectActividadAccion.value = '';
+          }
           paginaActual = 1;
           render();
         });
@@ -1928,6 +1893,9 @@
         catalogosGlobales.categorias = Array.isArray(boot.categorias) ? boot.categorias : [];
         catalogosGlobales.actividades = Array.isArray(boot.actividades_clave) ? boot.actividades_clave : [];
         catalogosGlobales.acciones = Array.isArray(boot.acciones) ? boot.acciones : [];
+        catalogosGlobales.nodos = Array.isArray(boot.nodos) ? boot.nodos : [];
+        relacionesSedesGlobales = (boot.relaciones_sedes && typeof boot.relaciones_sedes === 'object') ? boot.relaciones_sedes : {};
+        metaPorIdGlobal = (boot.meta_por_id && typeof boot.meta_por_id === 'object') ? boot.meta_por_id : {};
 
         if(!paises.length) throw new Error('No hay países cargados.');
 
