@@ -1049,7 +1049,11 @@
           if (nivelVisual === 1 || nivelVisual === 2 || nivelVisual === 5 || nivelVisual === 6) {
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
             html += `<div class="nombre">${item.nombre || ''}</div>`;
-            if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
+            if(item.__sede_individual && item.sedes && item.sedes[0] && item.sedes[0].nombre_sede){
+              html += `<div class="actividad-ficha">${item.sedes[0].nombre_sede}</div>`;
+            } else if(item.actividad) {
+              html += `<div class="actividad-ficha">${item.actividad}</div>`;
+            }
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -1068,7 +1072,11 @@
           }
           else if (nivelVisual === 3) {
             html += `<div class="nombre">${item.nombre || ''}</div>`;
-            if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
+            if(item.__sede_individual && item.sedes && item.sedes[0] && item.sedes[0].nombre_sede){
+              html += `<div class="actividad-ficha">${item.sedes[0].nombre_sede}</div>`;
+            } else if(item.actividad) {
+              html += `<div class="actividad-ficha">${item.actividad}</div>`;
+            }
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -1079,7 +1087,11 @@
           else if (nivelVisual === 4) {
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
             html += `<div class="nombre">${item.nombre || ''}</div>`;
-            if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
+            if(item.__sede_individual && item.sedes && item.sedes[0] && item.sedes[0].nombre_sede){
+              html += `<div class="actividad-ficha">${item.sedes[0].nombre_sede}</div>`;
+            } else if(item.actividad) {
+              html += `<div class="actividad-ficha">${item.actividad}</div>`;
+            }
             if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
@@ -1589,16 +1601,90 @@
           return [...new Set(ids)];
         }
 
-        function itemActividadIds(item) {
-          return (Array.isArray(item && item.actividades_clave) ? item.actividades_clave : [])
+        function sedeActividadIds(sede) {
+          return (((sede || {}).relaciones || {}).actividades || [])
             .map(a => String(a && a.actividad_id || '').trim())
             .filter(Boolean);
         }
 
-        function itemAccionIds(item) {
-          return (Array.isArray(item && item.acciones) ? item.acciones : [])
+        function sedeAccionIds(sede) {
+          return (((sede || {}).relaciones || {}).acciones || [])
             .map(a => String(a && a.accion_id || '').trim())
             .filter(Boolean);
+        }
+
+        function sedeCoincideActividadAccion(sede, filtro) {
+          filtro = String(filtro || '').trim();
+          if(!filtro) return true;
+
+          if(filtro.startsWith('ACT:')){
+            return sedeActividadIds(sede).includes(filtro.slice(4));
+          }
+
+          if(filtro.startsWith('ACC:')){
+            return sedeAccionIds(sede).includes(filtro.slice(4));
+          }
+
+          return true;
+        }
+
+        function tarjetaSoloSede(item, sede) {
+          const out = Object.assign({}, item);
+          out.sedes = [sede];
+          out.__sede_individual = true;
+          out.__sede_id = String((sede && sede.sede_id) || '').trim();
+
+          // Cuando el filtro es por actividad/acción, la tarjeta representa UNA sede.
+          // Por eso contactos, imágenes y relaciones deben salir sólo de esa sede.
+          [
+            'telefono','telefono2','telefono3','telefono4','telefono5',
+            'whatsapp','whatsapp2','whatsapp3','whatsapp4','whatsapp5',
+            'mail','mail2','mail3',
+            'instagram','facebook','youtube','tiktok','linkedin'
+          ].forEach(k => out[k] = (sede && sede[k]) || '');
+
+          for(let i=1;i<=10;i++){
+            out['img'+i] = (sede && sede['img'+i]) || '';
+          }
+
+          const rel = (sede && sede.relaciones) || {};
+          out.actividades_clave = Array.isArray(rel.actividades) ? rel.actividades : [];
+          out.acciones = Array.isArray(rel.acciones) ? rel.acciones : [];
+          out.nodos = Array.isArray(rel.nodos) ? rel.nodos : [];
+
+          // Compatibilidad con campos de sede que todavía usa la tarjeta.
+          out.direccion = (sede && sede.direccion) || '';
+          out.maps = (sede && sede.maps) || '';
+          out.lat = (sede && sede.lat) || '';
+          out.lng = (sede && sede.lng) || '';
+          out.ciudad = (sede && sede.ciudad) || '';
+          out.provincia = (sede && sede.provincia) || '';
+          out.pais = (sede && sede.pais) || '';
+
+          return out;
+        }
+
+        function coincideTextoLibre(item, qGlobal) {
+          if(!qGlobal) return true;
+
+          const relacionesTexto = []
+            .concat(
+              (item.actividades_clave || []).map(x => x && x.nombre),
+              (item.acciones || []).map(x => x && x.nombre),
+              (item.nodos || []).map(x => x && x.nombre),
+              (item.sedes || []).flatMap(s => [
+                s && s.nombre_sede, s && s.direccion,
+                s && s.ciudad, s && s.provincia, s && s.pais
+              ])
+            )
+            .filter(Boolean)
+            .join(' ');
+
+          return [
+            item.nombre,item.segmento,item.categoria,item.actividad,
+            item.tags,item.adicionales,item.pie,item.descripcion,
+            relacionesTexto
+          ].some(v => normalizar(v || '').includes(qGlobal));
         }
 
         function render() {
@@ -1606,56 +1692,37 @@
           const clasificacion = String(selectClasificacion.value || '').trim();
           const actividadAccion = String(selectActividadAccion.value || '').trim();
 
-          let filtrados = serviciosData.filter(item => {
-            let coincideClasificacion = true;
-
+          // 1) Segmento/categoría siguen filtrando al anunciante.
+          let base = serviciosData.filter(item => {
             if(clasificacion.startsWith('SEG:')){
-              const id = clasificacion.slice(4);
-              coincideClasificacion = canonicalSegmentoIds(item).includes(id);
-            } else if(clasificacion.startsWith('CAT:')){
-              const id = clasificacion.slice(4);
-              coincideClasificacion = canonicalCategoriaIds(item).includes(id);
+              return canonicalSegmentoIds(item).includes(clasificacion.slice(4));
             }
-
-            let coincideActividadAccion = true;
-
-            if(actividadAccion.startsWith('ACT:')){
-              const id = actividadAccion.slice(4);
-              coincideActividadAccion = itemActividadIds(item).includes(id);
-            } else if(actividadAccion.startsWith('ACC:')){
-              const id = actividadAccion.slice(4);
-              coincideActividadAccion = itemAccionIds(item).includes(id);
+            if(clasificacion.startsWith('CAT:')){
+              return canonicalCategoriaIds(item).includes(clasificacion.slice(4));
             }
-
-            let coincideGlobal = true;
-            if(qGlobal){
-              const relacionesTexto = []
-                .concat(
-                  (item.actividades_clave || []).map(x => x && x.nombre),
-                  (item.acciones || []).map(x => x && x.nombre),
-                  (item.nodos || []).map(x => x && x.nombre),
-                  (item.sedes || []).flatMap(s => [
-                    s && s.nombre_sede, s && s.direccion,
-                    s && s.ciudad, s && s.provincia, s && s.pais
-                  ])
-                )
-                .filter(Boolean)
-                .join(' ');
-
-              coincideGlobal = [
-                item.nombre,item.segmento,item.categoria,item.actividad,
-                item.tags,item.adicionales,item.pie,item.descripcion,
-                relacionesTexto
-              ].some(v => normalizar(v || '').includes(qGlobal));
-            }
-
-            return coincideClasificacion && coincideActividadAccion && coincideGlobal;
-          }).sort((a, b) => {
-            if (Number(b.nivel) !== Number(a.nivel)) {
-              return Number(b.nivel) - Number(a.nivel);
-            }
-            return Number(a.subnivel) - Number(b.subnivel);
+            return true;
           });
+
+          // 2) Actividad/acción filtra SEDES.
+          // Cada sede coincidente se transforma en una tarjeta independiente.
+          if(actividadAccion){
+            base = base.flatMap(item => {
+              const sedes = Array.isArray(item.sedes) ? item.sedes : [];
+              return sedes
+                .filter(sede => sedeCoincideActividadAccion(sede, actividadAccion))
+                .map(sede => tarjetaSoloSede(item, sede));
+            });
+          }
+
+          // 3) Búsqueda libre se aplica sobre la tarjeta resultante.
+          let filtrados = base
+            .filter(item => coincideTextoLibre(item, qGlobal))
+            .sort((a, b) => {
+              if (Number(b.nivel) !== Number(a.nivel)) {
+                return Number(b.nivel) - Number(a.nivel);
+              }
+              return Number(a.subnivel) - Number(b.subnivel);
+            });
 
           const destacadas = (paginaActual === 1) ? getDestacadas(filtrados) : [];
           const normales = filtrados.filter(item => !(Number(item.nivel) === 6));
