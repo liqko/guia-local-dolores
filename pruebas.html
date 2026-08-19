@@ -498,6 +498,7 @@
     let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
     let relacionesSedesGlobales = {};
     let metaPorIdGlobal = {};
+    let sedesActivasGlobal = {};
     const guiaPrefetchCache = new Map();
 
     function guiaKey(paisId, provinciaId, ciudadId){
@@ -767,16 +768,21 @@
           out.verificado = meta.verificado !== undefined ? meta.verificado : out.verificado;
           out.gold = meta.gold !== undefined ? meta.gold : out.gold;
 
-          out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
-            const sede = Object.assign({}, raw);
-            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || {actividades:[],acciones:[],nodos:[]};
-            sede.relaciones = {
-              actividades:Array.isArray(rel.actividades)?rel.actividades:[],
-              acciones:Array.isArray(rel.acciones)?rel.acciones:[],
-              nodos:Array.isArray(rel.nodos)?rel.nodos:[]
-            };
-            return sede;
-          });
+          out.sedes = (Array.isArray(out.sedes) ? out.sedes : [])
+            .filter(raw => {
+              const k = relKey(raw && raw.sede_id);
+              return !!(k && sedesActivasGlobal[k]);
+            })
+            .map(raw => {
+              const sede = Object.assign({}, raw);
+              const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || {actividades:[],acciones:[],nodos:[]};
+              sede.relaciones = {
+                actividades:Array.isArray(rel.actividades)?rel.actividades:[],
+                acciones:Array.isArray(rel.acciones)?rel.acciones:[],
+                nodos:Array.isArray(rel.nodos)?rel.nodos:[]
+              };
+              return sede;
+            });
 
           const acts=[], accs=[], nods=[];
           out.sedes.forEach(s=>{
@@ -1000,10 +1006,20 @@
 
           const sedesVisibles = nivelVisual === 3 ? sedes.slice(0,1) : sedes;
           sedesVisibles.forEach((s, idx) => {
-            const tiene = s && (s.direccion || s.nombre_sede || s.maps || s.telefono || s.whatsapp);
+            if(!s) return;
+
+            const nombreRaw = String(s.nombre_sede || '').trim();
+            const nombreNorm = normalizar(nombreRaw);
+            const nombreVisible = (nombreNorm === 'sede' || nombreNorm === 'sede principal') ? '' : nombreRaw;
+
+            // Si no hay dirección, mapa ni contacto propio, no dibujamos bloque de sede.
+            const tiene = !!(s.direccion || s.maps || s.telefono || s.whatsapp ||
+              s.telefono2 || s.telefono3 || s.telefono4 || s.telefono5 ||
+              s.whatsapp2 || s.whatsapp3 || s.whatsapp4 || s.whatsapp5);
             if(!tiene) return;
+
             html += `<div class="sede-ficha">`;
-            if(s.nombre_sede) html += `<div class="sede-nombre">${s.nombre_sede}</div>`;
+            if(nombreVisible) html += `<div class="sede-nombre">${nombreVisible}</div>`;
             if(s.direccion) html += `<div><i class="fas fa-map-marker-alt"></i> ${s.direccion}${s.ciudad ? ` · ${s.ciudad}` : ''}</div><span class="espaciado"></span>`;
             if(s.maps && clickable) html += `<div style="margin:.45em 0;"><a href="${s.maps}" target="_blank" rel="noopener noreferrer" style="color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
             if(s.telefono) html += `<div><i class="fas fa-phone"></i> ${s.telefono}</div><span class="espaciado"></span>`;
@@ -1887,6 +1903,7 @@
         catalogosGlobales.nodos = Array.isArray(boot.nodos) ? boot.nodos : [];
         relacionesSedesGlobales = (boot.relaciones_sedes && typeof boot.relaciones_sedes === 'object') ? boot.relaciones_sedes : {};
         metaPorIdGlobal = (boot.meta_por_id && typeof boot.meta_por_id === 'object') ? boot.meta_por_id : {};
+        sedesActivasGlobal = (boot.sedes_activas && typeof boot.sedes_activas === 'object') ? boot.sedes_activas : {};
 
         if(!paises.length) throw new Error('No hay países cargados.');
 
