@@ -767,13 +767,27 @@
           out.verificado = meta.verificado !== undefined ? meta.verificado : out.verificado;
           out.gold = meta.gold !== undefined ? meta.gold : out.gold;
 
+          function enriquecerRelacion(lista, catalogo, idField){
+            return (Array.isArray(lista) ? lista : []).map(x=>{
+              const raw = (x && typeof x === 'object') ? Object.assign({}, x) : {[idField]:String(x||'').trim()};
+              const idRel = String(raw[idField] || '').trim();
+              if(!idRel) return raw;
+              const cat = (catalogo || []).find(c=>String(c[idField] || '').trim() === idRel) || {};
+              return Object.assign({}, cat, raw, {
+                [idField]: idRel,
+                nombre: String(raw.nombre || cat.nombre || '').trim(),
+                insignia: String(raw.insignia || cat.insignia || '').trim()
+              });
+            });
+          }
+
           out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
             const sede = Object.assign({}, raw);
             const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || {actividades:[],acciones:[],nodos:[]};
             sede.relaciones = {
-              actividades:Array.isArray(rel.actividades)?rel.actividades:[],
-              acciones:Array.isArray(rel.acciones)?rel.acciones:[],
-              nodos:Array.isArray(rel.nodos)?rel.nodos:[]
+              actividades:enriquecerRelacion(rel.actividades, catalogosGlobales.actividades, 'actividad_id'),
+              acciones:enriquecerRelacion(rel.acciones, catalogosGlobales.acciones, 'accion_id'),
+              nodos:enriquecerRelacion(rel.nodos, catalogosGlobales.nodos, 'nodo_id')
             };
             return sede;
           });
@@ -1427,7 +1441,7 @@
           return seq.slice(0, slots);
         }
 
-        function renderNormales(normales) {
+        function renderNormales(normales, cantidadDestacadas) {
           let html = '';
           const slots = Math.floor(normales.length / 2);
           const bannerSeq = buildBannerSequence(slots);
@@ -1439,7 +1453,7 @@
               if (banner) html += renderBanner(banner, `inter-${idx}`);
             }
           });
-          if (normales.length === 0) html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
+          if (normales.length === 0 && !cantidadDestacadas) html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
           contenedor.innerHTML = html;
           initBannerObservers(); attachCtaHandlers(); attachReplayHandlers();
         }
@@ -1676,13 +1690,23 @@
             return true;
           });
 
-          // Con filtros estructurados la unidad de resultado es la SEDE.
-          if(clasificacion || segundoFiltro){
-            base = base.flatMap(item =>
-              (Array.isArray(item.sedes)?item.sedes:[])
+          // Regla única de interfaz:
+          // cuando existe CUALQUIER búsqueda o filtro, la unidad de resultado es la SEDE.
+          // Así un anunciante con varias sedes se comporta siempre igual.
+          if(clasificacion || segundoFiltro || qGlobal){
+            base = base.flatMap(item => {
+              const sedes = Array.isArray(item.sedes) ? item.sedes : [];
+
+              // Anunciante sin sede física: conserva una tarjeta general si coincide.
+              if(!sedes.length){
+                if(segundoFiltro) return [];
+                return [item];
+              }
+
+              return sedes
                 .filter(sede=>sedeCumpleSegundoFiltro(sede,segundoFiltro))
-                .map(sede=>tarjetaDeSede(item,sede))
-            );
+                .map(sede=>tarjetaDeSede(item,sede));
+            });
           }
 
           let filtrados = base.filter(item => {
@@ -1710,7 +1734,7 @@
           buildPaginationBar(paginationBar);
 
           renderDestacadas(destacadas);
-          renderNormales(normalesPaginadas);
+          renderNormales(normalesPaginadas, destacadas.length);
         }
 
         buscadorGlobal.addEventListener('input', () => {
