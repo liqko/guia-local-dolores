@@ -173,6 +173,14 @@
     @media (min-width:721px){
       #promos-list .card-list, #eventos-list .card-list { display:none !important; }
     }
+
+    /* Modificar datos: anunciante + sedes */
+    .data-section-box{background:#fff;border:1px solid #e6e8ff;border-radius:10px;padding:14px;margin-bottom:14px}
+    .data-section-box h4{margin:0 0 8px}
+    .sede-selector-row{display:flex;gap:10px;align-items:end;flex-wrap:wrap;margin-bottom:10px}
+    .sede-selector-row label{flex:1;min-width:220px;margin:0}
+    .sede-selector-row select{margin-bottom:0}
+    .sede-empty{padding:12px;background:#f7f7f7;border-radius:8px;color:#555}
   </style>
 </head>
 <body>
@@ -318,23 +326,31 @@
 
         <!-- Modificar datos -->
         <div id="modificar-datos-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
-          <h3>Datos del Anunciante</h3>
-          <form id="form-datos-comercio">
-            <div id="campos-datos-comercio"></div>
-            <div class="data-form-actions">
-              <button id="btnGuardarDatosComercio" class="primary" type="button">Guardar cambios</button>
-            </div>
-            <div id="msg-datos-comercio"></div>
-          </form>
-          <div id="sede-edicion-wrap" style="margin-top:18px">
-            <div id="selector-sede-wrap" class="hidden">
-              <label for="selector-sede"><strong>SEDE</strong></label>
-              <select id="selector-sede"></select>
+          <h3>Modificar datos</h3>
+
+          <div class="data-section-box">
+            <h4>Datos generales del anunciante</h4>
+            <form id="form-datos-comercio">
+              <div id="campos-datos-comercio"></div>
+              <div class="data-form-actions">
+                <button id="btnGuardarDatosComercio" class="primary" type="button">Guardar datos generales</button>
+              </div>
+              <div id="msg-datos-comercio"></div>
+            </form>
+          </div>
+
+          <div class="data-section-box">
+            <h4>Sedes</h4>
+            <div id="sedes-status" class="small-muted" style="margin-bottom:10px">Cargando sedes...</div>
+            <div id="sedes-selector-wrap" class="sede-selector-row hidden">
+              <label>Seleccionar sede
+                <select id="sede-selector"></select>
+              </label>
             </div>
             <form id="form-datos-sede">
               <div id="campos-datos-sede"></div>
               <div class="data-form-actions">
-                <button id="btnGuardarDatosSede" class="primary" type="button">Guardar cambios</button>
+                <button id="btnGuardarDatosSede" class="primary" type="button" disabled>Guardar datos de la sede</button>
               </div>
               <div id="msg-datos-sede"></div>
             </form>
@@ -584,33 +600,22 @@ const PROMO_CONTACT_GROUPS = {
 let promoAdvertiserData = {};
 
 const COMMERCE_DATA_FIELDS = [
-  "nombre","segmento_id","categoria_id","actividad","descripcion","tags","adicionales","logo","link"
+  "nombre","segmento","categoria","pie","descripcion","tags","adicionales",
+  "telefono","whatsapp","whatsapp2","whatsapp3","mail",
+  "instagram","facebook","youtube","tiktok","linkedin",
+  "logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
+  "link"
 ];
-const COMMERCE_LABELS = {
-  nombre:"NOMBRE", segmento_id:"SEGMENTO", categoria_id:"CATEGORÍA", actividad:"ACTIVIDAD",
-  descripcion:"DESCRIPCIÓN", tags:"TAGS", adicionales:"ADICIONALES", logo:"LOGO", link:"LINK"
-};
+
 const SEDE_DATA_FIELDS = [
-  "nombre_sede","direccion","pais_id","provincia_id","ciudad_id","codigo_postal",
-  "lat","lng","maps","telefono","telefono2","telefono3","telefono4","telefono5",
-  "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
-  "mail","mail2","mail3","instagram","facebook","youtube","tiktok","linkedin",
-  "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"
+  "nombre_sede","direccion","pais","provincia","ciudad","codigo_postal",
+  "lat","lng","maps","telefono","whatsapp","mail",
+  "instagram","facebook","youtube","tiktok","linkedin","estado"
 ];
-const SEDE_LABELS = {
-  nombre_sede:"NOMBRE DE LA SEDE", direccion:"DIRECCIÓN", pais_id:"PAÍS", provincia_id:"PROVINCIA",
-  ciudad_id:"CIUDAD", codigo_postal:"CÓDIGO POSTAL", lat:"LATITUD", lng:"LONGITUD", maps:"MAPS",
-  telefono:"TELÉFONO", telefono2:"TELÉFONO 2", telefono3:"TELÉFONO 3", telefono4:"TELÉFONO 4", telefono5:"TELÉFONO 5",
-  whatsapp:"WHATSAPP", whatsapp2:"WHATSAPP 2", whatsapp3:"WHATSAPP 3", whatsapp4:"WHATSAPP 4", whatsapp5:"WHATSAPP 5",
-  mail:"MAIL", mail2:"MAIL 2", mail3:"MAIL 3", instagram:"INSTAGRAM", facebook:"FACEBOOK", youtube:"YOUTUBE",
-  tiktok:"TIKTOK", linkedin:"LINKEDIN", img1:"IMG1", img2:"IMG2", img3:"IMG3", img4:"IMG4", img5:"IMG5",
-  img6:"IMG6", img7:"IMG7", img8:"IMG8", img9:"IMG9", img10:"IMG10"
-};
+
 let commerceSedes = [];
-let selectedSedeId = "";
-let commerceCatalogs = { segmentos:[], categorias:[], paises:[], provincias:[], ciudades:[] };
-const COMMERCE_IMAGE_FIELDS = new Set(["logo"]);
-const SEDE_IMAGE_FIELDS = new Set(SEDE_DATA_FIELDS.filter((fieldName)=> /^img\d+$/.test(fieldName)));
+let selectedSedeId = '';
+const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
   <b>Imágenes (URL)</b><br>
   Subí la imagen a tu Drive o similar.<br>
@@ -1064,7 +1069,7 @@ function buildCommerceFieldsMarkup(datos){
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
-    const upperName = COMMERCE_LABELS[fieldName] || fieldName.toUpperCase();
+    const upperName = fieldName.toUpperCase();
 
     if(COMMERCE_IMAGE_FIELDS.has(fieldName)){
       if(!imageNoteRendered){
@@ -1086,27 +1091,13 @@ function buildCommerceFieldsMarkup(datos){
 
     let maxLengthAttr = '';
     let maxLengthNum = null;
-    if(fieldName === 'actividad') { maxLengthAttr = ' maxlength="100"'; maxLengthNum = 100; }
+    if(fieldName === 'pie') { maxLengthAttr = ' maxlength="100"'; maxLengthNum = 100; }
     else if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
     else if(fieldName === 'tags') { maxLengthAttr = ' maxlength="300"'; maxLengthNum = 300; }
     else if(fieldName === 'adicionales') { maxLengthAttr = ' maxlength="150"'; maxLengthNum = 150; }
 
     const restrictionHtml = maxLengthNum ? ` <span style="color:#c00; font-weight:normal; font-size:0.9em;">(Hasta ${maxLengthNum} caracteres)</span>` : '';
     const labelHtml = `<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
-
-    if(fieldName === 'segmento_id' || fieldName === 'categoria_id'){
-      const rows = fieldName === 'segmento_id' ? commerceCatalogs.segmentos : commerceCatalogs.categorias;
-      const idKey = fieldName === 'segmento_id' ? 'segmento_id' : 'categoria_id';
-      html += `<div class="data-field-card"><label>${labelHtml}</label><select name="${htmlEscape(fieldName)}">
-        <option value="">Seleccioná...</option>
-        ${rows.map(r=>{
-          const rid=String(r[idKey]||'').trim();
-          const rname=String(r.nombre||'').trim();
-          return `<option value="${htmlEscape(rid)}"${rid===String(fieldValue||'').trim()?' selected':''}>${htmlEscape(rname)}</option>`;
-        }).join('')}
-      </select></div>`;
-      return;
-    }
 
     if(fieldName === 'descripcion'){
       html += `
@@ -1130,6 +1121,76 @@ function buildCommerceFieldsMarkup(datos){
   return html;
 }
 
+function buildSedeFieldsMarkup(sede){
+  const values = (sede && typeof sede === 'object') ? sede : {};
+  let html = '<div class="data-fields-grid">';
+  SEDE_DATA_FIELDS.forEach((fieldName)=>{
+    const fieldValue = values[fieldName] === undefined || values[fieldName] === null ? '' : String(values[fieldName]);
+    const label = fieldName.replaceAll('_',' ').toUpperCase();
+    html += `
+      <div class="data-field-card">
+        <label><strong>${htmlEscape(label)}</strong></label>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}" />
+      </div>`;
+  });
+  html += '</div>';
+  html += `<input type="hidden" name="sede_id" value="${htmlEscape(values.sede_id || '')}" />`;
+  html += `<input type="hidden" name="anunciante_id" value="${htmlEscape(values.anunciante_id || (sesion && sesion.id) || '')}" />`;
+  return html;
+}
+
+function renderSedesEditor(sedes){
+  commerceSedes = Array.isArray(sedes) ? sedes.filter(Boolean) : [];
+  const status = document.getElementById('sedes-status');
+  const wrap = document.getElementById('sedes-selector-wrap');
+  const selector = document.getElementById('sede-selector');
+  const fields = document.getElementById('campos-datos-sede');
+  const saveBtn = document.getElementById('btnGuardarDatosSede');
+  if(!status || !wrap || !selector || !fields || !saveBtn) return;
+
+  if(!commerceSedes.length){
+    status.textContent = 'No hay sedes cargadas para este anunciante.';
+    wrap.classList.add('hidden');
+    fields.innerHTML = '';
+    saveBtn.setAttribute('disabled','true');
+    selectedSedeId = '';
+    return;
+  }
+
+  status.textContent = commerceSedes.length === 1 ? '1 sede cargada.' : `${commerceSedes.length} sedes cargadas.`;
+  selector.innerHTML = commerceSedes.map((sede,idx)=>{
+    const id = String(sede.sede_id || '').trim();
+    const nombre = String(sede.nombre_sede || sede.direccion || `Sede ${idx+1}`).trim();
+    return `<option value="${htmlEscape(id)}">${htmlEscape(nombre)}${id ? ` — ${htmlEscape(id)}` : ''}</option>`;
+  }).join('');
+  wrap.classList.remove('hidden');
+  selectedSedeId = String(commerceSedes[0].sede_id || '').trim();
+  fields.innerHTML = buildSedeFieldsMarkup(commerceSedes[0]);
+  saveBtn.removeAttribute('disabled');
+}
+
+function selectSedeForEdit(sedeId){
+  const id = String(sedeId || '').trim();
+  const sede = commerceSedes.find(s=>String(s.sede_id || '').trim() === id) || commerceSedes[0];
+  const fields = document.getElementById('campos-datos-sede');
+  if(!sede || !fields) return;
+  selectedSedeId = String(sede.sede_id || '').trim();
+  fields.innerHTML = buildSedeFieldsMarkup(sede);
+}
+
+function buildSedeSavePayload(){
+  const form = document.getElementById('form-datos-sede');
+  const payload = { action:'set_sede' };
+  payload.sede_id = String(form?.querySelector('[name="sede_id"]')?.value || selectedSedeId || '').trim();
+  payload.anunciante_id = String(form?.querySelector('[name="anunciante_id"]')?.value || (sesion && sesion.id) || '').trim();
+  payload.id = payload.anunciante_id;
+  payload.comercio_id = payload.anunciante_id;
+  SEDE_DATA_FIELDS.forEach((fieldName)=>{
+    payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
+  });
+  return payload;
+}
+
 function setMsg(elId, kind, msg){
   const el = document.getElementById(elId);
   if(!el) return;
@@ -1148,81 +1209,6 @@ async function promos_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
 }
-
-function _catalogOptions(rows,idKey,current,labelKey){
-  const cur=String(current||'').trim();
-  return '<option value="">Seleccioná...</option>'+(rows||[]).map(r=>{
-    const id=String(r[idKey]||'').trim();
-    const name=String(r[labelKey]||r.nombre||'').trim();
-    return `<option value="${htmlEscape(id)}"${id===cur?' selected':''}>${htmlEscape(name)}</option>`;
-  }).join('');
-}
-function buildSedeFieldsMarkup(sede){
-  const v=sede&&typeof sede==='object'?sede:{};
-  let h='<div class="data-fields-grid">', noted=false;
-  SEDE_DATA_FIELDS.forEach(f=>{
-    const value=v[f]==null?'':String(v[f]), label=SEDE_LABELS[f]||f.toUpperCase();
-    if(SEDE_IMAGE_FIELDS.has(f)&&!noted){ h+=`<div class="data-image-note info-banner" style="grid-column:1 / -1">${COMMERCE_IMAGE_UPLOAD_NOTE}</div>`; noted=true; }
-    if(f==='pais_id'){ h+=`<div class="data-field-card"><label><strong>${label}</strong></label><select name="pais_id" id="sede-pais">${_catalogOptions(commerceCatalogs.paises,'pais_id',value,'nombre')}</select></div>`; return; }
-    if(f==='provincia_id'){ h+=`<div class="data-field-card"><label><strong>${label}</strong></label><select name="provincia_id" id="sede-provincia"></select></div>`; return; }
-    if(f==='ciudad_id'){ h+=`<div class="data-field-card"><label><strong>${label}</strong></label><select name="ciudad_id" id="sede-ciudad"></select></div>`; return; }
-    h+=`<div class="data-field-card${SEDE_IMAGE_FIELDS.has(f)?' image-field':''}"><label><strong>${label}</strong></label><input type="text" name="${f}" value="${htmlEscape(value)}"${SEDE_IMAGE_FIELDS.has(f)?' placeholder="https://..."':''}></div>`;
-  });
-  return h+'</div>'+`<input type="hidden" name="sede_id" value="${htmlEscape(v.sede_id||'')}">`;
-}
-function refreshSedeTerritorySelects(sede){
-  const pais=document.getElementById('sede-pais'), prov=document.getElementById('sede-provincia'), city=document.getElementById('sede-ciudad');
-  if(!prov||!city) return;
-  const p=String(pais?.value||sede?.pais_id||''), pr=String(sede?.provincia_id||''), ci=String(sede?.ciudad_id||'');
-  prov.innerHTML=_catalogOptions(commerceCatalogs.provincias.filter(x=>!p||String(x.pais_id||'')===p),'provincia_id',pr,'nombre');
-  const prNow=String(prov.value||pr);
-  city.innerHTML=_catalogOptions(commerceCatalogs.ciudades.filter(x=>(!p||String(x.pais_id||'')===p)&&(!prNow||String(x.provincia_id||'')===prNow)),'ciudad_id',ci,'ciudad');
-
-  pais?.addEventListener('change',()=>{
-    const pv=String(pais.value||'');
-    prov.innerHTML=_catalogOptions(commerceCatalogs.provincias.filter(x=>!pv||String(x.pais_id||'')===pv),'provincia_id','','nombre');
-    prov.dispatchEvent(new Event('change'));
-  });
-  prov.addEventListener('change',()=>{
-    const pv=String(pais?.value||''), rv=String(prov.value||'');
-    city.innerHTML=_catalogOptions(commerceCatalogs.ciudades.filter(x=>(!pv||String(x.pais_id||'')===pv)&&(!rv||String(x.provincia_id||'')===rv)),'ciudad_id','','ciudad');
-  });
-  city.addEventListener('change',()=>{
-    const c=commerceCatalogs.ciudades.find(x=>String(x.ciudad_id||'')===String(city.value||''));
-    const cp=document.querySelector('#form-datos-sede [name="codigo_postal"]');
-    if(c&&cp) cp.value=String(c.codigo_postal||'');
-  });
-}
-function renderSedeEditor(){
-  const wrap=document.getElementById('campos-datos-sede'), sw=document.getElementById('selector-sede-wrap'), sel=document.getElementById('selector-sede');
-  if(!wrap) return;
-  if(!commerceSedes.length){ wrap.innerHTML='<div class="small-muted">No hay sedes cargadas.</div>'; sw?.classList.add('hidden'); return; }
-  if(!selectedSedeId) selectedSedeId=String(commerceSedes[0].sede_id||'');
-  const sede=commerceSedes.find(s=>String(s.sede_id||'')===selectedSedeId)||commerceSedes[0];
-  if(commerceSedes.length>1){
-    sw?.classList.remove('hidden');
-    sel.innerHTML=commerceSedes.map((s,i)=>{
-      const id=String(s.sede_id||''), name=String(s.nombre_sede||'').trim()||`Sede ${i+1}`;
-      return `<option value="${htmlEscape(id)}"${id===String(sede.sede_id||'')?' selected':''}>${htmlEscape(name)}</option>`;
-    }).join('');
-  } else sw?.classList.add('hidden');
-  wrap.innerHTML=buildSedeFieldsMarkup(sede);
-  refreshSedeTerritorySelects(sede);
-}
-async function loadCommerceCatalogs(){
-  try{
-    const r=await fetch(`${WORKER_ORIGIN}/commerce?action=bootstrap`,{method:'GET',mode:'cors',cache:'no-store'});
-    const j=await r.json();
-    ['segmentos','categorias','paises','provincias','ciudades'].forEach(k=>commerceCatalogs[k]=Array.isArray(j[k])?j[k]:[]);
-  }catch(e){}
-}
-function buildSedeSavePayload(){
-  const form=document.getElementById('form-datos-sede');
-  const sede={sede_id:String(form?.querySelector('[name="sede_id"]')?.value||selectedSedeId||'').trim()};
-  SEDE_DATA_FIELDS.forEach(k=>sede[k]=String(form?.querySelector(`[name="${k}"]`)?.value||'').trim());
-  return {action:'set_sedes',id:String(sesion?.id||''),__id:String(sesion?.id||''),anunciante_id:String(sesion?.id||''),sedes:[sede]};
-}
-
 async function commerce_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
@@ -1991,31 +1977,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   document.getElementById('btnCrearComercioPanel').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
-  document.getElementById('selector-sede')?.addEventListener('change', function(){
-    selectedSedeId=String(this.value||'');
-    renderSedeEditor();
-  });
-
-  document.getElementById('btnGuardarDatosSede')?.addEventListener('click', async ()=>{
-    if(!sesion||!sesion.id){ setMsg('msg-datos-sede','err','No logueado.'); return; }
-    const btn=document.getElementById('btnGuardarDatosSede'), oldText=btn?.textContent||'Guardar cambios';
-    btn?.setAttribute('disabled','true'); if(btn) btn.textContent='Guardando...';
-    try{
-      const payload=buildSedeSavePayload(), sede=payload.sedes[0]||{};
-      const bad=Array.from(SEDE_IMAGE_FIELDS).find(k=>!isHttpUrl(sede[k]));
-      if(bad){ setMsg('msg-datos-sede','err',`La URL de ${bad} no es válida.`); return; }
-      const response=await commerce_post(payload);
-      if(response.status===200&&response.json&&(response.json.success||response.json.updated)){
-        const i=commerceSedes.findIndex(s=>String(s.sede_id||'')===String(sede.sede_id||''));
-        if(i>=0) commerceSedes[i]=Object.assign({},commerceSedes[i],sede);
-        setMsg('msg-datos-sede','ok','Datos guardados.');
-      }else{
-        setMsg('msg-datos-sede','err','No se pudieron guardar los datos de la sede: '+((response.json&&(response.json.message||response.json.error))?(response.json.message||response.json.error):'sin detalle'));
-      }
-    }catch(e){ setMsg('msg-datos-sede','err','Error de conexión.'); }
-    finally{ btn?.removeAttribute('disabled'); if(btn) btn.textContent=oldText; }
-  });
-
   document.getElementById('btnGuardarDatosComercio')?.addEventListener('click', async ()=>{
     if(!sesion || !sesion.id){
       setMsg('msg-datos-comercio', 'err', 'No logueado.');
@@ -2043,6 +2004,43 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }
     }catch(err){
       setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
+    } finally {
+      btn?.removeAttribute('disabled');
+      if(btn) btn.textContent = originalText;
+    }
+  });
+
+  document.getElementById('sede-selector')?.addEventListener('change', function(){
+    selectSedeForEdit(this.value);
+  });
+
+  document.getElementById('btnGuardarDatosSede')?.addEventListener('click', async ()=>{
+    if(!sesion || !sesion.id){
+      setMsg('msg-datos-sede', 'err', 'No logueado.');
+      return;
+    }
+    const btn = document.getElementById('btnGuardarDatosSede');
+    const originalText = btn?.textContent || 'Guardar datos de la sede';
+    btn?.setAttribute('disabled','true');
+    if(btn) btn.textContent = 'Guardando...';
+    setMsg('msg-datos-sede', 'ok', 'Guardando sede...');
+    try{
+      const payload = buildSedeSavePayload();
+      if(!payload.sede_id){
+        setMsg('msg-datos-sede', 'err', 'La sede no tiene sede_id.');
+        return;
+      }
+      const response = await commerce_post(payload);
+      const savedOk = !!(response.json && (response.json.success || response.json.updated || response.json.aprobado === true));
+      if(response.status === 200 && savedOk){
+        setMsg('msg-datos-sede', 'ok', 'Sede guardada.');
+        const idx = commerceSedes.findIndex(s=>String(s.sede_id||'') === String(payload.sede_id));
+        if(idx >= 0) commerceSedes[idx] = Object.assign({}, commerceSedes[idx], payload);
+      } else {
+        setMsg('msg-datos-sede', 'err', 'No se pudo guardar la sede: ' + ((response.json && (response.json.message || response.json.error)) ? (response.json.message || response.json.error) : 'sin detalle'));
+      }
+    }catch(err){
+      setMsg('msg-datos-sede', 'err', 'Error de conexión.');
     } finally {
       btn?.removeAttribute('disabled');
       if(btn) btn.textContent = originalText;
@@ -2318,34 +2316,29 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
 
-    const url = `${WORKER_ORIGIN}/commerce?action=anunciante&id=${encodeURIComponent(sesion.id)}`;
+    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     try{
-      await loadCommerceCatalogs();
-      const r = await fetch(url, { method:'GET', mode:'cors', cache:'no-store' });
+      const r = await fetch(url, { method:'GET', mode:'cors' });
       const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
       if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
-
-      const joined = rawDatos.advertiser || rawDatos;
-      const datos = joined.datos || joined;
-      const administracion = joined.administracion || {};
-      commerceSedes = Array.isArray(joined.sedes) ? joined.sedes : [];
-      selectedSedeId = commerceSedes.length ? String(commerceSedes[0].sede_id || '') : '';
-
+      
+      const datos = rawDatos.data || rawDatos.anunciante || rawDatos;
       window.__commerceAdvertiserData = datos || {};
       promoAdvertiserData = datos || {};
-      const newPlanillaId = rawDatos.planilla_id || administracion.planilla_id || datos.planilla_id;
+      const newPlanillaId = rawDatos.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
         localStorage.setItem('planilla_id', newPlanillaId); 
       }
 
-      sesion.promos_cant = administracion.promos_cant || datos.promos_cant || 0;
-      sesion.eventos_cant = administracion.eventos_cant || datos.eventos_cant || 0;
+      sesion.promos_cant = datos.promos_cant || 0;
+      sesion.eventos_cant = datos.eventos_cant || 0;
       localStorage.setItem('promos_cant', sesion.promos_cant);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos);
-      renderSedeEditor();
+      const sedesData = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : (Array.isArray(datos.sedes) ? datos.sedes : []);
+      renderSedesEditor(sedesData);
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(rawDatos);
       }
@@ -2359,6 +2352,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
+      renderSedesEditor([]);
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData({});
       }
