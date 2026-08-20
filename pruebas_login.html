@@ -305,7 +305,6 @@
         <div id="tab-gifcards" class="tab" role="tab" aria-selected="false">Gifcards</div>
         <div id="tab-actividades" class="tab" role="tab" aria-selected="false">Actividades</div>
         <div id="tab-reservas" class="tab" role="tab" aria-selected="false">Reservas</div>
-        <div id="tab-nfc" class="tab" role="tab" aria-selected="false">NFC</div>
         <div id="tab-modificar-datos" class="tab" role="tab" aria-selected="false">Modificar datos</div>
       </div>
 
@@ -707,24 +706,32 @@ function openImagesFormForCommerce(comercioId){
 
 /* ====================== Autocomplete comercios ====================== */
 function cargarComercios(callback){
-  const url = `${WORKER_COMMERCE_URL}?action=login_catalogo`;
-  fetch(url, {cache:'no-store'}).then(r=>r.json()).then(json=>{
+  const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=anunciantes`;
+  fetch(url, {cache:'no-store'}).then(r=>r.text()).then(text=>{
     try{
-      const rows = Array.isArray(json && json.results) ? json.results : [];
-      comercios = rows.map(row=>({
-        nombre: String(row && row.nombre || '').trim(),
-        id: String(row && row.id || '').trim(),
-        nivel: String(row && row.nivel || '').trim()
-      })).filter(c=>c.nombre && c.id);
+      const start=text.indexOf('{'), end=text.lastIndexOf('}');
+      const jsonText=text.slice(start,end+1);
+      const json=JSON.parse(jsonText);
+      const cols=(json.table && json.table.cols)? json.table.cols.map(c=>(c&&c.label)?String(c.label).toLowerCase().trim():''):[];
+      let idxNombre = cols.findIndex(h=>/nombre|comercio|title|titulo/.test(h)); if(idxNombre===-1) idxNombre=1;
+      let idxId = cols.findIndex(h=>/id|planilla|planilla_id|codigo|comercio_id/.test(h));
+      if(idxId === -1) idxId = cols.findIndex(h => h.includes('id'));
+      if(idxId === -1) idxId = 0;
+      let idxNivel = cols.findIndex(h=>/nivel|nivel_acceso|nivelacceso/.test(h));
+      comercios=(json.table.rows||[]).map(row=>{
+        const cRow = row && row.c ? row.c : [];
+        const nombre = (cRow[idxNombre] && cRow[idxNombre].v)?cRow[idxNombre].v:'';
+        let id = (cRow[idxId] && cRow[idxId].v)?cRow[idxId].v:'';
+        if(!id && cRow[0] && cRow[0].v) id = cRow[0].v;
+        const nivel = (idxNivel!==-1 && cRow[idxNivel] && cRow[idxNivel].v)?cRow[idxNivel].v:'';
+        return { nombre: String(nombre).trim(), id: String(id).trim(), nivel: String(nivel).trim() };
+      }).filter(c=>c.nombre);
       callback && callback();
     }catch(e){
-      debugLog('Error parseando catálogo de comercios', e);
+      debugLog('Error parseando lista de comercios', e);
       callback && callback();
     }
-  }).catch(err=>{
-    debugLog('Error fetch catálogo de comercios', err);
-    callback && callback();
-  });
+  }).catch(err=>{ debugLog('Error fetch lista de comercios', err); callback && callback(); });
 }
 
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroConfig={}){
@@ -2301,7 +2308,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const tabGifcards = document.getElementById('tab-gifcards');
     const tabActividades = document.getElementById('tab-actividades');
     const tabReservas = document.getElementById('tab-reservas');
-    const tabNfc = document.getElementById('tab-nfc');
     const tabModificarDatos = document.getElementById('tab-modificar-datos');
     const dashboardTabs = document.getElementById('dashboard-tabs');
     const inicioPanel = document.getElementById('inicio-panel');
@@ -2323,7 +2329,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       { key:'gifcards', label:'Gifcards' },
       { key:'actividades', label:'Actividades' },
       { key:'reservas', label:'Reservas' },
-      { key:'nfc', label:'NFC' },
       { key:'modificar_datos', label:'Modificar datos' }
     ];
 
@@ -2337,7 +2342,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
       gifcards: tabGifcards,
       actividades: tabActividades,
       reservas: tabReservas,
-      nfc: tabNfc,
       modificar_datos: tabModificarDatos
     };
 
@@ -2352,7 +2356,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       reservas: ['reservas','reserva']
     };
 
-    let enabledModules = new Set(['promos','eventos','nfc','modificar_datos']);
+    let enabledModules = new Set(['promos','eventos','modificar_datos']);
 
     function normalizeKey(k){
       return String(k || '')
@@ -2393,7 +2397,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
         out.add('promos');
         out.add('eventos');
       }
-      out.add('nfc');
       out.add('modificar_datos');
       return out;
     }
