@@ -457,14 +457,14 @@
 
     const ANUNCIANTES_API = "https://script.google.com/macros/s/AKfycbzom6il-vhSMAnsNp0ipfTHqf2ha-nOtwVEv7xR9gcc6u01UiL9AVG9O-dZedCUvaGS/exec";
 
-    function jsonpApi(params={}) {
+    function jsonpApi(params={}, timeoutMs=15000) {
       return new Promise((resolve, reject) => {
         const callbackName = '__gld_jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000000);
         const script = document.createElement('script');
         const timer = setTimeout(() => {
           cleanup();
           reject(new Error('Tiempo de espera agotado al consultar la API'));
-        }, 15000);
+        }, timeoutMs);
 
         function cleanup(){
           clearTimeout(timer);
@@ -501,6 +501,7 @@
     let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
     let relacionesSedesGlobales = {};
     let metaPorIdGlobal = {};
+    let bootstrapCompletoPromise = null;
     const guiaPrefetchCache = new Map();
 
     function guiaKey(paisId, provinciaId, ciudadId){
@@ -559,7 +560,8 @@
     async function cargarGuiaSeleccionada(){
       try {
         const guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
-          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada});
+          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 30000);
+        const bootstrapPromise = iniciarBootstrapCompleto();
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -570,7 +572,7 @@
 
         // La guía se espera sola. Eventos, promos y banners siguen cargando en paralelo
         // y se incorporan después, sin bloquear la aparición de las tarjetas.
-        const dataResponse = await guiaPromise;
+        const [dataResponse] = await Promise.all([guiaPromise, bootstrapPromise]);
         let rawBanners = [];
         let rawEventsResponse = [];
         let rawPromosResponse = [];
@@ -817,12 +819,10 @@
           selectClasificacion.innerHTML='<option value="">Segmentos y actividades</option>';
 
           const segs=(catalogosGlobales.segmentosPublicos||[])
-            .filter(x=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim())
-            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+            .filter(x=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim());
 
           const acts=(catalogosGlobales.actividades||[])
-            .filter(x=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim())
-            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+            .filter(x=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim());
 
           if(segs.length){
             const g=document.createElement('optgroup'); g.label='SEGMENTOS';
@@ -851,8 +851,7 @@
           selectCategoria.innerHTML='<option value="">Categorías</option>';
 
           const cats=(catalogosGlobales.categorias||[])
-            .filter(x=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim())
-            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+            .filter(x=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim());
 
           cats.forEach(x=>{
             const o=document.createElement('option');
@@ -866,8 +865,7 @@
           selectActividadAccion.innerHTML='<option value="">Acciones</option>';
 
           const accs=(catalogosGlobales.acciones||[])
-            .filter(x=>String(x.accion_id||'').trim() && String(x.nombre||'').trim())
-            .sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre),'es'));
+            .filter(x=>String(x.accion_id||'').trim() && String(x.nombre||'').trim());
 
           accs.forEach(x=>{
             const o=document.createElement('option');
@@ -1865,12 +1863,43 @@
       });
     }
 
-    async function cargarBootstrap() {
-      const data = await jsonpApi({action:'bootstrap'});
+    async function cargarUbicaciones() {
+      const data = await jsonpApi({action:'ubicaciones'}, 15000);
       if(!data || data.success !== true) {
-        throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
+        throw new Error((data && (data.error || data.message)) || 'Ubicaciones inválidas');
       }
       return data;
+    }
+
+    function iniciarBootstrapCompleto(){
+      if(!bootstrapCompletoPromise){
+        bootstrapCompletoPromise = jsonpApi({action:'bootstrap'}, 30000)
+          .then(data=>{
+            if(!data || data.success !== true){
+              throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
+            }
+
+            catalogosGlobales.segmentos = Array.isArray(data.segmentos) ? data.segmentos : [];
+            catalogosGlobales.segmentosPublicos = Array.isArray(data.segmentos_publicos)
+              ? data.segmentos_publicos
+              : catalogosGlobales.segmentos.filter(s => {
+                  const v = String(s.visible_publico ?? '').trim().toLowerCase();
+                  return v === 'true' || v === '1' || v === 'x' || v === 'si' || v === 'sí';
+                });
+            catalogosGlobales.categorias = Array.isArray(data.categorias) ? data.categorias : [];
+            catalogosGlobales.actividades = Array.isArray(data.actividades_clave) ? data.actividades_clave : [];
+            catalogosGlobales.acciones = Array.isArray(data.acciones) ? data.acciones : [];
+            catalogosGlobales.nodos = Array.isArray(data.nodos) ? data.nodos : [];
+            relacionesSedesGlobales = (data.relaciones_sedes && typeof data.relaciones_sedes === 'object') ? data.relaciones_sedes : {};
+            metaPorIdGlobal = (data.meta_por_id && typeof data.meta_por_id === 'object') ? data.meta_por_id : {};
+            return data;
+          })
+          .catch(err=>{
+            bootstrapCompletoPromise = null;
+            throw err;
+          });
+      }
+      return bootstrapCompletoPromise;
     }
 
     function normId(v){
@@ -1945,25 +1974,15 @@
       try {
         error.textContent = 'Cargando ubicaciones…';
 
-        // UNA SOLA llamada al servidor para toda la pantalla inicial.
-        const boot = await cargarBootstrap();
+        // La pantalla inicial pide SOLO territorio; no espera catálogos ni relaciones.
+        const boot = await cargarUbicaciones();
 
         const paises = Array.isArray(boot.paises) ? boot.paises : [];
         const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
         const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
-        catalogosGlobales.segmentos = Array.isArray(boot.segmentos) ? boot.segmentos : [];
-        catalogosGlobales.segmentosPublicos = Array.isArray(boot.segmentos_publicos)
-          ? boot.segmentos_publicos
-          : catalogosGlobales.segmentos.filter(s => {
-              const v = String(s.visible_publico ?? '').trim().toLowerCase();
-              return v === 'true' || v === '1' || v === 'x' || v === 'si' || v === 'sí';
-            });
-        catalogosGlobales.categorias = Array.isArray(boot.categorias) ? boot.categorias : [];
-        catalogosGlobales.actividades = Array.isArray(boot.actividades_clave) ? boot.actividades_clave : [];
-        catalogosGlobales.acciones = Array.isArray(boot.acciones) ? boot.acciones : [];
-        catalogosGlobales.nodos = Array.isArray(boot.nodos) ? boot.nodos : [];
-        relacionesSedesGlobales = (boot.relaciones_sedes && typeof boot.relaciones_sedes === 'object') ? boot.relaciones_sedes : {};
-        metaPorIdGlobal = (boot.meta_por_id && typeof boot.meta_por_id === 'object') ? boot.meta_por_id : {};
+
+        // Mientras el usuario elige ubicación, precargamos el resto en segundo plano.
+        iniciarBootstrapCompleto().catch(err=>console.warn('Bootstrap completo pendiente:', err));
 
         if(!paises.length) throw new Error('No hay países cargados.');
 
