@@ -515,10 +515,11 @@
 
 <script>
 /* === CONFIG === */
-const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
-const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
-const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
-const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
+const ANUNCIANTES_API_URL = "https://script.google.com/macros/s/AKfycbzom6il-vhSMAnsNp0ipfTHqf2ha-nOtwVEv7xR9gcc6u01UiL9AVG9O-dZedCUvaGS/exec";
+
+// Módulos externos aún independientes del anunciante.
+const EVENTS_API_URL = "https://login.liqkoargentina.workers.dev/events";
+const PROMOS_API_URL = "https://login.liqkoargentina.workers.dev/commerce";
 
 const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
@@ -686,9 +687,8 @@ function openImagesFormForCommerce(comercioId){
 /* ====================== Autocomplete comercios ====================== */
 async function cargarComercios(callback){
   try{
-    const r = await fetch(`${WORKER_ORIGIN}/search`, { cache:'no-store', mode:'cors' });
-    const j = await r.json();
-    comercios = Array.isArray(j.results)
+    const j = await anunciantesJsonp({ action:'login_catalogo' });
+    comercios = Array.isArray(j && j.results)
       ? j.results.map(c => ({
           nombre:String(c.nombre || '').trim(),
           id:String(c.id || '').trim(),
@@ -696,7 +696,7 @@ async function cargarComercios(callback){
         })).filter(c => c.nombre && c.id)
       : [];
   }catch(err){
-    debugLog('Error cargando anunciantes desde Worker', err);
+    debugLog('Error cargando catálogo actual de anunciantes', err);
     comercios = [];
   }
   callback && callback();
@@ -986,6 +986,33 @@ async function postJson(url, body){
   return { status:r.status, json };
 }
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]; }); }
+
+function anunciantesJsonp(params={}){
+  return new Promise((resolve,reject)=>{
+    const cb='__gldLoginCb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    const script=document.createElement('script');
+    const url=new URL(ANUNCIANTES_API_URL);
+    Object.entries(params||{}).forEach(([k,v])=>url.searchParams.set(k,String(v??'')));
+    url.searchParams.set('callback',cb);
+
+    const timer=setTimeout(()=>{
+      cleanup();
+      reject(new Error('Tiempo de espera agotado consultando anunciantes'));
+    },20000);
+
+    function cleanup(){
+      clearTimeout(timer);
+      try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
+      try{ script.remove(); }catch(e){}
+    }
+
+    window[cb]=(data)=>{ cleanup(); resolve(data); };
+    script.onerror=()=>{ cleanup(); reject(new Error('No se pudo consultar anunciantes')); };
+    script.src=url.toString();
+    document.head.appendChild(script);
+  });
+}
+
 function isHttpUrl(value){
   const s = String(value || '').trim();
   if(!s) return true;
@@ -1192,19 +1219,19 @@ async function events_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_EVENTS_URL, body);
+  return postJson(EVENTS_API_URL, body);
 }
 async function promos_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_COMMERCE_URL, body);
+  return postJson(PROMOS_API_URL, body);
 }
 async function commerce_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_COMMERCE_URL, body);
+  return postJson(ANUNCIANTES_API_URL, body);
 }
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
@@ -1948,10 +1975,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try{
       if(isChange){
         if(regMsg) regMsg.innerHTML = "<span>Validando contraseña actual...</span>";
-        const validarResp = await fetch(WORKER_URL, {
+        const validarResp = await fetch(ANUNCIANTES_API_URL, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ id, comercio_id: id, nombre, clave: claveActual }),
+          body: JSON.stringify({ action:'login', id, comercio_id:id, nombre, password:claveActual }),
           mode:'cors'
         });
         const validarText = await validarResp.text();
@@ -1974,7 +2001,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
       }
 
-      const r = await fetch(WORKER_COMMERCE_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
+      const r = await fetch(ANUNCIANTES_API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
       let res;
       try{ res = JSON.parse(text); }catch(err){ res = { success:false, message:text }; }
@@ -2145,12 +2172,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
 
-    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     try{
-      const r = await fetch(url, { method:'GET', mode:'cors' });
-      const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
-      if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
-      
+      const apiResp = await anunciantesJsonp({ action:'anunciante', id:sesion.id });
+      const rawDatos = (apiResp && apiResp.advertiser) ? apiResp.advertiser : apiResp;
+      if(!rawDatos || rawDatos.error || rawDatos.success === false){
+        const errMsg = (rawDatos && (rawDatos.error || rawDatos.message)) || 'No se pudieron cargar los datos del anunciante';
+        document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${htmlEscape(errMsg)}`;
+        mostrarPanel('dashboard');
+        return;
+      }
+
       const datos = rawDatos.datos || rawDatos.data || rawDatos.anunciante || rawDatos;
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
@@ -2187,7 +2218,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 250);
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
-      document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
+      document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos del anunciante.</b>`;
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData({});
       }
@@ -2214,7 +2245,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     const payload = { action:'login', comercio_id:id||'', id:id||'', nombre:nombre, password:clave };
     try{
-      const r = await fetch(WORKER_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
+      const r = await fetch(ANUNCIANTES_API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
       let res;
       try{ res = JSON.parse(text); }catch(e){ res = { success:false, message: text }; }
