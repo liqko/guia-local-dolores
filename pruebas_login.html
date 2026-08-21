@@ -515,11 +515,10 @@
 
 <script>
 /* === CONFIG === */
-const ANUNCIANTES_API_URL = "https://script.google.com/macros/s/AKfycbzom6il-vhSMAnsNp0ipfTHqf2ha-nOtwVEv7xR9gcc6u01UiL9AVG9O-dZedCUvaGS/exec";
-
-// Módulos externos aún independientes del anunciante.
-const EVENTS_API_URL = "https://login.liqkoargentina.workers.dev/events";
-const PROMOS_API_URL = "https://login.liqkoargentina.workers.dev/commerce";
+const WORKER_URL = "https://login.liqkoargentina.workers.dev/login";
+const WORKER_ORIGIN = (new URL(WORKER_URL)).origin;
+const WORKER_COMMERCE_URL = WORKER_ORIGIN + '/commerce';
+const WORKER_EVENTS_URL = WORKER_ORIGIN + '/events';
 
 const EVENTS_SHEET_ID = "1CCNDvrIFFufiLXmYkm4YcmtZVpk6rG2gJQQYXzA186o";
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
@@ -546,24 +545,20 @@ let lastCreatedEventId = null;
 let editingPromoId = null;
 
 const COMMERCE_DATA_FIELDS = [
-  "nombre","actividad","descripcion","tags","adicionales","logo","link"
+  "nombre","actividad","pie","descripcion","tags","adicionales",
+  "telefono","telefono2","telefono3","telefono4","telefono5",
+  "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
+  "mail","instagram","facebook","youtube","tiktok","linkedin",
+  "logo","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
+  "link"
 ];
 
 const COMMERCE_SEDE_FIELDS = [
   "nombre_sede","direccion","pais_id","provincia_id","ciudad_id","codigo_postal",
-  "lat","lng","maps",
-  "telefono","telefono2","telefono3","telefono4","telefono5",
-  "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
-  "mail","mail2","mail3",
-  "instagram","facebook","youtube","tiktok","linkedin",
-  "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
-  "estado"
+  "lat","lng","maps","telefono","whatsapp","mail",
+  "instagram","facebook","youtube","tiktok","linkedin"
 ];
-
-const COMMERCE_IMAGE_FIELDS = new Set(["logo"]);
-const COMMERCE_SEDE_IMAGE_FIELDS = new Set(
-  COMMERCE_SEDE_FIELDS.filter((fieldName)=> /^img\d+$/.test(fieldName))
-);
+const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
   <b>Imágenes (URL)</b><br>
   Subí la imagen a tu Drive o similar.<br>
@@ -687,8 +682,9 @@ function openImagesFormForCommerce(comercioId){
 /* ====================== Autocomplete comercios ====================== */
 async function cargarComercios(callback){
   try{
-    const j = await anunciantesJsonp({ action:'login_catalogo' });
-    comercios = Array.isArray(j && j.results)
+    const r = await fetch(`${WORKER_ORIGIN}/search`, { cache:'no-store', mode:'cors' });
+    const j = await r.json();
+    comercios = Array.isArray(j.results)
       ? j.results.map(c => ({
           nombre:String(c.nombre || '').trim(),
           id:String(c.id || '').trim(),
@@ -696,7 +692,7 @@ async function cargarComercios(callback){
         })).filter(c => c.nombre && c.id)
       : [];
   }catch(err){
-    debugLog('Error cargando catálogo actual de anunciantes', err);
+    debugLog('Error cargando anunciantes desde Worker', err);
     comercios = [];
   }
   callback && callback();
@@ -986,33 +982,6 @@ async function postJson(url, body){
   return { status:r.status, json };
 }
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]; }); }
-
-function anunciantesJsonp(params={}){
-  return new Promise((resolve,reject)=>{
-    const cb='__gldLoginCb_'+Date.now()+'_'+Math.random().toString(36).slice(2);
-    const script=document.createElement('script');
-    const url=new URL(ANUNCIANTES_API_URL);
-    Object.entries(params||{}).forEach(([k,v])=>url.searchParams.set(k,String(v??'')));
-    url.searchParams.set('callback',cb);
-
-    const timer=setTimeout(()=>{
-      cleanup();
-      reject(new Error('Tiempo de espera agotado consultando anunciantes'));
-    },20000);
-
-    function cleanup(){
-      clearTimeout(timer);
-      try{ delete window[cb]; }catch(e){ window[cb]=undefined; }
-      try{ script.remove(); }catch(e){}
-    }
-
-    window[cb]=(data)=>{ cleanup(); resolve(data); };
-    script.onerror=()=>{ cleanup(); reject(new Error('No se pudo consultar anunciantes')); };
-    script.src=url.toString();
-    document.head.appendChild(script);
-  });
-}
-
 function isHttpUrl(value){
   const s = String(value || '').trim();
   if(!s) return true;
@@ -1024,7 +993,7 @@ function isHttpUrl(value){
   }
 }
 
-function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], actividadesCatalogo=[], accionesCatalogo=[], nodosCatalogo=[]){
+function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
 
@@ -1036,13 +1005,15 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], actividade
     : String(clasificacion.categoria || '');
 
   if(segmentosTxt || categoriasTxt){
-    html += `<div class="commerce-classification" style="grid-column:1/-1">
+    html += `<div class="commerce-classification">
       <strong>Clasificación asignada</strong><br>
-      ${segmentosTxt ? `Segmento: ${htmlEscape(segmentosTxt)}<br>` : ''}
+      ${segmentosTxt ? `Segmentos: ${htmlEscape(segmentosTxt)}<br>` : ''}
       ${categoriasTxt ? `Categorías: ${htmlEscape(categoriasTxt)}` : ''}
       <div class="small-muted" style="margin-top:4px">La clasificación la administra Guía Local.</div>
     </div>`;
   }
+
+  let imageNoteRendered = false;
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     const rawValue = values[fieldName];
@@ -1050,6 +1021,10 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], actividade
     const upperName = fieldName.toUpperCase();
 
     if(COMMERCE_IMAGE_FIELDS.has(fieldName)){
+      if(!imageNoteRendered){
+        html += `<div class="data-image-note info-banner" style="grid-column:1 / -1">${COMMERCE_IMAGE_UPLOAD_NOTE}</div>`;
+        imageNoteRendered = true;
+      }
       const previewUrl = String(fieldValue || '').split(/[\n,]+/).map(v=>v.trim()).find(Boolean) || '';
       html += `<div class="data-field-card image-field">
         <label><strong>${htmlEscape(upperName)}</strong></label>
@@ -1061,7 +1036,8 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], actividade
 
     let maxLengthAttr = '';
     let maxLengthNum = null;
-    if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
+    if(fieldName === 'pie') { maxLengthAttr = ' maxlength="100"'; maxLengthNum = 100; }
+    else if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
     else if(fieldName === 'tags') { maxLengthAttr = ' maxlength="300"'; maxLengthNum = 300; }
     else if(fieldName === 'adicionales') { maxLengthAttr = ' maxlength="150"'; maxLengthNum = 150; }
 
@@ -1085,84 +1061,24 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], actividade
   html += `<input type="hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
 
   html += '<div class="commerce-sedes-wrap"><h3>Sedes</h3>';
-  html += `<div class="small-muted" style="margin-bottom:10px">
-    Cada sede conserva sus propios datos de contacto, imágenes, actividades clave y acciones.
-  </div>`;
-
   const sedeList = Array.isArray(sedes) ? sedes : [];
 
   sedeList.forEach((sede, index)=>{
-    const relaciones = sede && sede.relaciones && typeof sede.relaciones === 'object' ? sede.relaciones : {};
-    const actIds = new Set((Array.isArray(relaciones.actividades) ? relaciones.actividades : []).map(x=>String(x.actividad_id||'').trim()).filter(Boolean));
-    const accIds = new Set((Array.isArray(relaciones.acciones) ? relaciones.acciones : []).map(x=>String(x.accion_id||'').trim()).filter(Boolean));
-    const nodoIds = (Array.isArray(relaciones.nodos) ? relaciones.nodos : []).map(x=>String(x.nodo_id||'').trim()).filter(Boolean);
-
     html += `<div class="commerce-sede-card" data-sede-index="${index}">
       <div class="commerce-sede-title">${htmlEscape(sede.nombre_sede || `Sede ${index+1}`)}</div>
       <input type="hidden" name="sede_id" value="${htmlEscape(sede.sede_id || '')}">
-      <input type="hidden" name="nodo_ids_preservar" value="${htmlEscape(nodoIds.join(';'))}">
       <div class="commerce-sede-grid">`;
 
     COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
       const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
       const readOnly = fieldName === 'codigo_postal' ? ' readonly' : '';
-
-      if(COMMERCE_SEDE_IMAGE_FIELDS.has(fieldName)){
-        const previewUrl = String(value || '').split(/[\n,]+/).map(v=>v.trim()).find(Boolean) || '';
-        html += `<div class="data-field-card image-field">
-          <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
-          ${previewUrl ? `<img src="${htmlEscape(previewUrl)}" alt="${htmlEscape(fieldName.toUpperCase())}" style="max-width:180px;max-height:140px;object-fit:contain;border:1px solid #ddd;border-radius:8px;background:#fff;padding:4px" onerror="this.style.display='none'">` : ''}
-          <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}" placeholder="https://...">
-        </div>`;
-      }else{
-        html += `<div class="data-field-card">
-          <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
-          <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}"${readOnly}>
-        </div>`;
-      }
+      html += `<div class="data-field-card">
+        <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}"${readOnly}>
+      </div>`;
     });
 
-    const actPanelId = `sede-acts-${index}`;
-    const accPanelId = `sede-accs-${index}`;
-
-    html += `</div>
-      <div style="margin-top:12px;padding-top:12px;border-top:1px solid #ddd">
-        <button type="button" class="secondary commerce-toggle-rel" data-target="${actPanelId}">Actividades clave</button>
-        <div class="small-muted" style="margin:6px 0 8px">
-          Indican qué servicios o funciones ofrece esta sede y permiten encontrarla en búsquedas por actividad.
-        </div>
-        <div id="${actPanelId}" class="commerce-rel-panel" style="display:none;padding:8px 0">`;
-
-    (Array.isArray(actividadesCatalogo) ? actividadesCatalogo : []).forEach(act=>{
-      const id = String(act.actividad_id || '').trim();
-      if(!id) return;
-      const checked = actIds.has(id) ? ' checked' : '';
-      html += `<label style="display:block;margin:4px 0">
-        <input type="checkbox" data-rel="actividad" value="${htmlEscape(id)}"${checked}>
-        ${htmlEscape(act.nombre || id)}
-      </label>`;
-    });
-
-    html += `</div>
-        <button type="button" class="secondary commerce-toggle-rel" data-target="${accPanelId}">Acciones</button>
-        <div class="small-muted" style="margin:6px 0 8px">
-          Identifican características especiales de esta sede, como Pet Friendly, Accesible o Eco Friendly.
-        </div>
-        <div id="${accPanelId}" class="commerce-rel-panel" style="display:none;padding:8px 0">`;
-
-    (Array.isArray(accionesCatalogo) ? accionesCatalogo : []).forEach(acc=>{
-      const id = String(acc.accion_id || '').trim();
-      if(!id) return;
-      const checked = accIds.has(id) ? ' checked' : '';
-      html += `<label style="display:block;margin:4px 0">
-        <input type="checkbox" data-rel="accion" value="${htmlEscape(id)}"${checked}>
-        ${htmlEscape(acc.nombre || id)}
-      </label>`;
-    });
-
-    html += `</div>
-      </div>
-    </div>`;
+    html += '</div></div>';
   });
 
   if(!sedeList.length){
@@ -1171,42 +1087,6 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[], actividade
 
   html += '</div>';
   return html;
-}
-
-function bindCommerceRelationToggles(){
-  document.querySelectorAll('.commerce-toggle-rel').forEach(btn=>{
-    if(btn.dataset.bound === '1') return;
-    btn.dataset.bound = '1';
-    btn.addEventListener('click', ()=>{
-      const target = document.getElementById(btn.dataset.target || '');
-      if(!target) return;
-      target.style.display = target.style.display === 'none' ? 'block' : 'none';
-    });
-  });
-}
-
-function buildCommerceRelationsPayloads(){
-  const form = document.getElementById('form-datos-comercio');
-  const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
-
-  return Array.from(form?.querySelectorAll('.commerce-sede-card') || []).map(card=>{
-    const sedeId = String(card.querySelector('[name="sede_id"]')?.value || '').trim();
-    const actividad_ids = Array.from(card.querySelectorAll('input[data-rel="actividad"]:checked')).map(x=>String(x.value||'').trim()).filter(Boolean);
-    const accion_ids = Array.from(card.querySelectorAll('input[data-rel="accion"]:checked')).map(x=>String(x.value||'').trim()).filter(Boolean);
-    const nodo_ids = String(card.querySelector('[name="nodo_ids_preservar"]')?.value || '')
-      .split(/[;,\n]+/).map(x=>x.trim()).filter(Boolean);
-
-    return {
-      action:'set_relaciones_sede',
-      id,
-      __id:id,
-      anunciante_id:id,
-      sede_id:sedeId,
-      actividad_ids,
-      accion_ids,
-      nodo_ids
-    };
-  }).filter(x=>x.sede_id);
 }
 
 function setMsg(elId, kind, msg){
@@ -1219,19 +1099,19 @@ async function events_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(EVENTS_API_URL, body);
+  return postJson(WORKER_EVENTS_URL, body);
 }
 async function promos_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(PROMOS_API_URL, body);
+  return postJson(WORKER_COMMERCE_URL, body);
 }
 async function commerce_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(ANUNCIANTES_API_URL, body);
+  return postJson(WORKER_COMMERCE_URL, body);
 }
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
@@ -1903,17 +1783,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
       }
 
-      const relationPayloads = buildCommerceRelationsPayloads();
-      for(const relationPayload of relationPayloads){
-        const relResponse = await commerce_post(relationPayload);
-        const relOk = !!(relResponse.json && (relResponse.json.success || relResponse.json.updated));
-        if(relResponse.status !== 200 || !relOk){
-          setMsg('msg-datos-comercio', 'err', 'Datos y sedes guardados, pero hubo un error guardando actividades/acciones de una sede.');
-          return;
-        }
-      }
-
-      setMsg('msg-datos-comercio', 'ok', 'Datos, sedes, actividades clave y acciones guardados.');
+      setMsg('msg-datos-comercio', 'ok', 'Datos y sedes guardados.');
     }catch(err){
       setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
     } finally {
@@ -1975,10 +1845,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try{
       if(isChange){
         if(regMsg) regMsg.innerHTML = "<span>Validando contraseña actual...</span>";
-        const validarResp = await fetch(ANUNCIANTES_API_URL, {
+        const validarResp = await fetch(WORKER_URL, {
           method:'POST',
           headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ action:'login', id, comercio_id:id, nombre, password:claveActual }),
+          body: JSON.stringify({ id, comercio_id: id, nombre, clave: claveActual }),
           mode:'cors'
         });
         const validarText = await validarResp.text();
@@ -2001,7 +1871,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
       }
 
-      const r = await fetch(ANUNCIANTES_API_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
+      const r = await fetch(WORKER_COMMERCE_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
       const text = await r.text();
       let res;
       try{ res = JSON.parse(text); }catch(err){ res = { success:false, message:text }; }
@@ -2172,16 +2042,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
 
+    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     try{
-      const apiResp = await anunciantesJsonp({ action:'anunciante', id:sesion.id });
-      const rawDatos = (apiResp && apiResp.advertiser) ? apiResp.advertiser : apiResp;
-      if(!rawDatos || rawDatos.error || rawDatos.success === false){
-        const errMsg = (rawDatos && (rawDatos.error || rawDatos.message)) || 'No se pudieron cargar los datos del anunciante';
-        document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${htmlEscape(errMsg)}`;
-        mostrarPanel('dashboard');
-        return;
-      }
-
+      const r = await fetch(url, { method:'GET', mode:'cors' });
+      const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
+      if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
+      
       const datos = rawDatos.datos || rawDatos.data || rawDatos.anunciante || rawDatos;
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
@@ -2197,15 +2063,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.setItem('promos_cant', sesion.promos_cant);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
-      document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(
-        datos,
-        clasificacion,
-        sedes,
-        Array.isArray(rawDatos.actividades_clave) ? rawDatos.actividades_clave : [],
-        Array.isArray(rawDatos.acciones) ? rawDatos.acciones : [],
-        Array.isArray(rawDatos.nodos) ? rawDatos.nodos : []
-      );
-      bindCommerceRelationToggles();
+      document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
       }
@@ -2218,7 +2076,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 250);
       setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
-      document.getElementById('campos-datos-comercio').innerHTML = `<b>Error cargando datos del anunciante.</b>`;
+      document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData({});
       }
@@ -2245,9 +2103,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     const payload = { action:'login', comercio_id:id||'', id:id||'', nombre:nombre, password:clave };
     try{
-      const res = await anunciantesJsonp(payload);
+      const r = await fetch(WORKER_URL, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload), mode:'cors' });
+      const text = await r.text();
+      let res;
+      try{ res = JSON.parse(text); }catch(e){ res = { success:false, message: text }; }
 
-      if(res && res.success){
+      if(r.status===200 && res.success){
         btnLogin.textContent = 'Cargando datos...';
         const resolvedId = res.id || res.comercio_id || id;
         const pCant = res.promos_cant || 0;
