@@ -179,7 +179,23 @@
     .commerce-sedes-wrap{margin-top:14px}
     .commerce-sede-card{border:1px solid #ddd;background:#fafafa;padding:12px;border-radius:10px;margin-bottom:12px}
     .commerce-sede-title{font-weight:800;margin-bottom:8px}
-    .commerce-sede-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}
+    .commerce-sede-grid{display:grid;grid-template-columns:1fr;gap:10px}
+
+
+    .commerce-sede-card{padding:14px}
+    .data-field-card{width:100%}
+    .data-field-card input,
+    .data-field-card textarea,
+    .data-field-card select{width:100%;box-sizing:border-box}
+    .sede-actions{display:grid;grid-template-columns:1fr;gap:8px;width:100%}
+    .sede-actions button{width:100%;min-height:44px}
+    .sede-section{grid-column:1/-1}
+    .sede-section-title{font-weight:800;margin:4px 0 2px}
+    .btn-agregar-sede{width:100%;min-height:46px;margin:8px 0 12px}
+    @media (min-width:721px){
+      .sede-actions{grid-template-columns:repeat(2,minmax(0,1fr))}
+      .btn-agregar-sede{width:auto}
+    }
 
 </style>
 </head>
@@ -1086,7 +1102,9 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   html += '</div>';
   html += `<input type="hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
 
-  html += '<div class="commerce-sedes-wrap"><h3>Sedes</h3>';
+  html += `<div class="commerce-sedes-wrap">
+    <h3>Sedes</h3>
+    <button type="button" class="btn-agregar-sede">Agregar sede</button>`;
   const sedeList = Array.isArray(sedes) ? sedes : [];
 
   sedeList.forEach((sede, index)=>{
@@ -1099,7 +1117,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
     html += `<div class="commerce-sede-card" data-sede-index="${index}">
       <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px">
         <div class="commerce-sede-title" style="margin-bottom:0">${htmlEscape(sede.nombre_sede || `Sede ${index+1}`)}</div>
-        <div style="display:flex;gap:6px">
+        <div class="sede-actions">
           <button type="button" class="btn-duplicar-sede">Duplicar sede</button>
           <button type="button" class="btn-eliminar-sede">Eliminar sede</button>
         </div>
@@ -1107,6 +1125,9 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
       <input type="hidden" name="sede_id" value="${htmlEscape(sede.sede_id || '')}">
       <div class="commerce-sede-grid">
 
+      <div class="sede-section">
+        <div class="sede-section-title">Ubicación</div>
+      </div>
       <div class="data-field-card" style="grid-column:1/-1">
         <label><strong>CIUDAD</strong></label>
         <select name="ciudad_id">
@@ -1126,9 +1147,19 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
         </select>
       </div>`;
 
+    let contactoTituloPuesto=false;
+    let imagenesTituloPuesto=false;
     COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
       const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
       const isImage = /^img\d+$/.test(fieldName);
+      if(!contactoTituloPuesto && ['telefono','whatsapp','mail','instagram','facebook','youtube','tiktok','linkedin'].includes(fieldName)){
+        html += `<div class="sede-section"><div class="sede-section-title">Contacto y redes</div></div>`;
+        contactoTituloPuesto=true;
+      }
+      if(isImage && !imagenesTituloPuesto){
+        html += `<div class="sede-section"><div class="sede-section-title">Imágenes</div></div>`;
+        imagenesTituloPuesto=true;
+      }
       html += `<div class="data-field-card${isImage ? ' image-field' : ''}">
         <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
         ${isImage && value ? `<img src="${htmlEscape(value)}" alt="${htmlEscape(fieldName.toUpperCase())}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid #ddd;background:#fff">` : ''}
@@ -1255,6 +1286,32 @@ function buildCommerceRelationsPayloads(){
 
 
 
+
+function addEmptySedeCard(){
+  const wrap = document.querySelector('.commerce-sedes-wrap');
+  if(!wrap) return;
+
+  const existing = wrap.querySelector('.commerce-sede-card');
+  if(existing){
+    const clone = existing.cloneNode(true);
+    clone.querySelectorAll('input[type="text"], textarea').forEach(el=>{ el.value=''; });
+    clone.querySelectorAll('select').forEach(el=>{ el.selectedIndex=0; });
+    clone.querySelectorAll('input[type="checkbox"]').forEach(el=>{ el.checked=false; });
+    clone.querySelectorAll('img').forEach(img=>img.remove());
+
+    const hiddenId = clone.querySelector('[name="sede_id"]');
+    if(hiddenId) hiddenId.value='';
+
+    const title = clone.querySelector('.commerce-sede-title');
+    if(title) title.textContent='Nueva sede';
+
+    wrap.appendChild(clone);
+    return;
+  }
+
+  setMsg('msg-datos-comercio','err','No hay una plantilla de sede disponible para agregar.');
+}
+
 function duplicateSedeCard(card){
   if(!card) return;
   const clone = card.cloneNode(true);
@@ -1286,6 +1343,11 @@ async function deleteSedeCard(card){
 }
 
 document.addEventListener('click', function(e){
+  const add = e.target.closest('.btn-agregar-sede');
+  if(add){
+    addEmptySedeCard();
+    return;
+  }
   const dup = e.target.closest('.btn-duplicar-sede');
   if(dup){
     duplicateSedeCard(dup.closest('.commerce-sede-card'));
