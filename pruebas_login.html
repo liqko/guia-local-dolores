@@ -545,21 +545,21 @@ let lastCreatedEventId = null;
 let editingPromoId = null;
 
 const COMMERCE_DATA_FIELDS = [
-  "actividad","pie","descripcion","tags","adicionales",
-  "telefono","telefono2","telefono3","telefono4","telefono5",
-  "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
-  "mail","instagram","facebook","youtube","tiktok","linkedin",
-  "logo",
-  "link"
+  "actividad","descripcion","tags","adicionales","logo","link"
 ];
 
 const COMMERCE_SEDE_FIELDS = [
-  "nombre_sede","direccion","pais_id","provincia_id","ciudad_id","codigo_postal",
+  "nombre_sede","direccion",
   "lat","lng","maps","telefono","whatsapp","mail",
   "instagram","facebook","youtube","tiktok","linkedin",
-  "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"
+  "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
+  "estado"
 ];
 const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
+let commerceCatalogs = {
+  segmentos:[], categorias:[], ciudades:[],
+  actividades_clave:[], acciones:[], nodos:[]
+};
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
   <b>Imágenes (URL)</b><br>
   Subí la imagen a tu Drive o similar.<br>
@@ -998,21 +998,42 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
 
-  const segmentosTxt = Array.isArray(clasificacion.segmentos)
-    ? clasificacion.segmentos.join(', ')
-    : String(clasificacion.segmento || '');
-  const categoriasTxt = Array.isArray(clasificacion.categorias)
-    ? clasificacion.categorias.join(', ')
-    : String(clasificacion.categoria || '');
+  const segmentos = Array.isArray(commerceCatalogs.segmentos) ? commerceCatalogs.segmentos : [];
+  const categorias = Array.isArray(commerceCatalogs.categorias) ? commerceCatalogs.categorias : [];
+  const ciudades = Array.isArray(commerceCatalogs.ciudades) ? commerceCatalogs.ciudades : [];
 
-  if(segmentosTxt || categoriasTxt){
-    html += `<div class="commerce-classification">
-      <strong>Clasificación asignada</strong><br>
-      ${segmentosTxt ? `Segmentos: ${htmlEscape(segmentosTxt)}<br>` : ''}
-      ${categoriasTxt ? `Categorías: ${htmlEscape(categoriasTxt)}` : ''}
-      <div class="small-muted" style="margin-top:4px">La clasificación la administra Guía Local.</div>
-    </div>`;
-  }
+  const segmentoActual = String(values.segmento_id || clasificacion.segmento_id || '').trim();
+  const categoriasActuales = new Set(
+    String(values.categoria_id || clasificacion.categoria_id || '')
+      .split(/[;,|\n]+/).map(v=>v.trim()).filter(Boolean)
+  );
+
+  html += `<div class="data-field-card">
+    <label><strong>SEGMENTO</strong></label>
+    <select name="segmento_id">
+      <option value="">Seleccioná un segmento</option>
+      ${segmentos.map(s=>{
+        const id=String(s.segmento_id||'').trim();
+        const nombre=String(s.nombre||'').trim();
+        return `<option value="${htmlEscape(id)}"${id===segmentoActual?' selected':''}>${htmlEscape(nombre)}</option>`;
+      }).join('')}
+    </select>
+  </div>`;
+
+  html += `<div class="data-field-card" style="grid-column:1/-1">
+    <label><strong>CATEGORÍAS</strong></label>
+    <div class="small-muted" style="margin-bottom:6px">Podés seleccionar más de una.</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px">
+      ${categorias.map(c=>{
+        const id=String(c.categoria_id||'').trim();
+        const nombre=String(c.nombre||'').trim();
+        return `<label style="display:flex;gap:8px;align-items:flex-start;margin:0">
+          <input type="checkbox" name="categoria_id_item" value="${htmlEscape(id)}"${categoriasActuales.has(id)?' checked':''} style="width:auto;margin:2px 0 0">
+          <span>${htmlEscape(nombre)}</span>
+        </label>`;
+      }).join('')}
+    </div>
+  </div>`;
 
   let imageNoteRendered = false;
 
@@ -1036,8 +1057,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
 
     let maxLengthAttr = '';
     let maxLengthNum = null;
-    if(fieldName === 'pie') { maxLengthAttr = ' maxlength="100"'; maxLengthNum = 100; }
-    else if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
+    if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
     else if(fieldName === 'tags') { maxLengthAttr = ' maxlength="300"'; maxLengthNum = 300; }
     else if(fieldName === 'adicionales') { maxLengthAttr = ' maxlength="150"'; maxLengthNum = 150; }
 
@@ -1064,21 +1084,64 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const sedeList = Array.isArray(sedes) ? sedes : [];
 
   sedeList.forEach((sede, index)=>{
+    const rel = sede.relaciones || {};
+    const actSel = new Set((rel.actividades||[]).map(x=>String(x.actividad_id||'').trim()));
+    const accSel = new Set((rel.acciones||[]).map(x=>String(x.accion_id||'').trim()));
+    const nodoSel = new Set((rel.nodos||[]).map(x=>String(x.nodo_id||'').trim()));
+    const ciudadActual = String(sede.ciudad_id||'').trim();
+
     html += `<div class="commerce-sede-card" data-sede-index="${index}">
       <div class="commerce-sede-title">${htmlEscape(sede.nombre_sede || `Sede ${index+1}`)}</div>
       <input type="hidden" name="sede_id" value="${htmlEscape(sede.sede_id || '')}">
-      <div class="commerce-sede-grid">`;
+      <div class="commerce-sede-grid">
+
+      <div class="data-field-card" style="grid-column:1/-1">
+        <label><strong>CIUDAD</strong></label>
+        <select name="ciudad_id">
+          <option value="">Seleccioná una ciudad</option>
+          ${ciudades.map(c=>{
+            const id=String(c.ciudad_id||'').trim();
+            const ciudad=String(c.ciudad||c.nombre||'').trim();
+            const provincia=String(c.provincia||'').trim();
+            const pais=String(c.pais||'').trim();
+            const label=[ciudad, provincia ? `- ${provincia}` : '', pais ? `(${pais})` : ''].filter(Boolean).join(' ');
+            return `<option value="${htmlEscape(id)}"
+              data-pais-id="${htmlEscape(String(c.pais_id||''))}"
+              data-provincia-id="${htmlEscape(String(c.provincia_id||''))}"
+              data-codigo-postal="${htmlEscape(String(c.codigo_postal||''))}"
+              ${id===ciudadActual?'selected':''}>${htmlEscape(label)}</option>`;
+          }).join('')}
+        </select>
+      </div>`;
 
     COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
       const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
-      const readOnly = fieldName === 'codigo_postal' ? ' readonly' : '';
       const isImage = /^img\d+$/.test(fieldName);
       html += `<div class="data-field-card${isImage ? ' image-field' : ''}">
         <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
         ${isImage && value ? `<img src="${htmlEscape(value)}" alt="${htmlEscape(fieldName.toUpperCase())}" style="width:100%;max-height:180px;object-fit:cover;border-radius:8px;border:1px solid #ddd;background:#fff">` : ''}
-        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}"${readOnly}>
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}">
       </div>`;
     });
+
+    const relationBox = (title, items, idField, inputName, selectedSet) => `
+      <div class="data-field-card" style="grid-column:1/-1">
+        <label><strong>${htmlEscape(title)}</strong></label>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:6px">
+          ${(items||[]).map(item=>{
+            const id=String(item[idField]||'').trim();
+            const nombre=String(item.nombre||'').trim();
+            return `<label style="display:flex;gap:8px;align-items:flex-start;margin:0">
+              <input type="checkbox" name="${inputName}" value="${htmlEscape(id)}"${selectedSet.has(id)?' checked':''} style="width:auto;margin:2px 0 0">
+              <span>${htmlEscape(nombre)}</span>
+            </label>`;
+          }).join('')}
+        </div>
+      </div>`;
+
+    html += relationBox('ACTIVIDADES CLAVE', commerceCatalogs.actividades_clave, 'actividad_id', 'rel_actividad', actSel);
+    html += relationBox('ACCIONES', commerceCatalogs.acciones, 'accion_id', 'rel_accion', accSel);
+    html += relationBox('NODOS', commerceCatalogs.nodos, 'nodo_id', 'rel_nodo', nodoSel);
 
     html += '</div></div>';
   });
@@ -1127,6 +1190,9 @@ function buildCommerceSavePayload(){
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
   });
+  payload.segmento_id = String(form?.querySelector('[name="segmento_id"]')?.value || '').trim();
+  payload.categoria_id = Array.from(form?.querySelectorAll('[name="categoria_id_item"]:checked') || [])
+    .map(el=>String(el.value||'').trim()).filter(Boolean).join(';');
   return payload;
 }
 
@@ -1140,10 +1206,32 @@ function buildCommerceSedesPayload(){
     COMMERCE_SEDE_FIELDS.forEach(fieldName => {
       sede[fieldName] = String(card.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
     });
+    const ciudadSelect = card.querySelector('[name="ciudad_id"]');
+    const opt = ciudadSelect?.options?.[ciudadSelect.selectedIndex];
+    sede.ciudad_id = String(ciudadSelect?.value || '').trim();
+    sede.pais_id = String(opt?.dataset?.paisId || '').trim();
+    sede.provincia_id = String(opt?.dataset?.provinciaId || '').trim();
+    sede.codigo_postal = String(opt?.dataset?.codigoPostal || '').trim();
     return sede;
   });
   return { action:'set_sedes', id, __id:id, comercio_id:id, sedes };
 }
+
+
+function buildCommerceRelationsPayloads(){
+  const form = document.getElementById('form-datos-comercio');
+  const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
+  return Array.from(form?.querySelectorAll('.commerce-sede-card') || []).map(card => ({
+    action:'set_relaciones_sede',
+    id:id,
+    __id:id,
+    sede_id:String(card.querySelector('[name="sede_id"]')?.value || '').trim(),
+    actividad_ids:Array.from(card.querySelectorAll('[name="rel_actividad"]:checked')).map(x=>x.value),
+    accion_ids:Array.from(card.querySelectorAll('[name="rel_accion"]:checked')).map(x=>x.value),
+    nodo_ids:Array.from(card.querySelectorAll('[name="rel_nodo"]:checked')).map(x=>x.value)
+  })).filter(x=>x.sede_id);
+}
+
 
 /* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
@@ -1785,7 +1873,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
       }
 
-      setMsg('msg-datos-comercio', 'ok', 'Datos y sedes guardados.');
+      for(const relationPayload of buildCommerceRelationsPayloads()){
+        const relResponse = await commerce_post(relationPayload);
+        const relOk = !!(relResponse.json && relResponse.json.success);
+        if(relResponse.status !== 200 || !relOk){
+          setMsg('msg-datos-comercio', 'err', 'Datos guardados, pero hubo un error guardando actividades/acciones/nodos.');
+          return;
+        }
+      }
+
+      setMsg('msg-datos-comercio', 'ok', 'Datos, sedes y selecciones guardados.');
     }catch(err){
       setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
     } finally {
@@ -2058,6 +2155,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
       const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
+      commerceCatalogs = {
+        segmentos:Array.isArray(rawDatos.segmentos) ? rawDatos.segmentos : [],
+        categorias:Array.isArray(rawDatos.categorias) ? rawDatos.categorias : [],
+        ciudades:Array.isArray(rawDatos.ciudades) ? rawDatos.ciudades : [],
+        actividades_clave:Array.isArray(rawDatos.actividades_clave) ? rawDatos.actividades_clave : [],
+        acciones:Array.isArray(rawDatos.acciones) ? rawDatos.acciones : [],
+        nodos:Array.isArray(rawDatos.nodos) ? rawDatos.nodos : []
+      };
       const newPlanillaId = rawDatos.planilla_id || administracion.planilla_id || datos.planilla_id;
       if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
         sesion.planilla_id = newPlanillaId; 
