@@ -1097,7 +1097,13 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
     const ciudadActual = String(sede.ciudad_id||'').trim();
 
     html += `<div class="commerce-sede-card" data-sede-index="${index}">
-      <div class="commerce-sede-title">${htmlEscape(sede.nombre_sede || `Sede ${index+1}`)}</div>
+      <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:8px">
+        <div class="commerce-sede-title" style="margin-bottom:0">${htmlEscape(sede.nombre_sede || `Sede ${index+1}`)}</div>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn-duplicar-sede">Duplicar sede</button>
+          <button type="button" class="btn-eliminar-sede">Eliminar sede</button>
+        </div>
+      </div>
       <input type="hidden" name="sede_id" value="${htmlEscape(sede.sede_id || '')}">
       <div class="commerce-sede-grid">
 
@@ -1139,14 +1145,20 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
             ${(items||[]).map(item=>{
               const id=String(item[idField]||'').trim();
               const nombre=String(item.nombre||'').trim();
-              return `<label style="display:flex;gap:8px;align-items:flex-start;margin:6px 0">
+              const descripcion=String(item.descripcion||'').trim();
+              return `<label style="display:flex;gap:8px;align-items:flex-start;margin:8px 0">
                 <input type="checkbox" name="${inputName}" value="${htmlEscape(id)}"${selectedSet.has(id)?' checked':''} style="width:auto;margin:2px 0 0">
-                <span>${htmlEscape(nombre)}</span>
+                <span><strong>${htmlEscape(nombre)}</strong>${descripcion ? `<br><span class="small-muted">${htmlEscape(descripcion)}</span>` : ''}</span>
               </label>`;
             }).join('')}
           </div>
         </details>
       </div>`;
+
+    html += `<div class="info-banner" style="grid-column:1/-1">
+      <strong>¿Se realiza alguna de estas actividades, acciones o características en esta sede?</strong><br>
+      Seleccioná solo lo que corresponda. La información podrá ser sometida a verificación por Guía Local.
+    </div>`;
 
     html += relationBox('ACTIVIDADES CLAVE', commerceCatalogs.actividades_clave, 'actividad_id', 'rel_actividad', actSel);
     html += relationBox('ACCIONES', commerceCatalogs.acciones, 'accion_id', 'rel_accion', accSel);
@@ -1241,6 +1253,49 @@ function buildCommerceRelationsPayloads(){
   })).filter(x=>x.sede_id);
 }
 
+
+
+function duplicateSedeCard(card){
+  if(!card) return;
+  const clone = card.cloneNode(true);
+  const hiddenId = clone.querySelector('[name="sede_id"]');
+  if(hiddenId) hiddenId.value = '';
+  const title = clone.querySelector('.commerce-sede-title');
+  if(title) title.textContent = 'Nueva sede (copia)';
+  card.insertAdjacentElement('afterend', clone);
+}
+
+async function deleteSedeCard(card){
+  if(!card) return;
+  if(!confirm('¿Eliminar esta sede?')) return;
+
+  const sedeId = String(card.querySelector('[name="sede_id"]')?.value || '').trim();
+  if(!sedeId){
+    card.remove();
+    return;
+  }
+
+  const id = String((sesion && sesion.id) || '').trim();
+  const res = await commerce_post({action:'delete_sede', id:id, __id:id, sede_id:sedeId});
+  if(res.status === 200 && res.json && res.json.success){
+    card.remove();
+    setMsg('msg-datos-comercio','ok','Sede eliminada.');
+  }else{
+    setMsg('msg-datos-comercio','err',(res.json && (res.json.message || res.json.error)) || 'No se pudo eliminar la sede.');
+  }
+}
+
+document.addEventListener('click', function(e){
+  const dup = e.target.closest('.btn-duplicar-sede');
+  if(dup){
+    duplicateSedeCard(dup.closest('.commerce-sede-card'));
+    return;
+  }
+  const del = e.target.closest('.btn-eliminar-sede');
+  if(del){
+    deleteSedeCard(del.closest('.commerce-sede-card'));
+  }
+});
 
 /* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
