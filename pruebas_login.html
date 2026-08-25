@@ -57,6 +57,15 @@
     .promo-text-limit { color:#e00000; font-weight:400; }
     .promo-text-row .promo-input { width:100%; box-sizing:border-box; min-width:0; }
     .promo-extra-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .promo-contact-box{margin-top:12px;background:#fff;border:1px solid #e6e8ff;border-radius:8px;padding:12px}
+    .promo-contact-title{font-weight:700;margin-bottom:4px}
+    .promo-contact-note{font-size:.9em;color:#555;margin-bottom:10px}
+    .promo-contact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
+    .promo-contact-card{display:flex;gap:8px;align-items:flex-start;border:1px solid #e8e8ef;border-radius:8px;padding:8px;background:#fbfbff}
+    .promo-contact-card input{width:auto;margin:3px 0 0}
+    .promo-contact-label{font-weight:700;display:block}
+    .promo-contact-value{font-size:.9em;color:#444;overflow-wrap:anywhere}
+
 
     /* Tabs */
     .tabs { display:flex; gap:8px; margin-bottom:12px; align-items:center; flex-wrap:wrap; }
@@ -376,6 +385,10 @@
               <select id="promo-categoria" class="promo-select" aria-label="Categoría de la promo">
                 <option value="">Categoría de la promo</option>
               </select>
+              <select id="promo-sede" class="promo-select" aria-label="Sede de la promo">
+                <option value="">Elegí la sede</option>
+              </select>
+              <span id="promo-ciudad-label" class="small-muted"></span>
               <input id="promo-desde" type="date" style="width:140px" />
               <input id="promo-hasta" type="date" style="width:140px" />
               <input id="promo-otros" class="promo-input" type="text" placeholder="Descripción (ej: Hasta agotar stock 50 unidades)" style="max-width:300px" />
@@ -383,6 +396,12 @@
               <button id="promo-create" class="primary" style="min-width:140px">Crear promo</button>
               <button id="promo-cancel" class="secondary" style="min-width:140px">Cancelar edición</button>
               <button id="promo-refresh" class="secondary" style="min-width:120px">Refrescar lista</button>
+            </div>
+
+            <div class="promo-contact-box">
+              <div class="promo-contact-title">Datos que querés publicar en esta promo</div>
+              <div class="promo-contact-note">Se toman de la sede elegida. Marcá solamente los que querés mostrar.</div>
+              <div id="promo-contact-fields" class="promo-contact-grid"></div>
             </div>
 
             <div id="promos-msg" style="margin-top:8px"></div>
@@ -583,6 +602,7 @@ const COMMERCE_SEDE_FIELDS = [
   "estado"
 ];
 const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
+let currentCommerceSedes = [];
 let commerceCatalogs = {
   segmentos:[], categorias:[], ciudades:[],
   actividades_clave:[], acciones:[], nodos:[]
@@ -1374,6 +1394,112 @@ document.addEventListener('click', function(e){
 /* ====================== Promos UI ====================== */
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
+const PROMO_SEDE_CONTACT_FIELDS = [
+  'instagram','facebook','youtube','tiktok','linkedin',
+  'direccion','maps',
+  'telefono','telefono2','telefono3','telefono4','telefono5',
+  'whatsapp','whatsapp2','whatsapp3'
+];
+
+const PROMO_SEDE_CONTACT_LABELS = {
+  instagram:'Instagram', facebook:'Facebook', youtube:'YouTube', tiktok:'TikTok', linkedin:'LinkedIn',
+  direccion:'Dirección', maps:'Maps',
+  telefono:'Teléfono', telefono2:'Teléfono 2', telefono3:'Teléfono 3', telefono4:'Teléfono 4', telefono5:'Teléfono 5',
+  whatsapp:'WhatsApp', whatsapp2:'WhatsApp 2', whatsapp3:'WhatsApp 3'
+};
+
+function promoSelectedSede(){
+  const sedeId=promoGet('promo-sede');
+  return (currentCommerceSedes||[]).find(s=>String(s.sede_id||'').trim()===sedeId) || null;
+}
+
+function promoCityName(ciudadId){
+  const c=(commerceCatalogs.ciudades||[]).find(x=>String(x.ciudad_id||'').trim()===String(ciudadId||'').trim()) || {};
+  return String(c.ciudad||c.nombre||ciudadId||'').trim();
+}
+
+function cargarSedesPromo(selectedSedeId){
+  const sel=document.getElementById('promo-sede');
+  if(!sel) return;
+
+  sel.innerHTML='<option value="">Elegí la sede</option>';
+  (currentCommerceSedes||[]).forEach((s,i)=>{
+    const sid=String(s.sede_id||'').trim();
+    if(!sid) return;
+    const nombre=String(s.nombre_sede||'').trim() || `Sede ${i+1}`;
+    const ciudad=promoCityName(s.ciudad_id);
+    const o=document.createElement('option');
+    o.value=sid;
+    o.textContent=ciudad ? `${nombre} — ${ciudad}` : nombre;
+    sel.appendChild(o);
+  });
+
+  if(selectedSedeId && [...sel.options].some(o=>o.value===String(selectedSedeId))){
+    sel.value=String(selectedSedeId);
+  }else if(sel.options.length===2){
+    sel.selectedIndex=1;
+  }
+  promoActualizarSede();
+}
+
+function promoRenderContactFields(selectedValues){
+  const container=document.getElementById('promo-contact-fields');
+  if(!container) return;
+
+  const sede=promoSelectedSede();
+  if(!sede){
+    container.innerHTML='<div class="small-muted">Elegí una sede para ver sus datos.</div>';
+    return;
+  }
+
+  const selected=(selectedValues && typeof selectedValues==='object') ? selectedValues : null;
+  let html='';
+
+  PROMO_SEDE_CONTACT_FIELDS.forEach(fieldName=>{
+    const value=String(sede[fieldName]||'').trim();
+    if(!value) return;
+
+    // Promo sheet has one direccion/maps, phone1.. and whatsapp1..
+    let targetField=fieldName;
+    if(fieldName==='telefono2') targetField='telefono1';
+    if(fieldName==='telefono3') targetField='telefono2';
+    if(fieldName==='telefono4') targetField='telefono3';
+    if(fieldName==='telefono5') targetField='telefono4';
+
+    const checked = selected ? String(selected[targetField]||'').trim()===value : false;
+    const label=PROMO_SEDE_CONTACT_LABELS[fieldName]||fieldName;
+
+    html += `<label class="promo-contact-card">
+      <input type="checkbox" data-promo-source="${htmlEscape(fieldName)}" data-promo-target="${htmlEscape(targetField)}" data-promo-value="${htmlEscape(value)}" ${checked?'checked':''}>
+      <span><span class="promo-contact-label">${htmlEscape(label)}</span><span class="promo-contact-value">${htmlEscape(value)}</span></span>
+    </label>`;
+  });
+
+  container.innerHTML = html || '<div class="small-muted">Esta sede no tiene datos de contacto cargados.</div>';
+}
+
+function promoActualizarSede(selectedValues){
+  const sede=promoSelectedSede();
+  const label=document.getElementById('promo-ciudad-label');
+  if(label){
+    label.textContent=sede ? `Ciudad: ${promoCityName(sede.ciudad_id)}` : '';
+  }
+  promoRenderContactFields(selectedValues);
+}
+
+function promoContactPayload(){
+  const payload={
+    instagram:'',facebook:'',youtube:'',tiktok:'',linkedin:'',
+    direccion:'',maps:'',
+    telefono:'',telefono1:'',telefono2:'',telefono3:'',telefono4:'',
+    whatsapp:'',whatsapp2:'',whatsapp3:''
+  };
+  document.querySelectorAll('#promo-contact-fields input[type="checkbox"][data-promo-target]').forEach(cb=>{
+    if(cb.checked) payload[String(cb.dataset.promoTarget||'').trim()] = String(cb.dataset.promoValue||'').trim();
+  });
+  return payload;
+}
+
 function promoSetCreateMode(){
   editingPromoId = null;
   const btn = document.getElementById('promo-create');
@@ -1385,6 +1511,7 @@ function promoSetCreateMode(){
 function promoClearForm(){
   document.getElementById('promo-text').value = '';
   document.getElementById('promo-categoria').value = '';
+  cargarSedesPromo('');
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
   document.getElementById('promo-otros').value = '';
@@ -1420,6 +1547,7 @@ function renderPromosCards(promos){
         <div class="card-title">${promo}</div>
         <div class="card-meta">
           <div><b>Categoría:</b> ${categoria || '-'}</div>
+          <div><b>Sede:</b> ${htmlEscape((currentCommerceSedes||[]).find(s=>String(s.sede_id||'')===String(p.sede_id||''))?.nombre_sede || p.sede_id || '-')}</div>
           <div><b>Estado:</b> ${estadoTxt}</div>
           <div><b>Desde:</b> ${desde || '-'}</div>
           <div><b>Hasta:</b> ${hasta || '-'}</div>
@@ -1521,6 +1649,8 @@ function bindPromosListActions(){
 
         document.getElementById('promo-text').value = found.promo || '';
         document.getElementById('promo-categoria').value = found.categoria || '';
+        cargarSedesPromo(found.sede_id || '');
+        promoActualizarSede(found);
         document.getElementById('promo-desde').value = toDateInputValue(found.desde);
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
@@ -1543,6 +1673,8 @@ function bindPromosListActions(){
         const r = await promos_post({ action: 'createPromo', payload: {
           promo: found.promo || '',
           categoria: found.categoria || '',
+          sede_id: found.sede_id || '',
+          ciudad_id: found.ciudad_id || '',
           desde: toDateInputValue(found.desde) || '',
           hasta: toDateInputValue(found.hasta) || '',
           otros: found.otros || ''
@@ -1563,6 +1695,10 @@ function renderPromosList(promos){
   if(isMobile) renderPromosCards(promos);
   else renderPromosTable(promos);
   bindPromosListActions();
+}
+
+function cargarCiudadesPromo(){
+  cargarSedesPromo(promoGet('promo-sede'));
 }
 
 async function loadPromosUI(){
@@ -2158,7 +2294,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
     });
   });
 
-  document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI);
+  document.getElementById('promo-sede')?.addEventListener('change', ()=>promoActualizarSede());
+document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI);
   document.getElementById('promo-cancel')?.addEventListener('click', promoCancelEdit);
 
   document.getElementById('promo-create')?.addEventListener('click', async (e)=>{
@@ -2171,15 +2308,21 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try{
       const promo = promoGet('promo-text');
       const categoria = promoGet('promo-categoria');
+      const sede = promoSelectedSede();
+      const sede_id = sede ? String(sede.sede_id || '').trim() : '';
+      const ciudad_id = sede ? String(sede.ciudad_id || '').trim() : '';
       const desde = promoGet('promo-desde');
       const hasta = promoGet('promo-hasta');
       const otros = promoGet('promo-otros');
 
       if(!promo){ alert('Ingresá texto de promo'); return; }
+      if(!sede_id){ alert('Elegí la sede de la promo'); return; }
+      if(!ciudad_id){ alert('La sede elegida no tiene ciudad asignada'); return; }
+      const contactPayload = promoContactPayload();
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         setMsg('promos-msg', 'ok', 'Guardando cambios...');
-        const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, sede_id, ciudad_id, ...contactPayload, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
         if(r.status === 200 && r.json && r.json.success){
           setMsg('promos-msg', 'ok', 'Promo actualizada.');
           promoSetCreateMode();
@@ -2197,7 +2340,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
 
         setMsg('promos-msg', 'ok', 'Creando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: { promo, categoria, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+        const r = await promos_post({ action: 'createPromo', payload: { promo, categoria, sede_id, ciudad_id, ...contactPayload, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo creada.');
           promoClearForm();
@@ -2293,6 +2436,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
       const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
+      currentCommerceSedes = sedes;
       commerceCatalogs = {
         segmentos:Array.isArray(rawDatos.segmentos) ? rawDatos.segmentos : [],
         categorias:Array.isArray(rawDatos.categorias) ? rawDatos.categorias : [],
@@ -2313,6 +2457,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
+      cargarCiudadesPromo();
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
       }
