@@ -561,7 +561,6 @@
       try {
         const guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
           || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 30000);
-        const bootstrapPromise = iniciarBootstrapCompleto();
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -572,7 +571,7 @@
 
         // La guía se espera sola. Eventos, promos y banners siguen cargando en paralelo
         // y se incorporan después, sin bloquear la aparición de las tarjetas.
-        const [dataResponse] = await Promise.all([guiaPromise, bootstrapPromise]);
+        const dataResponse = await guiaPromise;
         let rawBanners = [];
         let rawEventsResponse = [];
         let rawPromosResponse = [];
@@ -789,7 +788,7 @@
 
           out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
             const sede = Object.assign({}, raw);
-            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || {actividades:[],acciones:[],nodos:[]};
+            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:[],acciones:[],nodos:[]};
             sede.relaciones = {
               actividades:enriquecerRelacion(rel.actividades, catalogosGlobales.actividades, 'actividad_id'),
               acciones:enriquecerRelacion(rel.acciones, catalogosGlobales.acciones, 'accion_id'),
@@ -818,11 +817,19 @@
         function cargarSelectClasificacion(){
           selectClasificacion.innerHTML='<option value="">Segmentos y actividades</option>';
 
-          const segs=(catalogosGlobales.segmentosPublicos||[])
-            .filter(x=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim());
+          const segBase=(catalogosGlobales.segmentosPublicos||[]);
+          const segs=(segBase.length ? segBase : anunciantesData.flatMap(item=>{
+            const ids=String(item.segmento_id||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            const names=String(item.segmento||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            return ids.map((id,i)=>({segmento_id:id,nombre:names[i]||names[0]||id}));
+          }))
+            .filter((x,i,a)=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.segmento_id||'').trim()===String(x.segmento_id||'').trim())===i);
 
-          const acts=(catalogosGlobales.actividades||[])
-            .filter(x=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim());
+          const actBase=(catalogosGlobales.actividades||[]);
+          const acts=(actBase.length ? actBase : anunciantesData.flatMap(item=>Array.isArray(item.actividades_clave)?item.actividades_clave:[]))
+            .filter((x,i,a)=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.actividad_id||'').trim()===String(x.actividad_id||'').trim())===i);
 
           if(segs.length){
             const g=document.createElement('optgroup'); g.label='SEGMENTOS';
@@ -850,8 +857,14 @@
         function cargarSelectCategoria(){
           selectCategoria.innerHTML='<option value="">Categorías</option>';
 
-          const cats=(catalogosGlobales.categorias||[])
-            .filter(x=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim());
+          const catBase=(catalogosGlobales.categorias||[]);
+          const cats=(catBase.length ? catBase : anunciantesData.flatMap(item=>{
+            const ids=String(item.categoria_id||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            const names=String(item.categoria||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            return ids.map((id,i)=>({categoria_id:id,nombre:names[i]||names[0]||id}));
+          }))
+            .filter((x,i,a)=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.categoria_id||'').trim()===String(x.categoria_id||'').trim())===i);
 
           cats.forEach(x=>{
             const o=document.createElement('option');
@@ -864,8 +877,10 @@
         function cargarSelectActividadAccion(){
           selectActividadAccion.innerHTML='<option value="">Acciones</option>';
 
-          const accs=(catalogosGlobales.acciones||[])
-            .filter(x=>String(x.accion_id||'').trim() && String(x.nombre||'').trim());
+          const accBase=(catalogosGlobales.acciones||[]);
+          const accs=(accBase.length ? accBase : anunciantesData.flatMap(item=>Array.isArray(item.acciones)?item.acciones:[]))
+            .filter((x,i,a)=>String(x.accion_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.accion_id||'').trim()===String(x.accion_id||'').trim())===i);
 
           accs.forEach(x=>{
             const o=document.createElement('option');
@@ -1977,9 +1992,6 @@
         const paises = Array.isArray(boot.paises) ? boot.paises : [];
         const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
         const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
-
-        // Mientras el usuario elige ubicación, precargamos el resto en segundo plano.
-        iniciarBootstrapCompleto().catch(err=>console.warn('Bootstrap completo pendiente:', err));
 
         if(!paises.length) throw new Error('No hay países cargados.');
 
