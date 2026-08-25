@@ -370,6 +370,8 @@
   .titulo-ubicacion{display:flex;flex-direction:column;justify-content:center;}
   #tituloGuia{margin:0;font-size:1.55rem;line-height:1.1;}
   #ubicacionSubtitulo{margin-top:.22rem;font-size:.9rem;line-height:1.2;opacity:.82;}
+  .modulos-ciudad{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:.6rem 0 .2rem;}
+  .modulo-ciudad-btn{display:inline-flex;align-items:center;gap:7px;padding:.6rem .9rem;border-radius:.65rem;background:#006699;color:#fff;text-decoration:none;font-weight:800;}
 
 </style>
 </head>
@@ -398,6 +400,10 @@
   <div class="ubicacion-actual">
     <div></div>
     <button id="cambiarCiudad" type="button">Cambiar ciudad</button>
+  </div>
+
+  <div class="modulos-ciudad">
+    <a id="moduloPromos" class="modulo-ciudad-btn" href="#" target="_top">🏷️ Promos</a>
   </div>
 
   <div class="selector-bar">
@@ -502,6 +508,37 @@
     let paisSeleccionado = queryInicial.get('pais_id') || '';
     let provinciaSeleccionada = queryInicial.get('provincia_id') || '';
     let ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
+
+    const CITY_CONTEXT_KEY='gld_ciudad_contexto';
+    try{
+      const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
+      if(saved){
+        if(!paisSeleccionado) paisSeleccionado=String(saved.pais_id||'');
+        if(!provinciaSeleccionada) provinciaSeleccionada=String(saved.provincia_id||'');
+        if(!ciudadSeleccionada) ciudadSeleccionada=String(saved.ciudad_id||'');
+      }
+    }catch(e){}
+
+    function guardarContextoCiudad(nombreCiudad){
+      if(!ciudadSeleccionada) return;
+      const ctx={
+        pais_id:paisSeleccionado,
+        provincia_id:provinciaSeleccionada,
+        ciudad_id:ciudadSeleccionada,
+        ciudad:String(nombreCiudad||'').trim(),
+        ts:Date.now()
+      };
+      try{ localStorage.setItem(CITY_CONTEXT_KEY,JSON.stringify(ctx)); }catch(e){}
+      const promo=document.getElementById('moduloPromos');
+      if(promo){
+        const u=new URL(PROMOS_PAGE_URL,window.location.href);
+        if(ctx.pais_id) u.searchParams.set('pais_id',ctx.pais_id);
+        if(ctx.provincia_id) u.searchParams.set('provincia_id',ctx.provincia_id);
+        if(ctx.ciudad_id) u.searchParams.set('ciudad_id',ctx.ciudad_id);
+        if(ctx.ciudad) u.searchParams.set('ciudad',ctx.ciudad);
+        promo.href=u.toString();
+      }
+    }
 
     let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
     let relacionesSedesGlobales = {};
@@ -717,18 +754,42 @@
           const h = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
           return h.getTime() >= today.getTime();
         }
+        function cardSedeIds(item){
+          const sedes = Array.isArray(item && item.sedes) ? item.sedes : [];
+          return [...new Set(sedes.map(s=>String(s && s.sede_id || '').trim()).filter(Boolean))];
+        }
+
         function promoMatchesAdvertiser(p, item){
+          const promoSedeId = String(p && p.sede_id || '').trim();
+          const sedesItem = cardSedeIds(item);
+
+          // Nueva arquitectura: si la promo tiene sede_id, manda la sede.
+          if(promoSedeId){
+            return sedesItem.includes(promoSedeId);
+          }
+
+          // Compatibilidad con promos anteriores todavía sin sede_id.
           const itemIds = advertiserIds(item);
           const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || p.advertiserId || '') || '').trim();
           if(promoId && itemIds.includes(promoId)) return true;
+
           const itemName = normalizar(item && item.nombre);
           const promoName = normalizar(p && (p.anunciante || p.nombre || p.comercio));
           return !!itemName && promoName === itemName;
         }
+
+        function promoMatchesCurrentCity(p){
+          const promoCity = String(p && p.ciudad_id || '').trim();
+          // Las nuevas promos deben coincidir con la ciudad activa.
+          // Las viejas sin ciudad_id siguen visibles por compatibilidad.
+          return !promoCity || !ciudadSeleccionada || promoCity === String(ciudadSeleccionada).trim();
+        }
+
         let activePromos = [];
         function activePromosForAdvertiser(item){
-          return activePromos.filter(p => promoMatchesAdvertiser(p, item));
+          return activePromos.filter(p => promoMatchesCurrentCity(p) && promoMatchesAdvertiser(p, item));
         }
+
         function promoBridgeKey(p){
           const pid = String(p && p.promo_id || '').trim();
           if(pid) return 'id:' + pid;
@@ -741,18 +802,27 @@
         function renderPromosActivasButton(item){
           const matches = activePromosForAdvertiser(item);
           if(!matches.length) return '';
+
           const ids = advertiserIds(item);
+          const sedeIds = cardSedeIds(item);
           const params = new URLSearchParams();
+
           params.set('anunciante', String(item.nombre || '').trim());
           if(ids.length) params.set('id_comercio', ids[0]);
+          if(ciudadSeleccionada) params.set('ciudad_id', ciudadSeleccionada);
+          if(sedeIds.length === 1) params.set('sede_id', sedeIds[0]);
 
           const label = matches.length === 1 ? 'Ver promo activa' : `Ver ${matches.length} promos activas`;
           const safeName = String(item.nombre || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
           const bridgePayload = {
             anunciante: String(item.nombre || '').trim(),
             id_comercio: ids.length ? ids[0] : '',
+            ciudad_id: String(ciudadSeleccionada || '').trim(),
+            sede_id: sedeIds.length === 1 ? sedeIds[0] : '',
             promo_keys: matches.map(promoBridgeKey).filter(Boolean)
           };
+
           const payload = encodeURIComponent(JSON.stringify(bridgePayload));
           return `<a class="promos-activas-btn" href="${PROMOS_PAGE_URL}?${params.toString()}" target="_top" data-promo-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.promoFilter||''));d.ts=Date.now();localStorage.setItem('gld_promos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-tags"></i> ${label}</a>`;
         }
@@ -1822,7 +1892,7 @@
             rawPromosList = Array.isArray(rawPromosResponse)
               ? rawPromosResponse
               : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
-            activePromos = rawPromosList.filter(promoIsActive);
+            activePromos = rawPromosList.filter(p => promoIsActive(p) && promoMatchesCurrentCity(p));
 
             render();
           })
@@ -2079,6 +2149,8 @@
           const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
 
           document.getElementById('tituloGuia').textContent = ciudadNombre || '';
+          guardarContextoCiudad(ciudadNombre);
+          guardarContextoCiudad(ciudadNombre);
           document.getElementById('ubicacionSubtitulo').textContent =
             [paisNombre, provNombre].filter(Boolean).join(' · ');
 
