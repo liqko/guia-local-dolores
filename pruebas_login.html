@@ -213,7 +213,75 @@
       .btn-agregar-sede{width:auto}
     }
 
-</style>
+
+    /* ===== MOBILE RESPONSIVE ===== */
+    *, *::before, *::after { box-sizing:border-box; }
+    html, body { width:100%; max-width:100%; overflow-x:hidden; }
+    img, video, iframe { max-width:100%; height:auto; }
+
+    @media (max-width: 720px){
+      body { padding:0 !important; }
+      .container, .main, .panel, .card, .data-section-box,
+      #dashboard, #login-box, #promos-panel, #events-panel {
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+      }
+
+      .promo-extra-row,
+      .promos-row-controls,
+      .data-fields-grid,
+      .sede-fields-grid,
+      .data-form-actions,
+      .card-actions,
+      .sede-selector-row {
+        display:flex !important;
+        flex-direction:column !important;
+        align-items:stretch !important;
+        width:100% !important;
+      }
+
+      .promo-input,
+      .promo-select,
+      input, select, textarea, button {
+        width:100% !important;
+        max-width:100% !important;
+        min-width:0 !important;
+      }
+
+      .promo-contact-grid {
+        grid-template-columns:1fr !important;
+      }
+
+      .card-meta,
+      .details-grid {
+        grid-template-columns:1fr !important;
+      }
+
+      .card-actions button,
+      .data-form-actions button,
+      .promos-row-controls button {
+        width:100% !important;
+        margin:4px 0 !important;
+      }
+
+      table {
+        display:block;
+        width:100%;
+        overflow-x:auto;
+        -webkit-overflow-scrolling:touch;
+      }
+
+      .promo-contact-card,
+      .card,
+      .data-section-box {
+        padding:10px !important;
+      }
+
+      h1, h2, h3, h4 { overflow-wrap:anywhere; }
+    }
+
+  </style>
 </head>
 <body>
   <div class="container">
@@ -1392,6 +1460,29 @@ document.addEventListener('click', function(e){
 });
 
 /* ====================== Promos UI ====================== */
+
+function publicacionPausada(item){
+  if(!item) return false;
+  if(item.pausado === true || item.pausado === 1) return true;
+  const v=String(item.pausado||'').trim().toLowerCase();
+  return v==='true' || v==='1' || v==='si' || v==='sí' || v==='x';
+}
+
+function calcularCupoPublicacion(items, permitido){
+  const max=Math.max(0,parseInt(permitido||0,10)||0);
+  const rows=Array.isArray(items)?items:[];
+  const activas=rows.filter(x=>!publicacionPausada(x)).length;
+  const totalMax=max*2;
+  return {
+    max,
+    activas,
+    total:rows.length,
+    totalMax,
+    puedeCrear:max>0 && activas<max && rows.length<totalMax,
+    puedeActivar:max>0 && activas<max
+  };
+}
+
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 const PROMO_SEDE_CONTACT_FIELDS = [
@@ -1613,6 +1704,13 @@ function bindPromosListActions(){
 
       if(action === 'pause'){
         const isPaused = btn.getAttribute('data-paused') === 'true';
+        if(isPaused){
+          const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+          if(!cupo.puedeActivar){
+            alert('Ya tenés el máximo de promos activas. Pausá otra antes de reactivar esta.');
+            return;
+          }
+        }
         const newPauseState = isPaused ? 'FALSE' : 'TRUE';
         const msg = isPaused ? 'Reanudando promo...' : 'Pausando promo...';
         setMsg('promos-msg', 'ok', msg);
@@ -1660,10 +1758,11 @@ function bindPromosListActions(){
       }
 
       if(action === 'duplicate'){
-        const maxPromos = parseInt(sesion.promos_cant || 0, 10) || 0;
-        const loadedPromos = (window.__lastPromos || []).length;
-        if(maxPromos > 0 && loadedPromos >= maxPromos){
-          alert('Has alcanzado el límite de promos habilitadas.');
+        const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+        if(!cupo.puedeCrear){
+          alert(cupo.total >= cupo.totalMax
+            ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
+            : 'Alcanzaste el máximo de promos activas. Pausá una para publicar otra.');
           return;
         }
 
@@ -1727,19 +1826,14 @@ async function loadPromosUI(){
 
   renderPromosList(promos);
 
-  const maxPromos = parseInt(sesion.promos_cant || 0, 10) || 0;
-  const loadedPromos = promos.length;
-  const availablePromos = Math.max(0, maxPromos - loadedPromos);
+  const cupo = calcularCupoPublicacion(promos, sesion.promos_cant);
 
-  st.innerHTML = `Tiene ${maxPromos} promos habilitadas. Promos cargadas: ${loadedPromos}. Promos disponibles: ${availablePromos}.`;
+  st.innerHTML = `Promos activas: ${cupo.activas}/${cupo.max}. Guardadas: ${cupo.total}/${cupo.totalMax}.`;
 
   const btnCreate = document.getElementById('promo-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
-    if(loadedPromos >= maxPromos && maxPromos > 0){
-      btnCreate.setAttribute('disabled', 'true');
-    } else {
-      btnCreate.removeAttribute('disabled');
-    }
+    if(!cupo.puedeCrear) btnCreate.setAttribute('disabled','true');
+    else btnCreate.removeAttribute('disabled');
   }
 }
 
@@ -1895,6 +1989,13 @@ function bindEventsListActions(){
 
       if(action === 'pause'){
         const isPaused = btn.getAttribute('data-paused') === 'true';
+        if(isPaused){
+          const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+          if(!cupo.puedeActivar){
+            alert('Ya tenés el máximo de eventos activos. Pausá otro antes de reactivar este.');
+            return;
+          }
+        }
         const newPauseState = !isPaused;
         const msg = isPaused ? 'Reanudando evento...' : 'Pausando evento...';
         setMsg('eventos-msg', 'ok', msg);
@@ -1974,10 +2075,11 @@ function bindEventsListActions(){
       }
 
       if(action === 'duplicate'){
-        const maxEvents = parseInt(sesion.eventos_cant || 0, 10) || 0;
-        const loadedEvents = (window.__lastEvents || []).length;
-        if(maxEvents > 0 && loadedEvents >= maxEvents){
-          alert('Has alcanzado el límite de eventos habilitados.');
+        const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+        if(!cupo.puedeCrear){
+          alert(cupo.total >= cupo.totalMax
+            ? 'Alcanzaste el máximo de eventos guardados. Podés borrar alguno anterior.'
+            : 'Alcanzaste el máximo de eventos activos. Pausá uno para publicar otro.');
           return;
         }
 
@@ -2064,11 +2166,8 @@ async function loadEventsUI(){
 
   const btnCreate = document.getElementById('ev-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
-    if(loadedEvents >= maxEvents && maxEvents > 0){
-      btnCreate.setAttribute('disabled', 'true');
-    } else {
-      btnCreate.removeAttribute('disabled');
-    }
+    if(!cupo.puedeCrear) btnCreate.setAttribute('disabled','true');
+    else btnCreate.removeAttribute('disabled');
   }
 }
 
@@ -2332,10 +2431,11 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
           setMsg('promos-msg', 'err', 'Error actualizando: ' + JSON.stringify(r.json));
         }
       } else {
-        const maxPromos = parseInt(sesion.promos_cant || 0, 10) || 0;
-        const loadedPromos = (window.__lastPromos || []).length;
-        if(maxPromos > 0 && loadedPromos >= maxPromos){
-          alert('Has alcanzado el límite de promos habilitadas.');
+        const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+        if(!cupo.puedeCrear){
+          alert(cupo.total >= cupo.totalMax
+            ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
+            : 'Alcanzaste el máximo de promos activas. Pausá una para publicar otra.');
           return;
         }
 
@@ -2389,10 +2489,11 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
           setMsg('eventos-msg', 'err', 'Error actualizando: ' + JSON.stringify(res.json));
         }
       } else {
-        const maxEvents = parseInt(sesion.eventos_cant || 0, 10) || 0;
-        const loadedEvents = (window.__lastEvents || []).length;
-        if(maxEvents > 0 && loadedEvents >= maxEvents){
-          alert('Has alcanzado el límite de eventos habilitados.');
+        const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+        if(!cupo.puedeCrear){
+          alert(cupo.total >= cupo.totalMax
+            ? 'Alcanzaste el máximo de eventos guardados. Podés borrar alguno anterior.'
+            : 'Alcanzaste el máximo de eventos activos. Pausá uno para publicar otro.');
           return;
         }
 
