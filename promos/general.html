@@ -92,6 +92,41 @@
       .card-logos-row { flex-direction:column; align-items:flex-start; gap:8px; }
       .btn-maps { width:100%; justify-content:center; }
     }
+
+    /* ===== IDENTIDAD / NAVEGACION DE CIUDAD ===== */
+    .city-shell{
+      max-width:960px;margin:18px auto 10px;padding:14px 18px;
+      background:#f5e1d4;border-radius:14px;box-sizing:border-box;
+    }
+    .city-title{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    .city-title img{width:48px;height:48px;object-fit:contain}
+    .city-name{font-size:1.5rem;font-weight:900;color:#006699;letter-spacing:1px}
+    .city-sub{font-size:.9rem;color:#2f6f8d;margin-top:2px}
+    .city-nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+    .city-nav button,.city-nav a{
+      border:1px solid #006699;background:#fff;color:#006699;border-radius:10px;
+      padding:9px 12px;font-weight:800;text-decoration:none;cursor:pointer
+    }
+    .city-nav .primary{background:#006699;color:#fff}
+    .city-nav .disabled{opacity:.5;pointer-events:none}
+    @media (max-width:600px){
+      .city-shell{margin:8px 8px 10px;padding:12px}
+      .city-title{align-items:flex-start}
+      .city-name{font-size:1.25rem}
+      .city-nav{display:grid;grid-template-columns:1fr}
+      .city-nav button,.city-nav a{width:100%;box-sizing:border-box;text-align:center;min-height:44px}
+      .header-flex{margin-top:18px;padding:0 10px;box-sizing:border-box}
+      .header-title{font-size:1.7rem;flex-basis:100%}
+      .main-logo{width:58px;height:58px}
+      .cards-container{padding:18px 8px 24px;gap:16px}
+      .card{min-width:0;max-width:100%;box-sizing:border-box;padding:14px}
+      .categories-bar{padding:0 8px;box-sizing:border-box}
+      .category-chip{flex:1 1 145px;text-align:center}
+      .search-container{padding:0 8px;box-sizing:border-box}
+      .search-box{width:100%;box-sizing:border-box}
+      .paginator{padding:0 8px;box-sizing:border-box;flex-wrap:wrap}
+    }
+
   </style>
 </head>
 <body>
@@ -107,6 +142,21 @@
     </a>
   </div>
 
+  <section class="city-shell">
+    <div class="city-title">
+      <img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png" alt="Guía Local">
+      <div>
+        <div id="ciudadContexto" class="city-name">Promos</div>
+        <div id="ciudadSubtitulo" class="city-sub"></div>
+      </div>
+    </div>
+    <div class="city-nav">
+      <button id="volverGuia" class="primary" type="button">← Volver a la guía</button>
+      <a id="irEventos" class="disabled" href="#" aria-disabled="true">Eventos · Próximamente</a>
+      <button id="cambiarCiudad" type="button">Cambiar ciudad</button>
+    </div>
+  </section>
+
   <div class="search-container">
     <input id="search" class="search-box" placeholder="Buscar por nombre, categoría o promo...">
   </div>
@@ -118,6 +168,20 @@
 
   <script>
     const DATA_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
+    const CITY_CONTEXT_KEY = 'gld_ciudad_contexto';
+    const pageParams = new URLSearchParams(window.location.search || '');
+    let ciudadContexto = {
+      pais_id:String(pageParams.get('pais_id') || '').trim(),
+      provincia_id:String(pageParams.get('provincia_id') || '').trim(),
+      ciudad_id:String(pageParams.get('ciudad_id') || '').trim(),
+      ciudad:String(pageParams.get('ciudad') || '').trim()
+    };
+    try{
+      const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
+      if(saved && !ciudadContexto.ciudad_id) ciudadContexto=saved;
+      if(ciudadContexto.ciudad_id) localStorage.setItem(CITY_CONTEXT_KEY,JSON.stringify(ciudadContexto));
+    }catch(e){}
+
 
     let comerciosData = [];
     let filtrados = [];
@@ -519,7 +583,9 @@
 
     function loadData() {
       if (!DATA_URL) { document.getElementById('cards').innerHTML = '<p style="color:#b02a2a">Falta DATA_URL</p>'; return; }
-      fetch(DATA_URL).then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
+      const dataUrl = new URL(DATA_URL);
+      if(ciudadContexto.ciudad_id) dataUrl.searchParams.set('ciudad_id', ciudadContexto.ciudad_id);
+      fetch(dataUrl.toString()).then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
       .then(raw => {
         let data = [];
         if (Array.isArray(raw)) {
@@ -577,6 +643,33 @@
     }
 
     document.getElementById('search').addEventListener('input', function(){ categoriaFiltro=''; aplicarFiltro(this.value); });
+
+    const ciudadEl=document.getElementById('ciudadContexto');
+    const ciudadSub=document.getElementById('ciudadSubtitulo');
+    if(ciudadEl){
+      ciudadEl.textContent = ciudadContexto.ciudad || (ciudadContexto.ciudad_id ? ciudadContexto.ciudad_id : 'Promos');
+    }
+    if(ciudadSub){
+      ciudadSub.textContent = [ciudadContexto.pais_id, ciudadContexto.provincia_id].filter(Boolean).join(' · ');
+    }
+
+    function guiaUrl(conCiudad=true){
+      const u=new URL('/',window.location.origin);
+      if(conCiudad){
+        Object.entries(ciudadContexto).forEach(([k,v])=>{ if(v) u.searchParams.set(k,v); });
+      }
+      return u.toString();
+    }
+
+    document.getElementById('volverGuia')?.addEventListener('click', ()=>{
+      window.location.href=guiaUrl(true);
+    });
+
+    document.getElementById('cambiarCiudad')?.addEventListener('click', ()=>{
+      try{ localStorage.removeItem(CITY_CONTEXT_KEY); }catch(e){}
+      window.location.href=guiaUrl(false);
+    });
+
     loadData();
   </script>
 </body>
