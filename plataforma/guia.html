@@ -568,6 +568,31 @@
     let metaPorIdGlobal = {};
     let bootstrapCompletoPromise = null;
     const guiaPrefetchCache = new Map();
+    const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v1:';
+    const GUIA_LOCAL_CACHE_MS = 15 * 60 * 1000;
+
+    function guiaLocalCacheKey(paisId, provinciaId, ciudadId){
+      return GUIA_LOCAL_CACHE_PREFIX + guiaKey(paisId, provinciaId, ciudadId);
+    }
+
+    function leerGuiaLocalCache(paisId, provinciaId, ciudadId){
+      try{
+        const raw = localStorage.getItem(guiaLocalCacheKey(paisId, provinciaId, ciudadId));
+        if(!raw) return null;
+        const parsed = JSON.parse(raw);
+        if(!parsed || !parsed.data || (Date.now() - Number(parsed.ts || 0)) > GUIA_LOCAL_CACHE_MS) return null;
+        return parsed.data;
+      }catch(e){ return null; }
+    }
+
+    function guardarGuiaLocalCache(paisId, provinciaId, ciudadId, data){
+      try{
+        localStorage.setItem(
+          guiaLocalCacheKey(paisId, provinciaId, ciudadId),
+          JSON.stringify({ts:Date.now(), data:data})
+        );
+      }catch(e){}
+    }
 
     function guiaKey(paisId, provinciaId, ciudadId){
       return [paisId, provinciaId, ciudadId].map(v => String(v || '').trim()).join('|');
@@ -576,6 +601,11 @@
     function prefetchGuia(paisId, provinciaId, ciudadId){
       if(!paisId || !provinciaId || !ciudadId) return null;
       const key = guiaKey(paisId, provinciaId, ciudadId);
+
+      // Si ya visitó esta ciudad, mostramos la guía inmediatamente.
+      const local = leerGuiaLocalCache(paisId, provinciaId, ciudadId);
+      if(local) return Promise.resolve(local);
+
       if(!guiaPrefetchCache.has(key)){
         guiaPrefetchCache.set(
           key,
@@ -584,7 +614,10 @@
             pais_id:paisId,
             provincia_id:provinciaId,
             ciudad_id:ciudadId
-          }, 45000).catch(err => {
+          }).then(data => {
+            guardarGuiaLocalCache(paisId, provinciaId, ciudadId, data);
+            return data;
+          }).catch(err => {
             guiaPrefetchCache.delete(key);
             throw err;
           })
@@ -592,6 +625,7 @@
       }
       return guiaPrefetchCache.get(key);
     }
+
     const urlAnunciantes = ANUNCIANTES_API + '?action=guia'
       + '&pais_id=' + encodeURIComponent(paisSeleccionado)
       + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
