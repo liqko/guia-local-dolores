@@ -22,6 +22,13 @@
     @media (max-width:900px){ .header h1{font-size:1.5rem;} .header img{height:40px;} }
     .selector-bar{ display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 1rem 1rem 0.3rem 1rem; background: #f5e1d4; width: 100vw; box-sizing: border-box;}
     .selector-bar select {padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; min-width: 120px; max-width: 100vw;}
+    .filtro-multi{position:relative;min-width:260px;max-width:100%;font-size:1em;}
+    .filtro-multi summary{list-style:none;padding:.5rem;border:1px solid #ccc;border-radius:.5rem;background:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .filtro-multi summary::-webkit-details-marker{display:none;}
+    .filtro-multi-opciones{position:absolute;z-index:50;top:calc(100% + 4px);left:0;min-width:290px;max-width:min(92vw,420px);max-height:320px;overflow:auto;background:#fff;border:1px solid #ccc;border-radius:.6rem;padding:.55rem;box-shadow:0 8px 22px rgba(0,0,0,.16);}
+    .filtro-grupo-titulo{font-weight:700;font-size:.8rem;margin:.45rem .25rem .2rem;color:#555;}
+    .filtro-multi-opciones label{display:flex;gap:.5rem;align-items:center;padding:.38rem .25rem;cursor:pointer;}
+    .filtro-multi-opciones input{margin:0;}
     .buscador-global {display:flex; gap:0.5rem; padding:1rem; background: #f5e1d4; width:100vw; box-sizing:border-box;}
     .buscador-global input {padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; flex:1; min-width:120px; max-width:100vw;}
     .no-tags-msg{ padding:1.2em 1em 0 1em; color:#c00; font-weight:bold;font-size:1.1em; width:100vw;box-sizing:border-box;}
@@ -198,6 +205,12 @@
     }
     .promos-activas-btn:hover,.promos-activas-btn:focus{background:#e65f00;outline:2px solid #fff;outline-offset:2px;}
 
+    .card-modulos-actions{width:100%;box-sizing:border-box;}
+    .card-modulos-actions:not(:empty){margin-top:.15rem;}
+    .card-modulos-actions > a{animation:gld-action-in .18s ease-out;}
+    @keyframes gld-action-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+
     @media (max-width:700px){
       body{font-size:16px;}
       .header{
@@ -363,6 +376,8 @@
   .titulo-ubicacion{display:flex;flex-direction:column;justify-content:center;}
   #tituloGuia{margin:0;font-size:1.55rem;line-height:1.1;}
   #ubicacionSubtitulo{margin-top:.22rem;font-size:.9rem;line-height:1.2;opacity:.82;}
+  .modulos-ciudad{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:.6rem 0 .2rem;}
+  .modulo-ciudad-btn{display:inline-flex;align-items:center;gap:7px;padding:.6rem .9rem;border-radius:.65rem;background:#006699;color:#fff;text-decoration:none;font-weight:800;}
 
 </style>
 </head>
@@ -393,16 +408,21 @@
     <button id="cambiarCiudad" type="button">Cambiar ciudad</button>
   </div>
 
+  <div class="modulos-ciudad">
+    <a id="moduloPromos" class="modulo-ciudad-btn" href="#" target="_top">🏷️ Promos</a>
+  </div>
+
   <div class="selector-bar">
-    <select id="selectSegmento">
-      <option value="">Todos los segmentos</option>
+    <select id="selectClasificacion">
+      <option value="">Segmento, actividad o categoría</option>
     </select>
-    <select id="selectCategoria">
-      <option value="">Todas las categorías</option>
-    </select>
+    <details id="accionesMulti" class="filtro-multi">
+      <summary id="accionesResumen">Acciones</summary>
+      <div id="accionesOpciones" class="filtro-multi-opciones"></div>
+    </details>
   </div>
   <div class="buscador-global">
-    <input type="text" id="buscadorGlobal" placeholder="Buscar en toda la ficha (nombre, categoría, subcategoría, tags, etc.)..." style="flex:1;"/>
+    <input type="text" id="buscadorGlobal" placeholder="Buscar por nombre, tags, dirección, descripción, ciudad, etc." style="flex:1;"/>
   </div>
   <div class="destacadas-bar" id="destacadasBar"></div>
   <div class="grid" id="contenedor"></div>
@@ -454,14 +474,14 @@
 
     const ANUNCIANTES_API = "https://script.google.com/macros/s/AKfycbzom6il-vhSMAnsNp0ipfTHqf2ha-nOtwVEv7xR9gcc6u01UiL9AVG9O-dZedCUvaGS/exec";
 
-    function jsonpApi(params={}) {
+    function jsonpApi(params={}, timeoutMs=15000) {
       return new Promise((resolve, reject) => {
         const callbackName = '__gld_jsonp_' + Date.now() + '_' + Math.floor(Math.random()*1000000);
         const script = document.createElement('script');
         const timer = setTimeout(() => {
           cleanup();
           reject(new Error('Tiempo de espera agotado al consultar la API'));
-        }, 15000);
+        }, timeoutMs);
 
         function cleanup(){
           clearTimeout(timer);
@@ -495,7 +515,55 @@
     let provinciaSeleccionada = queryInicial.get('provincia_id') || '';
     let ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
 
-    let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [] };
+    const CITY_CONTEXT_KEY='gld_ciudad_contexto';
+    try{
+      const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
+      if(saved){
+        if(!paisSeleccionado) paisSeleccionado=String(saved.pais_id||'');
+        if(!provinciaSeleccionada) provinciaSeleccionada=String(saved.provincia_id||'');
+        if(!ciudadSeleccionada) ciudadSeleccionada=String(saved.ciudad_id||'');
+      }
+    }catch(e){}
+
+    function guardarContextoCiudad(nombreCiudad){
+      if(!ciudadSeleccionada) return;
+
+      const paisSelect = document.getElementById('paisInicial');
+      const provSelect = document.getElementById('provinciaInicial');
+      const paisNombre = paisSelect && paisSelect.selectedIndex >= 0
+        ? String(paisSelect.options[paisSelect.selectedIndex]?.text || '').trim()
+        : '';
+      const provinciaNombre = provSelect && provSelect.selectedIndex >= 0
+        ? String(provSelect.options[provSelect.selectedIndex]?.text || '').trim()
+        : '';
+
+      const ctx={
+        pais_id:paisSeleccionado,
+        provincia_id:provinciaSeleccionada,
+        ciudad_id:ciudadSeleccionada,
+        pais:paisNombre,
+        provincia:provinciaNombre,
+        ciudad:String(nombreCiudad||'').trim(),
+        ts:Date.now()
+      };
+      try{ localStorage.setItem(CITY_CONTEXT_KEY,JSON.stringify(ctx)); }catch(e){}
+      const promo=document.getElementById('moduloPromos');
+      if(promo){
+        const u=new URL(PROMOS_PAGE_URL,window.location.href);
+        if(ctx.pais_id) u.searchParams.set('pais_id',ctx.pais_id);
+        if(ctx.provincia_id) u.searchParams.set('provincia_id',ctx.provincia_id);
+        if(ctx.ciudad_id) u.searchParams.set('ciudad_id',ctx.ciudad_id);
+        if(ctx.pais) u.searchParams.set('pais',ctx.pais);
+        if(ctx.provincia) u.searchParams.set('provincia',ctx.provincia);
+        if(ctx.ciudad) u.searchParams.set('ciudad',ctx.ciudad);
+        promo.href=u.toString();
+      }
+    }
+
+    let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
+    let relacionesSedesGlobales = {};
+    let metaPorIdGlobal = {};
+    let bootstrapCompletoPromise = null;
     const guiaPrefetchCache = new Map();
 
     function guiaKey(paisId, provinciaId, ciudadId){
@@ -513,7 +581,7 @@
             pais_id:paisId,
             provincia_id:provinciaId,
             ciudad_id:ciudadId
-          }).catch(err => {
+          }, 45000).catch(err => {
             guiaPrefetchCache.delete(key);
             throw err;
           })
@@ -536,8 +604,8 @@
     /* Integración con Promos.
        Se lee directamente la hoja "promos" mediante OpenSheet, igual que anunciantes y banners.
        Esto evita que un fallo/redirección del WebApp de Apps Script deje rawPromosResponse vacío silenciosamente. */
-    const PROMOS_ENDPOINT = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/promos';
-    const PROMOS_PAGE_URL = 'https://www.guialocaldolores.com.ar/promos/';
+    const PROMOS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec';
+    const PROMOS_PAGE_URL = 'https://guialocal.ar/promos/';
 
     // Precarga en paralelo desde el arranque. Cuando el usuario entra a la guía
     // estos recursos normalmente ya están disponibles.
@@ -553,8 +621,15 @@
 
     async function cargarGuiaSeleccionada(){
       try {
-        const guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
-          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada});
+        let guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
+          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 45000);
+
+        // Si una precarga arrancó justo durante un arranque lento de Apps Script,
+        // reintentamos una vez antes de declarar que la guía no carga.
+        guiaPromise = guiaPromise.catch(() => {
+          guiaPrefetchCache.delete(guiaKey(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada));
+          return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 45000);
+        });
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -575,8 +650,10 @@
         const buscadorGlobal = document.getElementById('buscadorGlobal');
         const contenedor = document.getElementById('contenedor');
         const destacadasBar = document.getElementById('destacadasBar');
-        const selectSegmento = document.getElementById('selectSegmento');
-        const selectCategoria = document.getElementById('selectCategoria');
+        const selectClasificacion = document.getElementById('selectClasificacion');
+        const accionesMulti = document.getElementById('accionesMulti');
+        const accionesResumen = document.getElementById('accionesResumen');
+        const accionesOpciones = document.getElementById('accionesOpciones');
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
@@ -704,18 +781,42 @@
           const h = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate());
           return h.getTime() >= today.getTime();
         }
+        function cardSedeIds(item){
+          const sedes = Array.isArray(item && item.sedes) ? item.sedes : [];
+          return [...new Set(sedes.map(s=>String(s && s.sede_id || '').trim()).filter(Boolean))];
+        }
+
         function promoMatchesAdvertiser(p, item){
+          const promoSedeId = String(p && p.sede_id || '').trim();
+          const sedesItem = cardSedeIds(item);
+
+          // Nueva arquitectura: si la promo tiene sede_id, manda la sede.
+          if(promoSedeId){
+            return sedesItem.includes(promoSedeId);
+          }
+
+          // Compatibilidad con promos anteriores todavía sin sede_id.
           const itemIds = advertiserIds(item);
           const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || p.advertiserId || '') || '').trim();
           if(promoId && itemIds.includes(promoId)) return true;
+
           const itemName = normalizar(item && item.nombre);
           const promoName = normalizar(p && (p.anunciante || p.nombre || p.comercio));
           return !!itemName && promoName === itemName;
         }
+
+        function promoMatchesCurrentCity(p){
+          const promoCity = String(p && p.ciudad_id || '').trim();
+          // Las nuevas promos deben coincidir con la ciudad activa.
+          // Las viejas sin ciudad_id siguen visibles por compatibilidad.
+          return !promoCity || !ciudadSeleccionada || promoCity === String(ciudadSeleccionada).trim();
+        }
+
         let activePromos = [];
         function activePromosForAdvertiser(item){
-          return activePromos.filter(p => promoMatchesAdvertiser(p, item));
+          return activePromos.filter(p => promoMatchesCurrentCity(p) && promoMatchesAdvertiser(p, item));
         }
+
         function promoBridgeKey(p){
           const pid = String(p && p.promo_id || '').trim();
           if(pid) return 'id:' + pid;
@@ -728,18 +829,27 @@
         function renderPromosActivasButton(item){
           const matches = activePromosForAdvertiser(item);
           if(!matches.length) return '';
+
           const ids = advertiserIds(item);
+          const sedeIds = cardSedeIds(item);
           const params = new URLSearchParams();
+
           params.set('anunciante', String(item.nombre || '').trim());
           if(ids.length) params.set('id_comercio', ids[0]);
+          if(ciudadSeleccionada) params.set('ciudad_id', ciudadSeleccionada);
+          if(sedeIds.length === 1) params.set('sede_id', sedeIds[0]);
 
           const label = matches.length === 1 ? 'Ver promo activa' : `Ver ${matches.length} promos activas`;
           const safeName = String(item.nombre || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
           const bridgePayload = {
             anunciante: String(item.nombre || '').trim(),
             id_comercio: ids.length ? ids[0] : '',
+            ciudad_id: String(ciudadSeleccionada || '').trim(),
+            sede_id: sedeIds.length === 1 ? sedeIds[0] : '',
             promo_keys: matches.map(promoBridgeKey).filter(Boolean)
           };
+
           const payload = encodeURIComponent(JSON.stringify(bridgePayload));
           return `<a class="promos-activas-btn" href="${PROMOS_PAGE_URL}?${params.toString()}" target="_top" data-promo-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.promoFilter||''));d.ts=Date.now();localStorage.setItem('gld_promos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-tags"></i> ${label}</a>`;
         }
@@ -750,110 +860,194 @@
           return parts.join('/');
         }
         function limpiarCampos(item){ const nuevo={}; for (let k in item){ if(!/^agregar\s/i.test(k)) nuevo[k]=item[k]; } return nuevo; }
-        const anunciantesData = data.map(limpiarCampos);
+
+        function relKey(v){
+          return normalizar(String(v || ''));
+        }
+
+        function hidratarItem(item){
+          const out = limpiarCampos(item || {});
+          const id = String(out.id || '').trim();
+          const meta = metaPorIdGlobal[id] || {};
+
+          // Recuperar campos que no deben desaparecer de la tarjeta.
+          out.link = String(meta.link || out.link || '').trim();
+          out.verificado = meta.verificado !== undefined ? meta.verificado : out.verificado;
+          out.gold = meta.gold !== undefined ? meta.gold : out.gold;
+
+          function enriquecerRelacion(lista, catalogo, idField){
+            return (Array.isArray(lista) ? lista : []).map(x=>{
+              const raw = (x && typeof x === 'object') ? Object.assign({}, x) : {[idField]:String(x||'').trim()};
+              const idRel = String(raw[idField] || '').trim();
+              if(!idRel) return raw;
+              const cat = (catalogo || []).find(c=>String(c[idField] || '').trim() === idRel) || {};
+              return Object.assign({}, cat, raw, {
+                [idField]: idRel,
+                nombre: String(raw.nombre || cat.nombre || '').trim(),
+                insignia: String(raw.insignia || cat.insignia || '').trim()
+              });
+            });
+          }
+
+          out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
+            const sede = Object.assign({}, raw);
+            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:[],acciones:[],nodos:[]};
+            sede.relaciones = {
+              actividades:enriquecerRelacion(rel.actividades, catalogosGlobales.actividades, 'actividad_id'),
+              acciones:enriquecerRelacion(rel.acciones, catalogosGlobales.acciones, 'accion_id'),
+              nodos:enriquecerRelacion(rel.nodos, catalogosGlobales.nodos, 'nodo_id')
+            };
+            return sede;
+          });
+
+          const acts=[], accs=[], nods=[];
+          out.sedes.forEach(s=>{
+            const rel=s.relaciones||{};
+            (rel.actividades||[]).forEach(x=>{if(!acts.some(y=>String(y.actividad_id)===String(x.actividad_id))) acts.push(x);});
+            (rel.acciones||[]).forEach(x=>{if(!accs.some(y=>String(y.accion_id)===String(x.accion_id))) accs.push(x);});
+            (rel.nodos||[]).forEach(x=>{if(!nods.some(y=>String(y.nodo_id)===String(x.nodo_id))) nods.push(x);});
+          });
+
+          out.actividades_clave=acts;
+          out.acciones=accs;
+          out.nodos=nods;
+          return out;
+        }
+
+        const anunciantesData = data.map(hidratarItem);
         const serviciosData = anunciantesData;
 
-        function limpiarValorCategoria(valor) { return valor.replace(/^"+|"+$/g, '').trim(); }
-        function obtenerCategoriasUnicas() {
-          return catalogosGlobales.categorias
-            .map(x => String(x.nombre || '').trim())
-            .filter(Boolean)
-            .sort((a,b) => a.localeCompare(b,'es'));
+        function accionesSeleccionadas(){
+          return Array.from(accionesOpciones.querySelectorAll('input[type="checkbox"]:checked'))
+            .map(x=>String(x.value||'').trim()).filter(Boolean);
         }
 
-        function actualizarCategorias() {
-          const categoriasUnicas = obtenerCategoriasUnicas();
-          selectCategoria.innerHTML = '<option value="">Todas las categorías</option>' +
-            (catalogosGlobales.categorias || [])
-              .filter(c => String(c.categoria_id || '').trim() && String(c.nombre || '').trim())
-              .map(c => `<option value="${String(c.categoria_id).trim()}">${String(c.nombre).trim()}</option>`)
-              .join('');
-        }
-
-        function obtenerValoresUnicos(campo, filtro={}) {
-          if(campo === 'segmento'){
-            return catalogosGlobales.segmentosPublicos
-              .map(x => String(x.nombre || '').trim())
-              .filter(Boolean)
-              .sort((a,b) => a.localeCompare(b,'es'));
+        function actualizarResumenAcciones(){
+          const checked=Array.from(accionesOpciones.querySelectorAll('input[type="checkbox"]:checked'));
+          if(!checked.length){
+            accionesResumen.textContent='Acciones';
+            return;
           }
-          return [];
+          const labels=checked.map(x=>String(x.dataset.label||'').trim()).filter(Boolean);
+          accionesResumen.textContent=labels.length<=2 ? labels.join(' + ') : `${labels.length} acciones`;
         }
 
-        function actualizarSegmentos() {
-          const segmentosUnicos = obtenerValoresUnicos('segmento');
-          selectSegmento.innerHTML = '<option value="">Todos los segmentos</option>' +
-            (catalogosGlobales.segmentosPublicos || [])
-              .filter(s => String(s.segmento_id || '').trim() && String(s.nombre || '').trim())
-              .map(s => `<option value="${String(s.segmento_id).trim()}">${String(s.nombre).trim()}</option>`)
-              .join('');
+        function cargarSelectClasificacion(){
+          selectClasificacion.innerHTML='<option value="">Segmento, actividad o categoría</option>';
+
+          const segBase=(catalogosGlobales.segmentosPublicos||[]);
+          const segs=(segBase.length ? segBase : anunciantesData.flatMap(item=>{
+            const ids=String(item.segmento_id||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            const names=String(item.segmento||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            return ids.map((id,i)=>({segmento_id:id,nombre:names[i]||names[0]||id}));
+          }))
+            .filter((x,i,a)=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.segmento_id||'').trim()===String(x.segmento_id||'').trim())===i);
+
+          const actBase=(catalogosGlobales.actividades||[]);
+          const acts=(actBase.length ? actBase : anunciantesData.flatMap(item=>Array.isArray(item.actividades_clave)?item.actividades_clave:[]))
+            .filter((x,i,a)=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.actividad_id||'').trim()===String(x.actividad_id||'').trim())===i);
+
+          const catBase=(catalogosGlobales.categorias||[]);
+          const cats=(catBase.length ? catBase : anunciantesData.flatMap(item=>{
+            const ids=String(item.categoria_id||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            const names=String(item.categoria||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
+            return ids.map((id,i)=>({categoria_id:id,nombre:names[i]||names[0]||id}));
+          }))
+            .filter((x,i,a)=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.categoria_id||'').trim()===String(x.categoria_id||'').trim())===i);
+
+          const grupos=[
+            ['SEGMENTOS',segs,'SEG:','segmento_id'],
+            ['ACTIVIDADES CLAVE',acts,'ACT:','actividad_id'],
+            ['CATEGORÍAS',cats,'CAT:','categoria_id']
+          ];
+
+          grupos.forEach(([titulo,items,prefijo,idField])=>{
+            if(!items.length) return;
+            const group=document.createElement('optgroup');
+            group.label=titulo;
+            items.forEach(x=>{
+              const id=String(x[idField]||'').trim();
+              const nombre=String(x.nombre||'').trim();
+              if(!id||!nombre) return;
+              const o=document.createElement('option');
+              o.value=prefijo+id;
+              o.textContent=nombre;
+              group.appendChild(o);
+            });
+            selectClasificacion.appendChild(group);
+          });
         }
-        selectSegmento.addEventListener('change', () => {
-          if (selectSegmento.value) {
-            selectCategoria.value = '';
-            buscadorGlobal.value = '';
-          }
-          actualizarCategorias();
-          paginaActual = 1;
+
+        function cargarAcciones(){
+          accionesOpciones.innerHTML='';
+
+          const accBase=(catalogosGlobales.acciones||[]);
+          const accs=(accBase.length ? accBase : anunciantesData.flatMap(item=>Array.isArray(item.acciones)?item.acciones:[]))
+            .filter((x,i,a)=>String(x.accion_id||'').trim() && String(x.nombre||'').trim() &&
+              a.findIndex(y=>String(y.accion_id||'').trim()===String(x.accion_id||'').trim())===i);
+
+          accs.forEach(x=>{
+            const id=String(x.accion_id||'').trim();
+            const nombre=String(x.nombre||'').trim();
+            if(!id||!nombre) return;
+            const label=document.createElement('label');
+            const cb=document.createElement('input');
+            cb.type='checkbox';
+            cb.value=id;
+            cb.dataset.label=nombre;
+            label.appendChild(cb);
+            label.appendChild(document.createTextNode(nombre));
+            accionesOpciones.appendChild(label);
+          });
+
+          actualizarResumenAcciones();
+        }
+
+        cargarSelectClasificacion();
+        cargarAcciones();
+
+        selectClasificacion.addEventListener('change',()=>{
+          paginaActual=1;
           render();
         });
-        selectCategoria.addEventListener('change', () => {
-          if (selectCategoria.value) {
-            selectSegmento.value = '';
-            buscadorGlobal.value = '';
-          }
-          paginaActual = 1;
+
+        accionesOpciones.addEventListener('change',()=>{
+          actualizarResumenAcciones();
+          paginaActual=1;
           render();
         });
-        actualizarSegmentos();
-        actualizarCategorias();
 
         function renderInsignias(item) {
-          const segmentosNorm = new Set();
+          let logosHtml='';
+          const used=new Set();
 
-          const agregar = valor => {
-            if(!valor) return;
-            String(valor).split(',').forEach(v => {
-              const raw = String(v || '').trim();
+          function add(url,alt){
+            const u=String(url||'').trim();
+            if(!u || used.has(u)) return;
+            used.add(u);
+            logosHtml += `<img src="${u}" alt="${String(alt||'Insignia').replace(/"/g,'&quot;')}" class="insignia-logo" />`;
+          }
+
+          (item.actividades_clave||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+          (item.acciones||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+          (item.nodos||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+
+          const segmentosNorm=new Set();
+          [item.segmento_id,item.segmento].forEach(valor=>{
+            String(valor||'').split(/[;,]/).forEach(v=>{
+              const raw=String(v||'').trim();
               if(!raw) return;
-
-              const byId = (catalogosGlobales.segmentos || []).find(s =>
-                String(s.segmento_id || '').trim() === raw
-              );
-
-              segmentosNorm.add(normalizar(byId && byId.nombre ? byId.nombre : raw));
+              const byId=(catalogosGlobales.segmentos||[]).find(s=>String(s.segmento_id||'').trim()===raw);
+              segmentosNorm.add(normalizar(byId&&byId.nombre?byId.nombre:raw));
             });
-          };
+          });
 
-          agregar(item.segmento_id);
-          agregar(item.segmento);
-
-          let logosHtml = '';
-
-          if (segmentosNorm.has('parque termal')) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png" alt="Logo Parque Termal" class="insignia-logo" />`;
-          }
-
-          if (segmentosNorm.has('termales mall')) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png" alt="Logo Termales Mall" class="insignia-logo" />`;
-          }
-
-          if (segmentosNorm.has('hecho en dolores')) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png" alt="Hecho en Dolores" class="insignia-logo" />`;
-          }
-
-          if (item.pet && String(item.pet).trim().toLowerCase() === 'x') {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/scjanucodtyoqc7vun39.png" alt="PET Friendly" class="insignia-logo" />`;
-          }
-          if (item.triple && String(item.triple).trim()) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771945138/eyfui7zlebldsz0ppezo.png" alt="Triple" class="insignia-logo" />`;
-          }
-          if (item.eco && String(item.eco).trim()) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771945473/xemwacpcgrp5drodwfwj.png" alt="Eco" class="insignia-logo" />`;
-          }
-          if (item.gayf && String(item.gayf).trim()) {
-            logosHtml += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1771944845/zjc73urynvy3aqrnfvub.png" alt="Gay Friendly" class="insignia-logo" />`;
-          }
+          if(segmentosNorm.has('parque termal')) add('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/ut0rd0a7yxjorkaaz06p.png','Parque Termal');
+          if(segmentosNorm.has('termales mall')) add('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png','Termales Mall');
+          if(segmentosNorm.has('hecho en dolores')) add('https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318134/kbtbb9ihnxriukcpxsns.png','Hecho en Dolores');
 
           return logosHtml ? `<div class="termales-logo-container">${logosHtml}</div>` : '';
         }
@@ -967,8 +1161,13 @@
           sedesVisibles.forEach((s, idx) => {
             const tiene = s && (s.direccion || s.nombre_sede || s.maps || s.telefono || s.whatsapp);
             if(!tiene) return;
+
+            const nombreRaw = String(s.nombre_sede || '').trim();
+            const nombreNorm = normalizar(nombreRaw);
+            const nombreVisible = (nombreNorm === 'sede' || nombreNorm === 'sede principal') ? '' : nombreRaw;
+
             html += `<div class="sede-ficha">`;
-            if(s.nombre_sede) html += `<div class="sede-nombre">${s.nombre_sede}</div>`;
+            if(nombreVisible) html += `<div class="sede-nombre">${nombreVisible}</div>`;
             if(s.direccion) html += `<div><i class="fas fa-map-marker-alt"></i> ${s.direccion}${s.ciudad ? ` · ${s.ciudad}` : ''}</div><span class="espaciado"></span>`;
             if(s.maps && clickable) html += `<div style="margin:.45em 0;"><a href="${s.maps}" target="_blank" rel="noopener noreferrer" style="color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a></div>`;
             if(s.telefono) html += `<div><i class="fas fa-phone"></i> ${s.telefono}</div><span class="espaciado"></span>`;
@@ -1011,16 +1210,17 @@
         function renderCard(item, galeriaId) {
           const nivelVisual = Number(item.nivel);
           let html = `<div class="card nivel-${nivelVisual}">`;
-          html += `<div class="badge-icons">`;
-          if(String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
-          if(String(item.gold||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
-          html += `</div>`;
+          if(nivelVisual !== 3){
+            html += `<div class="badge-icons">`;
+            if(String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
+            if(String(item.gold||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
+            html += `</div>`;
+          }
 
           if (nivelVisual === 1 || nivelVisual === 2 || nivelVisual === 5 || nivelVisual === 6) {
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
             html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
-            if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
             if(item.descripcion) html += `<div class="descripcion">${item.descripcion}</div><span class="segmento-doble"></span>`;
@@ -1039,7 +1239,6 @@
           else if (nivelVisual === 3) {
             html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
-            if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
             html += renderContactoNuevo(item, nivelVisual);
@@ -1050,7 +1249,6 @@
             if(item.logo) html += `<img class="logo-comercio" src="${item.logo}" alt="Logo">`;
             html += `<div class="nombre">${item.nombre || ''}</div>`;
             if(item.actividad) html += `<div class="actividad-ficha">${item.actividad}</div>`;
-            if(item.pie) html += `<div class="pie">${capitalizarFrase(item.pie)}</div>`;
             html += `<span class="espaciado"></span>`;
             html += renderInsignias(item);
             if(item.descripcion) html += `<div class="descripcion">${item.descripcion.substring(0,200)}</div><span class="segmento-doble"></span>`;
@@ -1063,8 +1261,9 @@
             if(webMailHtml) html += `<div class="web-mail-bloque">${webMailHtml}</div><span class="segmento-doble"></span>`;
           }
 
-          html += renderEventosActivosButton(item);
-          html += renderPromosActivasButton(item);
+          const cardKey = String(item.id || item.__id || item.id_comercio || item.nombre || '').trim();
+          const accionesHtml = renderEventosActivosButton(item) + renderPromosActivasButton(item);
+          html += `<div class="card-modulos-actions" data-card-actions="${cardKey.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${accionesHtml}</div>`;
           html += `</div>`;
           return html;
         }
@@ -1387,7 +1586,7 @@
           return seq.slice(0, slots);
         }
 
-        function renderNormales(normales) {
+        function renderNormales(normales, cantidadDestacadas) {
           let html = '';
           const slots = Math.floor(normales.length / 2);
           const bannerSeq = buildBannerSequence(slots);
@@ -1399,7 +1598,7 @@
               if (banner) html += renderBanner(banner, `inter-${idx}`);
             }
           });
-          if (normales.length === 0) html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
+          if (normales.length === 0 && !cantidadDestacadas) html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
           contenedor.innerHTML = html;
           initBannerObservers(); attachCtaHandlers(); attachReplayHandlers();
         }
@@ -1503,7 +1702,7 @@
             item && item.segmento
           ]
             .filter(Boolean)
-            .flatMap(v => String(v).split(','))
+            .flatMap(v => String(v).split(/[;,|]+/))
             .map(v => String(v).trim())
             .filter(Boolean);
 
@@ -1534,7 +1733,7 @@
             item && item.categoria
           ]
             .filter(Boolean)
-            .flatMap(v => String(v).split(','))
+            .flatMap(v => String(v).split(/[;,|]+/))
             .map(v => String(v).trim())
             .filter(Boolean);
 
@@ -1559,102 +1758,199 @@
           return [...new Set(ids)];
         }
 
+        function sedeNombreVisible(nombre){
+          const raw=String(nombre||'').trim();
+          if(!raw) return '';
+          const n=normalizar(raw);
+          if(n==='sede' || n==='sede principal') return '';
+          return raw;
+        }
+
+        function sedeActIds(sede){
+          return ((((sede||{}).relaciones||{}).actividades)||[])
+            .map(x=>String(x.actividad_id||'').trim()).filter(Boolean);
+        }
+        function sedeAccIds(sede){
+          return ((((sede||{}).relaciones||{}).acciones)||[])
+            .map(x=>String(x.accion_id||'').trim()).filter(Boolean);
+        }
+
+        function sedeCumpleSegundoFiltro(sede,filtro){
+          filtro=String(filtro||'').trim();
+          if(!filtro) return true;
+          if(filtro.startsWith('ACT:')) return sedeActIds(sede).includes(filtro.slice(4));
+          if(filtro.startsWith('ACC:')) return sedeAccIds(sede).includes(filtro.slice(4));
+          return true;
+        }
+
+        function tarjetaDeSede(item,sede){
+          const out=Object.assign({},item);
+          out.__sede_individual=true;
+          out.sedes=[sede];
+
+          [
+            'telefono','telefono2','telefono3','telefono4','telefono5',
+            'whatsapp','whatsapp2','whatsapp3','whatsapp4','whatsapp5',
+            'mail','mail2','mail3','instagram','facebook','youtube','tiktok','linkedin'
+          ].forEach(k=>out[k]=(sede&&sede[k])||'');
+
+          for(let i=1;i<=10;i++) out['img'+i]=(sede&&sede['img'+i])||'';
+
+          const rel=(sede&&sede.relaciones)||{};
+          out.actividades_clave=Array.isArray(rel.actividades)?rel.actividades:[];
+          out.acciones=Array.isArray(rel.acciones)?rel.acciones:[];
+          out.nodos=Array.isArray(rel.nodos)?rel.nodos:[];
+
+          out.direccion=(sede&&sede.direccion)||'';
+          out.maps=(sede&&sede.maps)||'';
+          out.lat=(sede&&sede.lat)||'';
+          out.lng=(sede&&sede.lng)||'';
+          out.ciudad=(sede&&sede.ciudad)||'';
+          return out;
+        }
+
+        function textoTags(v){
+          if(v === null || v === undefined) return '';
+          if(Array.isArray(v)) return v.map(textoTags).join(' ');
+          if(typeof v === 'object') return Object.values(v).map(textoTags).join(' ');
+          return String(v).replace(/[;,|#]+/g,' ');
+        }
+
+        function textoGlobalItem(item){
+          const meta = metaPorIdGlobal[String(item && item.id || '').trim()] || {};
+          return [
+            item.nombre,item.segmento,item.categoria,item.actividad,
+            textoTags(item.tags),textoTags(meta.tags),item.adicionales,
+            item.descripcion,item.link,
+            ...(item.actividades_clave||[]).map(x=>x&&x.nombre),
+            ...(item.acciones||[]).map(x=>x&&x.nombre),
+            ...(item.nodos||[]).map(x=>x&&x.nombre),
+            ...(item.sedes||[]).flatMap(s=>[
+              s&&s.nombre_sede,s&&s.direccion,s&&s.ciudad,s&&s.provincia,s&&s.pais,
+              textoTags(s&&s.tags)
+            ])
+          ].filter(Boolean).join(' ');
+        }
+
         function render() {
-          const qGlobal = normalizar(buscadorGlobal.value.trim());
-          const segmentoSeleccionado = selectSegmento.value;
-          const categoriaSeleccionada = selectCategoria.value;
+          const qGlobal=normalizar(buscadorGlobal.value.trim());
+          const clasificacion=String(selectClasificacion.value||'').trim();
+          const accionesElegidas=accionesSeleccionadas();
 
-          let filtrados = serviciosData.filter(item => {
-            let coincideSegmento = true;
-            if (segmentoSeleccionado) {
-              coincideSegmento =
-                canonicalSegmentoIds(item).includes(String(segmentoSeleccionado || '').trim());
+          let base=serviciosData.filter(item=>{
+            if(clasificacion.startsWith('SEG:')){
+              return canonicalSegmentoIds(item).includes(clasificacion.slice(4));
             }
-
-            let coincideCategoria = true;
-            if (categoriaSeleccionada) {
-              coincideCategoria =
-                canonicalCategoriaIds(item).includes(String(categoriaSeleccionada || '').trim());
+            if(clasificacion.startsWith('CAT:')){
+              // Un anunciante con varias categorías aparece en CADA categoría que tenga.
+              return canonicalCategoriaIds(item).includes(clasificacion.slice(4));
             }
-
-            let coincideGlobal = true;
-            if (qGlobal) {
-              coincideGlobal = ['nombre','segmento','categoria','actividad','tags','adicionales','pie','descripcion']
-                .some(campo => normalizar(item[campo]||"").includes(qGlobal));
-            }
-            return coincideSegmento && coincideCategoria && coincideGlobal;
-          }).sort((a, b) => {
-            if (Number(b.nivel) !== Number(a.nivel)) {
-              return Number(b.nivel) - Number(a.nivel);
-            }
-            return Number(a.subnivel) - Number(b.subnivel);
+            return true;
           });
 
-          const destacadas = (paginaActual === 1) ? getDestacadas(filtrados) : [];
-          const normales = filtrados.filter(item => !(Number(item.nivel) === 6));
-          totalPaginas = Math.max(1, Math.ceil(normales.length / resultadosPorPagina));
-          if (paginaActual > totalPaginas) paginaActual = totalPaginas;
-          if (paginaActual < 1) paginaActual = 1;
+          if(clasificacion || accionesElegidas.length || qGlobal){
+            base=base.flatMap(item=>{
+              const sedes=Array.isArray(item.sedes)?item.sedes:[];
+              const requiereSede=clasificacion.startsWith('ACT:') || accionesElegidas.length>0;
 
-          const inicio = (paginaActual - 1) * resultadosPorPagina;
-          const fin = inicio + resultadosPorPagina;
-          const normalesPaginadas = normales.slice(inicio, fin);
+              if(!sedes.length) return requiereSede ? [] : [item];
 
-          btnAnterior.disabled = paginaActual === 1;
-          btnSiguiente.disabled = paginaActual === totalPaginas;
+              return sedes
+                .filter(sede=>{
+                  if(clasificacion.startsWith('ACT:') && !sedeActIds(sede).includes(clasificacion.slice(4))) return false;
+
+                  const accionesSede=sedeAccIds(sede);
+                  if(accionesElegidas.some(id=>!accionesSede.includes(id))) return false;
+
+                  return true;
+                })
+                .map(sede=>tarjetaDeSede(item,sede));
+            });
+          }
+
+          let filtrados=base.filter(item=>{
+            if(!qGlobal) return true;
+            return normalizar(textoGlobalItem(item)).includes(qGlobal);
+          }).sort((a,b)=>{
+            if(Number(b.nivel)!==Number(a.nivel)) return Number(b.nivel)-Number(a.nivel);
+            return Number(a.subnivel)-Number(b.subnivel);
+          });
+
+          const destacadas=(paginaActual===1)?getDestacadas(filtrados):[];
+          const normales=filtrados.filter(item=>!(Number(item.nivel)===6));
+          totalPaginas=Math.max(1,Math.ceil(normales.length/resultadosPorPagina));
+          if(paginaActual>totalPaginas) paginaActual=totalPaginas;
+          if(paginaActual<1) paginaActual=1;
+
+          const inicio=(paginaActual-1)*resultadosPorPagina;
+          const fin=inicio+resultadosPorPagina;
+          const normalesPaginadas=normales.slice(inicio,fin);
+
+          btnAnterior.disabled=paginaActual===1;
+          btnSiguiente.disabled=paginaActual===totalPaginas;
           buildPaginationBar(paginationBar);
 
           renderDestacadas(destacadas);
-          renderNormales(normalesPaginadas);
+          renderNormales(normalesPaginadas,destacadas.length);
         }
 
         buscadorGlobal.addEventListener('input', () => {
-          if (buscadorGlobal.value.trim()) {
-            selectSegmento.value = '';
-            selectCategoria.value = '';
-          }
           paginaActual = 1;
           render();
         });
 
+        function actualizarBotonesModulosVisibles(){
+          document.querySelectorAll('[data-card-actions]').forEach(zone => {
+            const key = String(zone.getAttribute('data-card-actions') || '').trim();
+            const item = serviciosData.find(x =>
+              String(x.id || x.__id || x.id_comercio || x.nombre || '').trim() === key
+            );
+            if(!item) return;
+            const nuevo = renderEventosActivosButton(item) + renderPromosActivasButton(item);
+            if(zone.innerHTML !== nuevo) zone.innerHTML = nuevo;
+          });
+        }
+
         // Primer render: sólo con los datos de la guía.
         render();
 
-        // Segundo plano: al terminar eventos/promos/banners, se enriquecen las tarjetas
-        // sin haber bloqueado la primera visualización.
-        Promise.all([bannersPromise, eventsPromise, promosPromise])
-          .then(([bannersLoaded, eventsLoaded, promosLoaded]) => {
-            rawBanners = Array.isArray(bannersLoaded) ? bannersLoaded : [];
-            rawEventsResponse = eventsLoaded || [];
-            rawPromosResponse = promosLoaded || [];
+        // Segundo plano independiente: cada módulo actualiza apenas llega.
+        // Ya no esperamos al recurso más lento para mostrar Eventos o Promos.
+        eventsPromise.then(eventsLoaded => {
+          rawEventsResponse = eventsLoaded || [];
+          rawEventsList = Array.isArray(rawEventsResponse)
+            ? rawEventsResponse
+            : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
+          activeEvents = rawEventsList.filter(eventIsActive);
+          actualizarBotonesModulosVisibles();
+        }).catch(err => console.warn('Eventos no disponibles todavía:', err));
 
-            if (rawBanners.length) {
-              banners = rawBanners
-                .filter(b => {
-                  const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
-                  return apr === 'true' || apr === '1' || apr === 'x';
-                })
-                .map(b => ({
-                  img: (b.img || b.url || '').trim(),
-                  media: (b.media || '').trim(),
-                  cta: (b.cta || '').trim(),
-                  poster: (b.poster || '').trim()
-                }));
-            }
+        promosPromise.then(promosLoaded => {
+          rawPromosResponse = promosLoaded || [];
+          rawPromosList = Array.isArray(rawPromosResponse)
+            ? rawPromosResponse
+            : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+          activePromos = rawPromosList.filter(p => promoIsActive(p) && promoMatchesCurrentCity(p));
+          actualizarBotonesModulosVisibles();
+        }).catch(err => console.warn('Promos no disponibles todavía:', err));
 
-            rawEventsList = Array.isArray(rawEventsResponse)
-              ? rawEventsResponse
-              : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
-            activeEvents = rawEventsList.filter(eventIsActive);
-
-            rawPromosList = Array.isArray(rawPromosResponse)
-              ? rawPromosResponse
-              : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
-            activePromos = rawPromosList.filter(promoIsActive);
-
+        bannersPromise.then(bannersLoaded => {
+          rawBanners = Array.isArray(bannersLoaded) ? bannersLoaded : [];
+          if (rawBanners.length) {
+            banners = rawBanners
+              .filter(b => {
+                const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
+                return apr === 'true' || apr === '1' || apr === 'x';
+              })
+              .map(b => ({
+                img: (b.img || b.url || '').trim(),
+                media: (b.media || '').trim(),
+                cta: (b.cta || '').trim(),
+                poster: (b.poster || '').trim()
+              }));
             render();
-          })
-          .catch(err => console.warn('Carga secundaria incompleta:', err));
+          }
+        }).catch(err => console.warn('Banners no disponibles todavía:', err));
 
         window.addEventListener('scroll', () => {
           const topBtn = document.getElementById('topBtn');
@@ -1688,12 +1984,43 @@
       });
     }
 
-    async function cargarBootstrap() {
-      const data = await jsonpApi({action:'bootstrap'});
+    async function cargarUbicaciones() {
+      const data = await jsonpApi({action:'ubicaciones'}, 15000);
       if(!data || data.success !== true) {
-        throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
+        throw new Error((data && (data.error || data.message)) || 'Ubicaciones inválidas');
       }
       return data;
+    }
+
+    function iniciarBootstrapCompleto(){
+      if(!bootstrapCompletoPromise){
+        bootstrapCompletoPromise = jsonpApi({action:'bootstrap'}, 30000)
+          .then(data=>{
+            if(!data || data.success !== true){
+              throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
+            }
+
+            catalogosGlobales.segmentos = Array.isArray(data.segmentos) ? data.segmentos : [];
+            catalogosGlobales.segmentosPublicos = Array.isArray(data.segmentos_publicos)
+              ? data.segmentos_publicos
+              : catalogosGlobales.segmentos.filter(s => {
+                  const v = String(s.visible_publico ?? '').trim().toLowerCase();
+                  return v === 'true' || v === '1' || v === 'x' || v === 'si' || v === 'sí';
+                });
+            catalogosGlobales.categorias = Array.isArray(data.categorias) ? data.categorias : [];
+            catalogosGlobales.actividades = Array.isArray(data.actividades_clave) ? data.actividades_clave : [];
+            catalogosGlobales.acciones = Array.isArray(data.acciones) ? data.acciones : [];
+            catalogosGlobales.nodos = Array.isArray(data.nodos) ? data.nodos : [];
+            relacionesSedesGlobales = (data.relaciones_sedes && typeof data.relaciones_sedes === 'object') ? data.relaciones_sedes : {};
+            metaPorIdGlobal = (data.meta_por_id && typeof data.meta_por_id === 'object') ? data.meta_por_id : {};
+            return data;
+          })
+          .catch(err=>{
+            bootstrapCompletoPromise = null;
+            throw err;
+          });
+      }
+      return bootstrapCompletoPromise;
     }
 
     function normId(v){
@@ -1768,20 +2095,12 @@
       try {
         error.textContent = 'Cargando ubicaciones…';
 
-        // UNA SOLA llamada al servidor para toda la pantalla inicial.
-        const boot = await cargarBootstrap();
+        // La pantalla inicial pide SOLO territorio; no espera catálogos ni relaciones.
+        const boot = await cargarUbicaciones();
 
         const paises = Array.isArray(boot.paises) ? boot.paises : [];
         const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
         const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
-        catalogosGlobales.segmentos = Array.isArray(boot.segmentos) ? boot.segmentos : [];
-        catalogosGlobales.segmentosPublicos = Array.isArray(boot.segmentos_publicos)
-          ? boot.segmentos_publicos
-          : catalogosGlobales.segmentos.filter(s => {
-              const v = String(s.visible_publico ?? '').trim().toLowerCase();
-              return v === 'true' || v === '1' || v === 'x' || v === 'si' || v === 'sí';
-            });
-        catalogosGlobales.categorias = Array.isArray(boot.categorias) ? boot.categorias : [];
 
         if(!paises.length) throw new Error('No hay países cargados.');
 
@@ -1884,6 +2203,7 @@
           const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
 
           document.getElementById('tituloGuia').textContent = ciudadNombre || '';
+          guardarContextoCiudad(ciudadNombre);
           document.getElementById('ubicacionSubtitulo').textContent =
             [paisNombre, provNombre].filter(Boolean).join(' · ');
 
@@ -1925,6 +2245,7 @@
           const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
 
           document.getElementById('tituloGuia').textContent = ciudadNombre || '';
+          guardarContextoCiudad(ciudadNombre);
           document.getElementById('ubicacionSubtitulo').textContent =
             [paisNombre, provNombre].filter(Boolean).join(' · ');
 
