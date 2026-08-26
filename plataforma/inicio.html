@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Guía Local - Elegir ubicación</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;width:100%;min-height:100%;font-family:'Segoe UI','Roboto',Arial,sans-serif;background:transparent;color:#263238}
+    body{padding:18px}
+    .ubicacion-wrap{width:min(94vw,520px);margin:0 auto;background:#f5e1d4;border-radius:16px;padding:20px;box-shadow:0 8px 28px rgba(0,0,0,.14)}
+    .marca{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .marca img{width:54px;height:54px;object-fit:contain}
+    .marca h1{margin:0;color:#006699;font-size:1.65rem;letter-spacing:.4px}
+    .marca p{margin:3px 0 0;color:#4d6f7d;font-size:.95rem}
+    label{display:block;font-weight:800;margin:12px 0 5px}
+    select,button{width:100%;min-height:48px;border-radius:10px;font-size:1rem}
+    select{border:1px solid #b8c3c8;background:#fff;padding:10px 12px}
+    button{border:0;background:#006699;color:#fff;font-weight:900;padding:11px 14px;margin-top:16px;cursor:pointer}
+    button:disabled{opacity:.45;cursor:not-allowed}
+    .msg{margin-top:10px;color:#a12626;font-weight:700;min-height:20px}
+    @media(max-width:600px){
+      body{padding:8px}
+      .ubicacion-wrap{width:100%;padding:16px;border-radius:12px}
+      .marca h1{font-size:1.35rem}
+    }
+  </style>
+</head>
+<body>
+  <main class="ubicacion-wrap">
+    <div class="marca">
+      <img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png" alt="Guía Local">
+      <div>
+        <h1>Guía Local</h1>
+        <p>Elegí tu ubicación para ingresar.</p>
+      </div>
+    </div>
+
+    <label for="pais">País</label>
+    <select id="pais"><option value="">Seleccionar país</option></select>
+
+    <label for="provincia">Provincia</label>
+    <select id="provincia" disabled><option value="">Seleccionar provincia</option></select>
+
+    <label for="ciudad">Ciudad</label>
+    <select id="ciudad" disabled><option value="">Seleccionar ciudad</option></select>
+
+    <button id="entrar" disabled>Ingresar a la guía</button>
+    <div id="msg" class="msg"></div>
+  </main>
+
+<script>
+const API = "https://script.google.com/macros/s/AKfycbzom6il-vhSMAnsNp0ipfTHqf2ha-nOtwVEv7xR9gcc6u01UiL9AVG9O-dZedCUvaGS/exec";
+const CITY_CONTEXT_KEY = 'gld_ciudad_contexto';
+let ciudades = [];
+
+function jsonp(params={}, timeoutMs=20000){
+  return new Promise((resolve,reject)=>{
+    const cb='__gld_loc_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
+    const s=document.createElement('script');
+    const timer=setTimeout(()=>{cleanup();reject(new Error('Tiempo de espera agotado'));},timeoutMs);
+    function cleanup(){clearTimeout(timer);try{delete window[cb]}catch(e){};if(s.parentNode)s.remove();}
+    window[cb]=data=>{cleanup();resolve(data);};
+    const u=new URL(API);
+    Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
+    u.searchParams.set('callback',cb);
+    u.searchParams.set('_ts',Date.now());
+    s.onerror=()=>{cleanup();reject(new Error('No se pudo cargar la ubicación'));};
+    s.src=u.toString();
+    document.head.appendChild(s);
+  });
+}
+
+function uniq(arr,key,label){
+  const m=new Map();
+  arr.forEach(x=>{
+    const id=String(x[key]||'').trim();
+    const nombre=String(x[label]||'').trim();
+    if(id&&!m.has(id))m.set(id,nombre||id);
+  });
+  return [...m.entries()].map(([id,nombre])=>({id,nombre}));
+}
+
+function fill(sel,items,placeholder){
+  sel.innerHTML='<option value="">'+placeholder+'</option>';
+  items.forEach(x=>{
+    const o=document.createElement('option');o.value=x.id;o.textContent=x.nombre;sel.appendChild(o);
+  });
+  sel.disabled=!items.length;
+}
+
+const pais=document.getElementById('pais');
+const provincia=document.getElementById('provincia');
+const ciudad=document.getElementById('ciudad');
+const entrar=document.getElementById('entrar');
+const msg=document.getElementById('msg');
+
+jsonp({action:'ubicaciones'}).then(raw=>{
+  ciudades = Array.isArray(raw) ? raw : (raw.ciudades || raw.results || raw.data || []);
+  fill(pais,uniq(ciudades,'pais_id','pais'),'Seleccionar país');
+}).catch(e=>msg.textContent='No se pudieron cargar las ubicaciones.');
+
+pais.addEventListener('change',()=>{
+  provincia.innerHTML='<option value="">Seleccionar provincia</option>';
+  ciudad.innerHTML='<option value="">Seleccionar ciudad</option>';
+  ciudad.disabled=true;entrar.disabled=true;
+  if(!pais.value){provincia.disabled=true;return;}
+  fill(provincia,uniq(ciudades.filter(x=>String(x.pais_id||'')===pais.value),'provincia_id','provincia'),'Seleccionar provincia');
+});
+
+provincia.addEventListener('change',()=>{
+  ciudad.innerHTML='<option value="">Seleccionar ciudad</option>';entrar.disabled=true;
+  if(!provincia.value){ciudad.disabled=true;return;}
+  fill(ciudad,uniq(ciudades.filter(x=>String(x.pais_id||'')===pais.value && String(x.provincia_id||'')===provincia.value),'ciudad_id','ciudad'),'Seleccionar ciudad');
+});
+
+ciudad.addEventListener('change',()=>entrar.disabled=!ciudad.value);
+
+entrar.addEventListener('click',()=>{
+  const row=ciudades.find(x=>String(x.ciudad_id||'')===ciudad.value && String(x.provincia_id||'')===provincia.value && String(x.pais_id||'')===pais.value);
+  if(!row)return;
+  const ctx={
+    pais_id:String(row.pais_id||''),
+    provincia_id:String(row.provincia_id||''),
+    ciudad_id:String(row.ciudad_id||''),
+    pais:String(row.pais||pais.options[pais.selectedIndex]?.text||''),
+    provincia:String(row.provincia||provincia.options[provincia.selectedIndex]?.text||''),
+    ciudad:String(row.ciudad||ciudad.options[ciudad.selectedIndex]?.text||''),
+    ts:Date.now()
+  };
+  try{localStorage.setItem(CITY_CONTEXT_KEY,JSON.stringify(ctx));}catch(e){}
+  const u=new URL('/guia/',window.location.origin);
+  Object.entries(ctx).forEach(([k,v])=>{if(k!=='ts'&&v)u.searchParams.set(k,v);});
+  try{window.top.location.href=u.toString();}catch(e){window.location.href=u.toString();}
+});
+</script>
+</body>
+</html>
