@@ -2069,202 +2069,71 @@
       return ref === normId(provincia.provincia_id) || ref === normId(provincia.nombre);
     }
 
-    async function iniciarUbicacion() {
-      const overlay = document.getElementById('ubicacionOverlay');
-      const paisSel = document.getElementById('paisInicial');
-      const provSel = document.getElementById('provinciaInicial');
-      const ciudadSel = document.getElementById('ciudadInicial');
-      const btn = document.getElementById('entrarGuia');
-      const error = document.getElementById('ubicacionError');
+    async function iniciarGuiaDesdeMochila(){
+      const qs = new URLSearchParams(window.location.search || '');
 
-      document.getElementById('cambiarCiudad').addEventListener('click', () => {
-        document.body.classList.add('esperando-ubicacion');
-        overlay.classList.remove('oculto');
+      if(!paisSeleccionado) paisSeleccionado = String(qs.get('pais_id') || '').trim();
+      if(!provinciaSeleccionada) provinciaSeleccionada = String(qs.get('provincia_id') || '').trim();
+      if(!ciudadSeleccionada) ciudadSeleccionada = String(qs.get('ciudad_id') || '').trim();
 
-        if(paisSeleccionado){
-          paisSel.value = paisSeleccionado;
-          cargarProvinciasLocal();
-        }
-        if(provinciaSeleccionada){
-          provSel.value = provinciaSeleccionada;
-          cargarCiudadesLocal();
-        }
-        if(ciudadSeleccionada){
-          ciudadSel.value = ciudadSeleccionada;
-          btn.disabled = false;
-        }
-      });
+      let ctx = null;
+      try{ ctx = JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY) || 'null'); }catch(e){}
 
-      try {
-        error.textContent = 'Cargando ubicaciones…';
-
-        // La pantalla inicial pide SOLO territorio; no espera catálogos ni relaciones.
-        const boot = await cargarUbicaciones();
-
-        const paises = Array.isArray(boot.paises) ? boot.paises : [];
-        const provincias = Array.isArray(boot.provincias) ? boot.provincias : [];
-        const ciudades = Array.isArray(boot.ciudades) ? boot.ciudades : [];
-
-        if(!paises.length) throw new Error('No hay países cargados.');
-
-        opciones(paisSel, paises, 'pais_id');
-        error.textContent = '';
-
-        function cargarProvinciasLocal() {
-          const paisId = String(paisSel.value || '').trim();
-
-          provSel.innerHTML = '<option value="">Seleccionar provincia</option>';
-          ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
-          ciudadSel.disabled = true;
-          btn.disabled = true;
-
-          if(!paisId) {
-            provSel.disabled = true;
-            return [];
-          }
-
-          const filtradas = provincias.filter(p => perteneceAProvincia(p, paisId, paises));
-          opciones(provSel, filtradas, 'provincia_id');
-          provSel.disabled = filtradas.length === 0;
-
-          if(!filtradas.length) {
-            error.textContent = `No encuentro provincias vinculadas a ${paisId}. Revisar pais_id en la hoja provincias.`;
-          } else {
-            error.textContent = '';
-          }
-
-          return filtradas;
-        }
-
-        function cargarCiudadesLocal() {
-          const provinciaId = String(provSel.value || '').trim();
-
-          ciudadSel.innerHTML = '<option value="">Seleccionar ciudad</option>';
-          btn.disabled = true;
-
-          if(!provinciaId) {
-            ciudadSel.disabled = true;
-            return [];
-          }
-
-          const filtradas = ciudades.filter(c => perteneceACiudad(c, provinciaId, provincias));
-          opciones(ciudadSel, filtradas, 'ciudad_id');
-          ciudadSel.disabled = filtradas.length === 0;
-
-          if(!filtradas.length) {
-            error.textContent = `No encuentro ciudades vinculadas a ${provinciaId}. Revisar provincia_id en la hoja ciudades.`;
-          } else {
-            error.textContent = '';
-          }
-
-          return filtradas;
-        }
-
-        paisSel.addEventListener('change', () => {
-          const ps = cargarProvinciasLocal();
-          if(ps.length === 1) {
-            provSel.value = String(ps[0].provincia_id || '').trim();
-            const cs = cargarCiudadesLocal();
-            if(cs.length === 1) {
-              ciudadSel.value = String(cs[0].ciudad_id || '').trim();
-              btn.disabled = false;
-              prefetchGuia(paisSel.value, provSel.value, ciudadSel.value);
-            }
-          }
-        });
-
-        provSel.addEventListener('change', () => {
-          const cs = cargarCiudadesLocal();
-          if(cs.length === 1) {
-            ciudadSel.value = String(cs[0].ciudad_id || '').trim();
-            btn.disabled = false;
-          }
-        });
-
-        ciudadSel.addEventListener('change', () => {
-          btn.disabled = !ciudadSel.value;
-          if(ciudadSel.value && paisSel.value && provSel.value){
-            prefetchGuia(paisSel.value, provSel.value, ciudadSel.value);
-          }
-        });
-
-        btn.addEventListener('click', async () => {
-          if(!paisSel.value || !provSel.value || !ciudadSel.value) return;
-
-          paisSeleccionado = paisSel.value;
-          provinciaSeleccionada = provSel.value;
-          ciudadSeleccionada = ciudadSel.value;
-
-          const u = new URL(window.location.href);
-          u.searchParams.set('pais_id', paisSeleccionado);
-          u.searchParams.set('provincia_id', provinciaSeleccionada);
-          u.searchParams.set('ciudad_id', ciudadSeleccionada);
-          history.replaceState(null, '', u.toString());
-
-          const paisNombre = paisSel.options[paisSel.selectedIndex]?.text || '';
-          const provNombre = provSel.options[provSel.selectedIndex]?.text || '';
-          const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
-
-          document.getElementById('tituloGuia').textContent = ciudadNombre || '';
-          guardarContextoCiudad(ciudadNombre);
-          document.getElementById('ubicacionSubtitulo').textContent =
-            [paisNombre, provNombre].filter(Boolean).join(' · ');
-
-          overlay.classList.add('oculto');
-          document.body.classList.remove('esperando-ubicacion');
-          await cargarGuiaSeleccionada();
-        });
-
-        // Si sólo hay una opción en cada nivel, entra prácticamente sin espera.
-        if(paises.length === 1) {
-          paisSel.value = String(paises[0].pais_id || '').trim();
-
-          const ps = cargarProvinciasLocal();
-          if(ps.length === 1) {
-            provSel.value = String(ps[0].provincia_id || '').trim();
-
-            const cs = cargarCiudadesLocal();
-            if(cs.length === 1) {
-              ciudadSel.value = String(cs[0].ciudad_id || '').trim();
-              btn.disabled = false;
-              prefetchGuia(paisSel.value, provSel.value, ciudadSel.value);
-            }
-          }
-        }
-
-        // Restaurar selección desde URL.
-        if(paisSeleccionado && provinciaSeleccionada && ciudadSeleccionada) {
-          paisSel.value = paisSeleccionado;
-          cargarProvinciasLocal();
-
-          provSel.value = provinciaSeleccionada;
-          cargarCiudadesLocal();
-
-          ciudadSel.value = ciudadSeleccionada;
-          btn.disabled = false;
-
-          const paisNombre = paisSel.options[paisSel.selectedIndex]?.text || '';
-          const provNombre = provSel.options[provSel.selectedIndex]?.text || '';
-          const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
-
-          document.getElementById('tituloGuia').textContent = ciudadNombre || '';
-          guardarContextoCiudad(ciudadNombre);
-          document.getElementById('ubicacionSubtitulo').textContent =
-            [paisNombre, provNombre].filter(Boolean).join(' · ');
-
-          overlay.classList.add('oculto');
-          document.body.classList.remove('esperando-ubicacion');
-          await cargarGuiaSeleccionada();
-        }
-
-      } catch(e) {
-        console.error('Error inicializando ubicación:', e);
-        error.textContent = 'Error: ' + (e && e.message ? e.message : String(e));
+      if(!ciudadSeleccionada && ctx && ctx.ciudad_id){
+        paisSeleccionado = String(ctx.pais_id || '').trim();
+        provinciaSeleccionada = String(ctx.provincia_id || '').trim();
+        ciudadSeleccionada = String(ctx.ciudad_id || '').trim();
       }
+
+      if(!ciudadSeleccionada){
+        try{ window.top.location.href = 'https://guialocal.ar/'; }
+        catch(e){ window.location.href = 'https://guialocal.ar/'; }
+        return;
+      }
+
+      const ciudadNombre = String(qs.get('ciudad') || (ctx && ctx.ciudad) || ciudadSeleccionada || '').trim();
+      const provinciaNombre = String(qs.get('provincia') || (ctx && ctx.provincia) || provinciaSeleccionada || '').trim();
+      const paisNombre = String(qs.get('pais') || (ctx && ctx.pais) || paisSeleccionado || '').trim();
+
+      const titulo = document.getElementById('tituloGuia');
+      const sub = document.getElementById('ubicacionSubtitulo');
+      if(titulo) titulo.textContent = ciudadNombre.toUpperCase();
+      if(sub) sub.textContent = [provinciaNombre, paisNombre].filter(Boolean).join(' - ');
+
+      const nuevoCtx = {
+        pais_id:paisSeleccionado,
+        provincia_id:provinciaSeleccionada,
+        ciudad_id:ciudadSeleccionada,
+        pais:paisNombre,
+        provincia:provinciaNombre,
+        ciudad:ciudadNombre,
+        ts:Date.now()
+      };
+      try{ localStorage.setItem(CITY_CONTEXT_KEY, JSON.stringify(nuevoCtx)); }catch(e){}
+
+      const promo = document.getElementById('moduloPromos');
+      if(promo){
+        const u = new URL('https://guialocal.ar/promos/');
+        Object.entries(nuevoCtx).forEach(([k,v])=>{
+          if(k !== 'ts' && v) u.searchParams.set(k,v);
+        });
+        promo.href = u.toString();
+      }
+
+      const cambiar = document.getElementById('cambiarCiudad');
+      if(cambiar){
+        cambiar.addEventListener('click', ()=>{
+          try{ localStorage.removeItem(CITY_CONTEXT_KEY); }catch(e){}
+          try{ window.top.location.href = 'https://guialocal.ar/'; }
+          catch(e){ window.location.href = 'https://guialocal.ar/'; }
+        });
+      }
+
+      await cargarGuiaSeleccionada();
     }
 
-    iniciarUbicacion();
+    iniciarGuiaDesdeMochila();
 
-  </script>
+</script>
 </body>
 </html>
