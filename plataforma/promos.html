@@ -140,7 +140,6 @@
     </div>
     <div class="city-nav">
       <button id="volverGuia" class="primary" type="button">Guía</button>
-      <a id="irPromos" class="primary" href="#" aria-current="page">Promos</a>
       <a id="irEventos" class="disabled" href="#" aria-disabled="true">Eventos · Próximamente</a>
       <button id="cambiarCiudad" type="button">Cambiar ciudad</button>
     </div>
@@ -169,7 +168,12 @@
   <script>
     const DATA_URL = "https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec";
     const CITY_CONTEXT_KEY = 'gld_ciudad_contexto';
-    const pageParams = new URLSearchParams(window.location.search || '');
+    let pageParams = new URLSearchParams(window.location.search || '');
+    try{
+      const ref = new URL(document.referrer || '');
+      const refParams = new URLSearchParams(ref.search || '');
+      if(!pageParams.get('ciudad_id') && refParams.get('ciudad_id')) pageParams = refParams;
+    }catch(e){}
     let ciudadContexto = {
       pais_id:String(pageParams.get('pais_id') || '').trim(),
       provincia_id:String(pageParams.get('provincia_id') || '').trim(),
@@ -212,32 +216,43 @@
       return ['fallback', nombre, promo, desde, hasta].join('|');
     }
     function readIncomingPromoFilter(){
-      let fromStorage = null;
+      const id = String(pageParams.get('id_comercio') || '').trim();
+      const anunciante = String(pageParams.get('anunciante') || '').trim();
+      const sede_id = String(pageParams.get('sede_id') || '').trim();
+
+      // Solo filtramos por anunciante cuando realmente llegamos desde una tarjeta.
+      if(!(id || anunciante || sede_id)){
+        try{ localStorage.removeItem(PROMOS_FILTER_STORAGE_KEY); }catch(e){}
+        return null;
+      }
+
+      let stored = null;
       try{
         const raw = localStorage.getItem(PROMOS_FILTER_STORAGE_KEY);
         if(raw){
           const parsed = JSON.parse(raw);
           const age = Date.now() - Number(parsed.ts || 0);
-          if(age >= 0 && age <= 10 * 60 * 1000) fromStorage = parsed;
-          localStorage.removeItem(PROMOS_FILTER_STORAGE_KEY);
+          if(age >= 0 && age <= 10 * 60 * 1000) stored = parsed;
         }
+        localStorage.removeItem(PROMOS_FILTER_STORAGE_KEY);
       }catch(e){}
 
-      let fromQuery = null;
-      try{
-        const qs = new URLSearchParams(window.location.search || '');
-        const id = String(qs.get('id_comercio') || '').trim();
-        const anunciante = String(qs.get('anunciante') || '').trim();
-        if(id || anunciante) fromQuery = { id_comercio:id, anunciante };
-      }catch(e){}
-
-      return fromStorage || fromQuery;
+      return Object.assign({}, stored || {}, {
+        id_comercio:id || (stored && stored.id_comercio) || '',
+        anunciante:anunciante || (stored && stored.anunciante) || '',
+        sede_id:sede_id || (stored && stored.sede_id) || ''
+      });
     }
+
     function promoMatchesIncomingFilter(p, filter){
       if(!filter) return true;
 
       const keys = Array.isArray(filter.promo_keys) ? filter.promo_keys.filter(Boolean) : [];
       if(keys.length && keys.includes(promoFilterKey(p))) return true;
+
+      const wantedSede = String(filter.sede_id || '').trim();
+      const promoSede = String(p && p.sede_id || '').trim();
+      if(wantedSede && promoSede && wantedSede === promoSede) return true;
 
       const wantedId = String(filter.id_comercio || '').trim();
       const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || '') || '').trim();
@@ -662,7 +677,7 @@
     }
 
     function guiaUrl(conCiudad=true){
-      const u=new URL('/',window.location.origin);
+      const u=new URL(conCiudad ? 'https://guialocal.ar/guia/' : 'https://guialocal.ar/');
       if(conCiudad){
         Object.entries(ciudadContexto).forEach(([k,v])=>{ if(v) u.searchParams.set(k,v); });
       }
@@ -682,9 +697,6 @@
       try{ localStorage.removeItem(CITY_CONTEXT_KEY); }catch(e){}
       navegarArriba(guiaUrl(false));
     });
-
-    const promosActual = document.getElementById('irPromos');
-    if(promosActual) promosActual.href = window.top === window.self ? window.location.href : '#';
 
     loadData();
   </script>
