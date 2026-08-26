@@ -561,7 +561,7 @@
             pais_id:paisId,
             provincia_id:provinciaId,
             ciudad_id:ciudadId
-          }).catch(err => {
+          }, 45000).catch(err => {
             guiaPrefetchCache.delete(key);
             throw err;
           })
@@ -601,8 +601,15 @@
 
     async function cargarGuiaSeleccionada(){
       try {
-        const guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
-          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 30000);
+        let guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
+          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 45000);
+
+        // Si una precarga arrancó justo durante un arranque lento de Apps Script,
+        // reintentamos una vez antes de declarar que la guía no carga.
+        guiaPromise = guiaPromise.catch(() => {
+          guiaPrefetchCache.delete(guiaKey(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada));
+          return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 45000);
+        });
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -2149,7 +2156,6 @@
           const ciudadNombre = ciudadSel.options[ciudadSel.selectedIndex]?.text || '';
 
           document.getElementById('tituloGuia').textContent = ciudadNombre || '';
-          guardarContextoCiudad(ciudadNombre);
           guardarContextoCiudad(ciudadNombre);
           document.getElementById('ubicacionSubtitulo').textContent =
             [paisNombre, provNombre].filter(Boolean).join(' · ');
