@@ -205,6 +205,12 @@
     }
     .promos-activas-btn:hover,.promos-activas-btn:focus{background:#e65f00;outline:2px solid #fff;outline-offset:2px;}
 
+    .card-modulos-actions{width:100%;box-sizing:border-box;}
+    .card-modulos-actions:not(:empty){margin-top:.15rem;}
+    .card-modulos-actions > a{animation:gld-action-in .18s ease-out;}
+    @keyframes gld-action-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+
+
     @media (max-width:700px){
       body{font-size:16px;}
       .header{
@@ -1241,8 +1247,9 @@
             if(webMailHtml) html += `<div class="web-mail-bloque">${webMailHtml}</div><span class="segmento-doble"></span>`;
           }
 
-          html += renderEventosActivosButton(item);
-          html += renderPromosActivasButton(item);
+          const cardKey = String(item.id || item.__id || item.id_comercio || item.nombre || '').trim();
+          const accionesHtml = renderEventosActivosButton(item) + renderPromosActivasButton(item);
+          html += `<div class="card-modulos-actions" data-card-actions="${cardKey.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}">${accionesHtml}</div>`;
           html += `</div>`;
           return html;
         }
@@ -1866,44 +1873,58 @@
           render();
         });
 
+        function actualizarBotonesModulosVisibles(){
+          document.querySelectorAll('[data-card-actions]').forEach(zone => {
+            const key = String(zone.getAttribute('data-card-actions') || '').trim();
+            const item = serviciosData.find(x =>
+              String(x.id || x.__id || x.id_comercio || x.nombre || '').trim() === key
+            );
+            if(!item) return;
+            const nuevo = renderEventosActivosButton(item) + renderPromosActivasButton(item);
+            if(zone.innerHTML !== nuevo) zone.innerHTML = nuevo;
+          });
+        }
+
         // Primer render: sólo con los datos de la guía.
         render();
 
-        // Segundo plano: al terminar eventos/promos/banners, se enriquecen las tarjetas
-        // sin haber bloqueado la primera visualización.
-        Promise.all([bannersPromise, eventsPromise, promosPromise])
-          .then(([bannersLoaded, eventsLoaded, promosLoaded]) => {
-            rawBanners = Array.isArray(bannersLoaded) ? bannersLoaded : [];
-            rawEventsResponse = eventsLoaded || [];
-            rawPromosResponse = promosLoaded || [];
+        // Segundo plano independiente: cada módulo actualiza apenas llega.
+        // Ya no esperamos al recurso más lento para mostrar Eventos o Promos.
+        eventsPromise.then(eventsLoaded => {
+          rawEventsResponse = eventsLoaded || [];
+          rawEventsList = Array.isArray(rawEventsResponse)
+            ? rawEventsResponse
+            : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
+          activeEvents = rawEventsList.filter(eventIsActive);
+          actualizarBotonesModulosVisibles();
+        }).catch(err => console.warn('Eventos no disponibles todavía:', err));
 
-            if (rawBanners.length) {
-              banners = rawBanners
-                .filter(b => {
-                  const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
-                  return apr === 'true' || apr === '1' || apr === 'x';
-                })
-                .map(b => ({
-                  img: (b.img || b.url || '').trim(),
-                  media: (b.media || '').trim(),
-                  cta: (b.cta || '').trim(),
-                  poster: (b.poster || '').trim()
-                }));
-            }
+        promosPromise.then(promosLoaded => {
+          rawPromosResponse = promosLoaded || [];
+          rawPromosList = Array.isArray(rawPromosResponse)
+            ? rawPromosResponse
+            : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+          activePromos = rawPromosList.filter(p => promoIsActive(p) && promoMatchesCurrentCity(p));
+          actualizarBotonesModulosVisibles();
+        }).catch(err => console.warn('Promos no disponibles todavía:', err));
 
-            rawEventsList = Array.isArray(rawEventsResponse)
-              ? rawEventsResponse
-              : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
-            activeEvents = rawEventsList.filter(eventIsActive);
-
-            rawPromosList = Array.isArray(rawPromosResponse)
-              ? rawPromosResponse
-              : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
-            activePromos = rawPromosList.filter(p => promoIsActive(p) && promoMatchesCurrentCity(p));
-
+        bannersPromise.then(bannersLoaded => {
+          rawBanners = Array.isArray(bannersLoaded) ? bannersLoaded : [];
+          if (rawBanners.length) {
+            banners = rawBanners
+              .filter(b => {
+                const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
+                return apr === 'true' || apr === '1' || apr === 'x';
+              })
+              .map(b => ({
+                img: (b.img || b.url || '').trim(),
+                media: (b.media || '').trim(),
+                cta: (b.cta || '').trim(),
+                poster: (b.poster || '').trim()
+              }));
             render();
-          })
-          .catch(err => console.warn('Carga secundaria incompleta:', err));
+          }
+        }).catch(err => console.warn('Banners no disponibles todavía:', err));
 
         window.addEventListener('scroll', () => {
           const topBtn = document.getElementById('topBtn');
