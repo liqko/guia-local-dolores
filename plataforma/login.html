@@ -744,7 +744,7 @@ const COMMERCE_DATA_FIELDS = [
 const COMMERCE_SEDE_FIELDS = [
   "nombre_sede","direccion",
   "lat","lng","maps","telefono","whatsapp","mail",
-  "instagram","facebook","youtube","tiktok","linkedin",
+  "instagram","facebook","youtube","tiktok","linkedin","x",
   "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
   "estado"
 ];
@@ -1055,6 +1055,14 @@ function isKnownEventPartnerName(name){
   return (evLists.partners || []).some(p=>String(p && p.nombre || '').trim().toLowerCase() === wanted);
 }
 
+function normalizeEventPartnerSearch(value){
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .trim();
+}
+
 function toggleExternalPartnerFields(i){
   const ids = eventPartnerIds(i);
   const sel = document.getElementById(ids.selectId);
@@ -1075,6 +1083,36 @@ function configureEventPartnerSelect(i){
   }
   if(!sel.dataset.externalPartnerBound){
     sel.addEventListener('change', ()=>toggleExternalPartnerFields(i));
+    let searchBuffer = '';
+    let searchTimer = null;
+    sel.addEventListener('keydown', (e)=>{
+      if(e.ctrlKey || e.metaKey || e.altKey) return;
+      if(e.key === 'Escape'){
+        searchBuffer = '';
+        if(searchTimer) clearTimeout(searchTimer);
+        return;
+      }
+      if(e.key === 'Backspace'){
+        e.preventDefault();
+        searchBuffer = searchBuffer.slice(0,-1);
+      } else if(e.key && e.key.length === 1 && /[a-zA-Z0-9ÁÉÍÓÚÜÑáéíóúüñ .&_-]/.test(e.key)){
+        e.preventDefault();
+        searchBuffer += e.key;
+      } else {
+        return;
+      }
+      if(searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(()=>{ searchBuffer=''; }, 1400);
+      const query = normalizeEventPartnerSearch(searchBuffer);
+      if(query.length < 3) return;
+      const options = Array.from(sel.options).filter(o=>o.value && o.value !== EVENT_PARTNER_OTHER_VALUE);
+      const match = options.find(o=>normalizeEventPartnerSearch(o.textContent).startsWith(query)) ||
+                    options.find(o=>normalizeEventPartnerSearch(o.textContent).includes(query));
+      if(match){
+        sel.value = match.value;
+        sel.dispatchEvent(new Event('change', { bubbles:true }));
+      }
+    });
     sel.dataset.externalPartnerBound = '1';
   }
   toggleExternalPartnerFields(i);
@@ -1476,7 +1514,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
     COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
       const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
       const isImage = /^img\d+$/.test(fieldName);
-      if(!contactoTituloPuesto && ['telefono','whatsapp','mail','instagram','facebook','youtube','tiktok','linkedin'].includes(fieldName)){
+      if(!contactoTituloPuesto && ['telefono','whatsapp','mail','instagram','facebook','youtube','tiktok','linkedin','x'].includes(fieldName)){
         html += `<div class="sede-section"><div class="sede-section-title">Contacto y redes</div></div>`;
         contactoTituloPuesto=true;
       }
@@ -1718,14 +1756,14 @@ function textoCupoPublicacion(cupo){
 function promoGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 const PROMO_SEDE_CONTACT_FIELDS = [
-  'instagram','facebook','youtube','tiktok','linkedin',
+  'instagram','facebook','youtube','tiktok','linkedin','x',
   'direccion','maps',
   'telefono','telefono2','telefono3','telefono4','telefono5',
   'whatsapp','whatsapp2','whatsapp3'
 ];
 
 const PROMO_SEDE_CONTACT_LABELS = {
-  instagram:'Instagram', facebook:'Facebook', youtube:'YouTube', tiktok:'TikTok', linkedin:'LinkedIn',
+  instagram:'Instagram', facebook:'Facebook', youtube:'YouTube', tiktok:'TikTok', linkedin:'LinkedIn', x:'X',
   direccion:'Dirección', maps:'Maps',
   telefono:'Teléfono', telefono2:'Teléfono 2', telefono3:'Teléfono 3', telefono4:'Teléfono 4', telefono5:'Teléfono 5',
   whatsapp:'WhatsApp', whatsapp2:'WhatsApp 2', whatsapp3:'WhatsApp 3'
@@ -1812,7 +1850,7 @@ function promoActualizarSede(selectedValues){
 
 function promoContactPayload(){
   const payload={
-    instagram:'',facebook:'',youtube:'',tiktok:'',linkedin:'',
+    instagram:'',facebook:'',youtube:'',tiktok:'',linkedin:'',x:'',
     direccion:'',maps:'',
     telefono:'',telefono1:'',telefono2:'',telefono3:'',telefono4:'',
     whatsapp:'',whatsapp2:'',whatsapp3:''
