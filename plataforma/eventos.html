@@ -708,11 +708,23 @@
 
 
     function mountYouTubeBlock(parentEl, title, url){
-      const embedUrl = getYouTubeEmbedUrl(url, false);
-      if (!embedUrl) return null;
+      let videoId = '';
+      try{
+        const u = new URL(String(url || '').trim());
+        if(u.hostname.includes('youtu.be')) videoId = u.pathname.replace(/^\/+/, '').split('/')[0];
+        else if(u.searchParams.get('v')) videoId = u.searchParams.get('v');
+        else {
+          const parts = u.pathname.split('/').filter(Boolean);
+          const marker = parts.findIndex(p=>['embed','shorts','live'].includes(String(p).toLowerCase()));
+          videoId = marker >= 0 && parts[marker+1] ? parts[marker+1] : (parts.pop() || '');
+        }
+      }catch(e){}
+      videoId = String(videoId || '').split(/[?&#]/)[0].trim();
+      if(!videoId) return null;
 
       const wrap = document.createElement('div');
       wrap.className = 'embed-wrap';
+
       const head = document.createElement('div');
       head.className = 'embed-head';
       const label = document.createElement('span');
@@ -721,29 +733,147 @@
       close.className = 'embed-close';
       close.type = 'button';
       close.textContent = 'Ocultar';
+      head.appendChild(label);
+      head.appendChild(close);
 
+      const shell = document.createElement('div');
+      shell.style.position = 'relative';
+      shell.style.width = '100%';
+      shell.style.aspectRatio = '16 / 9';
+      shell.style.background = '#000';
+      shell.style.overflow = 'hidden';
+
+      const iframeId = 'event-yt-' + Math.floor(Math.random()*1000000000);
       const ifr = document.createElement('iframe');
+      ifr.id = iframeId;
       ifr.className = 'embed-iframe';
-      const sep = embedUrl.includes('?') ? '&' : '?';
-      ifr.src = embedUrl + sep + 'controls=1&fs=0&iv_load_policy=3&disablekb=0';
+      ifr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) +
+        '?enablejsapi=1&controls=0&fs=0&disablekb=1&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1';
       ifr.loading = 'lazy';
       ifr.referrerPolicy = 'strict-origin-when-cross-origin';
       ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
       ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
       ifr.setAttribute('title', title || 'Video');
+      ifr.style.width = '100%';
+      ifr.style.height = '100%';
+      ifr.style.border = '0';
+      ifr.style.pointerEvents = 'none';
+      shell.appendChild(ifr);
 
+      const overlay = document.createElement('div');
+      overlay.style.position = 'absolute';
+      overlay.style.inset = '0';
+      overlay.style.display = 'flex';
+      overlay.style.flexDirection = 'column';
+      overlay.style.alignItems = 'center';
+      overlay.style.justifyContent = 'center';
+      overlay.style.gap = '12px';
+      overlay.style.background = '#000 center / cover no-repeat';
+      overlay.style.backgroundImage = `linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.28)),url(https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg)`;
+      overlay.style.zIndex = '3';
+
+      const playOverlay = document.createElement('button');
+      playOverlay.type = 'button';
+      playOverlay.textContent = '▶ Reproducir video';
+      playOverlay.style.border = '0';
+      playOverlay.style.borderRadius = '999px';
+      playOverlay.style.padding = '12px 18px';
+      playOverlay.style.fontWeight = '900';
+      playOverlay.style.cursor = 'pointer';
+      overlay.appendChild(playOverlay);
+      shell.appendChild(overlay);
+
+      const controls = document.createElement('div');
+      controls.style.display = 'flex';
+      controls.style.justifyContent = 'center';
+      controls.style.gap = '8px';
+      controls.style.padding = '8px';
+      controls.style.background = '#f0f4ff';
+
+      const playPause = document.createElement('button');
+      playPause.type = 'button';
+      playPause.textContent = 'Reproducir';
+      playPause.style.border = '1px solid #1f5fb8';
+      playPause.style.background = '#fff';
+      playPause.style.color = '#1f5fb8';
+      playPause.style.borderRadius = '10px';
+      playPause.style.padding = '8px 14px';
+      playPause.style.fontWeight = '900';
+      playPause.style.cursor = 'pointer';
+      controls.appendChild(playPause);
+
+      wrap.appendChild(head);
+      wrap.appendChild(shell);
+      wrap.appendChild(controls);
+      parentEl.appendChild(wrap);
+
+      let player = null;
       let hidden = false;
+      let pendingPlay = false;
+
+      function showCover(){
+        overlay.style.display = 'flex';
+        playPause.textContent = 'Reproducir';
+      }
+      function hideCover(){ overlay.style.display = 'none'; }
+      function playVideo(){
+        pendingPlay = true;
+        hideCover();
+        if(player && typeof player.playVideo === 'function'){
+          try{ player.playVideo(); pendingPlay = false; }catch(e){}
+        }
+      }
+      function togglePlay(){
+        if(!player){ playVideo(); return; }
+        try{
+          const state = player.getPlayerState();
+          if(state === YT.PlayerState.PLAYING){ player.pauseVideo(); }
+          else playVideo();
+        }catch(e){ playVideo(); }
+      }
+
+      playOverlay.addEventListener('click', playVideo);
+      playPause.addEventListener('click', togglePlay);
+
       close.onclick = ()=>{
         hidden = !hidden;
-        ifr.style.display = hidden ? 'none' : 'block';
+        shell.style.display = hidden ? 'none' : 'block';
+        controls.style.display = hidden ? 'none' : 'flex';
         close.textContent = hidden ? 'Ver' : 'Ocultar';
+        if(hidden && player && typeof player.pauseVideo === 'function'){
+          try{ player.pauseVideo(); }catch(e){}
+        }
       };
 
-      head.appendChild(label);
-      head.appendChild(close);
-      wrap.appendChild(head);
-      wrap.appendChild(ifr);
-      parentEl.appendChild(wrap);
+      function attachPlayer(attempt){
+        attempt = attempt || 0;
+        if(window.YT && YT.Player){
+          try{
+            player = new YT.Player(iframeId, {
+              events:{
+                onReady:function(){
+                  if(pendingPlay){ try{ player.playVideo(); pendingPlay = false; }catch(e){} }
+                },
+                onStateChange:function(e){
+                  try{
+                    if(e.data === YT.PlayerState.PLAYING){ hideCover(); playPause.textContent = 'Pausar'; }
+                    else if(e.data === YT.PlayerState.PAUSED){ playPause.textContent = 'Reproducir'; }
+                    else if(e.data === YT.PlayerState.ENDED){
+                      try{ player.seekTo(0, true); player.pauseVideo(); }catch(_e){}
+                      showCover();
+                    }
+                  }catch(_e){}
+                }
+              }
+            });
+          }catch(e){}
+          return;
+        }
+        if(attempt < 60) setTimeout(()=>attachPlayer(attempt+1), 250);
+      }
+
+      try{ ensureYouTubeAPI(); }catch(e){}
+      attachPlayer(0);
       return wrap;
     }
 
