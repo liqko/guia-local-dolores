@@ -707,15 +707,16 @@
       }catch(e){ return ''; }
     }
 
-
     function mountYouTubeBlock(parentEl, title, url){
       let videoId = '';
+      let isShort = false;
       try{
         const u = new URL(String(url || '').trim());
+        const parts = u.pathname.split('/').filter(Boolean);
+        isShort = parts.some(p => String(p).toLowerCase() === 'shorts');
         if(u.hostname.includes('youtu.be')) videoId = u.pathname.replace(/^\/+/, '').split('/')[0];
         else if(u.searchParams.get('v')) videoId = u.searchParams.get('v');
         else {
-          const parts = u.pathname.split('/').filter(Boolean);
           const marker = parts.findIndex(p=>['embed','shorts','live'].includes(String(p).toLowerCase()));
           videoId = marker >= 0 && parts[marker+1] ? parts[marker+1] : (parts.pop() || '');
         }
@@ -739,39 +740,24 @@
 
       const shell = document.createElement('div');
       shell.style.position = 'relative';
-      shell.style.width = '100%';
-      shell.style.aspectRatio = '16 / 9';
+      shell.style.width = isShort ? 'min(100%, 360px)' : '100%';
+      shell.style.aspectRatio = isShort ? '9 / 16' : '16 / 9';
       shell.style.background = '#000';
       shell.style.overflow = 'hidden';
+      shell.style.margin = '0 auto';
 
-      const iframeId = 'event-yt-' + Math.floor(Math.random()*1000000000);
-      const ifr = document.createElement('iframe');
-      ifr.id = iframeId;
-      ifr.className = 'embed-iframe';
-      ifr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) +
-        '?enablejsapi=1&controls=0&fs=0&disablekb=1&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1';
-      ifr.loading = 'lazy';
-      ifr.referrerPolicy = 'strict-origin-when-cross-origin';
-      ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
-      ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-      ifr.setAttribute('title', title || 'Video');
-      ifr.style.width = '100%';
-      ifr.style.height = '100%';
-      ifr.style.border = '0';
-      ifr.style.pointerEvents = 'none';
-      shell.appendChild(ifr);
+      const posterUrl = `https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
 
-      const overlay = document.createElement('div');
-      overlay.style.position = 'absolute';
-      overlay.style.inset = '0';
-      overlay.style.display = 'flex';
-      overlay.style.flexDirection = 'column';
-      overlay.style.alignItems = 'center';
-      overlay.style.justifyContent = 'center';
-      overlay.style.gap = '12px';
-      overlay.style.background = '#000 center / cover no-repeat';
-      overlay.style.backgroundImage = `linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.28)),url(https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg)`;
-      overlay.style.zIndex = '3';
+      const cover = document.createElement('div');
+      cover.style.position = 'absolute';
+      cover.style.inset = '0';
+      cover.style.display = 'flex';
+      cover.style.flexDirection = 'column';
+      cover.style.alignItems = 'center';
+      cover.style.justifyContent = 'center';
+      cover.style.gap = '12px';
+      cover.style.background = `linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.28)),url(${posterUrl}) center / cover no-repeat`;
+      cover.style.zIndex = '3';
 
       const playOverlay = document.createElement('button');
       playOverlay.type = 'button';
@@ -781,11 +767,11 @@
       playOverlay.style.padding = '12px 18px';
       playOverlay.style.fontWeight = '900';
       playOverlay.style.cursor = 'pointer';
-      overlay.appendChild(playOverlay);
-      shell.appendChild(overlay);
+      cover.appendChild(playOverlay);
+      shell.appendChild(cover);
 
       const controls = document.createElement('div');
-      controls.style.display = 'flex';
+      controls.style.display = 'none';
       controls.style.justifyContent = 'center';
       controls.style.gap = '8px';
       controls.style.padding = '8px';
@@ -793,7 +779,7 @@
 
       const playPause = document.createElement('button');
       playPause.type = 'button';
-      playPause.textContent = 'Reproducir';
+      playPause.textContent = 'Pausar';
       playPause.style.border = '1px solid #1f5fb8';
       playPause.style.background = '#fff';
       playPause.style.color = '#1f5fb8';
@@ -809,72 +795,92 @@
       parentEl.appendChild(wrap);
 
       let player = null;
+      let iframeId = '';
       let hidden = false;
-      let pendingPlay = false;
 
-      function showCover(){
-        overlay.style.display = 'flex';
-        playPause.textContent = 'Reproducir';
+      function restoreCover(){
+        try{
+          if(player && typeof player.destroy === 'function') player.destroy();
+        }catch(e){}
+        player = null;
+        const oldIframe = shell.querySelector('iframe');
+        if(oldIframe) oldIframe.remove();
+        cover.style.display = 'flex';
+        controls.style.display = 'none';
+        playPause.textContent = 'Pausar';
       }
-      function hideCover(){ overlay.style.display = 'none'; }
-      function playVideo(){
-        pendingPlay = true;
-        hideCover();
-        if(player && typeof player.playVideo === 'function'){
-          try{ player.playVideo(); pendingPlay = false; }catch(e){}
-        }
+
+      function createPlayer(){
+        if(player) return;
+        cover.style.display = 'none';
+        controls.style.display = 'flex';
+
+        iframeId = 'event-yt-' + Math.floor(Math.random()*1000000000);
+        const ifr = document.createElement('iframe');
+        ifr.id = iframeId;
+        ifr.className = 'embed-iframe';
+        ifr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) +
+          '?enablejsapi=1&autoplay=1&controls=0&fs=0&disablekb=1&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1';
+        ifr.referrerPolicy = 'strict-origin-when-cross-origin';
+        ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
+        ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
+        ifr.setAttribute('title', title || 'Video');
+        ifr.style.width = '100%';
+        ifr.style.height = '100%';
+        ifr.style.border = '0';
+        ifr.style.pointerEvents = 'none';
+        shell.appendChild(ifr);
+
+        try{ ensureYouTubeAPI(); }catch(e){}
+
+        let attempts = 0;
+        const attach = ()=>{
+          if(window.YT && YT.Player){
+            try{
+              player = new YT.Player(iframeId, {
+                events:{
+                  onReady:function(){
+                    try{ player.playVideo(); }catch(e){}
+                  },
+                  onStateChange:function(e){
+                    try{
+                      if(e.data === YT.PlayerState.PLAYING) playPause.textContent = 'Pausar';
+                      else if(e.data === YT.PlayerState.PAUSED) playPause.textContent = 'Reproducir';
+                      else if(e.data === YT.PlayerState.ENDED) restoreCover();
+                    }catch(_e){}
+                  }
+                }
+              });
+            }catch(e){}
+            return;
+          }
+          attempts++;
+          if(attempts < 60) setTimeout(attach, 250);
+        };
+        attach();
       }
-      function togglePlay(){
-        if(!player){ playVideo(); return; }
+
+      playOverlay.addEventListener('click', createPlayer);
+
+      playPause.addEventListener('click', ()=>{
+        if(!player) return;
         try{
           const state = player.getPlayerState();
-          if(state === YT.PlayerState.PLAYING){ player.pauseVideo(); }
-          else playVideo();
-        }catch(e){ playVideo(); }
-      }
-
-      playOverlay.addEventListener('click', playVideo);
-      playPause.addEventListener('click', togglePlay);
+          if(state === YT.PlayerState.PLAYING) player.pauseVideo();
+          else player.playVideo();
+        }catch(e){}
+      });
 
       close.onclick = ()=>{
         hidden = !hidden;
         shell.style.display = hidden ? 'none' : 'block';
-        controls.style.display = hidden ? 'none' : 'flex';
+        controls.style.display = hidden || !player ? 'none' : 'flex';
         close.textContent = hidden ? 'Ver' : 'Ocultar';
         if(hidden && player && typeof player.pauseVideo === 'function'){
           try{ player.pauseVideo(); }catch(e){}
         }
       };
 
-      function attachPlayer(attempt){
-        attempt = attempt || 0;
-        if(window.YT && YT.Player){
-          try{
-            player = new YT.Player(iframeId, {
-              events:{
-                onReady:function(){
-                  if(pendingPlay){ try{ player.playVideo(); pendingPlay = false; }catch(e){} }
-                },
-                onStateChange:function(e){
-                  try{
-                    if(e.data === YT.PlayerState.PLAYING){ hideCover(); playPause.textContent = 'Pausar'; }
-                    else if(e.data === YT.PlayerState.PAUSED){ playPause.textContent = 'Reproducir'; }
-                    else if(e.data === YT.PlayerState.ENDED){
-                      try{ player.seekTo(0, true); player.pauseVideo(); }catch(_e){}
-                      showCover();
-                    }
-                  }catch(_e){}
-                }
-              }
-            });
-          }catch(e){}
-          return;
-        }
-        if(attempt < 60) setTimeout(()=>attachPlayer(attempt+1), 250);
-      }
-
-      try{ ensureYouTubeAPI(); }catch(e){}
-      attachPlayer(0);
       return wrap;
     }
 
@@ -2048,12 +2054,71 @@
       renderEventos(eventosFiltrados, 1);
     }
 
-    Promise.all([
-      fetch(EVENTS_ENDPOINT).then(res => res.json()),
-      fetch(CITIES_ENDPOINT).then(res => res.json()).catch(() => ({ciudades:[]})),
-      fetch(urlBanners).then(res => res.json()).catch(() => [])
-    ])
-      .then(([response, citiesResponse, rawBanners]) => {
+    const eventsEndpointCiudad = EVENTS_ENDPOINT +
+      (ciudadContexto.ciudad_id ? '&ciudad_id=' + encodeURIComponent(ciudadContexto.ciudad_id) : '');
+
+    function procesarEventosResponse(response){
+      const rawList = Array.isArray(response) ? response : (response.data || response.events || []);
+
+      eventosData = rawList.map(ev => {
+        const desde = getFechaDesdeRaw(ev);
+        const hasta = getFechaHastaRaw(ev);
+        const past = isPastDate(desde, hasta);
+        return { ...ev, _isPast: past };
+      })
+      .filter(ev => !ev._isPast)
+      .sort((a, b) => {
+        const dateA = parseToDate(getFechaDesdeRaw(a));
+        const dateB = parseToDate(getFechaDesdeRaw(b));
+        if (!dateA && !dateB) return 0;
+        if (!dateA) return 1;
+        if (!dateB) return -1;
+        return dateA - dateB;
+      });
+
+      const eventosCiudad = eventosData.filter(ev=>
+        !ciudadContexto.ciudad_id ||
+        String(ev && ev.ciudad_id || '').trim() === String(ciudadContexto.ciudad_id || '').trim()
+      );
+
+      hydrateCategoryFilterFromEvents(eventosCiudad);
+
+      if(initialEventKeys.length || initialOrganizerFilter || initialAdvertiserIdFilter){
+        eventosFiltrados = eventosCiudad.filter(matchesInitialAdvertiser);
+        const searchEl = document.getElementById('search');
+        if(searchEl && initialOrganizerFilter) searchEl.value = initialOrganizerFilter;
+        renderEventos(eventosFiltrados, 1);
+        const subtitleEl = document.getElementById('subtitle');
+        if(subtitleEl && initialOrganizerFilter){
+          subtitleEl.textContent = eventosFiltrados.length
+            ? `Eventos activos de ${initialOrganizerFilter}`
+            : `No encontramos eventos activos de ${initialOrganizerFilter}`;
+        }
+      } else {
+        applyEventFilters();
+      }
+    }
+
+    fetch(eventsEndpointCiudad)
+      .then(res => res.json())
+      .then(procesarEventosResponse)
+      .catch(err => {
+        console.error(err);
+        document.getElementById('events').innerHTML = `<p class="error" style="text-align:center;padding:20px;">Error al cargar los eventos.</p>`;
+      });
+
+    fetch(CITIES_ENDPOINT)
+      .then(res => res.json())
+      .then(citiesResponse => {
+        ciudadesData = Array.isArray(citiesResponse) ? citiesResponse : (citiesResponse.ciudades || []);
+        resolverCiudadVisible(ciudadesData);
+        updateCityHeading();
+      })
+      .catch(()=>{});
+
+    fetch(urlBanners)
+      .then(res => res.json())
+      .then(rawBanners => {
         if (rawBanners && Array.isArray(rawBanners)) {
           banners = rawBanners
             .filter(b => {
@@ -2066,51 +2131,10 @@
               cta: (b.cta || '').trim(),
               poster: (b.poster || '').trim()
             }));
-        }
-
-        const rawList = Array.isArray(response) ? response : (response.data || response.events || []);
-        ciudadesData = Array.isArray(citiesResponse) ? citiesResponse : (citiesResponse.ciudades || []);
-        resolverCiudadVisible(ciudadesData);
-        updateCityHeading();
-
-        eventosData = rawList.map(ev => {
-          const desde = getFechaDesdeRaw(ev);
-          const hasta = getFechaHastaRaw(ev);
-          const past = isPastDate(desde, hasta);
-          return { ...ev, _isPast: past };
-        })
-        .filter(ev => !ev._isPast)
-        .sort((a, b) => {
-          const dateA = parseToDate(getFechaDesdeRaw(a));
-          const dateB = parseToDate(getFechaDesdeRaw(b));
-          if (!dateA && !dateB) return 0;
-          if (!dateA) return 1;
-          if (!dateB) return -1;
-          return dateA - dateB;
-        });
-
-        const eventosCiudad = eventosData.filter(ev=>String(ev && ev.ciudad_id || '').trim() === String(ciudadContexto.ciudad_id || '').trim());
-        hydrateCategoryFilterFromEvents(eventosCiudad);
-
-        if(initialEventKeys.length || initialOrganizerFilter || initialAdvertiserIdFilter){
-          eventosFiltrados = eventosCiudad.filter(matchesInitialAdvertiser);
-          const searchEl = document.getElementById('search');
-          if(searchEl && initialOrganizerFilter) searchEl.value = initialOrganizerFilter;
-          renderEventos(eventosFiltrados, 1);
-          const subtitleEl = document.getElementById('subtitle');
-          if(subtitleEl && initialOrganizerFilter){
-            subtitleEl.textContent = eventosFiltrados.length
-              ? `Eventos activos de ${initialOrganizerFilter}`
-              : `No encontramos eventos activos de ${initialOrganizerFilter}`;
-          }
-        } else {
-          applyEventFilters();
+          if(eventosFiltrados.length) renderEventos(eventosFiltrados, currentPage || 1);
         }
       })
-      .catch(err => {
-        console.error(err);
-        document.getElementById('events').innerHTML = `<p class="error" style="text-align:center;padding:20px;">Error al cargar los eventos.</p>`;
-      });
+      .catch(()=>{});
 
     document.getElementById('search').addEventListener('input', applyEventFilters);
     document.getElementById('categoryFilter').addEventListener('change', applyEventFilters);
