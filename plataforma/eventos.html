@@ -435,6 +435,17 @@
     .pagination-bar span{color:#444;font-weight:500;}
     .pagination-bar span.dots{ cursor:default; background:none !important; color:#aaa; padding:3px 6px;}
 
+    .events-loading{
+      width:100%;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:12px;text-align:center;background:#fff;border:1px solid #e6eefc;border-radius:14px;
+      box-shadow:var(--shadow);padding:26px 18px;color:#1f5fb8;font-weight:900;
+    }
+    .events-loading-spinner{
+      width:34px;height:34px;border:4px solid #dce8f8;border-top-color:#1f5fb8;border-radius:50%;
+      animation:eventsSpin .8s linear infinite;
+    }
+    @keyframes eventsSpin{to{transform:rotate(360deg)}}
+
     .error{color:var(--danger);font-weight:900;}
 
     .modal-img-viewer{
@@ -710,17 +721,22 @@
     function mountYouTubeBlock(parentEl, title, url){
       let videoId = '';
       let isShort = false;
+
       try{
         const u = new URL(String(url || '').trim());
         const parts = u.pathname.split('/').filter(Boolean);
         isShort = parts.some(p => String(p).toLowerCase() === 'shorts');
-        if(u.hostname.includes('youtu.be')) videoId = u.pathname.replace(/^\/+/, '').split('/')[0];
-        else if(u.searchParams.get('v')) videoId = u.searchParams.get('v');
-        else {
+
+        if(u.hostname.includes('youtu.be')) {
+          videoId = parts[0] || '';
+        } else if(u.searchParams.get('v')) {
+          videoId = u.searchParams.get('v');
+        } else {
           const marker = parts.findIndex(p=>['embed','shorts','live'].includes(String(p).toLowerCase()));
-          videoId = marker >= 0 && parts[marker+1] ? parts[marker+1] : (parts.pop() || '');
+          videoId = marker >= 0 && parts[marker+1] ? parts[marker+1] : '';
         }
       }catch(e){}
+
       videoId = String(videoId || '').split(/[?&#]/)[0].trim();
       if(!videoId) return null;
 
@@ -729,18 +745,21 @@
 
       const head = document.createElement('div');
       head.className = 'embed-head';
+
       const label = document.createElement('span');
       label.textContent = title;
+
       const close = document.createElement('button');
       close.className = 'embed-close';
       close.type = 'button';
       close.textContent = 'Ocultar';
+
       head.appendChild(label);
       head.appendChild(close);
 
       const shell = document.createElement('div');
       shell.style.position = 'relative';
-      shell.style.width = isShort ? 'min(100%, 360px)' : '100%';
+      shell.style.width = isShort ? 'min(100%,360px)' : '100%';
       shell.style.aspectRatio = isShort ? '9 / 16' : '16 / 9';
       shell.style.background = '#000';
       shell.style.overflow = 'hidden';
@@ -751,43 +770,40 @@
       const cover = document.createElement('div');
       cover.style.position = 'absolute';
       cover.style.inset = '0';
+      cover.style.zIndex = '5';
       cover.style.display = 'flex';
-      cover.style.flexDirection = 'column';
       cover.style.alignItems = 'center';
       cover.style.justifyContent = 'center';
-      cover.style.gap = '12px';
       cover.style.background = `linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.28)),url(${posterUrl}) center / cover no-repeat`;
-      cover.style.zIndex = '3';
 
-      const playOverlay = document.createElement('button');
-      playOverlay.type = 'button';
-      playOverlay.textContent = '▶ Reproducir video';
-      playOverlay.style.border = '0';
-      playOverlay.style.borderRadius = '999px';
-      playOverlay.style.padding = '12px 18px';
-      playOverlay.style.fontWeight = '900';
-      playOverlay.style.cursor = 'pointer';
-      cover.appendChild(playOverlay);
+      const play = document.createElement('button');
+      play.type = 'button';
+      play.textContent = '▶ Reproducir video';
+      play.style.border = '0';
+      play.style.borderRadius = '999px';
+      play.style.padding = '12px 18px';
+      play.style.fontWeight = '900';
+      play.style.cursor = 'pointer';
+      cover.appendChild(play);
       shell.appendChild(cover);
 
       const controls = document.createElement('div');
       controls.style.display = 'none';
       controls.style.justifyContent = 'center';
-      controls.style.gap = '8px';
       controls.style.padding = '8px';
       controls.style.background = '#f0f4ff';
 
-      const playPause = document.createElement('button');
-      playPause.type = 'button';
-      playPause.textContent = 'Pausar';
-      playPause.style.border = '1px solid #1f5fb8';
-      playPause.style.background = '#fff';
-      playPause.style.color = '#1f5fb8';
-      playPause.style.borderRadius = '10px';
-      playPause.style.padding = '8px 14px';
-      playPause.style.fontWeight = '900';
-      playPause.style.cursor = 'pointer';
-      controls.appendChild(playPause);
+      const pause = document.createElement('button');
+      pause.type = 'button';
+      pause.textContent = 'Pausar';
+      pause.style.border = '1px solid #1f5fb8';
+      pause.style.background = '#fff';
+      pause.style.color = '#1f5fb8';
+      pause.style.borderRadius = '10px';
+      pause.style.padding = '8px 14px';
+      pause.style.fontWeight = '900';
+      pause.style.cursor = 'pointer';
+      controls.appendChild(pause);
 
       wrap.appendChild(head);
       wrap.appendChild(shell);
@@ -795,74 +811,85 @@
       parentEl.appendChild(wrap);
 
       let player = null;
-      let iframeId = '';
+      let playerHost = null;
       let hidden = false;
 
-      function restoreCover(){
+      function resetVideo(){
         try{
           if(player && typeof player.destroy === 'function') player.destroy();
         }catch(e){}
         player = null;
-        const oldIframe = shell.querySelector('iframe');
-        if(oldIframe) oldIframe.remove();
+        if(playerHost && playerHost.parentNode) playerHost.remove();
+        playerHost = null;
         cover.style.display = 'flex';
         controls.style.display = 'none';
-        playPause.textContent = 'Pausar';
+        pause.textContent = 'Pausar';
       }
 
-      function createPlayer(){
-        if(player) return;
+      function startVideo(){
         cover.style.display = 'none';
         controls.style.display = 'flex';
 
-        iframeId = 'event-yt-' + Math.floor(Math.random()*1000000000);
-        const ifr = document.createElement('iframe');
-        ifr.id = iframeId;
-        ifr.className = 'embed-iframe';
-        ifr.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(videoId) +
-          '?enablejsapi=1&autoplay=1&controls=0&fs=0&disablekb=1&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1';
-        ifr.referrerPolicy = 'strict-origin-when-cross-origin';
-        ifr.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-presentation');
-        ifr.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-        ifr.setAttribute('title', title || 'Video');
-        ifr.style.width = '100%';
-        ifr.style.height = '100%';
-        ifr.style.border = '0';
-        ifr.style.pointerEvents = 'none';
-        shell.appendChild(ifr);
+        playerHost = document.createElement('div');
+        playerHost.id = 'event-yt-host-' + Math.floor(Math.random()*1000000000);
+        playerHost.style.position = 'absolute';
+        playerHost.style.inset = '0';
+        shell.insertBefore(playerHost, cover);
 
         try{ ensureYouTubeAPI(); }catch(e){}
 
         let attempts = 0;
-        const attach = ()=>{
+        const create = ()=>{
           if(window.YT && YT.Player){
             try{
-              player = new YT.Player(iframeId, {
+              player = new YT.Player(playerHost.id, {
+                width:'100%',
+                height:'100%',
+                videoId:videoId,
+                playerVars:{
+                  autoplay:1,
+                  controls:0,
+                  disablekb:1,
+                  fs:0,
+                  iv_load_policy:3,
+                  rel:0,
+                  playsinline:1,
+                  modestbranding:1,
+                  origin:window.location.origin
+                },
                 events:{
-                  onReady:function(){
-                    try{ player.playVideo(); }catch(e){}
+                  onReady:function(e){
+                    try{ e.target.playVideo(); }catch(_e){}
                   },
                   onStateChange:function(e){
                     try{
-                      if(e.data === YT.PlayerState.PLAYING) playPause.textContent = 'Pausar';
-                      else if(e.data === YT.PlayerState.PAUSED) playPause.textContent = 'Reproducir';
-                      else if(e.data === YT.PlayerState.ENDED) restoreCover();
+                      if(e.data === YT.PlayerState.PLAYING) pause.textContent = 'Pausar';
+                      else if(e.data === YT.PlayerState.PAUSED) pause.textContent = 'Reproducir';
+                      else if(e.data === YT.PlayerState.ENDED) resetVideo();
                     }catch(_e){}
+                  },
+                  onError:function(){
+                    resetVideo();
                   }
                 }
               });
-            }catch(e){}
+            }catch(e){
+              resetVideo();
+            }
             return;
           }
+
           attempts++;
-          if(attempts < 60) setTimeout(attach, 250);
+          if(attempts < 80) setTimeout(create, 150);
+          else resetVideo();
         };
-        attach();
+
+        create();
       }
 
-      playOverlay.addEventListener('click', createPlayer);
+      play.addEventListener('click', startVideo);
 
-      playPause.addEventListener('click', ()=>{
+      pause.addEventListener('click', ()=>{
         if(!player) return;
         try{
           const state = player.getPlayerState();
@@ -876,7 +903,7 @@
         shell.style.display = hidden ? 'none' : 'block';
         controls.style.display = hidden || !player ? 'none' : 'flex';
         close.textContent = hidden ? 'Ver' : 'Ocultar';
-        if(hidden && player && typeof player.pauseVideo === 'function'){
+        if(hidden && player){
           try{ player.pauseVideo(); }catch(e){}
         }
       };
@@ -2053,6 +2080,17 @@
       updateCityHeading();
       renderEventos(eventosFiltrados, 1);
     }
+
+    function mostrarCargaEventos(){
+      const el=document.getElementById('events');
+      if(!el) return;
+      el.innerHTML=`<div class="events-loading" role="status" aria-live="polite">
+        <div class="events-loading-spinner" aria-hidden="true"></div>
+        <div>Cargando eventos de la ciudad...</div>
+      </div>`;
+    }
+
+    mostrarCargaEventos();
 
     const eventsEndpointCiudad = EVENTS_ENDPOINT +
       (ciudadContexto.ciudad_id ? '&ciudad_id=' + encodeURIComponent(ciudadContexto.ciudad_id) : '');
