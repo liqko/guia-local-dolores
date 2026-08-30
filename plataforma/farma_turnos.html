@@ -26,22 +26,53 @@
     .card.now{border-color:#22a561;background:#f4fff8}
     .status{display:inline-block;border-radius:999px;padding:6px 10px;background:#edf2f6;font-size:.8rem;font-weight:900;margin-bottom:10px}
     .status.now{background:#22a561;color:#fff}
+    .header{display:flex;gap:12px;align-items:center}
+    .logo{width:62px;height:62px;border:1px solid #dde5eb;border-radius:12px;object-fit:contain;background:#fff;padding:4px}
     .name{font-size:1.35rem;font-weight:900;color:#0e567d}
     .sede{font-size:.95rem;color:#667;margin-top:3px}
-    .turno{font-weight:800;margin-top:8px}
-    .info{margin-top:12px;line-height:1.55}
+    .turno{font-weight:800;margin-top:10px}
+    .info{margin-top:12px;line-height:1.65}
+    .contacts{margin-top:10px;display:flex;flex-wrap:wrap;gap:6px}
+    .contact-chip{display:inline-block;background:#eef4f7;border-radius:999px;padding:6px 9px;font-size:.88rem;font-weight:700;color:#315}
     .obs{margin-top:10px;background:#fff5d8;padding:9px;border-radius:8px;font-weight:700}
-    .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
-    .actions a{display:flex;justify-content:center;align-items:center;min-height:44px;border-radius:9px;text-decoration:none;font-weight:900;padding:8px}
+    .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+    .actions a{display:flex;justify-content:center;align-items:center;min-height:42px;border-radius:9px;text-decoration:none;font-weight:900;padding:8px 12px}
     .call{background:#006699;color:#fff}
     .wa{background:#25d366;color:#fff}
     .map{background:#ff7f50;color:#fff}
+    .mail{background:#5b6470;color:#fff}
+    .social{background:#fff;border:1px solid #006699;color:#006699}
+
+    /* ===== BANNERS PUBLICITARIOS ===== */
+    .banner-tarjeta{
+      background:#fff;border-radius:16px;padding:12px;
+      box-shadow:0 6px 22px #0001;text-align:center;overflow:hidden;
+    }
+    .banner-media{
+      width:100%;max-width:720px;margin:0 auto;border-radius:12px;
+      overflow:hidden;background:#000;position:relative;
+    }
+    .banner-media img,.banner-media video,.banner-media iframe{
+      width:100%;display:block;border:0;aspect-ratio:16/9;object-fit:cover;
+    }
+    .banner-sound-btn{
+      margin:8px auto 0;border:0;border-radius:999px;padding:8px 13px;
+      background:#222;color:#fff;font-weight:900;cursor:pointer;
+    }
+    .banner-cta{
+      display:inline-flex;align-items:center;justify-content:center;
+      min-height:42px;margin-top:10px;padding:8px 14px;border-radius:9px;
+      background:#006699;color:#fff;text-decoration:none;font-weight:900;
+    }
+
     @media(max-width:620px){
       .wrap{padding:8px}
       h1{font-size:1.55rem}
-      .actions{grid-template-columns:1fr}
       .datebar{display:grid;grid-template-columns:1fr;width:100%}
       .datebar button,.datebar input{width:100%}
+      .actions{display:grid;grid-template-columns:1fr}
+      .actions a{width:100%}
+      .header{align-items:flex-start}
     }
   </style>
 </head>
@@ -66,6 +97,8 @@
 <script>
 const API_URL='PEGAR_URL_WEBAPP_FARMACIAS_AQUI';
 const CITY_CONTEXT_KEY='gld_ciudad_contexto';
+const BANNERS_URL='https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
+let banners=[];
 
 function cityContext(){
   const qs=new URLSearchParams(location.search);
@@ -77,7 +110,9 @@ function cityContext(){
   });
   return c;
 }
+
 const city=cityContext();
+let fecha=isoDate(new Date());
 
 function isoDate(d){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -90,11 +125,20 @@ function shift(s,n){const d=fromIso(s);d.setDate(d.getDate()+n);return isoDate(d
 function human(s){return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(fromIso(s));}
 function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
 function cleanTel(v){return String(v||'').replace(/[^\d+]/g,'');}
-function wa(v){const d=String(v||'').replace(/\D/g,'');return d?'https://wa.me/'+d:'';}
-function safeUrl(v){const s=String(v||'').trim();return !s?'':(/^https?:\/\//i.test(s)?s:'https://'+s);}
-
-let fecha=isoDate(new Date());
-
+function waUrl(v){
+  const s=String(v||'').trim();
+  if(!s) return '';
+  if(/^https?:\/\//i.test(s)) return s;
+  const d=s.replace(/\D/g,'');
+  return d?'https://wa.me/'+d:'';
+}
+function safeUrl(v){
+  const s=String(v||'').trim();
+  return !s?'':(/^https?:\/\//i.test(s)?s:'https://'+s);
+}
+function firstNonEmpty(arr){
+  return arr.map(v=>String(v||'').trim()).filter(Boolean);
+}
 function loading(){
   document.getElementById('list').innerHTML='';
   document.getElementById('state').innerHTML='<div class="loading"><div class="spinner"></div>Cargando farmacias de turno...</div>';
@@ -108,32 +152,197 @@ function empty(){
   document.getElementById('state').innerHTML='<div class="empty">No hay turnos cargados para esta fecha.</div>';
 }
 function rango(t){
-  if(t.fecha_desde===t.fecha_hasta) return (t.hora_desde||'')+' a '+(t.hora_hasta||'');
+  if(t.fecha_desde===t.fecha_hasta){
+    return (t.hora_desde||'')+' a '+(t.hora_hasta||'');
+  }
   return `${t.fecha_desde} ${t.hora_desde||''} → ${t.fecha_hasta} ${t.hora_hasta||''}`;
 }
+
+
+function isVideoFile(url){
+  return typeof url==='string' && /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
+}
+function isYouTube(url){
+  return typeof url==='string' && /youtu(be\.com|\.be)/i.test(url);
+}
+function youtubeEmbed(url){
+  try{
+    const u=new URL(url);
+    let id='';
+    if(u.hostname.includes('youtu.be')) id=u.pathname.slice(1);
+    else{
+      id=u.searchParams.get('v')||'';
+      if(!id){
+        const parts=u.pathname.split('/').filter(Boolean);
+        id=parts.pop()||'';
+      }
+    }
+    if(!id) return '';
+    const p=new URLSearchParams({
+      autoplay:'1',mute:'1',playsinline:'1',rel:'0',enablejsapi:'1',modestbranding:'1'
+    });
+    return `https://www.youtube.com/embed/${id}?${p.toString()}`;
+  }catch(e){return '';}
+}
+function ytBannerCommand(frame,func,args){
+  try{
+    if(frame&&frame.contentWindow){
+      frame.contentWindow.postMessage(JSON.stringify({
+        event:'command',func:func,args:Array.isArray(args)?args:[]
+      }),'*');
+    }
+  }catch(e){}
+}
+function attachBannerSound(media){
+  if(!media||media.dataset.soundBound==='1') return;
+  const tag=String(media.tagName||'').toLowerCase();
+  const nativeVideo=tag==='video';
+  const youtube=tag==='iframe';
+  if(!nativeVideo&&!youtube) return;
+
+  media.dataset.soundBound='1';
+  const card=media.closest('.banner-tarjeta');
+  if(!card) return;
+
+  const btn=document.createElement('button');
+  btn.type='button';
+  btn.className='banner-sound-btn';
+  let muted=true;
+
+  const paint=()=>{btn.textContent=muted?'🔊 Activar sonido':'🔇 Silenciar';};
+
+  btn.onclick=e=>{
+    e.preventDefault();
+    e.stopPropagation();
+    muted=!muted;
+
+    if(nativeVideo){
+      media.muted=muted;
+      if(!muted) media.volume=1;
+      if(media.paused){
+        try{
+          const p=media.play();
+          if(p&&p.catch) p.catch(()=>{});
+        }catch(err){}
+      }
+    }else{
+      ytBannerCommand(media,muted?'mute':'unMute');
+      if(!muted) ytBannerCommand(media,'setVolume',[100]);
+    }
+    paint();
+  };
+
+  card.insertBefore(btn,card.querySelector('.banner-cta'));
+  paint();
+}
+function renderBanner(banner,idx){
+  const img=safeUrl(banner.img||banner.url);
+  const media=safeUrl(banner.media);
+  const cta=safeUrl(banner.cta);
+  const poster=safeUrl(banner.poster);
+  const id='farm-banner-'+idx+'-'+Math.floor(Math.random()*100000);
+
+  let mediaHtml='';
+  if(img){
+    mediaHtml=`<div class="banner-media"><img src="${esc(img)}" alt="Publicidad" loading="lazy"></div>`;
+  }else if(media&&isVideoFile(media)){
+    mediaHtml=`<div class="banner-media"><video id="${id}" src="${esc(media)}" ${poster?`poster="${esc(poster)}"`:''} muted playsinline autoplay loop controls></video></div>`;
+  }else if(media&&isYouTube(media)){
+    const embed=youtubeEmbed(media);
+    if(embed){
+      mediaHtml=`<div class="banner-media"><iframe id="${id}" src="${esc(embed)}" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe></div>`;
+    }
+  }
+  if(!mediaHtml) return '';
+
+  return `<aside class="banner-tarjeta">
+    ${mediaHtml}
+    ${cta?`<a class="banner-cta" href="${esc(cta)}" target="_blank" rel="noopener">Visitá el micrositio del anunciante</a>`:''}
+  </aside>`;
+}
+function initBannerMedia(){
+  document.querySelectorAll('.banner-tarjeta video,.banner-tarjeta iframe').forEach(attachBannerSound);
+}
+function bannersCiudadActual(rows){
+  return (Array.isArray(rows)?rows:[])
+    .filter(b=>{
+      const apr=String(b.aprobado??'').trim().toLowerCase();
+      if(!['true','1','x'].includes(apr)) return false;
+      const bid=String(b.ciudad_id||'').trim();
+      return !bid || bid===city.ciudad_id;
+    })
+    .map(b=>({
+      img:String(b.img||b.url||'').trim(),
+      media:String(b.media||'').trim(),
+      cta:String(b.cta||'').trim(),
+      poster:String(b.poster||'').trim()
+    }))
+    .filter(b=>b.img||b.media);
+}
+
 function render(rows){
   document.getElementById('state').innerHTML='';
   if(!rows.length){empty();return;}
-  document.getElementById('list').innerHTML=rows.map(t=>{
-    const nombre=t.nombre_sede||t.nombre||'Farmacia';
-    const tel=cleanTel(t.telefono), w=wa(t.whatsapp), maps=safeUrl(t.maps);
-    return `<article class="card ${t.en_turno_ahora?'now':''}">
+
+  const htmlParts=[];
+  let bannerIndex=0;
+
+  rows.forEach((t,rowIndex)=>{
+    const nombre=t.nombre_sede||t.nombre_ref||'Farmacia';
+    const telefonos=firstNonEmpty([t.telefono,t.telefono2,t.telefono3,t.telefono4,t.telefono5]);
+    const whatsapps=firstNonEmpty([t.whatsapp,t.whatsapp2,t.whatsapp3,t.whatsapp4,t.whatsapp5]);
+    const maps=safeUrl(t.maps);
+    const logo=safeUrl(t.logo);
+    const mail=String(t.mail||'').trim();
+    const instagram=safeUrl(t.instagram);
+    const facebook=safeUrl(t.facebook);
+
+    const chips=[
+      ...telefonos.map(v=>`<span class="contact-chip">📞 ${esc(v)}</span>`),
+      ...whatsapps.map(v=>`<span class="contact-chip">WhatsApp ${esc(v)}</span>`)
+    ].join('');
+
+    const actions=[
+      ...telefonos.map((v,i)=>{
+        const href=cleanTel(v);
+        return href?`<a class="call" href="tel:${esc(href)}">Llamar${telefonos.length>1?' '+(i+1):''}</a>`:'';
+      }),
+      ...whatsapps.map((v,i)=>{
+        const href=waUrl(v);
+        return href?`<a class="wa" href="${esc(href)}" target="_blank" rel="noopener">WhatsApp${whatsapps.length>1?' '+(i+1):''}</a>`:'';
+      }),
+      maps?`<a class="map" href="${esc(maps)}" target="_blank" rel="noopener">Cómo llegar</a>`:'',
+      mail?`<a class="mail" href="mailto:${esc(mail)}">Email</a>`:'',
+      instagram?`<a class="social" href="${esc(instagram)}" target="_blank" rel="noopener">Instagram</a>`:'',
+      facebook?`<a class="social" href="${esc(facebook)}" target="_blank" rel="noopener">Facebook</a>`:''
+    ].filter(Boolean).join('');
+
+    htmlParts.push(`<article class="card ${t.en_turno_ahora?'now':''}">
       <div class="status ${t.en_turno_ahora?'now':''}">${t.en_turno_ahora?'DE TURNO AHORA':'TURNO DEL DÍA'}</div>
-      <div class="name">${esc(nombre)}</div>
-      ${t.nombre_sede&&t.nombre&&t.nombre_sede!==t.nombre?`<div class="sede">${esc(t.nombre)}</div>`:''}
+      <div class="header">
+        ${logo?`<img class="logo" src="${esc(logo)}" alt="${esc(nombre)}" onerror="this.style.display='none'">`:''}
+        <div>
+          <div class="name">${esc(nombre)}</div>
+          ${t.nombre_sede&&t.nombre_ref&&t.nombre_sede!==t.nombre_ref?`<div class="sede">${esc(t.nombre_ref)}</div>`:''}
+        </div>
+      </div>
       <div class="turno">🕒 ${esc(rango(t))}</div>
-      <div class="info">
-        ${t.direccion?`📍 ${esc(t.direccion)}<br>`:''}
-        ${t.telefono?`📞 ${esc(t.telefono)}`:''}
-      </div>
+      <div class="info">${t.direccion?`📍 ${esc(t.direccion)}`:''}</div>
+      ${chips?`<div class="contacts">${chips}</div>`:''}
       ${t.observaciones?`<div class="obs">${esc(t.observaciones)}</div>`:''}
-      <div class="actions">
-        ${tel?`<a class="call" href="tel:${esc(tel)}">Llamar</a>`:''}
-        ${w?`<a class="wa" href="${esc(w)}" target="_blank" rel="noopener">WhatsApp</a>`:''}
-        ${maps?`<a class="map" href="${esc(maps)}" target="_blank" rel="noopener">Cómo llegar</a>`:''}
-      </div>
-    </article>`;
-  }).join('');
+      ${actions?`<div class="actions">${actions}</div>`:''}
+    </article>`);
+
+    if((rowIndex+1)%2===0 && rowIndex<rows.length-1 && banners.length){
+      const banner=banners[bannerIndex % banners.length];
+      const bh=renderBanner(banner,bannerIndex);
+      if(bh) htmlParts.push(bh);
+      bannerIndex++;
+    }
+  });
+
+  document.getElementById('list').innerHTML=htmlParts.join('');
+  initBannerMedia();
 }
 
 async function load(){
@@ -141,6 +350,7 @@ async function load(){
     error('No hay una ciudad seleccionada.');
     return;
   }
+
   document.getElementById('cityName').textContent=(city.ciudad||city.ciudad_id).toUpperCase();
   document.getElementById('dateTitle').textContent=human(fecha);
   document.getElementById('picker').value=fecha;
@@ -151,14 +361,25 @@ async function load(){
   }
 
   loading();
+
   try{
     const u=new URL(API_URL);
     u.searchParams.set('action','turnos');
     u.searchParams.set('ciudad_id',city.ciudad_id);
     u.searchParams.set('fecha',fecha);
-    const r=await fetch(u.toString(),{cache:'no-store'});
+
+    const [r,bannerRows]=await Promise.all([
+      fetch(u.toString(),{cache:'no-store'}),
+      fetch(BANNERS_URL,{cache:'no-store'}).then(x=>x.ok?x.json():[]).catch(()=>[])
+    ]);
+
     const data=await r.json();
-    if(!r.ok || !data || data.success!==true) throw new Error(data&&data.error?data.error:'Respuesta inválida');
+
+    if(!r.ok || !data || data.success!==true){
+      throw new Error(data&&data.error?data.error:'Respuesta inválida');
+    }
+
+    banners=bannersCiudadActual(bannerRows);
     render(Array.isArray(data.turnos)?data.turnos:[]);
   }catch(e){
     error(e.message||String(e));
@@ -168,7 +389,12 @@ async function load(){
 document.getElementById('prev').onclick=()=>{fecha=shift(fecha,-1);load();};
 document.getElementById('today').onclick=()=>{fecha=isoDate(new Date());load();};
 document.getElementById('next').onclick=()=>{fecha=shift(fecha,1);load();};
-document.getElementById('picker').onchange=e=>{if(e.target.value){fecha=e.target.value;load();}};
+document.getElementById('picker').onchange=e=>{
+  if(e.target.value){
+    fecha=e.target.value;
+    load();
+  }
+};
 
 load();
 </script>
