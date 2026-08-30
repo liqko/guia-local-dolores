@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Farmacias de turno | Guía Local</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f6f7fb;color:#17324d;font-family:Arial,Helvetica,sans-serif}
+    .wrap{max-width:900px;margin:0 auto;padding:14px}
+    .top{background:#fff;border-radius:14px;padding:16px;box-shadow:0 4px 18px #0001}
+    .city{font-size:1.25rem;font-weight:900;color:#006699;text-align:center}
+    h1{text-align:center;color:#006699;margin:8px 0 0;font-size:2rem}
+    .sub{text-align:center;color:#667;margin-top:5px}
+    .datebar{display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:16px}
+    .datebar button,.datebar input{min-height:42px;border:1px solid #ccd8e5;border-radius:9px;padding:8px 12px;background:#fff;font-weight:700}
+    .datebar button{cursor:pointer}
+    .datebar .today{background:#006699;color:#fff;border-color:#006699}
+    #state{margin-top:14px}
+    .loading,.empty,.error{background:#fff;border-radius:14px;padding:22px;text-align:center;font-weight:800;box-shadow:0 4px 18px #0001}
+    .error{color:#b00020}
+    .spinner{width:28px;height:28px;margin:0 auto 10px;border:4px solid #dde8ee;border-top-color:#006699;border-radius:50%;animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #list{display:flex;flex-direction:column;gap:14px;margin-top:14px}
+    .card{background:#fff;border:2px solid #e5edf3;border-radius:16px;padding:16px;box-shadow:0 6px 22px #0001}
+    .card.now{border-color:#22a561;background:#f4fff8}
+    .status{display:inline-block;border-radius:999px;padding:6px 10px;background:#edf2f6;font-size:.8rem;font-weight:900;margin-bottom:10px}
+    .status.now{background:#22a561;color:#fff}
+    .name{font-size:1.35rem;font-weight:900;color:#0e567d}
+    .sede{font-size:.95rem;color:#667;margin-top:3px}
+    .turno{font-weight:800;margin-top:8px}
+    .info{margin-top:12px;line-height:1.55}
+    .obs{margin-top:10px;background:#fff5d8;padding:9px;border-radius:8px;font-weight:700}
+    .actions{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px}
+    .actions a{display:flex;justify-content:center;align-items:center;min-height:44px;border-radius:9px;text-decoration:none;font-weight:900;padding:8px}
+    .call{background:#006699;color:#fff}
+    .wa{background:#25d366;color:#fff}
+    .map{background:#ff7f50;color:#fff}
+    @media(max-width:620px){
+      .wrap{padding:8px}
+      h1{font-size:1.55rem}
+      .actions{grid-template-columns:1fr}
+      .datebar{display:grid;grid-template-columns:1fr;width:100%}
+      .datebar button,.datebar input{width:100%}
+    }
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <section class="top">
+    <div id="cityName" class="city"></div>
+    <h1>💊 Farmacias de turno</h1>
+    <div id="dateTitle" class="sub"></div>
+    <div class="datebar">
+      <button id="prev" type="button">← Día anterior</button>
+      <button id="today" class="today" type="button">Hoy</button>
+      <input id="picker" type="date">
+      <button id="next" type="button">Día siguiente →</button>
+    </div>
+  </section>
+
+  <div id="state"></div>
+  <section id="list"></section>
+</main>
+
+<script>
+const API_URL='PEGAR_URL_WEBAPP_FARMACIAS_AQUI';
+const CITY_CONTEXT_KEY='gld_ciudad_contexto';
+
+function cityContext(){
+  const qs=new URLSearchParams(location.search);
+  let saved={};
+  try{saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'{}')||{};}catch(e){}
+  const c={};
+  ['pais_id','provincia_id','ciudad_id','pais','provincia','ciudad'].forEach(k=>{
+    c[k]=String(qs.get(k)||saved[k]||'').trim();
+  });
+  return c;
+}
+const city=cityContext();
+
+function isoDate(d){
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function fromIso(s){
+  const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return m?new Date(+m[1],+m[2]-1,+m[3],12,0,0):new Date();
+}
+function shift(s,n){const d=fromIso(s);d.setDate(d.getDate()+n);return isoDate(d);}
+function human(s){return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long',year:'numeric'}).format(fromIso(s));}
+function esc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
+function cleanTel(v){return String(v||'').replace(/[^\d+]/g,'');}
+function wa(v){const d=String(v||'').replace(/\D/g,'');return d?'https://wa.me/'+d:'';}
+function safeUrl(v){const s=String(v||'').trim();return !s?'':(/^https?:\/\//i.test(s)?s:'https://'+s);}
+
+let fecha=isoDate(new Date());
+
+function loading(){
+  document.getElementById('list').innerHTML='';
+  document.getElementById('state').innerHTML='<div class="loading"><div class="spinner"></div>Cargando farmacias de turno...</div>';
+}
+function error(msg){
+  document.getElementById('list').innerHTML='';
+  document.getElementById('state').innerHTML='<div class="error">'+esc(msg)+'</div>';
+}
+function empty(){
+  document.getElementById('list').innerHTML='';
+  document.getElementById('state').innerHTML='<div class="empty">No hay turnos cargados para esta fecha.</div>';
+}
+function rango(t){
+  if(t.fecha_desde===t.fecha_hasta) return (t.hora_desde||'')+' a '+(t.hora_hasta||'');
+  return `${t.fecha_desde} ${t.hora_desde||''} → ${t.fecha_hasta} ${t.hora_hasta||''}`;
+}
+function render(rows){
+  document.getElementById('state').innerHTML='';
+  if(!rows.length){empty();return;}
+  document.getElementById('list').innerHTML=rows.map(t=>{
+    const nombre=t.nombre_sede||t.nombre||'Farmacia';
+    const tel=cleanTel(t.telefono), w=wa(t.whatsapp), maps=safeUrl(t.maps);
+    return `<article class="card ${t.en_turno_ahora?'now':''}">
+      <div class="status ${t.en_turno_ahora?'now':''}">${t.en_turno_ahora?'DE TURNO AHORA':'TURNO DEL DÍA'}</div>
+      <div class="name">${esc(nombre)}</div>
+      ${t.nombre_sede&&t.nombre&&t.nombre_sede!==t.nombre?`<div class="sede">${esc(t.nombre)}</div>`:''}
+      <div class="turno">🕒 ${esc(rango(t))}</div>
+      <div class="info">
+        ${t.direccion?`📍 ${esc(t.direccion)}<br>`:''}
+        ${t.telefono?`📞 ${esc(t.telefono)}`:''}
+      </div>
+      ${t.observaciones?`<div class="obs">${esc(t.observaciones)}</div>`:''}
+      <div class="actions">
+        ${tel?`<a class="call" href="tel:${esc(tel)}">Llamar</a>`:''}
+        ${w?`<a class="wa" href="${esc(w)}" target="_blank" rel="noopener">WhatsApp</a>`:''}
+        ${maps?`<a class="map" href="${esc(maps)}" target="_blank" rel="noopener">Cómo llegar</a>`:''}
+      </div>
+    </article>`;
+  }).join('');
+}
+
+async function load(){
+  if(!city.ciudad_id){
+    error('No hay una ciudad seleccionada.');
+    return;
+  }
+  document.getElementById('cityName').textContent=(city.ciudad||city.ciudad_id).toUpperCase();
+  document.getElementById('dateTitle').textContent=human(fecha);
+  document.getElementById('picker').value=fecha;
+
+  if(API_URL.includes('PEGAR_URL')){
+    error('Falta configurar la URL de la Web App de Farmacias.');
+    return;
+  }
+
+  loading();
+  try{
+    const u=new URL(API_URL);
+    u.searchParams.set('action','turnos');
+    u.searchParams.set('ciudad_id',city.ciudad_id);
+    u.searchParams.set('fecha',fecha);
+    const r=await fetch(u.toString(),{cache:'no-store'});
+    const data=await r.json();
+    if(!r.ok || !data || data.success!==true) throw new Error(data&&data.error?data.error:'Respuesta inválida');
+    render(Array.isArray(data.turnos)?data.turnos:[]);
+  }catch(e){
+    error(e.message||String(e));
+  }
+}
+
+document.getElementById('prev').onclick=()=>{fecha=shift(fecha,-1);load();};
+document.getElementById('today').onclick=()=>{fecha=isoDate(new Date());load();};
+document.getElementById('next').onclick=()=>{fecha=shift(fecha,1);load();};
+document.getElementById('picker').onchange=e=>{if(e.target.value){fecha=e.target.value;load();}};
+
+load();
+</script>
+</body>
+</html>
