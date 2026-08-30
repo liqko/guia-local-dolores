@@ -380,6 +380,20 @@
   .modulo-ciudad-btn{display:inline-flex;align-items:center;gap:7px;padding:.6rem .9rem;border-radius:.65rem;background:#006699;color:#fff;text-decoration:none;font-weight:800;}
 
 </style>
+
+    /* ===== CONTROL UNIVERSAL DE SONIDO PARA VIDEOS ===== */
+    .gld-media-sound-btn{
+      position:absolute;right:10px;bottom:10px;z-index:999;
+      display:inline-flex;align-items:center;justify-content:center;gap:7px;
+      min-height:40px;padding:8px 12px;border:0;border-radius:999px;
+      background:rgba(0,0,0,.78);color:#fff;font:800 13px/1.1 Arial,sans-serif;
+      cursor:pointer;box-shadow:0 3px 12px rgba(0,0,0,.28);
+      pointer-events:auto;
+    }
+    .gld-media-sound-btn:hover,.gld-media-sound-btn:focus{
+      background:rgba(0,0,0,.92);outline:2px solid rgba(255,255,255,.85);outline-offset:2px;
+    }
+
 </head>
 <body>
   </div>
@@ -451,7 +465,7 @@
         if(u.hostname.includes('youtu.be')){ id = u.pathname.slice(1); }
         else { id = u.searchParams.get('v') || ''; if(!id){ const parts = u.pathname.split('/'); id = parts.pop(); } }
         if(!id) return '';
-        const params = new URLSearchParams({rel:0,playsinline:1});
+        const params = new URLSearchParams({rel:0,playsinline:1,enablejsapi:1});
         if(autoplay) params.set('autoplay','1');
         params.set('mute','1');
         params.set('modestbranding','1');
@@ -2211,5 +2225,116 @@
     iniciarGuiaDesdeMochila();
 
 </script>
+
+<script>
+(function(){
+  function isYouTubeFrame(el){
+    if(!el || String(el.tagName||'').toLowerCase()!=='iframe') return false;
+    const src=String(el.getAttribute('src')||'').toLowerCase();
+    return src.includes('youtube.com/embed/') || src.includes('youtube-nocookie.com/embed/');
+  }
+
+  function ytCommand(frame,func){
+    try{
+      if(frame && frame.contentWindow){
+        frame.contentWindow.postMessage(JSON.stringify({
+          event:'command',
+          func:func,
+          args:[]
+        }),'*');
+      }
+    }catch(e){}
+  }
+
+  function bindSoundControl(media){
+    if(!media || media.dataset.gldSoundBound==='1') return;
+
+    const tag=String(media.tagName||'').toLowerCase();
+    const isNative=tag==='video';
+    const isYT=isYouTubeFrame(media);
+    if(!isNative && !isYT) return;
+
+    const host=media.parentElement;
+    if(!host) return;
+
+    try{
+      if(getComputedStyle(host).position==='static') host.style.position='relative';
+    }catch(e){
+      host.style.position='relative';
+    }
+
+    media.dataset.gldSoundBound='1';
+
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='gld-media-sound-btn';
+    btn.setAttribute('aria-label','Activar sonido del video');
+
+    let muted=true;
+    if(isNative) muted=media.muted !== false;
+    else{
+      const src=String(media.getAttribute('src')||'');
+      muted=/[?&]mute=1(?:&|$)/.test(src);
+    }
+
+    function paint(){
+      btn.textContent=muted ? '🔊 Activar sonido' : '🔇 Silenciar';
+      btn.setAttribute('aria-label',muted ? 'Activar sonido del video' : 'Silenciar video');
+    }
+
+    btn.addEventListener('click',function(ev){
+      ev.preventDefault();
+      ev.stopPropagation();
+
+      muted=!muted;
+
+      if(isNative){
+        try{
+          media.muted=muted;
+          if(!muted) media.volume=1;
+          if(media.paused){
+            const p=media.play();
+            if(p && typeof p.catch==='function') p.catch(()=>{});
+          }
+        }catch(e){}
+      }else{
+        ytCommand(media,muted ? 'mute' : 'unMute');
+        if(!muted) ytCommand(media,'setVolume');
+      }
+
+      paint();
+    });
+
+    host.appendChild(btn);
+    paint();
+  }
+
+  function scan(root){
+    const base=root && root.querySelectorAll ? root : document;
+    if(base.matches && (base.matches('video') || isYouTubeFrame(base))) bindSoundControl(base);
+    if(base.querySelectorAll){
+      base.querySelectorAll('video,iframe').forEach(function(el){
+        if(String(el.tagName||'').toLowerCase()==='video' || isYouTubeFrame(el)) bindSoundControl(el);
+      });
+    }
+  }
+
+  function start(){
+    scan(document);
+    const observer=new MutationObserver(function(mutations){
+      mutations.forEach(function(m){
+        m.addedNodes.forEach(function(node){
+          if(node && node.nodeType===1) scan(node);
+        });
+      });
+    });
+    observer.observe(document.documentElement,{childList:true,subtree:true});
+  }
+
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start,{once:true});
+  else start();
+})();
+</script>
+
 </body>
 </html>
