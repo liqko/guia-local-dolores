@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Promos</title>  
+  <title>Comercios y Promos</title>
   <link href="https://cdn.jsdelivr.net/npm/remixicon@4.2.0/fonts/remixicon.css" rel="stylesheet">
   <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@700;500&display=swap" rel="stylesheet">
   <style>
@@ -75,6 +75,24 @@
 
     .paginator { display:flex; justify-content:center; gap:16px; margin:18px 0 40px; align-items:center; }
     .paginator button { padding:8px 14px; background:linear-gradient(90deg,#ff4e50,#f9d423); color:#fff; border:none; border-radius:8px; font-weight:800; cursor:pointer; }
+    .promos-loading{
+      display:flex;align-items:center;justify-content:center;gap:12px;
+      width:min(94vw,760px);min-height:140px;margin:18px auto;padding:20px;
+      box-sizing:border-box;background:rgba(255,255,255,.92);border-radius:14px;
+      font-weight:900;color:#ff4e50;box-shadow:0 4px 20px rgba(0,0,0,.10);
+    }
+    .promos-loading-spinner{
+      width:30px;height:30px;border:4px solid #ffe5c7;border-top-color:#ff4e50;
+      border-radius:50%;animation:promosSpin .8s linear infinite;flex:0 0 auto;
+    }
+    @keyframes promosSpin{to{transform:rotate(360deg)}}
+
+    .promo-img-wrap{width:100%;margin:12px 0 4px;display:flex;justify-content:center;}
+    .promo-img{
+      display:block;width:min(100%,520px);max-height:520px;object-fit:contain;
+      border-radius:12px;background:#fff;box-shadow:0 2px 12px rgba(0,0,0,.12);
+    }
+
     .promo-filter-notice{
       display:none;max-width:880px;margin:10px auto 0;padding:10px 14px;
       background:rgba(255,255,255,.9);border:1px solid rgba(255,78,80,.25);
@@ -162,7 +180,12 @@
 
   <div id="promoFilterNotice" class="promo-filter-notice"></div>
   <div id="categoriesBar" class="categories-bar"></div>
-  <div id="cards" class="cards-container"></div>
+  <div id="cards" class="cards-container">
+    <div class="promos-loading" role="status" aria-live="polite">
+      <span class="promos-loading-spinner" aria-hidden="true"></span>
+      <span>Cargando promociones de la ciudad...</span>
+    </div>
+  </div>
   <div id="paginator" class="paginator"></div>
 
   <script>
@@ -466,6 +489,7 @@
         if (com.youtube && safeUrl(com.youtube)) socials.push(`<a href="${safeUrl(com.youtube)}" target="_blank" rel="noopener" title="YouTube"><i class="ri-youtube-line"></i></a>`);
         if (com.tiktok && safeUrl(com.tiktok)) socials.push(`<a href="${safeUrl(com.tiktok)}" target="_blank" rel="noopener" title="TikTok"><i class="ri-tiktok-line"></i></a>`);
         if (com.linkedin && safeUrl(com.linkedin)) socials.push(`<a href="${safeUrl(com.linkedin)}" target="_blank" rel="noopener" title="LinkedIn"><i class="ri-linkedin-line"></i></a>`);
+        if (com.x && safeUrl(com.x)) socials.push(`<a href="${safeUrl(com.x)}" target="_blank" rel="noopener" title="X"><span style="font-weight:900;font-size:1.05em;line-height:1">𝕏</span></a>`);
         const socialsHtml = socials.length ? `<div class="socials">${socials.join('')}</div>` : '';
 
         let extrasBadges = '';
@@ -486,12 +510,18 @@
           allExtrasHtml = `<div class="extras-container" style="display:none" data-visible="false"><table class="extras-table">${rows}</table></div>`;
         }
 
-        const mapLink = makeMapLink(com.llegar, com.direccion);
+        const mapLink = makeMapLink(com.maps || com.llegar, com.direccion);
         const mapHtml = mapLink ? `<div style="margin-top:10px"><a class="btn-maps" href="${mapLink}" target="_blank" rel="noopener"><i class="ri-donut-chart-line" style="margin-right:8px"></i> COMO LLEGAR</a></div>` : '';
+
+        const promoImg = safeUrl(com.img);
+        const promoImgHtml = promoImg
+          ? `<div class="promo-img-wrap"><img class="promo-img" src="${promoImg}" alt="${escapeHtml(com.promo || com.anunciante || 'Promo')}" loading="lazy" onerror="this.parentElement.style.display='none'"></div>`
+          : '';
 
         card.innerHTML = `
           ${leftHtml}
           ${promoHtml}
+          ${promoImgHtml}
           ${otrosHtml}
           ${desdeHtml}
           ${hastaHtml}
@@ -557,7 +587,7 @@
 
     function hasMeaningfulData(c) {
       if (!c) return false;
-      const props = ['anunciante','nombre','promo','categoria','direccion','telefono','instagram','facebook','youtube','tiktok','linkedin','logo','llegar','otros'];
+      const props = ['anunciante','nombre','promo','categoria','direccion','telefono','instagram','facebook','youtube','tiktok','linkedin','x','logo','img','llegar','maps','otros'];
       for (let i=0;i<props.length;i++){
         const k = props[i];
         if (k in c && c[k] !== null && c[k] !== undefined && String(c[k]).trim() !== '') return true;
@@ -604,6 +634,17 @@
 
     function loadData() {
       if (!DATA_URL) { document.getElementById('cards').innerHTML = '<p style="color:#b02a2a">Falta DATA_URL</p>'; return; }
+
+      const cardsLoading = document.getElementById('cards');
+      const paginatorLoading = document.getElementById('paginator');
+      if(cardsLoading){
+        cardsLoading.innerHTML = `<div class="promos-loading" role="status" aria-live="polite">
+          <span class="promos-loading-spinner" aria-hidden="true"></span>
+          <span>Cargando promociones de la ciudad...</span>
+        </div>`;
+      }
+      if(paginatorLoading) paginatorLoading.innerHTML = '';
+
       const dataUrl = new URL(DATA_URL);
       if(ciudadContexto.ciudad_id) dataUrl.searchParams.set('ciudad_id', ciudadContexto.ciudad_id);
       fetch(dataUrl.toString()).then(res => { if (!res.ok) throw new Error('HTTP ' + res.status); return res.json(); })
