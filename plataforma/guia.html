@@ -321,6 +321,8 @@
     body.esperando-ubicacion > .grid,
     body.esperando-ubicacion > .paginacion-zocalo,
     body.esperando-ubicacion > #banner-inicio,
+    body.esperando-ubicacion > #farmaTurnoFixed,
+    body.esperando-ubicacion > #farmaciaTurnoSection,
     body.esperando-ubicacion > #topBtn,
     body.esperando-ubicacion > #modalImg {
       display:none !important;
@@ -404,9 +406,33 @@
           outline-offset:2px;
         }
 
+
+    /* ===== FARMACIAS DE TURNO ===== */
+    .farma-turno-fixed{position:sticky;top:0;z-index:2100;display:flex;justify-content:center;align-items:center;width:100%;box-sizing:border-box;padding:.45rem .65rem;background:rgba(255,255,255,.96);backdrop-filter:blur(6px);border-bottom:1px solid #e5e5e5;font-style:normal}
+    .farma-turno-fixed button{width:min(100%,980px);min-height:48px;border:0;border-radius:.75rem;background:#1f8f4e;color:#fff;font-weight:900;font-size:1rem;box-shadow:0 3px 10px rgba(31,143,78,.24);cursor:pointer}
+    .farma-turno-section{width:calc(100% - 1.3rem);max-width:980px;margin:1rem auto 1.4rem;padding:1rem;box-sizing:border-box;border-radius:1rem;background:#f8fff9;border:2px solid #bfe5c9;font-style:normal}
+    .farma-turno-section h2{margin:.1rem 0 .25rem;color:#1f8f4e;font-size:1.45rem}
+    .farma-turno-list{display:flex;flex-direction:column;gap:.75rem}
+    .farma-turno-card{background:#fff;border:1px solid #dfe9e2;border-radius:.85rem;padding:.9rem;box-shadow:0 2px 8px #0001}
+    .farma-turno-name{font-weight:900;font-size:1.08rem;color:#222}
+    .farma-turno-time{font-weight:800;color:#1f8f4e;margin:.25rem 0}
+    .farma-turno-dir{color:#444;margin:.25rem 0}
+    .farma-turno-actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.65rem}
+    .farma-turno-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:.45rem .7rem;border-radius:.6rem;text-decoration:none;font-weight:800;border:1px solid #1f8f4e;color:#1f8f4e;background:#fff}
+    .farma-week{margin-top:1rem;border-top:1px solid #dfe9e2;padding-top:.8rem}
+    .farma-week summary{cursor:pointer;font-weight:900;color:#006699;padding:.55rem 0}
+    .farma-week-day{padding:.7rem 0;border-bottom:1px solid #e8eee9}
+    .farma-week-date{font-weight:900;margin-bottom:.35rem}
+    .farma-state{padding:.8rem;border-radius:.65rem;background:#fff;color:#555}
+    .farma-state.error{color:#a00;background:#fff0f0;border:1px solid #f0caca}
+    @media(max-width:700px){.farma-turno-section{width:calc(100% - 1rem);margin:.8rem .5rem 1.2rem;padding:.8rem}.farma-turno-actions{display:grid;grid-template-columns:1fr}.farma-turno-actions a{width:100%;box-sizing:border-box}}
+
 </style>
 </head>
 <body>
+<div id="farmaTurnoFixed" class="farma-turno-fixed">
+  <button id="farmaTurnoGo" type="button">💊 FARMACIA DE TURNO</button>
+</div>
   </div>
 
   <header class="header" id="titulo-principal">
@@ -443,6 +469,15 @@
     <span id="paginationBar" class="pagination-bar"></span>
     <button onclick="cambiarPagina('next')" id="btnSiguiente">Siguiente</button>
   </div>
+  <section id="farmaciaTurnoSection" class="farma-turno-section">
+    <h2>💊 Farmacias de turno</h2>
+    <div id="farmaTurnoCiudad" class="small-muted"></div>
+    <div id="farmaTurnoHoy" class="farma-turno-list"><div class="farma-state">Cargando farmacia de turno...</div></div>
+    <details class="farma-week">
+      <summary>Ver próximos 7 días</summary>
+      <div id="farmaTurnoSemanaContenido"></div>
+    </details>
+  </section>
   <div id="banner-inicio" style="text-align:center;margin:1em 0;">
     <a href="https://www.guialocaldolores.com.ar" target="_blank" rel="noopener noreferrer">
       <img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321337/pbevfyejywvofxvqxdvl.png" alt="Ir a Inicio">
@@ -581,6 +616,8 @@
         if(ctx.ciudad) u.searchParams.set('ciudad',ctx.ciudad);
         eventos.href=u.toString();
       }
+
+      setTimeout(()=>{ try{ cargarFarmaciasTurnoGuia(); }catch(e){} },0);
     }
 
 
@@ -599,6 +636,47 @@
       catch(e){ window.location.href = window.location.origin + '/'; }
       return false;
     }
+
+
+    function farmaIsoDate(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+    function farmaShiftDate(iso,days){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);const d=m?new Date(+m[1],+m[2]-1,+m[3],12):new Date();d.setDate(d.getDate()+days);return farmaIsoDate(d)}
+    function farmaHumanDate(iso){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return iso;const d=new Date(+m[1],+m[2]-1,+m[3],12);return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long'}).format(d)}
+    function farmaEsc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;')}
+    async function farmaFetchTurnos(fecha){
+      if(!ciudadSeleccionada) throw new Error('No hay ciudad seleccionada');
+      const u=new URL(FARMACIAS_ENDPOINT);
+      u.searchParams.set('action','turnos');u.searchParams.set('ciudad_id',ciudadSeleccionada);u.searchParams.set('fecha',fecha);u.searchParams.set('_ts',Date.now());
+      const r=await fetch(u.toString(),{cache:'no-store'});const data=await r.json();
+      if(!r.ok || !data || data.success!==true) throw new Error((data&&data.error)||'No se pudieron cargar los turnos');
+      return data;
+    }
+    function farmaContactLinks(t){
+      const links=[];const tel=String(t.telefono||'').trim();const wa=String(t.whatsapp||'').replace(/\D/g,'');const maps=String(t.maps||'').trim();const mail=String(t.mail||'').trim();
+      if(tel)links.push(`<a href="tel:${farmaEsc(tel.replace(/\s+/g,''))}">📞 Llamar</a>`);
+      if(wa)links.push(`<a href="https://wa.me/${farmaEsc(wa)}" target="_blank" rel="noopener">💬 WhatsApp</a>`);
+      if(maps)links.push(`<a href="${farmaEsc(maps)}" target="_blank" rel="noopener">📍 Cómo llegar</a>`);
+      if(mail)links.push(`<a href="mailto:${farmaEsc(mail)}">✉️ Mail</a>`);
+      return links.join('');
+    }
+    function farmaCardHtml(t){
+      const nombre=String(t.nombre_sede||t.nombre_ref||'Farmacia').trim();
+      const horario=(t.hora_desde||t.hora_hasta)?`De ${farmaEsc(t.hora_desde||'')} a ${farmaEsc(t.hora_hasta||'')}`:'';
+      return `<article class="farma-turno-card"><div class="farma-turno-name">${farmaEsc(nombre)}</div>${horario?`<div class="farma-turno-time">${horario}</div>`:''}${t.direccion?`<div class="farma-turno-dir">${farmaEsc(t.direccion)}</div>`:''}${t.observaciones?`<div class="farma-turno-dir">${farmaEsc(t.observaciones)}</div>`:''}<div class="farma-turno-actions">${farmaContactLinks(t)}</div></article>`;
+    }
+    async function cargarFarmaciasTurnoGuia(){
+      const hoyBox=document.getElementById('farmaTurnoHoy');const semanaBox=document.getElementById('farmaTurnoSemanaContenido');const ciudadBox=document.getElementById('farmaTurnoCiudad');
+      if(!hoyBox||!semanaBox)return;
+      let ciudadNombre='';try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');ciudadNombre=String(saved&&saved.ciudad||'').trim()}catch(e){}
+      if(ciudadBox)ciudadBox.textContent=ciudadNombre?`Turnos para ${ciudadNombre}`:'';
+      if(!ciudadSeleccionada){hoyBox.innerHTML='<div class="farma-state error">No hay ciudad seleccionada.</div>';semanaBox.innerHTML='';return}
+      const hoy=farmaIsoDate(new Date());
+      try{const data=await farmaFetchTurnos(hoy);const turnos=Array.isArray(data.turnos)?data.turnos:[];hoyBox.innerHTML=turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>'}catch(e){hoyBox.innerHTML=`<div class="farma-state error">${farmaEsc(e.message||String(e))}</div>`}
+      const fechas=Array.from({length:7},(_,i)=>farmaShiftDate(hoy,i+1));
+      semanaBox.innerHTML='<div class="farma-state">Cargando próximos días...</div>';
+      const respuestas=await Promise.all(fechas.map(f=>farmaFetchTurnos(f).catch(()=>({turnos:[]}))));
+      semanaBox.innerHTML=respuestas.map((data,i)=>{const turnos=Array.isArray(data.turnos)?data.turnos:[];return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fechas[i]))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`}).join('');
+    }
+    document.addEventListener('DOMContentLoaded',()=>{document.getElementById('farmaTurnoGo')?.addEventListener('click',()=>document.getElementById('farmaciaTurnoSection')?.scrollIntoView({behavior:'smooth',block:'start'}))});
 
     let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
     let relacionesSedesGlobales = {};
@@ -686,6 +764,7 @@
        Esto evita que un fallo/redirección del WebApp de Apps Script deje rawPromosResponse vacío silenciosamente. */
     const PROMOS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec';
     const PROMOS_PAGE_URL = 'https://guialocal.ar/promos/';
+    const FARMACIAS_ENDPOINT = "https://script.google.com/macros/s/AKfycbzXJ5wk0EYGQOQzQ5-kik0lOcuVp78zAacJgs5x4I3TrgTpySaqW4qVjzyqQUXSO4ARfA/exec";
 
     // Precarga en paralelo desde el arranque. Cuando el usuario entra a la guía
     // estos recursos normalmente ya están disponibles.
