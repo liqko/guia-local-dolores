@@ -452,7 +452,7 @@
         <div id="tab-promos" class="tab" role="tab" aria-selected="false">Promos</div>
         <div id="tab-eventos" class="tab" role="tab" aria-selected="false">Eventos</div>
         <div id="tab-turnos-farma" class="tab" role="tab" aria-selected="false">Farmacias de turno</div>
-        <div id="tab-efemerides" class="tab" role="tab" aria-selected="false">Efemérides</div>
+        <div id="tab-efemerides" class="tab" role="tab" aria-selected="false" style="display:none">Efemérides</div>
         <div id="tab-menu" class="tab" role="tab" aria-selected="false">Menu</div>
         <div id="tab-vouchers" class="tab" role="tab" aria-selected="false">Vouchers</div>
         <div id="tab-entradas" class="tab" role="tab" aria-selected="false">Entradas</div>
@@ -463,6 +463,8 @@
         <div id="tab-tarjeta-nfc" class="tab" role="tab" aria-selected="false">NFC</div>
         <div id="tab-modificar-datos" class="tab" role="tab" aria-selected="false">Modificar datos</div>
       </div>
+
+      <div id="dashboard-status" class="small-muted" style="margin:10px 0;display:none;padding:9px 11px;border-radius:7px;background:#f3f6fb;border:1px solid #dfe6f0"></div>
 
       <div class="panel-section">
         <!-- Inicio -->
@@ -1775,6 +1777,42 @@ function setMsg(elId, kind, msg){
 
 
 
+
+function dashboardStatus(msg, isError=false){
+  const el=document.getElementById('dashboard-status');
+  if(!el) return;
+  const s=String(msg||'').trim();
+  if(!s){
+    el.style.display='none';
+    el.textContent='';
+    return;
+  }
+  el.style.display='block';
+  el.textContent=s;
+  el.style.background=isError?'#fff1f1':'#f3f6fb';
+  el.style.borderColor=isError?'#f0bcbc':'#dfe6f0';
+  el.style.color=isError?'#9b1c1c':'#4b5563';
+}
+
+async function resolverPermisosEfemerides(){
+  if(!sesion || !sesion.id) return;
+
+  try{
+    const res=await efemerides_post({action:'permisos'});
+    if(res.status===200 && res.json && res.json.success){
+      sesion.efemerides_local=res.json.efemerides_local;
+      sesion.efemerides_grl=res.json.efemerides_grl;
+      efemState.permisos=res.json;
+      efemState.ciudades=Array.isArray(res.json.ciudades)?res.json.ciudades:[];
+      localStorage.setItem('efemerides_local',sesion.efemerides_local||'');
+      localStorage.setItem('efemerides_grl',sesion.efemerides_grl||'');
+    }
+  }catch(e){
+    // Si el servicio tarda o falla, se conservan los permisos ya conocidos de la sesión.
+    debugLog('No se pudieron refrescar permisos de Efemérides',e);
+  }
+}
+
 async function efemerides_post(payload){
   const body=Object.assign({},payload||{});
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId=String(sesion.id);
@@ -1935,6 +1973,7 @@ async function loadEfemeridesUI(){
   efemState.loaded=true;
   efemRenderList();
   if(st) st.textContent=`${efemState.efemerides.length} efeméride(s).`;
+  dashboardStatus('');
 }
 
 async function efemGuardar(){
@@ -2158,6 +2197,9 @@ async function loadFarmaCityData(){
 
 async function loadFarmaciasUI(){
   if(!sesion || !sesion.id) return;
+  const st=document.getElementById('farma-status');
+  if(st) st.textContent='Cargando ciudades y farmacias...';
+  setMsg('farma-msg','ok','Cargando...');
   try{
     const data=await farmacias_get('ciudades');
     farmaState.ciudades=Array.isArray(data.ciudades)?data.ciudades:[];
@@ -2167,7 +2209,14 @@ async function loadFarmaciasUI(){
     sel.innerHTML='<option value="">Seleccioná la ciudad</option>' +
       farmaState.ciudades.map(c=>`<option value="${htmlEscape(c.ciudad_id)}">${htmlEscape(c.ciudad_visible||c.ciudad_id)}</option>`).join('');
     if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current;
-    if(sel.value) await loadFarmaCityData();
+    if(sel.value){
+      await loadFarmaCityData();
+    }else{
+      if(st) st.textContent='Elegí una ciudad para cargar las farmacias.';
+      const msg=document.getElementById('farma-msg');
+      if(msg) msg.innerHTML='';
+    }
+    dashboardStatus('');
   }catch(e){
     setMsg('farma-msg','err',e.message||String(e));
   }
@@ -2698,6 +2747,7 @@ async function loadPromosUI(){
   const cupo = calcularCupoPublicacion(promos, sesion.promos_cant);
 
   st.innerHTML = textoCupoPublicacion(cupo);
+  dashboardStatus('');
 
   const btnCreate = document.getElementById('promo-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
@@ -3084,6 +3134,7 @@ async function loadEventsUI(){
   const availableEvents = Math.max(0, maxEvents - loadedEvents);
 
   st.innerHTML = textoCupoPublicacion(cupo);
+  dashboardStatus('');
 
   const btnCreate = document.getElementById('ev-create');
   if(btnCreate && btnCreate.dataset.mode !== 'edit'){
@@ -3520,6 +3571,7 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
   async function mostrarPanelDashboard(){
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
+    dashboardStatus('Cargando datos y módulos habilitados...');
     document.getElementById('campos-datos-comercio').innerHTML = '<div class="small-muted">Cargando datos...</div>';
     document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
     mostrarPanel('dashboard');
@@ -3563,19 +3615,26 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
       cargarCiudadesPromo();
+
+      await resolverPermisosEfemerides();
+
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
       }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
       mostrarPanel('dashboard');
+      dashboardStatus('');
 
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
 
-      setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 250);
-      setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
+      Promise.allSettled([
+        loadPromosUI(),
+        loadEventsUI()
+      ]).catch(()=>{});
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
+      dashboardStatus('No se pudieron cargar los datos del panel. Reintentá en unos segundos.',true);
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData({});
       }
@@ -3751,7 +3810,10 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       tarjeta_nfc: ['tarjeta_nfc','tarjetanfc','nfc','tarjeta nfc']
     };
 
-    let enabledModules = new Set(['promos','eventos','tarjeta_nfc','modificar_datos']);
+    let enabledModules = new Set(['tarjeta_nfc','modificar_datos']);
+
+    ['promos','eventos','turnos_farma','efemerides','menu','vouchers','entradas','gifcards','actividades','reservas','publicidad']
+      .forEach(k=>{ if(tabs[k]) tabs[k].style.display='none'; });
 
     function normalizeKey(k){
       return String(k || '')
@@ -3882,6 +3944,13 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       if(!tab) return;
       tab.addEventListener('click', ()=>{
         if(!enabledModules.has(k) && k !== 'inicio' && k !== 'modificar_datos' && k !== 'tarjeta_nfc') return;
+
+        if(k==='turnos_farma') dashboardStatus('Cargando Farmacias de turno...');
+        else if(k==='efemerides') dashboardStatus('Cargando Efemérides...');
+        else if(k==='promos' && !(window.__lastPromos||[]).length) dashboardStatus('Cargando Promos...');
+        else if(k==='eventos' && !(window.__lastEvents||[]).length) dashboardStatus('Cargando Eventos...');
+        else dashboardStatus('');
+
         showTab(k);
       });
     });
