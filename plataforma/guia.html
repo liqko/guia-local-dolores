@@ -20,6 +20,12 @@
     @media (max-width:900px){ .header h1{font-size:1.5rem;} .header img{height:40px;} }
     .selector-bar{ display: flex; gap: 0.5rem; flex-wrap: wrap; padding: 1rem 1rem 0.3rem 1rem; background: #f5e1d4; width: 100vw; box-sizing: border-box;}
     .selector-bar select {padding:0.5rem; border-radius:0.5rem; border:1px solid #ccc; font-size:1em; min-width: 120px; max-width: 100vw;}
+    .selector-bar select option.filtro-grupo-opcion{
+      background:#006699 !important;
+      color:#fff !important;
+      font-weight:800;
+    }
+
     .filtro-multi{position:relative;min-width:260px;max-width:100%;font-size:1em;}
     .filtro-multi summary{list-style:none;padding:.5rem;border:1px solid #ccc;border-radius:.5rem;background:#fff;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
     .filtro-multi summary::-webkit-details-marker{display:none;}
@@ -454,10 +460,9 @@
     <select id="selectClasificacion">
       <option value="">Segmento, actividad o categoría</option>
     </select>
-    <details id="accionesMulti" class="filtro-multi">
-      <summary id="accionesResumen">Acciones</summary>
-      <div id="accionesOpciones" class="filtro-multi-opciones"></div>
-    </details>
+    <select id="selectAccion">
+      <option value="">Acciones</option>
+    </select>
   </div>
   <div class="buscador-global">
     <input type="text" id="buscadorGlobal" placeholder="Buscar por nombre, tags, dirección, descripción, ciudad, etc." style="flex:1;"/>
@@ -658,9 +663,20 @@
       if(mail)links.push(`<a href="mailto:${farmaEsc(mail)}">✉️ Mail</a>`);
       return links.join('');
     }
+    function farmaDiaMes(iso){
+      const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(!m)return String(iso||'');
+      const d=new Date(+m[1],+m[2]-1,+m[3],12);
+      return new Intl.DateTimeFormat('es-AR',{day:'numeric',month:'long'}).format(d);
+    }
     function farmaCardHtml(t){
       const nombre=String(t.nombre_sede||t.nombre_ref||'Farmacia').trim();
-      const horario=(t.hora_desde||t.hora_hasta)?`De ${farmaEsc(t.hora_desde||'')} a ${farmaEsc(t.hora_hasta||'')}`:'';
+      let horario='';
+      if(t.fecha_desde && t.hora_desde && t.fecha_hasta && t.hora_hasta){
+        horario=`Desde las ${farmaEsc(t.hora_desde)} hs del ${farmaEsc(farmaDiaMes(t.fecha_desde))} hasta las ${farmaEsc(t.hora_hasta)} hs del ${farmaEsc(farmaDiaMes(t.fecha_hasta))}.`;
+      }else if(t.hora_desde||t.hora_hasta){
+        horario=`De ${farmaEsc(t.hora_desde||'')} a ${farmaEsc(t.hora_hasta||'')}`;
+      }
       return `<article class="farma-turno-card"><div class="farma-turno-name">${farmaEsc(nombre)}</div>${horario?`<div class="farma-turno-time">${horario}</div>`:''}${t.direccion?`<div class="farma-turno-dir">${farmaEsc(t.direccion)}</div>`:''}${t.observaciones?`<div class="farma-turno-dir">${farmaEsc(t.observaciones)}</div>`:''}<div class="farma-turno-actions">${farmaContactLinks(t)}</div></article>`;
     }
     async function cargarFarmaciasTurnoGuia(){
@@ -670,11 +686,23 @@
       if(ciudadBox)ciudadBox.textContent=ciudadNombre?`Turnos para ${ciudadNombre}`:'';
       if(!ciudadSeleccionada){hoyBox.innerHTML='<div class="farma-state error">No hay ciudad seleccionada.</div>';semanaBox.innerHTML='';return}
       const hoy=farmaIsoDate(new Date());
-      try{const data=await farmaFetchTurnos(hoy);const turnos=Array.isArray(data.turnos)?data.turnos:[];hoyBox.innerHTML=turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>'}catch(e){hoyBox.innerHTML=`<div class="farma-state error">${farmaEsc(e.message||String(e))}</div>`}
+      try{
+        const data=await farmaFetchTurnos(hoy);
+        const turnos=Array.isArray(data.turnos)?data.turnos:[];
+        const activos=turnos.filter(t=>t && t.en_turno_ahora===true);
+        const iniciadosHoy=turnos.filter(t=>String((t&&t.fecha_desde)||'').trim()===hoy);
+        const mostrar=activos.length ? activos : iniciadosHoy;
+        hoyBox.innerHTML=mostrar.length?mostrar.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>';
+      }catch(e){hoyBox.innerHTML=`<div class="farma-state error">${farmaEsc(e.message||String(e))}</div>`}
       const fechas=Array.from({length:7},(_,i)=>farmaShiftDate(hoy,i+1));
       semanaBox.innerHTML='<div class="farma-state">Cargando próximos días...</div>';
       const respuestas=await Promise.all(fechas.map(f=>farmaFetchTurnos(f).catch(()=>({turnos:[]}))));
-      semanaBox.innerHTML=respuestas.map((data,i)=>{const turnos=Array.isArray(data.turnos)?data.turnos:[];return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fechas[i]))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`}).join('');
+      semanaBox.innerHTML=respuestas.map((data,i)=>{
+        const fecha=fechas[i];
+        const turnos=(Array.isArray(data.turnos)?data.turnos:[])
+          .filter(t=>String((t&&t.fecha_desde)||'').trim()===fecha);
+        return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fecha))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`;
+      }).join('');
     }
     document.addEventListener('DOMContentLoaded',()=>{document.getElementById('farmaTurnoGo')?.addEventListener('click',()=>document.getElementById('farmaciaTurnoSection')?.scrollIntoView({behavior:'smooth',block:'start'}))});
 
@@ -810,9 +838,7 @@
         const contenedor = document.getElementById('contenedor');
         const destacadasBar = document.getElementById('destacadasBar');
         const selectClasificacion = document.getElementById('selectClasificacion');
-        const accionesMulti = document.getElementById('accionesMulti');
-        const accionesResumen = document.getElementById('accionesResumen');
-        const accionesOpciones = document.getElementById('accionesOpciones');
+        const selectAccion = document.getElementById('selectAccion');
         const paginationBar = document.getElementById('paginationBar');
         const btnAnterior = document.getElementById('btnAnterior');
         const btnSiguiente = document.getElementById('btnSiguiente');
@@ -1077,92 +1103,107 @@
         const serviciosData = anunciantesData;
 
         function accionesSeleccionadas(){
-          return Array.from(accionesOpciones.querySelectorAll('input[type="checkbox"]:checked'))
-            .map(x=>String(x.value||'').trim()).filter(Boolean);
+          const id=String(selectAccion.value||'').trim();
+          return id ? [id] : [];
         }
 
-        function actualizarResumenAcciones(){
-          const checked=Array.from(accionesOpciones.querySelectorAll('input[type="checkbox"]:checked'));
-          if(!checked.length){
-            accionesResumen.textContent='Acciones';
-            return;
+        function valorCatalogo(x, campos){
+          for(const campo of campos){
+            const v=x && x[campo]!==undefined && x[campo]!==null ? String(x[campo]).trim() : '';
+            if(v) return v;
           }
-          const labels=checked.map(x=>String(x.dataset.label||'').trim()).filter(Boolean);
-          accionesResumen.textContent=labels.length<=2 ? labels.join(' + ') : `${labels.length} acciones`;
+          return '';
         }
 
         function cargarSelectClasificacion(){
           selectClasificacion.innerHTML='<option value="">Segmento, actividad o categoría</option>';
 
           const segBase=(catalogosGlobales.segmentosPublicos||[]);
-          const segs=(segBase.length ? segBase : anunciantesData.flatMap(item=>{
+          const segs=(segBase.length ? segBase.map(x=>({
+            segmento_id:valorCatalogo(x,['segmento_id','id']),
+            nombre:valorCatalogo(x,['nombre','segmento'])
+          })) : anunciantesData.flatMap(item=>{
             const ids=String(item.segmento_id||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
             const names=String(item.segmento||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
             return ids.map((id,i)=>({segmento_id:id,nombre:names[i]||names[0]||id}));
           }))
-            .filter((x,i,a)=>String(x.segmento_id||'').trim() && String(x.nombre||'').trim() &&
-              a.findIndex(y=>String(y.segmento_id||'').trim()===String(x.segmento_id||'').trim())===i);
+            .filter((x,i,a)=>x.segmento_id && x.nombre &&
+              a.findIndex(y=>y.segmento_id===x.segmento_id)===i);
 
           const actBase=(catalogosGlobales.actividades||[]);
-          const acts=(actBase.length ? actBase : anunciantesData.flatMap(item=>Array.isArray(item.actividades_clave)?item.actividades_clave:[]))
-            .filter((x,i,a)=>String(x.actividad_id||'').trim() && String(x.nombre||'').trim() &&
-              a.findIndex(y=>String(y.actividad_id||'').trim()===String(x.actividad_id||'').trim())===i);
+          const acts=(actBase.length ? actBase.map(x=>({
+            actividad_id:valorCatalogo(x,['actividad_id','id']),
+            nombre:valorCatalogo(x,['nombre','actividad','actividad_ref'])
+          })) : anunciantesData.flatMap(item=>
+            (Array.isArray(item.actividades_clave)?item.actividades_clave:[]).map(x=>({
+              actividad_id:valorCatalogo(x,['actividad_id','id']),
+              nombre:valorCatalogo(x,['nombre','actividad','actividad_ref'])
+            }))
+          ))
+            .filter((x,i,a)=>x.actividad_id && x.nombre &&
+              a.findIndex(y=>y.actividad_id===x.actividad_id)===i);
 
           const catBase=(catalogosGlobales.categorias||[]);
-          const cats=(catBase.length ? catBase : anunciantesData.flatMap(item=>{
+          const cats=(catBase.length ? catBase.map(x=>({
+            categoria_id:valorCatalogo(x,['categoria_id','id']),
+            nombre:valorCatalogo(x,['nombre','categoria'])
+          })) : anunciantesData.flatMap(item=>{
             const ids=String(item.categoria_id||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
             const names=String(item.categoria||'').split(/[;,|]+/).map(v=>v.trim()).filter(Boolean);
             return ids.map((id,i)=>({categoria_id:id,nombre:names[i]||names[0]||id}));
           }))
-            .filter((x,i,a)=>String(x.categoria_id||'').trim() && String(x.nombre||'').trim() &&
-              a.findIndex(y=>String(y.categoria_id||'').trim()===String(x.categoria_id||'').trim())===i);
+            .filter((x,i,a)=>x.categoria_id && x.nombre &&
+              a.findIndex(y=>y.categoria_id===x.categoria_id)===i);
 
           const grupos=[
             ['SEGMENTOS',segs,'SEG:','segmento_id'],
-            ['ACTIVIDADES CLAVE',acts,'ACT:','actividad_id'],
+            ['ACTIVIDADES',acts,'ACT:','actividad_id'],
             ['CATEGORÍAS',cats,'CAT:','categoria_id']
           ];
 
           grupos.forEach(([titulo,items,prefijo,idField])=>{
             if(!items.length) return;
-            const group=document.createElement('optgroup');
-            group.label=titulo;
+
+            const tituloOpt=document.createElement('option');
+            tituloOpt.disabled=true;
+            tituloOpt.textContent=titulo;
+            tituloOpt.className='filtro-grupo-opcion';
+            selectClasificacion.appendChild(tituloOpt);
+
             items.forEach(x=>{
               const id=String(x[idField]||'').trim();
               const nombre=String(x.nombre||'').trim();
               if(!id||!nombre) return;
               const o=document.createElement('option');
               o.value=prefijo+id;
-              o.textContent=nombre;
-              group.appendChild(o);
+              o.textContent='   '+nombre;
+              selectClasificacion.appendChild(o);
             });
-            selectClasificacion.appendChild(group);
           });
         }
 
         function cargarAcciones(){
-          accionesOpciones.innerHTML='';
+          selectAccion.innerHTML='<option value="">Acciones</option>';
 
           const accBase=(catalogosGlobales.acciones||[]);
-          const accs=(accBase.length ? accBase : anunciantesData.flatMap(item=>Array.isArray(item.acciones)?item.acciones:[]))
-            .filter((x,i,a)=>String(x.accion_id||'').trim() && String(x.nombre||'').trim() &&
-              a.findIndex(y=>String(y.accion_id||'').trim()===String(x.accion_id||'').trim())===i);
+          const accs=(accBase.length ? accBase.map(x=>({
+            accion_id:valorCatalogo(x,['accion_id','id']),
+            nombre:valorCatalogo(x,['nombre','accion','accion_ref'])
+          })) : anunciantesData.flatMap(item=>
+            (Array.isArray(item.acciones)?item.acciones:[]).map(x=>({
+              accion_id:valorCatalogo(x,['accion_id','id']),
+              nombre:valorCatalogo(x,['nombre','accion','accion_ref'])
+            }))
+          ))
+            .filter((x,i,a)=>x.accion_id && x.nombre &&
+              a.findIndex(y=>y.accion_id===x.accion_id)===i);
 
           accs.forEach(x=>{
-            const id=String(x.accion_id||'').trim();
-            const nombre=String(x.nombre||'').trim();
-            if(!id||!nombre) return;
-            const label=document.createElement('label');
-            const cb=document.createElement('input');
-            cb.type='checkbox';
-            cb.value=id;
-            cb.dataset.label=nombre;
-            label.appendChild(cb);
-            label.appendChild(document.createTextNode(nombre));
-            accionesOpciones.appendChild(label);
+            const o=document.createElement('option');
+            o.value=String(x.accion_id||'').trim();
+            o.textContent=String(x.nombre||'').trim();
+            if(o.value && o.textContent) selectAccion.appendChild(o);
           });
-
-          actualizarResumenAcciones();
         }
 
         cargarSelectClasificacion();
@@ -1173,8 +1214,7 @@
           render();
         });
 
-        accionesOpciones.addEventListener('change',()=>{
-          actualizarResumenAcciones();
+        selectAccion.addEventListener('change',()=>{
           paginaActual=1;
           render();
         });
@@ -2113,11 +2153,15 @@
           }
         }).catch(err => console.warn('Banners no disponibles todavía:', err));
 
-        window.addEventListener('scroll', () => {
-          const topBtn = document.getElementById('topBtn');
-          if (window.scrollY > 200) topBtn.style.display = 'flex';
-          else topBtn.style.display = 'none';
-        }, { passive: true });
+        const topBtn = document.getElementById('topBtn');
+        if(window.top === window.self){
+          window.addEventListener('scroll', () => {
+            if (window.scrollY > 200) topBtn.style.display = 'flex';
+            else topBtn.style.display = 'none';
+          }, { passive: true });
+        }else if(topBtn){
+          topBtn.style.display='none';
+        }
 
       } catch(e) {
         console.error('Error cargando datos:', e);
