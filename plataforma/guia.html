@@ -658,9 +658,21 @@
       if(mail)links.push(`<a href="mailto:${farmaEsc(mail)}">✉️ Mail</a>`);
       return links.join('');
     }
+    function farmaDiaMes(iso){
+      const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(!m) return String(iso||'');
+      const d=new Date(+m[1],+m[2]-1,+m[3],12);
+      return new Intl.DateTimeFormat('es-AR',{day:'numeric',month:'long'}).format(d);
+    }
+
     function farmaCardHtml(t){
       const nombre=String(t.nombre_sede||t.nombre_ref||'Farmacia').trim();
-      const horario=(t.hora_desde||t.hora_hasta)?`De ${farmaEsc(t.hora_desde||'')} a ${farmaEsc(t.hora_hasta||'')}`:'';
+      let horario='';
+      if(t.fecha_desde && t.hora_desde && t.fecha_hasta && t.hora_hasta){
+        horario=`Desde las ${farmaEsc(t.hora_desde)} hs del ${farmaEsc(farmaDiaMes(t.fecha_desde))} hasta las ${farmaEsc(t.hora_hasta)} hs del ${farmaEsc(farmaDiaMes(t.fecha_hasta))}.`;
+      }else if(t.hora_desde || t.hora_hasta){
+        horario=`De ${farmaEsc(t.hora_desde||'')} a ${farmaEsc(t.hora_hasta||'')}`;
+      }
       return `<article class="farma-turno-card"><div class="farma-turno-name">${farmaEsc(nombre)}</div>${horario?`<div class="farma-turno-time">${horario}</div>`:''}${t.direccion?`<div class="farma-turno-dir">${farmaEsc(t.direccion)}</div>`:''}${t.observaciones?`<div class="farma-turno-dir">${farmaEsc(t.observaciones)}</div>`:''}<div class="farma-turno-actions">${farmaContactLinks(t)}</div></article>`;
     }
     async function cargarFarmaciasTurnoGuia(){
@@ -670,11 +682,25 @@
       if(ciudadBox)ciudadBox.textContent=ciudadNombre?`Turnos para ${ciudadNombre}`:'';
       if(!ciudadSeleccionada){hoyBox.innerHTML='<div class="farma-state error">No hay ciudad seleccionada.</div>';semanaBox.innerHTML='';return}
       const hoy=farmaIsoDate(new Date());
-      try{const data=await farmaFetchTurnos(hoy);const turnos=Array.isArray(data.turnos)?data.turnos:[];hoyBox.innerHTML=turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>'}catch(e){hoyBox.innerHTML=`<div class="farma-state error">${farmaEsc(e.message||String(e))}</div>`}
+      try{
+        const data=await farmaFetchTurnos(hoy);
+        const turnos=Array.isArray(data.turnos)?data.turnos:[];
+        const activos=turnos.filter(t=>t && t.en_turno_ahora===true);
+        const iniciadosHoy=turnos.filter(t=>String((t&&t.fecha_desde)||'').trim()===hoy);
+        const mostrar=activos.length ? activos : iniciadosHoy;
+        hoyBox.innerHTML=mostrar.length?mostrar.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>';
+      }catch(e){
+        hoyBox.innerHTML=`<div class="farma-state error">${farmaEsc(e.message||String(e))}</div>`;
+      }
       const fechas=Array.from({length:7},(_,i)=>farmaShiftDate(hoy,i+1));
       semanaBox.innerHTML='<div class="farma-state">Cargando próximos días...</div>';
       const respuestas=await Promise.all(fechas.map(f=>farmaFetchTurnos(f).catch(()=>({turnos:[]}))));
-      semanaBox.innerHTML=respuestas.map((data,i)=>{const turnos=Array.isArray(data.turnos)?data.turnos:[];return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fechas[i]))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`}).join('');
+      semanaBox.innerHTML=respuestas.map((data,i)=>{
+        const fecha=fechas[i];
+        const turnos=(Array.isArray(data.turnos)?data.turnos:[])
+          .filter(t=>String((t&&t.fecha_desde)||'').trim()===fecha);
+        return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fecha))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`;
+      }).join('');
     }
     document.addEventListener('DOMContentLoaded',()=>{document.getElementById('farmaTurnoGo')?.addEventListener('click',()=>document.getElementById('farmaciaTurnoSection')?.scrollIntoView({behavior:'smooth',block:'start'}))});
 
