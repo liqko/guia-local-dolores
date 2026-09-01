@@ -114,7 +114,6 @@
       .farma-row .farma-order{grid-column:1/-1}
     }
 
-
     /* Efemérides */
     .efem-card{margin-top:8px;background:#fbfbff;border:1px solid #e6e8ff;padding:12px;border-radius:8px}
     .efem-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -453,7 +452,7 @@
         <div id="tab-promos" class="tab" role="tab" aria-selected="false">Promos</div>
         <div id="tab-eventos" class="tab" role="tab" aria-selected="false">Eventos</div>
         <div id="tab-turnos-farma" class="tab" role="tab" aria-selected="false">Farmacias de turno</div>
-        <div id="tab-efemerides" class="tab" role="tab" aria-selected="false" style="display:none">Efemérides</div>
+        <div id="tab-efemerides" class="tab" role="tab" aria-selected="false">Efemérides</div>
         <div id="tab-menu" class="tab" role="tab" aria-selected="false">Menu</div>
         <div id="tab-vouchers" class="tab" role="tab" aria-selected="false">Vouchers</div>
         <div id="tab-entradas" class="tab" role="tab" aria-selected="false">Entradas</div>
@@ -790,8 +789,7 @@
         <!-- Efemérides -->
         <div id="efemerides-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <h3>Efemérides</h3>
-          <div id="efem-status" class="small-muted">Cargando permisos...</div>
-
+          <div id="efem-status" class="small-muted"></div>
           <div class="efem-card">
             <div class="efem-grid">
               <input id="efem-id" type="hidden">
@@ -853,12 +851,12 @@
 
               <div class="full">
                 <label>Nombre <span class="req">*</span></label>
-                <input id="efem-nombre" type="text" placeholder="Nombre de la efeméride">
+                <input id="efem-nombre" type="text">
               </div>
 
               <div class="full">
                 <label>Descripción</label>
-                <textarea id="efem-descripcion" rows="3" placeholder="Descripción opcional"></textarea>
+                <textarea id="efem-descripcion" rows="3"></textarea>
               </div>
 
               <div class="full">
@@ -881,7 +879,6 @@
             </div>
             <div id="efem-msg" style="margin-top:8px"></div>
           </div>
-
           <div id="efem-list" class="efem-list"></div>
         </div>
 
@@ -1779,84 +1776,64 @@ function setMsg(elId, kind, msg){
 
 
 async function efemerides_post(payload){
-  const body = Object.assign({}, payload || {});
-  if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-  if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_EFEMERIDES_URL, body);
+  const body=Object.assign({},payload||{});
+  if(!body.advertiserId && sesion && sesion.id) body.advertiserId=String(sesion.id);
+  return postJson(WORKER_EFEMERIDES_URL,body);
 }
 
 function efemTruthy(v){
-  if(v === true || v === 1) return true;
+  if(v===true || v===1) return true;
   return ['true','1','si','sí','x','✓','aprobado','ok','activo'].includes(String(v||'').trim().toLowerCase());
 }
 
+function efemPermisoLocal(){
+  return efemTruthy(sesion && sesion.efemerides_local);
+}
+function efemPermisoGeneral(){
+  return efemTruthy(sesion && sesion.efemerides_grl);
+}
+
 function efemUpdateConditionalFields(){
-  const tipo = String(document.getElementById('efem-tipo')?.value || '').toUpperCase();
-  const tipoFecha = String(document.getElementById('efem-tipo-fecha')?.value || '').toUpperCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const tipo=String(document.getElementById('efem-tipo')?.value||'').toUpperCase();
+  const tf=String(document.getElementById('efem-tipo-fecha')?.value||'')
+    .toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const movil=tf==='MOVIL';
 
-  document.getElementById('efem-ciudad-wrap')?.classList.toggle('hidden', tipo !== 'LOCAL');
-
-  const movil = tipoFecha === 'MOVIL';
-  document.getElementById('efem-fecha-fija-wrap')?.classList.toggle('hidden', movil);
-  document.getElementById('efem-mes-wrap')?.classList.toggle('hidden', !movil);
-  document.getElementById('efem-semana-wrap')?.classList.toggle('hidden', !movil);
-  document.getElementById('efem-dia-wrap')?.classList.toggle('hidden', !movil);
-
-  if(tipo !== 'LOCAL'){
-    const ciudad = document.getElementById('efem-ciudad');
-    if(ciudad) ciudad.value = '';
-  }
-
-  if(movil){
-    const fecha = document.getElementById('efem-fecha');
-    if(fecha) fecha.value = '';
-  }else{
-    ['efem-mes','efem-semana','efem-dia'].forEach(id=>{
-      const el=document.getElementById(id);
-      if(el) el.value='';
-    });
-  }
+  document.getElementById('efem-ciudad-wrap')?.classList.toggle('hidden',tipo!=='LOCAL');
+  document.getElementById('efem-fecha-fija-wrap')?.classList.toggle('hidden',movil);
+  document.getElementById('efem-mes-wrap')?.classList.toggle('hidden',!movil);
+  document.getElementById('efem-semana-wrap')?.classList.toggle('hidden',!movil);
+  document.getElementById('efem-dia-wrap')?.classList.toggle('hidden',!movil);
 }
 
 function efemRenderTipoOptions(){
-  const el = document.getElementById('efem-tipo');
+  const el=document.getElementById('efem-tipo');
   if(!el) return;
-
-  const p = efemState.permisos || {};
-  const opciones = [];
-  if(efemTruthy(p.efemerides_grl)) opciones.push('<option value="GENERAL">GENERAL</option>');
-  if(efemTruthy(p.efemerides_local)) opciones.push('<option value="LOCAL">LOCAL</option>');
-
-  el.innerHTML = opciones.join('');
+  const out=[];
+  if(efemPermisoGeneral()) out.push('<option value="GENERAL">GENERAL</option>');
+  if(efemPermisoLocal()) out.push('<option value="LOCAL">LOCAL</option>');
+  el.innerHTML=out.join('');
   efemUpdateConditionalFields();
 }
 
 function efemRenderCiudades(){
-  const el = document.getElementById('efem-ciudad');
+  const el=document.getElementById('efem-ciudad');
   if(!el) return;
-  el.innerHTML = '<option value="">Seleccioná la ciudad</option>' +
-    (efemState.ciudades || []).map(c=>{
-      const id = String(c.ciudad_id || '').trim();
-      const nombre = String(c.ciudad || c.ciudad_visible || c.nombre || id).trim();
-      return `<option value="${htmlEscape(id)}">${htmlEscape(nombre)}</option>`;
+  el.innerHTML='<option value="">Seleccioná la ciudad</option>' +
+    (efemState.ciudades||[]).map(c=>{
+      const id=String(c.ciudad_id||'').trim();
+      const nom=String(c.ciudad||c.ciudad_visible||c.nombre||id).trim();
+      return `<option value="${htmlEscape(id)}">${htmlEscape(nom)}</option>`;
     }).join('');
 }
 
 function efemClearForm(){
-  const id = document.getElementById('efem-id'); if(id) id.value='';
-  const nombre = document.getElementById('efem-nombre'); if(nombre) nombre.value='';
-  const desc = document.getElementById('efem-descripcion'); if(desc) desc.value='';
-  const imagen = document.getElementById('efem-imagen'); if(imagen) imagen.value='';
-  const fecha = document.getElementById('efem-fecha'); if(fecha) fecha.value='';
-  ['efem-mes','efem-semana','efem-dia','efem-ciudad'].forEach(x=>{
-    const el=document.getElementById(x);
-    if(el) el.value='';
-  });
-  const activo=document.getElementById('efem-activo'); if(activo) activo.checked=true;
-  const tipoFecha=document.getElementById('efem-tipo-fecha'); if(tipoFecha) tipoFecha.value='FIJA';
+  ['efem-id','efem-fecha','efem-nombre','efem-descripcion','efem-imagen','efem-mes','efem-semana','efem-dia','efem-ciudad']
+    .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  const a=document.getElementById('efem-activo'); if(a) a.checked=true;
+  const tf=document.getElementById('efem-tipo-fecha'); if(tf) tf.value='FIJA';
   efemRenderTipoOptions();
-  const btn=document.getElementById('efem-save'); if(btn) btn.textContent='Guardar efeméride';
+  const b=document.getElementById('efem-save'); if(b) b.textContent='Guardar efeméride';
   efemUpdateConditionalFields();
 }
 
@@ -1864,11 +1841,9 @@ function efemFechaLabel(r){
   const tf=String(r.tipo_fecha||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   if(tf==='MOVIL'){
     const meses=['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-    const sem=String(r.semana_mes||'');
-    const semTxt=sem==='ULTIMA'||sem==='ÚLTIMA'
-      ? 'última'
-      : ({1:'primera',2:'segunda',3:'tercera',4:'cuarta',5:'quinta'}[sem]||sem);
-    return `${semTxt} ${String(r.dia_semana||'').toLowerCase()} de ${meses[Number(r.mes)||0]||r.mes||''}`.trim();
+    const s=String(r.semana_mes||'');
+    const st=(s==='ULTIMA'||s==='ÚLTIMA')?'última':({1:'primera',2:'segunda',3:'tercera',4:'cuarta',5:'quinta'}[s]||s);
+    return `${st} ${String(r.dia_semana||'').toLowerCase()} de ${meses[Number(r.mes)||0]||''}`;
   }
   return String(r.fecha||'');
 }
@@ -1877,131 +1852,100 @@ function efemRenderList(){
   const box=document.getElementById('efem-list');
   if(!box) return;
   const rows=Array.isArray(efemState.efemerides)?efemState.efemerides:[];
-
   if(!rows.length){
     box.innerHTML='<div class="small-muted">No hay efemérides cargadas para tus permisos.</div>';
     return;
   }
 
   box.innerHTML=rows.map(r=>{
-    const id=htmlEscape(r.efemeride_id||'');
-    const tipo=htmlEscape(r.tipo||'');
-    const nombre=htmlEscape(r.nombre||'');
-    const ciudad=htmlEscape(r.ciudad||r.ciudad_id||'');
-    const fecha=htmlEscape(efemFechaLabel(r));
     const activo=efemTruthy(r.activo);
     return `<div class="efem-row">
-      <div class="efem-row-title">${nombre}</div>
-      <div class="efem-row-meta">${tipo}${ciudad?' · '+ciudad:''}${fecha?' · '+fecha:''} · ${activo?'ACTIVA':'INACTIVA'}</div>
+      <div class="efem-row-title">${htmlEscape(r.nombre||'')}</div>
+      <div class="efem-row-meta">${htmlEscape(r.tipo||'')}${r.ciudad?' · '+htmlEscape(r.ciudad):''} · ${htmlEscape(efemFechaLabel(r))} · ${activo?'ACTIVA':'INACTIVA'}</div>
       <div class="efem-row-actions">
-        <button class="secondary" type="button" data-efem-action="edit" data-id="${id}">Editar</button>
-        <button class="${activo?'btn-danger':'primary'}" type="button" data-efem-action="${activo?'desactivar':'activar'}" data-id="${id}" style="margin-top:0">${activo?'Desactivar':'Activar'}</button>
+        <button type="button" class="secondary" data-efem="edit" data-id="${htmlEscape(r.efemeride_id||'')}">Editar</button>
+        <button type="button" class="${activo?'btn-danger':'primary'}" style="margin-top:0" data-efem="${activo?'desactivar':'activar'}" data-id="${htmlEscape(r.efemeride_id||'')}">${activo?'Desactivar':'Activar'}</button>
       </div>
     </div>`;
   }).join('');
 
-  box.querySelectorAll('button[data-efem-action]').forEach(btn=>{
-    btn.addEventListener('click', async ()=>{
-      const action=btn.dataset.efemAction;
-      const id=btn.dataset.id;
+  box.querySelectorAll('[data-efem]').forEach(btn=>btn.addEventListener('click',async()=>{
+    const action=btn.dataset.efem;
+    const id=btn.dataset.id;
 
-      if(action==='edit'){
-        const r=efemState.efemerides.find(x=>String(x.efemeride_id||'')===String(id));
-        if(!r) return;
-        document.getElementById('efem-id').value=r.efemeride_id||'';
-        document.getElementById('efem-tipo').value=r.tipo||'GENERAL';
-        document.getElementById('efem-ciudad').value=r.ciudad_id||'';
-        document.getElementById('efem-tipo-fecha').value=
-          String(r.tipo_fecha||'FIJA').toUpperCase().includes('MOV')?'MÓVIL':'FIJA';
-        document.getElementById('efem-fecha').value=toDateInputValue(r.fecha);
-        document.getElementById('efem-mes').value=r.mes||'';
-        document.getElementById('efem-semana').value=r.semana_mes||'';
-        document.getElementById('efem-dia').value=r.dia_semana||'';
-        document.getElementById('efem-nombre').value=r.nombre||'';
-        document.getElementById('efem-descripcion').value=r.descripcion||'';
-        document.getElementById('efem-imagen').value=r.imagen||'';
-        document.getElementById('efem-activo').checked=efemTruthy(r.activo);
-        document.getElementById('efem-save').textContent='Guardar cambios';
-        efemUpdateConditionalFields();
-        document.getElementById('efem-nombre')?.scrollIntoView({behavior:'smooth',block:'center'});
-        return;
-      }
-
-      const res=await efemerides_post({action,efemeride_id:id});
-      if(res.status===200 && res.json && res.json.success){
-        setMsg('efem-msg','ok',action==='activar'?'Efeméride activada.':'Efeméride desactivada.');
-        await loadEfemeridesUI(true);
-      }else{
-        setMsg('efem-msg','err',(res.json && (res.json.error||res.json.message)) || 'No se pudo actualizar.');
-      }
-    });
-  });
-}
-
-async function loadEfemeridesPermissions(){
-  if(!sesion || !sesion.id) return false;
-
-  const res=await efemerides_post({action:'permisos'});
-  if(res.status!==200 || !res.json || !res.json.success){
-    efemState={permisos:null,ciudades:[],efemerides:[],loaded:false};
-    return false;
-  }
-
-  efemState.permisos=res.json;
-  efemState.ciudades=Array.isArray(res.json.ciudades)?res.json.ciudades:[];
-  efemRenderTipoOptions();
-  efemRenderCiudades();
-
-  return efemTruthy(res.json.efemerides_local) || efemTruthy(res.json.efemerides_grl);
-}
-
-async function loadEfemeridesUI(force=false){
-  const st=document.getElementById('efem-status');
-
-  if(!sesion || !sesion.id){
-    if(st) st.textContent='No logueado.';
-    return;
-  }
-
-  if(st) st.textContent='Cargando efemérides...';
-
-  if(!efemState.permisos || force){
-    const ok=await loadEfemeridesPermissions();
-    if(!ok){
-      if(st) st.textContent='No tenés permisos para gestionar efemérides.';
-      efemState.efemerides=[];
-      efemRenderList();
+    if(action==='edit'){
+      const r=efemState.efemerides.find(x=>String(x.efemeride_id||'')===String(id));
+      if(!r) return;
+      document.getElementById('efem-id').value=r.efemeride_id||'';
+      document.getElementById('efem-tipo').value=r.tipo||'';
+      document.getElementById('efem-ciudad').value=r.ciudad_id||'';
+      document.getElementById('efem-tipo-fecha').value=String(r.tipo_fecha||'').toUpperCase().includes('MOV')?'MÓVIL':'FIJA';
+      document.getElementById('efem-fecha').value=toDateInputValue(r.fecha);
+      document.getElementById('efem-mes').value=r.mes||'';
+      document.getElementById('efem-semana').value=r.semana_mes||'';
+      document.getElementById('efem-dia').value=r.dia_semana||'';
+      document.getElementById('efem-nombre').value=r.nombre||'';
+      document.getElementById('efem-descripcion').value=r.descripcion||'';
+      document.getElementById('efem-imagen').value=r.imagen||'';
+      document.getElementById('efem-activo').checked=efemTruthy(r.activo);
+      document.getElementById('efem-save').textContent='Guardar cambios';
+      efemUpdateConditionalFields();
       return;
     }
-  }
 
-  const res=await efemerides_post({action:'listar'});
-  if(res.status!==200 || !res.json || !res.json.success){
-    if(st) st.textContent=(res.json && (res.json.error||res.json.message)) || 'Error cargando efemérides.';
+    const res=await efemerides_post({action,efemeride_id:id});
+    if(res.status===200 && res.json && res.json.success){
+      setMsg('efem-msg','ok',action==='activar'?'Efeméride activada.':'Efeméride desactivada.');
+      await loadEfemeridesUI();
+    }else{
+      setMsg('efem-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo actualizar.');
+    }
+  }));
+}
+
+async function loadEfemeridesUI(){
+  const st=document.getElementById('efem-status');
+  if(!sesion || !sesion.id) return;
+  if(st) st.textContent='Cargando efemérides...';
+
+  const p=await efemerides_post({action:'permisos'});
+  if(p.status!==200 || !p.json || !p.json.success){
+    const msg=(p.json&&(p.json.error||p.json.message))||'No se pudieron validar los permisos.';
+    if(st) st.textContent=msg;
+    setMsg('efem-msg','err',msg);
     return;
   }
 
-  efemState.permisos=Object.assign({},efemState.permisos||{},res.json.permisos||{});
-  efemState.ciudades=Array.isArray(res.json.ciudades)?res.json.ciudades:efemState.ciudades;
-  efemState.efemerides=Array.isArray(res.json.efemerides)?res.json.efemerides:[];
-  efemState.loaded=true;
-
+  efemState.permisos=p.json;
+  efemState.ciudades=Array.isArray(p.json.ciudades)?p.json.ciudades:[];
+  sesion.efemerides_local=p.json.efemerides_local;
+  sesion.efemerides_grl=p.json.efemerides_grl;
   efemRenderTipoOptions();
   efemRenderCiudades();
-  efemRenderList();
 
+  const r=await efemerides_post({action:'listar'});
+  if(r.status!==200 || !r.json || !r.json.success){
+    const msg=(r.json&&(r.json.error||r.json.message))||'No se pudieron cargar las efemérides.';
+    if(st) st.textContent=msg;
+    setMsg('efem-msg','err',msg);
+    return;
+  }
+
+  efemState.efemerides=Array.isArray(r.json.efemerides)?r.json.efemerides:[];
+  efemState.loaded=true;
+  efemRenderList();
   if(st) st.textContent=`${efemState.efemerides.length} efeméride(s).`;
 }
 
 async function efemGuardar(){
   const tipo=String(document.getElementById('efem-tipo')?.value||'').trim();
-  const tipoFecha=String(document.getElementById('efem-tipo-fecha')?.value||'').trim();
+  const tf=String(document.getElementById('efem-tipo-fecha')?.value||'').trim();
   const ciudadEl=document.getElementById('efem-ciudad');
   const ciudadId=tipo==='LOCAL'?String(ciudadEl?.value||'').trim():'';
   const nombre=String(document.getElementById('efem-nombre')?.value||'').trim();
 
   if(!tipo){ setMsg('efem-msg','err','Elegí el tipo.'); return; }
-  if(tipo==='LOCAL' && !ciudadId){ setMsg('efem-msg','err','Elegí la ciudad.'); return; }
+  if(tipo==='LOCAL'&&!ciudadId){ setMsg('efem-msg','err','Elegí la ciudad.'); return; }
   if(!nombre){ setMsg('efem-msg','err','Ingresá el nombre.'); return; }
 
   const payload={
@@ -2009,7 +1953,7 @@ async function efemGuardar(){
     tipo,
     ciudad_id:ciudadId,
     ciudad:tipo==='LOCAL'?(ciudadEl?.options[ciudadEl.selectedIndex]?.text||''):'',
-    tipo_fecha:tipoFecha,
+    tipo_fecha:tf,
     fecha:String(document.getElementById('efem-fecha')?.value||'').trim(),
     mes:String(document.getElementById('efem-mes')?.value||'').trim(),
     semana_mes:String(document.getElementById('efem-semana')?.value||'').trim(),
@@ -2020,26 +1964,20 @@ async function efemGuardar(){
     activo:!!document.getElementById('efem-activo')?.checked
   };
 
-  const tf=tipoFecha.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-
-  if(tf==='FIJA' && !payload.fecha){
-    setMsg('efem-msg','err','Ingresá la fecha.');
-    return;
-  }
-
-  if(tf==='MOVIL' && (!payload.mes || !payload.semana_mes || !payload.dia_semana)){
+  const norm=tf.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if(norm==='FIJA'&&!payload.fecha){ setMsg('efem-msg','err','Ingresá la fecha.'); return; }
+  if(norm==='MOVIL'&&(!payload.mes||!payload.semana_mes||!payload.dia_semana)){
     setMsg('efem-msg','err','Completá mes, semana y día.');
     return;
   }
 
   const res=await efemerides_post({action:'guardar',payload});
-
   if(res.status===200 && res.json && res.json.success){
     setMsg('efem-msg','ok',payload.efemeride_id?'Cambios guardados.':'Efeméride creada.');
     efemClearForm();
-    await loadEfemeridesUI(true);
+    await loadEfemeridesUI();
   }else{
-    setMsg('efem-msg','err',(res.json && (res.json.error||res.json.message)) || 'No se pudo guardar.');
+    setMsg('efem-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo guardar.');
   }
 }
 
@@ -3187,15 +3125,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   );
 
   cargarComercios(()=>{});
-  document.getElementById('efem-tipo')?.addEventListener('change', efemUpdateConditionalFields);
-  document.getElementById('efem-tipo-fecha')?.addEventListener('change', efemUpdateConditionalFields);
-  document.getElementById('efem-save')?.addEventListener('click', efemGuardar);
-  document.getElementById('efem-cancel')?.addEventListener('click', ()=>{
-    efemClearForm();
-    setMsg('efem-msg','ok','Edición cancelada.');
-  });
-  document.getElementById('efem-refresh')?.addEventListener('click', ()=>loadEfemeridesUI(true));
-
+  document.getElementById('efem-tipo')?.addEventListener('change',efemUpdateConditionalFields);
+  document.getElementById('efem-tipo-fecha')?.addEventListener('change',efemUpdateConditionalFields);
+  document.getElementById('efem-save')?.addEventListener('click',efemGuardar);
+  document.getElementById('efem-cancel')?.addEventListener('click',()=>{ efemClearForm(); setMsg('efem-msg','ok','Edición cancelada.'); });
+  document.getElementById('efem-refresh')?.addEventListener('click',loadEfemeridesUI);
   loadEventLists().then(()=>{
     document.getElementById('ev-ciudad')?.addEventListener('change', onCiudadChangeUpdateLugares);
     document.getElementById('ev-lugar')?.addEventListener('change', onLugarChangeUpdateDireccion);
@@ -3619,6 +3553,10 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       sesion.promos_cant = administracion.promos_cant || datos.promos_cant || 0;
       sesion.eventos_cant = administracion.eventos_cant || datos.eventos_cant || 0;
       sesion.turnos_farma = administracion.turnos_farma || datos.turnos_farma || sesion.turnos_farma || '';
+      sesion.efemerides_local = administracion.efemerides_local !== undefined ? administracion.efemerides_local : (datos.efemerides_local !== undefined ? datos.efemerides_local : sesion.efemerides_local || '');
+      sesion.efemerides_grl = administracion.efemerides_grl !== undefined ? administracion.efemerides_grl : (datos.efemerides_grl !== undefined ? datos.efemerides_grl : sesion.efemerides_grl || '');
+      localStorage.setItem('efemerides_local', sesion.efemerides_local);
+      localStorage.setItem('efemerides_grl', sesion.efemerides_grl);
       localStorage.setItem('promos_cant', sesion.promos_cant);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
       localStorage.setItem('turnos_farma', sesion.turnos_farma);
@@ -3627,15 +3565,6 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       cargarCiudadesPromo();
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
-      }
-
-      try{
-        await loadEfemeridesPermissions();
-        if(typeof window.updateDashboardModulesFromData === 'function'){
-          window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
-        }
-      }catch(e){
-        debugLog('Error cargando permisos de Efemérides', e);
       }
 
       document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
@@ -3697,8 +3626,12 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
           planilla_id: res.planilla_id || '',
           promos_cant: pCant,
           eventos_cant: eCant,
-          turnos_farma: turnosFarma
+          turnos_farma: turnosFarma,
+          efemerides_local: res.efemerides_local || '',
+          efemerides_grl: res.efemerides_grl || ''
         };
+        localStorage.setItem('efemerides_local', sesion.efemerides_local);
+        localStorage.setItem('efemerides_grl', sesion.efemerides_grl);
         document.getElementById('login-msg').innerHTML = "<span class='success'>"+(res.message||'Ingresado')+"</span>";
         setTimeout(()=> mostrarPanelDashboard(), 300);
         return;
@@ -3721,6 +3654,8 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
     localStorage.removeItem('promos_cant');
     localStorage.removeItem('eventos_cant');
     localStorage.removeItem('turnos_farma');
+    localStorage.removeItem('efemerides_local');
+    localStorage.removeItem('efemerides_grl');
     sesion=null;
     btnLogin.removeAttribute('disabled');
     btnLogin.textContent = originalLoginBtnText;
@@ -3734,7 +3669,9 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       planilla_id: localStorage.getItem('planilla_id')||'',
       promos_cant: localStorage.getItem('promos_cant') || 0,
       eventos_cant: localStorage.getItem('eventos_cant') || 0,
-      turnos_farma: localStorage.getItem('turnos_farma') || ''
+      turnos_farma: localStorage.getItem('turnos_farma') || '',
+      efemerides_local: localStorage.getItem('efemerides_local') || '',
+      efemerides_grl: localStorage.getItem('efemerides_grl') || ''
     };
     mostrarPanelDashboard();
   }
@@ -3804,7 +3741,6 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       promos: ['promos','promo'],
       eventos: ['eventos','evento'],
       turnos_farma: ['turnos_farma','turnosfarma','farmacias_turno','farmaciasdeturno'],
-      efemerides: ['efemerides_local','efemerides_grl','efemerides'],
       menu: ['menu','menus','carta'],
       vouchers: ['vouchers','voucher','beneficios','beneficio'],
       entradas: ['entradas','entrada'],
@@ -3878,10 +3814,7 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         out.add('turnos_farma');
       }
 
-      if(efemState.permisos && (
-        efemTruthy(efemState.permisos.efemerides_local) ||
-        efemTruthy(efemState.permisos.efemerides_grl)
-      )){
+      if(isTruthy(sesion && sesion.efemerides_local) || isTruthy(sesion && sesion.efemerides_grl)){
         out.add('efemerides');
       }
 
@@ -3927,7 +3860,7 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         if(!farmaState.ciudades.length) loadFarmaciasUI();
       } else if(key === 'efemerides'){
         if(efemeridesPanel) efemeridesPanel.classList.remove('hidden-panel');
-        if(!efemState.loaded) loadEfemeridesUI();
+        loadEfemeridesUI();
       } else if(key === 'menu'){
         if(menuPanel) {
           menuPanel.classList.remove('hidden-panel');
