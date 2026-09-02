@@ -132,11 +132,17 @@
     .efem-group summary::after{content:'▼';font-size:.85em}
     .efem-group[open] summary::after{content:'▲'}
     .efem-group-body{display:flex;flex-direction:column;gap:10px;padding:10px}
+    .efem-fixed-date{display:grid;grid-template-columns:110px minmax(0,1fr);gap:8px}
+    .efem-list-tools{display:grid;grid-template-columns:minmax(0,1fr) 180px;gap:8px;margin-top:14px;align-items:end}
+    .efem-list-tools label{margin-top:0}
+    .efem-list-tools input,.efem-list-tools select{margin-bottom:0}
+    .efem-results-count{margin-top:8px}
     @media(max-width:720px){
       .efem-grid{grid-template-columns:1fr}
       .efem-grid .full{grid-column:auto}
       .efem-actions,.efem-row-actions{flex-direction:column}
       .efem-actions button,.efem-row-actions button{width:100%}
+      .efem-fixed-date,.efem-list-tools{grid-template-columns:1fr}
     }
 
         /* Events UI */
@@ -826,8 +832,22 @@
               </div>
 
               <div id="efem-fecha-fija-wrap">
-                <label>Fecha <span class="req">*</span></label>
-                <input id="efem-fecha" type="date">
+                <label>Fecha fija <span class="req">*</span></label>
+                <div class="efem-fixed-date">
+                  <select id="efem-fija-dia" aria-label="Día">
+                    <option value="">Día</option>
+                  </select>
+                  <select id="efem-fija-mes" aria-label="Mes">
+                    <option value="">Mes</option>
+                    <option value="1">Enero</option><option value="2">Febrero</option>
+                    <option value="3">Marzo</option><option value="4">Abril</option>
+                    <option value="5">Mayo</option><option value="6">Junio</option>
+                    <option value="7">Julio</option><option value="8">Agosto</option>
+                    <option value="9">Septiembre</option><option value="10">Octubre</option>
+                    <option value="11">Noviembre</option><option value="12">Diciembre</option>
+                  </select>
+                </div>
+                <div class="small-muted">La efeméride se repite todos los años. No se guarda año.</div>
               </div>
 
               <div id="efem-mes-wrap" class="hidden">
@@ -893,6 +913,21 @@
             <div id="efem-msg" style="margin-top:8px"></div>
           </div>
 
+          <div class="efem-list-tools">
+            <div>
+              <label for="efem-buscar">Buscar efeméride</label>
+              <input id="efem-buscar" type="search" placeholder="Buscar por nombre, fecha, ciudad o tipo...">
+            </div>
+            <div>
+              <label for="efem-filtro-estado">Estado</label>
+              <select id="efem-filtro-estado">
+                <option value="TODAS">Todas</option>
+                <option value="ACTIVAS">Activas</option>
+                <option value="PAUSADAS">Pausadas</option>
+              </select>
+            </div>
+          </div>
+          <div id="efem-results-count" class="small-muted efem-results-count"></div>
           <div id="efem-list" class="efem-list"></div>
         </div>
 
@@ -1847,7 +1882,7 @@ function efemRenderCiudades(){
 }
 
 function efemClearForm(){
-  ['efem-id','efem-fecha','efem-nombre','efem-descripcion','efem-imagen','efem-mes','efem-semana','efem-dia','efem-ciudad']
+  ['efem-id','efem-fija-dia','efem-fija-mes','efem-nombre','efem-descripcion','efem-imagen','efem-mes','efem-semana','efem-dia','efem-ciudad']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   const borrador=document.getElementById('efem-borrador'); if(borrador) borrador.checked=false;
   const borradorWrap=document.getElementById('efem-borrador-wrap'); if(borradorWrap) borradorWrap.classList.remove('hidden');
@@ -1858,6 +1893,39 @@ function efemClearForm(){
   efemUpdateConditionalFields();
 }
 
+
+function efemInitFixedDays(){
+  const el=document.getElementById('efem-fija-dia');
+  if(!el || el.options.length>1) return;
+  let html='<option value="">Día</option>';
+  for(let d=1;d<=31;d++) html+=`<option value="${d}">${d}</option>`;
+  el.innerHTML=html;
+}
+
+function efemMesDiaDesdeValor(value){
+  if(value===null || value===undefined || value==='') return null;
+  const s=String(value).trim();
+  let m=s.match(/^(\d{1,2})\/(\d{1,2})(?:\/\d{2,4})?$/);
+  if(m) return {dia:Number(m[1]),mes:Number(m[2])};
+  m=s.match(/^(\d{1,2})-(\d{1,2})(?:-\d{2,4})?$/);
+  if(m) return {dia:Number(m[1]),mes:Number(m[2])};
+  m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if(m) return {dia:Number(m[3]),mes:Number(m[2])};
+  const d=new Date(s);
+  if(!isNaN(d.getTime())) return {dia:d.getUTCDate(),mes:d.getUTCMonth()+1};
+  return null;
+}
+
+function efemFechaFijaTexto(value){
+  const md=efemMesDiaDesdeValor(value);
+  if(!md) return '';
+  return `${String(md.dia).padStart(2,'0')}/${String(md.mes).padStart(2,'0')}`;
+}
+
+function efemNormalizarBusqueda(v){
+  return String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+}
+
 function efemFechaLabel(r){
   const tf=String(r.tipo_fecha||'').toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   if(tf==='MOVIL'){
@@ -1866,27 +1934,58 @@ function efemFechaLabel(r){
     const st=(s==='ULTIMA'||s==='ÚLTIMA')?'última':({1:'primera',2:'segunda',3:'tercera',4:'cuarta',5:'quinta'}[s]||s);
     return `${st} ${String(r.dia_semana||'').toLowerCase()} de ${meses[Number(r.mes)||0]||''}`;
   }
-  return String(r.fecha||'');
+  return efemFechaFijaTexto(r.fecha) || String(r.fecha||'');
 }
 
 function efemRenderList(){
   const box=document.getElementById('efem-list');
+  const countBox=document.getElementById('efem-results-count');
   if(!box) return;
-  const rows=Array.isArray(efemState.efemerides)?efemState.efemerides:[];
 
-  if(!rows.length){
+  const allRows=Array.isArray(efemState.efemerides)?efemState.efemerides:[];
+  const q=efemNormalizarBusqueda(document.getElementById('efem-buscar')?.value||'');
+  const filtro=String(document.getElementById('efem-filtro-estado')?.value||'TODAS').toUpperCase();
+
+  const rows=allRows.filter(r=>{
+    const activo=efemTruthy(r.activo);
+    if(filtro==='ACTIVAS'&&!activo) return false;
+    if(filtro==='PAUSADAS'&&activo) return false;
+    if(!q) return true;
+    const haystack=efemNormalizarBusqueda([
+      r.nombre,
+      efemFechaLabel(r),
+      r.tipo,
+      r.ciudad,
+      activo?'publicada activa':'pausada borrador'
+    ].join(' '));
+    return haystack.includes(q);
+  });
+
+  if(countBox){
+    countBox.textContent=(q||filtro!=='TODAS')
+      ? `${rows.length} resultado(s) de ${allRows.length} efeméride(s).`
+      : `${allRows.length} efeméride(s) cargada(s).`;
+  }
+
+  if(!allRows.length){
     box.innerHTML='<div class="small-muted">No hay efemérides cargadas para tus permisos.</div>';
+    return;
+  }
+  if(!rows.length){
+    box.innerHTML='<div class="small-muted">No hay efemérides que coincidan con la búsqueda o el filtro.</div>';
     return;
   }
 
   const renderRows=(items)=>items.map(r=>{
     const activo=efemTruthy(r.activo);
+    const fecha=efemFechaLabel(r);
     return `<div class="efem-row">
-      <div class="efem-row-title">${htmlEscape(r.nombre||'')}</div>
-      <div class="efem-row-meta">${htmlEscape(r.tipo||'')}${r.ciudad?' · '+htmlEscape(r.ciudad):''} · ${htmlEscape(efemFechaLabel(r))} · ${activo?'PUBLICADA':'PAUSADA / BORRADOR'}</div>
+      <div class="efem-row-title">${htmlEscape(fecha)} — ${htmlEscape(r.nombre||'')}</div>
+      <div class="efem-row-meta">${htmlEscape(r.tipo||'')}${r.ciudad?' · '+htmlEscape(r.ciudad):''} · ${activo?'PUBLICADA':'PAUSADA / BORRADOR'}</div>
       <div class="efem-row-actions">
         <button type="button" class="secondary" data-efem="edit" data-id="${htmlEscape(r.efemeride_id||'')}">Editar</button>
         <button type="button" class="${activo?'btn-danger':'primary'}" style="margin-top:0" data-efem="${activo?'desactivar':'activar'}" data-id="${htmlEscape(r.efemeride_id||'')}">${activo?'Pausar':'Publicar'}</button>
+        <button type="button" class="btn-danger" data-efem="eliminar" data-id="${htmlEscape(r.efemeride_id||'')}">Eliminar</button>
       </div>
     </div>`;
   }).join('');
@@ -1897,11 +1996,11 @@ function efemRenderList(){
   box.innerHTML=`
     <details class="efem-group" data-efem-group="GENERAL"${efemGroupsOpen.GENERAL?' open':''}>
       <summary>Generales <span>${generales.length}</span></summary>
-      <div class="efem-group-body">${generales.length?renderRows(generales):'<div class="small-muted">No hay efemérides generales.</div>'}</div>
+      <div class="efem-group-body">${generales.length?renderRows(generales):'<div class="small-muted">No hay coincidencias en efemérides generales.</div>'}</div>
     </details>
     <details class="efem-group" data-efem-group="LOCAL"${efemGroupsOpen.LOCAL?' open':''}>
       <summary>Locales <span>${locales.length}</span></summary>
-      <div class="efem-group-body">${locales.length?renderRows(locales):'<div class="small-muted">No hay efemérides locales.</div>'}</div>
+      <div class="efem-group-body">${locales.length?renderRows(locales):'<div class="small-muted">No hay coincidencias en efemérides locales.</div>'}</div>
     </details>`;
 
   box.querySelectorAll('[data-efem-group]').forEach(group=>{
@@ -1917,12 +2016,18 @@ function efemRenderList(){
 
     if(action==='edit'){
       const r=efemState.efemerides.find(x=>String(x.efemeride_id||'')===String(id));
-      if(!r) return;
+      if(!r){
+        await loadEfemeridesUI(true);
+        setMsg('efem-msg','err','Esa efeméride ya no existe. La lista fue actualizada.');
+        return;
+      }
       document.getElementById('efem-id').value=r.efemeride_id||'';
       document.getElementById('efem-tipo').value=r.tipo||'';
       document.getElementById('efem-ciudad').value=r.ciudad_id||'';
       document.getElementById('efem-tipo-fecha').value=String(r.tipo_fecha||'').toUpperCase().includes('MOV')?'MÓVIL':'FIJA';
-      document.getElementById('efem-fecha').value=toDateInputValue(r.fecha);
+      const md=efemMesDiaDesdeValor(r.fecha);
+      document.getElementById('efem-fija-dia').value=md?String(md.dia):'';
+      document.getElementById('efem-fija-mes').value=md?String(md.mes):'';
       document.getElementById('efem-mes').value=r.mes||'';
       document.getElementById('efem-semana').value=r.semana_mes||'';
       document.getElementById('efem-dia').value=r.dia_semana||'';
@@ -1940,6 +2045,35 @@ function efemRenderList(){
       return;
     }
 
+    if(action==='eliminar'){
+      const r=efemState.efemerides.find(x=>String(x.efemeride_id||'')===String(id));
+      const nombre=r&&r.nombre?` "${r.nombre}"`:'';
+      if(!window.confirm(`¿Eliminar definitivamente la efeméride${nombre}? Esta acción no se puede deshacer.`)) return;
+      const originalText=btn.textContent;
+      btn.disabled=true;
+      btn.textContent='Eliminando...';
+      setMsg('efem-msg','ok','Eliminando efeméride...');
+      try{
+        const res=await efemerides_post({action:'eliminar',efemeride_id:id});
+        if(res.status===200 && res.json && res.json.success){
+          if(String(document.getElementById('efem-id')?.value||'')===String(id)) efemClearForm();
+          await loadEfemeridesUI(true);
+          setMsg('efem-msg','ok','Efeméride eliminada.');
+        }else if(res.json && res.json.error==='efemeride_id_no_encontrado'){
+          await loadEfemeridesUI(true);
+          setMsg('efem-msg','err','La efeméride ya no existía. La lista fue actualizada.');
+        }else{
+          setMsg('efem-msg','err','No se pudo eliminar la efeméride. Intentá nuevamente.');
+        }
+      }catch(e){
+        console.error('Error eliminando efeméride:',e);
+        setMsg('efem-msg','err','No se pudo eliminar la efeméride. Revisá la conexión e intentá nuevamente.');
+      }finally{
+        if(btn.isConnected){ btn.disabled=false; btn.textContent=originalText; }
+      }
+      return;
+    }
+
     const originalText=btn.textContent;
     const publicando=action==='activar';
     btn.disabled=true;
@@ -1950,6 +2084,9 @@ function efemRenderList(){
       if(res.status===200 && res.json && res.json.success){
         await loadEfemeridesUI(true);
         setMsg('efem-msg','ok',publicando?'Efeméride publicada.':'Efeméride pausada.');
+      }else if(res.json && res.json.error==='efemeride_id_no_encontrado'){
+        await loadEfemeridesUI(true);
+        setMsg('efem-msg','err','La efeméride ya no existe. La lista fue actualizada.');
       }else{
         setMsg('efem-msg','err','No se pudo actualizar la efeméride. Intentá nuevamente.');
       }
@@ -2004,6 +2141,8 @@ async function loadEfemeridesUI(preserveMessage=false){
   const st=document.getElementById('efem-status');
   if(!sesion || !sesion.id) return;
   if(st) st.textContent='Cargando efemérides...';
+  const listBox=document.getElementById('efem-list');
+  if(listBox) listBox.innerHTML='<div class="small-muted">Cargando efemérides...</div>';
   if(!preserveMessage){ const msg=document.getElementById('efem-msg'); if(msg) msg.innerHTML=''; }
 
   const ok=await loadEfemeridesPermissions();
@@ -2034,6 +2173,8 @@ async function efemGuardar(){
   const ciudadEl=document.getElementById('efem-ciudad');
   const ciudadId=tipo==='LOCAL'?String(ciudadEl?.value||'').trim():'';
   const nombre=String(document.getElementById('efem-nombre')?.value||'').trim();
+  const fijaDia=String(document.getElementById('efem-fija-dia')?.value||'').trim();
+  const fijaMes=String(document.getElementById('efem-fija-mes')?.value||'').trim();
 
   if(!tipo){ setMsg('efem-msg','err','Elegí el tipo.'); return; }
   if(tipo==='LOCAL'&&!ciudadId){ setMsg('efem-msg','err','Elegí la ciudad.'); return; }
@@ -2045,7 +2186,7 @@ async function efemGuardar(){
     ciudad_id:ciudadId,
     ciudad:tipo==='LOCAL'?(ciudadEl?.options[ciudadEl.selectedIndex]?.text||''):'',
     tipo_fecha:tf,
-    fecha:String(document.getElementById('efem-fecha')?.value||'').trim(),
+    fecha:'',
     mes:String(document.getElementById('efem-mes')?.value||'').trim(),
     semana_mes:String(document.getElementById('efem-semana')?.value||'').trim(),
     dia_semana:String(document.getElementById('efem-dia')?.value||'').trim(),
@@ -2056,7 +2197,10 @@ async function efemGuardar(){
   };
 
   const norm=tf.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  if(norm==='FIJA'&&!payload.fecha){ setMsg('efem-msg','err','Ingresá la fecha.'); return; }
+  if(norm==='FIJA'){
+    if(!fijaDia||!fijaMes){ setMsg('efem-msg','err','Elegí día y mes.'); return; }
+    payload.fecha=`${String(fijaDia).padStart(2,'0')}/${String(fijaMes).padStart(2,'0')}`;
+  }
   if(norm==='MOVIL'&&(!payload.mes||!payload.semana_mes||!payload.dia_semana)){
     setMsg('efem-msg','err','Completá mes, semana y día.');
     return;
@@ -3233,6 +3377,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
   );
 
   cargarComercios(()=>{});
+  efemInitFixedDays();
+  document.getElementById('efem-buscar')?.addEventListener('input',efemRenderList);
+  document.getElementById('efem-filtro-estado')?.addEventListener('change',efemRenderList);
   document.getElementById('efem-tipo')?.addEventListener('change',efemUpdateConditionalFields);
   document.getElementById('efem-tipo-fecha')?.addEventListener('change',efemUpdateConditionalFields);
   document.getElementById('efem-save')?.addEventListener('click',efemGuardar);
@@ -3687,8 +3834,6 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
 
       if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
 
-      setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} }, 250);
-      setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} }, 250);
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
       if(typeof window.updateDashboardModulesFromData === 'function'){
@@ -3962,14 +4107,22 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         if(datosPanel) datosPanel.classList.remove('hidden-panel');
       } else if(key === 'promos'){
         if(promosPanel) promosPanel.classList.remove('hidden-panel');
+        const st=document.getElementById('promos-status'); if(st) st.textContent='Cargando promos...';
+        const list=document.getElementById('promos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando promos...</div>';
+        setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} },0);
       } else if(key === 'eventos'){
         if(eventosPanel) eventosPanel.classList.remove('hidden-panel');
+        const st=document.getElementById('eventos-status'); if(st) st.textContent='Cargando eventos...';
+        const list=document.getElementById('eventos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando eventos...</div>';
+        setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} },0);
       } else if(key === 'turnos_farma'){
         if(turnosFarmaPanel) turnosFarmaPanel.classList.remove('hidden-panel');
         if(!farmaState.ciudades.length) loadFarmaciasUI();
       } else if(key === 'efemerides'){
         if(efemeridesPanel) efemeridesPanel.classList.remove('hidden-panel');
-        if(!efemState.loaded) loadEfemeridesUI();
+        const st=document.getElementById('efem-status'); if(st) st.textContent='Cargando efemérides...';
+        const list=document.getElementById('efem-list'); if(list) list.innerHTML='<div class="small-muted">Cargando efemérides...</div>';
+        setTimeout(()=>{ try{ loadEfemeridesUI(); }catch(e){} },0);
       } else if(key === 'menu'){
         if(menuPanel) {
           menuPanel.classList.remove('hidden-panel');
