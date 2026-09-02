@@ -2192,17 +2192,32 @@ async function loadFarmaCityData(){
 
 async function loadFarmaciasUI(){
   if(!sesion || !sesion.id) return;
+  const status=document.getElementById('farma-status');
+  const sel=document.getElementById('farma-ciudad');
+  if(status) status.textContent='Cargando ciudades...';
+  if(sel && !farmaState.ciudades.length){
+    sel.innerHTML='<option value="">Cargando ciudades...</option>';
+  }
   try{
     const data=await farmacias_get('ciudades');
     farmaState.ciudades=Array.isArray(data.ciudades)?data.ciudades:[];
-    const sel=document.getElementById('farma-ciudad');
     if(!sel) return;
     const current=sel.value||'';
     sel.innerHTML='<option value="">Seleccioná la ciudad</option>' +
       farmaState.ciudades.map(c=>`<option value="${htmlEscape(c.ciudad_id)}">${htmlEscape(c.ciudad_visible||c.ciudad_id)}</option>`).join('');
     if(current && Array.from(sel.options).some(o=>o.value===current)) sel.value=current;
-    if(sel.value) await loadFarmaCityData();
+    document.getElementById('farma-msg').innerHTML='';
+    if(sel.value){
+      await loadFarmaCityData();
+    }else if(status){
+      status.textContent=farmaState.ciudades.length
+        ? 'Seleccioná una ciudad para cargar las farmacias.'
+        : 'No hay ciudades disponibles.';
+    }
   }catch(e){
+    farmaState.ciudades=[];
+    if(sel) sel.innerHTML='<option value="">No se pudieron cargar las ciudades</option>';
+    if(status) status.textContent='No se pudieron cargar las ciudades.';
     setMsg('farma-msg','err',e.message||String(e));
   }
 }
@@ -3118,6 +3133,7 @@ async function loadEventsUI(){
   const maxEvents = parseInt(data.eventos_cant !== undefined ? data.eventos_cant : (sesion.eventos_cant || 0), 10) || 0;
   const loadedEvents = parseInt(data.count !== undefined ? data.count : events.length, 10) || 0;
   const availableEvents = Math.max(0, maxEvents - loadedEvents);
+  const cupo = calcularCupoPublicacion(events, maxEvents);
 
   st.innerHTML = textoCupoPublicacion(cupo);
 
@@ -3634,6 +3650,14 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
 
       document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
       cargarCiudadesPromo();
+
+      try{
+        await loadEfemeridesPermissions();
+      }catch(e){
+        efemState.permisos = null;
+        efemState.ciudades = [];
+      }
+
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
       }
@@ -3876,6 +3900,13 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         out.add('turnos_farma');
       }
 
+      if(efemState.permisos && (
+        efemTruthy(efemState.permisos.efemerides_local) ||
+        efemTruthy(efemState.permisos.efemerides_grl)
+      )){
+        out.add('efemerides');
+      }
+
       out.add('tarjeta_nfc');
       out.add('modificar_datos');
       return out;
@@ -3911,8 +3942,23 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         if(datosPanel) datosPanel.classList.remove('hidden-panel');
       } else if(key === 'promos'){
         if(promosPanel) promosPanel.classList.remove('hidden-panel');
+        loadPromosUI().catch((e)=>{
+          const st=document.getElementById('promos-status');
+          if(st) st.textContent='No se pudieron cargar las promos.';
+        });
       } else if(key === 'eventos'){
         if(eventosPanel) eventosPanel.classList.remove('hidden-panel');
+        const st=document.getElementById('eventos-status');
+        if(st) st.textContent='Cargando datos de Eventos...';
+        const cargarListas = (!Array.isArray(evLists.ciudades) || !evLists.ciudades.length)
+          ? loadEventLists()
+          : Promise.resolve();
+        cargarListas
+          .then(()=>loadEventsUI())
+          .catch((e)=>{
+            if(st) st.textContent='No se pudieron cargar los datos de Eventos.';
+            setMsg('eventos-msg','err',e.message||String(e));
+          });
       } else if(key === 'turnos_farma'){
         if(turnosFarmaPanel) turnosFarmaPanel.classList.remove('hidden-panel');
         if(!farmaState.ciudades.length) loadFarmaciasUI();
