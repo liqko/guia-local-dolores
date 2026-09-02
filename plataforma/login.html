@@ -3403,11 +3403,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(btn){ btn.disabled=true; btn.textContent='Recargando...'; }
     try{ await loadEfemeridesUI(); } finally { if(btn){ btn.disabled=false; btn.textContent='Refrescar lista'; } }
   });
-  loadEventLists().then(()=>{
-    document.getElementById('ev-ciudad')?.addEventListener('change', onCiudadChangeUpdateLugares);
-    document.getElementById('ev-lugar')?.addEventListener('change', onLugarChangeUpdateDireccion);
-  }).catch(()=>{});
-  loadPromosCategorias().catch(()=>{});
 
   document.getElementById('btnCrearComercioPanel').addEventListener('click', ()=> window.open(FORM_URL,'_blank'));
 
@@ -3832,10 +3827,20 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
       localStorage.setItem('turnos_farma', sesion.turnos_farma);
 
-      document.getElementById('campos-datos-comercio').innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
-      cargarCiudadesPromo();
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
+      }
+
+      // La construcción del formulario completo puede ser pesada.
+      // Se difiere para no bloquear los clics de navegación del dashboard.
+      const hidratarDatosComercio = ()=>{
+        const box = document.getElementById('campos-datos-comercio');
+        if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
+      };
+      if('requestIdleCallback' in window){
+        window.requestIdleCallback(hidratarDatosComercio, {timeout:1200});
+      }else{
+        setTimeout(hidratarDatosComercio, 0);
       }
 
       loadEfemeridesPermissions()
@@ -3925,6 +3930,7 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
     localStorage.removeItem('eventos_cant');
     localStorage.removeItem('turnos_farma');
     sesion=null;
+    if(typeof window.resetDashboardModuleRuntime === 'function') window.resetDashboardModuleRuntime();
     btnLogin.removeAttribute('disabled');
     btnLogin.textContent = originalLoginBtnText;
     mostrarPanel('login');
@@ -4112,49 +4118,117 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       if(placeholderPanel) placeholderPanel.classList.add('hidden-panel');
     }
 
-    function cargarDespuesDePintar(fn){
-      requestAnimationFrame(()=>{
-        requestAnimationFrame(()=>{
-          setTimeout(()=>{ try{ fn(); }catch(e){ console.error(e); } },0);
-        });
-      });
+    const moduleRuntime = {
+      promos:{initialized:false,loading:false},
+      eventos:{initialized:false,loading:false},
+      turnos_farma:{initialized:false,loading:false},
+      efemerides:{initialized:false,loading:false}
+    };
+    window.resetDashboardModuleRuntime = function(){
+      Object.values(moduleRuntime).forEach(state=>{ state.initialized=false; state.loading=false; });
+      evLists = { categorias: [], ciudades: [], lugaresPublicos: [], sedesEventos: [], lugares: [], partners: [] };
+      farmaState = { ciudades:[], farmacias:[], ciclo:null, participantes:[] };
+      efemState = { permisos:null, ciudades:[], efemerides:[], loaded:false };
+      window.__lastPromos = [];
+      window.__lastEvents = [];
+    };
+
+    function despuesDePintar(fn){
+      requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(fn,0)));
+    }
+
+    async function cargarModulo(key){
+      const state = moduleRuntime[key];
+      if(!state || state.loading) return;
+      state.loading = true;
+      try{
+        if(key === 'promos'){
+          if(!state.initialized){
+            await loadPromosCategorias();
+            cargarCiudadesPromo();
+            state.initialized = true;
+          }
+          await loadPromosUI();
+          return;
+        }
+
+        if(key === 'eventos'){
+          if(!state.initialized){
+            await loadEventLists();
+            document.getElementById('ev-ciudad')?.addEventListener('change', onCiudadChangeUpdateLugares);
+            document.getElementById('ev-lugar')?.addEventListener('change', onLugarChangeUpdateDireccion);
+            state.initialized = true;
+          }
+          await loadEventsUI();
+          return;
+        }
+
+        if(key === 'turnos_farma'){
+          if(!state.initialized || !farmaState.ciudades.length){
+            await loadFarmaciasUI();
+            state.initialized = true;
+          }
+          return;
+        }
+
+        if(key === 'efemerides'){
+          await loadEfemeridesUI();
+          state.initialized = true;
+        }
+      }catch(e){
+        console.error('Error cargando módulo '+key+':',e);
+      }finally{
+        state.loading = false;
+      }
+    }
+
+    function mostrarCargaModulo(key){
+      if(key === 'promos'){
+        const st=document.getElementById('promos-status'); if(st) st.textContent='Cargando promos...';
+        const list=document.getElementById('promos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando promos...</div>';
+      }else if(key === 'eventos'){
+        const st=document.getElementById('eventos-status'); if(st) st.textContent='Cargando eventos...';
+        const list=document.getElementById('eventos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando eventos...</div>';
+      }else if(key === 'turnos_farma'){
+        const st=document.getElementById('farma-status'); if(st) st.textContent='Cargando información de farmacias...';
+      }else if(key === 'efemerides'){
+        const st=document.getElementById('efem-status'); if(st) st.textContent='Cargando efemérides...';
+        const list=document.getElementById('efem-list'); if(list) list.innerHTML='<div class="small-muted">Cargando efemérides...</div>';
+      }
     }
 
     function showTab(key){
       setTabActive(key);
       hideAll();
-      if(key === 'inicio'){
-        if(inicioPanel) inicioPanel.classList.remove('hidden-panel');
-      } else if(key === 'modificar_datos'){
-        if(datosPanel) datosPanel.classList.remove('hidden-panel');
-      } else if(key === 'promos'){
-        if(promosPanel) promosPanel.classList.remove('hidden-panel');
-        const st=document.getElementById('promos-status'); if(st) st.textContent='Cargando promos...';
-        const list=document.getElementById('promos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando promos...</div>';
-        cargarDespuesDePintar(loadPromosUI);
-      } else if(key === 'eventos'){
-        if(eventosPanel) eventosPanel.classList.remove('hidden-panel');
-        const st=document.getElementById('eventos-status'); if(st) st.textContent='Cargando eventos...';
-        const list=document.getElementById('eventos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando eventos...</div>';
-        cargarDespuesDePintar(loadEventsUI);
-      } else if(key === 'turnos_farma'){
-        if(turnosFarmaPanel) turnosFarmaPanel.classList.remove('hidden-panel');
-        const st=document.getElementById('farma-status'); if(st) st.textContent='Cargando información de farmacias...';
-        if(!farmaState.ciudades.length) cargarDespuesDePintar(loadFarmaciasUI);
-      } else if(key === 'efemerides'){
-        if(efemeridesPanel) efemeridesPanel.classList.remove('hidden-panel');
-        const st=document.getElementById('efem-status'); if(st) st.textContent='Cargando efemérides...';
-        const list=document.getElementById('efem-list'); if(list) list.innerHTML='<div class="small-muted">Cargando efemérides...</div>';
-        cargarDespuesDePintar(loadEfemeridesUI);
-      } else if(key === 'menu'){
-        if(menuPanel) {
-          menuPanel.classList.remove('hidden-panel');
-          if(sesion && sesion.id && menuIframe && !menuIframe.src){
-            menuIframe.src = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
-          }
+
+      const panelByKey = {
+        inicio:inicioPanel,
+        modificar_datos:datosPanel,
+        promos:promosPanel,
+        eventos:eventosPanel,
+        turnos_farma:turnosFarmaPanel,
+        efemerides:efemeridesPanel,
+        menu:menuPanel
+      };
+
+      const panel = panelByKey[key];
+      if(panel) panel.classList.remove('hidden-panel');
+
+      if(['promos','eventos','turnos_farma','efemerides'].includes(key)){
+        mostrarCargaModulo(key);
+        despuesDePintar(()=>cargarModulo(key));
+        return;
+      }
+
+      if(key === 'menu'){
+        if(sesion && sesion.id && menuIframe && !menuIframe.src){
+          menuIframe.src = `https://login.liqkoargentina.workers.dev/menu?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}`;
         }
-      } else {
-        if(placeholderPanel) {
+        return;
+      }
+
+      if(!panel && key !== 'inicio' && key !== 'modificar_datos'){
+        if(placeholderPanel){
           placeholderPanel.classList.remove('hidden-panel');
           const def = moduleDefs.find(m => m.key === key);
           if(placeholderTitle) placeholderTitle.textContent = def ? def.label : key;
