@@ -2048,8 +2048,22 @@ function efemRenderList(){
     if(action==='eliminar'){
       const r=efemState.efemerides.find(x=>String(x.efemeride_id||'')===String(id));
       const nombre=r&&r.nombre?` "${r.nombre}"`:'';
-      if(!window.confirm(`¿Eliminar definitivamente la efeméride${nombre}? Esta acción no se puede deshacer.`)) return;
-      const originalText=btn.textContent;
+      const ahora=Date.now();
+      const confirmadoHasta=Number(btn.dataset.confirmarEliminarHasta||0);
+      if(confirmadoHasta < ahora){
+        btn.dataset.confirmarEliminarHasta=String(ahora+8000);
+        btn.textContent='Confirmar eliminar';
+        setMsg('efem-msg','err',`Vas a eliminar definitivamente la efeméride${nombre}. Volvé a tocar "Confirmar eliminar" para borrarla.`);
+        setTimeout(()=>{
+          if(Number(btn.dataset.confirmarEliminarHasta||0) <= Date.now()){
+            delete btn.dataset.confirmarEliminarHasta;
+            if(btn.isConnected) btn.textContent='Eliminar';
+          }
+        },8100);
+        return;
+      }
+      delete btn.dataset.confirmarEliminarHasta;
+      const originalText='Eliminar';
       btn.disabled=true;
       btn.textContent='Eliminando...';
       setMsg('efem-msg','ok','Eliminando efeméride...');
@@ -4098,6 +4112,14 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       if(placeholderPanel) placeholderPanel.classList.add('hidden-panel');
     }
 
+    function cargarDespuesDePintar(fn){
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          setTimeout(()=>{ try{ fn(); }catch(e){ console.error(e); } },0);
+        });
+      });
+    }
+
     function showTab(key){
       setTabActive(key);
       hideAll();
@@ -4109,20 +4131,21 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         if(promosPanel) promosPanel.classList.remove('hidden-panel');
         const st=document.getElementById('promos-status'); if(st) st.textContent='Cargando promos...';
         const list=document.getElementById('promos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando promos...</div>';
-        setTimeout(()=>{ try{ loadPromosUI(); }catch(e){} },0);
+        cargarDespuesDePintar(loadPromosUI);
       } else if(key === 'eventos'){
         if(eventosPanel) eventosPanel.classList.remove('hidden-panel');
         const st=document.getElementById('eventos-status'); if(st) st.textContent='Cargando eventos...';
         const list=document.getElementById('eventos-list'); if(list) list.innerHTML='<div class="small-muted">Cargando eventos...</div>';
-        setTimeout(()=>{ try{ loadEventsUI(); }catch(e){} },0);
+        cargarDespuesDePintar(loadEventsUI);
       } else if(key === 'turnos_farma'){
         if(turnosFarmaPanel) turnosFarmaPanel.classList.remove('hidden-panel');
-        if(!farmaState.ciudades.length) loadFarmaciasUI();
+        const st=document.getElementById('farma-status'); if(st) st.textContent='Cargando información de farmacias...';
+        if(!farmaState.ciudades.length) cargarDespuesDePintar(loadFarmaciasUI);
       } else if(key === 'efemerides'){
         if(efemeridesPanel) efemeridesPanel.classList.remove('hidden-panel');
         const st=document.getElementById('efem-status'); if(st) st.textContent='Cargando efemérides...';
         const list=document.getElementById('efem-list'); if(list) list.innerHTML='<div class="small-muted">Cargando efemérides...</div>';
-        setTimeout(()=>{ try{ loadEfemeridesUI(); }catch(e){} },0);
+        cargarDespuesDePintar(loadEfemeridesUI);
       } else if(key === 'menu'){
         if(menuPanel) {
           menuPanel.classList.remove('hidden-panel');
@@ -4143,7 +4166,9 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       const tab = tabs[k];
       if(!tab) return;
       tab.addEventListener('click', ()=>{
-        if(!enabledModules.has(k) && k !== 'inicio' && k !== 'modificar_datos' && k !== 'tarjeta_nfc') return;
+        // Si la pestaña está visible, el clic siempre responde de inmediato.
+        // Los permisos deciden si se muestra; nunca deben bloquear un clic ya visible.
+        if(tab.style.display === 'none') return;
         showTab(k);
       });
     });
