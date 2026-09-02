@@ -432,8 +432,10 @@
 
 
     /* ===== EFEMÉRIDES DE HOY ===== */
-    .efem-hoy-section{display:none;width:calc(100% - 1.3rem);max-width:980px;margin:0 auto 1.4rem;padding:1rem;box-sizing:border-box;border-radius:1rem;background:#fffaf2;border:2px solid #f0d7ad;font-style:normal}
-    .efem-hoy-section.visible{display:block}
+    .efem-hoy-section{display:block;width:calc(100% - 1.3rem);max-width:980px;margin:0 auto 1.4rem;padding:1rem;box-sizing:border-box;border-radius:1rem;background:#fffaf2;border:2px solid #f0d7ad;font-style:normal}
+    .efem-hoy-section.oculta{display:none}
+    .efem-state{padding:.8rem;border-radius:.65rem;background:#fff;color:#555}
+    .efem-state.error{color:#a00;background:#fff0f0;border:1px solid #f0caca}
     .efem-hoy-section h2{margin:.1rem 0 .2rem;color:#a86513;font-size:1.45rem}
     .efem-hoy-fecha{font-weight:800;color:#666;margin-bottom:.8rem;text-transform:capitalize}
     .efem-hoy-list{display:flex;flex-direction:column;gap:.75rem}
@@ -498,7 +500,7 @@
   <section id="efemeridesHoySection" class="efem-hoy-section" aria-live="polite">
     <h2>📅 Efemérides de hoy</h2>
     <div id="efemeridesHoyFecha" class="efem-hoy-fecha"></div>
-    <div id="efemeridesHoyLista" class="efem-hoy-list"></div>
+    <div id="efemeridesHoyLista" class="efem-hoy-list"><div class="efem-state">Cargando efemérides de hoy...</div></div>
   </section>
   <div id="banner-inicio" style="text-align:center;margin:1em 0;">
     <a href="https://www.guialocaldolores.com.ar" target="_blank" rel="noopener noreferrer">
@@ -725,9 +727,17 @@
         return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fecha))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`;
       }).join('');
     }
+    function irAModuloCiudad(sectionId){
+      const section=document.getElementById(sectionId);
+      if(!section) return;
+      const barra=document.getElementById('farmaTurnoFixed');
+      const altoBarra=barra ? barra.getBoundingClientRect().height : 0;
+      const y=window.scrollY + section.getBoundingClientRect().top - altoBarra - 8;
+      window.scrollTo({top:Math.max(0,y),behavior:'smooth'});
+    }
     document.addEventListener('DOMContentLoaded',()=>{
-      document.getElementById('farmaTurnoGo')?.addEventListener('click',()=>document.getElementById('farmaciaTurnoSection')?.scrollIntoView({behavior:'smooth',block:'start'}));
-      document.getElementById('efemeridesHoyGo')?.addEventListener('click',()=>document.getElementById('efemeridesHoySection')?.scrollIntoView({behavior:'smooth',block:'start'}));
+      document.getElementById('farmaTurnoGo')?.addEventListener('click',()=>irAModuloCiudad('farmaciaTurnoSection'));
+      document.getElementById('efemeridesHoyGo')?.addEventListener('click',()=>irAModuloCiudad('efemeridesHoySection'));
     });
 
 
@@ -755,13 +765,16 @@
       const section=document.getElementById('efemeridesHoySection');
       const fechaBox=document.getElementById('efemeridesHoyFecha');
       const list=document.getElementById('efemeridesHoyLista');
-      const goBtn=document.getElementById('efemeridesHoyGo');
       if(!section||!fechaBox||!list) return;
 
-      section.classList.remove('visible');
+      section.classList.remove('oculta');
       fechaBox.textContent='';
-      list.innerHTML='';
-      if(!ciudadSeleccionada) return;
+      list.innerHTML='<div class="efem-state">Cargando efemérides de hoy...</div>';
+
+      if(!ciudadSeleccionada){
+        list.innerHTML='<div class="efem-state error">No hay ciudad seleccionada.</div>';
+        return;
+      }
 
       const hoy=farmaIsoDate(new Date());
       try{
@@ -774,13 +787,18 @@
         const data=await r.json();
         if(!r.ok||!data||data.success!==true) throw new Error((data&&data.error)||'No se pudieron cargar las efemérides');
         const rows=Array.isArray(data.efemerides)?data.efemerides:[];
-        if(!rows.length) return;
+        if(!rows.length){
+          section.classList.add('oculta');
+          fechaBox.textContent='';
+          list.innerHTML='';
+          return;
+        }
 
         fechaBox.textContent=efemHoyFechaHumana(data.fecha||hoy);
         list.innerHTML=rows.map(efemHoyCardHtml).join('');
-        section.classList.add('visible');
       }catch(e){
         console.error('Error cargando efemérides de hoy:',e);
+        list.innerHTML='<div class="efem-state error">No se pudieron cargar las efemérides de hoy.</div>';
       }
     }
 
