@@ -375,8 +375,8 @@
 
   
   .titulo-ubicacion{display:flex;flex-direction:column;justify-content:center;}
-  #tituloGuia{margin:0;font-size:1.55rem;line-height:1.1;}
-  #ubicacionSubtitulo{margin-top:.22rem;font-size:.9rem;line-height:1.2;opacity:.82;}
+  #tituloGuia{margin:0;font-size:1.55rem;line-height:1.1;font-weight:900;color:#006699;text-transform:uppercase;}
+  #ubicacionSubtitulo{margin-top:.22rem;font-size:.9rem;line-height:1.2;font-weight:800;color:#4f7182;text-transform:uppercase;}
   .modulos-ciudad{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:.6rem 0 .2rem;}
   .modulo-ciudad-btn{display:inline-flex;align-items:center;gap:7px;padding:.6rem .9rem;border-radius:.65rem;background:#006699;color:#fff;text-decoration:none;font-weight:800;border:2px solid #006699;cursor:pointer;}
   .modulo-ciudad-btn.activo{background:#fff;color:#006699;}
@@ -2403,14 +2403,46 @@
         return;
       }
 
-      const ciudadNombre = String(qs.get('ciudad') || (ctx && ctx.ciudad) || ciudadSeleccionada || '').trim();
-      const provinciaNombre = String(qs.get('provincia') || (ctx && ctx.provincia) || provinciaSeleccionada || '').trim();
-      const paisNombre = String(qs.get('pais') || (ctx && ctx.pais) || paisSeleccionado || '').trim();
+      function nombreVisibleValido(nombre, id){
+        const n=String(nombre||'').trim();
+        const i=String(id||'').trim();
+        if(!n) return '';
+        if(i && normId(n)===normId(i)) return '';
+        return n;
+      }
+
+      let ciudadNombre = nombreVisibleValido(qs.get('ciudad') || (ctx && ctx.ciudad), ciudadSeleccionada);
+      let provinciaNombre = nombreVisibleValido(qs.get('provincia') || (ctx && ctx.provincia), provinciaSeleccionada);
+      let paisNombre = nombreVisibleValido(qs.get('pais') || (ctx && ctx.pais), paisSeleccionado);
+
+      // Si el contexto sólo trae IDs, resolvemos los nombres reales con el catálogo
+      // de ubicaciones que ya utiliza la Guía. Los IDs nunca se muestran al usuario.
+      if(!ciudadNombre || !provinciaNombre || !paisNombre){
+        try{
+          const ubicaciones = await cargarUbicaciones();
+          const paises = Array.isArray(ubicaciones.paises) ? ubicaciones.paises : [];
+          const provincias = Array.isArray(ubicaciones.provincias) ? ubicaciones.provincias : [];
+          const ciudades = Array.isArray(ubicaciones.ciudades) ? ubicaciones.ciudades : [];
+
+          const paisObj = paises.find(x => normId(x.pais_id || x.id) === normId(paisSeleccionado));
+          const provinciaObj = provincias.find(x => normId(x.provincia_id || x.id) === normId(provinciaSeleccionada));
+          const ciudadObj = ciudades.find(x => normId(x.ciudad_id || x.id) === normId(ciudadSeleccionada));
+
+          if(!paisNombre && paisObj) paisNombre = String(paisObj.nombre || paisObj.pais || '').trim();
+          if(!provinciaNombre && provinciaObj) provinciaNombre = String(provinciaObj.nombre || provinciaObj.provincia || '').trim();
+          if(!ciudadNombre && ciudadObj) ciudadNombre = String(ciudadObj.nombre || ciudadObj.ciudad || '').trim();
+        }catch(e){
+          console.warn('No se pudieron resolver los nombres de ubicación:', e);
+        }
+      }
 
       const titulo = document.getElementById('tituloGuia');
       const sub = document.getElementById('ubicacionSubtitulo');
-      if(titulo) titulo.textContent = ciudadNombre.toUpperCase();
-      if(sub) sub.textContent = [provinciaNombre, paisNombre].filter(Boolean).join(' - ');
+      if(titulo) titulo.textContent = ciudadNombre ? ciudadNombre.toUpperCase() : 'CIUDAD';
+      if(sub) sub.textContent = [provinciaNombre, paisNombre]
+        .filter(Boolean)
+        .map(v=>String(v).toUpperCase())
+        .join(' · ');
 
       const nuevoCtx = {
         pais_id:paisSeleccionado,
