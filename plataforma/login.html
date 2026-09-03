@@ -1154,6 +1154,27 @@ function setEstadoCargaComercios_(estado, mensaje){
   const retry=document.getElementById('btn-retry-comercios');
   const msg=document.getElementById('login-msg');
 
+  let overlay=document.getElementById('login-comercios-loading-overlay');
+  if(!overlay){
+    overlay=document.createElement('div');
+    overlay.id='login-comercios-loading-overlay';
+    overlay.style.cssText=[
+      'position:fixed',
+      'inset:0',
+      'z-index:1000001',
+      'display:none',
+      'align-items:center',
+      'justify-content:center',
+      'background:rgba(255,255,255,.97)',
+      'padding:24px',
+      'text-align:center',
+      'cursor:wait'
+    ].join(';');
+    document.body.appendChild(overlay);
+  }
+
+  const container=document.querySelector('.container');
+
   if(estado==='loading'){
     ids.forEach(id=>{
       const el=document.getElementById(id);
@@ -1162,10 +1183,21 @@ function setEstadoCargaComercios_(estado, mensaje){
       el.disabled=true;
       el.placeholder='Cargando comercios autorizados...';
     });
-    if(msg) msg.innerHTML="<span>Cargando comercios autorizados...</span>";
+
+    overlay.innerHTML=`<div>
+      <div style="font-size:22px;font-weight:800;margin-bottom:8px">Cargando comercios autorizados...</div>
+      <div class="small-muted">Esperá a que termine la carga.</div>
+    </div>`;
+    overlay.style.display='flex';
+
+    if(container) container.inert=true;
+    if(msg) msg.innerHTML='';
     if(retry) retry.style.display='none';
     return;
   }
+
+  overlay.style.display='none';
+  if(container) container.inert=false;
 
   ids.forEach(id=>{
     const el=document.getElementById(id);
@@ -4388,19 +4420,89 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     mostrarPanel('login');
   });
 
-  if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){
+  async function restaurarSesionConPermisosActuales_(){
+    const id=localStorage.getItem('comercio_id')||'';
+    const nombre=localStorage.getItem('comercio_nombre')||'';
+    if(!id || !nombre) return;
+
+    localStorage.removeItem('dashboard_administracion');
+
     sesion = {
-      id: localStorage.getItem('comercio_id'),
-      nombre: localStorage.getItem('comercio_nombre'),
+      id,
+      nombre,
       planilla_id: localStorage.getItem('planilla_id')||'',
       promos_cant: localStorage.getItem('promos_cant') || 0,
       eventos_cant: localStorage.getItem('eventos_cant') || 0,
       turnos_farma: localStorage.getItem('turnos_farma') || '',
-      administracion:(()=>{
-        try{return JSON.parse(localStorage.getItem('dashboard_administracion')||'{}')||{};}catch(e){return {};}
-      })()
+      administracion:{}
     };
-    mostrarPanelDashboard();
+
+    let overlay=document.getElementById('session-permissions-overlay');
+    if(!overlay){
+      overlay=document.createElement('div');
+      overlay.id='session-permissions-overlay';
+      overlay.style.cssText=[
+        'position:fixed','inset:0','z-index:1000002','display:flex',
+        'align-items:center','justify-content:center','background:rgba(255,255,255,.97)',
+        'padding:24px','text-align:center','cursor:wait'
+      ].join(';');
+      document.body.appendChild(overlay);
+    }
+
+    overlay.innerHTML='<div><div style="font-size:22px;font-weight:800;margin-bottom:8px">Validando permisos actuales...</div><div class="small-muted">Esperá a que termine la validación.</div></div>';
+
+    const container=document.querySelector('.container');
+    if(container) container.inert=true;
+
+    try{
+      const url=`${WORKER_ORIGIN}/commerce?action=permisos_panel&id=${encodeURIComponent(id)}`;
+      const r=await fetch(url,{method:'GET',mode:'cors',cache:'no-store'});
+      const j=await r.json().catch(()=>null);
+
+      if(!r.ok || !j || j.success!==true || !j.administracion || typeof j.administracion!=='object'){
+        throw new Error((j && (j.message||j.error)) || 'No se pudieron validar los permisos.');
+      }
+
+      sesion.administracion=j.administracion;
+      localStorage.setItem('dashboard_administracion',JSON.stringify(j.administracion));
+
+      if(container) container.inert=false;
+      overlay.remove();
+      await mostrarPanelDashboard();
+
+    }catch(err){
+      if(container) container.inert=false;
+      overlay.style.cursor='default';
+      overlay.innerHTML=`
+        <div>
+          <div style="font-size:20px;font-weight:800;margin-bottom:10px">No se pudieron validar tus permisos.</div>
+          <div style="margin-bottom:14px">La sesión no se abrirá con permisos viejos.</div>
+          <button type="button" id="retry-session-permissions" class="secondary">Reintentar</button>
+          <button type="button" id="clear-session-permissions" class="secondary" style="margin-left:8px">Volver al ingreso</button>
+        </div>`;
+
+      document.getElementById('retry-session-permissions')?.addEventListener('click',()=>{
+        overlay.remove();
+        restaurarSesionConPermisosActuales_();
+      });
+
+      document.getElementById('clear-session-permissions')?.addEventListener('click',()=>{
+        localStorage.removeItem('comercio_id');
+        localStorage.removeItem('comercio_nombre');
+        localStorage.removeItem('planilla_id');
+        localStorage.removeItem('promos_cant');
+        localStorage.removeItem('eventos_cant');
+        localStorage.removeItem('turnos_farma');
+        localStorage.removeItem('dashboard_administracion');
+        sesion=null;
+        overlay.remove();
+        mostrarPanel('login');
+      });
+    }
+  }
+
+  if(localStorage.getItem('comercio_id') && localStorage.getItem('comercio_nombre')){
+    restaurarSesionConPermisosActuales_();
   }
 
   (function(){
@@ -4479,7 +4581,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       tarjeta_nfc: ['tarjeta_nfc','tarjetanfc','nfc','tarjeta nfc']
     };
 
-    let enabledModules = new Set(['promos','eventos','tarjeta_nfc','modificar_datos']);
+    let enabledModules = new Set(['modificar_datos']);
 
     function normalizeKey(k){
       return String(k || '')
