@@ -355,6 +355,7 @@
         <button id="btnLogin" class="primary" disabled>Ingresar</button>
 
         <div id="login-msg"></div>
+        <button id="btn-retry-comercios" type="button" class="secondary" style="display:none;margin-top:8px;">Reintentar carga de comercios</button>
         <div id="level-warning" class="small-muted"></div>
 
 
@@ -1146,22 +1147,74 @@ function openImagesFormForCommerce(comercioId){
 }
 
 /* ====================== Autocomplete comercios ====================== */
+let comerciosCargando = false;
+
+function setEstadoCargaComercios_(estado, mensaje){
+  const ids=['comercio-buscar','comercio-buscar2-generar','comercio-buscar2-cambiar'];
+  const retry=document.getElementById('btn-retry-comercios');
+  const msg=document.getElementById('login-msg');
+
+  if(estado==='loading'){
+    ids.forEach(id=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      if(!el.dataset.placeholderOriginal) el.dataset.placeholderOriginal=el.placeholder || '';
+      el.disabled=true;
+      el.placeholder='Cargando comercios autorizados...';
+    });
+    if(msg) msg.innerHTML="<span>Cargando comercios autorizados...</span>";
+    if(retry) retry.style.display='none';
+    return;
+  }
+
+  ids.forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    el.disabled=false;
+    if(el.dataset.placeholderOriginal) el.placeholder=el.dataset.placeholderOriginal;
+  });
+
+  if(estado==='ok'){
+    if(msg) msg.innerHTML='';
+    if(retry) retry.style.display='none';
+    return;
+  }
+
+  if(msg) msg.innerHTML=`<span class="error">${htmlEscape(mensaje || 'No se pudieron cargar los comercios autorizados.')}</span>`;
+  if(retry) retry.style.display='';
+}
+
 async function cargarComercios(callback){
+  if(comerciosCargando) return;
+  comerciosCargando=true;
+  setEstadoCargaComercios_('loading');
+
   try{
     const r = await fetch(`${WORKER_ORIGIN}/search`, { cache:'no-store', mode:'cors' });
-    const j = await r.json();
-    comercios = Array.isArray(j.results)
-      ? j.results.map(c => ({
-          nombre:String(c.nombre || '').trim(),
-          id:String(c.id || '').trim(),
-          nivel:String(c.nivel || '').trim()
-        })).filter(c => c.nombre && c.id)
-      : [];
+    const j = await r.json().catch(()=>null);
+
+    if(!r.ok || !j || j.success!==true || !Array.isArray(j.results)){
+      throw new Error((j && (j.message || j.error)) || 'No se pudo cargar el catálogo.');
+    }
+
+    comercios = j.results.map(c => ({
+      nombre:String(c.nombre || '').trim(),
+      id:String(c.id || '').trim(),
+      nivel:String(c.nivel || '').trim()
+    })).filter(c => c.nombre && c.id);
+
+    setEstadoCargaComercios_('ok');
   }catch(err){
     debugLog('Error cargando anunciantes desde Worker', err);
     comercios = [];
+    setEstadoCargaComercios_(
+      'error',
+      'No se pudieron cargar los comercios autorizados. Usá “Reintentar carga de comercios”.'
+    );
+  }finally{
+    comerciosCargando=false;
+    callback && callback();
   }
-  callback && callback();
 }
 
 function showAutocomplete(inputEl, listEl, idEl, modoRegistro=false, registroConfig={}){
@@ -3684,6 +3737,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
     true,
     { buttonIds:['btnCambiarClave'], fieldIds:['clave-actual-cambiar','nueva-clave-cambiar','nueva-clave-confirm-cambiar'] }
   );
+
+  document.getElementById('btn-retry-comercios')?.addEventListener('click',()=>{
+    cargarComercios(()=>{});
+  });
 
   cargarComercios(()=>{});
   efemInitFixedDays();
