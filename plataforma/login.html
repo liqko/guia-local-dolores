@@ -1651,6 +1651,59 @@ async function postJson(url, body){
   try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText:text }; }
   return { status:r.status, json };
 }
+
+function isOperationUnconfirmed(res){
+  return !!(
+    res &&
+    res.json &&
+    (
+      res.json.operation_unconfirmed === true ||
+      res.json.error === 'apps_script_operation_unconfirmed'
+    )
+  );
+}
+
+async function handleUnconfirmedOperation(res, options={}){
+  if(!isOperationUnconfirmed(res)) return false;
+
+  const msgId=options.msgId || '';
+  const reload=typeof options.reload==='function' ? options.reload : null;
+  const verify=typeof options.verify==='function' ? options.verify : null;
+
+  if(msgId){
+    setMsg(msgId,'ok','No se pudo confirmar la respuesta. Verificando el resultado real...');
+  }
+
+  try{
+    if(reload) await reload();
+
+    if(verify){
+      const verified=!!verify();
+      if(msgId){
+        setMsg(
+          msgId,
+          verified ? 'ok' : 'err',
+          verified
+            ? (options.successMessage || 'La operación se realizó correctamente.')
+            : (options.unknownMessage || 'La operación no pudo confirmarse. Revisá el estado actualizado antes de repetirla.')
+        );
+      }
+    }else if(msgId){
+      setMsg(
+        msgId,
+        'err',
+        options.unknownMessage || 'La respuesta se perdió. El módulo fue actualizado; revisá el estado antes de repetir la operación.'
+      );
+    }
+  }catch(e){
+    console.error('Error verificando operación:',e);
+    if(msgId){
+      setMsg(msgId,'err','No se pudo confirmar la operación. No la repitas todavía; refrescá el módulo para verificar el estado.');
+    }
+  }
+
+  return true;
+}
 function htmlEscape(s){ return String(s||'').replace(/[&<>"']/g, function(m){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[m]; }); }
 function isHttpUrl(value){
   const s = String(value || '').trim();
@@ -2115,6 +2168,14 @@ function efemRenderList(){
           }else if(res.json && res.json.error==='efemeride_id_no_encontrado'){
             await loadEfemeridesUI(true);
             setMsg('efem-msg','err','La efeméride ya no existía. La lista fue actualizada.');
+          }else if(await handleUnconfirmedOperation(res,{
+            msgId:'efem-msg',
+            reload:()=>loadEfemeridesUI(true),
+            verify:()=>!(efemState.efemerides||[]).some(x=>String(x.efemeride_id||x.id||'')===String(id)),
+            successMessage:'Efeméride eliminada.',
+            unknownMessage:'No se pudo confirmar si la efeméride fue eliminada. Revisá la lista actualizada antes de repetir.'
+          })){
+            // verificación resuelta
           }else{
             setMsg('efem-msg','err','No se pudo eliminar la efeméride. Intentá nuevamente.');
           }
@@ -2142,6 +2203,20 @@ function efemRenderList(){
         }else if(res.json && res.json.error==='efemeride_id_no_encontrado'){
           await loadEfemeridesUI(true);
           setMsg('efem-msg','err','La efeméride ya no existe. La lista fue actualizada.');
+        }else if(await handleUnconfirmedOperation(res,{
+          msgId:'efem-msg',
+          reload:()=>loadEfemeridesUI(true),
+          verify:()=>{
+            const row=(efemState.efemerides||[]).find(x=>String(x.efemeride_id||x.id||'')===String(id));
+            if(!row) return false;
+            const activo=String(row.activo===undefined ? '' : row.activo).toLowerCase();
+            const isActive=(row.activo===true || activo==='true' || activo==='1' || activo==='si' || activo==='sí' || activo==='x');
+            return publicando ? isActive : !isActive;
+          },
+          successMessage:publicando?'Efeméride publicada.':'Efeméride pausada.',
+          unknownMessage:'No se pudo confirmar el cambio. Revisá el estado actualizado antes de repetir.'
+        })){
+          // verificación resuelta
         }else{
           setMsg('efem-msg','err','No se pudo actualizar la efeméride. Intentá nuevamente.');
         }
@@ -2257,6 +2332,18 @@ async function efemGuardar(){
         efemClearForm();
         await loadEfemeridesUI(true);
         setMsg('efem-msg','ok',payload.efemeride_id?'Cambios guardados.':'Efeméride creada.');
+      }else if(await handleUnconfirmedOperation(res,{
+        msgId:'efem-msg',
+        reload:()=>loadEfemeridesUI(true),
+        verify:payload.efemeride_id
+          ? ()=> (efemState.efemerides||[]).some(x=>String(x.efemeride_id||x.id||'')===String(payload.efemeride_id))
+          : null,
+        successMessage:payload.efemeride_id?'Cambios guardados.':'Efeméride creada.',
+        unknownMessage:payload.efemeride_id
+          ? 'El registro fue actualizado y la lista se recargó. Revisá los cambios antes de repetir.'
+          : 'La respuesta se perdió. La lista fue actualizada; verificá si la efeméride se creó antes de volver a crearla.'
+      })){
+        // verificación resuelta
       }else{
         setMsg('efem-msg','err','No se pudo guardar la efeméride. Intentá nuevamente.');
       }
@@ -2622,6 +2709,14 @@ async function deleteSedeCard(card){
     if(res.status === 200 && res.json && res.json.success){
       card.remove();
       setMsg('msg-datos-comercio','ok','Sede eliminada.');
+    }else if(await handleUnconfirmedOperation(res,{
+      msgId:'msg-datos-comercio',
+      reload:()=>loadCommerceUI(),
+      verify:()=>!currentCommerceSedes.some(s=>String(s.sede_id||'')===String(sedeId)),
+      successMessage:'Sede eliminada.',
+      unknownMessage:'No se pudo confirmar la eliminación. Revisá las sedes actualizadas antes de repetir.'
+    })){
+      // verificación resuelta
     }else{
       setMsg('msg-datos-comercio','err',(res.json && (res.json.message || res.json.error)) || 'No se pudo eliminar la sede.');
     }
@@ -2915,6 +3010,19 @@ function bindPromosListActions(){
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', isPaused ? 'Promo reanudada.' : 'Promo pausada.');
             await loadPromosUI();
+          } else if(await handleUnconfirmedOperation(r,{
+            msgId:'promos-msg',
+            reload:()=>loadPromosUI(),
+            verify:()=>{
+              const row=(window.__lastPromos||[]).find(x=>String(x.promo_id||'')===String(pid));
+              if(!row) return false;
+              const paused=(row.pausado===true || String(row.pausado||'').toLowerCase()==='true' || String(row.pausado||'')==='1');
+              return paused===!isPaused;
+            },
+            successMessage:isPaused?'Promo reanudada.':'Promo pausada.',
+            unknownMessage:'No se pudo confirmar el cambio. Revisá la lista actualizada antes de repetir.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('promos-msg', 'err', 'Error pausando/reanudando: ' + JSON.stringify(r.json));
           }
@@ -2929,6 +3037,14 @@ function bindPromosListActions(){
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', 'Promo borrada.');
             await loadPromosUI();
+          } else if(await handleUnconfirmedOperation(r,{
+            msgId:'promos-msg',
+            reload:()=>loadPromosUI(),
+            verify:()=>!(window.__lastPromos||[]).some(x=>String(x.promo_id||'')===String(pid)),
+            successMessage:'Promo borrada.',
+            unknownMessage:'No se pudo confirmar la eliminación. Revisá la lista actualizada antes de repetir.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('promos-msg', 'err', 'Error borrando: ' + JSON.stringify(r.json));
           }
@@ -3304,6 +3420,19 @@ function bindEventsListActions(){
           if(res.status === 200 && res.json && res.json.success){
             setMsg('eventos-msg', 'ok', isPaused ? 'Evento reanudado.' : 'Evento pausado.');
             await loadEventsUI();
+          } else if(await handleUnconfirmedOperation(res,{
+            msgId:'eventos-msg',
+            reload:()=>loadEventsUI(),
+            verify:()=>{
+              const row=(window.__lastEvents||[]).find(x=>String(x.evento_id||'')===String(evId));
+              if(!row) return false;
+              const paused=(row.pausado===true || String(row.pausado||'').toLowerCase()==='true' || String(row.pausado||'')==='1');
+              return paused===newPauseState;
+            },
+            successMessage:isPaused?'Evento reanudado.':'Evento pausado.',
+            unknownMessage:'No se pudo confirmar el cambio. Revisá la lista actualizada antes de repetir.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('eventos-msg', 'err', 'Error pausando/reanudando: ' + JSON.stringify(res.json));
           }
@@ -3318,6 +3447,14 @@ function bindEventsListActions(){
           if(res.status === 200 && res.json && (res.json.success || res.json.deleted)){
             setMsg('eventos-msg', 'ok', 'Evento VIP borrado.');
             await loadEventsUI();
+          } else if(await handleUnconfirmedOperation(res,{
+            msgId:'eventos-msg',
+            reload:()=>loadEventsUI(),
+            verify:()=>!(window.__lastEvents||[]).some(x=>String(x.evento_id||'')===String(evId)),
+            successMessage:'Evento borrado.',
+            unknownMessage:'No se pudo confirmar la eliminación. Revisá la lista actualizada antes de repetir.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('eventos-msg', 'err', 'Error borrando: ' + JSON.stringify(res.json));
           }
@@ -3588,6 +3725,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const response = await commerce_post(payload);
       const savedOk = !!(response.json && (response.json.success || response.json.updated || response.json.aprobado === true));
       if(response.status !== 200 || !savedOk){
+        if(await handleUnconfirmedOperation(response,{
+          msgId:'msg-datos-comercio',
+          reload:()=>loadCommerceUI(),
+          unknownMessage:'La respuesta se perdió. Los datos fueron recargados; revisá si el cambio quedó aplicado antes de volver a guardar.'
+        })) return;
         setMsg('msg-datos-comercio', 'err', 'No se pudieron guardar los datos: ' + ((response.json && (response.json.message || response.json.error)) ? (response.json.message || response.json.error) : 'sin detalle'));
         return;
       }
@@ -3597,6 +3739,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const sedeResponse = await commerce_post(sedePayload);
         const sedesOk = !!(sedeResponse.json && (sedeResponse.json.success || sedeResponse.json.updated));
         if(sedeResponse.status !== 200 || !sedesOk){
+          if(await handleUnconfirmedOperation(sedeResponse,{
+            msgId:'msg-datos-comercio',
+            reload:()=>loadCommerceUI(),
+            unknownMessage:'Los datos generales se guardaron, pero la respuesta de las sedes se perdió. Se recargaron los datos; revisá las sedes antes de volver a guardar.'
+          })) return;
           setMsg('msg-datos-comercio', 'err', 'Datos generales guardados, pero hubo un error guardando sedes: ' + ((sedeResponse.json && (sedeResponse.json.message || sedeResponse.json.error)) ? (sedeResponse.json.message || sedeResponse.json.error) : 'sin detalle'));
           return;
         }
@@ -3796,6 +3943,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
             promoSetCreateMode();
             promoClearForm();
             await loadPromosUI();
+          } else if(await handleUnconfirmedOperation(r,{
+            msgId:'promos-msg',
+            reload:()=>loadPromosUI(),
+            verify:()=> (window.__lastPromos||[]).some(x=>String(x.promo_id||'')===String(editingPromoId)),
+            successMessage:'La lista fue actualizada. Revisá los cambios guardados.',
+            unknownMessage:'No se pudo confirmar la actualización. Revisá la promo antes de volver a guardar.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('promos-msg', 'err', 'Error actualizando: ' + JSON.stringify(r.json));
           }
@@ -3816,6 +3971,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
             setMsg('promos-msg', 'ok', 'Promo creada.');
             promoClearForm();
             await loadPromosUI();
+          } else if(await handleUnconfirmedOperation(r,{
+            msgId:'promos-msg',
+            reload:()=>loadPromosUI(),
+            unknownMessage:'La respuesta se perdió. La lista fue actualizada; verificá si la promo se creó antes de volver a crearla.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('promos-msg', 'err', 'Error creando: ' + JSON.stringify(r.json));
           }
@@ -3876,6 +4037,19 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         if(res.status===200 && res.json && res.json.success){
           setMsg('farma-msg','ok','Ciclo guardado correctamente.');
           await loadFarmaCityData();
+        }else if(await handleUnconfirmedOperation(res,{
+          msgId:'farma-msg',
+          reload:async()=>{
+            await loadFarmaciasUI();
+            const sel=document.getElementById('farma-ciudad');
+            if(sel && ciudadId){
+              sel.value=ciudadId;
+              await loadFarmaCityData();
+            }
+          },
+          unknownMessage:'La respuesta se perdió. Se recargó Farmacias; revisá el ciclo antes de volver a guardarlo.'
+        })){
+          // verificación resuelta
         }else{
           setMsg('farma-msg','err','Error guardando: '+JSON.stringify(res.json||{}));
         }
@@ -3928,6 +4102,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
             btn.textContent = 'Crear evento';
             clearEventForm();
             await loadEventsUI();
+          } else if(await handleUnconfirmedOperation(res,{
+            msgId:'eventos-msg',
+            reload:()=>loadEventsUI(),
+            verify:()=> (window.__lastEvents||[]).some(x=>String(x.evento_id||'')===String(editingEventId)),
+            successMessage:'La lista fue actualizada. Revisá los cambios guardados.',
+            unknownMessage:'No se pudo confirmar la actualización. Revisá el evento antes de volver a guardar.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('eventos-msg', 'err', 'Error actualizando: ' + JSON.stringify(res.json));
           }
@@ -3952,6 +4134,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
             clearEventForm();
             await loadEventsUI();
+          } else if(await handleUnconfirmedOperation(res,{
+            msgId:'eventos-msg',
+            reload:()=>loadEventsUI(),
+            unknownMessage:'La respuesta se perdió. La lista fue actualizada; verificá si el evento se creó antes de volver a crearlo.'
+          })){
+            // verificación resuelta
           } else {
             setMsg('eventos-msg', 'err', 'Error creando: ' + JSON.stringify(res.json));
           }
