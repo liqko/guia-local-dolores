@@ -480,8 +480,8 @@
         <!-- Inicio -->
         <div id="inicio-panel">
           <h3>Inicio</h3>
-          <div class="small-muted">Elegí un módulo para continuar.</div>
-          <div id="dashboard-load-status" class="small-muted" style="margin-top:8px"></div>
+          <div id="dashboard-ready-prompt" class="small-muted" style="display:none">Elegí un módulo para continuar.</div>
+          <div id="dashboard-load-status" class="small-muted"></div>
           <div id="dashboard-modules" class="dashboard-modules"></div>
         </div>
 
@@ -3814,8 +3814,40 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
     document.getElementById('campos-datos-comercio').innerHTML = '<div class="small-muted">Cargando datos...</div>';
     const dashboardLoadStatus=document.getElementById('dashboard-load-status');
+    const dashboardReadyPrompt=document.getElementById('dashboard-ready-prompt');
+    if(dashboardReadyPrompt) dashboardReadyPrompt.style.display='none';
     if(dashboardLoadStatus) dashboardLoadStatus.textContent='Cargando funcionalidades...';
     document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
+
+    const efemBootPromise=(async()=>{
+      try{
+        const res=await efemerides_post({action:'listar'});
+        if(res.status===200 && res.json && res.json.success){
+          const permisos=res.json.permisos && typeof res.json.permisos==='object'
+            ? res.json.permisos
+            : {};
+          efemState.permisos={
+            efemerides_local:efemTruthy(permisos.efemerides_local),
+            efemerides_grl:efemTruthy(permisos.efemerides_grl)
+          };
+          efemState.ciudades=Array.isArray(res.json.ciudades)?res.json.ciudades:[];
+          efemState.efemerides=Array.isArray(res.json.efemerides)?res.json.efemerides:[];
+          efemState.loaded=true;
+          return {ok:true, autorizado:!!(efemState.permisos.efemerides_local || efemState.permisos.efemerides_grl)};
+        }
+        if(res.json && res.json.error==='efemerides_no_autorizado'){
+          efemState.permisos={efemerides_local:false,efemerides_grl:false};
+          efemState.ciudades=[];
+          efemState.efemerides=[];
+          efemState.loaded=false;
+          return {ok:true, autorizado:false};
+        }
+        return {ok:false, autorizado:null};
+      }catch(e){
+        console.error('Error verificando Efemérides al iniciar:',e);
+        return {ok:false, autorizado:null};
+      }
+    })();
 
     const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
     try{
@@ -3849,8 +3881,21 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
       localStorage.setItem('turnos_farma', sesion.turnos_farma);
 
+      const efemBoot=await efemBootPromise;
+      const capacidadesDashboard=Object.assign({}, rawDatos, administracion);
+
+      if(efemBoot.ok && efemState.permisos){
+        // Respuesta válida: respetar exactamente los permisos devueltos por Efemérides.
+        capacidadesDashboard.efemerides_local=!!efemState.permisos.efemerides_local;
+        capacidadesDashboard.efemerides_grl=!!efemState.permisos.efemerides_grl;
+      }else{
+        // ERROR al consultar permisos NO significa "sin permiso".
+        // Mantener la pestaña disponible para mostrar el error y permitir reintentar.
+        capacidadesDashboard.efemerides=true;
+      }
+
       if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData(Object.assign({}, rawDatos, administracion));
+        window.updateDashboardModulesFromData(capacidadesDashboard);
       }
 
       // La construcción del formulario completo puede ser pesada.
@@ -3878,6 +3923,8 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
 
     }catch(err){
       document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
+      if(dashboardLoadStatus) dashboardLoadStatus.textContent='Error al cargar los datos generales del panel.';
+      if(dashboardReadyPrompt) dashboardReadyPrompt.style.display='';
       if(typeof window.updateDashboardModulesFromData === 'function'){
         window.updateDashboardModulesFromData({});
       }
@@ -4202,7 +4249,20 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       }
 
       if(key === 'efemerides'){
-        ok=await loadEfemeridesUI();
+        if(efemState.loaded){
+          efemRenderTipoOptions();
+          efemRenderCiudades();
+          efemRenderList();
+          const st=document.getElementById('efem-status');
+          if(st){
+            st.textContent=efemState.efemerides.length
+              ? `${efemState.efemerides.length} efeméride(s).`
+              : 'No hay efemérides cargadas.';
+          }
+          ok=true;
+        }else{
+          ok=await loadEfemeridesUI();
+        }
         if(ok) state.initialized=true;
       }
 
@@ -4241,22 +4301,24 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
 
     function actualizarEstadoCargaGlobal(){
       const box=document.getElementById('dashboard-load-status');
+      const prompt=document.getElementById('dashboard-ready-prompt');
       if(!box) return;
 
       const keys=['promos','eventos','turnos_farma','efemerides']
         .filter(k=>enabledModules.has(k));
 
-      if(!keys.length){
-        box.textContent='';
-        return;
-      }
-
       const loading=keys.filter(k=>moduleRuntime[k]?.status==='loading').length;
       const errorKeys=keys.filter(k=>moduleRuntime[k]?.status==='error');
 
       if(loading){
+        if(prompt) prompt.style.display='none';
         box.textContent='Cargando funcionalidades...';
-      }else if(errorKeys.length){
+        return;
+      }
+
+      if(prompt) prompt.style.display='';
+
+      if(errorKeys.length){
         const nombres={
           promos:'Promos',
           eventos:'Eventos',
@@ -4266,7 +4328,7 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         const fallas=errorKeys.map(k=>nombres[k]||k).join(', ');
         box.textContent='Error al cargar: '+fallas+'. Abrí '+(errorKeys.length===1?'ese módulo':'esos módulos')+' para ver el detalle y reintentar.';
       }else{
-        box.textContent='Funcionalidades listas.';
+        box.textContent='';
       }
     }
 
