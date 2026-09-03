@@ -1616,6 +1616,7 @@ async function loadEventosPanelData(){
       else btnCreate.removeAttribute('disabled');
     }
 
+    setMsg('eventos-msg','','');
     return true;
   }catch(e){
     console.error('Error cargando panel Eventos:',e);
@@ -2568,6 +2569,7 @@ async function loadFarmaciasUI(){
           : 'No hay ciudades habilitadas.';
       }
       renderFarmaList();
+      setMsg('farma-msg','','');
     }
 
     return true;
@@ -3168,6 +3170,7 @@ async function loadPromosPanelData(){
       else btnCreate.removeAttribute('disabled');
     }
 
+    setMsg('promos-msg','','');
     return true;
   }catch(e){
     console.error('Error cargando panel Promos:',e);
@@ -4172,8 +4175,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     // Cada pestaña consulta sus datos recién al abrirse.
     mostrarPanel('dashboard');
 
-    if(typeof window.showAllDashboardTabs === 'function'){
-      window.showAllDashboardTabs();
+    if(typeof window.updateDashboardModulesFromData === 'function'){
+      window.updateDashboardModulesFromData({administracion:sesion.administracion || {}});
     }
     if(typeof window.resetDashboardModuleRuntime === 'function'){
       window.resetDashboardModuleRuntime();
@@ -4191,18 +4194,21 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     const box=document.getElementById('campos-datos-comercio');
     if(box) box.innerHTML='<div class="small-muted">Cargando datos...</div>';
 
-    const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
+    const url = `${WORKER_ORIGIN}/commerce?action=anunciante&id=${encodeURIComponent(sesion.id)}`;
 
     try{
       const r = await fetch(url, { method:'GET', mode:'cors' });
-      const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
+      const rawResponse = await r.json().catch(()=>({ error:'Respuesta inválida'}));
 
-      if(rawDatos.error){
-        if(box) box.innerHTML = `<b>Error:</b> ${htmlEscape(rawDatos.error)}`;
+      if(rawResponse.error || rawResponse.success===false){
+        if(box) box.innerHTML = `<b>Error:</b> ${htmlEscape(rawResponse.error || rawResponse.message || 'No se pudieron cargar los datos')}`;
         return false;
       }
 
-      const datos = rawDatos.datos || rawDatos.data || rawDatos.anunciante || rawDatos;
+      const rawDatos = rawResponse.advertiser && typeof rawResponse.advertiser==='object'
+        ? rawResponse.advertiser
+        : rawResponse;
+      const datos = rawDatos.datos || rawDatos.data || rawDatos;
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
       const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
@@ -4230,6 +4236,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       localStorage.setItem('promos_cant', sesion.promos_cant);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
       localStorage.setItem('turnos_farma', sesion.turnos_farma);
+      sesion.administracion=administracion;
+      localStorage.setItem('dashboard_administracion',JSON.stringify(administracion||{}));
+
+      if(typeof window.updateDashboardModulesFromData==='function'){
+        window.updateDashboardModulesFromData({administracion});
+      }
 
       if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
       return true;
@@ -4282,8 +4294,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           planilla_id: res.planilla_id || '',
           promos_cant: pCant,
           eventos_cant: eCant,
-          turnos_farma: turnosFarma
+          turnos_farma: turnosFarma,
+          administracion: res.administracion && typeof res.administracion==='object' ? res.administracion : {}
         };
+        localStorage.setItem('dashboard_administracion',JSON.stringify(sesion.administracion));
+        if(typeof window.updateDashboardModulesFromData==='function'){
+          window.updateDashboardModulesFromData({administracion:sesion.administracion||{}});
+        }
         document.getElementById('login-msg').innerHTML = "<span class='success'>"+(res.message||'Ingresado')+"</span>";
         setTimeout(()=> mostrarPanelDashboard(), 300);
         return;
@@ -4306,6 +4323,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     localStorage.removeItem('promos_cant');
     localStorage.removeItem('eventos_cant');
     localStorage.removeItem('turnos_farma');
+    localStorage.removeItem('dashboard_administracion');
     sesion=null;
     if(typeof window.resetDashboardModuleRuntime === 'function') window.resetDashboardModuleRuntime();
     btnLogin.removeAttribute('disabled');
@@ -4320,7 +4338,10 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       planilla_id: localStorage.getItem('planilla_id')||'',
       promos_cant: localStorage.getItem('promos_cant') || 0,
       eventos_cant: localStorage.getItem('eventos_cant') || 0,
-      turnos_farma: localStorage.getItem('turnos_farma') || ''
+      turnos_farma: localStorage.getItem('turnos_farma') || '',
+      administracion:(()=>{
+        try{return JSON.parse(localStorage.getItem('dashboard_administracion')||'{}')||{};}catch(e){return {};}
+      })()
     };
     mostrarPanelDashboard();
   }
@@ -4459,7 +4480,6 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       if(isTruthy(sesion && sesion.turnos_farma)){
         out.add('turnos_farma');
       }
-      out.add('tarjeta_nfc');
       out.add('modificar_datos');
       return out;
     }
@@ -4774,8 +4794,18 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       actualizarEstadoCargaGlobal();
     };
 
-    window.updateDashboardModulesFromData = function(){
-      window.showAllDashboardTabs();
+    window.updateDashboardModulesFromData = function(data){
+      enabledModules=detectEnabledModules(data || {});
+      Object.keys(tabs).forEach((k)=>{
+        const tab=tabs[k];
+        if(!tab) return;
+        if(k==='inicio'){
+          tab.style.display='';
+          return;
+        }
+        tab.style.display=enabledModules.has(k) ? '' : 'none';
+      });
+      actualizarEstadoCargaGlobal();
     };
 
   })();
