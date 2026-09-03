@@ -341,7 +341,7 @@
 </head>
 <body>
   <div class="container">
-    <div id="panel-login" class="panel active">
+    <div id="panel-login" class="panel">
       <h2>Ingresar a tu comercio</h2>
       <form id="login-form" autocomplete="off">
         <label>Comercio</label>
@@ -3391,6 +3391,14 @@ function cancelEventEdit(){
 
 /* ====================== INIT ====================== */
 document.addEventListener('DOMContentLoaded', ()=>{
+  const tieneSesionGuardada =
+    !!localStorage.getItem('comercio_id') &&
+    !!localStorage.getItem('comercio_nombre');
+
+  if(!tieneSesionGuardada){
+    mostrarPanel('login');
+  }
+
   showAutocomplete(document.getElementById('comercio-buscar'), document.getElementById('autocomplete-list'), document.getElementById('comercio-id'));
   showAutocomplete(
     document.getElementById('comercio-buscar2-generar'),
@@ -3811,59 +3819,58 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
 
   async function mostrarPanelDashboard(){
     if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
+
     document.getElementById('nombre-comercio').textContent = sesion.nombre;
-    document.getElementById('campos-datos-comercio').innerHTML = '<div class="small-muted">Cargando datos...</div>';
+    document.getElementById('link-support_dashboard').href =
+      `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
+
     const dashboardLoadStatus=document.getElementById('dashboard-load-status');
     const dashboardReadyPrompt=document.getElementById('dashboard-ready-prompt');
-    if(dashboardReadyPrompt) dashboardReadyPrompt.style.display='none';
-    if(dashboardLoadStatus) dashboardLoadStatus.textContent='Cargando funcionalidades...';
-    document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
+    const dashboardTabs=document.getElementById('dashboard-tabs');
 
-    // La sesión ya está validada. Mostrar el Dashboard inmediatamente.
-    // Las cargas remotas continúan después y NO bloquean la interfaz.
+    if(dashboardLoadStatus) dashboardLoadStatus.textContent='';
+    if(dashboardReadyPrompt) dashboardReadyPrompt.style.display='';
+    if(dashboardTabs) dashboardTabs.style.display='';
+
+    // El Dashboard no precarga módulos.
+    // Cada pestaña consulta sus datos recién al abrirse.
     mostrarPanel('dashboard');
-    if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
 
-    const efemBootPromise=(async()=>{
-      try{
-        const res=await efemerides_post({action:'listar'});
-        if(res.status===200 && res.json && res.json.success){
-          const permisos=res.json.permisos && typeof res.json.permisos==='object'
-            ? res.json.permisos
-            : {};
-          efemState.permisos={
-            efemerides_local:efemTruthy(permisos.efemerides_local),
-            efemerides_grl:efemTruthy(permisos.efemerides_grl)
-          };
-          efemState.ciudades=Array.isArray(res.json.ciudades)?res.json.ciudades:[];
-          efemState.efemerides=Array.isArray(res.json.efemerides)?res.json.efemerides:[];
-          efemState.loaded=true;
-          return {ok:true, autorizado:!!(efemState.permisos.efemerides_local || efemState.permisos.efemerides_grl)};
-        }
-        if(res.json && res.json.error==='efemerides_no_autorizado'){
-          efemState.permisos={efemerides_local:false,efemerides_grl:false};
-          efemState.ciudades=[];
-          efemState.efemerides=[];
-          efemState.loaded=false;
-          return {ok:true, autorizado:false};
-        }
-        return {ok:false, autorizado:null};
-      }catch(e){
-        console.error('Error verificando Efemérides al iniciar:',e);
-        return {ok:false, autorizado:null};
-      }
-    })();
+    if(typeof window.showAllDashboardTabs === 'function'){
+      window.showAllDashboardTabs();
+    }
+    if(typeof window.resetDashboardModuleRuntime === 'function'){
+      window.resetDashboardModuleRuntime();
+    }
+
+    if(btnLogin){
+      btnLogin.removeAttribute('disabled');
+      btnLogin.textContent = originalLoginBtnText;
+    }
+  }
+
+  async function loadCommerceUI(){
+    if(!sesion || !sesion.id) return false;
+
+    const box=document.getElementById('campos-datos-comercio');
+    if(box) box.innerHTML='<div class="small-muted">Cargando datos...</div>';
 
     const url = `${WORKER_ORIGIN}/commerce?id=${encodeURIComponent(sesion.id)}&comercio_id=${encodeURIComponent(sesion.id)}&nombre=${encodeURIComponent(sesion.nombre)}&planilla_id=${encodeURIComponent(sesion.planilla_id||'')}`;
+
     try{
       const r = await fetch(url, { method:'GET', mode:'cors' });
       const rawDatos = await r.json().catch(()=>({ error:'Respuesta inválida'}));
-      if(rawDatos.error){ document.getElementById('campos-datos-comercio').innerHTML = `<b>Error:</b> ${rawDatos.error}`; mostrarPanel('dashboard'); return; }
-      
+
+      if(rawDatos.error){
+        if(box) box.innerHTML = `<b>Error:</b> ${htmlEscape(rawDatos.error)}`;
+        return false;
+      }
+
       const datos = rawDatos.datos || rawDatos.data || rawDatos.anunciante || rawDatos;
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
       const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
+
       currentCommerceSedes = sedes;
       commerceCatalogs = {
         segmentos:Array.isArray(rawDatos.segmentos) ? rawDatos.segmentos : [],
@@ -3873,63 +3880,27 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         acciones:Array.isArray(rawDatos.acciones) ? rawDatos.acciones : [],
         nodos:Array.isArray(rawDatos.nodos) ? rawDatos.nodos : []
       };
+
       const newPlanillaId = rawDatos.planilla_id || administracion.planilla_id || datos.planilla_id;
-      if(newPlanillaId && newPlanillaId !== sesion.planilla_id){ 
-        sesion.planilla_id = newPlanillaId; 
-        localStorage.setItem('planilla_id', newPlanillaId); 
+      if(newPlanillaId && newPlanillaId !== sesion.planilla_id){
+        sesion.planilla_id = newPlanillaId;
+        localStorage.setItem('planilla_id', newPlanillaId);
       }
 
-      sesion.promos_cant = administracion.promos_cant || datos.promos_cant || 0;
-      sesion.eventos_cant = administracion.eventos_cant || datos.eventos_cant || 0;
+      sesion.promos_cant = administracion.promos_cant || datos.promos_cant || sesion.promos_cant || 0;
+      sesion.eventos_cant = administracion.eventos_cant || datos.eventos_cant || sesion.eventos_cant || 0;
       sesion.turnos_farma = administracion.turnos_farma || datos.turnos_farma || sesion.turnos_farma || '';
+
       localStorage.setItem('promos_cant', sesion.promos_cant);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
       localStorage.setItem('turnos_farma', sesion.turnos_farma);
 
-      const efemBoot=await efemBootPromise;
-      const capacidadesDashboard=Object.assign({}, rawDatos, administracion);
-
-      if(efemBoot.ok && efemState.permisos){
-        // Respuesta válida: respetar exactamente los permisos devueltos por Efemérides.
-        capacidadesDashboard.efemerides_local=!!efemState.permisos.efemerides_local;
-        capacidadesDashboard.efemerides_grl=!!efemState.permisos.efemerides_grl;
-      }else{
-        // ERROR al consultar permisos NO significa "sin permiso".
-        // Mantener la pestaña disponible para mostrar el error y permitir reintentar.
-        capacidadesDashboard.efemerides=true;
-      }
-
-      if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData(capacidadesDashboard);
-      }
-
-      // La construcción del formulario completo puede ser pesada.
-      // Se difiere para no bloquear los clics de navegación del dashboard.
-      const hidratarDatosComercio = ()=>{
-        const box = document.getElementById('campos-datos-comercio');
-        if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
-      };
-      if('requestIdleCallback' in window){
-        window.requestIdleCallback(hidratarDatosComercio, {timeout:1200});
-      }else{
-        setTimeout(hidratarDatosComercio, 0);
-      }
-      document.getElementById('link-support_dashboard').href = `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
-
-      // Con las capacidades resueltas, iniciar en paralelo la precarga de los módulos autorizados.
-      if(typeof window.preloadAuthorizedModules === 'function'){
-        window.preloadAuthorizedModules();
-      }
-
+      if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
+      return true;
     }catch(err){
-      document.getElementById('campos-datos-comercio').innerHTML = `<b>Error conexión con Worker.</b>`;
-      if(dashboardLoadStatus) dashboardLoadStatus.textContent='Error al cargar los datos generales del panel.';
-      if(dashboardReadyPrompt) dashboardReadyPrompt.style.display='';
-      if(typeof window.updateDashboardModulesFromData === 'function'){
-        window.updateDashboardModulesFromData({});
-      }
-      mostrarPanel('dashboard');
-      if(btnLogin){ btnLogin.removeAttribute('disabled'); btnLogin.textContent = originalLoginBtnText; }
+      console.error('Error cargando Modificar datos:',err);
+      if(box) box.innerHTML = '<b>Error al cargar los datos del anunciante.</b>';
+      return false;
     }
   }
 
@@ -4182,7 +4153,8 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       promos:{status:'idle',promise:null,initialized:false},
       eventos:{status:'idle',promise:null,initialized:false},
       turnos_farma:{status:'idle',promise:null,initialized:false},
-      efemerides:{status:'idle',promise:null,initialized:false}
+      efemerides:{status:'idle',promise:null,initialized:false},
+      modificar_datos:{status:'idle',promise:null,initialized:false}
     };
 
     function resetRuntimeState(state){
@@ -4218,6 +4190,9 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       }else if(key === 'efemerides'){
         const st=document.getElementById('efem-status'); if(st) st.textContent='Cargando efemérides...';
         const list=document.getElementById('efem-list'); if(list) list.innerHTML='<div class="small-muted">Cargando efemérides...</div>';
+      }else if(key === 'modificar_datos'){
+        const box=document.getElementById('campos-datos-comercio');
+        if(box) box.innerHTML='<div class="small-muted">Cargando datos...</div>';
       }
     }
 
@@ -4266,6 +4241,11 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
         if(ok) state.initialized=true;
       }
 
+      if(key === 'modificar_datos'){
+        ok=await loadCommerceUI();
+        if(ok) state.initialized=true;
+      }
+
       if(ok === false) throw new Error('No se pudo cargar '+key);
       state.status='ready';
       return true;
@@ -4302,53 +4282,11 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
     function actualizarEstadoCargaGlobal(){
       const box=document.getElementById('dashboard-load-status');
       const prompt=document.getElementById('dashboard-ready-prompt');
-      if(!box) return;
-
-      const keys=['promos','eventos','turnos_farma','efemerides']
-        .filter(k=>enabledModules.has(k));
-
-      const loading=keys.filter(k=>moduleRuntime[k]?.status==='loading').length;
-      const errorKeys=keys.filter(k=>moduleRuntime[k]?.status==='error');
-
-      if(loading){
-        if(prompt) prompt.style.display='none';
-        box.textContent='Cargando funcionalidades...';
-        return;
-      }
-
+      const tabsBox=document.getElementById('dashboard-tabs');
+      if(box) box.textContent='';
       if(prompt) prompt.style.display='';
-
-      if(errorKeys.length){
-        const nombres={
-          promos:'Promos',
-          eventos:'Eventos',
-          turnos_farma:'Farmacias de turno',
-          efemerides:'Efemérides'
-        };
-        const fallas=errorKeys.map(k=>nombres[k]||k).join(', ');
-        box.textContent='Error al cargar: '+fallas+'. Abrí '+(errorKeys.length===1?'ese módulo':'esos módulos')+' para ver el detalle y reintentar.';
-      }else{
-        box.textContent='';
-      }
+      if(tabsBox) tabsBox.style.display='';
     }
-
-    window.preloadAuthorizedModules = function(){
-      const keys=['promos','eventos','turnos_farma','efemerides']
-        .filter(k=>enabledModules.has(k));
-
-      if(!keys.length){
-        actualizarEstadoCargaGlobal();
-        return Promise.resolve([]);
-      }
-
-      keys.forEach(k=>{
-        if(moduleRuntime[k].status==='idle') mostrarCargaModulo(k);
-      });
-      actualizarEstadoCargaGlobal();
-
-      // Todos los módulos autorizados empiezan juntos, no uno detrás de otro.
-      return Promise.all(keys.map(k=>cargarModulo(k)));
-    };
 
     window.reloadDashboardModule = function(key){
       return cargarModulo(key,{force:true});
@@ -4371,13 +4309,12 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
       const panel = panelByKey[key];
       if(panel) panel.classList.remove('hidden-panel');
 
-      if(['promos','eventos','turnos_farma','efemerides'].includes(key)){
+      if(['promos','eventos','turnos_farma','efemerides','modificar_datos'].includes(key)){
         const state=moduleRuntime[key];
 
-        // El clic abre la pestaña de inmediato.
-        // Sólo dispara carga si todavía no había empezado.
-        if(state && state.status==='idle'){
-          despuesDePintar(()=>cargarModulo(key));
+        // Cada módulo carga solamente cuando se abre por primera vez.
+        if(state && (state.status==='idle' || state.status==='error')){
+          despuesDePintar(()=>cargarModulo(key,{force:state.status==='error'}));
         }
         return;
       }
@@ -4408,20 +4345,16 @@ document.getElementById('promo-refresh')?.addEventListener('click', loadPromosUI
     });
 
 
-    window.updateDashboardModulesFromData = function(rawDatos){
-      enabledModules = detectEnabledModules(rawDatos);
-
+    window.showAllDashboardTabs = function(){
       Object.keys(tabs).forEach((k)=>{
-        const tab = tabs[k];
-        if(!tab) return;
-        if(k === 'inicio' || k === 'modificar_datos' || k === 'tarjeta_nfc' || enabledModules.has(k)){
-          tab.style.display = '';
-        }else{
-          tab.style.display = 'none';
-        }
+        const tab=tabs[k];
+        if(tab) tab.style.display='';
       });
-
       actualizarEstadoCargaGlobal();
+    };
+
+    window.updateDashboardModulesFromData = function(){
+      window.showAllDashboardTabs();
     };
 
   })();
