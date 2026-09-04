@@ -308,6 +308,35 @@
       .promo-contact-grid {
         grid-template-columns:1fr !important;
       }
+      .promo-contact-card{
+        display:flex !important;
+        flex-direction:row !important;
+        align-items:flex-start !important;
+        gap:12px !important;
+        width:100% !important;
+        min-width:0 !important;
+      }
+      .promo-contact-card input[type="checkbox"]{
+        width:22px !important;
+        min-width:22px !important;
+        max-width:22px !important;
+        height:22px !important;
+        flex:0 0 22px !important;
+        margin:2px 0 0 !important;
+        padding:0 !important;
+      }
+      .promo-contact-card > span{
+        display:block !important;
+        flex:1 1 auto !important;
+        min-width:0 !important;
+        text-align:left !important;
+      }
+      .promo-contact-label,
+      .promo-contact-value{
+        text-align:left !important;
+        overflow-wrap:anywhere !important;
+        word-break:break-word !important;
+      }
 
       .card-meta,
       .details-grid {
@@ -1035,6 +1064,19 @@ const COMMERCE_IMAGE_UPLOAD_NOTE = `
 
 function debugLog(...args){ console.log(...args); }
 
+/* Posición visible real dentro del iframe alto.
+   Los overlays se muestran cerca de la última interacción para que el mensaje
+   quede dentro de la porción del iframe que el usuario está viendo en móvil. */
+let lastVisibleInteractionY = 24;
+document.addEventListener('pointerdown', (e)=>{
+  if(Number.isFinite(e.clientY)) lastVisibleInteractionY = e.clientY;
+}, true);
+
+function overlayVisibleTop_(){
+  const y = Number(lastVisibleInteractionY || 24);
+  return Math.max(18, y - 110);
+}
+
 function mostrarPanel(panel){ ['panel-login','panel-registro-generar','panel-registro-cambiar','panel-crear-anuncio','panel-dashboard'].forEach(id=>document.getElementById(id)?.classList.remove('active')); document.getElementById('panel-'+panel)?.classList.add('active'); }
 function openWhatsApp(text){ window.open(`https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent(text)}`,'_blank'); }
 
@@ -1184,11 +1226,11 @@ function setEstadoCargaComercios_(estado, mensaje){
       el.placeholder='Cargando comercios autorizados...';
     });
 
-    overlay.innerHTML=`<div>
+    overlay.innerHTML=`<div style="position:absolute;left:16px;right:16px;top:${overlayVisibleTop_()}px;text-align:center">
       <div style="font-size:22px;font-weight:800;margin-bottom:8px">Cargando comercios autorizados...</div>
       <div class="small-muted">Esperá a que termine la carga.</div>
     </div>`;
-    overlay.style.display='flex';
+    overlay.style.display='block';
 
     if(container) container.inert=true;
     if(msg) msg.innerHTML='';
@@ -2000,6 +2042,12 @@ function setMsg(elId, kind, msg){
   const el = document.getElementById(elId);
   if(!el) return;
   el.innerHTML = `<div class="msg ${kind === 'ok' ? 'ok' : 'err'}">${htmlEscape(msg)}</div>`;
+}
+
+function promoShowError_(msg){
+  setMsg('promos-msg','err',msg);
+  const el=document.getElementById('promos-msg');
+  try{ el?.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
 }
 
 
@@ -3085,7 +3133,7 @@ function bindPromosListActions(){
         if(isPaused){
           const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
           if(!cupo.puedeActivar){
-            alert('Ya tenés el máximo de promos activas. Pausá otra antes de reactivar esta.');
+            promoShowError_('Ya tenés el máximo de promos activas. Pausá otra antes de reactivar esta.');
             return;
           }
         }
@@ -3111,7 +3159,7 @@ function bindPromosListActions(){
           })){
             // verificación resuelta
           } else {
-            setMsg('promos-msg', 'err', 'Error pausando/reanudando: ' + JSON.stringify(r.json));
+            setMsg('promos-msg', 'err', 'No se pudo cambiar el estado de la promo. Refrescá la lista e intentá nuevamente.');
           }
         });
       }
@@ -3133,14 +3181,14 @@ function bindPromosListActions(){
           })){
             // verificación resuelta
           } else {
-            setMsg('promos-msg', 'err', 'Error borrando: ' + JSON.stringify(r.json));
+            setMsg('promos-msg', 'err', 'No se pudo borrar la promo. Refrescá la lista e intentá nuevamente.');
           }
         });
       }
 
       if(action === 'edit'){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
-        if(!found){ alert('No se encontró la promo (refrescá).'); return; }
+        if(!found){ promoShowError_('No se encontró la promo. Refrescá la lista e intentá nuevamente.'); return; }
 
         editingPromoId = pid;
         const btnCreate = document.getElementById('promo-create');
@@ -3164,14 +3212,14 @@ function bindPromosListActions(){
       if(action === 'duplicate'){
         const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
         if(!cupo.puedeCrear){
-          alert(cupo.total >= cupo.totalMax
+          promoShowError_(cupo.total >= cupo.totalMax
             ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
             : 'Alcanzaste el máximo de promos activas. Pausá una para publicar otra.');
           return;
         }
 
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
-        if(!found){ alert('No se encontró la promo (refrescá).'); return; }
+        if(!found){ promoShowError_('No se encontró la promo. Refrescá la lista e intentá nuevamente.'); return; }
         setMsg('promos-msg', 'ok', 'Duplicando promo...');
         const r = await promos_post({ action: 'createPromo', payload: {
           promo: found.promo || '',
@@ -3187,7 +3235,7 @@ function bindPromosListActions(){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
           await loadPromosUI();
         } else {
-          setMsg('promos-msg', 'err', 'Error duplicando: ' + JSON.stringify(r.json));
+          setMsg('promos-msg', 'err', 'No se pudo duplicar la promo. Intentá nuevamente.');
         }
       }
     });
@@ -3998,7 +4046,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
   document.getElementById('promo-create')?.addEventListener('click', async (e)=>{
     e.preventDefault();
-    if(!sesion || !sesion.id){ alert('No logueado.'); return; }
+    if(!sesion || !sesion.id){ promoShowError_('La sesión no está disponible. Volvé a iniciar sesión.'); return; }
 
     const btn = document.getElementById('promo-create');
     btn.setAttribute('disabled','true');
@@ -4014,16 +4062,16 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       const otros = promoGet('promo-otros');
       const img = promoGet('promo-img');
 
-      if(!promo){ alert('Ingresá texto de promo'); return; }
-      if(!sede_id){ alert('Elegí la sede de la promo'); return; }
-      if(!ciudad_id){ alert('La sede elegida no tiene ciudad asignada'); return; }
-      if(!desde){ alert('Elegí la fecha desde'); return; }
-      if(!hasta){ alert('Elegí la fecha hasta'); return; }
+      if(!promo){ promoShowError_('Ingresá el texto de la promo.'); return; }
+      if(!sede_id){ promoShowError_('Elegí la sede de la promo.'); return; }
+      if(!ciudad_id){ promoShowError_('La sede elegida no tiene ciudad asignada.'); return; }
+      if(!desde){ promoShowError_('Elegí la fecha desde.'); return; }
+      if(!hasta){ promoShowError_('Elegí la fecha hasta.'); return; }
       if(new Date(hasta + 'T00:00:00') < new Date(desde + 'T00:00:00')){
-        alert('La fecha hasta no puede ser anterior a la fecha desde');
+        promoShowError_('La fecha hasta no puede ser anterior a la fecha desde.');
         return;
       }
-      if(!isHttpUrl(img)){ alert('La URL de la imagen de la promo no es válida.'); return; }
+      if(!isHttpUrl(img)){ promoShowError_('La URL de la imagen de la promo no es válida.'); return; }
       const contactPayload = promoContactPayload();
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
@@ -4044,13 +4092,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           })){
             // verificación resuelta
           } else {
-            setMsg('promos-msg', 'err', 'Error actualizando: ' + JSON.stringify(r.json));
+            setMsg('promos-msg', 'err', 'No se pudo actualizar la promo. Intentá nuevamente.');
           }
         });
       } else {
         const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
         if(!cupo.puedeCrear){
-          alert(cupo.total >= cupo.totalMax
+          promoShowError_(cupo.total >= cupo.totalMax
             ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
             : 'Alcanzaste el máximo de promos activas. Pausá una para publicar otra.');
           return;
@@ -4070,7 +4118,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           })){
             // verificación resuelta
           } else {
-            setMsg('promos-msg', 'err', 'Error creando: ' + JSON.stringify(r.json));
+            setMsg('promos-msg', 'err', 'No se pudo crear la promo. Intentá nuevamente.');
           }
         });
       }
@@ -4732,11 +4780,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       const panel=document.getElementById('panel-dashboard');
 
       if(active){
-        overlay.innerHTML=`<div>
+        overlay.innerHTML=`<div style="position:absolute;left:16px;right:16px;top:${overlayVisibleTop_()}px;text-align:center">
           <div style="font-size:22px;font-weight:800;margin-bottom:8px">Cargando ${htmlEscape(moduleLabel(key))}...</div>
           <div class="small-muted">Esperá a que termine la carga.</div>
         </div>`;
-        overlay.style.display='flex';
+        overlay.style.display='block';
         if(panel) panel.inert=true;
       }else{
         overlay.style.display='none';
@@ -4769,11 +4817,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       }
 
       if(active){
-        overlay.innerHTML=`<div>
+        overlay.innerHTML=`<div style="position:absolute;left:16px;right:16px;top:${overlayVisibleTop_()}px;text-align:center">
           <div style="font-size:22px;font-weight:800;margin-bottom:8px">${htmlEscape(label || 'Procesando...')}</div>
           <div class="small-muted">Esperá a que termine la operación.</div>
         </div>`;
-        overlay.style.display='flex';
+        overlay.style.display='block';
         if(panel) panel.inert=true;
       }else{
         overlay.style.display='none';
