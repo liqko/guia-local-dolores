@@ -1046,6 +1046,10 @@
         <!-- Actividades -->
         <div id="actividades-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <h3>Actividades</h3>
+          <div class="info-banner" style="margin-bottom:10px">
+            <strong>Las actividades deben renovarse cada 30 días.</strong>
+            Podés mantener guardadas hasta el doble de tu cupo, pero sólo puede estar activa/publicada la cantidad que tenés asignada.
+          </div>
           <div id="actividades-status" class="small-muted">Cargando actividades...</div>
 
           <div id="actividades-form-card" style="border:1px solid #e7e7e7;border-radius:12px;padding:14px;margin:14px 0;background:#fff">
@@ -1087,9 +1091,9 @@
             </div>
 
             <div class="act-contact-box">
-              <div style="font-weight:800">Datos que querés publicar en la tarjeta</div>
-              <div class="small-muted">Se toman de una sede del anunciante. Elegí la sede y marcá sólo los datos que querés mostrar.</div>
-              <label><strong>Sede para datos de contacto</strong></label>
+              <div style="font-weight:800">Datos de contacto para la actividad</div>
+              <div class="small-muted">Elegí de qué sede tomar los datos de contacto, aunque la actividad se realice en otro lugar. Marcá sólo los teléfonos, WhatsApp, redes sociales, mail, dirección o Maps que quieras mostrar en la tarjeta.</div>
+              <label><strong>Sede de donde tomar los datos</strong></label>
               <select id="act-contacto-sede">
                 <option value="">Cargando sedes...</option>
               </select>
@@ -2287,9 +2291,6 @@ function actividadesLugarOptions_(tipo,ciudadId,selected=''){
     rows.map(x=>{
       const id=String(x[valueKey]||'').trim();
       let label=String(x[labelKey]||id).trim();
-      if(tipo==='LUGAR' && String(x.tipo||'').toUpperCase()==='PUNTO_INTERES'){
-        label += ' — Punto de interés';
-      }
       return `<option value="${actividadesOptionEscape_(id)}"${id===selected?' selected':''}>${actividadesOptionEscape_(label)}</option>`;
     }).join('');
 }
@@ -2318,7 +2319,7 @@ function actividadesCrearHorarioCard_(h={}){
         <select class="act-h-tipo">
           <option value="">Seleccioná</option>
           <option value="SEDE"${tipo==='SEDE'?' selected':''}>Sede del anunciante</option>
-          <option value="LUGAR"${tipo==='LUGAR'?' selected':''}>Lugar público / punto de interés</option>
+          <option value="LUGAR"${tipo==='LUGAR'?' selected':''}>Espacio listado</option>
           <option value="OTRO"${tipo==='OTRO'?' selected':''}>Otro lugar</option>
         </select>
       </div>
@@ -2364,8 +2365,11 @@ function actividadesCrearHorarioCard_(h={}){
     lugarWrap.innerHTML='';
 
     if(t==='SEDE' || t==='LUGAR'){
-      const label=t==='SEDE'?'Sede · Obligatorio':'Lugar · Obligatorio';
-      lugarWrap.innerHTML=`<label><strong>${label}</strong></label><select class="act-h-lugar">${actividadesLugarOptions_(t,cid,selectedLugar)}</select>`;
+      const label=t==='SEDE'?'Sede · Obligatorio':'Espacio listado · Obligatorio';
+      const ayuda=t==='LUGAR'
+        ? '<div class="small-muted" style="margin-bottom:6px">Elegí un espacio ya cargado en Guía Local.</div>'
+        : '';
+      lugarWrap.innerHTML=`<label><strong>${label}</strong></label>${ayuda}<select class="act-h-lugar">${actividadesLugarOptions_(t,cid,selectedLugar)}</select>`;
       return;
     }
 
@@ -2532,9 +2536,13 @@ function actividadesRenderLista_(){
   const rows=Array.isArray(actividadesState.actividades)?actividadesState.actividades:[];
   const cupo=actividadesState.cupo||{};
   if(st){
-    const max=Number(cupo.max||0);
-    const activas=Number(cupo.activas||0);
-    st.textContent=max>0 ? `Actividades activas: ${activas} de ${max}. Disponibles: ${Math.max(0,max-activas)}.` : 'Sin cupo configurado.';
+    const max=Math.max(0,Number(cupo.max||0));
+    const activas=Math.max(0,Number(cupo.activas||0));
+    const total=Math.max(0,Number(cupo.total||0));
+    const totalMax=Math.max(0,Number(cupo.totalMax||max*2));
+    st.textContent=max>0
+      ? `Permitidas activas: ${max} | Activas: ${activas}/${max} | Guardadas: ${total}/${totalMax} | Disponibles activas: ${Math.max(0,max-activas)}`
+      : 'Sin cupo configurado.';
   }
 
   if(!rows.length){
@@ -2579,6 +2587,21 @@ function actividadesRenderLista_(){
       }
 
       if(action==='duplicate'){
+        const cp=actividadesState.cupo||{};
+        const max=Math.max(0,Number(cp.max||0));
+        const activas=Math.max(0,Number(cp.activas||0));
+        const total=Math.max(0,Number(cp.total||0));
+        const totalMax=Math.max(0,Number(cp.totalMax||max*2));
+
+        if(total>=totalMax){
+          setMsg('actividades-msg','err','Alcanzaste el máximo de actividades guardadas. Eliminá alguna para duplicar otra.');
+          return;
+        }
+        if(activas>=max){
+          setMsg('actividades-msg','err','Alcanzaste el máximo de actividades activas. Pausá una antes de crear otra.');
+          return;
+        }
+
         actividadesAbrirActividadEnForm_(actividad,true);
         return;
       }
@@ -2616,7 +2639,12 @@ function actividadesRenderLista_(){
           }else if(await handleUnconfirmedOperation(res,{msgId:'actividades-msg',reload:()=>loadActividadesUI(true)})){
             return;
           }else{
-            setMsg('actividades-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo completar la operación.');
+            const err=String(res.json&&(res.json.error||res.json.message)||'');
+            const mensaje=
+              err==='actividades_cupo_activo_completo'
+                ? 'Alcanzaste el máximo de actividades activas. Pausá una antes de reanudar o renovar esta.'
+              : (err || 'No se pudo completar la operación.');
+            setMsg('actividades-msg','err',mensaje);
           }
         }
       );
@@ -2699,6 +2727,18 @@ async function loadActividadesUI(force=false){
     }
 
     actividadesRenderLista_();
+
+    const btnGuardar=document.getElementById('act-guardar');
+    const editando=!!String(document.getElementById('act-id')?.value||'').trim();
+    if(btnGuardar && !editando){
+      const cp=actividadesState.cupo||{};
+      const max=Math.max(0,Number(cp.max||0));
+      const activas=Math.max(0,Number(cp.activas||0));
+      const total=Math.max(0,Number(cp.total||0));
+      const totalMax=Math.max(0,Number(cp.totalMax||max*2));
+      const puedeCrear=max>0 && activas<max && total<totalMax;
+      btnGuardar.disabled=!puedeCrear;
+    }
 
     if(!actividadesState.categorias.length){
       setMsg('actividades-msg','err','No hay categorías cargadas en aux_categorias.');
@@ -2788,7 +2828,16 @@ function initActividadesUI_(){
           }else if(await handleUnconfirmedOperation(res,{msgId:'actividades-msg',reload:()=>loadActividadesUI(true)})){
             return;
           }else{
-            setMsg('actividades-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo guardar la actividad.');
+            const err=String(res.json&&(res.json.error||res.json.message)||'');
+            const mensaje=
+              err==='actividades_maximo_guardadas'
+                ? 'Alcanzaste el máximo de actividades guardadas. Podés guardar hasta el doble de tu cupo activo.'
+              : err==='actividades_cupo_activo_completo'
+                ? 'Alcanzaste el máximo de actividades activas. Pausá una antes de publicar otra.'
+              : err==='actividades_sin_cupo'
+                ? 'No tenés cupo de actividades configurado.'
+              : (err || 'No se pudo guardar la actividad.');
+            setMsg('actividades-msg','err',mensaje);
           }
         });
       }catch(e){
