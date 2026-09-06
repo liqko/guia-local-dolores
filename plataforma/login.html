@@ -1275,7 +1275,7 @@
           </div>
 
           <div class="module-refresh-wrap">
-            <button id="pub-refrescar" type="button" class="secondary module-refresh-btn">Actualizar publicidad</button>
+            <button id="pub-refrescar" type="button" class="secondary module-refresh-btn">Recargar datos de publicidad</button>
           </div>
         </div>
 
@@ -1510,31 +1510,87 @@ function openImagesFormForCommerce(comercioId){
 /* ====================== Autocomplete comercios ====================== */
 let comerciosCargando = false;
 
-function setEstadoCargaComercios_(estado, mensaje){
-  const ids=['comercio-buscar','comercio-buscar2-generar','comercio-buscar2-cambiar'];
-  const retry=document.getElementById('btn-retry-comercios');
-  const msg=document.getElementById('login-msg');
 
-  let overlay=document.getElementById('login-comercios-loading-overlay');
+function globalBlockingAnchorTop_(sourceEl){
+  const el=sourceEl || document.activeElement;
+
+  if(el && el !== document.body && typeof el.getBoundingClientRect === 'function'){
+    const r=el.getBoundingClientRect();
+    if(Number.isFinite(r.top)){
+      return Math.max(16,window.scrollY+Math.max(16,r.top-24));
+    }
+  }
+
+  const visiblePanel=Array.from(document.querySelectorAll('.panel')).find(p=>{
+    if(!p) return false;
+    const style=getComputedStyle(p);
+    if(style.display==='none' || style.visibility==='hidden') return false;
+    const r=p.getBoundingClientRect();
+    return r.bottom>0 && r.top<(window.innerHeight||800);
+  });
+
+  if(visiblePanel){
+    const r=visiblePanel.getBoundingClientRect();
+    return Math.max(16,window.scrollY+Math.max(16,r.top+16));
+  }
+
+  return Math.max(16,window.scrollY+24);
+}
+
+function showGlobalBlocking_(label,detail,sourceEl){
+  let overlay=document.getElementById('global-action-overlay');
+
   if(!overlay){
     overlay=document.createElement('div');
-    overlay.id='login-comercios-loading-overlay';
+    overlay.id='global-action-overlay';
     overlay.style.cssText=[
-      'position:fixed',
-      'inset:0',
-      'z-index:1000001',
+      'position:absolute',
+      'left:0','right:0','top:0','bottom:0',
+      'min-height:100%',
+      'z-index:1000005',
       'display:none',
-      'align-items:center',
-      'justify-content:center',
-      'background:rgba(255,255,255,.97)',
-      'padding:24px',
+      'background:rgba(20,25,35,.28)',
       'text-align:center',
       'cursor:wait'
     ].join(';');
     document.body.appendChild(overlay);
   }
 
+  const top=globalBlockingAnchorTop_(sourceEl);
+
+  overlay.innerHTML=`<div style="position:absolute;left:12px;right:12px;top:${top}px;max-width:460px;margin:0 auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.20)">
+    <div style="width:32px;height:32px;border:4px solid #d9dfe8;border-top-color:#65758b;border-radius:50%;margin:0 auto 10px;animation:spin .8s linear infinite"></div>
+    <div style="font-size:20px;font-weight:800;margin-bottom:6px">${htmlEscape(label || 'Procesando...')}</div>
+    <div class="small-muted">${htmlEscape(detail || 'Esperá a que termine la operación.')}</div>
+  </div>`;
+
+  overlay.style.display='block';
+
   const container=document.querySelector('.container');
+  if(container) container.inert=true;
+}
+
+function hideGlobalBlocking_(){
+  const overlay=document.getElementById('global-action-overlay');
+  if(overlay) overlay.style.display='none';
+
+  const container=document.querySelector('.container');
+  if(container) container.inert=false;
+}
+
+async function runGlobalBlockingAction_(label,fn,sourceEl,detail){
+  showGlobalBlocking_(label,detail || 'Esperá a que termine la operación.',sourceEl);
+  try{
+    return await fn();
+  }finally{
+    hideGlobalBlocking_();
+  }
+}
+
+function setEstadoCargaComercios_(estado, mensaje){
+  const ids=['comercio-buscar','comercio-buscar2-generar','comercio-buscar2-cambiar'];
+  const retry=document.getElementById('btn-retry-comercios');
+  const msg=document.getElementById('login-msg');
 
   if(estado==='loading'){
     ids.forEach(id=>{
@@ -1545,20 +1601,18 @@ function setEstadoCargaComercios_(estado, mensaje){
       el.placeholder='Cargando comercios autorizados...';
     });
 
-    overlay.innerHTML=`<div style="position:absolute;left:16px;right:16px;top:${overlayVisibleTop_()}px;text-align:center">
-      <div style="font-size:22px;font-weight:800;margin-bottom:8px">Cargando comercios autorizados...</div>
-      <div class="small-muted">Esperá a que termine la carga.</div>
-    </div>`;
-    overlay.style.display='block';
+    showGlobalBlocking_(
+      'Cargando comercios autorizados...',
+      'Esperá a que termine la carga.',
+      document.getElementById('comercio-buscar')
+    );
 
-    if(container) container.inert=true;
     if(msg) msg.innerHTML='';
     if(retry) retry.style.display='none';
     return;
   }
 
-  overlay.style.display='none';
-  if(container) container.inert=false;
+  hideGlobalBlocking_();
 
   ids.forEach(id=>{
     const el=document.getElementById(id);
@@ -1573,7 +1627,11 @@ function setEstadoCargaComercios_(estado, mensaje){
     return;
   }
 
-  if(msg) msg.innerHTML=`<span class="error">${htmlEscape(mensaje || 'No se pudieron cargar los comercios autorizados.')}</span>`;
+  if(msg){
+    msg.innerHTML=`<span class="error">${htmlEscape(
+      mensaje || 'No se pudieron cargar los comercios autorizados.'
+    )}</span>`;
+  }
   if(retry) retry.style.display='';
 }
 
@@ -3402,6 +3460,9 @@ function pubUiLista_(){
         ${pubUiEsc_(p.formato)} · ${pubUiEsc_(p.estado)} ·
         ${seg.length} cruces · ${ciudades} ciudades · ${categorias} categorías
       </div>
+      ${p.estado==='PAUSADA'
+        ? '<div class="small-muted" style="margin-top:5px;font-weight:700">Para activarla, marcala en “Publicidades activas” y confirmá la selección.</div>'
+        : ''}
 
       <div class="act-card-actions">
         <button type="button" class="secondary" data-pub-action="edit" data-id="${pubUiEsc_(p.publicidad_id)}">Editar</button>
@@ -3572,15 +3633,12 @@ function initPublicidadUI_(){
 
   if(refresh && !refresh.dataset.bound){
     refresh.addEventListener('click',async()=>{
-      refresh.disabled=true;
-      refresh.textContent='Actualizando...';
-
-      try{
-        await loadPublicidadUI(true);
-      }finally{
-        refresh.disabled=false;
-        refresh.textContent='Actualizar publicidad';
-      }
+      await runDashboardAction(
+        'Recargando publicidades...',
+        async()=>{
+          await loadPublicidadUI(true);
+        }
+      );
     });
 
     refresh.dataset.bound='1';
@@ -5602,7 +5660,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const originalButtonText = triggerButton.textContent || (isChange ? 'Cambiar contraseña' : 'Generar contraseña');
     triggerButton.setAttribute('disabled','true');
     triggerButton.textContent = isChange ? 'Cambiando...' : 'Generando...';
-    if(regMsg) regMsg.innerHTML = "<span>" + (isChange ? 'Cambiando contraseña...' : 'Generando contraseña...') + "</span>";
+    if(regMsg) regMsg.innerHTML = "";
+
+    showGlobalBlocking_(
+      isChange ? 'Cambiando contraseña...' : 'Generando contraseña...',
+      isChange ? 'Validando y guardando la nueva contraseña.' : 'Guardando tu nueva contraseña.',
+      triggerButton
+    );
 
     const payload = {
       action:'set_clave',
@@ -5656,6 +5720,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     }catch(err){
       if(regMsg) regMsg.innerHTML = "<span class='error'>Error de conexión.</span>";
     } finally {
+      hideGlobalBlocking_();
       triggerButton.textContent = originalButtonText;
       const nivelSeleccion = document.getElementById(panelConfig.comercioBuscarId)?.dataset?.nivel || '';
       const enabled = id && isAllowedLevel(nivelSeleccion);
@@ -6066,7 +6131,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
     btnLogin.setAttribute('disabled','true');
     btnLogin.textContent = 'Ingresando...';
-    document.getElementById('login-msg').innerHTML = "<span>Ingresando...</span>";
+    document.getElementById('login-msg').innerHTML = "";
+
+    showGlobalBlocking_(
+      'Ingresando...',
+      'Validando el acceso y cargando tus permisos.',
+      btnLogin
+    );
 
     const payload = { action:'login', comercio_id:id||'', id:id||'', nombre:nombre, password:clave };
     try{
@@ -6101,15 +6172,18 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         if(typeof window.updateDashboardModulesFromData==='function'){
           window.updateDashboardModulesFromData({administracion:sesion.administracion||{}});
         }
+        hideGlobalBlocking_();
         document.getElementById('login-msg').innerHTML = "<span class='success'>"+(res.message||'Ingresado')+"</span>";
         setTimeout(()=> mostrarPanelDashboard(), 300);
         return;
       }
 
+      hideGlobalBlocking_();
       btnLogin.removeAttribute('disabled');
       btnLogin.textContent = originalLoginBtnText;
       document.getElementById('login-msg').innerHTML = "<span class='error'>"+(res.message||'Login falló')+"</span>";
     }catch(err){
+      hideGlobalBlocking_();
       btnLogin.removeAttribute('disabled');
       btnLogin.textContent = originalLoginBtnText;
       document.getElementById('login-msg').innerHTML = "<span class='error'>Error de conexión.</span>";
@@ -6148,22 +6222,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       administracion:{}
     };
 
-    let overlay=document.getElementById('session-permissions-overlay');
-    if(!overlay){
-      overlay=document.createElement('div');
-      overlay.id='session-permissions-overlay';
-      overlay.style.cssText=[
-        'position:fixed','inset:0','z-index:1000002','display:flex',
-        'align-items:center','justify-content:center','background:rgba(255,255,255,.97)',
-        'padding:24px','text-align:center','cursor:wait'
-      ].join(';');
-      document.body.appendChild(overlay);
-    }
-
-    overlay.innerHTML='<div><div style="font-size:22px;font-weight:800;margin-bottom:8px">Validando permisos actuales...</div><div class="small-muted">Esperá a que termine la validación.</div></div>';
-
-    const container=document.querySelector('.container');
-    if(container) container.inert=true;
+    showGlobalBlocking_(
+      'Validando permisos actuales...',
+      'Esperá a que termine la validación.',
+      document.getElementById('btnLogin')
+    );
 
     try{
       const url=`${WORKER_ORIGIN}/commerce?action=permisos_panel&id=${encodeURIComponent(id)}`;
@@ -6176,39 +6239,20 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
       sesion.administracion=j.administracion;
       localStorage.setItem('dashboard_administracion',JSON.stringify(j.administracion));
-
-      if(container) container.inert=false;
-      overlay.remove();
+      hideGlobalBlocking_();
       await mostrarPanelDashboard();
 
     }catch(err){
-      if(container) container.inert=false;
-      overlay.style.cursor='default';
-      overlay.innerHTML=`
-        <div>
-          <div style="font-size:20px;font-weight:800;margin-bottom:10px">No se pudieron validar tus permisos.</div>
-          <div style="margin-bottom:14px">La sesión no se abrirá con permisos viejos.</div>
-          <button type="button" id="retry-session-permissions" class="secondary">Reintentar</button>
-          <button type="button" id="clear-session-permissions" class="secondary" style="margin-left:8px">Volver al ingreso</button>
-        </div>`;
+      hideGlobalBlocking_();
 
-      document.getElementById('retry-session-permissions')?.addEventListener('click',()=>{
-        overlay.remove();
-        restaurarSesionConPermisosActuales_();
-      });
+      const msg=document.getElementById('login-msg');
+      if(msg){
+        msg.innerHTML="<span class='error'>No se pudieron validar tus permisos actuales. Volvé a intentar ingresar.</span>";
+      }
 
-      document.getElementById('clear-session-permissions')?.addEventListener('click',()=>{
-        localStorage.removeItem('comercio_id');
-        localStorage.removeItem('comercio_nombre');
-        localStorage.removeItem('planilla_id');
-        localStorage.removeItem('promos_cant');
-        localStorage.removeItem('eventos_cant');
-        localStorage.removeItem('turnos_farma');
-        localStorage.removeItem('dashboard_administracion');
-        sesion=null;
-        overlay.remove();
-        mostrarPanel('login');
-      });
+      localStorage.removeItem('dashboard_administracion');
+      sesion=null;
+      mostrarPanel('login');
     }
   }
 
@@ -6428,39 +6472,43 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       return labels[key] || 'módulo';
     }
 
+    function dashboardOverlayAnchorTop_(){
+      const active=document.activeElement;
+      if(active && active !== document.body && typeof active.getBoundingClientRect === 'function'){
+        const r=active.getBoundingClientRect();
+        if(Number.isFinite(r.top)){
+          return Math.max(16, window.scrollY + r.top - 40);
+        }
+      }
+
+      // Fallback: zona actualmente activa del módulo.
+      const visiblePanel=Array.from(
+        document.querySelectorAll('#panel-dashboard .hidden-panel, #panel-dashboard > div')
+      ).find(el=>{
+        if(!el || el.classList.contains('hidden-panel')) return false;
+        const r=el.getBoundingClientRect();
+        return r.bottom>0 && r.top<(window.innerHeight||800);
+      });
+
+      if(visiblePanel){
+        const r=visiblePanel.getBoundingClientRect();
+        return Math.max(16,window.scrollY+Math.max(16,r.top+20));
+      }
+
+      return Math.max(16,window.scrollY+24);
+    }
+
     function setDashboardBusy(active,key){
       dashboardBusy=!!active;
 
-      let overlay=document.getElementById('dashboard-module-loading-overlay');
-      if(!overlay){
-        overlay=document.createElement('div');
-        overlay.id='dashboard-module-loading-overlay';
-        overlay.style.cssText=[
-          'position:fixed',
-          'inset:0',
-          'z-index:999999',
-          'display:none',
-          'align-items:center',
-          'justify-content:center',
-          'background:rgba(255,255,255,.96)',
-          'padding:24px',
-          'text-align:center'
-        ].join(';');
-        document.body.appendChild(overlay);
-      }
-
-      const panel=document.getElementById('panel-dashboard');
-
       if(active){
-        overlay.innerHTML=`<div style="position:absolute;left:16px;right:16px;top:${overlayVisibleTop_()}px;text-align:center">
-          <div style="font-size:22px;font-weight:800;margin-bottom:8px">Cargando ${htmlEscape(moduleLabel(key))}...</div>
-          <div class="small-muted">Esperá a que termine la carga.</div>
-        </div>`;
-        overlay.style.display='block';
-        if(panel) panel.inert=true;
+        showGlobalBlocking_(
+          `Cargando ${moduleLabel(key)}...`,
+          'Esperá a que termine la carga.',
+          document.activeElement
+        );
       }else{
-        overlay.style.display='none';
-        if(panel && !dashboardActionBusy) panel.inert=false;
+        hideGlobalBlocking_();
       }
 
       Object.values(tabs).forEach(tab=>{
@@ -6473,31 +6521,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     function setDashboardActionBusy(active,label){
       dashboardActionBusy=!!active;
 
-      let overlay=document.getElementById('dashboard-action-overlay');
-      const panel=document.getElementById('panel-dashboard');
-
-      if(!overlay){
-        overlay=document.createElement('div');
-        overlay.id='dashboard-action-overlay';
-        overlay.style.cssText=[
-          'position:fixed','inset:0','z-index:1000000','display:none',
-          'align-items:center','justify-content:center',
-          'background:rgba(255,255,255,.96)','padding:24px',
-          'text-align:center','cursor:wait'
-        ].join(';');
-        document.body.appendChild(overlay);
-      }
-
       if(active){
-        overlay.innerHTML=`<div style="position:absolute;left:16px;right:16px;top:${overlayVisibleTop_()}px;text-align:center">
-          <div style="font-size:22px;font-weight:800;margin-bottom:8px">${htmlEscape(label || 'Procesando...')}</div>
-          <div class="small-muted">Esperá a que termine la operación.</div>
-        </div>`;
-        overlay.style.display='block';
-        if(panel) panel.inert=true;
+        showGlobalBlocking_(
+          label || 'Procesando...',
+          'Esperá a que termine la operación.',
+          document.activeElement
+        );
       }else{
-        overlay.style.display='none';
-        if(panel && !dashboardBusy) panel.inert=false;
+        hideGlobalBlocking_();
       }
     }
 
