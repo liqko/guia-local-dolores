@@ -13,13 +13,167 @@
       const r=await fetch('./guia.html',{cache:'no-store'});
       if(!r.ok) throw new Error('No se pudo cargar guia.html');
       let html=await r.text();
-      const addon='<script src="https://cdn.jsdelivr.net/gh/liqko/guia-local-dolores@guia-eventos-actividades/plataforma/guia-modulos-fix.js"><\/script>';
-      html=html.replace('</body>',addon+'\n</body>');
+
+      function mustReplace(oldText,newText,label){
+        if(!html.includes(oldText)) throw new Error('No se encontró: '+label);
+        html=html.replace(oldText,newText);
+      }
+
+      /* 1) Un único criterio de identificación de anunciante para Guía/Promos/Eventos/Actividades. */
+      mustReplace(
+        "            obj && obj.id_anunciante,\n            obj && obj.comercio_id,",
+        "            obj && obj.id_anunciante,\n            obj && obj.anunciante_id,\n            obj && obj.comercio_id,",
+        'advertiserIds anunciante_id'
+      );
+
+      mustReplace(
+        "const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || p.advertiserId || '') || '').trim();",
+        "const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || p.anunciante_id || p.advertiserId || p.advertiser_id || '') || '').trim();",
+        'IDs de promos'
+      );
+
+      const oldCardKey="const cardKey = String(item.id || item.__id || item.id_comercio || item.nombre || '').trim();";
+      const newCardKey="const cardKey = String(item.id || item.__id || item.id_comercio || item.id_anunciante || item.anunciante_id || item.comercio_id || item.advertiserId || item.advertiser_id || item.nombre || '').trim();";
+      mustReplace(oldCardKey,newCardKey,'clave de tarjeta');
+
+      const oldUpdater="String(x.id || x.__id || x.id_comercio || x.nombre || '').trim() === key";
+      const newUpdater="String(x.id || x.__id || x.id_comercio || x.id_anunciante || x.anunciante_id || x.comercio_id || x.advertiserId || x.advertiser_id || x.nombre || '').trim() === key";
+      mustReplace(oldUpdater,newUpdater,'actualización de botones');
+
+      /* 2) La carga de Eventos usada por las tarjetas queda cacheada por ciudad y la comparte el módulo Eventos. */
+      const oldEventsPromise=`    function obtenerEventosPromise(){
+      if(!eventsPromise){
+        eventsPromise=fetch(EVENTS_ENDPOINT).then(r=>r.json()).catch(()=>[]);
+      }
+      return eventsPromise;
+    }`;
+      const newEventsPromise=`    function obtenerEventosPromise(){
+      if(!eventsPromise){
+        const cacheKey='gld_events_shared_v1:'+String(ciudadSeleccionada||'').trim();
+        try{
+          const cached=JSON.parse(sessionStorage.getItem(cacheKey)||'null');
+          if(cached && (Date.now()-Number(cached.ts||0))<300000 && cached.data){
+            eventsPromise=Promise.resolve(cached.data);
+            return eventsPromise;
+          }
+        }catch(e){}
+        const u=new URL(EVENTS_ENDPOINT);
+        if(ciudadSeleccionada) u.searchParams.set('ciudad_id',String(ciudadSeleccionada).trim());
+        eventsPromise=fetch(u.toString()).then(r=>r.json()).then(data=>{
+          try{sessionStorage.setItem(cacheKey,JSON.stringify({ts:Date.now(),data:data}));}catch(e){}
+          return data;
+        }).catch(()=>[]);
+      }
+      return eventsPromise;
+    }`;
+      mustReplace(oldEventsPromise,newEventsPromise,'carga compartida de eventos');
+
+      /* Helpers para modificar el HTML de Eventos embebido dentro de Guía. */
+      function encodeInline(code){
+        return code.replace(/\\/g,'\\\\').replace(/"/g,'\\"').replace(/\n/g,'\\\n');
+      }
+      const eventStart=html.indexOf('const EVENTOS_INLINE_HTML =');
+      if(eventStart<0) throw new Error('No se encontró Eventos dentro de Guía');
+
+      let before=html.slice(0,eventStart);
+      let evsrc=html.slice(eventStart);
+
+      /* IDs completos también dentro del módulo Eventos de Guía. */
+      evsrc=evsrc.replace(
+        "return [obj && obj.id, obj && obj.comercio_id, obj && obj.advertiserId, obj && obj.advertiser_id]\\\n",
+        "return [obj && obj.id, obj && obj.__id, obj && obj.id_comercio, obj && obj.comercio_id, obj && obj.id_anunciante, obj && obj.anunciante_id, obj && obj.advertiserId, obj && obj.advertiser_id]\\\n"
+      );
+
+      /* 3) Eventos embebido reutiliza la carga hecha por Guía. Sólo consulta red si la caché no existe. */
+      const fetchRegex=/    fetch\(eventsEndpointCiudad\)\\\n      \.then\(res => res\.json\(\)\)\\\n      \.then\(procesarEventosResponse\)\\\n      \.catch\(err => \{\\\n        console\.error\(err\);\\\n        document\.getElementById\('events'\)\.innerHTML = `<p class=\\"error\\" style=\\"text-align:center;padding:20px;\\">Error al cargar los eventos\.<\\\/p>`;\\\n      \}\);\\\n/;
+      const fetchReplacement=encodeInline(`    (function(){
+      const cacheKey='gld_events_shared_v1:'+String(ciudadContexto.ciudad_id||'').trim();
+      try{
+        const cached=JSON.parse(sessionStorage.getItem(cacheKey)||'null');
+        if(cached && (Date.now()-Number(cached.ts||0))<300000 && cached.data){
+          procesarEventosResponse(cached.data);
+          return;
+        }
+      }catch(e){}
+      fetch(eventsEndpointCiudad)
+        .then(res=>res.json())
+        .then(data=>{
+          try{sessionStorage.setItem(cacheKey,JSON.stringify({ts:Date.now(),data:data}));}catch(e){}
+          procesarEventosResponse(data);
+        })
+        .catch(err=>{
+          console.error(err);
+          document.getElementById('events').innerHTML='<p class="error" style="text-align:center;padding:20px;">Error al cargar los eventos.</p>';
+        });
+    })();
+`);
+      if(!fetchRegex.test(evsrc)) throw new Error('No se encontró la carga interna de Eventos');
+      evsrc=evsrc.replace(fetchRegex,fetchReplacement);
+
+      /* 4) VIP con programación: cada fila conserva su propia fecha, hora, sede y dirección. FREE queda igual. */
+      const legacyRegex=/      const infoBlock = document\.createElement\('div'\);\\\n      infoBlock\.className = 'info-block';\\\n[\s\S]*?      body\.appendChild\(infoBlock\);\\\n/;
+      const programCode=`      if (lvl === 'vip' && Array.isArray(ev && ev.programacion) && ev.programacion.length) {
+        const wrap=document.createElement('div');
+        wrap.className='info-block';
+        const title=document.createElement('div');
+        title.className='line';
+        title.innerHTML='<i class="ri-calendar-schedule-line"></i><div class="text"><strong>Programación</strong></div>';
+        wrap.appendChild(title);
+        const rows=ev.programacion.slice().filter(p=>p && (p.activo===undefined || p.activo===true || ['true','1','si','sí','x'].includes(String(p.activo||'').trim().toLowerCase()))).sort((a,b)=>{
+          const ka=String(a.fecha||'')+' '+String(a.hora_desde||'')+' '+String(a.orden||'');
+          const kb=String(b.fecha||'')+' '+String(b.hora_desde||'')+' '+String(b.orden||'');
+          return ka.localeCompare(kb);
+        });
+        rows.forEach(p=>{
+          const box=document.createElement('div');
+          box.style.cssText='width:100%;margin-top:8px;padding:10px 12px;background:#fff;border:1px solid #ffc88c;border-left:4px solid #ff8a35;border-radius:10px;box-sizing:border-box';
+          const d=parseToDate(p.fecha);
+          const fecha=d?capitalizarPrimeraLetra(d.toLocaleDateString('es-AR',{weekday:'long',year:'numeric',month:'long',day:'numeric'})):String(p.fecha||'');
+          const hd=horaHumana(p.hora_desde||'');
+          const hh=horaHumana(p.hora_hasta||'');
+          const horario=hd&&hh?hd.replace(/ hs$/,'')+' a '+hh:(hd||hh);
+          if(fecha) box.innerHTML+='<div style="font-weight:950;color:#174f9e"><i class="ri-calendar-event-line"></i> '+fecha+'</div>';
+          if(horario) box.innerHTML+='<div style="font-weight:850;color:#22529a;margin-top:3px"><i class="ri-time-line"></i> '+horario+'</div>';
+          if(p.actividad) box.innerHTML+='<div style="font-weight:950;color:#5a39b9;margin-top:7px">'+String(p.actividad)+'</div>';
+          const lugar=String(p.lugar_texto||p.lugar||'').trim();
+          if(lugar) box.innerHTML+='<div style="font-weight:900;color:#173d70;margin-top:7px"><i class="ri-map-pin-2-line"></i> '+lugar+'</div>';
+          if(p.direccion) box.innerHTML+='<div style="color:#3a536e;margin-top:3px"><i class="ri-road-map-line"></i> '+String(p.direccion)+'</div>';
+          const maps=safeUrl(p.maps||p.llegar||'');
+          if(maps) box.innerHTML+='<a class="map-link" href="'+maps+'" target="_blank" rel="noopener noreferrer"><i class="ri-map-pin-line"></i> ¿Cómo llegar?</a>';
+          if(p.detalle) box.innerHTML+='<div style="font-weight:800;color:#374a5e;margin-top:6px">'+String(p.detalle)+'</div>';
+          if(p.observaciones) box.innerHTML+='<div style="color:#66788a;font-style:italic;margin-top:4px">'+String(p.observaciones)+'</div>';
+          wrap.appendChild(box);
+        });
+        body.appendChild(wrap);
+      } else {
+        const infoBlock = document.createElement('div');
+        infoBlock.className = 'info-block';
+        const fechaHum = formatRangoFechasHumano(ev);
+        const hrRaw = (ev && ev.hora_unificada && String(ev.hora_unificada).trim()) ? ev.hora_unificada : ((ev && ev.hora && String(ev.hora).trim()) ? ev.hora : (ev ? (ev.hora2 || '') : ''));
+        let hrShown = horaHumana(hrRaw);
+        if (/^Sat\\s+Dec\\s+30\\s+1899/i.test(String(hrShown || ''))) hrShown = '';
+        if (fechaHum || hrShown){
+          const line=document.createElement('div'); line.className='line';
+          line.innerHTML='<i class="ri-calendar-event-line"></i><div class="text">'+(fechaHum||'')+((fechaHum&&hrShown)?' • ':'')+(hrShown||'')+'</div>'; infoBlock.appendChild(line);
+        }
+        if(ev&&ev.lugar){const line=document.createElement('div');line.className='line';line.innerHTML='<i class="ri-map-pin-line"></i><div class="text">'+ev.lugar+'</div>';infoBlock.appendChild(line);}
+        if(ev&&ev.direccion){
+          const line=document.createElement('div');line.className='line';line.innerHTML='<i class="ri-road-map-line"></i><div class="muted"><strong>Dirección:</strong> '+ev.direccion+'</div>';infoBlock.appendChild(line);
+          const llegarUrl=safeUrl(ev&&ev.llegar?ev.llegar:'');
+          if(llegarUrl){const mapA=document.createElement('a');mapA.href=llegarUrl;mapA.className='map-link';mapA.target='_blank';mapA.rel='noopener noreferrer';mapA.innerHTML='<i class="ri-map-pin-2-line"></i> ¿Cómo llegar?';infoBlock.appendChild(mapA);}
+        }
+        body.appendChild(infoBlock);
+      }
+`;
+      if(!legacyRegex.test(evsrc)) throw new Error('No se encontró el bloque de programación de Eventos');
+      evsrc=evsrc.replace(legacyRegex,encodeInline(programCode));
+
+      html=before+evsrc;
       document.open();
       document.write(html);
       document.close();
     }catch(e){
-      document.body.innerHTML='<div style="font-family:Arial,sans-serif;padding:20px;color:#c00"><b>Error:</b> '+String(e.message||e)+'</div>';
+      document.body.innerHTML='<div style="font-family:Arial,sans-serif;padding:20px;color:#c00"><b>Error de prueba:</b> '+String(e.message||e)+'</div>';
     }
   })();
   </script>
