@@ -57,8 +57,10 @@
     return (Array.isArray(ev?.programacion)?ev.programacion:[])
       .filter(r=>r?.activo===undefined || truthy(r.activo))
       .sort((a,b)=>{
-        const ka=String(a?.fecha||'')+' '+String(a?.hora_desde||'')+' '+String(a?.orden||'');
-        const kb=String(b?.fecha||'')+' '+String(b?.hora_desde||'')+' '+String(b?.orden||'');
+        const oa=Number(a?.orden||0), ob=Number(b?.orden||0);
+        if(oa||ob) return oa-ob;
+        const ka=String(a?.fecha||'')+' '+String(a?.hora_desde||'');
+        const kb=String(b?.fecha||'')+' '+String(b?.hora_desde||'');
         return ka.localeCompare(kb);
       });
   }
@@ -66,9 +68,9 @@
   function filaHtml(r,index){
     const fecha=formatFecha(r.fecha);
     const hora=formatHora(r.hora_desde,r.hora_hasta);
-    const lugar=String(r.lugar_texto||'').trim();
+    const lugar=String(r.lugar_texto||r.lugar||'').trim();
     const direccion=String(r.direccion||'').trim();
-    const maps=String(r.maps||'').trim();
+    const maps=String(r.maps||r.llegar||'').trim();
     const actividad=String(r.actividad||'').trim();
     const detalle=String(r.detalle||'').trim();
     const obs=String(r.observaciones||'').trim();
@@ -102,19 +104,22 @@
     const body=card.querySelector('.card-body');
     if(!body) return;
 
-    const oldInfo=body.querySelector('.info-block');
-    if(oldInfo) oldInfo.style.display='none';
-
+    /* Los datos generales del evento permanecen visibles.
+       La programación se agrega debajo como detalle, sin reemplazarlos. */
     let bloque=body.querySelector('.evpub-programacion');
     if(!bloque){
       bloque=document.createElement('section');
       bloque.className='evpub-programacion';
-      const category=body.querySelector('.category-group');
-      if(category) category.insertAdjacentElement('afterend',bloque);
-      else body.prepend(bloque);
+      const info=body.querySelector('.info-block');
+      if(info) info.insertAdjacentElement('afterend',bloque);
+      else {
+        const category=body.querySelector('.category-group');
+        if(category) category.insertAdjacentElement('afterend',bloque);
+        else body.prepend(bloque);
+      }
     }
 
-    bloque.innerHTML=`<div class="evpub-program-title"><i class="ri-calendar-schedule-line"></i> Programación</div>${rows.map(filaHtml).join('')}`;
+    bloque.innerHTML=`<div class="evpub-program-title"><i class="ri-calendar-schedule-line"></i> Programación detallada</div>${rows.map(filaHtml).join('')}`;
     card.dataset.programacionPublicaAplicada='1';
   }
 
@@ -155,7 +160,6 @@
     aplicar();
     const observer=new MutationObserver(()=>aplicar());
     observer.observe(document.body,{childList:true,subtree:true});
-    setInterval(aplicar,1000);
   }
 
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',init,{once:true});
