@@ -237,6 +237,11 @@
     .events-actions { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
     .events-actions button { width:auto; padding:10px 14px; }
     .events-small { font-size:12px; color:#444; }
+    .ev-programacion-box{grid-column:1/-1;border-top:1px solid #e4e7ef;margin-top:4px;padding-top:12px}
+    .ev-programacion-help{background:#f7f8fb;border:1px solid #e4e7ef;border-radius:10px;padding:10px 12px;margin:0 0 10px}
+    .ev-programacion-card{border:1px solid #dfe4ec;border-radius:10px;padding:12px;margin:10px 0;background:#fff}
+    .ev-programacion-card-head{display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px}
+    .ev-programacion-card .evp-address{font-size:12px;color:#555;margin-top:4px}
     .event-partner-role{
       display:grid;
       grid-template-columns:minmax(0,1fr) minmax(150px,220px);
@@ -734,6 +739,23 @@
               <div>
                 <label>Hora 2 / detalle horario</label>
                 <input id="ev-hora2" type="text" placeholder="Ej: A partir de las 14 hs, desde las 20 hs, etc." />
+              </div>
+
+              <div class="ev-programacion-box">
+                <div class="ev-programacion-help small-muted">
+                  <strong>Programación detallada · Opcional</strong><br>
+                  La fecha desde/hasta, la ciudad, el lugar y el horario de arriba describen el evento en general.
+                  Usá esta sección sólo cuando necesites detallar partes específicas del evento:
+                  distintos días, horarios, sedes o actividades. Agregá un bloque por cada combinación.
+                  Si un bloque se realiza en el mismo lugar general, podés dejar “Usar lugar general”.
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+                  <strong>Días, horarios, sedes y actividades</strong>
+                  <button id="ev-add-programacion" type="button" class="secondary" style="width:auto">+ Agregar día / horario / sede / actividad</button>
+                </div>
+                <div id="ev-programacion-list">
+                  <div class="events-small" style="padding:8px 0">Sin programación detallada.</div>
+                </div>
               </div>
 
               <div>
@@ -1360,6 +1382,7 @@ let evLists = {
   partners: []
 };
 let editingEventId = null;
+let eventProgramacionState = [];
 
 /* ✅ último evento creado (para habilitar botón imágenes en modo "crear") */
 let lastCreatedEventId = null;
@@ -5116,6 +5139,176 @@ async function loadPromosUI(){
 /* ====================== Events UI ====================== */
 function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
+function eventProgramacionCiudadOptions_(selected=''){
+  let html='<option value="">Usar ciudad general</option>';
+  (evLists.ciudades||[]).forEach(c=>{
+    const id=String(c.ciudad_id||'').trim();
+    const label=String(c.ciudad_visible||id).trim();
+    if(id) html+=`<option value="${htmlEscape(id)}"${id===String(selected||'')?' selected':''}>${htmlEscape(label)}</option>`;
+  });
+  return html;
+}
+function eventProgramacionLugarKey_(o){
+  if(o&&o.sede_id) return 'sede:'+String(o.sede_id);
+  if(o&&o.lugar_id) return 'lugar:'+String(o.lugar_id);
+  return '';
+}
+function eventProgramacionLugares_(ciudadId){
+  const id=String(ciudadId||'').trim();
+  return (evLists.lugaresTodos||[]).filter(o=>!id||String(o.ciudad_id||'').trim()===id);
+}
+function eventProgramacionLugarOptions_(ciudadId,selected=''){
+  let html='<option value="">Usar lugar general</option>';
+  eventProgramacionLugares_(ciudadId).forEach(o=>{
+    const key=eventProgramacionLugarKey_(o);
+    if(!key) return;
+    const label=String(o.nombre_visible||o.lugar||'').trim();
+    html+=`<option value="${htmlEscape(key)}"${key===String(selected||'')?' selected':''}>${htmlEscape(label)}</option>`;
+  });
+  return html;
+}
+function eventProgramacionLugarByKey_(key){
+  return (evLists.lugaresTodos||[]).find(o=>eventProgramacionLugarKey_(o)===String(key||''))||null;
+}
+function eventProgramacionKeyFromRow_(row){
+  if(row&&row.sede_id) return 'sede:'+String(row.sede_id);
+  if(row&&row.lugar_id) return 'lugar:'+String(row.lugar_id);
+  return '';
+}
+function eventProgramacionNormalize_(row={}){
+  return {
+    evento_programacion_id:String(row.evento_programacion_id||'').trim(),
+    fecha:toDateInputValue(row.fecha||''),
+    hora_desde:toTimeInputValue(row.hora_desde||row.hora||''),
+    hora_hasta:toTimeInputValue(row.hora_hasta||row.hora2||''),
+    ciudad_id:String(row.ciudad_id||'').trim(),
+    tipo_lugar:String(row.tipo_lugar||'').trim(),
+    sede_id:String(row.sede_id||'').trim(),
+    lugar_id:String(row.lugar_id||'').trim(),
+    lugar_texto:String(row.lugar_texto||row.lugar||'').trim(),
+    direccion:String(row.direccion||'').trim(),
+    maps:String(row.maps||row.llegar||'').trim(),
+    actividad:String(row.actividad||'').trim(),
+    detalle:String(row.detalle||'').trim(),
+    observaciones:String(row.observaciones||'').trim(),
+    activo:row.activo===false?false:true,
+    orden:Number(row.orden||0)
+  };
+}
+function eventProgramacionGeneralPlace_(){
+  const p=selectedEventPlace();
+  return {
+    ciudad_id:evGet('ev-ciudad'),
+    sede_id:p?String(p.sede_id||'').trim():'',
+    lugar_id:p?String(p.lugar_id||'').trim():'',
+    lugar_texto:p?String(p.nombre_visible||p.lugar||'').trim():'',
+    direccion:evGet('ev-direccion'),
+    maps:evGet('ev-llegar')
+  };
+}
+function eventProgramacionCard_(row,index){
+  const data=eventProgramacionNormalize_(row);
+  const selectedKey=eventProgramacionKeyFromRow_(data);
+  const card=document.createElement('div');
+  card.className='ev-programacion-card';
+  card.innerHTML=`
+    <div class="ev-programacion-card-head">
+      <strong>Tramo ${index+1}</strong>
+      <button type="button" class="btn-danger evp-remove" style="width:auto;margin:0">Quitar tramo</button>
+    </div>
+    <div class="events-grid">
+      <div><label>Día <span class="req">*</span></label><input class="evp-fecha" type="date" value="${htmlEscape(data.fecha)}"></div>
+      <div><label>Actividad / parte del evento</label><input class="evp-actividad" type="text" value="${htmlEscape(data.actividad)}" placeholder="Ej.: Apertura, partido, show, charla"></div>
+      <div><label>Hora desde</label><input class="evp-hora-desde" type="time" value="${htmlEscape(data.hora_desde)}"></div>
+      <div><label>Hora hasta</label><input class="evp-hora-hasta" type="time" value="${htmlEscape(data.hora_hasta)}"></div>
+      <div><label>Ciudad</label><select class="evp-ciudad">${eventProgramacionCiudadOptions_(data.ciudad_id)}</select></div>
+      <div><label>Lugar / sede</label><select class="evp-lugar">${eventProgramacionLugarOptions_(data.ciudad_id,selectedKey)}</select></div>
+      <div class="full evp-address">${htmlEscape(data.direccion||'')}</div>
+      <div class="full"><label>Detalle</label><input class="evp-detalle" type="text" value="${htmlEscape(data.detalle)}" placeholder="Información específica de este tramo"></div>
+      <div class="full"><label>Observaciones</label><input class="evp-observaciones" type="text" value="${htmlEscape(data.observaciones)}"></div>
+    </div>`;
+  const city=card.querySelector('.evp-ciudad');
+  const place=card.querySelector('.evp-lugar');
+  const address=card.querySelector('.evp-address');
+  city.addEventListener('change',()=>{
+    place.innerHTML=eventProgramacionLugarOptions_(city.value,'');
+    address.textContent='';
+  });
+  place.addEventListener('change',()=>{
+    const found=eventProgramacionLugarByKey_(place.value);
+    address.textContent=found?String(found.direccion||''):'';
+  });
+  card.querySelector('.evp-remove').addEventListener('click',()=>{
+    eventProgramacionState=readEventProgramacionFromUI_();
+    eventProgramacionState.splice(index,1);
+    renderEventProgramacion_();
+  });
+  return card;
+}
+function renderEventProgramacion_(){
+  const box=document.getElementById('ev-programacion-list');
+  if(!box) return;
+  box.innerHTML='';
+  if(!eventProgramacionState.length){
+    box.innerHTML='<div class="events-small" style="padding:8px 0">Sin programación detallada.</div>';
+    return;
+  }
+  eventProgramacionState.forEach((row,index)=>box.appendChild(eventProgramacionCard_(row,index)));
+}
+function readEventProgramacionFromUI_(){
+  const general=eventProgramacionGeneralPlace_();
+  return Array.from(document.querySelectorAll('#ev-programacion-list .ev-programacion-card')).map((card,index)=>{
+    const city=String(card.querySelector('.evp-ciudad')?.value||'').trim();
+    const key=String(card.querySelector('.evp-lugar')?.value||'').trim();
+    const place=eventProgramacionLugarByKey_(key);
+    return {
+      fecha:String(card.querySelector('.evp-fecha')?.value||'').trim(),
+      hora_desde:String(card.querySelector('.evp-hora-desde')?.value||'').trim(),
+      hora_hasta:String(card.querySelector('.evp-hora-hasta')?.value||'').trim(),
+      ciudad_id:city||general.ciudad_id,
+      tipo_lugar:place?String(place.tipo||'').trim():'',
+      sede_id:place?String(place.sede_id||'').trim():general.sede_id,
+      lugar_id:place?String(place.lugar_id||'').trim():general.lugar_id,
+      lugar_texto:place?String(place.nombre_visible||place.lugar||'').trim():general.lugar_texto,
+      direccion:place?String(place.direccion||'').trim():general.direccion,
+      maps:place?String(place.llegar||place.maps||'').trim():general.maps,
+      actividad:String(card.querySelector('.evp-actividad')?.value||'').trim(),
+      detalle:String(card.querySelector('.evp-detalle')?.value||'').trim(),
+      observaciones:String(card.querySelector('.evp-observaciones')?.value||'').trim(),
+      activo:true,
+      orden:index+1
+    };
+  });
+}
+function validateEventProgramacion_(rows){
+  for(let i=0;i<rows.length;i++){
+    const row=rows[i];
+    if(!row.fecha) return `Tramo ${i+1}: completá el día.`;
+    if(!row.hora_desde&&!row.hora_hasta&&!row.actividad&&!row.detalle){
+      return `Tramo ${i+1}: completá al menos un horario, una actividad o un detalle.`;
+    }
+  }
+  return '';
+}
+function loadEventProgramacion_(evento){
+  eventProgramacionState=(Array.isArray(evento&&evento.programacion)?evento.programacion:[]).map(eventProgramacionNormalize_);
+  renderEventProgramacion_();
+}
+function addEventProgramacion_(){
+  eventProgramacionState=readEventProgramacionFromUI_();
+  const g=eventProgramacionGeneralPlace_();
+  eventProgramacionState.push(eventProgramacionNormalize_({
+    fecha:evGet('ev-fecha_desde'),
+    ciudad_id:g.ciudad_id,
+    sede_id:g.sede_id,
+    lugar_id:g.lugar_id,
+    lugar_texto:g.lugar_texto,
+    direccion:g.direccion,
+    maps:g.maps
+  }));
+  renderEventProgramacion_();
+}
+
 function clearEventForm(){
   const ids = [
     'ev-nombre_evento','ev-categoria','ev-ciudad','ev-lugar','ev-sede_id','ev-lugar_id',
@@ -5143,6 +5336,8 @@ function clearEventForm(){
 
   refreshEventPlacesByCity('');
   resetEventPlaceDetails();
+  eventProgramacionState = [];
+  renderEventProgramacion_();
   lastCreatedEventId = null;
 }
 
@@ -5170,8 +5365,12 @@ function buildEventPayloadFromForm(){
     img2: evGet('ev-img2'),
     img3: evGet('ev-img3'),
     img4: evGet('ev-img4'),
-    img5: evGet('ev-img5')
+    img5: evGet('ev-img5'),
+    programacion: readEventProgramacionFromUI_()
   };
+
+  const programacionError = validateEventProgramacion_(payload.programacion);
+  if(programacionError) payload.__programacion_error = programacionError;
 
   for(let i=1;i<=10;i++){
     const partnerKey = i===1 ? 'partner' : 'partner'+i;
@@ -5381,6 +5580,7 @@ function bindEventsListActions(){
         document.getElementById('ev-instagram').value = found.instagram || '';
         document.getElementById('ev-youtube').value = found.youtube || '';
         document.getElementById('ev-entradas').value = found.entradas || '';
+        loadEventProgramacion_(found);
 
         for(let i=1;i<=5;i++){
           const imgEl = document.getElementById('ev-img'+i);
@@ -5452,7 +5652,10 @@ function bindEventsListActions(){
           img2: found.img2 || '',
           img3: found.img3 || '',
           img4: found.img4 || '',
-          img5: found.img5 || ''
+          img5: found.img5 || '',
+          programacion: Array.isArray(found.programacion)
+            ? found.programacion.map(row=>Object.assign({},row))
+            : []
         };
 
         for(let i=1;i<=10;i++){
@@ -5578,6 +5781,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   });
 
   cargarComercios(()=>{});
+  document.getElementById('ev-add-programacion')?.addEventListener('click',addEventProgramacion_);
+  renderEventProgramacion_();
   efemInitFixedDays();
   document.getElementById('efem-buscar')?.addEventListener('input',efemRenderList);
   document.getElementById('efem-filtro-estado')?.addEventListener('change',efemRenderList);
@@ -5990,6 +6195,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       return;
     }
     delete payload.__partner_error;
+    if(payload.__programacion_error){
+      setMsg('eventos-msg','err',payload.__programacion_error);
+      return;
+    }
+    delete payload.__programacion_error;
 
       if(!payload.nombre_evento){ alert('Falta Nombre del evento'); return; }
       if(!payload.fecha_desde){ alert('Falta Fecha desde'); return; }
