@@ -4988,33 +4988,35 @@ function bindPromosListActions(){
       }
 
       if(action === 'duplicate'){
-        const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+        const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
         if(!cupo.puedeCrear){
-          promoShowError_(cupo.total >= cupo.totalMax
-            ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
-            : 'Alcanzaste el máximo de promos activas. Pausá una para publicar otra.');
+          alert(cupo.total >= cupo.totalMax
+            ? 'Alcanzaste el máximo de eventos guardados. Podés borrar alguno anterior.'
+            : 'Alcanzaste el máximo de eventos activos. Pausá uno para publicar otro.');
           return;
         }
 
-        const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
-        if(!found){ promoShowError_('No se encontró la promo. Refrescá la lista e intentá nuevamente.'); return; }
-        setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: {
-          promo: found.promo || '',
-          categoria: found.categoria || '',
-          sede_id: found.sede_id || '',
-          ciudad_id: found.ciudad_id || '',
-          desde: toDateInputValue(found.desde) || '',
-          hasta: toDateInputValue(found.hasta) || '',
-          otros: found.otros || '',
-          img: found.img || ''
-        }});
-        if(r.status === 200 && r.json && (r.json.success || r.json.created)){
-          setMsg('promos-msg', 'ok', 'Promo duplicada.');
-          await loadPromosUI();
-        } else {
-          setMsg('promos-msg', 'err', 'No se pudo duplicar la promo. Intentá nuevamente.');
-        }
+        const found = (window.__lastEvents || []).find(x => String(x.evento_id||'') === String(evId));
+        if(!found){ alert('No se encontró el evento en la lista (refrescá).'); return; }
+
+        await runDashboardAction('Duplicando evento...',async()=>{
+          setMsg('eventos-msg', 'ok', 'Duplicando evento...');
+          // Escritura única: usa la operación específica del backend.
+          // El backend clona también evento_programacion; no reconstruimos el evento en el navegador.
+          const res = await events_post({ action:'duplicateVipEvent', payload:{ evento_id:evId } });
+          if(res.status === 200 && res.json && (res.json.success || res.json.duplicated)){
+            setMsg('eventos-msg', 'ok', 'Evento duplicado.');
+            await loadEventsUI();
+          } else if(await handleUnconfirmedOperation(res,{
+            msgId:'eventos-msg',
+            reload:()=>loadEventsUI(),
+            unknownMessage:'No se pudo confirmar la duplicación. Revisá la lista actualizada antes de volver a duplicar.'
+          })){
+            // Verificación resuelta sin repetir la escritura.
+          } else {
+            setMsg('eventos-msg', 'err', 'Error duplicando: ' + JSON.stringify(res.json));
+          }
+        });
       }
     });
   });
