@@ -1025,9 +1025,7 @@
 
     function obtenerPromosPromise(){
       if(!promosPromise){
-        const u=new URL(PROMOS_ENDPOINT);
-        if(ciudadSeleccionada) u.searchParams.set('ciudad_id',String(ciudadSeleccionada).trim());
-        promosPromise=fetch(u.toString()).then(r=>{
+        promosPromise=fetch(PROMOS_ENDPOINT).then(r=>{
           if(!r.ok) throw new Error('Promos HTTP '+r.status);
           return r.json();
         }).catch(err=>{
@@ -1065,6 +1063,13 @@
           guiaPrefetchCache.delete(guiaKey(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada));
           return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 45000);
         });
+
+        // Recursos secundarios: arrancan en paralelo con la Guía.
+        // Ninguno bloquea la aparición de las tarjetas.
+        const eventosCargaPromise = obtenerEventosPromise();
+        const promosCargaPromise = obtenerPromosPromise();
+        const actividadesCargaPromise = obtenerActividadesPromise();
+        const publicidadCargaPromise = obtenerBannersPromise();
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -1222,9 +1227,17 @@
         }
 
         function promoMatchesAdvertiser(p, item){
-          const itemId = String(item && item.id || '').trim();
-          const promoId = String(p && p.id_comercio || '').trim();
-          return !!itemId && !!promoId && itemId === promoId;
+          const promoSedeId = String(p && p.sede_id || '').trim();
+          const sedesItem = cardSedeIds(item);
+          if(promoSedeId && sedesItem.includes(promoSedeId)) return true;
+
+          const itemIds = advertiserIds(item);
+          const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || '') || '').trim();
+          if(promoId && itemIds.includes(promoId)) return true;
+
+          const itemName = normalizar(item && item.nombre);
+          const promoName = normalizar(p && (p.anunciante || p.nombre || p.comercio));
+          return !!itemName && promoName === itemName;
         }
 
         function promoMatchesCurrentCity(p){
@@ -2382,7 +2395,7 @@
 
         // Segundo plano independiente: cada módulo actualiza apenas llega.
         // Ya no esperamos al recurso más lento para mostrar Eventos o Promos.
-        obtenerEventosPromise().then(eventsLoaded => {
+        eventosCargaPromise.then(eventsLoaded => {
           rawEventsResponse = eventsLoaded || [];
           rawEventsList = Array.isArray(rawEventsResponse)
             ? rawEventsResponse
@@ -2391,7 +2404,7 @@
           actualizarBotonesModulosVisibles();
         }).catch(err => console.warn('Eventos no disponibles todavía:', err));
 
-        obtenerPromosPromise().then(promosLoaded => {
+        promosCargaPromise.then(promosLoaded => {
           rawPromosResponse = promosLoaded || [];
           rawPromosList = Array.isArray(rawPromosResponse)
             ? rawPromosResponse
@@ -2400,12 +2413,12 @@
           actualizarBotonesModulosVisibles();
         }).catch(err => console.warn('Promos no disponibles todavía:', err));
 
-        obtenerActividadesPromise().then(resp => {
+        actividadesCargaPromise.then(resp => {
           activeActivities=(resp && Array.isArray(resp.actividades)) ? resp.actividades : [];
           actualizarBotonesModulosVisibles();
         }).catch(err => console.warn('Actividades no disponibles todavía:', err));
 
-        obtenerBannersPromise().then(resp => {
+        publicidadCargaPromise.then(resp => {
           rawBanners = (resp && Array.isArray(resp.publicidades)) ? resp.publicidades : [];
           banners = rawBanners.map(p=>({
             publicidad_id:String(p.publicidad_id||''),
