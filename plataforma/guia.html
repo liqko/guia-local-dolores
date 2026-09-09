@@ -994,7 +994,7 @@
     /* Integración con Promos.
        Se lee directamente la hoja "promos" mediante OpenSheet, igual que anunciantes y banners.
        Esto evita que un fallo/redirección del WebApp de Apps Script deje rawPromosResponse vacío silenciosamente. */
-    const PROMOS_ENDPOINT = 'https://script.google.com/macros/s/AKfycbwZ4UR8pKD5Y0tLsD2VVa82tvRJ8LxZw8jqbz3mhg4RCZc2Tu9lDVjL3gohIsokRWo0/exec';
+    const PROMOS_ENDPOINT = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/promos';
     const PROMOS_PAGE_URL = 'https://guialocal.ar/promos/';
     const ACTIVIDADES_ENDPOINT = "https://script.google.com/macros/s/AKfycbxnJ0l3wJrSOMf7xk4u63nOfla9PeAzylQbRwIpUSWCpuLcVvd2CKOqhW64qHpnm4zOQQ/exec";
 
@@ -1220,17 +1220,22 @@
         }
 
         function promoMatchesAdvertiser(p, item){
-          const itemId = String(item && item.id || '').trim();
-          const promoId = String(p && p.id_comercio || '').trim();
-
-          if(itemId && promoId && itemId === promoId) return true;
-
           const promoSedeId = String(p && p.sede_id || '').trim();
+          const sedesItem = cardSedeIds(item);
+
+          // Nueva arquitectura: si la promo tiene sede_id, manda la sede.
           if(promoSedeId){
-            return cardSedeIds(item).includes(promoSedeId);
+            return sedesItem.includes(promoSedeId);
           }
 
-          return false;
+          // Compatibilidad con promos anteriores todavía sin sede_id.
+          const itemIds = advertiserIds(item);
+          const promoId = String(p && (p.id_comercio || p.comercio_id || p.id_anunciante || p.advertiserId || '') || '').trim();
+          if(promoId && itemIds.includes(promoId)) return true;
+
+          const itemName = normalizar(item && item.nombre);
+          const promoName = normalizar(p && (p.anunciante || p.nombre || p.comercio));
+          return !!itemName && promoName === itemName;
         }
 
         function promoMatchesCurrentCity(p){
@@ -1258,12 +1263,12 @@
           const matches = activePromosForAdvertiser(item);
           if(!matches.length) return '';
 
-          const itemId = String(item && item.id || '').trim();
+          const ids = advertiserIds(item);
           const sedeIds = cardSedeIds(item);
           const params = new URLSearchParams();
 
           params.set('anunciante', String(item.nombre || '').trim());
-          if(itemId) params.set('id_comercio', itemId);
+          if(ids.length) params.set('id_comercio', ids[0]);
           if(ciudadSeleccionada) params.set('ciudad_id', ciudadSeleccionada);
           if(sedeIds.length === 1) params.set('sede_id', sedeIds[0]);
 
@@ -1272,7 +1277,7 @@
 
           const bridgePayload = {
             anunciante: String(item.nombre || '').trim(),
-            id_comercio: itemId,
+            id_comercio: ids.length ? ids[0] : '',
             ciudad_id: String(ciudadSeleccionada || '').trim(),
             sede_id: sedeIds.length === 1 ? sedeIds[0] : '',
             promo_keys: matches.map(promoBridgeKey).filter(Boolean)
@@ -1285,21 +1290,21 @@
         let activeActivities = [];
 
         function activeActivitiesForAdvertiser(item){
-          const itemId=String(item&&item.id||'').trim();
-          if(!itemId) return [];
-          return activeActivities.filter(a=>String(a&&a.anunciante_id||'').trim()===itemId);
+          const ids=advertiserIds(item);
+          if(!ids.length) return [];
+          return activeActivities.filter(a=>ids.includes(String(a&&a.anunciante_id||'').trim()));
         }
 
         function renderActividadesActivasButton(item){
           const matches=activeActivitiesForAdvertiser(item);
           if(!matches.length) return '';
 
-          const itemId=String(item&&item.id||'').trim();
+          const ids=advertiserIds(item);
           const label=matches.length===1 ? 'Ver actividad activa' : `Ver ${matches.length} actividades activas`;
           const safeName=String(item.nombre||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           const bridgePayload={
             anunciante:String(item.nombre||'').trim(),
-            anunciante_id:itemId,
+            anunciante_id:ids.length?ids[0]:'',
             actividad_ids:matches.map(a=>String(a&&a.actividad_id||'').trim()).filter(Boolean)
           };
           const payload=encodeURIComponent(JSON.stringify(bridgePayload));
