@@ -681,6 +681,13 @@
 
           <div class="events-card">
             <div class="events-grid">
+              <div class="full ev-programacion-help small-muted">
+                <strong>Información general del evento</strong><br>
+                Completá acá los datos que describen al evento completo: nombre, categoría, ciudad y lugar general,
+                descripción, fecha desde/hasta, horario general, redes, entradas, imágenes, partners, auspiciantes,
+                sponsors y co-organizadores. Estos datos se muestran como información principal del evento.
+              </div>
+
               <div class="full">
                 <label>Nombre del evento <span class="req">*</span></label>
                 <input id="ev-nombre_evento" type="text" placeholder="Nombre del evento" />
@@ -739,23 +746,6 @@
               <div>
                 <label>Hora 2 / detalle horario</label>
                 <input id="ev-hora2" type="text" placeholder="Ej: A partir de las 14 hs, desde las 20 hs, etc." />
-              </div>
-
-              <div class="ev-programacion-box">
-                <div class="ev-programacion-help small-muted">
-                  <strong>Programación detallada · Opcional</strong><br>
-                  La fecha desde/hasta, la ciudad, el lugar y el horario de arriba describen el evento en general.
-                  Usá esta sección sólo cuando necesites detallar partes específicas del evento:
-                  distintos días, horarios, sedes o actividades. Agregá un bloque por cada combinación.
-                  Si un bloque se realiza en el mismo lugar general, podés dejar “Usar lugar general”.
-                </div>
-                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
-                  <strong>Días, horarios, sedes y actividades</strong>
-                  <button id="ev-add-programacion" type="button" class="secondary" style="width:auto">+ Agregar día / horario / sede / actividad</button>
-                </div>
-                <div id="ev-programacion-list">
-                  <div class="events-small" style="padding:8px 0">Sin programación detallada.</div>
-                </div>
               </div>
 
               <div>
@@ -878,6 +868,23 @@
                   <div class="full events-small">Si no cargás un logo, se usará automáticamente el logo de Guía Local.</div>
                 </div>
               </div>
+
+              <div class="ev-programacion-box">
+                <div class="ev-programacion-help small-muted">
+                  <strong>Programación particular · Opcional</strong><br>
+                  Usá esta sección únicamente para detallar tramos específicos del evento cuando cambian el día,
+                  el horario, la sede o la actividad. Cada bloque corresponde a una combinación particular.
+                  Si varios tramos son parecidos, podés duplicar uno y modificar solamente lo que cambia.
+                </div>
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;flex-wrap:wrap">
+                  <strong>Días, horarios, sedes y actividades</strong>
+                  <button id="ev-add-programacion" type="button" class="secondary" style="width:auto">+ Agregar día / horario / sede / actividad</button>
+                </div>
+                <div id="ev-programacion-list">
+                  <div class="events-small" style="padding:8px 0">Sin programación detallada.</div>
+                </div>
+              </div>
+
 
               <div class="full module-form-actions">
                 <button id="ev-create" class="primary" type="button">Crear evento</button>
@@ -4988,35 +4995,33 @@ function bindPromosListActions(){
       }
 
       if(action === 'duplicate'){
-        const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+        const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
         if(!cupo.puedeCrear){
-          alert(cupo.total >= cupo.totalMax
-            ? 'Alcanzaste el máximo de eventos guardados. Podés borrar alguno anterior.'
-            : 'Alcanzaste el máximo de eventos activos. Pausá uno para publicar otro.');
+          promoShowError_(cupo.total >= cupo.totalMax
+            ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
+            : 'Alcanzaste el máximo de promos activas. Pausá una para publicar otra.');
           return;
         }
 
-        const found = (window.__lastEvents || []).find(x => String(x.evento_id||'') === String(evId));
-        if(!found){ alert('No se encontró el evento en la lista (refrescá).'); return; }
-
-        await runDashboardAction('Duplicando evento...',async()=>{
-          setMsg('eventos-msg', 'ok', 'Duplicando evento...');
-          // Escritura única: usa la operación específica del backend.
-          // El backend clona también evento_programacion; no reconstruimos el evento en el navegador.
-          const res = await events_post({ action:'duplicateVipEvent', payload:{ evento_id:evId } });
-          if(res.status === 200 && res.json && (res.json.success || res.json.duplicated)){
-            setMsg('eventos-msg', 'ok', 'Evento duplicado.');
-            await loadEventsUI();
-          } else if(await handleUnconfirmedOperation(res,{
-            msgId:'eventos-msg',
-            reload:()=>loadEventsUI(),
-            unknownMessage:'No se pudo confirmar la duplicación. Revisá la lista actualizada antes de volver a duplicar.'
-          })){
-            // Verificación resuelta sin repetir la escritura.
-          } else {
-            setMsg('eventos-msg', 'err', 'Error duplicando: ' + JSON.stringify(res.json));
-          }
-        });
+        const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
+        if(!found){ promoShowError_('No se encontró la promo. Refrescá la lista e intentá nuevamente.'); return; }
+        setMsg('promos-msg', 'ok', 'Duplicando promo...');
+        const r = await promos_post({ action: 'createPromo', payload: {
+          promo: found.promo || '',
+          categoria: found.categoria || '',
+          sede_id: found.sede_id || '',
+          ciudad_id: found.ciudad_id || '',
+          desde: toDateInputValue(found.desde) || '',
+          hasta: toDateInputValue(found.hasta) || '',
+          otros: found.otros || '',
+          img: found.img || ''
+        }});
+        if(r.status === 200 && r.json && (r.json.success || r.json.created)){
+          setMsg('promos-msg', 'ok', 'Promo duplicada.');
+          await loadPromosUI();
+        } else {
+          setMsg('promos-msg', 'err', 'No se pudo duplicar la promo. Intentá nuevamente.');
+        }
       }
     });
   });
@@ -5216,7 +5221,10 @@ function eventProgramacionCard_(row,index){
   card.innerHTML=`
     <div class="ev-programacion-card-head">
       <strong>Tramo ${index+1}</strong>
-      <button type="button" class="btn-danger evp-remove" style="width:auto;margin:0">Quitar tramo</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button type="button" class="secondary evp-duplicate" style="width:auto;margin:0">Duplicar tramo</button>
+        <button type="button" class="btn-danger evp-remove" style="width:auto;margin:0">Quitar tramo</button>
+      </div>
     </div>
     <div class="events-grid">
       <div><label>Día <span class="req">*</span></label><input class="evp-fecha" type="date" value="${htmlEscape(data.fecha)}"></div>
@@ -5240,6 +5248,17 @@ function eventProgramacionCard_(row,index){
     const found=eventProgramacionLugarByKey_(place.value);
     address.textContent=found?String(found.direccion||''):'';
   });
+  card.querySelector('.evp-duplicate').addEventListener('click',()=>{
+    eventProgramacionState=readEventProgramacionFromUI_();
+    const source=eventProgramacionState[index] || {};
+    const copy=eventProgramacionNormalize_(Object.assign({},source,{
+      evento_programacion_id:'',
+      orden:index+2
+    }));
+    eventProgramacionState.splice(index+1,0,copy);
+    renderEventProgramacion_();
+  });
+
   card.querySelector('.evp-remove').addEventListener('click',()=>{
     eventProgramacionState=readEventProgramacionFromUI_();
     eventProgramacionState.splice(index,1);
