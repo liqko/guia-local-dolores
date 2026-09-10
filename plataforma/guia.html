@@ -221,6 +221,32 @@
     .actividades-activas-btn:hover,.actividades-activas-btn:focus{background:#573196;outline:2px solid #fff;outline-offset:2px;}
 
 
+    .gld-fav-anunciante-btn{
+      position:absolute;
+      top:8px;
+      left:8px;
+      z-index:12;
+      width:38px;
+      height:38px;
+      border-radius:50%;
+      border:1px solid rgba(0,102,153,.22);
+      background:#fff;
+      color:#006699;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      cursor:pointer;
+      font-size:1.2rem;
+      box-shadow:0 2px 8px rgba(0,0,0,.10);
+      font-style:normal;
+    }
+    .gld-fav-anunciante-btn.activo{
+      background:#fff3f3;
+      color:#c62828;
+      border-color:#efb4b4;
+    }
+    .gld-fav-anunciante-btn:disabled{opacity:.6;cursor:wait}
+
     .card-modulos-actions{width:100%;box-sizing:border-box;}
     .card-modulos-actions:not(:empty){margin-top:.15rem;}
     .card-modulos-actions > a{animation:gld-action-in .18s ease-out;}
@@ -489,9 +515,10 @@
     }
     .gld-city-pref-panel h2{margin:.1rem 0 .45rem;color:#006699;font-size:1.45rem}
     .gld-city-pref-panel p{margin:.25rem 0;color:#555;line-height:1.5}
-    .gld-city-pref-actions{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:1rem}
+    .gld-city-pref-actions{display:grid;grid-template-columns:1fr;gap:.6rem;margin-top:1rem}
     .gld-city-pref-actions button{min-height:46px;border-radius:.65rem;font-weight:900;cursor:pointer}
     .gld-city-pref-yes{border:0;background:#006699;color:#fff}
+    .gld-city-pref-fav{border:0;background:#f5e1d4;color:#8a4d00}
     .gld-city-pref-no{border:1px solid #006699;background:#fff;color:#006699}
     .gld-city-pref-status{margin-top:.65rem;min-height:1.1em;font-size:.9rem;font-weight:700}
     .gld-city-pref-status.error{color:#a00}
@@ -666,8 +693,9 @@
       <h2 id="gldCityPrefTitle">¿Querés guardar esta ciudad como tu ciudad habitual?</h2>
       <p id="gldCityPrefText"></p>
       <div class="gld-city-pref-actions">
-        <button id="gldCityPrefYes" class="gld-city-pref-yes" type="button">Sí, usar esta ciudad</button>
-        <button id="gldCityPrefNo" class="gld-city-pref-no" type="button">No, sólo por ahora</button>
+        <button id="gldCityPrefYes" class="gld-city-pref-yes" type="button">Usar como mi ciudad habitual</button>
+        <button id="gldCityPrefFav" class="gld-city-pref-fav" type="button">⭐ Agregar a mis ciudades favoritas</button>
+        <button id="gldCityPrefNo" class="gld-city-pref-no" type="button">Ver sólo por ahora</button>
       </div>
       <div id="gldCityPrefStatus" class="gld-city-pref-status" aria-live="polite"></div>
     </div>
@@ -764,6 +792,94 @@
         if(s && s.suscriptor_id) localStorage.setItem(GLD_SUSCRIPTOR_SESSION_KEY,JSON.stringify(s));
         else localStorage.removeItem(GLD_SUSCRIPTOR_SESSION_KEY);
       }catch(e){}
+    }
+
+    let gldFavoritosAnunciantes=new Set();
+    let gldFavoritosCargados=false;
+
+    async function gldApiFavorito(action,tipo,referenciaId){
+      const session=gldGetSubscriberSession();
+      if(!session || !session.suscriptor_id) throw new Error('Necesitás ingresar como suscriptor.');
+
+      const r=await fetch(GLD_SUSCRIPTORES_API,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          action:action,
+          suscriptor_id:session.suscriptor_id,
+          tipo:String(tipo||'').toUpperCase(),
+          referencia_id:String(referenciaId||'').trim()
+        })
+      });
+      const data=await r.json();
+      if(!data || data.success!==true){
+        throw new Error((data && (data.message||data.error)) || 'No se pudo actualizar el favorito.');
+      }
+      return data;
+    }
+
+    async function gldCargarFavoritosAnunciantes(){
+      const session=gldGetSubscriberSession();
+      gldFavoritosAnunciantes=new Set();
+      gldFavoritosCargados=false;
+
+      if(!session || !session.suscriptor_id) return;
+
+      const u=new URL(GLD_SUSCRIPTORES_API);
+      u.searchParams.set('action','favoritos');
+      u.searchParams.set('suscriptor_id',session.suscriptor_id);
+      u.searchParams.set('tipo','ANUNCIANTE');
+      u.searchParams.set('_ts',Date.now());
+
+      try{
+        const r=await fetch(u.toString(),{cache:'no-store'});
+        const data=await r.json();
+        if(data && data.success===true && Array.isArray(data.favoritos)){
+          data.favoritos.forEach(f=>{
+            const ref=String(f&&f.referencia_id||'').trim();
+            if(ref) gldFavoritosAnunciantes.add(ref);
+          });
+        }
+      }catch(e){
+        console.warn('No se pudieron cargar favoritos de anunciantes:',e);
+      }finally{
+        gldFavoritosCargados=true;
+      }
+    }
+
+    async function gldToggleFavoritoAnunciante(btn,anuncianteId){
+      const id=String(anuncianteId||'').trim();
+      if(!id) return;
+
+      if(!gldRequireSubscriber()) return;
+
+      const activo=gldFavoritosAnunciantes.has(id);
+      btn.disabled=true;
+
+      try{
+        await gldApiFavorito(
+          activo ? 'quitar_favorito' : 'agregar_favorito',
+          'ANUNCIANTE',
+          id
+        );
+
+        if(activo) gldFavoritosAnunciantes.delete(id);
+        else gldFavoritosAnunciantes.add(id);
+
+        document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(b=>{
+          if(String(b.dataset.anuncianteId||'')===id){
+            const on=gldFavoritosAnunciantes.has(id);
+            b.classList.toggle('activo',on);
+            b.innerHTML=on ? '♥' : '♡';
+            b.setAttribute('aria-label',on ? 'Quitar de favoritos' : 'Agregar a favoritos');
+            b.setAttribute('title',on ? 'Quitar de favoritos' : 'Agregar a favoritos');
+          }
+        });
+      }catch(e){
+        console.error('Favorito anunciante:',e);
+      }finally{
+        btn.disabled=false;
+      }
     }
 
     function gldIsSubscriberLogged(){
@@ -974,6 +1090,7 @@
       }
 
       const yes=document.getElementById('gldCityPrefYes');
+      const fav=document.getElementById('gldCityPrefFav');
       const no=document.getElementById('gldCityPrefNo');
 
       if(no){
@@ -982,6 +1099,32 @@
           gldClearCityChangePending();
           overlay?.classList.remove('activo');
           if(overlay){overlay.style.top='';overlay.style.left='';}
+        };
+      }
+
+      if(fav){
+        fav.onclick=async()=>{
+          fav.disabled=true;
+          if(yes) yes.disabled=true;
+          if(no) no.disabled=true;
+          if(status){status.textContent='Guardando en favoritas...';status.className='gld-city-pref-status';}
+
+          try{
+            await gldApiFavorito('agregar_favorito','CIUDAD',ciudadId);
+            gldSkipCityPreference(session,ciudadId);
+            gldClearCityChangePending();
+            if(status){status.textContent='Ciudad agregada a favoritas.';status.className='gld-city-pref-status';}
+            setTimeout(()=>{
+              overlay?.classList.remove('activo');
+              if(overlay){overlay.style.top='';overlay.style.left='';}
+            },350);
+          }catch(e){
+            if(status){status.textContent=String(e.message||e);status.className='gld-city-pref-status error';}
+          }finally{
+            fav.disabled=false;
+            if(yes) yes.disabled=false;
+            if(no) no.disabled=false;
+          }
         };
       }
 
@@ -1016,6 +1159,7 @@
             if(status){status.textContent=String(e.message||e);status.className='gld-city-pref-status error';}
           }finally{
             yes.disabled=false;
+            if(fav) fav.disabled=false;
             if(no) no.disabled=false;
           }
         };
@@ -2100,6 +2244,14 @@
         function renderCard(item, galeriaId) {
           const nivelVisual = Number(item.nivel);
           let html = `<div class="card nivel-${nivelVisual}">`;
+
+          const idsFav=advertiserIds(item);
+          const anuncianteFavId=idsFav.length ? idsFav[0] : '';
+          if(anuncianteFavId){
+            const esFav=gldFavoritosAnunciantes.has(anuncianteFavId);
+            const safeFavId=String(anuncianteFavId).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId)" aria-label="${esFav?'Quitar de favoritos':'Agregar a favoritos'}" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
+          }
           if(nivelVisual !== 3){
             html += `<div class="badge-icons">`;
             if(String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
@@ -3131,6 +3283,8 @@
 
       gldSetModuloCargando('guia',true,'Cargando Guía...');
 
+      const favoritosInicioPromise=gldCargarFavoritosAnunciantes();
+
       try{ prefetchGuia(paisSeleccionado,provinciaSeleccionada,ciudadSeleccionada); }catch(e){}
 
       cargarEfemeridesHoyGuia().catch(e=>{
@@ -3142,6 +3296,8 @@
       }catch(e){
         console.error('No se pudo cargar el bootstrap de catálogos:', e);
       }
+
+      try{ await favoritosInicioPromise; }catch(e){}
 
       try{
         await cargarGuiaSeleccionada();
