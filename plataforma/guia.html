@@ -474,12 +474,17 @@
     .gld-subscriber-msg.ok{color:#19723c}
 
     .gld-city-pref-overlay{
-      display:none;position:fixed;inset:0;z-index:119000;align-items:center;justify-content:center;
-      padding:1rem;background:rgba(0,0,0,.48);box-sizing:border-box;font-style:normal;
+      display:none;
+      position:absolute;
+      z-index:119000;
+      width:min(94vw,470px);
+      box-sizing:border-box;
+      font-style:normal;
     }
-    .gld-city-pref-overlay.activo{display:flex}
+    .gld-city-pref-overlay.activo{display:block}
     .gld-city-pref-panel{
-      width:min(94vw,470px);background:#fff;border-radius:1rem;padding:1.25rem;
+      width:100%;background:#fff;border-radius:1rem;padding:1.25rem;
+      border:1px solid rgba(0,102,153,.18);
       box-shadow:0 14px 40px rgba(0,0,0,.25);box-sizing:border-box;
     }
     .gld-city-pref-panel h2{margin:.1rem 0 .45rem;color:#006699;font-size:1.45rem}
@@ -658,7 +663,7 @@
 
   <div id="gldCityPrefOverlay" class="gld-city-pref-overlay" role="dialog" aria-modal="true" aria-labelledby="gldCityPrefTitle">
     <div class="gld-city-pref-panel">
-      <h2 id="gldCityPrefTitle">¿Querés usar esta ciudad cada vez que ingreses?</h2>
+      <h2 id="gldCityPrefTitle">¿Querés guardar esta ciudad como tu ciudad habitual?</h2>
       <p id="gldCityPrefText"></p>
       <div class="gld-city-pref-actions">
         <button id="gldCityPrefYes" class="gld-city-pref-yes" type="button">Sí, usar esta ciudad</button>
@@ -744,6 +749,7 @@
     const GLD_SUSCRIPTORES_API = 'https://login.liqkoargentina.workers.dev/suscriptores';
     const GLD_SUSCRIPTOR_SESSION_KEY = 'gld_suscriptor_session_v1';
     const GLD_CITY_PREF_SKIP_KEY = 'gld_ciudad_preferencia_omitida';
+    const GLD_CITY_CHANGE_PENDING_KEY = 'gld_cambio_ciudad_pendiente';
 
     function gldGetSubscriberSession(){
       try{
@@ -856,24 +862,116 @@
       try{localStorage.removeItem(GLD_CITY_PREF_SKIP_KEY);}catch(e){}
     }
 
+    function gldMarkCityChangePending(){
+      const session=gldGetSubscriberSession();
+      try{
+        localStorage.setItem(GLD_CITY_CHANGE_PENDING_KEY,JSON.stringify({
+          suscriptor_id:String(session&&session.suscriptor_id||''),
+          ciudad_anterior_id:String(ciudadSeleccionada||'').trim(),
+          ts:Date.now()
+        }));
+      }catch(e){}
+    }
+
+    function gldReadCityChangePending(){
+      try{
+        const x=JSON.parse(localStorage.getItem(GLD_CITY_CHANGE_PENDING_KEY)||'null');
+        if(!x) return null;
+        const age=Date.now()-Number(x.ts||0);
+        if(age<0 || age>30*60*1000){
+          localStorage.removeItem(GLD_CITY_CHANGE_PENDING_KEY);
+          return null;
+        }
+        return x;
+      }catch(e){return null;}
+    }
+
+    function gldClearCityChangePending(){
+      try{localStorage.removeItem(GLD_CITY_CHANGE_PENDING_KEY);}catch(e){}
+    }
+
     function gldShowCityPreferencePrompt(ciudadId,ciudadNombre){
       const session=gldGetSubscriberSession();
       if(!session || !ciudadId) return;
 
+      const pending=gldReadCityChangePending();
+      if(!pending) return;
+
+      if(
+        pending.suscriptor_id &&
+        String(pending.suscriptor_id)!==String(session.suscriptor_id||'')
+      ){
+        gldClearCityChangePending();
+        return;
+      }
+
       const actualDefault=String(session.ciudad_predeterminada_id||'').trim();
-      if(actualDefault===String(ciudadId).trim()) return;
-      if(gldCityPrefWasSkipped(session,ciudadId)) return;
+      const ciudadActual=String(ciudadId).trim();
+      const ciudadAnterior=String(pending.ciudad_anterior_id||'').trim();
+
+      // Si volvió a la misma ciudad, no hay nada que preguntar.
+      if(ciudadAnterior && ciudadAnterior===ciudadActual){
+        gldClearCityChangePending();
+        return;
+      }
+
+      // Si eligió justamente su ciudad habitual, tampoco hace falta preguntar.
+      if(actualDefault===ciudadActual){
+        gldClearCityChangePending();
+        return;
+      }
+
+      if(gldCityPrefWasSkipped(session,ciudadId)){
+        gldClearCityChangePending();
+        return;
+      }
 
       const overlay=document.getElementById('gldCityPrefOverlay');
       const text=document.getElementById('gldCityPrefText');
       const status=document.getElementById('gldCityPrefStatus');
       if(text){
         text.textContent=ciudadNombre
-          ? `Ahora estás viendo ${ciudadNombre}. Podés dejarla sólo para esta visita o usarla como tu ciudad habitual.`
-          : 'Podés dejar esta ciudad sólo para esta visita o usarla como tu ciudad habitual.';
+          ? `Ahora estás viendo ${ciudadNombre}. Podés usarla sólo por esta vez o guardarla para tus próximos ingresos.`
+          : 'Podés usar esta ciudad sólo por esta vez o guardarla para tus próximos ingresos.';
       }
       if(status){status.textContent='';status.className='gld-city-pref-status';}
-      overlay?.classList.add('activo');
+
+      if(overlay){
+        const disparador=document.getElementById('cambiarCiudad');
+        const margen=10;
+        const ancho=Math.min(window.innerWidth*0.94,470);
+
+        let top=window.scrollY + 12;
+        let left=Math.max(12,(window.innerWidth-ancho)/2);
+
+        if(disparador){
+          const r=disparador.getBoundingClientRect();
+          top=window.scrollY + r.bottom + margen;
+          left=Math.min(
+            Math.max(12, window.scrollX + r.right - ancho),
+            Math.max(12, window.scrollX + window.innerWidth - ancho - 12)
+          );
+        }
+
+        overlay.style.top=`${Math.round(top)}px`;
+        overlay.style.left=`${Math.round(left)}px`;
+        overlay.classList.add('activo');
+
+        requestAnimationFrame(()=>{
+          const panel=overlay.querySelector('.gld-city-pref-panel');
+          if(!panel) return;
+          const pr=panel.getBoundingClientRect();
+          const limiteInferior=window.innerHeight-12;
+
+          if(pr.bottom>limiteInferior && disparador){
+            const r=disparador.getBoundingClientRect();
+            const topArriba=window.scrollY + r.top - pr.height - margen;
+            if(topArriba>=window.scrollY+12){
+              overlay.style.top=`${Math.round(topArriba)}px`;
+            }
+          }
+        });
+      }
 
       const yes=document.getElementById('gldCityPrefYes');
       const no=document.getElementById('gldCityPrefNo');
@@ -881,7 +979,9 @@
       if(no){
         no.onclick=()=>{
           gldSkipCityPreference(session,ciudadId);
+          gldClearCityChangePending();
           overlay?.classList.remove('activo');
+          if(overlay){overlay.style.top='';overlay.style.left='';}
         };
       }
 
@@ -909,7 +1009,9 @@
             // El backend escribe en la hoja suscriptores.
             gldSetSubscriberSession(data.suscriptor);
             gldClearCityPreferenceSkip();
+            gldClearCityChangePending();
             overlay?.classList.remove('activo');
+            if(overlay){overlay.style.top='';overlay.style.left='';}
           }catch(e){
             if(status){status.textContent=String(e.message||e);status.className='gld-city-pref-status error';}
           }finally{
@@ -2971,6 +3073,7 @@
       const cambiar = document.getElementById('cambiarCiudad');
       if(cambiar){
         cambiar.addEventListener('click', ()=>{
+          gldMarkCityChangePending();
           try{ localStorage.removeItem(CITY_CONTEXT_KEY); }catch(e){}
           gldClearCityPreferenceSkip();
           try{ window.top.location.href = 'https://guialocal.ar/'; }
