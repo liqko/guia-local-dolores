@@ -1189,26 +1189,68 @@
       return farmaSemanaPromise;
     }
     let gldDestinoPendiente='';
+    let gldDestinoObserver=null;
+    let gldDestinoTimer=null;
+
+    function gldCancelarDestinoPendiente(){
+      if(gldDestinoObserver){
+        try{gldDestinoObserver.disconnect();}catch(e){}
+        gldDestinoObserver=null;
+      }
+      if(gldDestinoTimer){
+        clearTimeout(gldDestinoTimer);
+        gldDestinoTimer=null;
+      }
+      gldDestinoPendiente='';
+    }
+
+    function gldReposicionarDestino(){
+      if(!gldDestinoPendiente) return;
+      const actual=document.getElementById(gldDestinoPendiente);
+      if(!actual) return;
+
+      requestAnimationFrame(()=>{
+        requestAnimationFrame(()=>{
+          if(gldDestinoPendiente){
+            actual.scrollIntoView({behavior:'auto',block:'start'});
+          }
+        });
+      });
+    }
 
     function gldIrASeccion(id){
       const destino=document.getElementById(id);
       if(!destino) return;
 
+      gldCancelarDestinoPendiente();
       gldDestinoPendiente=id;
       destino.scrollIntoView({behavior:'smooth',block:'start'});
 
-      // Si Publicidad todavía está cargando, no frenamos al usuario.
-      // Cuando termine y cambie la altura de la Guía, repetimos el posicionamiento.
-      if(bannersPromise){
-        bannersPromise.finally(()=>{
-          requestAnimationFrame(()=>{
-            requestAnimationFrame(()=>{
-              const actual=document.getElementById(gldDestinoPendiente);
-              if(actual) actual.scrollIntoView({behavior:'smooth',block:'start'});
-              gldDestinoPendiente='';
-            });
-          });
+      if('ResizeObserver' in window && document.body){
+        let ultimoCambio=Date.now();
+        gldDestinoObserver=new ResizeObserver(()=>{
+          ultimoCambio=Date.now();
+          gldReposicionarDestino();
         });
+        gldDestinoObserver.observe(document.body);
+
+        const vigilar=()=>{
+          if(!gldDestinoPendiente) return;
+          if(Date.now()-ultimoCambio>1200){
+            gldCancelarDestinoPendiente();
+            return;
+          }
+          gldDestinoTimer=setTimeout(vigilar,300);
+        };
+        gldDestinoTimer=setTimeout(vigilar,300);
+      }
+
+      [100,300,700,1400,2500,4500].forEach(ms=>{
+        setTimeout(()=>gldReposicionarDestino(),ms);
+      });
+
+      if(bannersPromise){
+        bannersPromise.finally(()=>gldReposicionarDestino());
       }
     }
 
@@ -2986,6 +3028,10 @@
         return;
       }
 
+      const farmaInicioPromise=cargarFarmaciasTurnoGuia().catch(e=>{
+        console.error('Farmacias:',e);
+      });
+
       function nombreVisibleValido(nombre, id){
         const n=String(nombre||'').trim();
         const i=String(id||'').trim();
@@ -3048,6 +3094,8 @@
         ts:Date.now()
       };
       try{ localStorage.setItem(CITY_CONTEXT_KEY, JSON.stringify(nuevoCtx)); }catch(e){}
+      const farmaCiudadLabel=document.getElementById('farmaTurnoCiudad');
+      if(farmaCiudadLabel && ciudadNombre) farmaCiudadLabel.textContent=`Turnos para ${ciudadNombre}`;
 
       // Si la persona está logueada y está visitando una ciudad distinta de su habitual,
       // ofrecemos cambiarla. Sólo se escribe en la hoja si responde que sí.
@@ -3084,10 +3132,6 @@
       gldSetModuloCargando('guia',true,'Cargando Guía...');
 
       try{ prefetchGuia(paisSeleccionado,provinciaSeleccionada,ciudadSeleccionada); }catch(e){}
-
-      cargarFarmaciasTurnoGuia().catch(e=>{
-        console.error('Farmacias:',e);
-      });
 
       cargarEfemeridesHoyGuia().catch(e=>{
         console.error('Efemérides:',e);
@@ -3392,6 +3436,7 @@
       if(observer){ try{observer.disconnect();}catch(e){} }
       if(timer) clearTimeout(timer);
       gldSetModuloCargando('',false);
+      gldIrInicioModulo();
     }
 
     function revisar(){
@@ -3420,6 +3465,20 @@
         cerrar();
       },30000);
     };
+  }
+
+  function gldIrInicioModulo(){
+    gldCancelarDestinoPendiente();
+    const destino=document.getElementById('navegacionCiudad') || document.getElementById('titulo-principal');
+    if(!destino) return;
+
+    try{destino.scrollIntoView({behavior:'auto',block:'start'});}catch(e){}
+
+    requestAnimationFrame(()=>{
+      requestAnimationFrame(()=>{
+        try{destino.scrollIntoView({behavior:'auto',block:'start'});}catch(e){}
+      });
+    });
   }
 
   function loadInlineModule(key,filtered){
@@ -3474,6 +3533,8 @@
     host?.classList.add('activo');
     modulo.frame?.classList.add('activo');
     setNavActive(key);
+
+    gldIrInicioModulo();
     loadInlineModule(key,filtered);
   };
 
