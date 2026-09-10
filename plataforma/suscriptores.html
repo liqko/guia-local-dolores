@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guía Local - Suscriptores</title>
+<style>
+  *{box-sizing:border-box}
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#f6f6f6;color:#222}
+  .wrap{max-width:760px;margin:0 auto;padding:20px}
+  .card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:18px;margin-bottom:16px}
+  h1,h2{margin-top:0}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  button{cursor:pointer;border:0;border-radius:8px;padding:11px 14px;font-size:15px}
+  .primary{background:#111;color:#fff}
+  .secondary{background:#eee;color:#222}
+  .danger{background:#b00020;color:#fff}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .full{grid-column:1/-1}
+  label{display:block;font-size:13px;font-weight:700;margin-bottom:5px}
+  input,select{width:100%;padding:10px;border:1px solid #ccc;border-radius:8px;font-size:15px;background:#fff}
+  .msg{margin-top:12px;font-size:14px}
+  .ok{color:#087f23}
+  .err{color:#b00020}
+  .hidden{display:none!important}
+  .muted{color:#666;font-size:13px}
+  .userbox{display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="card">
+    <h1>Guía Local</h1>
+    <div class="muted">Acceso de suscriptores</div>
+  </div>
+
+  <div id="auth-view">
+    <div class="tabs">
+      <button id="tab-login" class="primary" type="button">Ingresar</button>
+      <button id="tab-register" class="secondary" type="button">Registrarme</button>
+    </div>
+
+    <div id="login-panel" class="card">
+      <h2>Ingresar</h2>
+      <div class="grid">
+        <div class="full">
+          <label for="login-mail">Mail</label>
+          <input id="login-mail" type="email" autocomplete="email">
+        </div>
+        <div class="full">
+          <label for="login-clave">Clave</label>
+          <input id="login-clave" type="password" autocomplete="current-password">
+        </div>
+        <div class="full">
+          <button id="login-btn" class="primary" type="button">Ingresar</button>
+          <div id="login-msg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="register-panel" class="card hidden">
+      <h2>Registrarme</h2>
+      <div class="grid">
+        <div class="full">
+          <label for="reg-nombre">Nombre</label>
+          <input id="reg-nombre" type="text" autocomplete="name">
+        </div>
+
+        <div>
+          <label for="reg-mail">Mail</label>
+          <input id="reg-mail" type="email" autocomplete="email">
+        </div>
+
+        <div>
+          <label for="reg-clave">Clave</label>
+          <input id="reg-clave" type="password" autocomplete="new-password">
+        </div>
+
+        <div>
+          <label for="reg-whatsapp">WhatsApp</label>
+          <input id="reg-whatsapp" type="text" inputmode="tel">
+        </div>
+
+        <div>
+          <label for="reg-fecha">Fecha de nacimiento</label>
+          <input id="reg-fecha" type="date">
+        </div>
+
+        <div>
+          <label for="reg-tipo">Tipo de usuario</label>
+          <select id="reg-tipo">
+            <option value="">Seleccioná...</option>
+            <option value="residente">Residente</option>
+            <option value="visitante">Visitante</option>
+            <option value="turista">Turista</option>
+          </select>
+        </div>
+
+        <div>
+          <label for="reg-origen">Ciudad de origen / residencia</label>
+          <select id="reg-origen"><option value="">Cargando ciudades...</option></select>
+        </div>
+
+        <div class="full">
+          <label for="reg-predeterminada">Ciudad predeterminada en Guía Local</label>
+          <select id="reg-predeterminada"><option value="">Cargando ciudades...</option></select>
+        </div>
+
+        <div class="full">
+          <button id="register-btn" class="primary" type="button">Crear cuenta</button>
+          <div id="register-msg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="profile-view" class="hidden">
+    <div class="card">
+      <div class="userbox">
+        <div>
+          <h2 style="margin-bottom:4px">Mi cuenta</h2>
+          <div id="profile-name" class="muted"></div>
+        </div>
+        <button id="logout-btn" class="secondary" type="button">Cerrar sesión</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Ciudad predeterminada</h2>
+      <div class="grid">
+        <div class="full">
+          <select id="profile-city"><option value="">Cargando ciudades...</option></select>
+        </div>
+        <div class="full">
+          <button id="save-city-btn" class="primary" type="button">Guardar ciudad predeterminada</button>
+          <div id="profile-msg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const WORKER_ORIGIN = 'https://login.liqkoargentina.workers.dev';
+const SUSCRIPTORES_URL = WORKER_ORIGIN + '/suscriptores';
+const COMMERCE_URL = WORKER_ORIGIN + '/commerce';
+const SESSION_KEY = 'gld_suscriptor_session_v1';
+
+let ciudades = [];
+let sesionSuscriptor = null;
+
+function el(id){ return document.getElementById(id); }
+
+function msg(id,text,ok){
+  const node=el(id);
+  node.textContent=text||'';
+  node.className='msg '+(text ? (ok?'ok':'err') : '');
+}
+
+function setBusy(btn,busy,text){
+  btn.disabled=!!busy;
+  if(busy){
+    btn.dataset.originalText=btn.textContent;
+    btn.textContent=text||'Procesando...';
+  }else if(btn.dataset.originalText){
+    btn.textContent=btn.dataset.originalText;
+  }
+}
+
+function showLogin(){
+  el('login-panel').classList.remove('hidden');
+  el('register-panel').classList.add('hidden');
+  el('tab-login').className='primary';
+  el('tab-register').className='secondary';
+}
+
+function showRegister(){
+  el('register-panel').classList.remove('hidden');
+  el('login-panel').classList.add('hidden');
+  el('tab-register').className='primary';
+  el('tab-login').className='secondary';
+}
+
+function fillCities(select,current){
+  select.innerHTML='<option value="">Seleccioná una ciudad...</option>';
+  ciudades.forEach(c=>{
+    const id=String(c.ciudad_id||'').trim();
+    const ciudad=String(c.ciudad||c.nombre||'').trim();
+    const provincia=String(c.provincia||'').trim();
+    const pais=String(c.pais||'').trim();
+    if(!id || !ciudad) return;
+
+    const op=document.createElement('option');
+    op.value=id;
+    op.textContent=[ciudad,provincia,pais].filter(Boolean).join(' - ');
+    if(id===String(current||'').trim()) op.selected=true;
+    select.appendChild(op);
+  });
+}
+
+async function loadCities(){
+  const selects=[el('reg-origen'),el('reg-predeterminada'),el('profile-city')];
+  selects.forEach(s=>s.innerHTML='<option value="">Cargando ciudades...</option>');
+
+  try{
+    const r=await fetch(COMMERCE_URL+'?action=ubicaciones',{cache:'no-store'});
+    const j=await r.json();
+    ciudades=Array.isArray(j.ciudades)?j.ciudades:[];
+    fillCities(el('reg-origen'),'');
+    fillCities(el('reg-predeterminada'),'');
+    fillCities(el('profile-city'),sesionSuscriptor&&sesionSuscriptor.ciudad_predeterminada_id);
+  }catch(err){
+    selects.forEach(s=>s.innerHTML='<option value="">No se pudieron cargar las ciudades</option>');
+  }
+}
+
+function saveSession(suscriptor){
+  sesionSuscriptor=suscriptor||null;
+  if(sesionSuscriptor){
+    localStorage.setItem(SESSION_KEY,JSON.stringify(sesionSuscriptor));
+  }else{
+    localStorage.removeItem(SESSION_KEY);
+  }
+  renderSession();
+}
+
+function renderSession(){
+  const logged=!!(sesionSuscriptor&&sesionSuscriptor.suscriptor_id);
+  el('auth-view').classList.toggle('hidden',logged);
+  el('profile-view').classList.toggle('hidden',!logged);
+
+  if(logged){
+    el('profile-name').textContent =
+      (sesionSuscriptor.nombre||'') +
+      (sesionSuscriptor.mail ? ' · '+sesionSuscriptor.mail : '');
+    fillCities(el('profile-city'),sesionSuscriptor.ciudad_predeterminada_id||'');
+  }
+}
+
+async function login(){
+  msg('login-msg','',false);
+
+  const mail=el('login-mail').value.trim();
+  const clave=el('login-clave').value;
+
+  if(!mail || !clave){
+    msg('login-msg','Completá mail y clave.',false);
+    return;
+  }
+
+  const btn=el('login-btn');
+  setBusy(btn,true,'Ingresando...');
+
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'login',mail,clave})
+    });
+    const j=await r.json();
+
+    if(!j.success){
+      msg('login-msg',j.message||'No se pudo ingresar.',false);
+      return;
+    }
+
+    saveSession(j.suscriptor);
+  }catch(err){
+    msg('login-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
+}
+
+async function register(){
+  msg('register-msg','',false);
+
+  const payload={
+    action:'crear',
+    nombre:el('reg-nombre').value.trim(),
+    mail:el('reg-mail').value.trim(),
+    clave:el('reg-clave').value,
+    whatsapp:el('reg-whatsapp').value.trim(),
+    fecha_nacimiento:el('reg-fecha').value,
+    tipo_usuario:el('reg-tipo').value,
+    ciudad_origen_id:el('reg-origen').value,
+    ciudad_predeterminada_id:el('reg-predeterminada').value
+  };
+
+  if(!payload.nombre || !payload.mail || !payload.clave){
+    msg('register-msg','Completá nombre, mail y clave.',false);
+    return;
+  }
+
+  if(!payload.tipo_usuario){
+    msg('register-msg','Seleccioná el tipo de usuario.',false);
+    return;
+  }
+
+  if(!payload.ciudad_predeterminada_id){
+    msg('register-msg','Seleccioná tu ciudad predeterminada.',false);
+    return;
+  }
+
+  const btn=el('register-btn');
+  setBusy(btn,true,'Creando cuenta...');
+
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const j=await r.json();
+
+    if(!j.success){
+      msg('register-msg',j.message||'No se pudo crear la cuenta.',false);
+      return;
+    }
+
+    saveSession(j.suscriptor);
+  }catch(err){
+    msg('register-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
+}
+
+async function saveCity(){
+  if(!sesionSuscriptor) return;
+
+  const ciudad=el('profile-city').value;
+  if(!ciudad){
+    msg('profile-msg','Seleccioná una ciudad.',false);
+    return;
+  }
+
+  const btn=el('save-city-btn');
+  setBusy(btn,true,'Guardando...');
+  msg('profile-msg','',false);
+
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        action:'actualizar_ciudad',
+        suscriptor_id:sesionSuscriptor.suscriptor_id,
+        ciudad_predeterminada_id:ciudad
+      })
+    });
+    const j=await r.json();
+
+    if(!j.success){
+      msg('profile-msg',j.message||'No se pudo guardar.',false);
+      return;
+    }
+
+    saveSession(j.suscriptor);
+    msg('profile-msg','Ciudad predeterminada actualizada.',true);
+  }catch(err){
+    msg('profile-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
+}
+
+function loadStoredSession(){
+  try{
+    const raw=localStorage.getItem(SESSION_KEY);
+    sesionSuscriptor=raw?JSON.parse(raw):null;
+  }catch(_){
+    sesionSuscriptor=null;
+  }
+}
+
+el('tab-login').addEventListener('click',showLogin);
+el('tab-register').addEventListener('click',showRegister);
+el('login-btn').addEventListener('click',login);
+el('register-btn').addEventListener('click',register);
+el('save-city-btn').addEventListener('click',saveCity);
+el('logout-btn').addEventListener('click',()=>saveSession(null));
+
+loadStoredSession();
+renderSession();
+loadCities();
+</script>
+</body>
+</html>
