@@ -325,8 +325,7 @@ button:disabled{opacity:.65;cursor:wait}
           <select id="reg-tipo">
             <option value="">Seleccioná...</option>
             <option value="residente">Residente</option>
-            <option value="visitante">Visitante</option>
-            <option value="turista">Turista</option>
+            <option value="visitante_turista">Visitante / turista</option>
           </select>
         </div>
 
@@ -451,6 +450,10 @@ button:disabled{opacity:.65;cursor:wait}
           <button id="save-city-btn" class="primary" type="button">Guardar mi ciudad</button>
           <div id="profile-msg" class="msg"></div>
         </div>
+
+        <div id="go-guide-wrap" class="full hidden">
+          <button id="go-guide-btn" class="primary" type="button">Ir a Guía</button>
+        </div>
       </div>
     </div>
   </div>
@@ -530,9 +533,55 @@ async function loadCities(){
     el('reg-origen').appendChild(otraCiudad);
 
     fillCities(el('profile-city'),sesionSuscriptor&&sesionSuscriptor.ciudad_predeterminada_id);
+    updateGuideButton();
   }catch(err){
     selects.forEach(s=>s.innerHTML='<option value="">No se pudieron cargar las ciudades</option>');
   }
+}
+
+function buildGuideUrl(ciudadId){
+  const id=String(ciudadId||'').trim();
+  if(!id) return 'https://guialocal.ar/';
+
+  const ciudadObj=ciudades.find(c=>String(c.ciudad_id||'').trim()===id) || {};
+  const u=new URL('https://guialocal.ar/');
+
+  if(ciudadObj.pais_id) u.searchParams.set('pais_id',String(ciudadObj.pais_id).trim());
+  if(ciudadObj.provincia_id) u.searchParams.set('provincia_id',String(ciudadObj.provincia_id).trim());
+  u.searchParams.set('ciudad_id',id);
+
+  const pais=String(ciudadObj.pais||'').trim();
+  const provincia=String(ciudadObj.provincia||'').trim();
+  const ciudad=String(ciudadObj.ciudad||ciudadObj.nombre||'').trim();
+
+  if(pais) u.searchParams.set('pais',pais);
+  if(provincia) u.searchParams.set('provincia',provincia);
+  if(ciudad) u.searchParams.set('ciudad',ciudad);
+
+  return u.toString();
+}
+
+function updateGuideButton(){
+  const wrap=el('go-guide-wrap');
+  if(!wrap) return;
+
+  const ciudadId=sesionSuscriptor && sesionSuscriptor.ciudad_predeterminada_id
+    ? String(sesionSuscriptor.ciudad_predeterminada_id).trim()
+    : '';
+
+  wrap.classList.toggle('hidden',!ciudadId);
+}
+
+function goToGuide(){
+  const ciudadId=sesionSuscriptor && sesionSuscriptor.ciudad_predeterminada_id
+    ? String(sesionSuscriptor.ciudad_predeterminada_id).trim()
+    : '';
+
+  if(!ciudadId) return;
+
+  const destino=buildGuideUrl(ciudadId);
+  try{ window.top.location.href=destino; }
+  catch(_){ window.location.href=destino; }
 }
 
 function saveSession(suscriptor){
@@ -556,6 +605,8 @@ function renderSession(){
       (sesionSuscriptor.mail ? ' · '+sesionSuscriptor.mail : '');
     fillCities(el('profile-city'),sesionSuscriptor.ciudad_predeterminada_id||'');
   }
+
+  updateGuideButton();
 }
 
 async function login(){
@@ -745,6 +796,7 @@ el('register-btn').addEventListener('click',register);
 el('forgot-btn').addEventListener('click',showRecovery);
 el('recovery-btn').addEventListener('click',requestRecovery);
 el('save-city-btn').addEventListener('click',saveCity);
+el('go-guide-btn').addEventListener('click',goToGuide);
 el('logout-btn').addEventListener('click',()=>saveSession(null));
 
 loadStoredSession();
