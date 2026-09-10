@@ -514,9 +514,13 @@
     .gld-user-dot{width:9px;height:9px;border-radius:50%;background:#aaa;flex:0 0 auto}
     .gld-user-btn.logueado .gld-user-dot{background:#2e9d57}
     .gld-user-panel{
-      display:none;position:absolute;z-index:118500;width:min(94vw,390px);
+      display:none;
+      position:relative;
+      z-index:30;
+      width:min(calc(100% - 2rem),980px);
+      margin:.45rem auto .7rem;
       background:#fff;border:1px solid rgba(0,102,153,.18);border-radius:1rem;
-      padding:1rem;box-sizing:border-box;box-shadow:0 12px 30px rgba(0,0,0,.20);
+      padding:1rem;box-sizing:border-box;box-shadow:0 8px 22px rgba(0,0,0,.14);
       font-style:normal;
     }
     .gld-user-panel.activo{display:block}
@@ -528,6 +532,15 @@
     }
     .gld-user-panel .secondary{background:#fff;color:#006699;border:1px solid #006699}
     .gld-user-panel .danger{background:#fff;color:#a00;border:1px solid #d9aaaa}
+    @media(max-width:600px){
+      .gld-user-strip{padding:.45rem .6rem}
+      .gld-user-panel{
+        width:calc(100% - 1rem);
+        margin:.35rem .5rem .65rem;
+        border-radius:.8rem;
+        padding:.85rem;
+      }
+    }
     .gld-user-panel .primary{background:#006699;color:#fff;border:1px solid #006699}
     .gld-mi-guia-seccion{margin-top:.9rem;padding-top:.8rem;border-top:1px solid #e3ecef}
     .gld-mi-guia-seccion h4{margin:0 0 .45rem;color:#006699;font-size:1rem}
@@ -544,16 +557,12 @@
     .gld-mi-guia-empty{color:#667;font-size:.92rem}
 
     /* ===== FAVORITOS ===== */
-    .gld-fav-row{
-      width:100%;display:flex;justify-content:flex-end;align-items:center;
-      margin:-.1rem 0 .35rem;box-sizing:border-box;
-    }
     .gld-fav-anunciante-btn{
       position:static;
-      width:48px;height:48px;border-radius:50%;
+      width:40px;height:40px;border-radius:50%;
       border:2px solid #006699;background:#fff;color:#006699;
       display:flex;align-items:center;justify-content:center;
-      cursor:pointer;font-size:1.7rem;line-height:1;
+      cursor:pointer;font-size:1.45rem;line-height:1;
       box-shadow:0 3px 10px rgba(0,0,0,.16);
       font-style:normal;flex:0 0 auto;
     }
@@ -563,7 +572,7 @@
     }
     .gld-fav-anunciante-btn:disabled{opacity:.55;cursor:wait}
     @media(max-width:600px){
-      .gld-fav-anunciante-btn{width:46px;height:46px;font-size:1.62rem}
+      .gld-fav-anunciante-btn{width:38px;height:38px;font-size:1.35rem}
     }
 
     /* ===== AVISO DE CAMBIO DE CIUDAD ===== */
@@ -921,19 +930,12 @@
 
     function gldPosicionarPanelUsuario(){
       const panel=document.getElementById('gldUserPanel');
-      const btn=document.getElementById('gldUserBtn');
-      if(!panel || !btn) return;
-      const r=btn.getBoundingClientRect();
-      const ancho=Math.min(window.innerWidth*.94,390);
-      const left=Math.min(
-        Math.max(12,window.scrollX+r.right-ancho),
-        Math.max(12,window.scrollX+window.innerWidth-ancho-12)
-      );
-      panel.style.left=`${Math.round(left)}px`;
-      panel.style.top=`${Math.round(window.scrollY+r.bottom+8)}px`;
+      if(!panel) return;
+      panel.style.left='';
+      panel.style.top='';
     }
 
-    async function gldApiFavorito(action,tipo,referenciaId){
+    async function gldApiFavorito(action,tipo,referenciaId,nombreRef='',ciudadId=''){
       const s=gldGetSubscriberSession();
       if(!s || !s.suscriptor_id) throw new Error('Necesitás ingresar como suscriptor.');
 
@@ -944,7 +946,9 @@
           action,
           suscriptor_id:s.suscriptor_id,
           tipo:String(tipo||'').toUpperCase(),
-          referencia_id:String(referenciaId||'').trim()
+          referencia_id:String(referenciaId||'').trim(),
+          nombre_ref:String(nombreRef||'').trim(),
+          ciudad_id:String(ciudadId||'').trim()
         })
       });
       const data=await r.json();
@@ -1049,11 +1053,25 @@
             cityBox.innerHTML=favIds.map(id=>{
               const c=ciudades.find(x=>String(x.ciudad_id||x.id||'').trim()===id) || {};
               const nombre=String(c.nombre||c.ciudad||id).trim();
-              return `<div class="gld-mi-guia-item"><span>${nombre}</span><button type="button" data-city-id="${id.replace(/"/g,'&quot;')}">Ir</button></div>`;
+              const safeId=id.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              return `<div class="gld-mi-guia-item"><span>${nombre}</span><div style="display:flex;gap:.35rem"><button type="button" data-city-id="${safeId}">Ir</button><button type="button" data-remove-city-id="${safeId}">Quitar</button></div></div>`;
             }).join('');
 
             cityBox.querySelectorAll('button[data-city-id]').forEach(btn=>{
               btn.addEventListener('click',()=>gldIrACiudadPorId(btn.dataset.cityId));
+            });
+
+            cityBox.querySelectorAll('button[data-remove-city-id]').forEach(btn=>{
+              btn.addEventListener('click',async()=>{
+                btn.disabled=true;
+                try{
+                  await gldApiFavorito('quitar_favorito','CIUDAD',btn.dataset.removeCityId);
+                  await gldRenderMiGuia();
+                }catch(e){
+                  console.error('Quitar ciudad favorita:',e);
+                  btn.disabled=false;
+                }
+              });
             });
           }
         }catch(e){
@@ -1069,16 +1087,54 @@
           advBox.innerHTML='<div class="gld-mi-guia-empty">Todavía no agregaste lugares favoritos.</div>';
         }else{
           advBox.innerHTML=ids.map(id=>{
-            let nombre=id;
-            try{
-              const item=(window.gldServiciosDataActual||[]).find(x=>{
-                const idsItem=typeof advertiserIds==='function' ? advertiserIds(x) : [];
-                return idsItem.includes(id);
-              });
-              if(item && item.nombre) nombre=String(item.nombre).trim();
-            }catch(e){}
-            return `<div class="gld-mi-guia-item"><span>${nombre}</span></div>`;
+            let nombre='';
+            let ciudadFav='';
+
+            const favObj=(gldFavoritosTodos||[]).find(f=>
+              String(f&&f.tipo||'').trim().toUpperCase()==='ANUNCIANTE' &&
+              String(f&&f.referencia_id||'').trim()===id
+            );
+
+            if(favObj){
+              nombre=String(favObj.nombre_ref||'').trim();
+              ciudadFav=String(favObj.ciudad_id||'').trim();
+            }
+
+            if(!nombre){
+              try{
+                const item=(window.gldServiciosDataActual||[]).find(x=>{
+                  const idsItem=typeof advertiserIds==='function' ? advertiserIds(x) : [];
+                  return idsItem.includes(id);
+                });
+                if(item && item.nombre) nombre=String(item.nombre).trim();
+              }catch(e){}
+            }
+
+            if(!nombre) nombre='Lugar guardado';
+
+            const safeId=id.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const safeCity=ciudadFav.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+            return `<div class="gld-mi-guia-item"><span>${nombre}</span><div style="display:flex;gap:.35rem">${ciudadFav?`<button type="button" data-adv-city-id="${safeCity}">Ir</button>`:''}<button type="button" data-remove-adv-id="${safeId}">Quitar</button></div></div>`;
           }).join('');
+
+          advBox.querySelectorAll('button[data-adv-city-id]').forEach(btn=>{
+            btn.addEventListener('click',()=>gldIrACiudadPorId(btn.dataset.advCityId));
+          });
+
+          advBox.querySelectorAll('button[data-remove-adv-id]').forEach(btn=>{
+            btn.addEventListener('click',async()=>{
+              btn.disabled=true;
+              try{
+                await gldApiFavorito('quitar_favorito','ANUNCIANTE',btn.dataset.removeAdvId);
+                gldFavoritosAnunciantes.delete(btn.dataset.removeAdvId);
+                await gldRenderMiGuia();
+              }catch(e){
+                console.error('Quitar lugar favorito:',e);
+                btn.disabled=false;
+              }
+            });
+          });
         }
       }
     }
@@ -1102,7 +1158,14 @@
       const activo=gldFavoritosAnunciantes.has(id);
       btn.disabled=true;
       try{
-        await gldApiFavorito(activo?'quitar_favorito':'agregar_favorito','ANUNCIANTE',id);
+        const nombreRef=String(btn.dataset.nombreRef||'').trim();
+        await gldApiFavorito(
+          activo?'quitar_favorito':'agregar_favorito',
+          'ANUNCIANTE',
+          id,
+          nombreRef,
+          ciudadSeleccionada
+        );
         if(activo) gldFavoritosAnunciantes.delete(id);
         else gldFavoritosAnunciantes.add(id);
 
@@ -1416,7 +1479,13 @@
           if(status){status.textContent='Guardando en favoritas...';status.className='gld-city-pref-status';}
 
           try{
-            await gldApiFavorito('agregar_favorito','CIUDAD',ciudadId);
+            await gldApiFavorito(
+              'agregar_favorito',
+              'CIUDAD',
+              ciudadId,
+              ciudadNombre || '',
+              ciudadId
+            );
             gldSkipCityPreference(session,ciudadId);
             gldClearCityChangePending();
             if(status){status.textContent='Ciudad agregada a favoritas.';status.className='gld-city-pref-status';}
@@ -2552,17 +2621,19 @@
           const nivelVisual = Number(item.nivel);
           let html = `<div class="card nivel-${nivelVisual}">`;
 
-          const idsFav=advertiserIds(item);
-          const anuncianteFavId=idsFav.length?idsFav[0]:'';
-          if(anuncianteFavId){
-            const esFav=gldFavoritosAnunciantes.has(anuncianteFavId);
-            const safeFavId=String(anuncianteFavId).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-            html+=`<div class="gld-fav-row"><button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId)" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}" aria-label="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button></div>`;
-          }
-          if(nivelVisual !== 3){
+          {
+            const idsFav=advertiserIds(item);
+            const anuncianteFavId=idsFav.length?idsFav[0]:'';
+            const esFav=anuncianteFavId && gldFavoritosAnunciantes.has(anuncianteFavId);
+            const safeFavId=String(anuncianteFavId||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            const safeNombre=String(item.nombre||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
             html += `<div class="badge-icons">`;
-            if(String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
-            if(String(item.gold||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
+            if(nivelVisual !== 3 && String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
+            if(nivelVisual !== 3 && String(item.gold||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
+            if(anuncianteFavId){
+              html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" data-nombre-ref="${safeNombre}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId)" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}" aria-label="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
+            }
             html += `</div>`;
           }
 
