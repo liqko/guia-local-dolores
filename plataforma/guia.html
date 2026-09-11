@@ -433,17 +433,20 @@
     /* ===== ACCESO DE SUSCRIPTORES ===== */
     .gld-subscriber-overlay{
       display:none;
-      position:absolute;
+      position:fixed;
+      inset:0;
       z-index:120000;
-      width:min(94vw,460px);
+      align-items:center;
+      justify-content:center;
+      padding:1rem;
+      background:rgba(0,0,0,.55);
       box-sizing:border-box;
       font-style:normal;
     }
-    .gld-subscriber-overlay.activo{display:block}
+    .gld-subscriber-overlay.activo{display:flex}
     .gld-subscriber-panel{
-      width:100%;
+      width:min(94vw,460px);
       background:#fff;
-      border:1px solid rgba(0,102,153,.18);
       border-radius:1rem;
       padding:1.2rem;
       box-shadow:0 14px 40px rgba(0,0,0,.28);
@@ -678,15 +681,26 @@
 
   <div id="gldSubscriberOverlay" class="gld-subscriber-overlay" role="dialog" aria-modal="true" aria-labelledby="gldSubscriberTitle">
     <div class="gld-subscriber-panel">
-      <h2 id="gldSubscriberTitle">Contenido para suscriptores</h2>
+      <h2 id="gldSubscriberTitle">Acceso para suscriptores</h2>
       <p>Para ver Eventos, Promos y Actividades necesitás ingresar con tu cuenta.</p>
 
+      <label for="gldSubscriberMail">Mail</label>
+      <input id="gldSubscriberMail" type="email" autocomplete="email">
+
+      <label for="gldSubscriberPassword">Contraseña</label>
+      <input id="gldSubscriberPassword" type="password" autocomplete="current-password">
+
       <div class="gld-subscriber-actions">
-        <button id="gldSubscriberGoLogin" class="gld-subscriber-primary" type="button">Ingresar</button>
-        <button id="gldSubscriberGoRegister" class="gld-subscriber-secondary" type="button">Crear cuenta</button>
+        <button id="gldSubscriberLogin" class="gld-subscriber-primary" type="button">Ingresar</button>
+        <button id="gldSubscriberCancel" class="gld-subscriber-secondary" type="button">Ahora no</button>
       </div>
 
-      <button id="gldSubscriberCancel" class="gld-subscriber-secondary" type="button" style="width:100%;min-height:44px;margin-top:.6rem;border-radius:.65rem;font-weight:800">Ahora no</button>
+      <div id="gldSubscriberLoggedActions" class="gld-subscriber-actions" style="display:none">
+        <button id="gldSubscriberGoCity" class="gld-subscriber-primary" type="button">Ir a mi ciudad</button>
+        <button id="gldSubscriberGoMyGuide" class="gld-subscriber-secondary" type="button">Ir a Mi Guía</button>
+      </div>
+
+      <div id="gldSubscriberMsg" class="gld-subscriber-msg" aria-live="polite"></div>
     </div>
   </div>
 
@@ -1029,7 +1043,7 @@
     }
 
     function gldAbrirMiGuia(){
-      const destino='https://guialocal.ar/suscriptores/?vista=mi-guia';
+      const destino='https://guialocal.ar/acceder/?vista=mi-guia';
       try{window.top.location.href=destino;}
       catch(e){window.location.href=destino;}
     }
@@ -1072,77 +1086,102 @@
       return !!gldGetSubscriberSession();
     }
 
-    function gldShowSubscriberLogin(triggerEl){
+    function gldShowSubscriberLogin(){
       const overlay=document.getElementById('gldSubscriberOverlay');
-      if(!overlay) return;
+      const msg=document.getElementById('gldSubscriberMsg');
+      if(msg){ msg.textContent=''; msg.className='gld-subscriber-msg'; }
 
-      const ancho=Math.min(window.innerWidth*.94,460);
-      let top=window.scrollY+12;
-      let left=Math.max(12,(window.innerWidth-ancho)/2);
+      const loginBtn=document.getElementById('gldSubscriberLogin');
+      const cancelBtn=document.getElementById('gldSubscriberCancel');
+      const actions=document.getElementById('gldSubscriberLoggedActions');
+      if(loginBtn) loginBtn.style.display='';
+      if(cancelBtn) cancelBtn.style.display='';
+      if(actions) actions.style.display='none';
 
-      if(triggerEl && typeof triggerEl.getBoundingClientRect==='function'){
-        const r=triggerEl.getBoundingClientRect();
-        top=window.scrollY+r.bottom+10;
-        left=Math.min(
-          Math.max(12,window.scrollX+r.left),
-          Math.max(12,window.scrollX+window.innerWidth-ancho-12)
-        );
-      }
-
-      overlay.style.top=`${Math.round(top)}px`;
-      overlay.style.left=`${Math.round(left)}px`;
-      overlay.classList.add('activo');
-
-      requestAnimationFrame(()=>{
-        const panel=overlay.querySelector('.gld-subscriber-panel');
-        if(!panel || !triggerEl) return;
-        const pr=panel.getBoundingClientRect();
-        if(pr.bottom>window.innerHeight-12){
-          const r=triggerEl.getBoundingClientRect();
-          const arriba=window.scrollY+r.top-pr.height-10;
-          if(arriba>=window.scrollY+12){
-            overlay.style.top=`${Math.round(arriba)}px`;
-          }
-        }
-      });
+      overlay?.classList.add('activo');
+      setTimeout(()=>document.getElementById('gldSubscriberMail')?.focus(),50);
     }
 
     function gldHideSubscriberLogin(){
-      const overlay=document.getElementById('gldSubscriberOverlay');
-      overlay?.classList.remove('activo');
-      if(overlay){overlay.style.top='';overlay.style.left='';}
+      document.getElementById('gldSubscriberOverlay')?.classList.remove('activo');
     }
 
-    function gldRequireSubscriber(triggerEl){
+    function gldRequireSubscriber(){
       if(gldIsSubscriberLogged()) return true;
-      gldShowSubscriberLogin(triggerEl);
+      gldShowSubscriberLogin();
       return false;
     }
 
+    async function gldLoginSubscriber(){
+      const mail=String(document.getElementById('gldSubscriberMail')?.value||'').trim();
+      const clave=String(document.getElementById('gldSubscriberPassword')?.value||'');
+      const btn=document.getElementById('gldSubscriberLogin');
+      const msg=document.getElementById('gldSubscriberMsg');
+
+      if(!mail || !clave){
+        if(msg){msg.textContent='Completá mail y contraseña.';msg.className='gld-subscriber-msg error';}
+        return;
+      }
+
+      if(btn){btn.disabled=true;btn.textContent='Ingresando...';}
+      if(msg){msg.textContent='';msg.className='gld-subscriber-msg';}
+
+      try{
+        const r=await fetch(GLD_SUSCRIPTORES_API,{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'login',mail,clave})
+        });
+        const data=await r.json();
+
+        if(!data || data.success!==true || !data.suscriptor){
+          throw new Error((data && data.message) || 'No se pudo ingresar.');
+        }
+
+        gldSetSubscriberSession(data.suscriptor);
+        if(msg){msg.textContent='Ingreso correcto. Elegí cómo querés continuar.';msg.className='gld-subscriber-msg ok';}
+
+        const loginBtn=document.getElementById('gldSubscriberLogin');
+        const cancelBtn=document.getElementById('gldSubscriberCancel');
+        const actions=document.getElementById('gldSubscriberLoggedActions');
+
+        if(loginBtn) loginBtn.style.display='none';
+        if(cancelBtn) cancelBtn.style.display='none';
+        if(actions) actions.style.display='grid';
+      }catch(e){
+        if(msg){msg.textContent=String(e.message||e);msg.className='gld-subscriber-msg error';}
+      }finally{
+        if(btn){btn.disabled=false;btn.textContent='Ingresar';}
+      }
+    }
 
     function gldWireSubscriberUi(){
       gldActualizarEstadoSuscriptor();
 
       document.getElementById('gldUserBtn')?.addEventListener('click',()=>{
         const s=gldGetSubscriberSession();
-        const destino=s
-          ? 'https://guialocal.ar/suscriptores/?vista=mi-guia'
-          : 'https://guialocal.ar/suscriptores/?vista=login';
+        const destino=s ? 'https://guialocal.ar/acceder/?vista=mi-guia' : 'https://guialocal.ar/acceder/?vista=login';
         try{window.top.location.href=destino;}
         catch(e){window.location.href=destino;}
       });
 
-      document.getElementById('gldSubscriberGoLogin')?.addEventListener('click',()=>{
-        try{window.top.location.href='https://guialocal.ar/suscriptores/?vista=login';}
-        catch(e){window.location.href='https://guialocal.ar/suscriptores/?vista=login';}
-      });
-
-      document.getElementById('gldSubscriberGoRegister')?.addEventListener('click',()=>{
-        try{window.top.location.href='https://guialocal.ar/suscriptores/?vista=registro';}
-        catch(e){window.location.href='https://guialocal.ar/suscriptores/?vista=registro';}
-      });
-
+      document.getElementById('gldSubscriberLogin')?.addEventListener('click',gldLoginSubscriber);
       document.getElementById('gldSubscriberCancel')?.addEventListener('click',gldHideSubscriberLogin);
+      document.getElementById('gldSubscriberOverlay')?.addEventListener('click',e=>{
+        if(e.target && e.target.id==='gldSubscriberOverlay') gldHideSubscriberLogin();
+      });
+      document.getElementById('gldSubscriberPassword')?.addEventListener('keydown',e=>{
+        if(e.key==='Enter') gldLoginSubscriber();
+      });
+      document.getElementById('gldSubscriberGoCity')?.addEventListener('click',()=>{
+        const s=gldGetSubscriberSession();
+        if(!s || !s.ciudad_predeterminada_id) return;
+        const u=new URL('https://guialocal.ar/guia/');
+        u.searchParams.set('ciudad_id',String(s.ciudad_predeterminada_id));
+        try{window.top.location.href=u.toString();}
+        catch(e){window.location.href=u.toString();}
+      });
+      document.getElementById('gldSubscriberGoMyGuide')?.addEventListener('click',gldAbrirMiGuia);
     }
 
     function gldCityPrefWasSkipped(session,ciudadId){
@@ -3871,7 +3910,7 @@
   window.mostrarModuloCiudad = function(key,options={}){
     if(gldModuloCargando) return;
 
-    if(['promos','eventos','actividades'].includes(String(key||'').toLowerCase()) && !gldRequireSubscriber(options.trigger||null)){
+    if(['promos','eventos','actividades'].includes(String(key||'').toLowerCase()) && !gldRequireSubscriber()){
       return;
     }
 
@@ -3911,19 +3950,19 @@
   navPromos?.addEventListener('click',(e)=>{
     e.preventDefault();
     try{ localStorage.removeItem('gld_promos_filter'); }catch(err){}
-    window.mostrarModuloCiudad('promos',{filtered:false,trigger:e.currentTarget});
+    window.mostrarModuloCiudad('promos',{filtered:false});
   });
 
   navEventos?.addEventListener('click',(e)=>{
     e.preventDefault();
     try{ localStorage.removeItem('gld_eventos_filter'); }catch(err){}
-    window.mostrarModuloCiudad('eventos',{filtered:false,trigger:e.currentTarget});
+    window.mostrarModuloCiudad('eventos',{filtered:false});
   });
 
   navActividades?.addEventListener('click',(e)=>{
     e.preventDefault();
     try{ localStorage.removeItem('gld_actividades_filter'); }catch(err){}
-    window.mostrarModuloCiudad('actividades',{filtered:false,trigger:e.currentTarget});
+    window.mostrarModuloCiudad('actividades',{filtered:false});
   });
 
   // Los accesos de cada ficha conservan el filtro ya guardado por la Guía,
@@ -3932,21 +3971,21 @@
     const promoLink=e.target.closest && e.target.closest('a.promos-activas-btn');
     if(promoLink){
       e.preventDefault();
-      window.mostrarModuloCiudad('promos',{filtered:true,trigger:promoLink});
+      window.mostrarModuloCiudad('promos',{filtered:true});
       return;
     }
 
     const eventLink=e.target.closest && e.target.closest('a.eventos-activos-btn');
     if(eventLink){
       e.preventDefault();
-      window.mostrarModuloCiudad('eventos',{filtered:true,trigger:eventLink});
+      window.mostrarModuloCiudad('eventos',{filtered:true});
       return;
     }
 
     const activityLink=e.target.closest && e.target.closest('a.actividades-activas-btn');
     if(activityLink){
       e.preventDefault();
-      window.mostrarModuloCiudad('actividades',{filtered:true,trigger:activityLink});
+      window.mostrarModuloCiudad('actividades',{filtered:true});
     }
   });
 
