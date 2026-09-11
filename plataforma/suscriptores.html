@@ -514,15 +514,35 @@ button:disabled{opacity:.65;cursor:wait}
 
       <div id="recovery-box" class="recovery-box hidden">
         <h2 style="font-size:19px">Recuperar contraseña</h2>
-        <p class="lead">Ingresá tu mail registrado.</p>
+        <p class="lead">Ingresá tu mail. Te enviaremos un código de recuperación.</p>
 
         <div class="grid">
           <div class="full">
             <label for="recovery-mail">Mail</label>
             <input id="recovery-mail" type="email" autocomplete="email">
           </div>
+
           <div class="full">
-            <button id="recovery-btn" class="secondary" type="button">Solicitar recuperación</button>
+            <button id="recovery-btn" class="secondary" type="button">Enviar código</button>
+          </div>
+
+          <div id="recovery-step2" class="full hidden">
+            <div class="grid">
+              <div class="full">
+                <label for="recovery-code">Código recibido</label>
+                <input id="recovery-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code">
+              </div>
+              <div class="full">
+                <label for="recovery-new-pass">Nueva contraseña</label>
+                <input id="recovery-new-pass" type="password" autocomplete="new-password">
+              </div>
+              <div class="full">
+                <button id="recovery-reset-btn" class="primary" type="button">Guardar nueva contraseña</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="full">
             <div id="recovery-msg" class="msg"></div>
           </div>
         </div>
@@ -987,21 +1007,92 @@ function showRecovery(){
   }
 }
 
-function requestRecovery(){
+async function requestRecovery(){
   const mail=el('recovery-mail').value.trim();
+  const btn=el('recovery-btn');
 
   if(!mail){
     msg('recovery-msg','Ingresá tu mail.',false);
     return;
   }
 
-  // La recuperación necesita su acción específica en el backend.
-  // La interfaz queda lista, pero no inventa una recuperación que hoy no existe.
-  msg(
-    'recovery-msg',
-    'La recuperación automática de contraseña todavía debe habilitarse en el sistema.',
-    false
-  );
+  setBusy(btn,true,'Enviando...');
+  msg('recovery-msg','',false);
+
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        action:'solicitar_recuperacion',
+        mail
+      })
+    });
+    const j=await r.json();
+
+    if(!j || j.success!==true){
+      msg('recovery-msg',(j&&(j.message||j.error))||'No se pudo iniciar la recuperación.',false);
+      return;
+    }
+
+    el('recovery-step2').classList.remove('hidden');
+    msg('recovery-msg','Si el mail está registrado, vas a recibir un código. Revisá también Spam.',true);
+    el('recovery-code').focus();
+  }catch(e){
+    msg('recovery-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
+}
+
+async function resetRecoveryPassword(){
+  const mail=el('recovery-mail').value.trim();
+  const codigo=el('recovery-code').value.trim();
+  const claveNueva=el('recovery-new-pass').value;
+  const btn=el('recovery-reset-btn');
+
+  if(!mail || !codigo || !claveNueva){
+    msg('recovery-msg','Completá mail, código y nueva contraseña.',false);
+    return;
+  }
+
+  if(claveNueva.length<6){
+    msg('recovery-msg','La nueva contraseña debe tener al menos 6 caracteres.',false);
+    return;
+  }
+
+  setBusy(btn,true,'Guardando...');
+  msg('recovery-msg','',false);
+
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        action:'restablecer_clave',
+        mail,
+        codigo,
+        clave_nueva:claveNueva
+      })
+    });
+    const j=await r.json();
+
+    if(!j || j.success!==true){
+      msg('recovery-msg',(j&&(j.message||j.error))||'No se pudo cambiar la contraseña.',false);
+      return;
+    }
+
+    msg('recovery-msg','Contraseña actualizada. Ya podés ingresar.',true);
+    el('login-mail').value=mail;
+    el('login-clave').value='';
+    el('recovery-box').classList.add('hidden');
+    el('recovery-step2').classList.add('hidden');
+    setTimeout(()=>el('login-clave').focus(),80);
+  }catch(e){
+    msg('recovery-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
 }
 
 async function saveCity(){
@@ -1068,6 +1159,7 @@ el('login-btn').addEventListener('click',login);
 el('register-btn').addEventListener('click',register);
 el('forgot-btn').addEventListener('click',showRecovery);
 el('recovery-btn').addEventListener('click',requestRecovery);
+el('recovery-reset-btn').addEventListener('click',resetRecoveryPassword);
 el('save-city-btn').addEventListener('click',saveCity);
 el('go-guide-btn').addEventListener('click',goToGuide);
 el('logout-btn').addEventListener('click',()=>saveSession(null));
@@ -1077,6 +1169,8 @@ loadStoredSession();
 const vistaInicial=new URLSearchParams(window.location.search).get('vista')||'';
 if(!sesionSuscriptor && vistaInicial==='login'){
   showLogin();
+}else if(!sesionSuscriptor && vistaInicial==='registro'){
+  showRegister();
 }
 
 renderSession();
