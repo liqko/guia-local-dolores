@@ -1895,7 +1895,9 @@
     let actividadesPromise=null;
     const GLD_MODULO_CACHE_MS=15*60*1000;
     const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v1:';
+    const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v1:';
     const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v1:';
+    const GLD_PUBLICIDAD_CACHE_PREFIX='gld_publicidad_guia_cache_v1:';
 
     function gldLeerModuloCache(prefix,ciudadId){
       try{
@@ -1915,9 +1917,26 @@
 
     function obtenerBannersPromise(){
       if(!bannersPromise){
-        bannersPromise=fetch(publicidadPublicaUrl('GUIA'))
-          .then(r=>r.json())
-          .catch(()=>({success:false,publicidades:[]}));
+        const ciudadId=String(ciudadSeleccionada||'').trim();
+        const cached=gldLeerModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId);
+        if(cached){
+          bannersPromise=Promise.resolve(cached);
+        }else{
+          bannersPromise=fetch(publicidadPublicaUrl('GUIA'),{cache:'no-store'})
+            .then(r=>{
+              if(!r.ok) throw new Error('Publicidad HTTP '+r.status);
+              return r.json();
+            })
+            .then(data=>{
+              gldGuardarModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId,data);
+              return data;
+            })
+            .catch(err=>{
+              bannersPromise=null;
+              console.warn('Publicidad Guía:',err);
+              return {success:false,publicidades:[]};
+            });
+        }
       }
       return bannersPromise;
     }
@@ -1950,13 +1969,23 @@
 
     function obtenerPromosPromise(){
       if(!promosPromise){
-        promosPromise=fetch(PROMOS_ENDPOINT).then(r=>{
-          if(!r.ok) throw new Error('Promos HTTP '+r.status);
-          return r.json();
-        }).catch(err=>{
-          console.error('Error cargando promos para tarjetas:',err);
-          return [];
-        });
+        const ciudadId=String(ciudadSeleccionada||'').trim();
+        const cached=gldLeerModuloCache(GLD_PROMOS_CACHE_PREFIX,ciudadId);
+        if(cached){
+          promosPromise=Promise.resolve(cached);
+        }else{
+          promosPromise=fetch(PROMOS_ENDPOINT,{cache:'no-store'}).then(r=>{
+            if(!r.ok) throw new Error('Promos HTTP '+r.status);
+            return r.json();
+          }).then(data=>{
+            gldGuardarModuloCache(GLD_PROMOS_CACHE_PREFIX,ciudadId,data);
+            return data;
+          }).catch(err=>{
+            promosPromise=null;
+            console.error('Error cargando promos para tarjetas:',err);
+            return [];
+          });
+        }
       }
       return promosPromise;
     }
@@ -3363,7 +3392,7 @@
           actualizarBotonesModulosVisibles();
         }).catch(err => console.warn('Actividades no disponibles todavía:', err));
 
-        publicidadCargaPromise.then(resp => {
+        const publicidadRenderPromise=publicidadCargaPromise.then(resp => {
           rawBanners = (resp && Array.isArray(resp.publicidades)) ? resp.publicidades : [];
           banners = rawBanners.map(p=>({
             publicidad_id:String(p.publicidad_id||''),
@@ -3386,6 +3415,10 @@
             });
           }
         }).catch(err => console.warn('Publicidad no disponible todavía:', err));
+
+        // La Guía no se considera terminada hasta que la publicidad ya fue
+        // incorporada al layout. Así no hay un segundo salto grande después.
+        await publicidadRenderPromise;
 
         window.addEventListener('scroll', () => {
           const topBtn = document.getElementById('topBtn');
@@ -3652,7 +3685,13 @@
 
       const favoritosInicioPromise=gldCargarFavoritosAnunciantes();
 
+      // Arrancamos todas las lecturas que después usa la Guía lo antes posible.
+      // Corren en paralelo mientras se resuelven catálogos y tarjetas.
       try{ prefetchGuia(paisSeleccionado,provinciaSeleccionada,ciudadSeleccionada); }catch(e){}
+      try{ obtenerBannersPromise(); }catch(e){}
+      try{ obtenerEventosPromise(); }catch(e){}
+      try{ obtenerPromosPromise(); }catch(e){}
+      try{ obtenerActividadesPromise(); }catch(e){}
 
       cargarEfemeridesHoyGuia().catch(e=>{
         console.error('Efemérides:',e);
