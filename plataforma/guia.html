@@ -486,9 +486,10 @@
     }
     .gld-city-pref-panel h2{margin:.1rem 0 .45rem;color:#006699;font-size:1.45rem}
     .gld-city-pref-panel p{margin:.25rem 0;color:#555;line-height:1.5}
-    .gld-city-pref-actions{display:grid;grid-template-columns:1fr 1fr;gap:.6rem;margin-top:1rem}
+    .gld-city-pref-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:.6rem;margin-top:1rem}
     .gld-city-pref-actions button{min-height:46px;border-radius:.65rem;font-weight:900;cursor:pointer}
     .gld-city-pref-yes{border:0;background:#006699;color:#fff}
+    .gld-city-pref-favorite{border:1px solid #d62828;background:#fff7f7;color:#b51f1f}
     .gld-city-pref-no{border:1px solid #006699;background:#fff;color:#006699}
     .gld-city-pref-status{margin-top:.65rem;min-height:1.1em;font-size:.9rem;font-weight:700}
     .gld-city-pref-status.error{color:#a00}
@@ -565,6 +566,14 @@
     body.gld-guia-cargando > .grid,
     body.gld-guia-cargando > .paginacion-zocalo{
       display:none!important;
+    }
+    body.gld-guia-cargando > .farma-turno-fixed,
+    body.gld-guia-cargando > .ubicacion-actual,
+    body.gld-guia-cargando > .gld-user-strip,
+    body.gld-guia-cargando > .modulos-ciudad{
+      pointer-events:none!important;
+      opacity:.55;
+      user-select:none;
     }
     @media(max-width:700px){
       .guia-carga-principal{
@@ -753,8 +762,9 @@
       <h2 id="gldCityPrefTitle">¿Querés guardar esta ciudad como tu ciudad habitual?</h2>
       <p id="gldCityPrefText"></p>
       <div class="gld-city-pref-actions">
-        <button id="gldCityPrefYes" class="gld-city-pref-yes" type="button">Sí, usar esta ciudad</button>
-        <button id="gldCityPrefNo" class="gld-city-pref-no" type="button">No, sólo por ahora</button>
+        <button id="gldCityPrefYes" class="gld-city-pref-yes" type="button">Cambiar ciudad habitual</button>
+        <button id="gldCityPrefFavorite" class="gld-city-pref-favorite" type="button">Agregar a favoritas</button>
+        <button id="gldCityPrefNo" class="gld-city-pref-no" type="button">No hacer nada</button>
       </div>
       <div id="gldCityPrefStatus" class="gld-city-pref-status" aria-live="polite"></div>
     </div>
@@ -1198,6 +1208,7 @@
       }
 
       const yes=document.getElementById('gldCityPrefYes');
+      const favorite=document.getElementById('gldCityPrefFavorite');
       const no=document.getElementById('gldCityPrefNo');
 
       if(no){
@@ -1209,9 +1220,48 @@
         };
       }
 
+      if(favorite){
+        favorite.onclick=async()=>{
+          favorite.disabled=true;
+          if(yes) yes.disabled=true;
+          if(no) no.disabled=true;
+          if(status){status.textContent='Guardando en favoritas...';status.className='gld-city-pref-status';}
+
+          try{
+            const r=await fetch(GLD_SUSCRIPTORES_API,{
+              method:'POST',
+              headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({
+                action:'agregar_favorito',
+                suscriptor_id:session.suscriptor_id,
+                tipo:'CIUDAD',
+                referencia_id:String(ciudadId),
+                nombre_ref:String(ciudadNombre||'').trim(),
+                ciudad_id:String(ciudadId)
+              })
+            });
+            const data=await r.json();
+            if(!data || data.success!==true){
+              throw new Error((data&&(data.message||data.error))||'No se pudo guardar la ciudad como favorita.');
+            }
+
+            gldClearCityChangePending();
+            overlay?.classList.remove('activo');
+            if(overlay){overlay.style.top='';overlay.style.left='';}
+          }catch(e){
+            if(status){status.textContent=String(e.message||e);status.className='gld-city-pref-status error';}
+          }finally{
+            favorite.disabled=false;
+            if(yes) yes.disabled=false;
+            if(no) no.disabled=false;
+          }
+        };
+      }
+
       if(yes){
         yes.onclick=async()=>{
           yes.disabled=true;
+          if(favorite) favorite.disabled=true;
           if(no) no.disabled=true;
           if(status){status.textContent='Guardando...';status.className='gld-city-pref-status';}
 
@@ -1240,6 +1290,7 @@
             if(status){status.textContent=String(e.message||e);status.className='gld-city-pref-status error';}
           }finally{
             yes.disabled=false;
+            if(favorite) favorite.disabled=false;
             if(no) no.disabled=false;
           }
         };
@@ -2332,7 +2383,7 @@
             html += `<div class="badge-icons">`;
             if(nivelVisual !== 3 && String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
             if(nivelVisual !== 3 && String(item.gold||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
-            if(anuncianteFavId) html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'${safeNombre.replace(/'/g,"&#039;")}')" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
+            if(anuncianteFavId && nivelVisual !== 3) html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'${safeNombre.replace(/'/g,"&#039;")}')" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
             html += `</div>`;
           }
 
@@ -3257,6 +3308,10 @@
         return;
       }
 
+      gldSetModuloCargando('guia',true,'Cargando Guía...');
+      document.body.classList.add('gld-guia-cargando');
+      document.getElementById('guiaCargaPrincipal')?.classList.add('activo');
+
       const farmaInicioPromise=cargarFarmaciasTurnoGuia().catch(e=>{
         console.error('Farmacias:',e);
       });
@@ -3357,10 +3412,6 @@
           catch(e){ window.location.href = 'https://guialocal.ar/'; }
         });
       }
-
-      gldSetModuloCargando('guia',true,'Cargando Guía...');
-      document.body.classList.add('gld-guia-cargando');
-      document.getElementById('guiaCargaPrincipal')?.classList.add('activo');
 
       const favoritosInicioPromise=gldCargarFavoritosAnunciantes();
 
