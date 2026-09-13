@@ -463,6 +463,14 @@
     <div id="panel-login" class="panel">
       <h2>PANEL EXCLUSIVO PARA ANUNCIANTES</h2>
       <p class="small-muted">Ingresá con tu CUENTA PERSONAL de Guía Local.Si todavía no tenés una, cliqueá el botón CREAR CUENTA</p>
+      <div class="info-banner" style="margin-bottom:12px">
+        <strong>Acceso exclusivo para personas autorizadas.</strong><br>
+        Tener una cuenta de Guía Local no habilita automáticamente el Panel de Anunciantes.
+        Para acceder a esta sección, tu cuenta debe estar asociada previamente a por lo menos un anunciante.<br><br>
+        Si necesitás autorización, comunicate con soporte:<br>
+        <a href="https://wa.me/5492245459957?text=Hola.%20Quiero%20solicitar%20acceso%20al%20Panel%20de%20Anunciantes%20de%20Gu%C3%ADa%20Local." target="_blank" rel="noopener">WhatsApp Soporte</a><br>
+        <a href="mailto:soporte@guialocal.ar">soporte@guialocal.ar</a>
+      </div>
       <form id="login-form" autocomplete="off">
         <label for="login-mail">Mail</label>
         <input type="email" id="login-mail" placeholder="tu@mail.com" autocomplete="email" required>
@@ -473,6 +481,7 @@
       </form>
 
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
+        <button type="button" class="btn-whatsapp" id="btnSolicitarAccesoAnunciante">Solicitar acceso a un anunciante</button>
         <button type="button" class="secondary" id="btnOlvideContrasena">Olvidé mi contraseña</button>
         <button type="button" class="btn-cta" id="btnCrearCuentaSuscriptor">Crear cuenta</button>
       </div>
@@ -503,6 +512,7 @@
       <div id="anunciantes-autorizados-lista"></div>
       <div id="anunciantes-autorizados-msg"></div>
       <div style="display:flex;flex-direction:column;gap:8px;margin-top:14px;">
+        <button id="btnSolicitarOtroAnunciante" class="btn-whatsapp" type="button">Solicitar acceso a otro anunciante</button>
         <button id="btnCambiarContrasenaCuenta" class="secondary" type="button">Cambiar contraseña</button>
         <button id="btnCerrarSesionCuenta" class="btn-danger" type="button">Cerrar sesión</button>
       </div>
@@ -1412,6 +1422,27 @@ function mostrarPanel(panel){
   document.getElementById('panel-'+panel)?.classList.add('active');
 }
 function openWhatsApp(text){ window.open(`https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent(text)}`,'_blank'); }
+
+function solicitarAccesoAnunciante_(desdeCuenta=false){
+  const nombre=String(sesionSuscriptor&&sesionSuscriptor.nombre||'').trim();
+  const mail=String(
+    (sesionSuscriptor&&sesionSuscriptor.mail) ||
+    document.getElementById('login-mail')?.value ||
+    ''
+  ).trim();
+  const suscriptorId=String(sesionSuscriptor&&sesionSuscriptor.suscriptor_id||'').trim();
+
+  const lineas=[
+    'Hola. Quiero solicitar autorización para administrar un anunciante en Guía Local.',
+    nombre ? 'Nombre: '+nombre : '',
+    mail ? 'Mail de la cuenta: '+mail : '',
+    suscriptorId ? 'Suscriptor ID: '+suscriptorId : '',
+    desdeCuenta ? 'Ya tengo acceso a otro/s anunciante/s y necesito agregar uno más.' : '',
+    'Anunciante al que necesito acceso: '
+  ].filter(Boolean);
+
+  openWhatsApp(lineas.join('\n'));
+}
 
 function parseLevel(levelStr){
   if(levelStr===undefined || levelStr===null) return NaN;
@@ -5909,10 +5940,27 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
 
   async function abrirCuentaAutorizada_({autoAbrir=true}={}){
-    mostrarPanel('seleccionar-anunciante');
     const lista=document.getElementById('anunciantes-autorizados-lista');
     if(lista) lista.innerHTML='<div class="small-muted">Cargando anunciantes autorizados...</div>';
+
     await obtenerAutorizaciones_();
+
+    if(!autorizacionesAnunciante.length){
+      limpiarContextoAnunciante_();
+      limpiarSesionSuscriptor_();
+      mostrarPanel('login');
+
+      const msg=document.getElementById('login-msg');
+      if(msg){
+        msg.innerHTML=
+          '<div class="msg err"><strong>Acceso no autorizado.</strong><br>'+
+          'Tu cuenta existe, pero no está habilitada para administrar ningún anunciante. '+
+          'Usá “Solicitar acceso a un anunciante” para pedir la autorización.</div>';
+      }
+      return false;
+    }
+
+    mostrarPanel('seleccionar-anunciante');
 
     const guardado=String(localStorage.getItem(DASHBOARD_ADVERTISER_KEY)||'');
     const relGuardada=autorizacionesAnunciante.find(x=>String(x.anunciante_id||'')===guardado);
@@ -6514,7 +6562,28 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       if(!data || data.success!==true || !data.suscriptor){
         throw new Error((data&&(data.message||data.error))||'No se pudo ingresar.');
       }
+      const anunciantesLogin=Array.isArray(data.anunciantes) ? data.anunciantes : [];
+
+      // Esta página es exclusivamente el Panel de Anunciantes.
+      // Una cuenta de suscriptor sin relaciones activas no ingresa.
+      if(!anunciantesLogin.length){
+        limpiarContextoAnunciante_();
+        limpiarSesionSuscriptor_();
+        sesionSuscriptor=null;
+        autorizacionesAnunciante=[];
+
+        if(msg){
+          msg.innerHTML=
+            '<div class="msg err"><strong>Acceso no autorizado.</strong><br>'+
+            'Tu cuenta es válida, pero no está habilitada para administrar ningún anunciante. '+
+            'Usá “Solicitar acceso a un anunciante” para pedir la autorización.</div>';
+        }
+        mostrarPanel('login');
+        return;
+      }
+
       guardarSesionSuscriptor_(data.suscriptor);
+      autorizacionesAnunciante=anunciantesLogin;
       limpiarContextoAnunciante_();
       await abrirCuentaAutorizada_({autoAbrir:true});
     }catch(err){
@@ -6529,6 +6598,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   };
 
   document.getElementById('logout-btn').addEventListener('click', cerrarSesionCompleta_);
+
+  document.getElementById('btnSolicitarAccesoAnunciante')?.addEventListener('click',()=>{
+    solicitarAccesoAnunciante_(false);
+  });
+
+  document.getElementById('btnSolicitarOtroAnunciante')?.addEventListener('click',()=>{
+    solicitarAccesoAnunciante_(true);
+  });
 
 
 
