@@ -5024,6 +5024,13 @@ async function loadPromosPanelData(){
     }
 
     const data=res.json;
+
+    // Fuente operativa de Promos:
+    // autorización + cupo provienen del módulo Promos / aux_permisos.
+    const promosCantLocal=Number(data.promos_cant||0);
+    sesion.promos_cant=Number.isFinite(promosCantLocal) ? promosCantLocal : 0;
+    localStorage.setItem('promos_cant',String(sesion.promos_cant));
+
     promoState={
       advertiser:data.advertiser || null,
       sedes:Array.isArray(data.sedes) ? data.sedes : [],
@@ -5759,9 +5766,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
     mostrarPanel('login');
   }
 
-  function nombreAnunciantePorId_(id){
-    const c=(comercios||[]).find(x=>String(x.id||'')===String(id||''));
-    return c ? String(c.nombre||id) : String(id||'');
+  function nombreAnuncianteRelacion_(rel){
+    const nombreLocal=String(rel&&rel.anunciante_nombre||'').trim();
+    if(nombreLocal) return nombreLocal;
+
+    const id=String(rel&&rel.anunciante_id||'').trim();
+    const c=(comercios||[]).find(x=>String(x.id||'')===id);
+    return c ? String(c.nombre||id) : id;
   }
 
   function permisoTruthy_(v){
@@ -5850,7 +5861,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       btn.type='button';
       btn.className='btn-cta';
       btn.style.marginBottom='8px';
-      const nombre=nombreAnunciantePorId_(rel.anunciante_id);
+      const nombre=nombreAnuncianteRelacion_(rel);
       const rol=String(rel.rol||'').trim();
       btn.textContent=nombre+(rol?` — ${rol}`:'');
       btn.addEventListener('click',()=>seleccionarAnunciante_(rel));
@@ -5861,7 +5872,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   async function seleccionarAnunciante_(rel){
     const id=String(rel&&rel.anunciante_id||'').trim();
     if(!id) return;
-    const nombre=nombreAnunciantePorId_(id);
+    const nombre=nombreAnuncianteRelacion_(rel);
 
     showGlobalBlocking_('Cargando anunciante...','Validando permisos actuales.',document.activeElement);
     try{
@@ -5877,7 +5888,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         id:id,
         nombre:nombre,
         planilla_id:String(administracion.planilla_id||''),
-        promos_cant:Number(administracion.promos_cant||0),
+        promos_cant:0,
         eventos_cant:Number(administracion.eventos_cant||0),
         turnos_farma:administracion.turnos_farma||'',
         administracion:administracion,
@@ -5901,7 +5912,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     mostrarPanel('seleccionar-anunciante');
     const lista=document.getElementById('anunciantes-autorizados-lista');
     if(lista) lista.innerHTML='<div class="small-muted">Cargando anunciantes autorizados...</div>';
-    await Promise.all([cargarCatalogoComerciosSilencioso_(),obtenerAutorizaciones_()]);
+    await obtenerAutorizaciones_();
 
     const guardado=String(localStorage.getItem(DASHBOARD_ADVERTISER_KEY)||'');
     const relGuardada=autorizacionesAnunciante.find(x=>String(x.anunciante_id||'')===guardado);
@@ -6462,11 +6473,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         localStorage.setItem('planilla_id', newPlanillaId);
       }
 
-      sesion.promos_cant = administracion.promos_cant || datos.promos_cant || sesion.promos_cant || 0;
+      // promos_cant pertenece al módulo Promos / aux_permisos.
+      // No se vuelve a tomar desde administracion ni datos generales.
       sesion.eventos_cant = administracion.eventos_cant || datos.eventos_cant || sesion.eventos_cant || 0;
       sesion.turnos_farma = administracion.turnos_farma || datos.turnos_farma || sesion.turnos_farma || '';
 
-      localStorage.setItem('promos_cant', sesion.promos_cant);
+      localStorage.setItem('promos_cant', sesion.promos_cant || 0);
       localStorage.setItem('eventos_cant', sesion.eventos_cant);
       localStorage.setItem('turnos_farma', sesion.turnos_farma);
       sesion.administracion=administracion;
@@ -6616,16 +6628,46 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       return ['true','si','sí','x','✓','aprobado','ok','activo'].includes(s);
     }
 
+    function parseFunctionalities_(value){
+      return [...new Set(
+        String(value || '')
+          .split(/[;,|\n]/)
+          .map(v=>normalizeKey(v))
+          .filter(Boolean)
+      )];
+    }
+
     function detectEnabledModules(datos){
       const out = new Set();
       const raw = datos && typeof datos === 'object' ? datos : {};
+      const administracion =
+        raw.administracion && typeof raw.administracion === 'object'
+          ? raw.administracion
+          : (sesion && sesion.administracion && typeof sesion.administracion === 'object'
+              ? sesion.administracion
+              : {});
 
+      // CADENA DE AUTORIZACIÓN:
+      // 1) suscriptor_anunciante autoriza a la PERSONA a administrar este anunciante.
+      // 2) administracion.funcionalidades autoriza al ANUNCIANTE a usar módulos.
+      // Son niveles distintos y no se intersectan.
+      const funcsEfectivas=parseFunctionalities_(administracion.funcionalidades);
+
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        const aliases=aliasByModule[modKey].map(normalizeKey);
+        if(funcsEfectivas.some(f=>aliases.includes(f))){
+          out.add(modKey);
+        }
+      });
+
+      // Compatibilidad temporal para funcionalidades todavía no migradas
+      // a administracion.funcionalidades.
       const fuentes = [
         raw,
         raw.datos && typeof raw.datos === 'object' ? raw.datos : {},
         raw.data && typeof raw.data === 'object' ? raw.data : {},
         raw.anunciante && typeof raw.anunciante === 'object' ? raw.anunciante : {},
-        raw.administracion && typeof raw.administracion === 'object' ? raw.administracion : {},
+        administracion,
         sesion && typeof sesion === 'object' ? sesion : {}
       ];
 
@@ -6633,29 +6675,21 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         Object.keys(obj).map(k=>({ norm:normalizeKey(k), value:obj[k] }))
       );
 
-      let hasCapabilityFields = false;
-
       Object.keys(aliasByModule).forEach((modKey)=>{
+        if(out.has(modKey)) return;
         const aliases = aliasByModule[modKey].map(normalizeKey);
-        let foundField = false;
-        let foundEnabled = false;
-
         for(const item of entries){
-          if(aliases.includes(item.norm)){
-            foundField = true;
-            if(isTruthy(item.value)){
-              foundEnabled = true;
-              break;
-            }
+          if(aliases.includes(item.norm) && isTruthy(item.value)){
+            out.add(modKey);
+            break;
           }
         }
-
-        if(foundField) hasCapabilityFields = true;
-        if(foundEnabled) out.add(modKey);
       });
+
       if(isTruthy(sesion && sesion.turnos_farma)){
         out.add('turnos_farma');
       }
+
       out.add('modificar_datos');
       return out;
     }
