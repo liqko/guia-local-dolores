@@ -4507,7 +4507,22 @@ async function loadFarmaciasUI(){
 async function events_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-  if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
+
+  // Eventos siempre opera sobre el anunciante actualmente seleccionado.
+  // Nunca toma advertiserId desde permisos, payload previo ni otro contexto.
+  const currentAdvertiserId=String(sesion && sesion.id || '').trim();
+  if(!currentAdvertiserId){
+    return Promise.resolve({status:400,json:{error:'No hay anunciante seleccionado.'}});
+  }
+  body.advertiserId=currentAdvertiserId;
+
+  if(body.payload && typeof body.payload==='object'){
+    body.payload=Object.assign({},body.payload);
+    delete body.payload.advertiserId;
+    delete body.payload.advertiserID;
+    delete body.payload.__id;
+  }
+
   return postJson(WORKER_EVENTS_URL, body);
 }
 async function promos_post(payload){
@@ -5745,11 +5760,18 @@ async function loadEventsUI(){
     }
 
     const data = res.json || {};
-    const events = Array.isArray(data.events) ? data.events : [];
+    const currentAdvertiserId=String(sesion && sesion.id || '').trim();
+    const events = (Array.isArray(data.events) ? data.events : []).filter(ev=>
+      String(ev && ev.id_anunciante || '').trim()===currentAdvertiserId
+    );
     window.__lastEvents = events;
     renderEventsList(events);
 
-    // La versión anterior usaba "cupo" sin haberlo definido.
+    if(data.eventos_cant!==undefined && data.eventos_cant!==null && data.eventos_cant!==''){
+      const cant=Number(data.eventos_cant);
+      if(Number.isFinite(cant)) sesion.eventos_cant=cant;
+    }
+
     const cupo = calcularCupoPublicacion(events, sesion.eventos_cant);
     st.innerHTML = textoCupoPublicacion(cupo);
 
@@ -5934,7 +5956,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         nombre:nombre,
         planilla_id:String(administracion.planilla_id||''),
         promos_cant:0,
-        eventos_cant:Number(administracion.eventos_cant||0),
+        eventos_cant:0,
         turnos_farma:administracion.turnos_farma||'',
         administracion:administracion,
         relacion_autorizacion:rel
@@ -6684,7 +6706,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
     const aliasByModule = {
       promos: ['promos','promo','promos_cant'],
-      eventos: ['eventos','evento','eventos_cant'],
+      eventos: ['eventos','evento','eventosfree'],
       turnos_farma: ['turnos_farma','turnosfarma','farmacias_turno','farmaciasdeturno'],
       efemerides: ['efemerides','efemeride','efemerides_local','efemerides_grl'],
       menu: ['menu','menus','carta'],
@@ -6747,36 +6769,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         }
       });
 
-      // Compatibilidad temporal para funcionalidades todavía no migradas
-      // a administracion.funcionalidades.
-      const fuentes = [
-        raw,
-        raw.datos && typeof raw.datos === 'object' ? raw.datos : {},
-        raw.data && typeof raw.data === 'object' ? raw.data : {},
-        raw.anunciante && typeof raw.anunciante === 'object' ? raw.anunciante : {},
-        administracion,
-        sesion && typeof sesion === 'object' ? sesion : {}
-      ];
-
-      const entries = fuentes.flatMap(obj =>
-        Object.keys(obj).map(k=>({ norm:normalizeKey(k), value:obj[k] }))
-      );
-
-      Object.keys(aliasByModule).forEach((modKey)=>{
-        if(out.has(modKey)) return;
-        const aliases = aliasByModule[modKey].map(normalizeKey);
-        for(const item of entries){
-          if(aliases.includes(item.norm) && isTruthy(item.value)){
-            out.add(modKey);
-            break;
-          }
-        }
-      });
-
-      if(isTruthy(sesion && sesion.turnos_farma)){
-        out.add('turnos_farma');
-      }
-
+      // ÚNICA fuente de módulos del anunciante: administracion.funcionalidades.
+      // No se usan cupos, campos viejos ni permisos del suscriptor para habilitar módulos.
       out.add('modificar_datos');
       return out;
     }
