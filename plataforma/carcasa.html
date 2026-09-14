@@ -1112,8 +1112,12 @@
       if(overlay){overlay.style.top='';overlay.style.left='';}
     }
 
+    let gldModuloPendienteLogin='';
+
     function gldRequireSubscriber(disparador){
       if(gldIsSubscriberLogged()) return true;
+      const id=String(disparador?.id||'');
+      gldModuloPendienteLogin = id==='moduloPromos' ? 'promos' : id==='moduloEventos' ? 'eventos' : id==='moduloActividades' ? 'actividades' : '';
       gldShowSubscriberLogin(disparador);
       return false;
     }
@@ -1131,6 +1135,8 @@
 
       if(btn){btn.disabled=true;btn.textContent='Ingresando...';}
       if(msg){msg.textContent='';msg.className='gld-subscriber-msg';}
+      // Regla general: mientras una operación de login está en curso, se bloquea toda la interfaz.
+      gldSetModuloCargando('login',true,'Ingresando...');
 
       try{
         const r=await fetch(GLD_SUSCRIPTORES_API,{
@@ -1146,11 +1152,15 @@
 
         gldSetSubscriberSession(data.suscriptor);
         if(msg){msg.textContent='Ingreso correcto.';msg.className='gld-subscriber-msg ok';}
-
-        // Recargamos la misma ciudad para habilitar también los accesos
-        // de cada ficha y cargar los recursos protegidos desde el inicio.
-        setTimeout(()=>window.location.reload(),180);
+        const destino=gldModuloPendienteLogin;
+        gldModuloPendienteLogin='';
+        gldHideSubscriberLogin();
+        gldSetModuloCargando('',false);
+        if(destino && typeof window.mostrarModuloCiudad==='function'){
+          setTimeout(()=>window.mostrarModuloCiudad(destino,{forzar:true}),80);
+        }
       }catch(e){
+        gldSetModuloCargando('',false);
         if(msg){msg.textContent=String(e.message||e);msg.className='gld-subscriber-msg error';}
       }finally{
         if(btn){btn.disabled=false;btn.textContent='Ingresar';}
@@ -1573,6 +1583,8 @@
         document.body.classList.add('gld-bloqueado-total');
         bloqueo?.classList.remove('error');
         if(bloqueoTexto) bloqueoTexto.textContent=mensaje || 'Cargando...';
+        const retryBtn=document.getElementById('gldBloqueoReintentar');
+        if(retryBtn) retryBtn.textContent='Reintentar';
         if(estado){estado.hidden=true;estado.textContent='';}
       }else{
         gldModuloCargando='';
@@ -4098,6 +4110,8 @@
         const txt=document.getElementById('gldBloqueoTexto');
         if(box) box.classList.add('error');
         if(txt) txt.textContent=String(d.detalle||'La información está demorando más de lo habitual.');
+        const rb=document.getElementById('gldBloqueoReintentar');
+        if(rb) rb.textContent=String(frame.dataset.modulo||'')==='eventos'?'Reintentar eventos':'Reintentar';
       }
     }
   });
@@ -4155,6 +4169,8 @@
       const txt=document.getElementById('gldBloqueoTexto');
       if(box) box.classList.add('error');
       if(txt) txt.textContent='La información está demorando más de lo habitual.';
+      const rb=document.getElementById('gldBloqueoReintentar');
+      if(rb) rb.textContent=key==='eventos'?'Reintentar eventos':'Reintentar';
     },30000);
 
     let destino=contextoUrl(mod.url);
