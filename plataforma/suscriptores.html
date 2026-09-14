@@ -557,6 +557,7 @@ button:disabled{opacity:.65;cursor:wait}
         <p id="profile-name"></p>
       </div>
       <div class="mi-guia-top-actions">
+        <button id="delete-account-btn" class="mi-guia-danger" type="button">Eliminar cuenta</button>
         <button id="logout-btn" class="mi-guia-danger" type="button">Cerrar sesión</button>
       </div>
     </div>
@@ -571,6 +572,26 @@ button:disabled{opacity:.65;cursor:wait}
         <div class="full">
           <button id="save-city-btn" class="primary" type="button">Guardar mi ciudad</button>
           <div id="profile-msg" class="msg"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="delete-account-box" class="card hidden">
+      <h2>Eliminar cuenta</h2>
+      <p class="lead">
+        Esta acción elimina tu cuenta y tus datos asociados. No se puede deshacer.
+      </p>
+      <div class="grid">
+        <div class="full">
+          <label for="delete-account-password">Confirmá tu contraseña</label>
+          <input id="delete-account-password" type="password" autocomplete="current-password">
+        </div>
+        <div class="full mi-guia-top-actions">
+          <button id="delete-account-confirm-btn" class="mi-guia-danger" type="button">Eliminar definitivamente</button>
+          <button id="delete-account-cancel-btn" class="mi-guia-secondary" type="button">Cancelar</button>
+        </div>
+        <div class="full">
+          <div id="delete-account-msg" class="msg"></div>
         </div>
       </div>
     </div>
@@ -1117,6 +1138,77 @@ async function saveCity(){
   }
 }
 
+
+function showDeleteAccountBox(){
+  if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id) return;
+  msg('delete-account-msg','',false);
+  el('delete-account-password').value='';
+  el('delete-account-box').classList.remove('hidden');
+  setTimeout(()=>el('delete-account-password').focus(),50);
+}
+
+function hideDeleteAccountBox(){
+  el('delete-account-box').classList.add('hidden');
+  el('delete-account-password').value='';
+  msg('delete-account-msg','',false);
+}
+
+async function deleteAccount(){
+  if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id) return;
+
+  const claveActual=el('delete-account-password').value;
+  if(!claveActual){
+    msg('delete-account-msg','Ingresá tu contraseña actual.',false);
+    return;
+  }
+
+  const confirmado=window.confirm(
+    '¿Confirmás que querés eliminar definitivamente tu cuenta de Guía Local? Esta acción no se puede deshacer.'
+  );
+  if(!confirmado) return;
+
+  const btn=el('delete-account-confirm-btn');
+  setBusy(btn,true,'Eliminando...');
+  msg('delete-account-msg','',false);
+
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        action:'eliminar_cuenta',
+        suscriptor_id:sesionSuscriptor.suscriptor_id,
+        clave_actual:claveActual,
+        confirmar_eliminacion:true
+      })
+    });
+
+    const j=await r.json();
+
+    if(!j || j.success!==true){
+      msg(
+        'delete-account-msg',
+        (j && (j.message||j.error)) || 'No se pudo eliminar la cuenta.',
+        false
+      );
+      return;
+    }
+
+    localStorage.removeItem(SESSION_KEY);
+    sesionSuscriptor=null;
+
+    el('delete-account-box').classList.add('hidden');
+    renderSession();
+    showLogin();
+    msg('login-msg','Tu cuenta fue eliminada.',true);
+
+  }catch(err){
+    msg('delete-account-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
+}
+
 function loadStoredSession(){
   try{
     const raw=localStorage.getItem(SESSION_KEY);
@@ -1143,6 +1235,9 @@ el('forgot-btn').addEventListener('click',showRecovery);
 el('recovery-btn').addEventListener('click',requestRecovery);
 el('recovery-reset-btn').addEventListener('click',resetRecoveryPassword);
 el('save-city-btn').addEventListener('click',saveCity);
+el('delete-account-btn').addEventListener('click',showDeleteAccountBox);
+el('delete-account-cancel-btn').addEventListener('click',hideDeleteAccountBox);
+el('delete-account-confirm-btn').addEventListener('click',deleteAccount);
 el('logout-btn').addEventListener('click',()=>saveSession(null));
 
 loadStoredSession();
