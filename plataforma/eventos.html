@@ -446,16 +446,6 @@
     .pagination-bar span{color:#444;font-weight:500;}
     .pagination-bar span.dots{ cursor:default; background:none !important; color:#aaa; padding:3px 6px;}
 
-    .events-loading{
-      width:100%;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;
-      gap:12px;text-align:center;background:#fff;border:1px solid #e6eefc;border-radius:14px;
-      box-shadow:var(--shadow);padding:26px 18px;color:#1f5fb8;font-weight:900;
-    }
-    .events-loading-spinner{
-      width:34px;height:34px;border:4px solid #dce8f8;border-top-color:#1f5fb8;border-radius:50%;
-      animation:eventsSpin .8s linear infinite;
-    }
-    @keyframes eventsSpin{to{transform:rotate(360deg)}}
 
     .error{color:var(--danger);font-weight:900;}
 
@@ -616,7 +606,7 @@
 
 </style>
 </head>
-<body>
+<body class="gld-modulo-preparando">
   <div class="wrap" role="main">
     <div class="header">
       <img class="logo" src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321331/dq3bwgffteoqkeesxsuy.png" alt="logo">
@@ -655,17 +645,10 @@
 
   <script>
     const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzD8yRKeWn2B2bMOc7NsoHGzaYon1ifg5sgkeAnmUz8U13t_j_5vDwkHnWz3pk6tp8hmg/exec";
-    const SERVER_SECRET = "PzbqSEw9xNrwvWruJN7njiW905uwMiBS";
-    const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getevents&serverSecret=" + encodeURIComponent(SERVER_SECRET);
+    const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getevents";
     const CITIES_ENDPOINT = WEBAPP_URL + "?action=getcities";
     const GENERIC_PARTNER_LOGO = "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png";
     const urlBanners = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
-
-    /* Preparado para una futura restricción por login/PWA. No está activa. */
-    const EVENT_ACCESS_CONTROL_ENABLED = false;
-    function isRunningAsInstalledPWA(){
-      return window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
-    }
 
     let banners = [];
 
@@ -921,19 +904,6 @@
       return u.toString();
     }
 
-    function navegarArriba(url){
-      try{ window.top.location.href = url; }
-      catch(e){ window.location.href = url; }
-    }
-
-    function pintarContextoCiudad(){
-      const ciudadEl = document.getElementById('ciudadContexto');
-      const ciudadSub = document.getElementById('ciudadSubtitulo');
-      if(ciudadEl) ciudadEl.textContent = (ciudadContexto.ciudad || ciudadContexto.ciudad_id || 'CIUDAD').toUpperCase();
-      if(ciudadSub) ciudadSub.textContent = [ciudadContexto.provincia, ciudadContexto.pais].filter(Boolean).join(' - ');
-    }
-
-    pintarContextoCiudad();
 
     /* Integración desde fichas de anunciantes.
        El filtro comercial es temporal, pero siempre se aplica dentro de la ciudad activa. */
@@ -2045,7 +2015,6 @@
       if(!visible) return;
       ciudadContexto.ciudad = visible.replace(/\s*\([^)]*\)\s*$/, '').trim();
       try{ localStorage.setItem(CITY_CONTEXT_KEY, JSON.stringify({...ciudadContexto, ts:Date.now()})); }catch(e){}
-      pintarContextoCiudad();
     }
 
     function updateCityHeading(){
@@ -2078,16 +2047,6 @@
       renderEventos(eventosFiltrados, 1);
     }
 
-    function mostrarCargaEventos(){
-      const el=document.getElementById('events');
-      if(!el) return;
-      el.innerHTML=`<div class="events-loading" role="status" aria-live="polite">
-        <div class="events-loading-spinner" aria-hidden="true"></div>
-        <div>Cargando eventos de la ciudad...</div>
-      </div>`;
-    }
-
-    mostrarCargaEventos();
 
     const eventsEndpointCiudad = EVENTS_ENDPOINT +
       (ciudadContexto.ciudad_id ? '&ciudad_id=' + encodeURIComponent(ciudadContexto.ciudad_id) : '');
@@ -2134,50 +2093,78 @@
       }
     }
 
-    fetch(eventsEndpointCiudad)
-      .then(res => res.json())
-      .then(procesarEventosResponse)
-      .catch(err => {
-        console.error(err);
-        document.getElementById('events').innerHTML = `<p class="error" style="text-align:center;padding:20px;">Error al cargar los eventos.</p>`;
-      });
+    function gldEventoAvisar(estado, detalle){
+      try{
+        window.parent.postMessage({
+          tipo:'gldModuloEstado',
+          modulo:'eventos',
+          estado:String(estado||''),
+          detalle:String(detalle||'')
+        }, '*');
+      }catch(e){}
+    }
 
-    fetch(CITIES_ENDPOINT)
-      .then(res => res.json())
-      .then(citiesResponse => {
-        ciudadesData = Array.isArray(citiesResponse) ? citiesResponse : (citiesResponse.ciudades || []);
-        resolverCiudadVisible(ciudadesData);
+    async function fetchJsonConTimeout(url, ms=10000){
+      const controller=new AbortController();
+      const timer=setTimeout(()=>controller.abort(),ms);
+      try{
+        const r=await fetch(url,{signal:controller.signal});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        return await r.json();
+      }finally{
+        clearTimeout(timer);
+      }
+    }
+
+    async function iniciarModuloEventos(){
+      if(!ciudadContexto.ciudad_id){
+        gldEventoAvisar('error','No hay una ciudad seleccionada.');
+        return;
+      }
+
+      try{
+        // Eventos es la única lectura crítica. Ciudad ya llega desde Carcasa.
+        // Publicidad se intenta en paralelo, pero una falla de banners no invalida las tarjetas.
+        const [eventResult, bannerResult] = await Promise.allSettled([
+          fetchJsonConTimeout(eventsEndpointCiudad,8000),
+          fetchJsonConTimeout(urlBanners,4500)
+        ]);
+        if(eventResult.status!=='fulfilled') throw eventResult.reason || new Error('No se pudieron cargar los eventos.');
+        const eventResponse=eventResult.value;
+        const rawBanners=bannerResult.status==='fulfilled' ? bannerResult.value : [];
         updateCityHeading();
-      })
-      .catch(()=>{});
 
-    fetch(urlBanners)
-      .then(res => res.json())
-      .then(rawBanners => {
-        if (rawBanners && Array.isArray(rawBanners)) {
-          banners = rawBanners
-            .filter(b => {
-              const apr = (b.aprobado !== undefined) ? String(b.aprobado).trim().toLowerCase() : '';
-              return apr === 'true' || apr === '1' || apr === 'x';
-            })
-            .map(b => ({
-              img: (b.img || b.url || '').trim(),
-              media: (b.media || '').trim(),
-              cta: (b.cta || '').trim(),
-              poster: (b.poster || '').trim()
-            }));
-          if(eventosFiltrados.length) renderEventos(eventosFiltrados, currentPage || 1);
-        }
-      })
-      .catch(()=>{});
+        banners = Array.isArray(rawBanners)
+          ? rawBanners
+              .filter(b=>{
+                const apr=(b.aprobado!==undefined)?String(b.aprobado).trim().toLowerCase():'';
+                return apr==='true' || apr==='1' || apr==='x';
+              })
+              .map(b=>({
+                img:String(b.img||b.url||'').trim(),
+                media:String(b.media||'').trim(),
+                cta:String(b.cta||'').trim(),
+                poster:String(b.poster||'').trim()
+              }))
+          : [];
+
+        // Único render inicial: cuando eventos + ciudad + publicidad ya están listos.
+        procesarEventosResponse(eventResponse);
+
+        document.body.classList.remove('gld-modulo-preparando');
+        gldEventoAvisar('ready');
+      }catch(err){
+        console.error('Eventos:',err);
+        document.body.classList.add('gld-modulo-preparando');
+        gldEventoAvisar('error','No se pudieron cargar los eventos. Podés reintentar sin salir de Eventos.');
+      }
+    }
 
     document.getElementById('search').addEventListener('input', applyEventFilters);
     document.getElementById('categoryFilter').addEventListener('change', applyEventFilters);
 
-    if(!ciudadContexto.ciudad_id){
-      navegarArriba('https://guialocal.ar/');
-    }
-  
+    iniciarModuloEventos();
+
 
     /* ALTURA AUTOMÁTICA PARA EL IFRAME DE JIMDO */
     (() => {
