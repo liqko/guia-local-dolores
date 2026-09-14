@@ -336,3 +336,126 @@
 
   </div>
 </footer>
+
+<script>
+/* =========================================================
+   ALTURA DINÁMICA DEL HTML EMBEBIDO
+   Compatible con el embed ya usado en Jimdo.
+   Envía siempre: {tipo:'alturaIframeGLD', altura:N}
+========================================================= */
+(function(){
+  let ultimoAlto = 0;
+  let raf = 0;
+  let timerResize = 0;
+  let intervaloInicial = 0;
+  let contadorInicial = 0;
+
+  function medirAltura(){
+    const body = document.body;
+    const html = document.documentElement;
+
+    return Math.ceil(Math.max(
+      body ? body.scrollHeight : 0,
+      body ? body.offsetHeight : 0,
+      body ? body.getBoundingClientRect().height : 0,
+      html ? html.scrollHeight : 0,
+      html ? html.offsetHeight : 0,
+      html ? html.getBoundingClientRect().height : 0
+    ));
+  }
+
+  function comunicarAltura(forzar){
+    cancelAnimationFrame(raf);
+
+    raf = requestAnimationFrame(function(){
+      const alto = medirAltura();
+      if(!alto) return;
+
+      if(!forzar && Math.abs(alto - ultimoAlto) < 2) return;
+      ultimoAlto = alto;
+
+      window.parent.postMessage({
+        tipo: 'alturaIframeGLD',
+        altura: alto
+      }, '*');
+    });
+  }
+
+  function serieInicial(){
+    [0, 60, 150, 300, 600, 1000, 1800, 3000].forEach(function(ms){
+      setTimeout(function(){ comunicarAltura(true); }, ms);
+    });
+
+    clearInterval(intervaloInicial);
+    contadorInicial = 0;
+    intervaloInicial = setInterval(function(){
+      comunicarAltura(false);
+      contadorInicial++;
+      if(contadorInicial >= 20){
+        clearInterval(intervaloInicial);
+      }
+    }, 500);
+  }
+
+  document.addEventListener('DOMContentLoaded', serieInicial, {once:true});
+  window.addEventListener('load', serieInicial, {once:true});
+
+  window.addEventListener('resize', function(){
+    clearTimeout(timerResize);
+    timerResize = setTimeout(function(){ comunicarAltura(true); }, 80);
+  }, {passive:true});
+
+  window.addEventListener('orientationchange', function(){
+    setTimeout(function(){ comunicarAltura(true); }, 150);
+    setTimeout(function(){ comunicarAltura(true); }, 500);
+  });
+
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize', function(){
+      setTimeout(function(){ comunicarAltura(true); }, 80);
+    }, {passive:true});
+  }
+
+  if(document.fonts && document.fonts.ready){
+    document.fonts.ready
+      .then(function(){ comunicarAltura(true); })
+      .catch(function(){});
+  }
+
+  document.querySelectorAll('img').forEach(function(img){
+    if(!img.complete){
+      img.addEventListener('load', function(){ comunicarAltura(true); }, {once:true});
+      img.addEventListener('error', function(){ comunicarAltura(true); }, {once:true});
+    }
+  });
+
+  if(window.ResizeObserver){
+    const ro = new ResizeObserver(function(){
+      comunicarAltura(false);
+    });
+    if(document.documentElement) ro.observe(document.documentElement);
+    if(document.body) ro.observe(document.body);
+  }
+
+  if(window.MutationObserver){
+    const mo = new MutationObserver(function(){
+      comunicarAltura(false);
+    });
+    mo.observe(document.documentElement, {
+      childList:true,
+      subtree:true,
+      characterData:true,
+      attributes:true
+    });
+  }
+
+  document.addEventListener('transitionend', function(){ comunicarAltura(false); }, true);
+  document.addEventListener('animationend', function(){ comunicarAltura(false); }, true);
+  document.addEventListener('click', function(){
+    setTimeout(function(){ comunicarAltura(true); }, 120);
+  }, true);
+
+  comunicarAltura(true);
+})();
+</script>
+
