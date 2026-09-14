@@ -464,9 +464,9 @@
       <h2>PANEL EXCLUSIVO PARA ANUNCIANTES</h2>
       <p class="small-muted">Ingresá con tu CUENTA PERSONAL de Guía Local.Si todavía no tenés una, cliqueá el botón CREAR CUENTA</p>
       <div class="info-banner" style="margin-bottom:12px">
-        <strong>¿Querés administrar un comercio, una organización o publicar un evento?</strong><br>
-        Para ingresar a este panel tenés que tener una CUENTA PERSONAL en Guía Local y estar autorizado para administrar ese anuncio o publicar eventos.<br><br>
-        Si ya tenés cuenta personal, pero todavía no estás autorizado, solicitá el acceso a soporte.
+        <strong>¿Querés administrar un comercio?</strong><br>
+        Para ingresar a este panel primero tenés que tener una cuenta de Guía Local y estar autorizado para administrar ese anunciante.<br><br>
+        Si ya tenés cuenta pero todavía no estás autorizado, solicitá el acceso a soporte.
       </div>
       <form id="login-form" autocomplete="off">
         <label for="login-mail">Mail</label>
@@ -478,7 +478,7 @@
       </form>
 
       <div style="display:flex;flex-direction:column;gap:10px;margin-top:14px;">
-        <button type="button" class="btn-whatsapp" id="btnSolicitarAccesoAnunciante">Solicitar acceso a un anuncio o publicar un evento</button>
+        <button type="button" class="btn-whatsapp" id="btnSolicitarAccesoAnunciante">Solicitar acceso a un anunciante</button>
         <button type="button" class="secondary" id="btnOlvideContrasena">Olvidé mi contraseña</button>
         <button type="button" class="btn-cta" id="btnCrearCuentaSuscriptor">Crear cuenta</button>
       </div>
@@ -1430,8 +1430,15 @@ function overlayVisibleTop_(){
 }
 
 function mostrarPanel(panel){
-  ['panel-login','panel-recuperar','panel-seleccionar-anunciante','panel-cambiar-contrasena','panel-dashboard']
-    .forEach(id=>document.getElementById(id)?.classList.remove('active'));
+  [
+    'panel-login',
+    'panel-no-autorizado',
+    'panel-recuperar',
+    'panel-seleccionar-anunciante',
+    'panel-cambiar-contrasena',
+    'panel-dashboard'
+  ].forEach(id=>document.getElementById(id)?.classList.remove('active'));
+
   document.getElementById('panel-'+panel)?.classList.add('active');
 }
 function openWhatsApp(text){ window.open(`https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent(text)}`,'_blank'); }
@@ -4507,22 +4514,7 @@ async function loadFarmaciasUI(){
 async function events_post(payload){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-
-  // Eventos siempre opera sobre el anunciante actualmente seleccionado.
-  // Nunca toma advertiserId desde permisos, payload previo ni otro contexto.
-  const currentAdvertiserId=String(sesion && sesion.id || '').trim();
-  if(!currentAdvertiserId){
-    return Promise.resolve({status:400,json:{error:'No hay anunciante seleccionado.'}});
-  }
-  body.advertiserId=currentAdvertiserId;
-
-  if(body.payload && typeof body.payload==='object'){
-    body.payload=Object.assign({},body.payload);
-    delete body.payload.advertiserId;
-    delete body.payload.advertiserID;
-    delete body.payload.__id;
-  }
-
+  if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_EVENTS_URL, body);
 }
 async function promos_post(payload){
@@ -5760,18 +5752,11 @@ async function loadEventsUI(){
     }
 
     const data = res.json || {};
-    const currentAdvertiserId=String(sesion && sesion.id || '').trim();
-    const events = (Array.isArray(data.events) ? data.events : []).filter(ev=>
-      String(ev && ev.id_anunciante || '').trim()===currentAdvertiserId
-    );
+    const events = Array.isArray(data.events) ? data.events : [];
     window.__lastEvents = events;
     renderEventsList(events);
 
-    if(data.eventos_cant!==undefined && data.eventos_cant!==null && data.eventos_cant!==''){
-      const cant=Number(data.eventos_cant);
-      if(Number.isFinite(cant)) sesion.eventos_cant=cant;
-    }
-
+    // La versión anterior usaba "cupo" sin haberlo definido.
     const cupo = calcularCupoPublicacion(events, sesion.eventos_cant);
     st.innerHTML = textoCupoPublicacion(cupo);
 
@@ -5956,7 +5941,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         nombre:nombre,
         planilla_id:String(administracion.planilla_id||''),
         promos_cant:0,
-        eventos_cant:0,
+        eventos_cant:Number(administracion.eventos_cant||0),
         turnos_farma:administracion.turnos_farma||'',
         administracion:administracion,
         relacion_autorizacion:rel
@@ -6706,7 +6691,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
     const aliasByModule = {
       promos: ['promos','promo','promos_cant'],
-      eventos: ['eventos','evento','eventosfree'],
+      eventos: ['eventos','evento','eventos_cant'],
       turnos_farma: ['turnos_farma','turnosfarma','farmacias_turno','farmaciasdeturno'],
       efemerides: ['efemerides','efemeride','efemerides_local','efemerides_grl'],
       menu: ['menu','menus','carta'],
@@ -6769,8 +6754,36 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         }
       });
 
-      // ÚNICA fuente de módulos del anunciante: administracion.funcionalidades.
-      // No se usan cupos, campos viejos ni permisos del suscriptor para habilitar módulos.
+      // Compatibilidad temporal para funcionalidades todavía no migradas
+      // a administracion.funcionalidades.
+      const fuentes = [
+        raw,
+        raw.datos && typeof raw.datos === 'object' ? raw.datos : {},
+        raw.data && typeof raw.data === 'object' ? raw.data : {},
+        raw.anunciante && typeof raw.anunciante === 'object' ? raw.anunciante : {},
+        administracion,
+        sesion && typeof sesion === 'object' ? sesion : {}
+      ];
+
+      const entries = fuentes.flatMap(obj =>
+        Object.keys(obj).map(k=>({ norm:normalizeKey(k), value:obj[k] }))
+      );
+
+      Object.keys(aliasByModule).forEach((modKey)=>{
+        if(out.has(modKey)) return;
+        const aliases = aliasByModule[modKey].map(normalizeKey);
+        for(const item of entries){
+          if(aliases.includes(item.norm) && isTruthy(item.value)){
+            out.add(modKey);
+            break;
+          }
+        }
+      });
+
+      if(isTruthy(sesion && sesion.turnos_farma)){
+        out.add('turnos_farma');
+      }
+
       out.add('modificar_datos');
       return out;
     }
