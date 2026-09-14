@@ -1830,7 +1830,9 @@
     }
 
     function prefetchGuia(paisId, provinciaId, ciudadId){
-      if(!paisId || !provinciaId || !ciudadId) return null;
+      // ciudad_id es suficiente para empezar a leer indice_guia.
+      // País/provincia pueden resolverse después sin frenar la tarjeta pública.
+      if(!ciudadId) return null;
       const key = guiaKey(paisId, provinciaId, ciudadId);
 
       // Si ya visitó esta ciudad, mostramos la guía inmediatamente.
@@ -2020,9 +2022,10 @@
       return actividadesPromise;
     }
 
-    async function cargarGuiaSeleccionada(){
+    async function cargarGuiaSeleccionada(guiaPromiseInicial){
       try {
-        let guiaPromise = prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
+        let guiaPromise = guiaPromiseInicial
+          || prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
           || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 45000);
 
         // Si una precarga arrancó justo durante un arranque lento de Apps Script,
@@ -2118,9 +2121,9 @@
             .filter(Boolean);
         }
         function eventMatchesAdvertiser(ev, item){
-          const itemIds = advertiserIds(item);
-          const evIds = advertiserIds(ev);
-          if(itemIds.length && evIds.some(id=>itemIds.includes(id))) return true;
+          // Vínculo PÚBLICO de un evento con una tarjeta:
+          // únicamente por organizador / partner / auspiciante / sponsor / co-organizador.
+          // id_anunciante es dato de gestión y NO define pertenencia pública.
           const itemName = normalizar(item && item.nombre);
           if(!itemName) return false;
           return eventRelatedAdvertiserNames(ev).includes(itemName);
@@ -2145,13 +2148,10 @@
           if(!matches.length) return '';
           const params = new URLSearchParams();
           params.set('organizador', String(item.nombre || '').trim());
-          const ids = advertiserIds(item);
-          if(ids.length) params.set('anunciante_id', ids[0]);
           const label = matches.length === 1 ? 'Ver evento activo' : `Ver ${matches.length} eventos activos`;
           const safeName = String(item.nombre || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           const bridgePayload = {
             organizador: String(item.nombre || '').trim(),
-            anunciante_id: ids.length ? ids[0] : '',
             event_keys: matches.map(eventBridgeKey).filter(Boolean)
           };
           const payload = encodeURIComponent(JSON.stringify(bridgePayload));
@@ -3582,6 +3582,14 @@
       document.body.classList.add('gld-guia-cargando');
       document.getElementById('guiaCargaPrincipal')?.classList.add('activo');
 
+      // La lectura principal arranca YA. No espera ubicación visible, bootstrap,
+      // favoritos, farmacia, efemérides ni módulos secundarios.
+      const guiaInicioPromise = prefetchGuia(
+        paisSeleccionado,
+        provinciaSeleccionada,
+        ciudadSeleccionada
+      );
+
       const farmaInicioPromise=cargarFarmaciasTurnoGuia().catch(e=>{
         console.error('Farmacias:',e);
       });
@@ -3685,9 +3693,7 @@
 
       const favoritosInicioPromise=gldCargarFavoritosAnunciantes();
 
-      // Arrancamos todas las lecturas que después usa la Guía lo antes posible.
-      // Corren en paralelo mientras se resuelven catálogos y tarjetas.
-      try{ prefetchGuia(paisSeleccionado,provinciaSeleccionada,ciudadSeleccionada); }catch(e){}
+      // Recursos secundarios arrancan en paralelo, pero NO frenan las tarjetas.
       try{ obtenerBannersPromise(); }catch(e){}
       try{ obtenerEventosPromise(); }catch(e){}
       try{ obtenerPromosPromise(); }catch(e){}
@@ -3697,15 +3703,25 @@
         console.error('Efemérides:',e);
       });
 
-      try{
-        await iniciarBootstrapCompleto();
-      }catch(e){
+      // Bootstrap también corre en paralelo. indice_guia ya trae la información
+      // necesaria para pintar la Guía inicial; los catálogos enriquecen después.
+      iniciarBootstrapCompleto().catch(e=>{
         console.error('No se pudo cargar el bootstrap de catálogos:', e);
-      }
+      });
+
+      // Favoritos tampoco forman parte de la ruta crítica.
+      favoritosInicioPromise.then(()=>{
+        document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(btn=>{
+          const id=String(btn.dataset.anuncianteId||'').trim();
+          const on=gldFavoritosAnunciantes.has(id);
+          btn.classList.toggle('activo',on);
+          btn.textContent=on?'♥':'♡';
+          btn.title=on?'Quitar de favoritos':'Agregar a favoritos';
+        });
+      }).catch(()=>{});
 
       try{
-        try{await favoritosInicioPromise;}catch(e){}
-        await cargarGuiaSeleccionada();
+        await cargarGuiaSeleccionada(guiaInicioPromise);
       }finally{
         gldSetModuloCargando('guia',false);
         document.body.classList.remove('gld-guia-cargando');
