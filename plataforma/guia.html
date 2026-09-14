@@ -588,7 +588,18 @@
       text-align:center;
       padding:2rem;
     }
-    .guia-carga-principal.activo{display:flex}
+    .guia-carga-principal.activo{
+      display:flex;
+      position:fixed;
+      inset:0;
+      width:100vw;
+      max-width:none;
+      min-height:100vh;
+      margin:0;
+      border-radius:0;
+      z-index:200000;
+      background:rgba(255,255,255,.97);
+    }
     .guia-carga-principal .spinner{
       width:54px;height:54px;border:6px solid #d8e8ef;border-top-color:#006699;
       border-radius:50%;animation:gld-spin .8s linear infinite;
@@ -899,9 +910,9 @@
     }
 
     async function gldFetchJson(url, options={}, config={}){
-      const timeoutMs=Number(config.timeoutMs||7000);
+      const timeoutMs=Number(config.timeoutMs||6500);
       const retries=Number(config.retries??1);
-      const retryDelay=Number(config.retryDelay||700);
+      const retryDelay=Number(config.retryDelay||500);
       let lastError=null;
       for(let intento=0; intento<=retries; intento++){
         const controller=new AbortController();
@@ -970,11 +981,39 @@
     }
 
     let gldFavoritosAnunciantes=new Set();
+    const GLD_FAVORITOS_CACHE_PREFIX='gld_favoritos_anunciantes_v2:';
+
+    function gldPintarFavoritosAnunciantes(){
+      document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(btn=>{
+        const id=String(btn.dataset.anuncianteId||'').trim();
+        const on=gldFavoritosAnunciantes.has(id);
+        btn.classList.toggle('activo',on);
+        btn.textContent=on?'♥':'♡';
+        btn.title=on?'Quitar de favoritos':'Agregar a favoritos';
+      });
+    }
+
+    function gldLeerFavoritosCache(suscriptorId){
+      try{
+        const x=JSON.parse(localStorage.getItem(GLD_FAVORITOS_CACHE_PREFIX+String(suscriptorId||''))||'null');
+        return x&&Array.isArray(x.ids)?x.ids:[];
+      }catch(e){return []}
+    }
+
+    function gldGuardarFavoritosCache(suscriptorId){
+      try{
+        localStorage.setItem(GLD_FAVORITOS_CACHE_PREFIX+String(suscriptorId||''),JSON.stringify({ts:Date.now(),ids:[...gldFavoritosAnunciantes]}));
+      }catch(e){}
+    }
 
     async function gldCargarFavoritosAnunciantes(){
       gldFavoritosAnunciantes=new Set();
       const s=gldGetSubscriberSession();
       if(!s || !s.suscriptor_id) return;
+
+      // Primero se recupera lo último conocido: el corazón aparece sin esperar la red.
+      gldLeerFavoritosCache(s.suscriptor_id).forEach(id=>gldFavoritosAnunciantes.add(String(id||'').trim()));
+      gldPintarFavoritosAnunciantes();
 
       try{
         const u=new URL(GLD_SUSCRIPTORES_API);
@@ -983,12 +1022,16 @@
         u.searchParams.set('tipo','ANUNCIANTE');
         u.searchParams.set('_ts',Date.now());
 
-        const {data}=await gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6000,retries:1});
+        const {data}=await gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6500,retries:1,retryDelay:400});
         if(data && data.success===true && Array.isArray(data.favoritos)){
+          const frescos=new Set();
           data.favoritos.forEach(f=>{
             const id=String(f&&f.referencia_id||'').trim();
-            if(id) gldFavoritosAnunciantes.add(id);
+            if(id) frescos.add(id);
           });
+          gldFavoritosAnunciantes=frescos;
+          gldGuardarFavoritosCache(s.suscriptor_id);
+          gldPintarFavoritosAnunciantes();
         }
       }catch(e){
         console.warn('Favoritos anunciantes:',e);
@@ -1028,6 +1071,7 @@
 
         if(activo) gldFavoritosAnunciantes.delete(id);
         else gldFavoritosAnunciantes.add(id);
+        gldGuardarFavoritosCache(session.suscriptor_id);
 
         document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(b=>{
           if(String(b.dataset.anuncianteId||'')!==id) return;
@@ -1587,12 +1631,32 @@
     function farmaShiftDate(iso,days){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);const d=m?new Date(+m[1],+m[2]-1,+m[3],12):new Date();d.setDate(d.getDate()+days);return farmaIsoDate(d)}
     function farmaHumanDate(iso){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return iso;const d=new Date(+m[1],+m[2]-1,+m[3],12);return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long'}).format(d)}
     function farmaEsc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;')}
+    const FARMA_CACHE_PREFIX='gld_farma_turno_cache_v2:';
+    function farmaCacheKey(fecha){return FARMA_CACHE_PREFIX+String(ciudadSeleccionada||'')+':'+String(fecha||'')}
+    function farmaLeerCache(fecha){
+      try{
+        const x=JSON.parse(localStorage.getItem(farmaCacheKey(fecha))||'null');
+        if(!x||!x.data||Date.now()-Number(x.ts||0)>24*60*60*1000) return null;
+        return x.data;
+      }catch(e){return null}
+    }
+    function farmaGuardarCache(fecha,data){
+      try{localStorage.setItem(farmaCacheKey(fecha),JSON.stringify({ts:Date.now(),data:data}));}catch(e){}
+    }
     async function farmaFetchTurnos(fecha){
       if(!ciudadSeleccionada) throw new Error('No hay ciudad seleccionada');
       const u=new URL(FARMACIAS_ENDPOINT);
       u.searchParams.set('action','turnos');u.searchParams.set('ciudad_id',ciudadSeleccionada);u.searchParams.set('fecha',fecha);u.searchParams.set('_ts',Date.now());
-      const {data}=await gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6000,retries:1});
+      const cached=farmaLeerCache(fecha);
+      if(cached){
+        gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6000,retries:1,retryDelay:400}).then(({data})=>{
+          if(data&&data.success===true) farmaGuardarCache(fecha,data);
+        }).catch(()=>{});
+        return cached;
+      }
+      const {data}=await gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6500,retries:1,retryDelay:400});
       if(!data || data.success!==true) throw new Error('No se pudieron cargar los turnos');
+      farmaGuardarCache(fecha,data);
       return data;
     }
     function farmaContactLinks(t){
@@ -1808,7 +1872,21 @@
         u.searchParams.set('ciudad_id',ciudadSeleccionada);
         u.searchParams.set('fecha',hoy);
         u.searchParams.set('_ts',Date.now());
-        const {data}=await gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6000,retries:1});
+        const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+hoy;
+        let data=null;
+        try{
+          const x=JSON.parse(localStorage.getItem(efemCacheKey)||'null');
+          if(x&&x.data&&Date.now()-Number(x.ts||0)<24*60*60*1000) data=x.data;
+        }catch(e){}
+        if(data){
+          gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6000,retries:1,retryDelay:400}).then(({data:fresca})=>{
+            if(fresca&&fresca.success===true){try{localStorage.setItem(efemCacheKey,JSON.stringify({ts:Date.now(),data:fresca}));}catch(e){}}
+          }).catch(()=>{});
+        }else{
+          const resp=await gldFetchJson(u.toString(),{cache:'no-store'},{timeoutMs:6500,retries:1,retryDelay:400});
+          data=resp.data;
+          if(data&&data.success===true){try{localStorage.setItem(efemCacheKey,JSON.stringify({ts:Date.now(),data:data}));}catch(e){}}
+        }
         if(!data||data.success!==true) throw new Error('No se pudieron cargar las efemérides');
         const rows=Array.isArray(data.efemerides)?data.efemerides:[];
         if(!rows.length){
@@ -1832,7 +1910,7 @@
     let bootstrapCompletoPromise = null;
     const guiaPrefetchCache = new Map();
     const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v2:';
-    const GUIA_LOCAL_CACHE_MS = 15 * 60 * 1000;
+    const GUIA_LOCAL_CACHE_MS = 2 * 60 * 60 * 1000;
 
     function guiaLocalCacheKey(paisId, provinciaId, ciudadId){
       return GUIA_LOCAL_CACHE_PREFIX + guiaKey(paisId, provinciaId, ciudadId);
@@ -1933,7 +2011,7 @@
     let eventsPromise=null;
     let promosPromise=null;
     let actividadesPromise=null;
-    const GLD_MODULO_CACHE_MS=15*60*1000;
+    const GLD_MODULO_CACHE_MS=60*60*1000;
     const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v1:';
     const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v1:';
     const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v1:';
@@ -1961,13 +2039,13 @@
         const cached=gldLeerModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId);
         if(cached){
           bannersPromise=Promise.resolve(cached);
+          // La publicidad visible no espera la red; se renueva silenciosamente.
+          gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'},{timeoutMs:6000,retries:1,retryDelay:400})
+            .then(({data})=>{ if(data) gldGuardarModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId,data); })
+            .catch(()=>{});
         }else{
-          bannersPromise=fetch(publicidadPublicaUrl('GUIA'),{cache:'no-store'})
-            .then(r=>{
-              if(!r.ok) throw new Error('Publicidad HTTP '+r.status);
-              return r.json();
-            })
-            .then(data=>{
+          bannersPromise=gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'},{timeoutMs:6500,retries:1,retryDelay:400})
+            .then(({data})=>{
               gldGuardarModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId,data);
               return data;
             })
@@ -2060,25 +2138,40 @@
       return actividadesPromise;
     }
 
+    let gldLiberarCargaSecundaria = null;
+    let gldCargaSecundariaGate = Promise.resolve();
+
+    function gldBloquearCargaSecundaria(){
+      gldCargaSecundariaGate = new Promise(resolve => { gldLiberarCargaSecundaria = resolve; });
+    }
+
+    function gldIniciarCargaSecundaria(){
+      if(gldLiberarCargaSecundaria){
+        const liberar = gldLiberarCargaSecundaria;
+        gldLiberarCargaSecundaria = null;
+        liberar();
+      }
+    }
+
     async function cargarGuiaSeleccionada(guiaPromiseInicial){
       try {
         let guiaPromise = guiaPromiseInicial
           || prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
-          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 12000);
+          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
 
         // Si una precarga arrancó justo durante un arranque lento de Apps Script,
         // reintentamos una vez antes de declarar que la guía no carga.
         guiaPromise = guiaPromise.catch(() => {
           guiaPrefetchCache.delete(guiaKey(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada));
-          return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 12000);
+          return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
         });
 
-        // Recursos secundarios: arrancan en paralelo con la Guía.
-        // Ninguno bloquea la aparición de las tarjetas.
-        const eventosCargaPromise = obtenerEventosPromise();
-        const promosCargaPromise = obtenerPromosPromise();
-        const actividadesCargaPromise = obtenerActividadesPromise();
+        // Publicidad forma parte de la carga inicial.
+        // Eventos, Promos y Actividades quedan BLOQUEADOS hasta terminar la carga principal.
         const publicidadCargaPromise = obtenerBannersPromise();
+        const eventosCargaPromise = gldCargaSecundariaGate.then(() => obtenerEventosPromise());
+        const promosCargaPromise = gldCargaSecundariaGate.then(() => obtenerPromosPromise());
+        const actividadesCargaPromise = gldCargaSecundariaGate.then(() => obtenerActividadesPromise());
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -3405,8 +3498,7 @@
         // Primer render: sólo con los datos de la guía.
         render();
 
-        // Segundo plano independiente: cada módulo actualiza apenas llega.
-        // Ya no esperamos al recurso más lento para mostrar Eventos o Promos.
+        // Segunda etapa: estos módulos recién arrancan cuando la carga principal libera el bloqueo.
         eventosCargaPromise.then(eventsLoaded => {
           rawEventsResponse = eventsLoaded || [];
           rawEventsList = Array.isArray(rawEventsResponse)
@@ -3616,6 +3708,7 @@
         return;
       }
 
+      gldBloquearCargaSecundaria();
       gldSetModuloCargando('guia',true,'Cargando Guía...');
       document.body.classList.add('gld-guia-cargando');
       document.getElementById('guiaCargaPrincipal')?.classList.add('activo');
@@ -3729,15 +3822,13 @@
         });
       }
 
-      const favoritosInicioPromise=gldCargarFavoritosAnunciantes();
+      const favoritosInicioPromise = subscriberSession
+        ? gldCargarFavoritosAnunciantes()
+        : Promise.resolve();
 
-      // Recursos secundarios arrancan en paralelo, pero NO frenan las tarjetas.
-      try{ obtenerBannersPromise(); }catch(e){}
-      try{ obtenerEventosPromise(); }catch(e){}
-      try{ obtenerPromosPromise(); }catch(e){}
-      try{ obtenerActividadesPromise(); }catch(e){}
-
-      cargarEfemeridesHoyGuia().catch(e=>{
+      // Primera etapa: publicidad y efemérides forman parte de la carga general.
+      const publicidadInicioPromise = obtenerBannersPromise();
+      const efemInicioPromise = cargarEfemeridesHoyGuia().catch(e=>{
         console.error('Efemérides:',e);
       });
 
@@ -3747,7 +3838,7 @@
         console.error('No se pudo cargar el bootstrap de catálogos:', e);
       });
 
-      // Favoritos tampoco forman parte de la ruta crítica.
+      // Favoritos forman parte de la carga inicial cuando hay sesión, usando cache inmediata si existe.
       favoritosInicioPromise.then(()=>{
         document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(btn=>{
           const id=String(btn.dataset.anuncianteId||'').trim();
@@ -3759,11 +3850,21 @@
       }).catch(()=>{});
 
       try{
-        await cargarGuiaSeleccionada(guiaInicioPromise);
+        await Promise.all([
+          cargarGuiaSeleccionada(guiaInicioPromise),
+          farmaInicioPromise,
+          efemInicioPromise,
+          publicidadInicioPromise,
+          favoritosInicioPromise
+        ]);
       }finally{
+        // Recién acá se habilita la navegación.
         gldSetModuloCargando('guia',false);
         document.body.classList.remove('gld-guia-cargando');
         document.getElementById('guiaCargaPrincipal')?.classList.remove('activo');
+
+        // Segunda etapa: Eventos, Promos y Actividades comienzan en segundo plano.
+        if(subscriberSession) gldIniciarCargaSecundaria();
       }
     }
 
