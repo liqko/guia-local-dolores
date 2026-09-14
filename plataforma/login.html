@@ -551,6 +551,7 @@
         <a id="link-support_dashboard" href="#" target="_blank" class="btn-whatsapp" aria-label="Contactar soporte por WhatsApp">💬 WhatsApp Soporte</a>
         <button id="btn-cambiar-anunciante" class="secondary" type="button" style="margin-bottom:0;display:none">Cambiar anunciante</button>
         <button id="btn-cambiar-contrasena-dashboard" class="secondary" type="button" style="margin-bottom:0">Cambiar contraseña</button>
+        <button id="btn-eliminar-anunciante" class="btn-danger" type="button" style="margin-bottom:0;display:none">Eliminar anunciante</button>
         <button id="logout-btn" class="btn-danger" style="margin-bottom:0">Cerrar sesión</button>
       </div>
 
@@ -5832,23 +5833,63 @@ document.addEventListener('DOMContentLoaded', ()=>{
     return ['true','1','si','sí','yes','x','activo','activa'].includes(String(v||'').trim().toLowerCase());
   }
 
+  function rolRelacion_(rel){
+    return String(rel&&rel.rol||'')
+      .trim()
+      .toUpperCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g,'');
+  }
+
+  function esPropietarioRelacion_(rel){
+    return rolRelacion_(rel)==='PROPIETARIO';
+  }
+
   function esAdminRelacion_(rel){
-    const rol=String(rel&&rel.rol||'').trim().toUpperCase();
-    return rol==='ADMINISTRADOR' || rol==='COADMINISTRADOR';
+    return rolRelacion_(rel)==='ADMINISTRADOR';
+  }
+
+  function esManagerRelacion_(rel){
+    return rolRelacion_(rel)==='MANAGER';
   }
 
   window.gldRelacionPermiteModulo=function(modulo){
     const rel=sesion&&sesion.relacion_autorizacion ? sesion.relacion_autorizacion : null;
     if(!rel) return false;
-    if(esAdminRelacion_(rel)) return true;
+
+    const rol=rolRelacion_(rel);
+    if(!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(rol)) return false;
+
+    // PROPIETARIO y ADMINISTRADOR: todos los módulos contratados/habilitados
+    // por el anunciante.
+    if(esPropietarioRelacion_(rel) || esAdminRelacion_(rel)) return true;
+
+    // MANAGER: nunca modifica datos generales del anunciante.
+    if(esManagerRelacion_(rel) && modulo==='modificar_datos') return false;
+
+    // MANAGER: sólo módulos expresamente autorizados en su relación.
     const mapa={
-      modificar_datos:'permiso_datos',
       eventos:'permiso_eventos',
       promos:'permiso_promos',
-      publicidad:'permiso_publicidad'
+      actividades:'permiso_actividades',
+      publicidad:'permiso_publicidad',
+      turnos_farma:'permiso_turnos_farma',
+      efemerides:'permiso_efemerides',
+      menu:'permiso_menu',
+      vouchers:'permiso_vouchers',
+      entradas:'permiso_entradas',
+      gifcards:'permiso_gifcards',
+      reservas:'permiso_reservas',
+      tarjeta_nfc:'permiso_tarjeta_nfc'
     };
+
     const campo=mapa[modulo];
     return campo ? permisoTruthy_(rel[campo]) : false;
+  };
+
+  window.gldRelacionPuedeEliminarAnunciante=function(){
+    const rel=sesion&&sesion.relacion_autorizacion ? sesion.relacion_autorizacion : null;
+    return !!rel && esPropietarioRelacion_(rel);
   };
 
   async function apiSuscriptores_(payload){
@@ -6467,6 +6508,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       : sesion.nombre;
     const btnCambiarAnunciante=document.getElementById('btn-cambiar-anunciante');
     if(btnCambiarAnunciante) btnCambiarAnunciante.style.display=autorizacionesAnunciante.length>1?'':'none';
+
+    const btnEliminarAnunciante=document.getElementById('btn-eliminar-anunciante');
+    if(btnEliminarAnunciante){
+      btnEliminarAnunciante.style.display=
+        (typeof window.gldRelacionPuedeEliminarAnunciante==='function' &&
+         window.gldRelacionPuedeEliminarAnunciante()) ? '' : 'none';
+    }
     document.getElementById('link-support_dashboard').href =
       `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('Necesito ayuda con mi panel de anunciante.\nPersona: ' + nombrePersona + '\nComercio: ' + sesion.nombre + '\nId: ' + sesion.id)}`;
 
@@ -6604,6 +6652,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       btnLogin.textContent=originalLoginBtnText;
     }
   };
+
+  document.getElementById('btn-eliminar-anunciante')?.addEventListener('click',()=>{
+    if(typeof window.gldRelacionPuedeEliminarAnunciante!=='function' ||
+       !window.gldRelacionPuedeEliminarAnunciante()){
+      return;
+    }
+    alert('La eliminación definitiva del anunciante requiere conectar la acción correspondiente en el backend /commerce.');
+  });
 
   document.getElementById('logout-btn').addEventListener('click', cerrarSesionCompleta_);
 
