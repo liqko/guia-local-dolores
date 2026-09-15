@@ -284,6 +284,8 @@
     .events-free-row-meta{font-size:.9em;color:#555;margin-top:4px}
     .events-free-row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
     .events-free-row-actions button{width:auto;margin:0}
+    .events-free-other{display:none;margin-top:8px}
+    .events-free-other.open{display:block}
     @media (max-width:720px){
       .event-partner-role{grid-template-columns:1fr}
       .event-partner-external{grid-template-columns:1fr}
@@ -940,6 +942,9 @@
               <div>
                 <label>Categoría <span class="req">*</span></label>
                 <select id="evf-categoria"><option value="">Seleccioná una categoría</option></select>
+                <div id="evf-categoria-otra-wrap" class="events-free-other">
+                  <input id="evf-categoria-otra" type="text" placeholder="Escribí la categoría">
+                </div>
               </div>
               <div>
                 <label>Ciudad <span class="req">*</span></label>
@@ -947,7 +952,10 @@
               </div>
               <div class="full">
                 <label>Lugar <span class="req">*</span></label>
-                <input id="evf-lugar" type="text" placeholder="Lugar del evento">
+                <select id="evf-lugar"><option value="">Primero seleccioná una ciudad</option></select>
+                <div id="evf-lugar-otro-wrap" class="events-free-other">
+                  <input id="evf-lugar-otro" type="text" placeholder="Escribí el lugar">
+                </div>
               </div>
               <div>
                 <label>Fecha desde <span class="req">*</span></label>
@@ -1458,6 +1466,8 @@ const WORKER_PUBLICIDAD_URL = WORKER_ORIGIN + '/publicidad';
 const SUSCRIPTORES_URL = WORKER_ORIGIN + '/suscriptores';
 const GENERIC_PARTNER_LOGO = "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png";
 const EVENT_PARTNER_OTHER_VALUE = '__OTHER__';
+const EVENT_FREE_OTHER_CATEGORY = '__OTHER_CATEGORY__';
+const EVENT_FREE_OTHER_PLACE = '__OTHER_PLACE__';
 
 const PROMOS_SHEET_ID = "1ffyftdylRAiS97L2Fy6xhPT3A876qeXXCaPI3SUFI-s";
 const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSdZDgpGMYyb5uh1xpsJCN1MzNGoSgGZ9W9EUqQqAYFdB2EyBQ/viewform";
@@ -1486,6 +1496,7 @@ let evLists = {
 };
 let editingEventId = null;
 let editingFreeEventId = null;
+let evFreePlacesAll = [];
 window.__lastFreeEvents = [];
 let eventProgramacionState = [];
 
@@ -2028,6 +2039,78 @@ function normalizeEventPartnerSearch(value){
     .trim();
 }
 
+/* ===== Búsqueda acumulativa en TODOS los select =====
+   Permite escribir varias letras seguidas (ej. "club independiente")
+   sin que el navegador corte la búsqueda en la primera coincidencia. */
+const gldSelectTypeSearchState = new WeakMap();
+
+function gldNormalizeSelectSearch_(value){
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g,'')
+    .trim();
+}
+
+function installGlobalSelectTypeSearch_(){
+  if(window.__gldSelectTypeSearchInstalled) return;
+  window.__gldSelectTypeSearchInstalled=true;
+
+  document.addEventListener('keydown',(e)=>{
+    const sel=e.target;
+    if(!sel || sel.tagName!=='SELECT' || sel.disabled) return;
+    if(e.ctrlKey || e.metaKey || e.altKey) return;
+
+    let state=gldSelectTypeSearchState.get(sel) || {buffer:'',resetTimer:null,changeTimer:null};
+
+    if(e.key==='Escape'){
+      state.buffer='';
+      if(state.resetTimer) clearTimeout(state.resetTimer);
+      if(state.changeTimer) clearTimeout(state.changeTimer);
+      gldSelectTypeSearchState.set(sel,state);
+      return;
+    }
+
+    if(e.key==='Backspace'){
+      if(!state.buffer) return;
+      e.preventDefault();
+      state.buffer=state.buffer.slice(0,-1);
+    }else if(e.key && e.key.length===1 && !/\s/.test(e.key) || e.key===' '){
+      if(e.key.length!==1) return;
+      e.preventDefault();
+      state.buffer+=e.key;
+    }else{
+      return;
+    }
+
+    if(state.resetTimer) clearTimeout(state.resetTimer);
+    state.resetTimer=setTimeout(()=>{
+      state.buffer='';
+      gldSelectTypeSearchState.set(sel,state);
+    },1800);
+
+    const q=gldNormalizeSelectSearch_(state.buffer);
+    if(!q){ gldSelectTypeSearchState.set(sel,state); return; }
+
+    const options=Array.from(sel.options).filter(o=>!o.disabled && String(o.value||'')!=='');
+    const match=options.find(o=>gldNormalizeSelectSearch_(o.textContent).startsWith(q)) ||
+                options.find(o=>gldNormalizeSelectSearch_(o.textContent).includes(q));
+
+    if(match){
+      const changed=sel.value!==match.value;
+      sel.value=match.value;
+      if(changed){
+        if(state.changeTimer) clearTimeout(state.changeTimer);
+        state.changeTimer=setTimeout(()=>{
+          sel.dispatchEvent(new Event('change',{bubbles:true}));
+        },500);
+      }
+    }
+
+    gldSelectTypeSearchState.set(sel,state);
+  },true);
+}
+
 function toggleExternalPartnerFields(i){
   const ids = eventPartnerIds(i);
   const sel = document.getElementById(ids.selectId);
@@ -2048,36 +2131,6 @@ function configureEventPartnerSelect(i){
   }
   if(!sel.dataset.externalPartnerBound){
     sel.addEventListener('change', ()=>toggleExternalPartnerFields(i));
-    let searchBuffer = '';
-    let searchTimer = null;
-    sel.addEventListener('keydown', (e)=>{
-      if(e.ctrlKey || e.metaKey || e.altKey) return;
-      if(e.key === 'Escape'){
-        searchBuffer = '';
-        if(searchTimer) clearTimeout(searchTimer);
-        return;
-      }
-      if(e.key === 'Backspace'){
-        e.preventDefault();
-        searchBuffer = searchBuffer.slice(0,-1);
-      } else if(e.key && e.key.length === 1 && /[a-zA-Z0-9ÁÉÍÓÚÜÑáéíóúüñ .&_-]/.test(e.key)){
-        e.preventDefault();
-        searchBuffer += e.key;
-      } else {
-        return;
-      }
-      if(searchTimer) clearTimeout(searchTimer);
-      searchTimer = setTimeout(()=>{ searchBuffer=''; }, 1400);
-      const query = normalizeEventPartnerSearch(searchBuffer);
-      if(query.length < 3) return;
-      const options = Array.from(sel.options).filter(o=>o.value && o.value !== EVENT_PARTNER_OTHER_VALUE);
-      const match = options.find(o=>normalizeEventPartnerSearch(o.textContent).startsWith(query)) ||
-                    options.find(o=>normalizeEventPartnerSearch(o.textContent).includes(query));
-      if(match){
-        sel.value = match.value;
-        sel.dispatchEvent(new Event('change', { bubbles:true }));
-      }
-    });
     sel.dataset.externalPartnerBound = '1';
   }
   toggleExternalPartnerFields(i);
@@ -5900,11 +5953,89 @@ async function loadEventsUI(){
 }
 
 
+function normalizeFreePlaces_(raw){
+  return (Array.isArray(raw)?raw:[]).map(o=>{
+    const tipo=String(o.tipo||'').trim();
+    const sedeId=String(o.sede_id||'').trim();
+    const lugarId=String(o.lugar_id||'').trim();
+    const nombre=String(o.nombre_visible||o.nombre||o.lugar||'').trim();
+    return {
+      key:tipo==='sede' ? ('sede:'+sedeId) : ('lugar:'+lugarId),
+      ciudad_id:String(o.ciudad_id||'').trim(),
+      nombre
+    };
+  }).filter(o=>o.nombre);
+}
+
+function toggleFreeOtherFields_(){
+  const cat=document.getElementById('evf-categoria');
+  const catWrap=document.getElementById('evf-categoria-otra-wrap');
+  if(catWrap) catWrap.classList.toggle('open',!!cat && cat.value===EVENT_FREE_OTHER_CATEGORY);
+
+  const lugar=document.getElementById('evf-lugar');
+  const lugarWrap=document.getElementById('evf-lugar-otro-wrap');
+  if(lugarWrap) lugarWrap.classList.toggle('open',!!lugar && lugar.value===EVENT_FREE_OTHER_PLACE);
+}
+
+function refreshFreeEventPlaces_(preferredName=''){
+  const sel=document.getElementById('evf-lugar');
+  const city=document.getElementById('evf-ciudad');
+  if(!sel) return;
+
+  const ciudadId=String(city?.value||'').trim();
+  const currentName=String(preferredName||'').trim();
+  sel.innerHTML=ciudadId
+    ? '<option value="">Seleccioná un lugar</option>'
+    : '<option value="">Primero seleccioná una ciudad</option>';
+
+  const seen=new Set();
+  if(ciudadId){
+    evFreePlacesAll
+      .filter(o=>String(o.ciudad_id||'').trim()===ciudadId)
+      .forEach(o=>{
+        const key=gldNormalizeSelectSearch_(o.nombre);
+        if(!key || seen.has(key)) return;
+        seen.add(key);
+        const opt=document.createElement('option');
+        opt.value=o.nombre;
+        opt.textContent=o.nombre;
+        sel.appendChild(opt);
+      });
+
+    const other=document.createElement('option');
+    other.value=EVENT_FREE_OTHER_PLACE;
+    other.textContent='Otro / No figura en la lista';
+    sel.appendChild(other);
+  }
+
+  if(currentName){
+    const exact=Array.from(sel.options).find(o=>gldNormalizeSelectSearch_(o.textContent)===gldNormalizeSelectSearch_(currentName));
+    if(exact){
+      sel.value=exact.value;
+      const otherInput=document.getElementById('evf-lugar-otro');
+      if(otherInput) otherInput.value='';
+    }else if(ciudadId){
+      sel.value=EVENT_FREE_OTHER_PLACE;
+      const otherInput=document.getElementById('evf-lugar-otro');
+      if(otherInput) otherInput.value=currentName;
+    }
+  }
+  toggleFreeOtherFields_();
+}
+
 function fillFreeEventCatalogs_(data){
   const cats=Array.isArray(data && data.categorias) ? data.categorias : [];
   const cities=Array.isArray(data && data.ciudades) ? data.ciudades : [];
+  evFreePlacesAll=normalizeFreePlaces_(data && data.lugares);
 
   fillSelectOptions('evf-categoria',cats,'Seleccioná una categoría');
+  const catSel=document.getElementById('evf-categoria');
+  if(catSel && !Array.from(catSel.options).some(o=>o.value===EVENT_FREE_OTHER_CATEGORY)){
+    const opt=document.createElement('option');
+    opt.value=EVENT_FREE_OTHER_CATEGORY;
+    opt.textContent='Otra / No figura en la lista';
+    catSel.appendChild(opt);
+  }
 
   const citySel=document.getElementById('evf-ciudad');
   if(citySel){
@@ -5917,6 +6048,9 @@ function fillFreeEventCatalogs_(data){
       }).join('');
     if(current && Array.from(citySel.options).some(o=>o.value===current)) citySel.value=current;
   }
+
+  refreshFreeEventPlaces_('');
+  toggleFreeOtherFields_();
 }
 
 function freeEventCityLabel_(id){
@@ -5926,19 +6060,27 @@ function freeEventCityLabel_(id){
 }
 
 function clearFreeEventForm_(){
-  ['evf-nombre','evf-lugar','evf-fecha-desde','evf-fecha-hasta','evf-hora','evf-hora2','evf-descripcion','evf-instagram']
+  ['evf-nombre','evf-fecha-desde','evf-fecha-hasta','evf-hora','evf-hora2','evf-descripcion','evf-instagram','evf-categoria-otra','evf-lugar-otro']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  ['evf-categoria','evf-ciudad'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['evf-categoria','evf-ciudad','evf-lugar'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  refreshFreeEventPlaces_('');
+  toggleFreeOtherFields_();
   const resp=document.getElementById('evf-responsabilidad');
   if(resp) resp.checked=false;
 }
 
 function buildFreeEventPayload_(){
+  const categoriaSel=String(document.getElementById('evf-categoria')?.value||'').trim();
+  const lugarSel=String(document.getElementById('evf-lugar')?.value||'').trim();
   return {
     nombre_evento:String(document.getElementById('evf-nombre')?.value||'').trim(),
-    categoria:String(document.getElementById('evf-categoria')?.value||'').trim(),
+    categoria:categoriaSel===EVENT_FREE_OTHER_CATEGORY
+      ? String(document.getElementById('evf-categoria-otra')?.value||'').trim()
+      : categoriaSel,
     ciudad_id:String(document.getElementById('evf-ciudad')?.value||'').trim(),
-    lugar:String(document.getElementById('evf-lugar')?.value||'').trim(),
+    lugar:lugarSel===EVENT_FREE_OTHER_PLACE
+      ? String(document.getElementById('evf-lugar-otro')?.value||'').trim()
+      : lugarSel,
     fecha_desde:String(document.getElementById('evf-fecha-desde')?.value||'').trim(),
     fecha_hasta:String(document.getElementById('evf-fecha-hasta')?.value||'').trim(),
     hora:String(document.getElementById('evf-hora')?.value||'').trim(),
@@ -5987,9 +6129,21 @@ function renderFreeEvents_(events){
       if(action==='edit'){
         editingFreeEventId=id;
         document.getElementById('evf-nombre').value=found.nombre_evento||'';
-        document.getElementById('evf-categoria').value=found.categoria||'';
+        const catSel=document.getElementById('evf-categoria');
+        const savedCat=String(found.categoria||'').trim();
+        if(catSel){
+          const catMatch=Array.from(catSel.options).find(o=>gldNormalizeSelectSearch_(o.textContent)===gldNormalizeSelectSearch_(savedCat));
+          if(catMatch){
+            catSel.value=catMatch.value;
+            const other=document.getElementById('evf-categoria-otra'); if(other) other.value='';
+          }else{
+            catSel.value=EVENT_FREE_OTHER_CATEGORY;
+            const other=document.getElementById('evf-categoria-otra'); if(other) other.value=savedCat;
+          }
+        }
         document.getElementById('evf-ciudad').value=found.ciudad_id||'';
-        document.getElementById('evf-lugar').value=found.lugar||'';
+        refreshFreeEventPlaces_(found.lugar||'');
+        toggleFreeOtherFields_();
         document.getElementById('evf-fecha-desde').value=String(found.fecha_desde||'').slice(0,10);
         document.getElementById('evf-fecha-hasta').value=String(found.fecha_hasta||'').slice(0,10);
         document.getElementById('evf-hora').value=String(found.hora||'').slice(0,5);
@@ -6090,6 +6244,8 @@ function cancelEventEdit(){
 
 /* ====================== INIT ====================== */
 document.addEventListener('DOMContentLoaded', ()=>{
+  installGlobalSelectTypeSearch_();
+
   const SUSCRIPTOR_SESSION_KEY='gld_suscriptor_session_v1';
   const DASHBOARD_ADVERTISER_KEY='gld_dashboard_anunciante_id_v1';
 
@@ -6701,6 +6857,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     });
   });
 
+
+  document.getElementById('evf-ciudad')?.addEventListener('change',()=>{
+    const other=document.getElementById('evf-lugar-otro'); if(other) other.value='';
+    refreshFreeEventPlaces_('');
+  });
+  document.getElementById('evf-categoria')?.addEventListener('change',toggleFreeOtherFields_);
+  document.getElementById('evf-lugar')?.addEventListener('change',toggleFreeOtherFields_);
 
   document.getElementById('evf-refresh')?.addEventListener('click',async()=>{
     if(typeof window.reloadDashboardModule==='function') await window.reloadDashboardModule('eventos_free');
