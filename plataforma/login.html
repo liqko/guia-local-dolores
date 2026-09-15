@@ -1007,7 +1007,7 @@
                 </label>
                 <div id="evf-compartido-fields" class="events-free-publisher-fields">
                   <label>Identidad a mostrar</label>
-                  <select id="evf-compartido-tipo">
+                  <select id="evf-compartido-tipo" data-no-searchable="true">
                     <option value="ANUNCIANTE">Usar el anunciante actual</option>
                     <option value="PERSONALIZADO">Nombre o nick personalizado</option>
                   </select>
@@ -6243,6 +6243,29 @@ function clearFreeEventForm_(){
   gldRefreshAllSearchableSelects_();
 }
 
+function textoEventoSimilar_(ev){
+  const partes=[];
+  const nombre=String(ev.nombre_evento||'').trim();
+  if(nombre) partes.push(nombre);
+  const fecha=String(ev.fecha_desde||'').trim();
+  if(fecha) partes.push(fecha);
+  const lugar=String(ev.lugar||'').trim();
+  if(lugar) partes.push(lugar);
+  return partes.join(' · ');
+}
+
+function confirmarEventoFreeSimilar_(duplicados){
+  duplicados=Array.isArray(duplicados)?duplicados:[];
+  if(!duplicados.length) return true;
+  const detalle=duplicados.slice(0,5).map(ev=>'• '+textoEventoSimilar_(ev)).join('\n');
+  return window.confirm(
+    'Encontramos '+duplicados.length+' evento'+(duplicados.length===1?'':'s')+' posiblemente igual'+(duplicados.length===1?'':'es')+':\n\n'+
+    detalle+'\n\n'+
+    'Si es el mismo evento, elegí Cancelar y no se creará otro.\n'+
+    'Si realmente es otro evento, elegí Aceptar para continuar.'
+  );
+}
+
 function buildFreeEventPayload_(){
   const lugarSel=String(document.getElementById('evf-lugar')?.value||'').trim();
   const publisher=freePublisherPayload_();
@@ -7078,10 +7101,23 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
     const editing=!!editingFreeEventId;
     await runDashboardAction(editing?'Guardando cambios del evento free...':'Creando evento free...',async()=>{
-      const res=await events_post({
+      let res=await events_post({
         action:editing?'updateFreeEvent':'createFreeEvent',
         payload:editing ? Object.assign({evento_id:editingFreeEventId},payload) : payload
       });
+
+      if(!editing && res.status===200 && res.json && res.json.requires_confirmation===true){
+        const duplicados=Array.isArray(res.json.duplicados)?res.json.duplicados:[];
+        const continuar=confirmarEventoFreeSimilar_(duplicados);
+        if(!continuar){
+          setMsg('eventos-free-msg','ok','No se creó el evento. Si era el mismo, no hace falta volver a publicarlo.');
+          return;
+        }
+        res=await events_post({
+          action:'createFreeEvent',
+          payload:Object.assign({},payload,{confirmar_similar:true})
+        });
+      }
 
       if(res.status===200 && res.json && res.json.success){
         editingFreeEventId=null;
