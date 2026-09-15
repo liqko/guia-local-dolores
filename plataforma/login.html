@@ -1578,30 +1578,22 @@ function openImagesFormForCommerce(comercioId){
 let comerciosCargando = false;
 
 
-function globalBlockingAnchorTop_(sourceEl){
-  const el=sourceEl || document.activeElement;
+function globalBlockingViewportTop_(){
+  const vv=window.visualViewport;
+  const h=Math.max(
+    320,
+    Math.round((vv && vv.height) || window.innerHeight || document.documentElement.clientHeight || 800)
+  );
 
-  if(el && el !== document.body && typeof el.getBoundingClientRect === 'function'){
-    const r=el.getBoundingClientRect();
-    if(Number.isFinite(r.top)){
-      return Math.max(16,window.scrollY+Math.max(16,r.top-24));
-    }
-  }
+  // Siempre dentro de la pantalla visible, un poco debajo del borde superior.
+  return Math.max(64,Math.min(140,Math.round(h*0.12)));
+}
 
-  const visiblePanel=Array.from(document.querySelectorAll('.panel')).find(p=>{
-    if(!p) return false;
-    const style=getComputedStyle(p);
-    if(style.display==='none' || style.visibility==='hidden') return false;
-    const r=p.getBoundingClientRect();
-    return r.bottom>0 && r.top<(window.innerHeight||800);
-  });
-
-  if(visiblePanel){
-    const r=visiblePanel.getBoundingClientRect();
-    return Math.max(16,window.scrollY+Math.max(16,r.top+16));
-  }
-
-  return Math.max(16,window.scrollY+24);
+function positionGlobalBlockingCard_(){
+  const overlay=document.getElementById('global-action-overlay');
+  const card=document.getElementById('global-action-overlay-card');
+  if(!overlay || !card || overlay.style.display==='none') return;
+  card.style.top=globalBlockingViewportTop_()+'px';
 }
 
 function showGlobalBlocking_(label,detail,sourceEl){
@@ -1611,30 +1603,42 @@ function showGlobalBlocking_(label,detail,sourceEl){
     overlay=document.createElement('div');
     overlay.id='global-action-overlay';
     overlay.style.cssText=[
-      'position:absolute',
-      'left:0','right:0','top:0','bottom:0',
-      'min-height:100%',
+      'position:fixed',
+      'inset:0',
+      'width:100vw',
+      'height:100dvh',
+      'min-height:100vh',
       'z-index:1000005',
       'display:none',
       'background:rgba(20,25,35,.28)',
       'text-align:center',
-      'cursor:wait'
+      'cursor:wait',
+      'overflow:hidden',
+      'pointer-events:all'
     ].join(';');
     document.body.appendChild(overlay);
   }
 
-  const top=globalBlockingAnchorTop_(sourceEl);
-
-  overlay.innerHTML=`<div style="position:absolute;left:12px;right:12px;top:${top}px;max-width:460px;margin:0 auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.20)">
+  overlay.innerHTML=`<div id="global-action-overlay-card" style="position:fixed;left:12px;right:12px;top:${globalBlockingViewportTop_()}px;max-width:460px;margin:0 auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.20)">
     <div style="width:32px;height:32px;border:4px solid #d9dfe8;border-top-color:#65758b;border-radius:50%;margin:0 auto 10px;animation:spin .8s linear infinite"></div>
     <div style="font-size:20px;font-weight:800;margin-bottom:6px">${htmlEscape(label || 'Procesando...')}</div>
     <div class="small-muted">${htmlEscape(detail || 'Esperá a que termine la operación.')}</div>
   </div>`;
 
   overlay.style.display='block';
+  positionGlobalBlockingCard_();
 
   const container=document.querySelector('.container');
   if(container) container.inert=true;
+}
+
+if(!window.__globalBlockingViewportBound){
+  window.addEventListener('resize',positionGlobalBlockingCard_,{passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',positionGlobalBlockingCard_,{passive:true});
+    window.visualViewport.addEventListener('scroll',positionGlobalBlockingCard_,{passive:true});
+  }
+  window.__globalBlockingViewportBound=true;
 }
 
 function hideGlobalBlocking_(){
