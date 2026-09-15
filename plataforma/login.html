@@ -284,6 +284,22 @@
     .events-free-row-meta{font-size:.9em;color:#555;margin-top:4px}
     .events-free-row-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px}
     .events-free-row-actions button{width:auto;margin:0}
+    .gld-search-select-wrap{position:relative;width:100%}
+    .gld-search-select-native{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important;padding:0!important}
+    .gld-search-select-input{width:100%;margin-bottom:0!important;background:#fff}
+    .gld-search-select-list{display:none;position:absolute;z-index:1000020;left:0;right:0;top:calc(100% + 3px);max-height:260px;overflow:auto;background:#fff;border:1px solid #bbb;border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.16)}
+    .gld-search-select-wrap.open .gld-search-select-list{display:block}
+    .gld-search-select-option{padding:9px 10px;cursor:pointer;border-bottom:1px solid #eee}
+    .gld-search-select-option:last-child{border-bottom:0}
+    .gld-search-select-option:hover,.gld-search-select-option.active{background:#eef7ff}
+    .gld-search-select-option.selected{font-weight:800;background:#f2f8ff}
+    .gld-search-select-empty{padding:10px;color:#666}
+    .gld-search-select-chips{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 0}
+    .gld-search-select-chip{display:inline-flex;align-items:center;gap:5px;padding:5px 8px;border-radius:999px;background:#eef7ff;border:1px solid #cfe5f5;font-size:.9em}
+    .gld-search-select-chip button{width:auto!important;min-width:0!important;margin:0!important;padding:0 3px!important;border:0!important;background:transparent!important;color:#555!important;box-shadow:none!important}
+    .events-free-publisher{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:10px;background:#fff;padding:12px}
+    .events-free-publisher-fields{display:none;margin-top:10px}
+    .events-free-publisher-fields.open{display:block}
     .events-free-other{display:none;margin-top:8px}
     .events-free-other.open{display:block}
     @media (max-width:720px){
@@ -710,7 +726,10 @@
 
               <div>
                 <label>Categoría <span class="req">*</span></label>
-                <select id="ev-categoria"><option value="">Seleccioná una categoría</option></select>
+                <select id="ev-categoria" multiple data-search-placeholder="Buscá y elegí una o más categorías"><option value="">Seleccioná una o más categorías</option></select>
+                <div id="ev-categoria-otra-wrap" class="events-free-other">
+                  <input id="ev-categoria-otra" type="text" placeholder="Otra categoría (podés separar varias con coma)">
+                </div>
               </div>
 
               <div>
@@ -941,7 +960,7 @@
               </div>
               <div>
                 <label>Categoría <span class="req">*</span></label>
-                <select id="evf-categoria"><option value="">Seleccioná una categoría</option></select>
+                <select id="evf-categoria" multiple data-search-placeholder="Buscá y elegí una o más categorías"><option value="">Seleccioná una o más categorías</option></select>
                 <div id="evf-categoria-otra-wrap" class="events-free-other">
                   <input id="evf-categoria-otra" type="text" placeholder="Escribí la categoría">
                 </div>
@@ -980,6 +999,26 @@
               <div class="full">
                 <label>Instagram</label>
                 <input id="evf-instagram" type="text" placeholder="@usuario o URL">
+              </div>
+              <div class="events-free-publisher">
+                <label style="display:flex;gap:8px;align-items:flex-start;font-weight:600;margin:0">
+                  <input id="evf-compartido-mostrar" type="checkbox" style="width:auto;margin-top:3px">
+                  <span>Mostrar “Compartido por” en la publicación</span>
+                </label>
+                <div id="evf-compartido-fields" class="events-free-publisher-fields">
+                  <label>Identidad a mostrar</label>
+                  <select id="evf-compartido-tipo">
+                    <option value="ANUNCIANTE">Usar el anunciante actual</option>
+                    <option value="PERSONALIZADO">Nombre o nick personalizado</option>
+                  </select>
+                  <div id="evf-compartido-personalizado" style="display:none">
+                    <label>Nombre o nick</label>
+                    <input id="evf-compartido-nombre" type="text" placeholder="Ej: Cultura Dolores">
+                    <label>Logo / avatar (URL, opcional)</label>
+                    <input id="evf-compartido-logo" type="text" placeholder="https://...">
+                  </div>
+                  <div id="evf-compartido-preview" class="small-muted" style="margin-top:6px"></div>
+                </div>
               </div>
               <div class="full">
                 <label style="display:flex;gap:8px;align-items:flex-start;font-weight:400">
@@ -2039,76 +2078,128 @@ function normalizeEventPartnerSearch(value){
     .trim();
 }
 
-/* ===== Búsqueda acumulativa en TODOS los select =====
-   Permite escribir varias letras seguidas (ej. "club independiente")
-   sin que el navegador corte la búsqueda en la primera coincidencia. */
-const gldSelectTypeSearchState = new WeakMap();
-
+/* ===== SELECT BUSCABLE REAL EN TODOS LOS FORMULARIOS ===== */
 function gldNormalizeSelectSearch_(value){
-  return String(value || '')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g,'')
-    .trim();
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
 }
-
-function installGlobalSelectTypeSearch_(){
-  if(window.__gldSelectTypeSearchInstalled) return;
-  window.__gldSelectTypeSearchInstalled=true;
-
-  document.addEventListener('keydown',(e)=>{
-    const sel=e.target;
-    if(!sel || sel.tagName!=='SELECT' || sel.disabled) return;
-    if(e.ctrlKey || e.metaKey || e.altKey) return;
-
-    let state=gldSelectTypeSearchState.get(sel) || {buffer:'',resetTimer:null,changeTimer:null};
-
-    if(e.key==='Escape'){
-      state.buffer='';
-      if(state.resetTimer) clearTimeout(state.resetTimer);
-      if(state.changeTimer) clearTimeout(state.changeTimer);
-      gldSelectTypeSearchState.set(sel,state);
-      return;
-    }
-
-    if(e.key==='Backspace'){
-      if(!state.buffer) return;
-      e.preventDefault();
-      state.buffer=state.buffer.slice(0,-1);
-    }else if(e.key && e.key.length===1 && !/\s/.test(e.key) || e.key===' '){
-      if(e.key.length!==1) return;
-      e.preventDefault();
-      state.buffer+=e.key;
-    }else{
-      return;
-    }
-
-    if(state.resetTimer) clearTimeout(state.resetTimer);
-    state.resetTimer=setTimeout(()=>{
-      state.buffer='';
-      gldSelectTypeSearchState.set(sel,state);
-    },1800);
-
-    const q=gldNormalizeSelectSearch_(state.buffer);
-    if(!q){ gldSelectTypeSearchState.set(sel,state); return; }
-
-    const options=Array.from(sel.options).filter(o=>!o.disabled && String(o.value||'')!=='');
-    const match=options.find(o=>gldNormalizeSelectSearch_(o.textContent).startsWith(q)) ||
-                options.find(o=>gldNormalizeSelectSearch_(o.textContent).includes(q));
-
-    if(match){
-      const changed=sel.value!==match.value;
-      sel.value=match.value;
-      if(changed){
-        if(state.changeTimer) clearTimeout(state.changeTimer);
-        state.changeTimer=setTimeout(()=>{
+function gldSelectedOptions_(sel){
+  return Array.from(sel.options||[]).filter(o=>o.selected && String(o.value||'')!=='');
+}
+function gldSelectPlaceholder_(sel){
+  return sel.dataset.searchPlaceholder || (Array.from(sel.options||[]).find(o=>String(o.value||'')==='')?.textContent || 'Escribí para buscar');
+}
+function gldSyncSearchableSelect_(sel){
+  if(!sel || !sel.__gldSearchWrap) return;
+  const wrap=sel.__gldSearchWrap;
+  const input=wrap.querySelector('.gld-search-select-input');
+  const chips=wrap.querySelector('.gld-search-select-chips');
+  if(!input) return;
+  if(sel.multiple){
+    input.value='';
+    input.placeholder=gldSelectPlaceholder_(sel);
+    if(chips){
+      const selected=gldSelectedOptions_(sel);
+      chips.innerHTML=selected.map(o=>`<span class="gld-search-select-chip">${htmlEscape(o.textContent||'')}<button type="button" data-value="${htmlEscape(o.value)}" aria-label="Quitar">&times;</button></span>`).join('');
+      chips.querySelectorAll('button[data-value]').forEach(btn=>{
+        btn.addEventListener('click',e=>{
+          e.stopPropagation();
+          const opt=Array.from(sel.options).find(o=>o.value===btn.dataset.value);
+          if(opt) opt.selected=false;
           sel.dispatchEvent(new Event('change',{bubbles:true}));
-        },500);
-      }
+          gldSyncSearchableSelect_(sel);
+          gldRenderSearchableOptions_(sel,'');
+        });
+      });
     }
-
-    gldSelectTypeSearchState.set(sel,state);
+  }else{
+    const opt=sel.options[sel.selectedIndex];
+    input.value=(opt && String(opt.value||'')!=='') ? String(opt.textContent||'') : '';
+    input.placeholder=gldSelectPlaceholder_(sel);
+  }
+}
+function gldRenderSearchableOptions_(sel,query){
+  if(!sel || !sel.__gldSearchWrap) return;
+  const wrap=sel.__gldSearchWrap;
+  const list=wrap.querySelector('.gld-search-select-list');
+  const q=gldNormalizeSelectSearch_(query);
+  const options=Array.from(sel.options||[]).filter(o=>!o.disabled && String(o.value||'')!=='');
+  const filtered=options.filter(o=>!q || gldNormalizeSelectSearch_(o.textContent).includes(q));
+  list.innerHTML=filtered.length
+    ? filtered.map(o=>`<div class="gld-search-select-option${o.selected?' selected':''}" data-value="${htmlEscape(o.value)}">${htmlEscape(o.textContent||'')}</div>`).join('')
+    : '<div class="gld-search-select-empty">No hay coincidencias.</div>';
+  list.querySelectorAll('.gld-search-select-option').forEach(row=>{
+    row.addEventListener('mousedown',e=>e.preventDefault());
+    row.addEventListener('click',()=>{
+      const opt=Array.from(sel.options).find(o=>o.value===row.dataset.value);
+      if(!opt) return;
+      if(sel.multiple) opt.selected=!opt.selected;
+      else sel.value=opt.value;
+      sel.dispatchEvent(new Event('change',{bubbles:true}));
+      gldSyncSearchableSelect_(sel);
+      if(sel.multiple){
+        const input=wrap.querySelector('.gld-search-select-input');
+        if(input){ input.value=''; input.focus(); }
+        gldRenderSearchableOptions_(sel,'');
+      }else{
+        wrap.classList.remove('open');
+      }
+    });
+  });
+}
+function gldRefreshSearchableSelect_(sel){
+  if(!sel) return;
+  if(!sel.__gldSearchWrap){ gldEnhanceSelect_(sel); return; }
+  gldSyncSearchableSelect_(sel);
+  const input=sel.__gldSearchWrap.querySelector('.gld-search-select-input');
+  if(input && sel.__gldSearchWrap.classList.contains('open')) gldRenderSearchableOptions_(sel,input.value);
+}
+function gldEnhanceSelect_(sel){
+  if(!sel || sel.__gldSearchWrap || sel.dataset.noSearchable==='true') return;
+  const wrap=document.createElement('div');
+  wrap.className='gld-search-select-wrap';
+  const input=document.createElement('input');
+  input.type='text'; input.className='gld-search-select-input'; input.autocomplete='off'; input.spellcheck=false;
+  input.setAttribute('aria-label',sel.getAttribute('aria-label') || 'Buscar opción');
+  const list=document.createElement('div'); list.className='gld-search-select-list';
+  const chips=document.createElement('div'); chips.className='gld-search-select-chips';
+  sel.parentNode.insertBefore(wrap,sel.nextSibling);
+  wrap.appendChild(input); if(sel.multiple) wrap.appendChild(chips); wrap.appendChild(list);
+  sel.classList.add('gld-search-select-native'); sel.__gldSearchWrap=wrap;
+  input.addEventListener('focus',()=>{ gldSyncSearchableSelect_(sel); if(sel.multiple) input.value=''; wrap.classList.add('open'); gldRenderSearchableOptions_(sel,input.value); });
+  input.addEventListener('click',()=>{ wrap.classList.add('open'); gldRenderSearchableOptions_(sel,input.value); });
+  input.addEventListener('input',()=>{ wrap.classList.add('open'); gldRenderSearchableOptions_(sel,input.value); });
+  input.addEventListener('keydown',e=>{ if(e.key==='Escape'){wrap.classList.remove('open');input.blur();} });
+  sel.addEventListener('change',()=>gldSyncSearchableSelect_(sel));
+  gldSyncSearchableSelect_(sel);
+}
+function gldEnhanceAllSelects_(root=document){
+  (root.querySelectorAll ? root.querySelectorAll('select') : []).forEach(gldEnhanceSelect_);
+}
+function gldRefreshAllSearchableSelects_(){
+  document.querySelectorAll('select').forEach(gldRefreshSearchableSelect_);
+}
+function installGlobalSelectTypeSearch_(){
+  if(window.__gldSearchableSelectInstalled) return;
+  window.__gldSearchableSelectInstalled=true;
+  gldEnhanceAllSelects_(document);
+  document.addEventListener('click',e=>{
+    document.querySelectorAll('.gld-search-select-wrap.open').forEach(w=>{ if(!w.contains(e.target)) w.classList.remove('open'); });
   },true);
+  const obs=new MutationObserver(mutations=>{
+    const touched=new Set();
+    mutations.forEach(m=>{
+      if(m.target && m.target.tagName==='SELECT') touched.add(m.target);
+      const parent=m.target && m.target.closest ? m.target.closest('select') : null;
+      if(parent) touched.add(parent);
+      (m.addedNodes||[]).forEach(n=>{
+        if(n.nodeType!==1) return;
+        if(n.tagName==='SELECT') touched.add(n);
+        n.querySelectorAll?.('select').forEach(s=>touched.add(s));
+      });
+    });
+    touched.forEach(gldRefreshSearchableSelect_);
+  });
+  obs.observe(document.body,{childList:true,subtree:true});
 }
 
 function toggleExternalPartnerFields(i){
@@ -2335,7 +2426,9 @@ async function loadEventosPanelData(){
 
     evLists.lugares=[];
 
-    fillSelectOptions('ev-categoria',evLists.categorias,'Seleccioná una categoría');
+    fillSelectOptions('ev-categoria',evLists.categorias,'Seleccioná una o más categorías');
+    ensureOtherCategoryOption_('ev-categoria');
+    toggleVipOtherCategory_();
     fillEventCitySelect();
     refreshEventPlacesByCity('');
 
@@ -5540,8 +5633,12 @@ function clearEventForm(){
 
   ids.forEach(id=>{
     const el = document.getElementById(id);
-    if(el) el.value = '';
+    if(!el) return;
+    if(el.tagName==='SELECT' && el.multiple) Array.from(el.options).forEach(o=>o.selected=false);
+    else el.value='';
   });
+  const evCatOther=document.getElementById('ev-categoria-otra'); if(evCatOther) evCatOther.value='';
+  toggleVipOtherCategory_();
 
   for(let i=1;i<=10;i++){
     const pids = eventPartnerIds(i);
@@ -5562,7 +5659,7 @@ function buildEventPayloadFromForm(){
 
   const payload = {
     nombre_evento: evGet('ev-nombre_evento'),
-    categoria: evGet('ev-categoria'),
+    categoria: selectedCategoryValues_('ev-categoria','ev-categoria-otra').join(', '),
     ciudad_id: evGet('ev-ciudad'),
     lugar: place ? String(place.lugar || '').trim() : '',
     sede_id: place ? String(place.sede_id || '').trim() : '',
@@ -5780,7 +5877,8 @@ function bindEventsListActions(){
         btnCreate.removeAttribute('disabled');
 
         document.getElementById('ev-nombre_evento').value = found.nombre_evento || '';
-        document.getElementById('ev-categoria').value = found.categoria || '';
+        setCategoryValues_('ev-categoria','ev-categoria-otra',found.categoria||'');
+        toggleVipOtherCategory_();
         await setEventPlaceSelection(found);
 
         const dirEl = document.getElementById('ev-direccion');
@@ -5967,10 +6065,80 @@ function normalizeFreePlaces_(raw){
   }).filter(o=>o.nombre);
 }
 
+function selectedCategoryValues_(selectId,otherInputId=''){
+  const sel=document.getElementById(selectId);
+  if(!sel) return [];
+  const values=Array.from(sel.selectedOptions||[]).map(o=>String(o.value||'').trim()).filter(v=>v && v!==EVENT_FREE_OTHER_CATEGORY);
+  if(Array.from(sel.selectedOptions||[]).some(o=>o.value===EVENT_FREE_OTHER_CATEGORY)){
+    values.push(...String(document.getElementById(otherInputId)?.value||'').split(/[;,|]/).map(v=>v.trim()).filter(Boolean));
+  }
+  return [...new Set(values)];
+}
+function setCategoryValues_(selectId,otherInputId,value){
+  const sel=document.getElementById(selectId);
+  if(!sel) return;
+  const wanted=String(value||'').split(/[;,|]/).map(v=>v.trim()).filter(Boolean);
+  const wantedNorm=new Set(wanted.map(gldNormalizeSelectSearch_));
+  const knownNorm=new Set();
+  Array.from(sel.options).forEach(o=>{
+    const isOther=o.value===EVENT_FREE_OTHER_CATEGORY;
+    const norm=gldNormalizeSelectSearch_(o.value||o.textContent);
+    o.selected=!isOther && wantedNorm.has(norm);
+    if(o.selected) knownNorm.add(norm);
+  });
+  const extras=wanted.filter(v=>!knownNorm.has(gldNormalizeSelectSearch_(v)));
+  const otherOpt=Array.from(sel.options).find(o=>o.value===EVENT_FREE_OTHER_CATEGORY);
+  if(otherOpt) otherOpt.selected=extras.length>0;
+  const other=document.getElementById(otherInputId);
+  if(other) other.value=extras.join(', ');
+  sel.dispatchEvent(new Event('change',{bubbles:true}));
+  gldRefreshSearchableSelect_(sel);
+}
+function ensureOtherCategoryOption_(selectId){
+  const sel=document.getElementById(selectId);
+  if(!sel) return;
+  if(!Array.from(sel.options).some(o=>o.value===EVENT_FREE_OTHER_CATEGORY)){
+    const opt=document.createElement('option'); opt.value=EVENT_FREE_OTHER_CATEGORY; opt.textContent='Otra / No figura en la lista'; sel.appendChild(opt);
+  }
+  gldRefreshSearchableSelect_(sel);
+}
+function toggleVipOtherCategory_(){
+  const sel=document.getElementById('ev-categoria');
+  const wrap=document.getElementById('ev-categoria-otra-wrap');
+  const show=!!sel && Array.from(sel.selectedOptions||[]).some(o=>o.value===EVENT_FREE_OTHER_CATEGORY);
+  if(wrap) wrap.classList.toggle('open',show);
+}
+let evFreePublisherAdvertiser={nombre:'',logo:''};
+function updateFreePublisherUI_(){
+  const show=!!document.getElementById('evf-compartido-mostrar')?.checked;
+  document.getElementById('evf-compartido-fields')?.classList.toggle('open',show);
+  const tipo=String(document.getElementById('evf-compartido-tipo')?.value||'ANUNCIANTE');
+  const custom=document.getElementById('evf-compartido-personalizado');
+  if(custom) custom.style.display=(show && tipo==='PERSONALIZADO')?'block':'none';
+  const preview=document.getElementById('evf-compartido-preview');
+  if(preview){
+    if(!show){preview.textContent='';return;}
+    const nombre=tipo==='ANUNCIANTE'
+      ? String(evFreePublisherAdvertiser.nombre||sesion?.nombre||'').trim()
+      : String(document.getElementById('evf-compartido-nombre')?.value||'').trim();
+    preview.textContent=nombre ? `Se mostrará: Compartido por ${nombre}` : 'Completá el nombre o nick que querés mostrar.';
+  }
+}
+function freePublisherPayload_(){
+  const mostrar=!!document.getElementById('evf-compartido-mostrar')?.checked;
+  if(!mostrar) return {organizador:'',logo_organizador:''};
+  const tipo=String(document.getElementById('evf-compartido-tipo')?.value||'ANUNCIANTE');
+  if(tipo==='ANUNCIANTE'){
+    return {organizador:String(evFreePublisherAdvertiser.nombre||sesion?.nombre||'').trim(),logo_organizador:String(evFreePublisherAdvertiser.logo||'').trim()};
+  }
+  return {organizador:String(document.getElementById('evf-compartido-nombre')?.value||'').trim(),logo_organizador:String(document.getElementById('evf-compartido-logo')?.value||'').trim()};
+}
+
 function toggleFreeOtherFields_(){
   const cat=document.getElementById('evf-categoria');
   const catWrap=document.getElementById('evf-categoria-otra-wrap');
-  if(catWrap) catWrap.classList.toggle('open',!!cat && cat.value===EVENT_FREE_OTHER_CATEGORY);
+  const catHasOther=!!cat && Array.from(cat.selectedOptions||[]).some(o=>o.value===EVENT_FREE_OTHER_CATEGORY);
+  if(catWrap) catWrap.classList.toggle('open',catHasOther);
 
   const lugar=document.getElementById('evf-lugar');
   const lugarWrap=document.getElementById('evf-lugar-otro-wrap');
@@ -6021,6 +6189,7 @@ function refreshFreeEventPlaces_(preferredName=''){
     }
   }
   toggleFreeOtherFields_();
+  gldRefreshSearchableSelect_(sel);
 }
 
 function fillFreeEventCatalogs_(data){
@@ -6028,14 +6197,8 @@ function fillFreeEventCatalogs_(data){
   const cities=Array.isArray(data && data.ciudades) ? data.ciudades : [];
   evFreePlacesAll=normalizeFreePlaces_(data && data.lugares);
 
-  fillSelectOptions('evf-categoria',cats,'Seleccioná una categoría');
-  const catSel=document.getElementById('evf-categoria');
-  if(catSel && !Array.from(catSel.options).some(o=>o.value===EVENT_FREE_OTHER_CATEGORY)){
-    const opt=document.createElement('option');
-    opt.value=EVENT_FREE_OTHER_CATEGORY;
-    opt.textContent='Otra / No figura en la lista';
-    catSel.appendChild(opt);
-  }
+  fillSelectOptions('evf-categoria',cats,'Seleccioná una o más categorías');
+  ensureOtherCategoryOption_('evf-categoria');
 
   const citySel=document.getElementById('evf-ciudad');
   if(citySel){
@@ -6051,6 +6214,7 @@ function fillFreeEventCatalogs_(data){
 
   refreshFreeEventPlaces_('');
   toggleFreeOtherFields_();
+  gldRefreshAllSearchableSelects_();
 }
 
 function freeEventCityLabel_(id){
@@ -6062,21 +6226,29 @@ function freeEventCityLabel_(id){
 function clearFreeEventForm_(){
   ['evf-nombre','evf-fecha-desde','evf-fecha-hasta','evf-hora','evf-hora2','evf-descripcion','evf-instagram','evf-categoria-otra','evf-lugar-otro']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  ['evf-categoria','evf-ciudad','evf-lugar'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['evf-categoria','evf-ciudad','evf-lugar'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(!el) return;
+    if(el.tagName==='SELECT' && el.multiple) Array.from(el.options).forEach(o=>o.selected=false);
+    else el.value='';
+  });
   refreshFreeEventPlaces_('');
   toggleFreeOtherFields_();
-  const resp=document.getElementById('evf-responsabilidad');
-  if(resp) resp.checked=false;
+  const resp=document.getElementById('evf-responsabilidad'); if(resp) resp.checked=false;
+  const show=document.getElementById('evf-compartido-mostrar'); if(show) show.checked=false;
+  const tipo=document.getElementById('evf-compartido-tipo'); if(tipo) tipo.value='ANUNCIANTE';
+  const nom=document.getElementById('evf-compartido-nombre'); if(nom) nom.value='';
+  const logo=document.getElementById('evf-compartido-logo'); if(logo) logo.value='';
+  updateFreePublisherUI_();
+  gldRefreshAllSearchableSelects_();
 }
 
 function buildFreeEventPayload_(){
-  const categoriaSel=String(document.getElementById('evf-categoria')?.value||'').trim();
   const lugarSel=String(document.getElementById('evf-lugar')?.value||'').trim();
+  const publisher=freePublisherPayload_();
   return {
     nombre_evento:String(document.getElementById('evf-nombre')?.value||'').trim(),
-    categoria:categoriaSel===EVENT_FREE_OTHER_CATEGORY
-      ? String(document.getElementById('evf-categoria-otra')?.value||'').trim()
-      : categoriaSel,
+    categoria:selectedCategoryValues_('evf-categoria','evf-categoria-otra').join(', '),
     ciudad_id:String(document.getElementById('evf-ciudad')?.value||'').trim(),
     lugar:lugarSel===EVENT_FREE_OTHER_PLACE
       ? String(document.getElementById('evf-lugar-otro')?.value||'').trim()
@@ -6087,6 +6259,9 @@ function buildFreeEventPayload_(){
     hora2:String(document.getElementById('evf-hora2')?.value||'').trim(),
     descripcion:String(document.getElementById('evf-descripcion')?.value||'').trim(),
     instagram:String(document.getElementById('evf-instagram')?.value||'').trim(),
+    suscriptor_id:String(sesionSuscriptor?.suscriptor_id||'').trim(),
+    organizador:publisher.organizador,
+    logo_organizador:publisher.logo_organizador,
     acepta_responsabilidad:!!document.getElementById('evf-responsabilidad')?.checked
   };
 }
@@ -6111,6 +6286,7 @@ function renderFreeEvents_(events){
       <div class="events-free-row-title">${htmlEscape(ev.nombre_evento||'(Sin nombre)')}</div>
       <div class="events-free-row-meta">${htmlEscape([rango,city,ev.lugar].filter(Boolean).join(' · '))}</div>
       <div class="events-free-row-meta">Estado: ${htmlEscape(paused?'Pausado':'Activo')}${moderacion?' · Moderación: '+htmlEscape(moderacion):''}</div>
+      ${ev.organizador?`<div class="events-free-row-meta">Compartido por ${htmlEscape(ev.organizador)}</div>`:''}
       <div class="events-free-row-actions">
         <button type="button" class="secondary" data-evf-action="edit" data-id="${htmlEscape(id)}">Editar</button>
         <button type="button" class="secondary" data-evf-action="pause" data-id="${htmlEscape(id)}" data-paused="${paused?'1':'0'}">${paused?'Reactivar':'Pausar'}</button>
@@ -6129,18 +6305,7 @@ function renderFreeEvents_(events){
       if(action==='edit'){
         editingFreeEventId=id;
         document.getElementById('evf-nombre').value=found.nombre_evento||'';
-        const catSel=document.getElementById('evf-categoria');
-        const savedCat=String(found.categoria||'').trim();
-        if(catSel){
-          const catMatch=Array.from(catSel.options).find(o=>gldNormalizeSelectSearch_(o.textContent)===gldNormalizeSelectSearch_(savedCat));
-          if(catMatch){
-            catSel.value=catMatch.value;
-            const other=document.getElementById('evf-categoria-otra'); if(other) other.value='';
-          }else{
-            catSel.value=EVENT_FREE_OTHER_CATEGORY;
-            const other=document.getElementById('evf-categoria-otra'); if(other) other.value=savedCat;
-          }
-        }
+        setCategoryValues_('evf-categoria','evf-categoria-otra',found.categoria||'');
         document.getElementById('evf-ciudad').value=found.ciudad_id||'';
         refreshFreeEventPlaces_(found.lugar||'');
         toggleFreeOtherFields_();
@@ -6150,6 +6315,15 @@ function renderFreeEvents_(events){
         document.getElementById('evf-hora2').value=found.hora2||'';
         document.getElementById('evf-descripcion').value=found.descripcion||'';
         document.getElementById('evf-instagram').value=found.instagram||'';
+        const pubName=String(found.organizador||'').trim();
+        const pubLogo=String(found.logo_organizador||'').trim();
+        const showPub=document.getElementById('evf-compartido-mostrar'); if(showPub) showPub.checked=!!pubName;
+        const tipoPub=document.getElementById('evf-compartido-tipo');
+        const isCurrent=pubName && gldNormalizeSelectSearch_(pubName)===gldNormalizeSelectSearch_(evFreePublisherAdvertiser.nombre||sesion?.nombre||'');
+        if(tipoPub) tipoPub.value=isCurrent?'ANUNCIANTE':'PERSONALIZADO';
+        const pubNameEl=document.getElementById('evf-compartido-nombre'); if(pubNameEl) pubNameEl.value=isCurrent?'':pubName;
+        const pubLogoEl=document.getElementById('evf-compartido-logo'); if(pubLogoEl) pubLogoEl.value=isCurrent?'':pubLogo;
+        updateFreePublisherUI_();
         const resp=document.getElementById('evf-responsabilidad'); if(resp) resp.checked=true;
         const save=document.getElementById('evf-guardar');
         if(save) save.textContent='Guardar cambios';
@@ -6203,6 +6377,12 @@ async function loadEventosFreePanelData(){
       throw new Error((res.json&&(res.json.error||res.json.message))||'No se pudieron cargar Eventos Free.');
     }
     const data=res.json;
+    const adv=data.advertiser && typeof data.advertiser==='object' ? data.advertiser : {};
+    evFreePublisherAdvertiser={
+      nombre:String(adv.nombre||adv.anunciante||sesion?.nombre||'').trim(),
+      logo:String(adv.logo||adv.logo_url||adv.imagen||'').trim()
+    };
+    updateFreePublisherUI_();
     if(!data.funcionalidades || data.funcionalidades.eventos_free!==true){
       throw new Error('El anunciante no tiene habilitada la funcionalidad EVENTOS FREE.');
     }
@@ -6865,6 +7045,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   document.getElementById('evf-categoria')?.addEventListener('change',toggleFreeOtherFields_);
   document.getElementById('evf-lugar')?.addEventListener('change',toggleFreeOtherFields_);
 
+  document.getElementById('ev-categoria')?.addEventListener('change',toggleVipOtherCategory_);
+  document.getElementById('evf-compartido-mostrar')?.addEventListener('change',updateFreePublisherUI_);
+  document.getElementById('evf-compartido-tipo')?.addEventListener('change',updateFreePublisherUI_);
+  document.getElementById('evf-compartido-nombre')?.addEventListener('input',updateFreePublisherUI_);
+
   document.getElementById('evf-refresh')?.addEventListener('click',async()=>{
     if(typeof window.reloadDashboardModule==='function') await window.reloadDashboardModule('eventos_free');
     else await loadEventosFreePanelData();
@@ -6882,7 +7067,10 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     if(!sesion || !sesion.id) return;
     const payload=buildFreeEventPayload_();
     if(!payload.nombre_evento){ setMsg('eventos-free-msg','err','Falta Nombre del evento.'); return; }
-    if(!payload.categoria){ setMsg('eventos-free-msg','err','Falta Categoría.'); return; }
+    if(!payload.categoria){ setMsg('eventos-free-msg','err','Seleccioná al menos una categoría.'); return; }
+    if(document.getElementById('evf-compartido-mostrar')?.checked && !payload.organizador){
+      setMsg('eventos-free-msg','err','Completá quién comparte el evento o desactivá “Compartido por”.'); return;
+    }
     if(!payload.ciudad_id){ setMsg('eventos-free-msg','err','Falta Ciudad.'); return; }
     if(!payload.lugar){ setMsg('eventos-free-msg','err','Falta Lugar.'); return; }
     if(!payload.fecha_desde){ setMsg('eventos-free-msg','err','Falta Fecha desde.'); return; }
