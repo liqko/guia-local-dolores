@@ -571,7 +571,7 @@
     /* ===== BLOQUEO TOTAL DE CARGA ===== */
     .gld-bloqueo-total{
       display:none;position:fixed;inset:0;z-index:300000;align-items:flex-start;justify-content:center;
-      padding:12px;box-sizing:border-box;background:rgba(255,255,255,.76);backdrop-filter:blur(1.5px);
+      padding:clamp(64px,12vh,140px) 12px 12px;box-sizing:border-box;background:rgba(255,255,255,.76);backdrop-filter:blur(1.5px);
       pointer-events:auto;font-style:normal;
     }
     body.gld-bloqueado-total .gld-bloqueo-total{display:flex}
@@ -1113,11 +1113,16 @@
     }
 
     let gldModuloPendienteLogin='';
+    let gldModuloPendienteOpciones={};
 
-    function gldRequireSubscriber(disparador){
+    function gldRequireSubscriber(disparador,opciones={}){
       if(gldIsSubscriberLogged()) return true;
       const id=String(disparador?.id||'');
       gldModuloPendienteLogin = id==='moduloPromos' ? 'promos' : id==='moduloEventos' ? 'eventos' : id==='moduloActividades' ? 'actividades' : '';
+      gldModuloPendienteOpciones = {
+        filtered:!!opciones.filtered,
+        forzar:true
+      };
       gldShowSubscriberLogin(disparador);
       return false;
     }
@@ -1153,11 +1158,13 @@
         gldSetSubscriberSession(data.suscriptor);
         if(msg){msg.textContent='Ingreso correcto.';msg.className='gld-subscriber-msg ok';}
         const destino=gldModuloPendienteLogin;
+        const opcionesDestino=Object.assign({forzar:true},gldModuloPendienteOpciones||{});
         gldModuloPendienteLogin='';
+        gldModuloPendienteOpciones={};
         gldHideSubscriberLogin();
         gldSetModuloCargando('',false);
         if(destino && typeof window.mostrarModuloCiudad==='function'){
-          setTimeout(()=>window.mostrarModuloCiudad(destino,{forzar:true}),80);
+          setTimeout(()=>window.mostrarModuloCiudad(destino,opcionesDestino),80);
         }
       }catch(e){
         gldSetModuloCargando('',false);
@@ -2273,7 +2280,7 @@
             event_keys: matches.map(eventBridgeKey).filter(Boolean)
           };
           const payload = encodeURIComponent(JSON.stringify(bridgePayload));
-          return `<a class="eventos-activos-btn" href="${EVENTS_PAGE_URL}?${params.toString()}" target="_top" data-event-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.eventFilter||''));d.ts=Date.now();localStorage.setItem('gld_eventos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-calendar-days"></i> ${label}</a>`;
+          return `<a class="eventos-activos-btn" href="#" data-event-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.eventFilter||''));d.ts=Date.now();localStorage.setItem('gld_eventos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-calendar-days"></i> ${label}</a>`;
         }
 
         /* Índice local de promos activas. */
@@ -2372,7 +2379,7 @@
           };
 
           const payload = encodeURIComponent(JSON.stringify(bridgePayload));
-          return `<a class="promos-activas-btn" href="${PROMOS_PAGE_URL}?${params.toString()}" target="_top" data-promo-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.promoFilter||''));d.ts=Date.now();localStorage.setItem('gld_promos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-tags"></i> ${label}</a>`;
+          return `<a class="promos-activas-btn" href="#" data-promo-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.promoFilter||''));d.ts=Date.now();localStorage.setItem('gld_promos_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-tags"></i> ${label}</a>`;
         }
 
         let activeActivities = [];
@@ -4071,6 +4078,62 @@
     return u.toString();
   }
 
+  function guardarFiltroTarjeta_(link,key){
+    try{
+      if(key==='promos'){
+        const raw=decodeURIComponent(String(link.dataset.promoFilter||''));
+        const d=raw?JSON.parse(raw):null;
+        if(d){d.ts=Date.now();localStorage.setItem('gld_promos_filter',JSON.stringify(d));}
+      }else if(key==='eventos'){
+        const raw=decodeURIComponent(String(link.dataset.eventFilter||''));
+        const d=raw?JSON.parse(raw):null;
+        if(d){d.ts=Date.now();localStorage.setItem('gld_eventos_filter',JSON.stringify(d));}
+      }else if(key==='actividades'){
+        const raw=decodeURIComponent(String(link.dataset.actividadFilter||''));
+        const d=raw?JSON.parse(raw):null;
+        if(d){d.ts=Date.now();localStorage.setItem('gld_actividades_filter',JSON.stringify(d));}
+      }
+    }catch(err){
+      console.warn('No se pudo conservar el filtro de la tarjeta:',err);
+    }
+  }
+
+  function enlazarAccesosTarjetasGuia_(){
+    if(String(frame.dataset.modulo||'')!=='guia') return;
+    try{
+      const doc=frame.contentDocument;
+      if(!doc || doc.__gldAccesosTarjetasEnlazados) return;
+      doc.__gldAccesosTarjetasEnlazados=true;
+
+      doc.addEventListener('click',e=>{
+        const promo=e.target.closest?.('a.promos-activas-btn');
+        if(promo){
+          e.preventDefault();
+          guardarFiltroTarjeta_(promo,'promos');
+          cargarCentro('promos',{filtered:true,forzar:true,disparador:navPromos});
+          return;
+        }
+
+        const evento=e.target.closest?.('a.eventos-activos-btn');
+        if(evento){
+          e.preventDefault();
+          guardarFiltroTarjeta_(evento,'eventos');
+          cargarCentro('eventos',{filtered:true,forzar:true,disparador:navEventos});
+          return;
+        }
+
+        const actividad=e.target.closest?.('a.actividades-activas-btn');
+        if(actividad){
+          e.preventDefault();
+          guardarFiltroTarjeta_(actividad,'actividades');
+          cargarCentro('actividades',{filtered:true,forzar:true,disparador:navActividades});
+        }
+      });
+    }catch(err){
+      console.warn('No se pudieron enlazar accesos de tarjetas de Guía:',err);
+    }
+  }
+
   function ajustarAltura(){
     try{
       const doc=frame.contentDocument;
@@ -4082,6 +4145,7 @@
 
   frame?.addEventListener('load',()=>{
     ajustarAltura();
+    enlazarAccesosTarjetasGuia_();
     try{
       frame.__gldRO?.disconnect?.();
       const doc=frame.contentDocument;
@@ -4092,8 +4156,9 @@
         frame.__gldRO=ro;
       }
     }catch(e){}
-    setTimeout(ajustarAltura,250);
-    setTimeout(ajustarAltura,1000);
+    setTimeout(()=>{ajustarAltura();enlazarAccesosTarjetasGuia_();},250);
+    setTimeout(()=>{ajustarAltura();enlazarAccesosTarjetasGuia_();},1000);
+    setTimeout(enlazarAccesosTarjetasGuia_,2200);
   });
 
   window.addEventListener('message',(e)=>{
@@ -4111,7 +4176,11 @@
         if(box) box.classList.add('error');
         if(txt) txt.textContent=String(d.detalle||'La información está demorando más de lo habitual.');
         const rb=document.getElementById('gldBloqueoReintentar');
-        if(rb) rb.textContent=String(frame.dataset.modulo||'')==='eventos'?'Reintentar eventos':'Reintentar';
+        if(rb){
+          const mk=String(frame.dataset.modulo||'');
+          const ml=MODULOS[mk]?.label || '';
+          rb.textContent=ml ? `Reintentar ${ml.toLowerCase()}` : 'Reintentar';
+        }
       }
     }
   });
@@ -4130,7 +4199,7 @@
     key=String(key||'guia').toLowerCase();
     const mod=MODULOS[key]||MODULOS.guia;
 
-    if(mod.protegido && !gldRequireSubscriber(options.disparador||null)) return false;
+    if(mod.protegido && !gldRequireSubscriber(options.disparador||null,options)) return false;
     // La carga inicial de Guía forma parte del bloqueo general y debe poder arrancar.
     if(gldModuloCargando && !(options.inicial && key==='guia')) return false;
 
@@ -4156,7 +4225,7 @@
     frame.dataset.cargaInicial=esInicial?'1':'0';
     frame.title=mod.label+' de la ciudad';
 
-    const esperaReadyInterno = key==='guia';
+    const esperaReadyInterno = ['guia','promos','eventos','actividades'].includes(key);
     const onload=()=>{
       frame.removeEventListener('load',onload);
       if(!esperaReadyInterno) finalizarCarga(miToken,esInicial);
@@ -4170,7 +4239,7 @@
       if(box) box.classList.add('error');
       if(txt) txt.textContent='La información está demorando más de lo habitual.';
       const rb=document.getElementById('gldBloqueoReintentar');
-      if(rb) rb.textContent=key==='eventos'?'Reintentar eventos':'Reintentar';
+      if(rb) rb.textContent=`Reintentar ${String(mod.label||'').toLowerCase()}`;
     },30000);
 
     let destino=contextoUrl(mod.url);
