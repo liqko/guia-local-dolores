@@ -1677,40 +1677,26 @@ function isIsoZ(s){ return typeof s === 'string' && /Z$/.test(s); }
 
 function toDateInputValue(v){
   if(v === undefined || v === null || v === '') return '';
-
   if(Object.prototype.toString.call(v)==='[object Date]' && !isNaN(v.getTime())){
     return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
   }
-
   if(typeof v==='number' && isFinite(v)){
     const d=new Date(Math.round((v-25569)*86400000));
-    if(!isNaN(d.getTime())){
-      return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
-    }
+    if(!isNaN(d.getTime())) return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
   }
-
-  const s = String(v).trim();
+  const s=String(v).trim();
   if(!s) return '';
   if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
-  const mIso = s.match(/^(\d{4}-\d{2}-\d{2})[ T]/);
-  if(mIso) return mIso[1];
-
-  const mLat = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
-  if(mLat){
-    return `${mLat[3]}-${String(mLat[2]).padStart(2,'0')}-${String(mLat[1]).padStart(2,'0')}`;
-  }
-
-  const mDate = s.match(/^Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/);
-  if(mDate){
-    return `${mDate[1]}-${String(Number(mDate[2])+1).padStart(2,'0')}-${String(Number(mDate[3])).padStart(2,'0')}`;
-  }
-
-  const d = new Date(s);
+  const mIso=s.match(/^(\d{4}-\d{2}-\d{2})[ T]/); if(mIso) return mIso[1];
+  const mLat=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if(mLat) return `${mLat[3]}-${String(mLat[2]).padStart(2,'0')}-${String(mLat[1]).padStart(2,'0')}`;
+  const mDate=s.match(/^Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/);
+  if(mDate) return `${mDate[1]}-${String(Number(mDate[2])+1).padStart(2,'0')}-${String(Number(mDate[3])).padStart(2,'0')}`;
+  const d=new Date(s);
   if(!isNaN(d.getTime())){
-    const yy = isIsoZ(s) ? d.getUTCFullYear() : d.getFullYear();
-    const mm = String((isIsoZ(s) ? d.getUTCMonth() : d.getMonth()) + 1).padStart(2,'0');
-    const dd = String((isIsoZ(s) ? d.getUTCDate() : d.getDate())).padStart(2,'0');
+    const yy=isIsoZ(s)?d.getUTCFullYear():d.getFullYear();
+    const mm=String((isIsoZ(s)?d.getUTCMonth():d.getMonth())+1).padStart(2,'0');
+    const dd=String(isIsoZ(s)?d.getUTCDate():d.getDate()).padStart(2,'0');
     return `${yy}-${mm}-${dd}`;
   }
   return '';
@@ -3027,7 +3013,28 @@ function actividadesContactoPayload_(){
   return out;
 }
 
+function buildActividadPayloadFromForm_(){
+  const cards=Array.from(document.querySelectorAll('#act-horarios .act-horario-card'));
+  return {
+    actividad_id:String(document.getElementById('act-id')?.value||'').trim(),
+    nombre:String(document.getElementById('act-nombre')?.value||'').trim(),
+    categoria:String(document.getElementById('act-categoria')?.value||'').trim(),
+    descripcion:String(document.getElementById('act-descripcion')?.value||'').trim(),
+    inscripcion:String(document.getElementById('act-inscripcion')?.value||'').trim(),
+    web:String(document.getElementById('act-web')?.value||'').trim(),
+    contacto_sede_id:String(document.getElementById('act-contacto-sede')?.value||'').trim(),
+    contacto:actividadesContactoPayload_(),
+    img1:String(document.getElementById('act-img1')?.value||'').trim(),
+    img2:String(document.getElementById('act-img2')?.value||'').trim(),
+    img3:String(document.getElementById('act-img3')?.value||'').trim(),
+    img4:String(document.getElementById('act-img4')?.value||'').trim(),
+    img5:String(document.getElementById('act-img5')?.value||'').trim(),
+    horarios:cards.map((card,i)=>actividadesHorarioPayload_(card,i))
+  };
+}
+
 function actividadesResetForm_(){
+  gldEditEnd_('actividades');
   ['act-id','act-nombre','act-descripcion','act-inscripcion','act-web',
    'act-img1','act-img2','act-img3','act-img4','act-img5'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
@@ -3085,6 +3092,8 @@ function actividadesAbrirActividadEnForm_(actividad,duplicar=false){
   document.getElementById('act-form-title').textContent=duplicar?'Nueva actividad a partir de una copia':'Editar actividad';
   document.getElementById('act-guardar').textContent=duplicar?'Crear actividad duplicada':'Guardar cambios';
   document.getElementById('act-cancelar').style.display='';
+
+  if(!duplicar) gldEditBegin_('actividades',actividad.actividad_id,buildActividadPayloadFromForm_);
 
   setMsg(
     'actividades-msg',
@@ -3368,32 +3377,26 @@ function initActividadesUI_(){
         const cards=Array.from(document.querySelectorAll('#act-horarios .act-horario-card'));
         if(!cards.length) throw new Error('Agregá al menos un día, lugar y horario.');
 
-        const payload={
-          actividad_id:String(document.getElementById('act-id').value||'').trim(),
-          nombre:String(document.getElementById('act-nombre').value||'').trim(),
-          categoria:String(document.getElementById('act-categoria').value||'').trim(),
-          descripcion:String(document.getElementById('act-descripcion').value||'').trim(),
-          inscripcion:String(document.getElementById('act-inscripcion').value||'').trim(),
-          web:String(document.getElementById('act-web').value||'').trim(),
-          contacto_sede_id:String(document.getElementById('act-contacto-sede').value||'').trim(),
-          contacto:actividadesContactoPayload_(),
-          img1:String(document.getElementById('act-img1').value||'').trim(),
-          img2:String(document.getElementById('act-img2').value||'').trim(),
-          img3:String(document.getElementById('act-img3').value||'').trim(),
-          img4:String(document.getElementById('act-img4').value||'').trim(),
-          img5:String(document.getElementById('act-img5').value||'').trim(),
-          horarios:cards.map((card,i)=>actividadesHorarioPayload_(card,i))
-        };
+        const fullPayload=buildActividadPayloadFromForm_();
+        const editando=!!fullPayload.actividad_id;
+        const payload=editando
+          ? Object.assign({actividad_id:fullPayload.actividad_id},gldEditPatch_('actividades',buildActividadPayloadFromForm_,['actividad_id']))
+          : fullPayload;
 
-        if(!payload.nombre) throw new Error('Ingresá el nombre de la actividad.');
-        if(!payload.categoria) throw new Error('Seleccioná una categoría.');
+        if(editando && Object.keys(payload).length===1){
+          setMsg('actividades-msg','ok','No hay cambios para guardar.');
+          return;
+        }
 
-        await runDashboardAction(payload.actividad_id?'Guardando cambios...':'Creando actividad...',async()=>{
+        if(!fullPayload.nombre) throw new Error('Ingresá el nombre de la actividad.');
+        if(!fullPayload.categoria) throw new Error('Seleccioná una categoría.');
+
+        await runDashboardAction(editando?'Guardando cambios...':'Creando actividad...',async()=>{
           const res=await postJson(WORKER_ACTIVIDADES_URL,{action:'guardar',advertiserId:sesion.id,payload});
           if(res.status>=200 && res.status<300 && res.json && res.json.success){
             actividadesResetForm_();
             await loadActividadesUI(true);
-            setMsg('actividades-msg','ok',payload.actividad_id?'Actividad actualizada.':'Actividad creada.');
+            setMsg('actividades-msg','ok',editando?'Actividad actualizada.':'Actividad creada.');
           }else if(await handleUnconfirmedOperation(res,{msgId:'actividades-msg',reload:()=>loadActividadesUI(true)})){
             return;
           }else{
@@ -3605,7 +3608,31 @@ function pubUiCruces_(){
     : `Cruces de esta publicidad: ${cruces}.`;
 }
 
+function buildPublicidadPayloadFromForm_(){
+  const formato=String(document.getElementById('pub-formato')?.value||'').trim();
+  const media=Array.from(
+    document.querySelectorAll('#pub-media-list .pub-media-row')
+  ).map(row=>({
+    url:String(row.querySelector('.pub-media-url')?.value||'').trim(),
+    poster:String(row.querySelector('.pub-media-poster')?.value||'').trim()
+  })).filter(x=>x.url);
+
+  return {
+    publicidad_id:String(document.getElementById('pub-id')?.value||'').trim(),
+    nombre_interno:String(document.getElementById('pub-nombre-interno')?.value||'').trim(),
+    titulo:String(document.getElementById('pub-titulo')?.value||'').trim(),
+    formato,
+    media,
+    cta_texto:String(document.getElementById('pub-cta-texto')?.value||'').trim(),
+    cta_tipo:String(document.getElementById('pub-cta-tipo')?.value||'').trim(),
+    cta_destino:String(document.getElementById('pub-cta-destino')?.value||'').trim(),
+    ciudades:pubUiSelected_('#pub-ciudades'),
+    categorias:pubUiSelected_('#pub-categorias')
+  };
+}
+
 function pubUiReset_(){
+  gldEditEnd_('publicidad');
   ['pub-id','pub-nombre-interno','pub-titulo','pub-cta-texto','pub-cta-destino']
     .forEach(id=>{
       const el=document.getElementById(id);
@@ -3663,6 +3690,8 @@ function pubUiEditar_(p){
   document.getElementById('pub-cancelar').style.display='';
   document.getElementById('pub-guardar').textContent='Guardar cambios';
   document.getElementById('pub-guardar').disabled=false;
+
+  gldEditBegin_('publicidad',p.publicidad_id,buildPublicidadPayloadFromForm_);
 
   document.getElementById('publicidad-form-card')
     ?.scrollIntoView({behavior:'smooth',block:'start'});
@@ -4018,18 +4047,10 @@ function initPublicidadUI_(){
   if(save && !save.dataset.bound){
     save.addEventListener('click',async()=>{
       try{
-        const formato=String(
-          document.getElementById('pub-formato').value||''
-        ).trim();
+        const fullPayload=buildPublicidadPayloadFromForm_();
+        const {formato,media,ciudades,categorias}=fullPayload;
 
         if(!formato) throw new Error('Seleccioná el formato.');
-
-        const media=Array.from(
-          document.querySelectorAll('#pub-media-list .pub-media-row')
-        ).map(row=>({
-          url:String(row.querySelector('.pub-media-url')?.value||'').trim(),
-          poster:String(row.querySelector('.pub-media-poster')?.value||'').trim()
-        })).filter(x=>x.url);
 
         if(formato==='IMAGEN' && media.length!==1){
           throw new Error('Cargá una imagen.');
@@ -4043,9 +4064,6 @@ function initPublicidadUI_(){
           throw new Error('Cargá un YouTube Short.');
         }
 
-        const ciudades=pubUiSelected_('#pub-ciudades');
-        const categorias=pubUiSelected_('#pub-categorias');
-
         if(!ciudades.length) throw new Error('Elegí al menos una ciudad.');
         if(!categorias.length) throw new Error('Elegí al menos una categoría.');
 
@@ -4058,21 +4076,21 @@ function initPublicidadUI_(){
           );
         }
 
-        const payload={
-          publicidad_id:String(document.getElementById('pub-id').value||'').trim(),
-          nombre_interno:String(document.getElementById('pub-nombre-interno').value||'').trim(),
-          titulo:String(document.getElementById('pub-titulo').value||'').trim(),
-          formato,
-          media,
-          cta_texto:String(document.getElementById('pub-cta-texto').value||'').trim(),
-          cta_tipo:String(document.getElementById('pub-cta-tipo').value||'').trim(),
-          cta_destino:String(document.getElementById('pub-cta-destino').value||'').trim(),
-          ciudades,
-          categorias
-        };
+        const editando=!!fullPayload.publicidad_id;
+        const payload=editando
+          ? Object.assign(
+              {publicidad_id:fullPayload.publicidad_id},
+              gldEditPatch_('publicidad',buildPublicidadPayloadFromForm_,['publicidad_id'])
+            )
+          : fullPayload;
+
+        if(editando && Object.keys(payload).length===1){
+          setMsg('publicidad-msg','ok','No hay cambios para guardar.');
+          return;
+        }
 
         await runDashboardAction(
-          payload.publicidad_id
+          editando
             ? 'Guardando cambios...'
             : 'Creando publicidad...',
           async()=>{
@@ -4089,7 +4107,7 @@ function initPublicidadUI_(){
               setMsg(
                 'publicidad-msg',
                 'ok',
-                payload.publicidad_id
+                editando
                   ? 'Publicidad actualizada.'
                   : 'Publicidad guardada. Ahora podés incluirla en tu selección de publicidades activas.'
               );
@@ -4702,6 +4720,32 @@ function renderFarmaPreview(){
   box.innerHTML=`<strong>Vista previa · ${dias} turno${dias===1?'':'s'} hasta volver al inicio</strong>${lineas.join('')}`;
 }
 
+function buildFarmaciasPayloadFromForm_(){
+  const participantes=farmaSelectedRows().map((p,i)=>({
+    sede_id:String(p.sede_id||'').trim(),
+    orden:i+1
+  }));
+
+  return {
+    ciclo_id:farmaState.ciclo&&farmaState.ciclo.ciclo_id?String(farmaState.ciclo.ciclo_id):'',
+    ciudad_id:String(document.getElementById('farma-ciudad')?.value||'').trim(),
+    fecha_inicio:String(document.getElementById('farma-fecha-inicio')?.value||'').trim(),
+    hora_inicio:String(document.getElementById('farma-hora-inicio')?.value||'').trim(),
+    duracion_horas:Number(document.getElementById('farma-duracion')?.value||24),
+    farmacias_por_turno:Math.floor(Number(document.getElementById('farma-simultaneas')?.value||1)),
+    observaciones:String(document.getElementById('farma-observaciones')?.value||'').trim(),
+    participantes
+  };
+}
+
+function farmaciasBeginEditSession_(){
+  if(farmaState.ciclo){
+    gldEditBegin_('farmacias',farmaState.ciclo.ciclo_id,buildFarmaciasPayloadFromForm_);
+  }else{
+    gldEditEnd_('farmacias');
+  }
+}
+
 async function loadFarmaCityData(){
   const ciudadId=String(document.getElementById('farma-ciudad')?.value||'').trim();
 
@@ -4730,8 +4774,8 @@ async function loadFarmaCityData(){
     : [];
 
   const c=farmaState.ciclo;
-  document.getElementById('farma-fecha-inicio').value=c&&c.fecha_inicio?String(c.fecha_inicio):'';
-  document.getElementById('farma-hora-inicio').value=c&&c.hora_inicio?String(c.hora_inicio):'00:00';
+  document.getElementById('farma-fecha-inicio').value=c&&c.fecha_inicio?toDateInputValue(c.fecha_inicio):'';
+  document.getElementById('farma-hora-inicio').value=c&&c.hora_inicio?toTimeInputValue(c.hora_inicio):'00:00';
   document.getElementById('farma-duracion').value=c&&c.duracion_horas?String(c.duracion_horas):'24';
   document.getElementById('farma-simultaneas').value=c&&c.farmacias_por_turno?String(c.farmacias_por_turno):'1';
   document.getElementById('farma-observaciones').value=c&&c.observaciones?String(c.observaciones):'';
@@ -4742,6 +4786,7 @@ async function loadFarmaCityData(){
   document.getElementById('farma-status').textContent=
     `${farmaState.farmacias.length} farmacia${farmaState.farmacias.length===1?'':'s'} disponible${farmaState.farmacias.length===1?'':'s'} en la ciudad.`;
   document.getElementById('farma-msg').innerHTML='';
+  farmaciasBeginEditSession_();
 }
 
 async function loadFarmaciasUI(){
@@ -4816,6 +4861,95 @@ async function commerce_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_COMMERCE_URL, body);
 }
+let commerceEditBaseline=null;
+
+function commerceComparable_(value){
+  return gldEditComparable_(value);
+}
+
+function commerceSnapshot_(){
+  const dataPayload=buildCommerceSavePayload();
+  const sedesPayload=buildCommerceSedesPayload();
+
+  const datos={};
+  Object.keys(dataPayload).forEach(k=>{
+    if(!['action','id','__id','comercio_id'].includes(k)) datos[k]=dataPayload[k];
+  });
+
+  const sedes=(Array.isArray(sedesPayload.sedes)?sedesPayload.sedes:[]).map(s=>commerceComparable_(s));
+
+  return commerceComparable_({datos,sedes});
+}
+
+function commerceBeginEditSession_(){
+  commerceEditBaseline=commerceSnapshot_();
+}
+
+function commerceBuildDataPatch_(){
+  if(!commerceEditBaseline) commerceBeginEditSession_();
+
+  const full=buildCommerceSavePayload();
+  const patch={
+    action:'set_datos',
+    id:full.id,
+    __id:full.__id,
+    comercio_id:full.comercio_id
+  };
+
+  Object.keys(full).forEach(k=>{
+    if(['action','id','__id','comercio_id'].includes(k)) return;
+    if(!gldEditEqual_(full[k],commerceEditBaseline.datos[k])) patch[k]=full[k];
+  });
+
+  return {full,patch};
+}
+
+function commerceBuildSedesPatch_(){
+  if(!commerceEditBaseline) commerceBeginEditSession_();
+
+  const full=buildCommerceSedesPayload();
+  const baselineById=new Map(
+    (commerceEditBaseline.sedes||[])
+      .filter(s=>String(s.sede_id||'').trim())
+      .map(s=>[String(s.sede_id||'').trim(),s])
+  );
+
+  const changed=[];
+
+  (full.sedes||[]).forEach(current=>{
+    const sedeId=String(current.sede_id||'').trim();
+
+    // Sede nueva: se envía completa.
+    if(!sedeId){
+      changed.push(current);
+      return;
+    }
+
+    const before=baselineById.get(sedeId);
+    if(!before){
+      changed.push(current);
+      return;
+    }
+
+    const patch={sede_id:sedeId};
+
+    Object.keys(current).forEach(k=>{
+      if(k==='sede_id') return;
+      if(!gldEditEqual_(current[k],before[k])) patch[k]=current[k];
+    });
+
+    if(Object.keys(patch).length>1) changed.push(patch);
+  });
+
+  return {
+    action:'set_sedes',
+    id:full.id,
+    __id:full.__id,
+    comercio_id:full.comercio_id,
+    sedes:changed
+  };
+}
+
 function buildCommerceSavePayload(){
   const form = document.getElementById('form-datos-comercio');
   const payload = { action:'set_datos' };
@@ -5097,20 +5231,7 @@ function promoContactPayload(){
 
 function buildPromoPayloadFromForm_(){
   const sede=promoSelectedSede();
-  const sede_id=sede ? String(sede.sede_id||'').trim() : '';
-  const ciudad_id=sede ? String(sede.ciudad_id||'').trim() : '';
-
-  return {
-    promo:promoGet('promo-text'),
-    categoria:promoGet('promo-categoria'),
-    sede_id,
-    ciudad_id,
-    img:promoGet('promo-img'),
-    ...promoContactPayload(),
-    desde:promoGet('promo-desde'),
-    hasta:promoGet('promo-hasta'),
-    otros:promoGet('promo-otros')
-  };
+  return {promo:promoGet('promo-text'),categoria:promoGet('promo-categoria'),sede_id:sede?String(sede.sede_id||'').trim():'',ciudad_id:sede?String(sede.ciudad_id||'').trim():'',img:promoGet('promo-img'),...promoContactPayload(),desde:promoGet('promo-desde'),hasta:promoGet('promo-hasta'),otros:promoGet('promo-otros')};
 }
 
 function promoSetCreateMode(){
@@ -5306,7 +5427,6 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
         document.getElementById('promo-img').value = found.img || '';
-
         gldEditBegin_('promos',editingPromoId,buildPromoPayloadFromForm_);
 
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
@@ -5692,55 +5812,24 @@ function clearEventForm(){
   lastCreatedEventId = null;
 }
 
-/* ===== MOTOR COMÚN DE EDICIÓN =====
-   Una edición no reescribe el registro completo:
-   se guarda el estado inicial del formulario y al guardar
-   se envían únicamente los campos cuyo valor cambió.
-*/
-const gldEditSessions = Object.create(null);
-
+/* ===== MOTOR COMÚN DE EDICIÓN ===== */
+const gldEditSessions=Object.create(null);
 function gldEditComparable_(value){
   if(Array.isArray(value)) return value.map(gldEditComparable_);
-  if(value && typeof value==='object'){
-    const out={};
-    Object.keys(value).sort().forEach(k=>{ out[k]=gldEditComparable_(value[k]); });
-    return out;
-  }
-  if(value===undefined || value===null) return '';
-  if(typeof value==='boolean' || typeof value==='number') return value;
+  if(value && typeof value==='object'){const out={};Object.keys(value).sort().forEach(k=>out[k]=gldEditComparable_(value[k]));return out;}
+  if(value===undefined||value===null) return '';
+  if(typeof value==='boolean'||typeof value==='number') return value;
   return String(value).trim();
 }
-
-function gldEditEqual_(a,b){
-  return JSON.stringify(gldEditComparable_(a))===JSON.stringify(gldEditComparable_(b));
-}
-
-function gldEditBegin_(moduleKey, recordId, serializer){
-  if(typeof serializer!=='function') throw new Error('serializer required');
-  gldEditSessions[moduleKey]={
-    id:String(recordId||'').trim(),
-    baseline:gldEditComparable_(serializer())
-  };
-}
-
-function gldEditPatch_(moduleKey, serializer, excludedKeys=[]){
-  const session=gldEditSessions[moduleKey];
-  if(!session) throw new Error('No hay una sesión de edición activa.');
-  const current=gldEditComparable_(serializer());
-  const patch={};
-  const excluded=new Set(excludedKeys||[]);
-
-  Object.keys(current).forEach(k=>{
-    if(excluded.has(k) || String(k).startsWith('__')) return;
-    if(!gldEditEqual_(current[k],session.baseline[k])) patch[k]=current[k];
-  });
-
+function gldEditEqual_(a,b){return JSON.stringify(gldEditComparable_(a))===JSON.stringify(gldEditComparable_(b));}
+function gldEditBegin_(moduleKey,recordId,serializer){gldEditSessions[moduleKey]={id:String(recordId||'').trim(),baseline:gldEditComparable_(serializer())};}
+function gldEditPatch_(moduleKey,serializer,excludedKeys=[]){
+  const s=gldEditSessions[moduleKey]; if(!s) throw new Error('No hay una sesión de edición activa.');
+  const current=gldEditComparable_(serializer()), patch={}, excluded=new Set(excludedKeys||[]);
+  Object.keys(current).forEach(k=>{if(!excluded.has(k)&&!String(k).startsWith('__')&&!gldEditEqual_(current[k],s.baseline[k])) patch[k]=current[k];});
   return patch;
 }
-
-function gldEditEnd_(moduleKey){
-  delete gldEditSessions[moduleKey];
-}
+function gldEditEnd_(moduleKey){delete gldEditSessions[moduleKey];}
 
 function buildEventPayloadFromForm(){
   const place = selectedEventPlace();
@@ -6018,7 +6107,6 @@ function bindEventsListActions(){
         }
 
         gldEditBegin_('eventos_vip',editingEventId,buildEventPayloadFromForm);
-
         setMsg('eventos-msg', 'ok', 'Editando evento.');
         try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
       }
@@ -6440,9 +6528,7 @@ function renderFreeEvents_(events){
         const resp=document.getElementById('evf-responsabilidad'); if(resp) resp.checked=true;
         const save=document.getElementById('evf-guardar');
         if(save) save.textContent='Guardar cambios';
-
         gldEditBegin_('eventos_free',editingFreeEventId,buildFreeEventPayload_);
-
         document.getElementById('eventos-free-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
         return;
       }
@@ -6830,62 +6916,99 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setMsg('msg-datos-comercio', 'err', 'No logueado.');
       return;
     }
-    const btn = document.getElementById('btnGuardarDatosComercio');
-    const originalText = btn?.textContent || 'Guardar cambios';
+
+    const btn=document.getElementById('btnGuardarDatosComercio');
+    const originalText=btn?.textContent || 'Guardar cambios';
+
     await runDashboardAction('Guardando datos del anunciante...',async()=>{
-      btn?.setAttribute('disabled', 'true');
-      if(btn) btn.textContent = 'Guardando...';
-      setMsg('msg-datos-comercio', 'ok', 'Guardando cambios...');
+      btn?.setAttribute('disabled','true');
+      if(btn) btn.textContent='Guardando...';
+      setMsg('msg-datos-comercio','ok','Guardando cambios...');
 
       try{
-        const payload = buildCommerceSavePayload();
-      const invalidImageField = Array.from(COMMERCE_IMAGE_FIELDS).find((fieldName)=> !isHttpUrl(payload[fieldName]));
-      if(invalidImageField){
-        setMsg('msg-datos-comercio', 'err', `La URL de ${invalidImageField} no es válida.`);
-        return;
-      }
-      const response = await commerce_post(payload);
-      const savedOk = !!(response.json && (response.json.success || response.json.updated || response.json.aprobado === true));
-      if(response.status !== 200 || !savedOk){
-        if(await handleUnconfirmedOperation(response,{
-          msgId:'msg-datos-comercio',
-          reload:()=>loadCommerceUI(),
-          unknownMessage:'La respuesta se perdió. Los datos fueron recargados; revisá si el cambio quedó aplicado antes de volver a guardar.'
-        })) return;
-        setMsg('msg-datos-comercio', 'err', 'No se pudieron guardar los datos: ' + ((response.json && (response.json.message || response.json.error)) ? (response.json.message || response.json.error) : 'sin detalle'));
-        return;
-      }
+        const {full:dataFull,patch:dataPatch}=commerceBuildDataPatch_();
+        const sedePayload=commerceBuildSedesPatch_();
 
-      const sedePayload = buildCommerceSedesPayload();
-      if(Array.isArray(sedePayload.sedes) && sedePayload.sedes.length){
-        const sedeResponse = await commerce_post(sedePayload);
-        const sedesOk = !!(sedeResponse.json && (sedeResponse.json.success || sedeResponse.json.updated));
-        if(sedeResponse.status !== 200 || !sedesOk){
-          if(await handleUnconfirmedOperation(sedeResponse,{
-            msgId:'msg-datos-comercio',
-            reload:()=>loadCommerceUI(),
-            unknownMessage:'Los datos generales se guardaron, pero la respuesta de las sedes se perdió. Se recargaron los datos; revisá las sedes antes de volver a guardar.'
-          })) return;
-          setMsg('msg-datos-comercio', 'err', 'Datos generales guardados, pero hubo un error guardando sedes: ' + ((sedeResponse.json && (sedeResponse.json.message || sedeResponse.json.error)) ? (sedeResponse.json.message || sedeResponse.json.error) : 'sin detalle'));
+        // Validación sobre el formulario completo, no sobre el patch.
+        const invalidImageField=Array.from(COMMERCE_IMAGE_FIELDS)
+          .find(fieldName=>!isHttpUrl(dataFull[fieldName]));
+
+        if(invalidImageField){
+          setMsg('msg-datos-comercio','err',`La URL de ${invalidImageField} no es válida.`);
           return;
         }
 
-        const returnedIds = Array.isArray(sedeResponse.json.updatedSedes) ? sedeResponse.json.updatedSedes : [];
-        const cards = Array.from(document.querySelectorAll('#form-datos-comercio .commerce-sede-card'));
-        cards.forEach((card, i)=>{
-          const idInput = card.querySelector('[name="sede_id"]');
-          if(idInput && !String(idInput.value||'').trim() && returnedIds[i]){
-            idInput.value = String(returnedIds[i]).trim();
-          }
-        });
-      }
+        const hayDatos=Object.keys(dataPatch)
+          .some(k=>!['action','id','__id','comercio_id'].includes(k));
+        const haySedes=Array.isArray(sedePayload.sedes) && sedePayload.sedes.length>0;
 
-      setMsg('msg-datos-comercio', 'ok', 'Datos, sedes y selecciones guardados.');
-    }catch(err){
-      setMsg('msg-datos-comercio', 'err', 'Error de conexión.');
-      } finally {
+        if(!hayDatos && !haySedes){
+          setMsg('msg-datos-comercio','ok','No hay cambios para guardar.');
+          return;
+        }
+
+        if(hayDatos){
+          const response=await commerce_post(dataPatch);
+          const savedOk=!!(
+            response.json &&
+            (response.json.success || response.json.updated || response.json.aprobado===true)
+          );
+
+          if(response.status!==200 || !savedOk){
+            if(await handleUnconfirmedOperation(response,{
+              msgId:'msg-datos-comercio',
+              reload:()=>loadCommerceUI(),
+              unknownMessage:'La respuesta se perdió. Los datos fueron recargados; revisá si el cambio quedó aplicado antes de volver a guardar.'
+            })) return;
+
+            setMsg(
+              'msg-datos-comercio',
+              'err',
+              'No se pudieron guardar los datos: ' +
+              ((response.json && (response.json.message || response.json.error))
+                ? (response.json.message || response.json.error)
+                : 'sin detalle')
+            );
+            return;
+          }
+        }
+
+        if(haySedes){
+          const sedeResponse=await commerce_post(sedePayload);
+          const sedesOk=!!(
+            sedeResponse.json &&
+            (sedeResponse.json.success || sedeResponse.json.updated)
+          );
+
+          if(sedeResponse.status!==200 || !sedesOk){
+            if(await handleUnconfirmedOperation(sedeResponse,{
+              msgId:'msg-datos-comercio',
+              reload:()=>loadCommerceUI(),
+              unknownMessage:'Los datos generales se guardaron, pero la respuesta de las sedes se perdió. Se recargaron los datos; revisá las sedes antes de volver a guardar.'
+            })) return;
+
+            setMsg(
+              'msg-datos-comercio',
+              'err',
+              'Datos generales guardados, pero hubo un error guardando sedes: ' +
+              ((sedeResponse.json && (sedeResponse.json.message || sedeResponse.json.error))
+                ? (sedeResponse.json.message || sedeResponse.json.error)
+                : 'sin detalle')
+            );
+            return;
+          }
+        }
+
+        // Lectura posterior para dejar formulario y baseline exactamente como quedaron guardados.
+        await loadCommerceUI();
+        setMsg('msg-datos-comercio','ok','Cambios guardados.');
+
+      }catch(err){
+        console.error('Error guardando Modificar datos:',err);
+        setMsg('msg-datos-comercio','err','Error de conexión.');
+      }finally{
         btn?.removeAttribute('disabled');
-        if(btn) btn.textContent = originalText;
+        if(btn) btn.textContent=originalText;
       }
     });
   });
@@ -6999,25 +7122,17 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     try{
       const promoPayload=buildPromoPayloadFromForm_();
       const {promo,categoria,sede_id,ciudad_id,desde,hasta,img}=promoPayload;
-
       if(!promo){ promoShowError_('Ingresá el texto de la promo.'); return; }
       if(!sede_id){ promoShowError_('Elegí la sede de la promo.'); return; }
       if(!ciudad_id){ promoShowError_('La sede elegida no tiene ciudad asignada.'); return; }
       if(!desde){ promoShowError_('Elegí la fecha desde.'); return; }
       if(!hasta){ promoShowError_('Elegí la fecha hasta.'); return; }
-      if(new Date(hasta + 'T00:00:00') < new Date(desde + 'T00:00:00')){
-        promoShowError_('La fecha hasta no puede ser anterior a la fecha desde.');
-        return;
-      }
+      if(new Date(hasta + 'T00:00:00') < new Date(desde + 'T00:00:00')){promoShowError_('La fecha hasta no puede ser anterior a la fecha desde.');return;}
       if(!isHttpUrl(img)){ promoShowError_('La URL de la imagen de la promo no es válida.'); return; }
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
         const promoPatch=gldEditPatch_('promos',buildPromoPayloadFromForm_);
-        if(!Object.keys(promoPatch).length){
-          setMsg('promos-msg','ok','No hay cambios para guardar.');
-          return;
-        }
-
+        if(!Object.keys(promoPatch).length){setMsg('promos-msg','ok','No hay cambios para guardar.');return;}
         await runDashboardAction('Guardando cambios de la promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Guardando cambios...');
           const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:editingPromoId},promoPatch) });
@@ -7087,22 +7202,28 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   document.getElementById('farma-save')?.addEventListener('click', async ()=>{
     if(!sesion || !sesion.id){ alert('No logueado'); return; }
 
-    const ciudadId=String(document.getElementById('farma-ciudad')?.value||'').trim();
-    const fechaInicio=String(document.getElementById('farma-fecha-inicio')?.value||'').trim();
-    const horaInicio=String(document.getElementById('farma-hora-inicio')?.value||'').trim();
-    const duracionHoras=Number(document.getElementById('farma-duracion')?.value||24);
-    const farmaciasPorTurno=Math.floor(Number(document.getElementById('farma-simultaneas')?.value||1));
-    const observaciones=String(document.getElementById('farma-observaciones')?.value||'').trim();
-
     normalizeFarmaOrders();
-    const participantes=farmaSelectedRows().map((p,i)=>({sede_id:p.sede_id,orden:i+1,activo:true}));
+    const full=buildFarmaciasPayloadFromForm_();
 
-    if(!ciudadId){ setMsg('farma-msg','err','Elegí una ciudad.'); return; }
-    if(!fechaInicio){ setMsg('farma-msg','err','Indicá la fecha de inicio.'); return; }
-    if(!horaInicio){ setMsg('farma-msg','err','Indicá la hora de inicio.'); return; }
-    if(!participantes.length){ setMsg('farma-msg','err','Seleccioná al menos una farmacia.'); return; }
-    if(farmaciasPorTurno<1 || farmaciasPorTurno>participantes.length){
+    if(!full.ciudad_id){ setMsg('farma-msg','err','Elegí una ciudad.'); return; }
+    if(!full.fecha_inicio){ setMsg('farma-msg','err','Indicá la fecha de inicio.'); return; }
+    if(!full.hora_inicio){ setMsg('farma-msg','err','Indicá la hora de inicio.'); return; }
+    if(!full.participantes.length){ setMsg('farma-msg','err','Seleccioná al menos una farmacia.'); return; }
+    if(full.farmacias_por_turno<1 || full.farmacias_por_turno>full.participantes.length){
       setMsg('farma-msg','err','La cantidad simultánea debe estar entre 1 y la cantidad de farmacias seleccionadas.');
+      return;
+    }
+
+    const editando=!!(farmaState.ciclo&&farmaState.ciclo.ciclo_id);
+    const payload=editando
+      ? Object.assign(
+          {ciclo_id:farmaState.ciclo.ciclo_id},
+          gldEditPatch_('farmacias',buildFarmaciasPayloadFromForm_,['ciclo_id'])
+        )
+      : full;
+
+    if(editando && Object.keys(payload).length===1){
+      setMsg('farma-msg','ok','No hay cambios para guardar.');
       return;
     }
 
@@ -7112,19 +7233,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       setMsg('farma-msg','ok','Guardando ciclo...');
 
       try{
-        const res=await farmacias_post({
-          action:'guardar_ciclo',
-          payload:{
-            ciclo_id:farmaState.ciclo&&farmaState.ciclo.ciclo_id?farmaState.ciclo.ciclo_id:'',
-            ciudad_id:ciudadId,
-            fecha_inicio:fechaInicio,
-            hora_inicio:horaInicio,
-            duracion_horas:duracionHoras,
-            farmacias_por_turno:farmaciasPorTurno,
-            observaciones:observaciones,
-            participantes:participantes
-          }
-        });
+        const res=await farmacias_post({action:'guardar_ciclo',payload});
 
         if(res.status===200 && res.json && res.json.success){
           setMsg('farma-msg','ok','Ciclo guardado correctamente.');
@@ -7134,8 +7243,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           reload:async()=>{
             await loadFarmaciasUI();
             const sel=document.getElementById('farma-ciudad');
-            if(sel && ciudadId){
-              sel.value=ciudadId;
+            if(sel && full.ciudad_id){
+              sel.value=full.ciudad_id;
               await loadFarmaCityData();
             }
           },
@@ -7146,6 +7255,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           setMsg('farma-msg','err','Error guardando: '+JSON.stringify(res.json||{}));
         }
       }catch(e){
+        console.error('Error guardando Farmacias:',e);
         setMsg('farma-msg','err',e.message||String(e));
       }finally{
         btn?.removeAttribute('disabled');
@@ -7194,20 +7304,10 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     if(!payload.acepta_responsabilidad){ setMsg('eventos-free-msg','err','Debés aceptar la responsabilidad sobre la publicación.'); return; }
 
     const editing=!!editingFreeEventId;
-    const payloadToSend=editing
-      ? Object.assign({evento_id:editingFreeEventId},gldEditPatch_('eventos_free',buildFreeEventPayload_,['suscriptor_id','acepta_responsabilidad']))
-      : payload;
-
-    if(editing && Object.keys(payloadToSend).length===1){
-      setMsg('eventos-free-msg','ok','No hay cambios para guardar.');
-      return;
-    }
-
+    const payloadToSend=editing ? Object.assign({evento_id:editingFreeEventId},gldEditPatch_('eventos_free',buildFreeEventPayload_,['suscriptor_id','acepta_responsabilidad'])) : payload;
+    if(editing && Object.keys(payloadToSend).length===1){setMsg('eventos-free-msg','ok','No hay cambios para guardar.');return;}
     await runDashboardAction(editing?'Guardando cambios del evento free...':'Creando evento free...',async()=>{
-      let res=await events_post({
-        action:editing?'updateFreeEvent':'createFreeEvent',
-        payload:payloadToSend
-      });
+      let res=await events_post({action:editing?'updateFreeEvent':'createFreeEvent',payload:payloadToSend});
 
       if(!editing && res.status===200 && res.json && res.json.requires_confirmation===true){
         const duplicados=Array.isArray(res.json.duplicados)?res.json.duplicados:[];
@@ -7272,15 +7372,9 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       if(btn.dataset.mode === 'edit' && editingEventId){
         const editPatch=gldEditPatch_('eventos_vip',buildEventPayloadFromForm,['programacion']);
         const currentProgramacion=readEventProgramacionFromUI_();
-        const baselineProgramacion=(gldEditSessions.eventos_vip&&gldEditSessions.eventos_vip.baseline)
-          ? gldEditSessions.eventos_vip.baseline.programacion : [];
+        const baselineProgramacion=gldEditSessions.eventos_vip?.baseline?.programacion||[];
         if(!gldEditEqual_(currentProgramacion,baselineProgramacion)) editPatch.programacion=currentProgramacion;
-
-        if(!Object.keys(editPatch).length){
-          setMsg('eventos-msg','ok','No hay cambios para guardar.');
-          return;
-        }
-
+        if(!Object.keys(editPatch).length){setMsg('eventos-msg','ok','No hay cambios para guardar.');return;}
         await runDashboardAction('Guardando cambios del evento...',async()=>{
           setMsg('eventos-msg', 'ok', 'Guardando cambios...');
           const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, editPatch) });
@@ -7446,6 +7540,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       }
 
       if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
+      commerceBeginEditSession_();
       return true;
     }catch(err){
       console.error('Error cargando Modificar datos:',err);
