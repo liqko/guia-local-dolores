@@ -5095,7 +5095,26 @@ function promoContactPayload(){
   return payload;
 }
 
+function buildPromoPayloadFromForm_(){
+  const sede=promoSelectedSede();
+  const sede_id=sede ? String(sede.sede_id||'').trim() : '';
+  const ciudad_id=sede ? String(sede.ciudad_id||'').trim() : '';
+
+  return {
+    promo:promoGet('promo-text'),
+    categoria:promoGet('promo-categoria'),
+    sede_id,
+    ciudad_id,
+    img:promoGet('promo-img'),
+    ...promoContactPayload(),
+    desde:promoGet('promo-desde'),
+    hasta:promoGet('promo-hasta'),
+    otros:promoGet('promo-otros')
+  };
+}
+
 function promoSetCreateMode(){
+  gldEditEnd_('promos');
   editingPromoId = null;
   const btn = document.getElementById('promo-create');
   if(btn){
@@ -5287,6 +5306,8 @@ function bindPromosListActions(){
         document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
         document.getElementById('promo-otros').value = found.otros || '';
         document.getElementById('promo-img').value = found.img || '';
+
+        gldEditBegin_('promos',editingPromoId,buildPromoPayloadFromForm_);
 
         setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
         try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
@@ -5671,13 +5692,10 @@ function clearEventForm(){
   lastCreatedEventId = null;
 }
 
-/* ===== EDICIÓN SEGURA: cambios reales, no reescritura completa =====
-   Regla:
-   - al abrir una edición se serializa el formulario ya cargado;
-   - al guardar se vuelve a serializar;
-   - el UPDATE recibe únicamente las claves cuyo valor cambió;
-   - vaciar intencionalmente un campo cuenta como cambio y se envía vacío.
-   Así un campo que el usuario no tocó nunca puede ser sobrescrito por otro valor.
+/* ===== MOTOR COMÚN DE EDICIÓN =====
+   Una edición no reescribe el registro completo:
+   se guarda el estado inicial del formulario y al guardar
+   se envían únicamente los campos cuyo valor cambió.
 */
 const gldEditSessions = Object.create(null);
 
@@ -6979,15 +6997,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     btn.setAttribute('disabled','true');
 
     try{
-      const promo = promoGet('promo-text');
-      const categoria = promoGet('promo-categoria');
-      const sede = promoSelectedSede();
-      const sede_id = sede ? String(sede.sede_id || '').trim() : '';
-      const ciudad_id = sede ? String(sede.ciudad_id || '').trim() : '';
-      const desde = promoGet('promo-desde');
-      const hasta = promoGet('promo-hasta');
-      const otros = promoGet('promo-otros');
-      const img = promoGet('promo-img');
+      const promoPayload=buildPromoPayloadFromForm_();
+      const {promo,categoria,sede_id,ciudad_id,desde,hasta,img}=promoPayload;
 
       if(!promo){ promoShowError_('Ingresá el texto de la promo.'); return; }
       if(!sede_id){ promoShowError_('Elegí la sede de la promo.'); return; }
@@ -6999,12 +7010,17 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         return;
       }
       if(!isHttpUrl(img)){ promoShowError_('La URL de la imagen de la promo no es válida.'); return; }
-      const contactPayload = promoContactPayload();
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
+        const promoPatch=gldEditPatch_('promos',buildPromoPayloadFromForm_);
+        if(!Object.keys(promoPatch).length){
+          setMsg('promos-msg','ok','No hay cambios para guardar.');
+          return;
+        }
+
         await runDashboardAction('Guardando cambios de la promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Guardando cambios...');
-          const r = await promos_post({ action: 'updatePromo', payload: { promo_id: editingPromoId, promo, categoria, sede_id, ciudad_id, img: img||'', ...contactPayload, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+          const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:editingPromoId},promoPatch) });
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', 'Promo actualizada.');
             promoSetCreateMode();
@@ -7033,7 +7049,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
         await runDashboardAction('Creando promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Creando promo...');
-          const r = await promos_post({ action: 'createPromo', payload: { promo, categoria, sede_id, ciudad_id, img: img||'', ...contactPayload, desde: desde||'', hasta: hasta||'', otros: otros||'' } });
+          const r = await promos_post({ action: 'createPromo', payload: promoPayload });
           if(r.status === 200 && r.json && (r.json.success || r.json.created)){
             setMsg('promos-msg', 'ok', 'Promo creada.');
             promoClearForm();
