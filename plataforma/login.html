@@ -6768,6 +6768,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
     return rolRelacion_(rel)==='MANAGER';
   }
 
+  function permisosRelacionSet_(rel){
+    return new Set(
+      String(rel&&rel.permisos||'')
+        .split(/[;,|\n]/)
+        .map(v=>String(v||'').trim().toUpperCase())
+        .filter(Boolean)
+    );
+  }
+
   window.gldRelacionPermiteModulo=function(modulo){
     const rel=sesion&&sesion.relacion_autorizacion ? sesion.relacion_autorizacion : null;
     if(!rel) return false;
@@ -6775,32 +6784,34 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const rol=rolRelacion_(rel);
     if(!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(rol)) return false;
 
-    // PROPIETARIO y ADMINISTRADOR: todos los módulos contratados/habilitados
-    // por el anunciante.
-    if(esPropietarioRelacion_(rel) || esAdminRelacion_(rel)) return true;
-
-    // MANAGER: nunca modifica datos generales del anunciante.
-    if(esManagerRelacion_(rel) && modulo==='modificar_datos') return false;
-
-    // MANAGER: sólo módulos expresamente autorizados en su relación.
-    const mapa={
-      eventos:'permiso_eventos',
-      eventos_free:'permiso_eventos',
-      promos:'permiso_promos',
-      actividades:'permiso_actividades',
-      publicidad:'permiso_publicidad',
-      turnos_farma:'permiso_turnos_farma',
-      efemerides:'permiso_efemerides',
-      menu:'permiso_menu',
-      vouchers:'permiso_vouchers',
-      entradas:'permiso_entradas',
-      gifcards:'permiso_gifcards',
-      reservas:'permiso_reservas',
-      tarjeta_nfc:'permiso_tarjeta_nfc'
+    // La autorización de módulos se interpreta IGUAL para los tres roles:
+    // siempre desde suscriptor_anunciante.permisos.
+    // La lista admite coma, punto y coma, barra vertical o salto de línea.
+    const permisos=permisosRelacionSet_(rel);
+    const aliases={
+      eventos:['EVENTOS'],
+      eventos_free:['EVENTOS_FREE','EV_FREE','EVFREE'],
+      promos:['PROMOS'],
+      actividades:['ACTIVIDADES'],
+      publicidad:['PUBLICIDAD'],
+      turnos_farma:['TURNOS_FARMA','FARMACIAS','FARMACIA'],
+      efemerides:['EFEMERIDES','EF LOCAL','EF GENERAL','EF_LOCAL','EF_GENERAL'],
+      menu:['MENU'],
+      vouchers:['VOUCHERS'],
+      entradas:['ENTRADAS'],
+      gifcards:['GIFCARDS','GIFT CARDS','GIFTCARDS'],
+      reservas:['RESERVAS'],
+      tarjeta_nfc:['TARJETA_NFC','NFC']
     };
 
-    const campo=mapa[modulo];
-    return campo ? permisoTruthy_(rel[campo]) : false;
+    // Se conserva la regla de rol ya existente: MANAGER no modifica datos generales.
+    if(esManagerRelacion_(rel) && modulo==='modificar_datos') return false;
+
+    // PROPIETARIO y ADMINISTRADOR sí pueden modificar datos generales.
+    if(modulo==='modificar_datos') return esPropietarioRelacion_(rel) || esAdminRelacion_(rel);
+
+    const opciones=aliases[modulo]||[];
+    return opciones.some(x=>permisos.has(x));
   };
 
   window.gldRelacionPuedeEliminarAnunciante=function(){
