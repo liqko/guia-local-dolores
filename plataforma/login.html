@@ -1676,19 +1676,36 @@ function gvizGetRows(json){
 function isIsoZ(s){ return typeof s === 'string' && /Z$/.test(s); }
 
 function toDateInputValue(v){
-  if(v === undefined || v === null) return '';
+  if(v === undefined || v === null || v === '') return '';
+
+  if(Object.prototype.toString.call(v)==='[object Date]' && !isNaN(v.getTime())){
+    return `${v.getFullYear()}-${String(v.getMonth()+1).padStart(2,'0')}-${String(v.getDate()).padStart(2,'0')}`;
+  }
+
+  if(typeof v==='number' && isFinite(v)){
+    const d=new Date(Math.round((v-25569)*86400000));
+    if(!isNaN(d.getTime())){
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+    }
+  }
+
   const s = String(v).trim();
   if(!s) return '';
   if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
   const mIso = s.match(/^(\d{4}-\d{2}-\d{2})[ T]/);
   if(mIso) return mIso[1];
-  const mLat = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+
+  const mLat = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
   if(mLat){
-    const dd = String(mLat[1]).padStart(2,'0');
-    const mm = String(mLat[2]).padStart(2,'0');
-    const yy = mLat[3];
-    return `${yy}-${mm}-${dd}`;
+    return `${mLat[3]}-${String(mLat[2]).padStart(2,'0')}-${String(mLat[1]).padStart(2,'0')}`;
   }
+
+  const mDate = s.match(/^Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/);
+  if(mDate){
+    return `${mDate[1]}-${String(Number(mDate[2])+1).padStart(2,'0')}-${String(Number(mDate[3])).padStart(2,'0')}`;
+  }
+
   const d = new Date(s);
   if(!isNaN(d.getTime())){
     const yy = isIsoZ(s) ? d.getUTCFullYear() : d.getFullYear();
@@ -5654,6 +5671,59 @@ function clearEventForm(){
   lastCreatedEventId = null;
 }
 
+/* ===== EDICIÓN SEGURA: cambios reales, no reescritura completa =====
+   Regla:
+   - al abrir una edición se serializa el formulario ya cargado;
+   - al guardar se vuelve a serializar;
+   - el UPDATE recibe únicamente las claves cuyo valor cambió;
+   - vaciar intencionalmente un campo cuenta como cambio y se envía vacío.
+   Así un campo que el usuario no tocó nunca puede ser sobrescrito por otro valor.
+*/
+const gldEditSessions = Object.create(null);
+
+function gldEditComparable_(value){
+  if(Array.isArray(value)) return value.map(gldEditComparable_);
+  if(value && typeof value==='object'){
+    const out={};
+    Object.keys(value).sort().forEach(k=>{ out[k]=gldEditComparable_(value[k]); });
+    return out;
+  }
+  if(value===undefined || value===null) return '';
+  if(typeof value==='boolean' || typeof value==='number') return value;
+  return String(value).trim();
+}
+
+function gldEditEqual_(a,b){
+  return JSON.stringify(gldEditComparable_(a))===JSON.stringify(gldEditComparable_(b));
+}
+
+function gldEditBegin_(moduleKey, recordId, serializer){
+  if(typeof serializer!=='function') throw new Error('serializer required');
+  gldEditSessions[moduleKey]={
+    id:String(recordId||'').trim(),
+    baseline:gldEditComparable_(serializer())
+  };
+}
+
+function gldEditPatch_(moduleKey, serializer, excludedKeys=[]){
+  const session=gldEditSessions[moduleKey];
+  if(!session) throw new Error('No hay una sesión de edición activa.');
+  const current=gldEditComparable_(serializer());
+  const patch={};
+  const excluded=new Set(excludedKeys||[]);
+
+  Object.keys(current).forEach(k=>{
+    if(excluded.has(k) || String(k).startsWith('__')) return;
+    if(!gldEditEqual_(current[k],session.baseline[k])) patch[k]=current[k];
+  });
+
+  return patch;
+}
+
+function gldEditEnd_(moduleKey){
+  delete gldEditSessions[moduleKey];
+}
+
 function buildEventPayloadFromForm(){
   const place = selectedEventPlace();
 
@@ -5928,6 +5998,8 @@ function bindEventsListActions(){
           if(roleEl) roleEl.value = found[roleKey] || found[legacyRoleKey] || 'Auspiciante';
           toggleExternalPartnerFields(i);
         }
+
+        gldEditBegin_('eventos_vip',editingEventId,buildEventPayloadFromForm);
 
         setMsg('eventos-msg', 'ok', 'Editando evento.');
         try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
@@ -6332,9 +6404,9 @@ function renderFreeEvents_(events){
         document.getElementById('evf-ciudad').value=found.ciudad_id||'';
         refreshFreeEventPlaces_(found.lugar||'');
         toggleFreeOtherFields_();
-        document.getElementById('evf-fecha-desde').value=String(found.fecha_desde||'').slice(0,10);
-        document.getElementById('evf-fecha-hasta').value=String(found.fecha_hasta||'').slice(0,10);
-        document.getElementById('evf-hora').value=String(found.hora||'').slice(0,5);
+        document.getElementById('evf-fecha-desde').value=toDateInputValue(found.fecha_desde||found.fecha);
+        document.getElementById('evf-fecha-hasta').value=toDateInputValue(found.fecha_hasta);
+        document.getElementById('evf-hora').value=toTimeInputValue(found.hora);
         document.getElementById('evf-hora2').value=found.hora2||'';
         document.getElementById('evf-descripcion').value=found.descripcion||'';
         document.getElementById('evf-instagram').value=found.instagram||'';
@@ -6350,6 +6422,9 @@ function renderFreeEvents_(events){
         const resp=document.getElementById('evf-responsabilidad'); if(resp) resp.checked=true;
         const save=document.getElementById('evf-guardar');
         if(save) save.textContent='Guardar cambios';
+
+        gldEditBegin_('eventos_free',editingFreeEventId,buildFreeEventPayload_);
+
         document.getElementById('eventos-free-panel')?.scrollIntoView({behavior:'smooth',block:'start'});
         return;
       }
@@ -6372,6 +6447,7 @@ function renderFreeEvents_(events){
           const res=await events_post({action:'deleteFreeEvent',payload:{evento_id:id}});
           if(res.status===200 && res.json && res.json.success){
             if(editingFreeEventId===id){
+              gldEditEnd_('eventos_free');
               editingFreeEventId=null;
               clearFreeEventForm_();
               const save=document.getElementById('evf-guardar'); if(save) save.textContent='Crear evento free';
@@ -6432,6 +6508,7 @@ async function loadEventosFreePanelData(){
 
 
 function cancelEventEdit(){
+  gldEditEnd_('eventos_vip');
   editingEventId = null;
   lastCreatedEventId = null;
 
@@ -7079,6 +7156,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   });
 
   document.getElementById('evf-cancelar')?.addEventListener('click',()=>{
+    gldEditEnd_('eventos_free');
     editingFreeEventId=null;
     clearFreeEventForm_();
     const save=document.getElementById('evf-guardar');
@@ -7100,10 +7178,19 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     if(!payload.acepta_responsabilidad){ setMsg('eventos-free-msg','err','Debés aceptar la responsabilidad sobre la publicación.'); return; }
 
     const editing=!!editingFreeEventId;
+    const payloadToSend=editing
+      ? Object.assign({evento_id:editingFreeEventId},gldEditPatch_('eventos_free',buildFreeEventPayload_,['suscriptor_id','acepta_responsabilidad']))
+      : payload;
+
+    if(editing && Object.keys(payloadToSend).length===1){
+      setMsg('eventos-free-msg','ok','No hay cambios para guardar.');
+      return;
+    }
+
     await runDashboardAction(editing?'Guardando cambios del evento free...':'Creando evento free...',async()=>{
       let res=await events_post({
         action:editing?'updateFreeEvent':'createFreeEvent',
-        payload:editing ? Object.assign({evento_id:editingFreeEventId},payload) : payload
+        payload:payloadToSend
       });
 
       if(!editing && res.status===200 && res.json && res.json.requires_confirmation===true){
@@ -7120,6 +7207,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       }
 
       if(res.status===200 && res.json && res.json.success){
+        if(editing) gldEditEnd_('eventos_free');
         editingFreeEventId=null;
         clearFreeEventForm_();
         const save=document.getElementById('evf-guardar');
@@ -7166,11 +7254,23 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       if(!isHttpUrl(payload.youtube)){ alert('La URL de YouTube no es válida.'); return; }
 
       if(btn.dataset.mode === 'edit' && editingEventId){
+        const editPatch=gldEditPatch_('eventos_vip',buildEventPayloadFromForm,['programacion']);
+        const currentProgramacion=readEventProgramacionFromUI_();
+        const baselineProgramacion=(gldEditSessions.eventos_vip&&gldEditSessions.eventos_vip.baseline)
+          ? gldEditSessions.eventos_vip.baseline.programacion : [];
+        if(!gldEditEqual_(currentProgramacion,baselineProgramacion)) editPatch.programacion=currentProgramacion;
+
+        if(!Object.keys(editPatch).length){
+          setMsg('eventos-msg','ok','No hay cambios para guardar.');
+          return;
+        }
+
         await runDashboardAction('Guardando cambios del evento...',async()=>{
           setMsg('eventos-msg', 'ok', 'Guardando cambios...');
-          const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, payload) });
+          const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, editPatch) });
           if(res.status === 200 && res.json && (res.json.success || res.json.updated)){
             setMsg('eventos-msg', 'ok', 'Evento actualizado.');
+            gldEditEnd_('eventos_vip');
             editingEventId = null;
             lastCreatedEventId = null;
 
@@ -7630,6 +7730,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       window.__lastPromos = [];
       window.__lastEvents = [];
       window.__lastFreeEvents = [];
+      Object.keys(gldEditSessions).forEach(gldEditEnd_);
       editingFreeEventId = null;
       const status=document.getElementById('dashboard-load-status');
       if(status) status.textContent='';
