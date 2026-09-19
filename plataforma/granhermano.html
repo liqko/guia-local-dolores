@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Guía Local - Super Admin</title>
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Segoe UI,Arial,sans-serif;background:#f3f5f7;color:#263238}
+    .wrap{max-width:1180px;margin:0 auto;padding:24px}
+    .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 8px 28px rgba(0,0,0,.08);margin-bottom:18px}
+    h1,h2,h3{margin-top:0;color:#006699}
+    input,button{font:inherit}
+    input{width:100%;padding:12px;border:1px solid #cfd8dc;border-radius:10px;margin:6px 0 12px}
+    button{border:0;border-radius:10px;padding:11px 16px;background:#006699;color:#fff;cursor:pointer}
+    button.sec{background:#546e7a}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+    .stat{background:#eef5f8;border-radius:12px;padding:16px}
+    .stat b{display:block;font-size:1.8rem;color:#006699}
+    .cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    .result{border-top:1px solid #eceff1;padding:10px 0;cursor:pointer}
+    .result:hover{background:#f8fafb}
+    .muted{color:#78909c;font-size:.9rem}
+    .error{color:#c62828}
+    .success{color:#2e7d32}
+    pre{white-space:pre-wrap;background:#f6f8fa;padding:12px;border-radius:10px;max-height:520px;overflow:auto}
+    #app{display:none}
+    @media(max-width:800px){.grid,.cols{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="login" class="card">
+    <h1>Gran Hermano · Super Admin</h1>
+    <p>Acceso independiente de administración.</p>
+    <input id="mail" type="email" placeholder="Mail">
+    <input id="clave" type="password" placeholder="Contraseña">
+    <button id="btnLogin">Ingresar</button>
+    <div id="loginMsg"></div>
+  </div>
+
+  <div id="app">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center">
+        <div>
+          <h1>Gran Hermano</h1>
+          <div class="muted">Panel central de Guía Local</div>
+        </div>
+        <button class="sec" id="btnSalir">Salir</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="grid">
+        <div class="stat"><span>Suscriptores</span><b id="stSus">-</b></div>
+        <div class="stat"><span>Anunciantes</span><b id="stAnu">-</b></div>
+        <div class="stat"><span>Relaciones</span><b id="stRel">-</b></div>
+        <div class="stat"><span>Favoritos</span><b id="stFav">-</b></div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <h2>Suscriptores</h2>
+        <input id="qSus" placeholder="Buscar por nombre, mail, ID...">
+        <button id="btnBuscarSus">Buscar</button>
+        <div id="resSus"></div>
+      </div>
+
+      <div class="card">
+        <h2>Anunciantes</h2>
+        <input id="qAnu" placeholder="Buscar por nombre, ID...">
+        <button id="btnBuscarAnu">Buscar</button>
+        <div id="resAnu"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Detalle</h2>
+      <div id="detalle" class="muted">Seleccioná un suscriptor o anunciante.</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API='https://login.liqkoargentina.workers.dev/superadmin';
+let TOKEN=localStorage.getItem('gld_superadmin_token')||'';
+
+function esc(v){
+  return String(v??'').replace(/[&<>"']/g,c=>({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
+  }[c]));
+}
+
+async function api(action,data={},method='GET'){
+  let url=API+'?action='+encodeURIComponent(action);
+  const opts={method,headers:{}};
+
+  if(TOKEN) opts.headers.Authorization='Bearer '+TOKEN;
+
+  if(method==='POST'){
+    opts.headers['Content-Type']='application/json';
+    opts.body=JSON.stringify({action,...data});
+  }else{
+    Object.entries(data).forEach(([k,v])=>{
+      url+='&'+encodeURIComponent(k)+'='+encodeURIComponent(v??'');
+    });
+  }
+
+  const r=await fetch(url,opts);
+  const j=await r.json();
+  if(!j.success) throw new Error(j.message||j.error||'Error');
+  return j;
+}
+
+async function login(){
+  const msg=document.getElementById('loginMsg');
+  msg.textContent='';
+  try{
+    const j=await api('login',{
+      mail:document.getElementById('mail').value.trim(),
+      clave:document.getElementById('clave').value
+    },'POST');
+
+    TOKEN=j.token;
+    localStorage.setItem('gld_superadmin_token',TOKEN);
+    abrirApp();
+  }catch(e){
+    msg.innerHTML='<p class="error">'+esc(e.message)+'</p>';
+  }
+}
+
+async function abrirApp(){
+  try{
+    const j=await api('resumen');
+    document.getElementById('login').style.display='none';
+    document.getElementById('app').style.display='block';
+
+    document.getElementById('stSus').textContent=j.resumen.suscriptores;
+    document.getElementById('stAnu').textContent=j.resumen.anunciantes;
+    document.getElementById('stRel').textContent=j.resumen.relaciones;
+    document.getElementById('stFav').textContent=j.resumen.favoritos;
+  }catch(e){
+    TOKEN='';
+    localStorage.removeItem('gld_superadmin_token');
+    document.getElementById('login').style.display='block';
+    document.getElementById('app').style.display='none';
+  }
+}
+
+async function buscarSus(){
+  const box=document.getElementById('resSus');
+  box.innerHTML='Buscando...';
+  try{
+    const j=await api('buscar_suscriptores',{q:document.getElementById('qSus').value});
+    box.innerHTML=j.results.map(s=>`
+      <div class="result" data-sid="${esc(s.suscriptor_id)}">
+        <b>${esc(s.nombre||'(sin nombre)')}</b>
+        
+        <div class="muted">${esc(s.mail)} · ${esc(s.suscriptor_id)}</div>
+      </div>
+    `).join('') || '<div class="muted">Sin resultados</div>';
+
+    box.querySelectorAll('[data-sid]').forEach(el=>{
+      el.onclick=()=>detalleSus(el.dataset.sid);
+    });
+  }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+}
+
+async function buscarAnu(){
+  const box=document.getElementById('resAnu');
+  box.innerHTML='Buscando...';
+  try{
+    const j=await api('buscar_anunciantes',{q:document.getElementById('qAnu').value});
+    box.innerHTML=j.results.map(a=>`
+      <div class="result" data-aid="${esc(a.id)}">
+        <b>${esc(a.nombre||'(sin nombre)')}</b>
+        <div class="muted">${esc(a.id)} · Nivel ${esc(a.nivel)}</div>
+      </div>
+    `).join('') || '<div class="muted">Sin resultados</div>';
+
+    box.querySelectorAll('[data-aid]').forEach(el=>{
+      el.onclick=()=>detalleAnu(el.dataset.aid);
+    });
+  }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+}
+
+async function detalleSus(id){
+  const box=document.getElementById('detalle');
+  box.textContent='Cargando...';
+  try{
+    const j=await api('detalle_suscriptor',{suscriptor_id:id});
+    box.innerHTML='<h3>'+esc(j.suscriptor.nombre)+'</h3><pre>'+esc(JSON.stringify(j,null,2))+'</pre>';
+  }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+}
+
+async function detalleAnu(id){
+  const box=document.getElementById('detalle');
+  box.textContent='Cargando...';
+  try{
+    const j=await api('detalle_anunciante',{anunciante_id:id});
+    const nombre=j.anunciante.nombre||j.administracion.nombre||id;
+    box.innerHTML='<h3>'+esc(nombre)+'</h3><pre>'+esc(JSON.stringify(j,null,2))+'</pre>';
+  }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+}
+
+document.getElementById('btnLogin').onclick=login;
+document.getElementById('btnBuscarSus').onclick=buscarSus;
+document.getElementById('btnBuscarAnu').onclick=buscarAnu;
+document.getElementById('btnSalir').onclick=()=>{
+  TOKEN='';
+  localStorage.removeItem('gld_superadmin_token');
+  location.reload();
+};
+
+document.getElementById('clave').addEventListener('keydown',e=>{
+  if(e.key==='Enter') login();
+});
+
+if(TOKEN) abrirApp();
+</script>
+</body>
+</html>
