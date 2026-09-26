@@ -8572,5 +8572,90 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   })();
 });
 </script>
+
+<script>
+/* ================= GLD_ALTURA_DINAMICA_LOGIN =================
+   Informa a Jimdo la altura REAL del contenido de login.html.
+   Se mide .container para no heredar como mínimo la altura actual
+   del propio iframe y permitir que también pueda ACHICARSE.
+================================================================ */
+(function(){
+  const TIPO='alturaIframeGLD';
+  let ultimoAlto=0;
+  let raf=0;
+  let timer=0;
+
+  function medirAlturaReal(){
+    const cont=document.querySelector('.container');
+    if(!cont) return 0;
+
+    const r=cont.getBoundingClientRect();
+    const cs=window.getComputedStyle(cont);
+    const mb=parseFloat(cs.marginBottom)||0;
+
+    return Math.ceil(r.bottom + mb);
+  }
+
+  function enviarAltura(forzar){
+    cancelAnimationFrame(raf);
+    raf=requestAnimationFrame(function(){
+      const alto=medirAlturaReal();
+      if(alto<=0) return;
+      if(!forzar && Math.abs(alto-ultimoAlto)<2) return;
+
+      ultimoAlto=alto;
+      window.parent.postMessage({
+        tipo:TIPO,
+        altura:alto
+      },'*');
+    });
+  }
+
+  function recalcular(){
+    clearTimeout(timer);
+    timer=setTimeout(function(){ enviarAltura(true); },40);
+  }
+
+  document.addEventListener('DOMContentLoaded',function(){
+    enviarAltura(true);
+
+    [80,200,500,1000,2000].forEach(function(ms){
+      setTimeout(function(){ enviarAltura(true); },ms);
+    });
+
+    const cont=document.querySelector('.container');
+
+    if(window.ResizeObserver && cont){
+      const ro=new ResizeObserver(function(){
+        enviarAltura(false);
+      });
+      ro.observe(cont);
+    }
+
+    if(window.MutationObserver && cont){
+      const mo=new MutationObserver(recalcular);
+      mo.observe(cont,{
+        childList:true,
+        subtree:true,
+        attributes:true,
+        characterData:true
+      });
+    }
+  },{once:true});
+
+  window.addEventListener('load',function(){ enviarAltura(true); },{once:true});
+  window.addEventListener('resize',recalcular,{passive:true});
+  window.addEventListener('orientationchange',recalcular);
+
+  document.addEventListener('click',function(){
+    setTimeout(function(){ enviarAltura(true); },80);
+  },true);
+
+  document.addEventListener('transitionend',function(){
+    enviarAltura(false);
+  },true);
+})();
+</script>
+
 </body>
 </html>
