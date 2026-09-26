@@ -141,13 +141,41 @@
     serieInicial();
   }, {once:true});
 
-  window.addEventListener('resize', function(){
+  let ultimoAnchoViewport = Math.round(
+    (window.visualViewport && window.visualViewport.width) ||
+    window.innerWidth ||
+    document.documentElement.clientWidth ||
+    0
+  );
+
+  function recalcularSoloSiCambiaAncho(){
+    const anchoActual = Math.round(
+      (window.visualViewport && window.visualViewport.width) ||
+      window.innerWidth ||
+      document.documentElement.clientWidth ||
+      0
+    );
+
+    if(!anchoActual || Math.abs(anchoActual - ultimoAnchoViewport) < 2) return;
+
+    ultimoAnchoViewport = anchoActual;
     programar(true);
-  }, {passive:true});
+  }
+
+  // Importante: cambiar la ALTURA del iframe desde Jimdo también dispara resize.
+  // Si reaccionáramos a ese cambio entraríamos en un bucle de realimentación.
+  // Sólo recalculamos cuando cambia el ANCHO real del viewport.
+  window.addEventListener('resize', recalcularSoloSiCambiaAncho, {passive:true});
 
   window.addEventListener('orientationchange', function(){
-    setTimeout(function(){ enviar(true); }, 120);
-    setTimeout(function(){ enviar(true); }, 450);
+    setTimeout(function(){
+      ultimoAnchoViewport = 0;
+      recalcularSoloSiCambiaAncho();
+    }, 150);
+    setTimeout(function(){
+      ultimoAnchoViewport = 0;
+      recalcularSoloSiCambiaAncho();
+    }, 500);
   });
 
   window.addEventListener('hashchange', function(){
@@ -155,9 +183,7 @@
   });
 
   if(window.visualViewport){
-    window.visualViewport.addEventListener('resize', function(){
-      programar(true);
-    }, {passive:true});
+    window.visualViewport.addEventListener('resize', recalcularSoloSiCambiaAncho, {passive:true});
   }
 
   if(document.fonts && document.fonts.ready){
