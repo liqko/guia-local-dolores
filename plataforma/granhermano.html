@@ -33,7 +33,7 @@
 
   <div id="login" class="card">
     <h1>Gran Hermano · Super Admin</h1>
-    <p>Acceso independiente de administración.</p>
+    <p>Ingresá con tu cuenta de Suscriptor habilitada para administración.</p>
     <input id="mail" type="email" placeholder="Mail">
     <input id="clave" type="password" placeholder="Contraseña">
     <button id="btnLogin">Ingresar</button>
@@ -52,13 +52,23 @@
     </div>
 
     <div class="card">
-      <h2>Resumen</h2>
+      <h2>Centro de Aprobaciones</h2>
       <div class="grid">
-        <div class="stat"><span>Suscriptores</span><b id="stSus">-</b></div>
-        <div class="stat"><span>Anunciantes</span><b id="stAnu">-</b></div>
-        <div class="stat"><span>Relaciones</span><b id="stRel">-</b></div>
-        <div class="stat"><span>Favoritos</span><b id="stFav">-</b></div>
+        <div class="stat"><span>Eventos pendientes</span><b id="stEvt">-</b></div>
+        <div class="stat"><span>Actividades pendientes</span><b id="stAct">-</b></div>
+        <div class="stat"><span>Total pendiente</span><b id="stPen">-</b></div>
       </div>
+      <div id="pendientes" style="margin-top:16px"></div>
+    </div>
+
+    <div class="card">
+      <h2>Resumen de la plataforma</h2>
+      <div class="grid">
+        <div class="stat"><span>Ciudades habilitadas</span><b id="stCiu">-</b></div>
+        <div class="stat"><span>Anunciantes</span><b id="stAnu">-</b></div>
+        <div class="stat"><span>Suscriptores</span><b id="stSus">-</b></div>
+      </div>
+      <div id="porCiudad" style="margin-top:16px"></div>
     </div>
 
     <div class="cols">
@@ -141,13 +151,53 @@ async function abrirApp(){
 
     document.getElementById('stSus').textContent=j.resumen.suscriptores;
     document.getElementById('stAnu').textContent=j.resumen.anunciantes;
-    document.getElementById('stRel').textContent=j.resumen.relaciones;
-    document.getElementById('stFav').textContent=j.resumen.favoritos;
+    document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
+    const pc=document.getElementById('porCiudad');
+    pc.innerHTML=(j.resumen.por_ciudad||[]).map(c=>`
+      <div class="result"><b>${esc(c.ciudad)}</b>
+      <div class="muted">${esc(c.anunciantes)} anunciantes · ${esc(c.suscriptores)} suscriptores</div></div>
+    `).join('') || '<div class="muted">Sin ciudades cargadas.</div>';
+    await cargarPendientes();
   }catch(e){
     TOKEN='';
     localStorage.removeItem('gld_superadmin_token');
     document.getElementById('login').style.display='block';
     document.getElementById('app').style.display='none';
+  }
+}
+
+async function cargarPendientes(){
+  const box=document.getElementById('pendientes');
+  box.innerHTML='Cargando pendientes...';
+  try{
+    const j=await api('pendientes');
+    document.getElementById('stEvt').textContent=j.cantidades.eventos;
+    document.getElementById('stAct').textContent=j.cantidades.actividades;
+    document.getElementById('stPen').textContent=j.cantidades.total;
+    const items=[...(j.eventos||[]),...(j.actividades||[])];
+    box.innerHTML=items.map(x=>`
+      <div class="result" style="cursor:default">
+        <b>${esc(x.tipo)} · ${esc(x.nombre||'(sin nombre)')}</b>
+        <div class="muted">${esc(x.ciudad_id||'Sin ciudad')} · ${esc(x.estado||'PENDIENTE')}</div>
+        ${x.motivo?'<div class="muted">'+esc(x.motivo)+'</div>':''}
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button onclick="resolverPendiente('${esc(x.tipo)}','${esc(x.id)}','APROBAR')">Aprobar</button>
+          <button class="sec" onclick="resolverPendiente('${esc(x.tipo)}','${esc(x.id)}','RECHAZAR')">Rechazar</button>
+        </div>
+      </div>
+    `).join('') || '<div class="success">No hay Eventos ni Actividades pendientes.</div>';
+  }catch(e){
+    box.innerHTML='<p class="error">'+esc(e.message)+'</p>';
+  }
+}
+
+async function resolverPendiente(tipo,id,decision){
+  if(!confirm(decision==='APROBAR'?'¿Aprobar este contenido?':'¿Rechazar este contenido?')) return;
+  try{
+    await api('resolver_pendiente',{tipo,id,decision},'POST');
+    await cargarPendientes();
+  }catch(e){
+    alert(e.message);
   }
 }
 
