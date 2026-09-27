@@ -4058,12 +4058,43 @@ html,body{
       const subscriberSession = gldGetSubscriberSession();
       const subscriberDefaultCity = String(subscriberSession && subscriberSession.ciudad_predeterminada_id || '').trim();
 
-      const accesoConUbicacion = String(
+      let accesoConUbicacion = String(
         qs.get('ciudad_id') ||
         (ctx && ctx.ciudad_id) ||
         subscriberDefaultCity ||
         ''
       ).trim();
+
+      // La página pública /guia/ puede recibir la ciudad aunque este HTML embebido
+      // no reciba su query string. Antes de considerar la entrada inválida,
+      // pedimos al contenedor el contexto de ciudad y damos un breve margen de respuesta.
+      if(!accesoConUbicacion && window.parent !== window){
+        try{
+          const recibido = await new Promise(resolve=>{
+            let terminado=false;
+            const finalizar=(valor)=>{
+              if(terminado) return;
+              terminado=true;
+              window.removeEventListener('message',onMessage);
+              resolve(String(valor||'').trim());
+            };
+            const onMessage=(ev)=>{
+              const d=ev && ev.data;
+              if(!d || typeof d!=='object') return;
+              if(d.tipo==='gld_ciudad_contexto' && d.ciudad_id){
+                if(d.pais_id) paisSeleccionado=String(d.pais_id).trim();
+                if(d.provincia_id) provinciaSeleccionada=String(d.provincia_id).trim();
+                finalizar(d.ciudad_id);
+              }
+            };
+            window.addEventListener('message',onMessage);
+            try{ window.parent.postMessage({tipo:'gld_solicitar_ciudad_contexto'},'*'); }catch(e){}
+            setTimeout(()=>finalizar(''),500);
+          });
+          if(recibido) accesoConUbicacion=recibido;
+        }catch(e){}
+      }
+
       if(!accesoConUbicacion){
         try{ window.top.location.href = 'https://guialocal.ar/'; }
         catch(e){ window.location.href = 'https://guialocal.ar/'; }
