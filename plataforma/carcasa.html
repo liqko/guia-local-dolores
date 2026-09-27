@@ -2050,9 +2050,32 @@ html,body{
       try{
         const data=await farmaFetchTurnos(hoy);
         const turnos=Array.isArray(data.turnos)?data.turnos:[];
-        const activos=turnos.filter(t=>t && t.en_turno_ahora===true);
+        // No usamos en_turno_ahora del Worker para decidir la vista: ese valor puede
+        // haber quedado guardado en caché cuando el día todavía era una fecha futura.
+        // Calculamos el turno vigente en el navegador con las fechas/horas reales.
+        const ahoraMs=Date.now();
+        const turnoMs=(fecha,hora)=>{
+          const m=String(fecha||'').match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
+          const h=String(hora||'00:00').match(/^(\\d{1,2}):(\\d{2})/);
+          if(!m||!h)return NaN;
+          return new Date(+m[1],+m[2]-1,+m[3],+h[1],+h[2],0,0).getTime();
+        };
+        const activos=turnos.filter(t=>{
+          if(!t)return false;
+          const desde=turnoMs(t.fecha_desde,t.hora_desde);
+          const hasta=turnoMs(t.fecha_hasta,t.hora_hasta);
+          return Number.isFinite(desde)&&Number.isFinite(hasta)&&ahoraMs>=desde&&ahoraMs<hasta;
+        });
         const iniciadosHoy=turnos.filter(t=>String((t&&t.fecha_desde)||'').trim()===hoy);
-        const mostrar=activos.length ? activos : iniciadosHoy;
+        // Entre 00:00 y 08:00 deben verse las dos referencias útiles:
+        // la farmacia que sigue de turno desde ayer y la que comienza hoy a las 08:00.
+        // Desde las 08:00 ambas listas apuntan al mismo turno y se deduplican.
+        const mostrar=[];
+        const vistos=new Set();
+        [...activos,...iniciadosHoy].forEach(t=>{
+          const key=[t&&t.ciclo_id,t&&t.sede_id,t&&t.fecha_desde,t&&t.hora_desde].join('|');
+          if(!vistos.has(key)){vistos.add(key);mostrar.push(t);}
+        });
         hoyBox.innerHTML=mostrar.length?mostrar.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>';
       }catch(e){
         console.warn('Farmacias no disponibles todavía:',e);
