@@ -10,8 +10,8 @@
     .wrap{max-width:1180px;margin:0 auto;padding:24px}
     .card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 8px 28px rgba(0,0,0,.08);margin-bottom:18px}
     h1,h2,h3{margin-top:0;color:#006699}
-    input,button{font:inherit}
-    input{width:100%;padding:12px;border:1px solid #cfd8dc;border-radius:10px;margin:6px 0 12px}
+    input,button,select,textarea{font:inherit}
+    input,select,textarea{width:100%;padding:12px;border:1px solid #cfd8dc;border-radius:10px;margin:6px 0 12px;background:#fff}\n    textarea{min-height:110px;resize:vertical}\n    .formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}\n    .checks{display:flex;gap:18px;flex-wrap:wrap;margin:8px 0 14px}.checks label{display:flex;align-items:center;gap:7px}.checks input{width:auto;margin:0}
     button{border:0;border-radius:10px;padding:11px 16px;background:#006699;color:#fff;cursor:pointer}
     button.sec{background:#546e7a}
     .grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -25,7 +25,7 @@
     .success{color:#2e7d32}
     pre{white-space:pre-wrap;background:#f6f8fa;padding:12px;border-radius:10px;max-height:520px;overflow:auto}
     #app{display:none}
-    @media(max-width:800px){.grid,.cols{grid-template-columns:1fr}}
+    @media(max-width:800px){.grid,.cols,.formgrid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
@@ -247,14 +247,82 @@ async function detalleSus(id){
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 
+let ANUNCIANTE_ACTUAL='';
+
 async function detalleAnu(id){
   const box=document.getElementById('detalle');
   box.textContent='Cargando...';
   try{
     const j=await api('detalle_anunciante',{anunciante_id:id});
-    const nombre=j.anunciante.nombre||j.administracion.nombre||id;
-    box.innerHTML='<h3>'+esc(nombre)+'</h3><pre>'+esc(JSON.stringify(j,null,2))+'</pre>';
+    ANUNCIANTE_ACTUAL=id;
+    const a=j.anunciante||{};
+    const adm=j.administracion||{};
+    const nombre=a.nombre||adm.nombre||id;
+    const funcs=Array.isArray(adm.funcionalidades)?adm.funcionalidades:[];
+    const cfg=adm.funcionalidades_config&&typeof adm.funcionalidades_config==='object'?adm.funcionalidades_config:{};
+    const nivel=String(adm.nivel??'0').trim()||'0';
+
+    box.innerHTML=`
+      <h3>${esc(nombre)}</h3>
+      <div class="muted" style="margin-bottom:12px">ID: ${esc(id)}</div>
+      <div class="formgrid">
+        <div>
+          <label>Nivel comercial</label>
+          <select id="anuNivel">
+            <option value="0" ${nivel==='0'?'selected':''}>Nivel 0 · Sin configuración comercial</option>
+            <option value="3" ${nivel==='3'?'selected':''}>Nivel 3 · Gratuito</option>
+            <option value="4" ${nivel==='4'?'selected':''}>Nivel 4</option>
+            <option value="5" ${nivel==='5'?'selected':''}>Nivel 5</option>
+          </select>
+        </div>
+        <div><label>Subnivel</label><input id="anuSubnivel" value="${esc(adm.subnivel||'')}"></div>
+        <div><label>Segmento</label><input id="anuSegmento" value="${esc(a.segmento_id||'')}"></div>
+      </div>
+      <div class="checks">
+        <label><input id="anuAprobado" type="checkbox" ${adm.aprobado===true?'checked':''}> Aprobado</label>
+        <label><input id="anuVerificado" type="checkbox" ${adm.verificado===true?'checked':''}> Verificado</label>
+        <label><input id="anuGold" type="checkbox" ${adm.gold===true?'checked':''}> Gold</label>
+      </div>
+      <label>Funcionalidades</label>
+      <textarea id="anuFunciones" placeholder="Una por línea">${esc(funcs.join('\n'))}</textarea>
+      <label>Configuración y cupos existentes</label>
+      <textarea id="anuConfig" style="min-height:220px;font-family:Consolas,monospace">${esc(JSON.stringify(cfg,null,2))}</textarea>
+      <button id="btnGuardarAnu" onclick="guardarAnuncianteComercial()">Guardar cambios</button>
+      <span id="anuGuardarMsg" style="margin-left:10px"></span>
+    `;
+    informarAltura();
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+}
+
+async function guardarAnuncianteComercial(){
+  if(!ANUNCIANTE_ACTUAL) return;
+  const msg=document.getElementById('anuGuardarMsg');
+  msg.className='muted';
+  msg.textContent='Guardando...';
+  try{
+    let cfg={};
+    const raw=document.getElementById('anuConfig').value.trim();
+    if(raw) cfg=JSON.parse(raw);
+
+    await api('actualizar_anunciante_comercial',{
+      anunciante_id:ANUNCIANTE_ACTUAL,
+      nivel:document.getElementById('anuNivel').value,
+      subnivel:document.getElementById('anuSubnivel').value.trim(),
+      segmento_id:document.getElementById('anuSegmento').value.trim(),
+      aprobado:document.getElementById('anuAprobado').checked,
+      verificado:document.getElementById('anuVerificado').checked,
+      gold:document.getElementById('anuGold').checked,
+      funcionalidades:document.getElementById('anuFunciones').value.split(/\\n+/).map(v=>v.trim()).filter(Boolean),
+      funcionalidades_config:cfg
+    },'POST');
+
+    msg.className='success';
+    msg.textContent='Guardado';
+    await detalleAnu(ANUNCIANTE_ACTUAL);
+  }catch(e){
+    msg.className='error';
+    msg.textContent=e.message;
+  }
 }
 
 document.getElementById('btnLogin').onclick=login;
