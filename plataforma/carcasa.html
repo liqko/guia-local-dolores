@@ -2188,10 +2188,6 @@ html,body{
       [100,300,700,1400,2500,4500].forEach(ms=>{
         setTimeout(()=>gldReposicionarDestino(),ms);
       });
-
-      if(bannersPromise){
-        bannersPromise.finally(()=>gldReposicionarDestino());
-      }
     }
 
     document.addEventListener('DOMContentLoaded',()=>{
@@ -2358,17 +2354,6 @@ html,body{
       + '&pais_id=' + encodeURIComponent(paisSeleccionado)
       + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
       + '&ciudad_id=' + encodeURIComponent(ciudadSeleccionada);
-    const PUBLICIDAD_ENDPOINT = "https://login.liqkoargentina.workers.dev/publicidad";
-    function publicidadPublicaUrl(modulo,categoriaId=''){
-      const u=new URL(PUBLICIDAD_ENDPOINT);
-      u.searchParams.set('action','publicas');
-      u.searchParams.set('ciudad_id',String(ciudadSeleccionada||''));
-      u.searchParams.set('modulo',String(modulo||''));
-      if(categoriaId) u.searchParams.set('categoria_id',categoriaId);
-      u.searchParams.set('_ts',Date.now());
-      return u.toString();
-    }
-
     /* Integración con agenda de eventos: usa el MISMO origen de datos de la página Eventos. */
     const EVENTS_WEBAPP_URL = "https://login.liqkoargentina.workers.dev/events-new";
     const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL + "?action=getevents";
@@ -2385,7 +2370,6 @@ html,body{
     const EFEMERIDES_ENDPOINT = "https://login.liqkoargentina.workers.dev/efemerides";
 
     // Recursos secundarios de la Guía: no compiten con el arranque principal.
-    let bannersPromise=null;
     let eventsPromise=null;
     let promosPromise=null;
     let actividadesPromise=null;
@@ -2393,7 +2377,6 @@ html,body{
     const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v1:';
     const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v1:';
     const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v1:';
-    const GLD_PUBLICIDAD_CACHE_PREFIX='gld_publicidad_guia_cache_v1:';
 
     function gldLeerModuloCache(prefix,ciudadId){
       try{
@@ -2409,32 +2392,6 @@ html,body{
       try{
         localStorage.setItem(prefix+String(ciudadId||'').trim(),JSON.stringify({ts:Date.now(),data}));
       }catch(e){}
-    }
-
-    function obtenerBannersPromise(){
-      if(!bannersPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId);
-        if(cached){
-          bannersPromise=Promise.resolve(cached);
-          // La publicidad visible no espera la red; se renueva silenciosamente.
-          gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'},{timeoutMs:6000,retries:1,retryDelay:400})
-            .then(({data})=>{ if(data) gldGuardarModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId,data); })
-            .catch(()=>{});
-        }else{
-          bannersPromise=gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'},{timeoutMs:6500,retries:1,retryDelay:400})
-            .then(({data})=>{
-              gldGuardarModuloCache(GLD_PUBLICIDAD_CACHE_PREFIX,ciudadId,data);
-              return data;
-            })
-            .catch(err=>{
-              bannersPromise=null;
-              console.warn('Publicidad Guía:',err);
-              return {success:false,publicidades:[]};
-            });
-        }
-      }
-      return bannersPromise;
     }
 
     function obtenerEventosPromise(){
@@ -2543,10 +2500,7 @@ html,body{
           guiaPrefetchCache.delete(guiaKey(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada));
           return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
         });
-
-        // Publicidad forma parte de la carga inicial.
-        // Eventos, Promos y Actividades quedan BLOQUEADOS hasta terminar la carga principal.
-        const publicidadCargaPromise = obtenerBannersPromise();
+        // Eventos, Promos y Actividades cargan después de la Guía principal.
         const eventosCargaPromise = gldCargaSecundariaGate.then(() => obtenerEventosPromise());
         const promosCargaPromise = gldCargaSecundariaGate.then(() => obtenerPromosPromise());
         const actividadesCargaPromise = gldCargaSecundariaGate.then(() => obtenerActividadesPromise());
@@ -2561,7 +2515,6 @@ html,body{
         // La guía se espera sola. Eventos, promos y banners siguen cargando en paralelo
         // y se incorporan después, sin bloquear la aparición de las tarjetas.
         const dataResponse = await guiaPromise;
-        let rawBanners = [];
         let rawEventsResponse = [];
         let rawPromosResponse = [];
         const data = Array.isArray(dataResponse)
@@ -3213,337 +3166,17 @@ html,body{
           return html;
         }
 
-        function renderBanner(banner, idx){
-          const id=`banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
-          const media=Array.isArray(banner.media_items)?banner.media_items:[];
-          const formato=String(banner.formato||'').toUpperCase();
-          const cta=String(banner.cta||'').trim();
-          const ctaText=String(banner.cta_texto||'').trim()||'Ver anunciante';
-
-          if(formato==='IMAGEN' && media[0]?.url){
-            return `<div class="banner-tarjeta ${cta?'has-cta':''}" data-cta="${cta}">
-              <div id="${id}" class="banner-media" style="aspect-ratio:auto;background:#fff"><img src="${media[0].url}" alt="Publicidad"></div>
-              ${cta?`<a class="cta-btn" href="${cta}" target="_top">${ctaText}</a>`:''}
-            </div>`;
-          }
-
-          if(formato==='CARRUSEL' && media.length){
-            return `<div class="banner-tarjeta ${cta?'has-cta':''}" data-cta="${cta}">
-              <div id="${id}" class="banner-media" style="aspect-ratio:auto;background:#fff;overflow-x:auto;scroll-snap-type:x mandatory;justify-content:flex-start">
-                ${media.filter(m=>m.url).map(m=>`<img src="${m.url}" alt="Publicidad" style="flex:0 0 100%;width:100%;height:auto;max-height:520px;object-fit:contain;scroll-snap-align:start">`).join('')}
-              </div>
-              ${cta?`<a class="cta-btn" href="${cta}" target="_top">${ctaText}</a>`:''}
-            </div>`;
-          }
-
-          if(formato==='SHORT' && media[0]?.url){
-            const embed=getYouTubeEmbedUrl(media[0].url,true);
-            if(!embed) return '';
-            return `<div class="banner-tarjeta ${cta?'has-cta':''}" data-cta="${cta}">
-              <div id="${id}" class="banner-media" data-src="${embed}" ${media[0].poster?`data-poster="${media[0].poster}"`:''}></div>
-              <button class="replay-btn" data-target-id="${id}">Reproducir nuevamente</button>
-              ${cta?`<a class="cta-btn" href="${cta}" target="_top">${ctaText}</a>`:''}
-            </div>`;
-          }
-          return '';
-        }
-
-        function initBannerObservers(){
-          const observerOptions = { root: null, rootMargin: '0px', threshold: 0.5 };
-          const callback = function(entries, obs){
-            entries.forEach(async entry => {
-              const target = entry.target;
-              if(!target) return;
-
-              if(target.tagName && target.tagName.toLowerCase() === 'video'){
-                const videoEl = target;
-                const dataSrc = videoEl.dataset ? videoEl.dataset.src : videoEl.getAttribute('data-src');
-                if(entry.isIntersecting){
-                  if(!videoEl.src && dataSrc){ videoEl.src = dataSrc; try{ videoEl.load(); }catch(e){} }
-                  try{ const p = videoEl.play(); if(p && typeof p.then === 'function'){ p.catch(()=>{}); } }catch(e){}
-                } else { try{ videoEl.pause(); }catch(e){} }
-                try {
-                  const container = videoEl.closest('.banner-tarjeta');
-                  const replayBtn = container ? container.querySelector('.replay-btn') : null;
-                  videoEl.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
-                } catch(e){}
-                return;
-              }
-
-              if(entry.isIntersecting){
-                if(target.querySelector && target.querySelector('iframe')) { try{ obs.unobserve(target); }catch(e){} return; }
-                const ds = target.dataset ? target.dataset.src : target.getAttribute('data-src');
-                if(ds){
-                  try {
-                    if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
-                      let embedUrl = ds;
-                      const sep = ds.includes('?') ? '&' : '?';
-                      const extraParams = 'enablejsapi=1&rel=0&modestbranding=1&playsinline=1&controls=0&disablekb=1&fs=0&iv_load_policy=3';
-                      if(!/enablejsapi=1/.test(ds)) embedUrl = ds + sep + extraParams;
-                      const iframe = document.createElement('iframe');
-                      const iframeId = `yt-embed-${Math.floor(Math.random()*1000000)}`;
-                      iframe.setAttribute('id', iframeId);
-                      iframe.setAttribute('src', embedUrl);
-                      iframe.setAttribute('frameborder', '0');
-                      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                      iframe.setAttribute('allowfullscreen', 'true');
-                      iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-                      iframe.style.width = '100%';
-                      iframe.style.height = '100%';
-                      iframe.style.border = 'none';
-                      target.innerHTML = '';
-                      target.appendChild(iframe);
-                      const poster = (target.dataset && target.dataset.poster) ? target.dataset.poster : '';
-                      target.dataset.embedUrl = embedUrl;
-                      pendingYouTubePlayers.push({ iframeId, containerEl: target, embedUrl, poster });
-                      ensureYouTubeAPI();
-                    } else if(isVideoFile(ds)){
-                      const video = document.createElement('video');
-                      video.src = ds; video.muted = true; video.playsInline = true; video.autoplay = true; video.preload = 'metadata'; video.controls = true;
-                      video.style.width = '100%'; video.style.height = '100%'; video.style.border = 'none';
-                      target.innerHTML = ''; target.appendChild(video);
-                      try{ video.play(); }catch(e){}
-                      try{
-                        const container = target.closest('.banner-tarjeta');
-                        const replayBtn = container ? container.querySelector('.replay-btn') : null;
-                        video.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
-                      }catch(e){}
-                    } else {
-                      const iframe = document.createElement('iframe');
-                      iframe.setAttribute('src', ds);
-                      iframe.setAttribute('frameborder', '0');
-                      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                      iframe.setAttribute('allowfullscreen', 'true');
-                      iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-                      iframe.style.width = '100%';
-                      iframe.style.height = '100%';
-                      iframe.style.border = 'none';
-                      target.innerHTML = '';
-                      target.appendChild(iframe);
-                    }
-                    attachCtaHandlers(); attachReplayHandlers();
-                  } catch(err){ console.warn('Error loading embed:', err); }
-                  try{ obs.unobserve(target); }catch(e){}
-                  return;
-                }
-                if(target.querySelector && target.querySelector('img')) { try{ obs.unobserve(target); }catch(e){} return; }
-              }
-            });
-          };
-
-          const observer = new IntersectionObserver(callback, observerOptions);
-          document.querySelectorAll('.banner-tarjeta video.banner-media-video').forEach(v => {
-            try { if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src'); observer.observe(v); } catch(e){}
-          });
-          document.querySelectorAll('.banner-tarjeta .banner-media').forEach(el => {
-            try {
-              const hasImg = el.querySelector && el.querySelector('img');
-              const hasVideo = el.querySelector && el.querySelector('video');
-              const hasIframe = el.querySelector && el.querySelector('iframe');
-              const ds = el.dataset ? el.dataset.src : el.getAttribute('data-src');
-              if(hasImg || hasIframe){
-              } else if(hasVideo){
-                const v = el.querySelector('video');
-                if(v) { if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src'); observer.observe(v); }
-              } else { if(ds) observer.observe(el); }
-            } catch(e){}
-          });
-        }
-
-        const pendingYouTubePlayers = [];
-        let youtubeApiLoading = false;
-        let youtubeApiReady = false;
-
-        function ensureYouTubeAPI(){
-          if (youtubeApiReady) { createPendingYouTubePlayers(); return; }
-          if (youtubeApiLoading) return;
-          youtubeApiLoading = true;
-          const tag = document.createElement('script');
-          tag.src = "https://www.youtube.com/iframe_api";
-          tag.async = true;
-          document.head.appendChild(tag);
-          window.onYouTubeIframeAPIReady = function() { youtubeApiReady = true; createPendingYouTubePlayers(); };
-        }
-
-        function createPendingYouTubePlayers(){
-          while(pendingYouTubePlayers.length){
-            const item = pendingYouTubePlayers.shift();
-            try{
-              const { iframeId, containerEl, embedUrl, poster } = item;
-              if(!window.YT || !YT.Player) { pendingYouTubePlayers.unshift(item); break; }
-              const player = new YT.Player(iframeId, {
-                events: {
-                  onStateChange: function(e){
-                    if(e.data === YT.PlayerState.ENDED){
-                      try{
-                        const bannerContainer = containerEl.closest('.banner-tarjeta');
-                        const replayBtn = bannerContainer ? bannerContainer.querySelector('.replay-btn') : null;
-                        containerEl.innerHTML = '';
-                        let posterUrl = poster || '';
-                        if(!posterUrl && embedUrl){
-                          try { const u = new URL(embedUrl); let vid = ''; if(u.hostname.includes('youtu.be')) vid = u.pathname.slice(1); else vid = u.searchParams.get('v') || (u.pathname.split('/').pop()); if(vid) posterUrl = `https://i.ytimg.com/vi/${vid}/hqdefault.jpg`; } catch(e){}
-                        }
-                        if(posterUrl){
-                          const img = document.createElement('img');
-                          img.src = posterUrl; img.alt = 'Banner'; img.style.maxWidth = '320px'; img.style.width = '90vw'; img.style.borderRadius = '1em';
-                          containerEl.appendChild(img);
-                        }
-                        containerEl.dataset.embedUrl = embedUrl;
-                        if(replayBtn) replayBtn.style.display = 'inline-flex';
-                      }catch(err){ try{ containerEl.innerHTML = ''; }catch(e){} }
-                    }
-                  }
-                }
-              });
-            }catch(e){ console.warn('createPendingYouTubePlayers error', e); }
-          }
-        }
-
-        function attachCtaHandlers(){
-          try {
-            const bannersEl = document.querySelectorAll('.banner-tarjeta');
-            bannersEl.forEach(b => {
-              const cta = b.querySelector('.cta-btn');
-              const media = b.querySelector('.banner-media');
-              const ctaUrl = (b.dataset && b.dataset.cta) ? b.dataset.cta : (cta ? cta.getAttribute('href') : '');
-              if(ctaUrl){
-                b.classList.add('has-cta');
-                if(media) media.setAttribute('data-cta', ctaUrl);
-              } else { b.classList.remove('has-cta'); }
-              if(cta){
-                cta.onclick = function(e){
-                  e.preventDefault();
-                  try { window.open(ctaUrl, '_blank', 'noopener'); } catch(err){ location.href = ctaUrl; }
-                };
-              }
-              if(media){
-                const hasInteractive = !!(media.querySelector('video') || media.querySelector('iframe'));
-                if(!hasInteractive){
-                  media.onclick = function(e){
-                    if(!ctaUrl) return;
-                    const tag = (e.target && e.target.tagName) ? e.target.tagName.toLowerCase() : '';
-                    if(tag === 'img'){ e.preventDefault(); try { window.open(ctaUrl, '_blank', 'noopener'); } catch(err){ location.href = ctaUrl; } }
-                  };
-                } else {
-                  media.onclick = null;
-                }
-              }
-            });
-          } catch (err) { console.warn('attachCtaHandlers error', err); }
-        }
-
-        function replayBannerMediaById(id){
-          try{
-            const container = document.getElementById(id);
-            if(!container) return;
-            const bannerContainer = container.closest('.banner-tarjeta');
-            const replayBtn = bannerContainer ? bannerContainer.querySelector('.replay-btn') : null;
-            const existingVideo = container.querySelector('video');
-            const existingIframe = container.querySelector('iframe');
-            if(existingVideo){
-              try{ existingVideo.currentTime = 0; const p = existingVideo.play(); if(p && typeof p.then === 'function'){ p.catch(()=>{}); } if(replayBtn) replayBtn.style.display = 'none'; }catch(e){}
-              return;
-            }
-            if(existingIframe){
-              if(replayBtn) replayBtn.style.display = 'none';
-              return;
-            }
-            const ds = container.dataset ? (container.dataset.src || container.dataset.embedUrl) : (container.getAttribute('data-src') || '');
-            if(ds && (ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1)){
-              let embedUrl = ds;
-              const sep = ds.includes('?') ? '&' : '?';
-              const extraParams = 'enablejsapi=1&rel=0&modestbranding=1&playsinline=1&autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3';
-              if(!/enablejsapi=1/.test(ds)) embedUrl = ds + sep + extraParams;
-              const iframe = document.createElement('iframe');
-              const iframeId = `yt-embed-${Math.floor(Math.random()*1000000)}`;
-              iframe.setAttribute('id', iframeId);
-              iframe.setAttribute('src', embedUrl);
-              iframe.setAttribute('frameborder', '0');
-              iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-              iframe.setAttribute('allowfullscreen', 'true');
-              iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-              iframe.style.width = '100%';
-              iframe.style.height = '100%';
-              iframe.style.border = 'none';
-              container.innerHTML = '';
-              container.appendChild(iframe);
-              pendingYouTubePlayers.push({ iframeId, containerEl: container, embedUrl, poster: (container.dataset ? container.dataset.poster : '') });
-              ensureYouTubeAPI();
-              if(replayBtn) replayBtn.style.display = 'none';
-              return;
-            }
-            if(ds && isVideoFile(ds)){
-              const video = document.createElement('video');
-              video.src = ds; video.muted = true; video.playsInline = true; video.autoplay = true; video.preload = 'metadata'; video.controls = true;
-              video.style.width = '100%'; video.style.height = '100%'; video.style.border = 'none';
-              container.innerHTML = '';
-              container.appendChild(video);
-              try{ video.play(); }catch(e){}
-              video.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
-              if(replayBtn) replayBtn.style.display = 'none';
-              return;
-            }
-          }catch(e){}
-        }
-
-        function attachReplayHandlers(){
-          try{
-            const buttons = document.querySelectorAll('.banner-tarjeta .replay-btn');
-            buttons.forEach(btn => {
-              if(btn._wired) return;
-              btn._wired = true;
-              const targetId = btn.getAttribute('data-target-id');
-              btn.onclick = function(e){ e.preventDefault(); replayBannerMediaById(targetId); };
-            });
-          }catch(e){}
-        }
-
-        function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
-        function bannerKey(b) { return (b && (b.img || b.media || b.url || b.cta)) ? (b.img || b.media || b.url || b.cta) : JSON.stringify(b); }
-        function buildBannerSequence(slots) {
-          if (!banners || !banners.length || slots <= 0) return [];
-          const seq = []; let attempts = 0;
-          while (seq.length < slots && attempts < 20) {
-            const pool = banners.slice(); shuffleArray(pool);
-            for (let i = 0; i < pool.length && seq.length < slots; i++) {
-              const candidate = pool[i];
-              if (seq.length > 0 && bannerKey(seq[seq.length - 1]) === bannerKey(candidate)) {
-                const altIdx = pool.findIndex((p, idx) => idx > i && bannerKey(p) !== bannerKey(seq[seq.length - 1]));
-                if (altIdx !== -1) seq.push(pool.splice(altIdx, 1)[0]); else seq.push(candidate);
-              } else { seq.push(candidate); }
-            }
-            attempts++;
-          }
-          let i = 0;
-          while (seq.length < slots) {
-            const candidate = banners[i % banners.length];
-            if (seq.length === 0 || bannerKey(seq[seq.length - 1]) !== bannerKey(candidate)) seq.push(candidate);
-            else { i++; if (i > banners.length * 5) seq.push(candidate); }
-            i++;
-          }
-          return seq.slice(0, slots);
-        }
-
         function renderNormales(normales, cantidadDestacadas) {
           let html = '';
-          const slots = Math.floor(normales.length / 2);
-          const bannerSeq = buildBannerSequence(slots);
           normales.forEach((item, idx) => {
             html += renderCard(item, `norm-${idx}`);
-            if ((idx + 1) % 2 === 0 && (idx + 1) < normales.length) {
-              const slotIndex = Math.floor((idx + 1) / 2) - 1;
-              const banner = bannerSeq[slotIndex];
-              if (banner) html += renderBanner(banner, `inter-${idx}`);
-            }
           });
           if (normales.length === 0 && !cantidadDestacadas) html = `<div class="no-tags-msg">No se encontraron resultados para tu búsqueda.</div>`;
           contenedor.innerHTML = html;
-          initBannerObservers(); attachCtaHandlers(); attachReplayHandlers();
         }
 
         function renderDestacadas(destacadas) {
           destacadasBar.innerHTML = destacadas.map((item, idx) => renderCard(item, `dest-${idx}`)).join('');
-          attachCtaHandlers();
         }
 
         function renderDestacadasCarrusel(destacadas) {
@@ -3562,8 +3195,6 @@ html,body{
                 `).join('')}
               </div>
             </div>`;
-
-          attachCtaHandlers();
         }
 
         function scrollTitulo() {
@@ -3899,34 +3530,6 @@ html,body{
           activeActivities=(resp && Array.isArray(resp.actividades)) ? resp.actividades : [];
           actualizarBotonesModulosVisibles();
         }).catch(err => console.warn('Actividades no disponibles todavía:', err));
-
-        const publicidadRenderPromise=publicidadCargaPromise.then(resp => {
-          rawBanners = (resp && Array.isArray(resp.publicidades)) ? resp.publicidades : [];
-          banners = rawBanners.map(p=>({
-            publicidad_id:String(p.publicidad_id||''),
-            formato:String(p.formato||'').toUpperCase(),
-            titulo:String(p.titulo||''),
-            media_items:Array.isArray(p.media)?p.media:[],
-            cta:String(p.cta_destino||''),
-            cta_texto:String(p.cta_texto||''),
-            categoria_ids:[...new Set((p.segmentacion||[]).map(s=>String(s.categoria_id||'').trim()).filter(Boolean))]
-          })).filter(p=>p.media_items.length);
-          render();
-
-          if(gldDestinoPendiente){
-            requestAnimationFrame(()=>{
-              requestAnimationFrame(()=>{
-                const destino=document.getElementById(gldDestinoPendiente);
-                if(destino) destino.scrollIntoView({behavior:'smooth',block:'start'});
-                gldDestinoPendiente='';
-              });
-            });
-          }
-        }).catch(err => console.warn('Publicidad no disponible todavía:', err));
-
-        // La Guía no se considera terminada hasta que la publicidad ya fue
-        // incorporada al layout. Así no hay un segundo salto grande después.
-        await publicidadRenderPromise;
 
         window.addEventListener('scroll', () => {
           const topBtn = document.getElementById('topBtn');
