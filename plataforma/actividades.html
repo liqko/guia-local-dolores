@@ -539,7 +539,7 @@
   'use strict';
 
   const WEBAPP_URL = 'https://login.liqkoargentina.workers.dev/actividades';
-  const BANNERS_URL = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
+  const PUBLICIDAD_ENDPOINT = 'https://login.liqkoargentina.workers.dev/publicidad';
   const CITY_CONTEXT_KEY = 'gld_ciudad_contexto';
   const ITEMS_PER_PAGE = 6;
 
@@ -547,7 +547,14 @@
   let actividadesFiltradas = [];
   let currentPage = 1;
   let banners = [];
-  const bannersPromise = fetch(BANNERS_URL).then(r=>r.json()).catch(()=>[]);
+  function publicidadActividadesUrl(){
+    const u=new URL(PUBLICIDAD_ENDPOINT);
+    u.searchParams.set('action','publicas');
+    u.searchParams.set('ciudad_id',String(ciudadContexto.ciudad_id||''));
+    u.searchParams.set('modulo','ACTIVIDADES');
+    u.searchParams.set('_ts',Date.now());
+    return u.toString();
+  }
 
   const params = new URLSearchParams(window.location.search || '');
   let ciudadContexto = {
@@ -1162,19 +1169,20 @@
       document.body.classList.remove('gld-modulo-preparando');
       gldActividadAvisar('ready');
 
-      bannersPromise.then(raw=>{
-        banners=(Array.isArray(raw)?raw:[])
-          .filter(b=>{
-            const a=String(b.aprobado ?? '').trim().toLowerCase();
-            return a==='true' || a==='1' || a==='x';
-          })
-          .map(b=>({
-            img:String(b.img || b.url || '').trim(),
-            media:String(b.media || '').trim(),
-            cta:String(b.cta || '').trim(),
-            poster:String(b.poster || '').trim()
-          }))
-          .filter(b=>b.img || b.media);
+      fetchJsonConTimeout(publicidadActividadesUrl(),4500).then(payload=>{
+        const raw=Array.isArray(payload) ? payload : (Array.isArray(payload && payload.publicidades) ? payload.publicidades : []);
+        banners=raw.map(b=>{
+          const mediaItems=Array.isArray(b.media)?b.media:[];
+          const first=mediaItems[0]||{};
+          const tipo=String(first.tipo_media||b.formato||'').toUpperCase();
+          const url=String(first.url||'').trim();
+          return {
+            img:tipo==='IMAGEN' ? url : '',
+            media:tipo==='IMAGEN' ? '' : url,
+            cta:String(b.cta_destino||b.cta||'').trim(),
+            poster:String(first.poster||b.poster||'').trim()
+          };
+        }).filter(b=>b.img||b.media);
         if(banners.length) renderActivities(currentPage);
       }).catch(()=>{});
     }catch(err){
