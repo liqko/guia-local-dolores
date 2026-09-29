@@ -70,6 +70,11 @@
 <script>
 const API='https://login.liqkoargentina.workers.dev/superadmin';
 let TOKEN=localStorage.getItem('gld_superadmin_token')||'';
+const EVENTS_API='https://login.liqkoargentina.workers.dev/events-new';
+let GH_PENDING_EVENTS=[];
+let GH_PENDING_ACTIVITIES=[];
+let GH_PUBLIC_EVENTS=[];
+let GH_CITIES=[];
 
 function esc(v){
   return String(v??'').replace(/[&<>"']/g,c=>({
@@ -120,16 +125,13 @@ async function abrirApp(){
     const j=await api('resumen');
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
-
     document.getElementById('stSus').textContent=j.resumen.suscriptores;
     document.getElementById('stAnu').textContent=j.resumen.anunciantes;
     document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
     const pc=document.getElementById('porCiudad');
-    pc.innerHTML=(j.resumen.por_ciudad||[]).map(c=>`
-      <div class="result"><b>${esc(c.ciudad)}</b>
-      <div class="muted">${esc(c.anunciantes)} anunciantes · ${esc(c.suscriptores)} suscriptores</div></div>
-    `).join('') || '<div class="muted">Sin ciudades cargadas.</div>';
-    await cargarPendientes();
+    pc.innerHTML=(j.resumen.por_ciudad||[]).map(function(x){return '<div class="item"><b>'+esc(x.ciudad)+'</b><div class="muted">'+esc(x.anunciantes)+' anunciantes · '+esc(x.suscriptores)+' suscriptores</div></div>';}).join('') || '<div class="muted">Sin ciudades cargadas.</div>';
+    await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades()]);
+    ghRenderTodo();
   }catch(e){
     TOKEN='';
     localStorage.removeItem('gld_superadmin_token');
@@ -137,30 +139,18 @@ async function abrirApp(){
     document.getElementById('app').style.display='none';
   }
 }
-
 async function cargarPendientes(){
   const box=document.getElementById('pendientes');
-  box.innerHTML='Cargando pendientes...';
+  if(box) box.innerHTML='Cargando pendientes...';
   try{
     const j=await api('pendientes');
-    document.getElementById('stEvt').textContent=j.cantidades.eventos;
-    document.getElementById('stAct').textContent=j.cantidades.actividades;
-    document.getElementById('stPen').textContent=j.cantidades.total;
-    const items=[...(j.eventos||[]),...(j.actividades||[])];
-    box.innerHTML=items.map(x=>`
-      <div class="result" style="cursor:default">
-        <b>${esc(x.tipo)} · ${esc(x.nombre||'(sin nombre)')}</b>
-        <div class="muted">${esc(x.ciudad_id||'Sin ciudad')} · ${esc(x.estado||'PENDIENTE')}</div>
-        ${x.motivo?'<div class="muted">'+esc(x.motivo)+'</div>':''}
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button onclick="resolverPendiente('${esc(x.tipo)}','${esc(x.id)}','APROBAR')">Aprobar</button>
-          <button class="sec" onclick="resolverPendiente('${esc(x.tipo)}','${esc(x.id)}','RECHAZAR')">Rechazar</button>
-        </div>
-      </div>
-    `).join('') || '<div class="success">No hay Eventos ni Actividades pendientes.</div>';
-  }catch(e){
-    box.innerHTML='<p class="error">'+esc(e.message)+'</p>';
-  }
+    GH_PENDING_EVENTS=Array.isArray(j.eventos)?j.eventos:[];
+    GH_PENDING_ACTIVITIES=Array.isArray(j.actividades)?j.actividades:[];
+    document.getElementById('stEvt').textContent=j.cantidades&&j.cantidades.eventos!==undefined?j.cantidades.eventos:GH_PENDING_EVENTS.length;
+    document.getElementById('stAct').textContent=j.cantidades&&j.cantidades.actividades!==undefined?j.cantidades.actividades:GH_PENDING_ACTIVITIES.length;
+    document.getElementById('stPen').textContent=j.cantidades&&j.cantidades.total!==undefined?j.cantidades.total:(GH_PENDING_EVENTS.length+GH_PENDING_ACTIVITIES.length);
+    ghRenderPendientesInicio();
+  }catch(e){if(box) box.innerHTML='<p class="error">'+esc(e.message)+'</p>';}
 }
 
 async function resolverPendiente(tipo,id,decision){
@@ -168,10 +158,72 @@ async function resolverPendiente(tipo,id,decision){
   try{
     await api('resolver_pendiente',{tipo,id,decision},'POST');
     await cargarPendientes();
+    ghRenderTodo();
   }catch(e){
     alert(e.message);
   }
 }
+
+function ghNorm(v){return String(v||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();}
+function ghPublicKind(x){return ghNorm(x&&x.nivel).indexOf('free')>=0?'FREE':'VIP';}
+function ghPendingKind(x){return ghNorm([x&&x.tipo,x&&x.nivel,x&&x.modalidad,x&&x.clase].join(' ')).indexOf('free')>=0?'FREE':'VIP';}
+function ghEventId(x){return String((x&&(x.id||x.evento_id||x.event_id))||'').trim();}
+function ghEventName(x){return String((x&&(x.nombre||x.nombre_evento))||'(sin nombre)').trim();}
+function ghCityId(x){return String((x&&(x.ciudad_id||x.city_id||x.ciudad))||'').trim();}
+function ghEventSearch(x){return ghNorm([x.nombre,x.nombre_evento,x.organizador,x.organizador_principal,x.lugar,x.descripcion,x.categoria,x.ciudad_visible].join(' '));}
+
+async function ghFetchJson(url){const r=await fetch(url,{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error('HTTP '+r.status);return j;}
+async function ghCargarEventosPublicos(){
+  try{const j=await ghFetchJson(EVENTS_API+'?action=getevents');GH_PUBLIC_EVENTS=Array.isArray(j)?j:(Array.isArray(j.events)?j.events:(Array.isArray(j.eventos)?j.eventos:[]));}catch(e){GH_PUBLIC_EVENTS=[];}
+  const vip=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='VIP';});
+  const free=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='FREE';});
+  const a=document.getElementById('stEvtPub');if(a)a.textContent=vip.length;
+  const b=document.getElementById('stEvtFreePub');if(b)b.textContent=free.length;
+}
+async function ghCargarCiudades(){
+  try{const j=await ghFetchJson(EVENTS_API+'?action=getcities');GH_CITIES=Array.isArray(j)?j:(Array.isArray(j.ciudades)?j.ciudades:[]);}catch(e){GH_CITIES=[];}
+  const opts='<option value="">Todas las ciudades</option>'+GH_CITIES.map(function(x){const id=String(x.ciudad_id||x.id||'').trim();const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id).trim();return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');
+  const a=document.getElementById('evCiudad');if(a)a.innerHTML=opts;
+  const b=document.getElementById('evfCiudad');if(b)b.innerHTML=opts;
+}
+function ghDetalleEvento(x){
+  const arr=[['ID',ghEventId(x)],['Nombre',ghEventName(x)],['Estado',x.estado],['Ciudad',x.ciudad_visible||x.ciudad_id],['Categoría',x.categoria],['Lugar',x.lugar],['Dirección',x.direccion],['Fecha desde',x.fecha_desde],['Fecha hasta',x.fecha_hasta],['Hora',x.hora||x.hora_unificada],['Organizador',x.organizador||x.organizador_principal],['Descripción',x.descripcion],['Entradas',x.entradas],['Instagram',x.instagram],['YouTube',x.youtube]].filter(function(p){return String(p[1]||'').trim();});
+  return arr.map(function(p){return '<div style="margin:5px 0"><b>'+esc(p[0])+':</b> '+esc(p[1])+'</div>';}).join('')+'<details style="margin-top:8px"><summary>Datos técnicos completos</summary><pre>'+esc(JSON.stringify(x,null,2))+'</pre></details>';
+}
+function ghToggleDetalle(btn){const box=btn.closest('.item').querySelector('.detailbox');const open=box.style.display==='block';box.style.display=open?'none':'block';btn.textContent=open?'Ver completo':'Ocultar detalle';informarAltura();}
+function ghRenderEvento(x,pending,kind){
+  const state=pending?'PENDIENTE':'PUBLICADO';
+  const cls=pending?'pending':'publicado';
+  const id=ghEventId(x);
+  let acc='<div class="actions"><button onclick="ghToggleDetalle(this)">Ver completo</button>';
+  if(pending){acc+='<button onclick="resolverPendiente(\''+esc(x.tipo||'EVENTO')+'\',\''+esc(id)+'\',\'APROBAR\')">Aprobar</button><button class="sec" onclick="resolverPendiente(\''+esc(x.tipo||'EVENTO')+'\',\''+esc(id)+'\',\'RECHAZAR\')">Rechazar</button>';}
+  acc+='</div>';
+  return '<div class="item '+cls+'" data-city="'+esc(ghCityId(x))+'" data-state="'+state+'" data-search="'+esc(ghEventSearch(x))+'"><div style="display:flex;justify-content:space-between;gap:10px"><div><b>'+esc(ghEventName(x))+'</b><div class="muted">'+esc(x.ciudad_visible||x.ciudad_id||'Sin ciudad')+' · '+esc(x.fecha_desde||'Sin fecha')+'</div></div><div><span class="badge '+(kind==='FREE'?'free':'vip')+'">'+kind+'</span> <span class="badge '+(pending?'pending':'publicado')+'">'+state+'</span></div></div>'+acc+'<div class="detailbox">'+ghDetalleEvento(x)+'</div></div>';
+}
+function ghRenderEventos(){
+  const vipPend=GH_PENDING_EVENTS.filter(function(x){return ghPendingKind(x)==='VIP';});
+  const freePend=GH_PENDING_EVENTS.filter(function(x){return ghPendingKind(x)==='FREE';});
+  const vipPub=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='VIP';});
+  const freePub=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='FREE';});
+  const a=document.getElementById('eventosList');if(a)a.innerHTML=vipPend.map(function(x){return ghRenderEvento(x,true,'VIP');}).concat(vipPub.map(function(x){return ghRenderEvento(x,false,'VIP');})).join('')||'<div class="muted">No hay eventos VIP visibles.</div>';
+  const b=document.getElementById('eventosFreeList');if(b)b.innerHTML=freePend.map(function(x){return ghRenderEvento(x,true,'FREE');}).concat(freePub.map(function(x){return ghRenderEvento(x,false,'FREE');})).join('')||'<div class="muted">No hay Eventos Free visibles.</div>';
+  ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');ghFiltrarEventos('eventosFreeList','evfQ','evfCiudad','evfEstado');
+}
+function ghFiltrarEventos(listId,qId,cityId,stateId){
+  const q=ghNorm((document.getElementById(qId)||{}).value||'');const city=String((document.getElementById(cityId)||{}).value||'');const state=String((document.getElementById(stateId)||{}).value||'');
+  document.querySelectorAll('#'+listId+' .item').forEach(function(el){const okQ=!q||String(el.dataset.search||'').indexOf(q)>=0;const okC=!city||String(el.dataset.city||'')===city;const okS=!state||String(el.dataset.state||'')===state;el.style.display=(okQ&&okC&&okS)?'':'none';});
+}
+function ghRenderPendientesInicio(){
+  const box=document.getElementById('pendientes');if(!box)return;const items=GH_PENDING_EVENTS.concat(GH_PENDING_ACTIVITIES);
+  if(!items.length){box.innerHTML='<div class="success">No hay contenidos pendientes de revisión.</div>';return;}
+  box.innerHTML=items.map(function(x){const esEvento=ghNorm(x.tipo).indexOf('evento')>=0;return '<div class="item pending"><b>'+esc(x.tipo||'Contenido')+' · '+esc(x.nombre||x.nombre_evento||'(sin nombre)')+'</b><div class="muted">'+esc(x.ciudad_id||'Sin ciudad')+' · '+esc(x.estado||'PENDIENTE')+'</div><div class="actions"><button onclick="ghGoView(\''+(esEvento?'eventos':'actividades')+'\')">Revisar</button></div></div>';}).join('');
+}
+function ghRenderActividades(){
+  const box=document.getElementById('actividadesAdminList');if(!box)return;box.innerHTML=GH_PENDING_ACTIVITIES.map(function(x){return '<div class="item pending"><b>'+esc(x.nombre||'(sin nombre)')+'</b><div class="muted">'+esc(x.ciudad_id||'Sin ciudad')+' · '+esc(x.estado||'PENDIENTE')+'</div><div class="actions"><button onclick="ghToggleDetalle(this)">Ver completo</button><button onclick="resolverPendiente(\''+esc(x.tipo||'ACTIVIDAD')+'\',\''+esc(x.id||'')+'\',\'APROBAR\')">Aprobar</button><button class="sec" onclick="resolverPendiente(\''+esc(x.tipo||'ACTIVIDAD')+'\',\''+esc(x.id||'')+'\',\'RECHAZAR\')">Rechazar</button></div><div class="detailbox"><pre>'+esc(JSON.stringify(x,null,2))+'</pre></div></div>';}).join('')||'<div class="success">No hay actividades pendientes.</div>';
+}
+function ghRenderCiudades(){const box=document.getElementById('ciudadesAdminList');if(!box)return;box.innerHTML=GH_CITIES.map(function(x){return '<div class="item"><b>'+esc(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id)+'</b><div class="muted">ID: '+esc(x.ciudad_id||x.id||'')+'</div></div>';}).join('')||'<div class="muted">No hay ciudades devueltas por el catálogo.</div>';}
+function ghRenderTodo(){ghRenderPendientesInicio();ghRenderEventos();ghRenderActividades();ghRenderCiudades();informarAltura();}
+function ghGoView(name){document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});document.querySelectorAll('.view').forEach(function(x){x.classList.toggle('active',x.id==='view-'+name);});informarAltura();}
 
 async function buscarSus(){
   const box=document.getElementById('resSus');
@@ -242,9 +294,12 @@ async function detalleAnu(id){
           <label>Nivel comercial</label>
           <select id="anuNivel">
             <option value="0" ${nivel==='0'?'selected':''}>Nivel 0 · Sin configuración comercial</option>
+            <option value="1" ${nivel==='1'?'selected':''}>Nivel 1 · Estado</option>
+            <option value="2" ${nivel==='2'?'selected':''}>Nivel 2 · ONG / Institución</option>
             <option value="3" ${nivel==='3'?'selected':''}>Nivel 3 · Gratuito</option>
             <option value="4" ${nivel==='4'?'selected':''}>Nivel 4</option>
             <option value="5" ${nivel==='5'?'selected':''}>Nivel 5</option>
+            <option value="6" ${nivel==='6'?'selected':''}>Nivel 6 · Black</option>
           </select>
         </div>
         <div><label>Subnivel</label><input id="anuSubnivel" value="${esc(adm.subnivel||'')}"></div>
@@ -297,6 +352,12 @@ async function guardarAnuncianteComercial(){
   }
 }
 
+document.getElementById('ghTabs').addEventListener('click',function(e){const b=e.target.closest('[data-view]');if(b)ghGoView(b.dataset.view);});
+['evQ','evCiudad','evEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evQ'?'input':'change',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');});});
+['evfQ','evfCiudad','evfEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evfQ'?'input':'change',function(){ghFiltrarEventos('eventosFreeList','evfQ','evfCiudad','evfEstado');});});
+document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades()]);ghRenderTodo();};
+document.getElementById('btnEvfRefresh').onclick=document.getElementById('btnEvtRefresh').onclick;
+document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
 document.getElementById('btnLogin').onclick=login;
 document.getElementById('btnBuscarSus').onclick=buscarSus;
 document.getElementById('btnBuscarAnu').onclick=buscarAnu;
