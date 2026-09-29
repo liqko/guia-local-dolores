@@ -75,9 +75,10 @@
         <h2>Configuración de plataforma</h2>
         <div class="muted">Catálogos generales utilizados en toda Guía Local.</div>
       </div>
-      <div class="card"><h3>Funcionalidades</h3><div id="cfgFuncionalidades" class="muted">Conectando catálogo existente...</div></div>
-      <div class="card"><h3>Categorías de anunciantes</h3><div id="cfgCategoriasAnunciantes" class="muted">Conectando catálogo existente...</div></div>
-      <div class="card"><h3>Actividades clave</h3><div id="cfgActividadesClave" class="muted">Conectando catálogo existente...</div></div>
+      <div class="card"><h3>Funcionalidades</h3><div id="cfgFuncionalidades"></div></div>
+      <div class="card"><h3>Categorías de anunciantes</h3><div id="cfgCategoriasAnunciantes"></div></div>
+      <div class="card"><h3>Actividades clave</h3><div id="cfgActividadesClave"></div></div>
+      <div class="card"><h3>Acciones</h3><div id="cfgAcciones"></div></div>
       <div class="card"><h3>Atributos e insignias</h3><div id="cfgAtributos" class="muted">Pendiente de localizar el catálogo existente.</div></div>
       <div class="card"><h3>Categorías de eventos</h3><div id="cfgCategoriasEventos" class="muted">Pendiente de conectar el catálogo existente.</div></div>
       <div class="card"><h3>Categorías de actividades</h3><div id="cfgCategoriasActividades" class="muted">Pendiente de conectar el catálogo existente.</div></div>
@@ -241,7 +242,7 @@ function ghRenderActividades(){
 }
 function ghRenderCiudades(){const sel=document.getElementById('ciuSelect');if(!sel)return;const q=ghNorm((document.getElementById('ciuQ')||{}).value||'');const list=GH_CITIES.filter(function(x){return !q||ghNorm(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id).indexOf(q)>=0;});sel.innerHTML='<option value="">Seleccioná una ciudad</option>'+list.map(function(x){const id=String(x.ciudad_id||x.id||'');const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id);return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');const d=document.getElementById('ciudadDetalle');if(d)d.textContent=list.length?list.length+' ciudad(es) encontradas.':'Sin coincidencias.';}
 function ghRenderTodo(){ghRenderPendientesInicio();ghRenderEventos();ghRenderActividades();ghRenderCiudades();informarAltura();}
-function ghGoView(name){document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});window.scrollTo({top:0,behavior:'auto'});informarAltura();}
+function ghGoView(name){document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});window.scrollTo({top:0,behavior:'auto'});if(name==='configuracion')ghCargarCatalogos();informarAltura();}
 
 async function buscarSus(){
   const box=document.getElementById('resSus');
@@ -371,6 +372,70 @@ async function guardarAnuncianteComercial(){
   }
 }
 
+
+const GH_CATALOGOS=[
+  {tipo:'funcionalidades',box:'cfgFuncionalidades',idField:'funcionalidad_id'},
+  {tipo:'categorias',box:'cfgCategoriasAnunciantes',idField:'categoria_id'},
+  {tipo:'actividades_clave',box:'cfgActividadesClave',idField:'actividad_id'},
+  {tipo:'acciones',box:'cfgAcciones',idField:'accion_id'}
+];
+
+function ghCatalogoIdNuevo(tipo){return tipo.replace(/[^a-z0-9]+/gi,'_').toUpperCase()+'_'+Date.now();}
+
+function ghRenderCatalogo(def,rows){
+  const box=document.getElementById(def.box);if(!box)return;
+  const items=(rows||[]).map(function(x){
+    const id=String(x[def.idField]||x.id||'');
+    const nombre=String(x.nombre||'');
+    const activo=x.activo===undefined?true:!!x.activo;
+    return '<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" value="'+esc(nombre)+'"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label></div><button onclick="ghGuardarCatalogo(\''+def.tipo+'\',\''+esc(id)+'\')">Guardar</button></div>';
+  }).join('');
+  box.innerHTML='<div class="toolbar"><button onclick="ghNuevoCatalogo(\''+def.tipo+'\')">+ Agregar</button></div>'+(items||'<div class="muted">No hay elementos cargados.</div>');
+}
+
+async function ghCargarCatalogo(def){
+  const box=document.getElementById(def.box);if(box)box.innerHTML='<div class="muted">Cargando...</div>';
+  try{const j=await api('listar_catalogo',{tipo:def.tipo});ghRenderCatalogo(def,j.results||[]);}
+  catch(e){if(box)box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
+}
+async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
+function ghNuevoCatalogo(tipo){
+  const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
+  const box=document.getElementById(def.box);const id=ghCatalogoIdNuevo(tipo);
+  box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" placeholder="Nombre"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" checked> Activo</label></div><button onclick="ghGuardarCatalogo(\''+tipo+'\',\''+esc(id)+'\')">Guardar</button></div>');
+}
+async function ghGuardarCatalogo(tipo,id){
+  const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
+  const nombre=(document.querySelector('[data-cat-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
+  const activo=!!(document.querySelector('[data-cat-activo="'+CSS.escape(id)+'"]')||{}).checked;
+  if(!nombre.trim()){alert('Falta el nombre.');return;}
+  try{await api('guardar_catalogo',{tipo,item:{[def.idField]:id,nombre:nombre.trim(),activo}},'POST');await ghCargarCatalogo(def);}
+  catch(e){alert(e.message);}
+}
+
+async function ghCargarNodosCiudad(ciudadId){
+  const box=document.getElementById('nodosCiudadList');if(!box)return;
+  box.innerHTML='<div class="muted">Cargando...</div>';
+  try{
+    const j=await api('listar_catalogo',{tipo:'nodos',ciudad_id:ciudadId});
+    const rows=j.results||[];
+    box.innerHTML='<div class="toolbar"><button onclick="ghNuevoNodo(\''+esc(ciudadId)+'\')">+ Agregar nodo</button></div>'+rows.map(function(x){
+      const id=String(x.nodo_id||x.id||'');return '<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-nodo-nombre="'+esc(id)+'" value="'+esc(x.nombre||'')+'"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-nodo-activo="'+esc(id)+'" '+(x.activo===false?'':'checked')+'> Activo</label></div><button onclick="ghGuardarNodo(\''+esc(ciudadId)+'\',\''+esc(id)+'\')">Guardar</button></div>';
+    }).join('')||'<div class="muted">Esta ciudad todavía no tiene nodos.</div>';
+  }catch(e){box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
+}
+function ghNuevoNodo(ciudadId){
+  const box=document.getElementById('nodosCiudadList');const id='NODO_'+Date.now();
+  box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-nodo-nombre="'+id+'" placeholder="Nombre del nodo"></div><div><label>ID</label><input value="'+id+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-nodo-activo="'+id+'" checked> Activo</label></div><button onclick="ghGuardarNodo(\''+esc(ciudadId)+'\',\''+id+'\')">Guardar</button></div>');
+}
+async function ghGuardarNodo(ciudadId,id){
+  const nombre=(document.querySelector('[data-nodo-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
+  const activo=!!(document.querySelector('[data-nodo-activo="'+CSS.escape(id)+'"]')||{}).checked;
+  if(!nombre.trim()){alert('Falta el nombre.');return;}
+  try{await api('guardar_catalogo',{tipo:'nodos',ciudad_id:ciudadId,item:{nodo_id:id,ciudad_id:ciudadId,nombre:nombre.trim(),activo}},'POST');await ghCargarNodosCiudad(ciudadId);}
+  catch(e){alert(e.message);}
+}
+
 document.getElementById('ghTabs').addEventListener('click',function(e){const b=e.target.closest('[data-view]');if(b)ghGoView(b.dataset.view);});
 ['evQ','evCiudad','evEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evQ'?'input':'change',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');});});
 ['evfQ','evfCiudad','evfEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evfQ'?'input':'change',function(){ghFiltrarEventos('eventosFreeList','evfQ','evfCiudad','evfEstado');});});
@@ -378,7 +443,7 @@ document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.
 document.getElementById('btnEvfRefresh').onclick=document.getElementById('btnEvtRefresh').onclick;
 document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
-document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div></div>';if(n)n.classList.remove('hidden');const nl=document.getElementById('nodosCiudadList');if(nl)nl.innerHTML='<div class="notice">Catálogo de nodos pendiente de conexión para esta ciudad.</div>';informarAltura();});
+document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div></div>';if(n)n.classList.remove('hidden');ghCargarNodosCiudad(id);informarAltura();});
 document.getElementById('btnLogin').onclick=login;
 document.getElementById('btnBuscarSus').onclick=buscarSus;
 document.getElementById('btnBuscarAnu').onclick=buscarAnu;
