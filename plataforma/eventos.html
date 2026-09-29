@@ -754,7 +754,15 @@
     const EVENTS_ENDPOINT = WEBAPP_URL + "?action=getevents";
     const CITIES_ENDPOINT = WEBAPP_URL + "?action=getcities";
     const GENERIC_PARTNER_LOGO = "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png";
-    const urlBanners = 'https://opensheet.elk.sh/170kTZ-ViCPxPli86g-n_XMuMv1S3O0-DbGwNFGYVnjY/banners';
+    const PUBLICIDAD_ENDPOINT = "https://login.liqkoargentina.workers.dev/publicidad";
+    const urlBanners = (() => {
+      const u = new URL(PUBLICIDAD_ENDPOINT);
+      u.searchParams.set('action','publicas');
+      u.searchParams.set('ciudad_id',String(ciudadContexto.ciudad_id||''));
+      u.searchParams.set('modulo','EVENTOS');
+      u.searchParams.set('_ts',Date.now());
+      return u.toString();
+    })();
 
     let banners = [];
 
@@ -2267,22 +2275,22 @@
         ]);
         if(eventResult.status!=='fulfilled') throw eventResult.reason || new Error('No se pudieron cargar los eventos.');
         const eventResponse=eventResult.value;
-        const rawBanners=bannerResult.status==='fulfilled' ? bannerResult.value : [];
+        const bannerPayload=bannerResult.status==='fulfilled' ? bannerResult.value : {publicidades:[]};
+        const rawBanners=Array.isArray(bannerPayload) ? bannerPayload : (Array.isArray(bannerPayload.publicidades) ? bannerPayload.publicidades : []);
         updateCityHeading();
 
-        banners = Array.isArray(rawBanners)
-          ? rawBanners
-              .filter(b=>{
-                const apr=(b.aprobado!==undefined)?String(b.aprobado).trim().toLowerCase():'';
-                return apr==='true' || apr==='1' || apr==='x';
-              })
-              .map(b=>({
-                img:String(b.img||b.url||'').trim(),
-                media:String(b.media||'').trim(),
-                cta:String(b.cta||'').trim(),
-                poster:String(b.poster||'').trim()
-              }))
-          : [];
+        banners = rawBanners.map(b=>{
+          const mediaItems=Array.isArray(b.media)?b.media:[];
+          const first=mediaItems[0]||{};
+          const tipo=String(first.tipo_media||b.formato||'').toUpperCase();
+          const url=String(first.url||'').trim();
+          return {
+            img:tipo==='IMAGEN' ? url : '',
+            media:tipo==='IMAGEN' ? '' : url,
+            cta:String(b.cta_destino||b.cta||'').trim(),
+            poster:String(first.poster||b.poster||'').trim()
+          };
+        }).filter(b=>b.img||b.media);
 
         // Único render inicial: cuando eventos + ciudad + publicidad ya están listos.
         procesarEventosResponse(eventResponse);
