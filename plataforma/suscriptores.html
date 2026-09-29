@@ -367,6 +367,16 @@ button:disabled{opacity:.65;cursor:wait}
   .mi-guia-item-actions button{flex:1}
 }
 
+
+/* Acciones externas del suscriptor */
+.mi-comercio-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+.mi-comercio-action{padding:14px;border:1px solid #dce8ec;border-radius:12px;background:#f9fbfc}
+.mi-comercio-action strong{display:block;color:var(--azul-oscuro);margin-bottom:5px}
+.mi-comercio-action p{margin:0 0 10px;color:#52636b;font-size:.92rem;line-height:1.45}
+.wa-btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;background:#25d366;color:#fff;border-radius:9px;padding:10px 12px;font-weight:800}
+.wa-btn:hover{filter:brightness(.94)}
+@media(max-width:720px){.mi-comercio-actions{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -617,6 +627,19 @@ button:disabled{opacity:.65;cursor:wait}
           <div class="mi-guia-empty">Cargando...</div>
         </div>
       </section>
+
+      <section class="mi-guia-section">
+        <h3>Mis comercios</h3>
+        <div id="mi-guia-comercios" class="mi-guia-list"><div class="mi-guia-empty">Cargando...</div></div>
+        <div class="mi-comercio-actions">
+          <div class="mi-comercio-action"><strong>¿Tu comercio ya está en Guía Local?</strong><p>Solicitá administrarlo con tu cuenta de suscriptor.</p><a id="wa-reclamar-anuncio" class="wa-btn" href="#" target="_blank" rel="noopener">Reclamar comercio</a></div>
+          <div class="mi-comercio-action"><strong>¿Tu comercio todavía no está?</strong><p>Iniciá la solicitud para incorporarlo a Guía Local.</p><a id="wa-nuevo-anuncio" class="wa-btn" href="#" target="_blank" rel="noopener">Solicitar alta</a></div>
+        </div>
+      </section>
+      <section class="mi-guia-section">
+        <h3>Ayuda</h3>
+        <div class="mi-comercio-actions"><div class="mi-comercio-action"><strong>Soporte</strong><p>Consultas o problemas con tu cuenta y con Guía Local.</p><a id="wa-soporte" class="wa-btn" href="#" target="_blank" rel="noopener">Contactar soporte</a></div></div>
+      </section>
     </div>
   </div>
 
@@ -627,6 +650,7 @@ const WORKER_ORIGIN = 'https://login.liqkoargentina.workers.dev';
 const SUSCRIPTORES_URL = WORKER_ORIGIN + '/suscriptores';
 const COMMERCE_URL = WORKER_ORIGIN + '/commerce';
 const SESSION_KEY = 'gld_suscriptor_session_v1';
+const WHATSAPP_SOPORTE = '5492245459957';
 
 let ciudades = [];
 let sesionSuscriptor = null;
@@ -647,6 +671,31 @@ function setBusy(btn,busy,text){
   }else if(btn.dataset.originalText){
     btn.textContent=btn.dataset.originalText;
   }
+}
+
+
+function escapeHtml_(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');}
+function whatsappUrl_(mensaje){return 'https://wa.me/'+WHATSAPP_SOPORTE+'?text='+encodeURIComponent(mensaje);}
+function actualizarLinksAyuda_(){
+  if(!sesionSuscriptor) return;
+  const firma=[sesionSuscriptor.nombre,sesionSuscriptor.mail,sesionSuscriptor.suscriptor_id?('ID '+sesionSuscriptor.suscriptor_id):''].map(v=>String(v||'').trim()).filter(Boolean).join(' · ');
+  const links={
+    'wa-reclamar-anuncio':'Hola, quiero reclamar un comercio que ya figura en Guía Local para administrarlo desde mi cuenta. '+firma,
+    'wa-nuevo-anuncio':'Hola, quiero incorporar un comercio a Guía Local y administrarlo desde mi cuenta. '+firma,
+    'wa-soporte':'Hola, necesito soporte con mi cuenta de Guía Local. '+firma
+  };
+  Object.entries(links).forEach(([id,mensaje])=>{const a=el(id);if(a)a.href=whatsappUrl_(mensaje);});
+}
+async function cargarComerciosAutorizados_(){
+  const box=el('mi-guia-comercios');
+  if(!box||!sesionSuscriptor||!sesionSuscriptor.suscriptor_id)return;
+  try{
+    const u=new URL(SUSCRIPTORES_URL);u.searchParams.set('action','anunciantes_autorizados');u.searchParams.set('suscriptor_id',sesionSuscriptor.suscriptor_id);u.searchParams.set('_ts',Date.now());
+    const r=await fetch(u.toString(),{cache:'no-store'});const j=await r.json();
+    if(!j||j.success!==true)throw new Error('No disponible');
+    const lista=Array.isArray(j.anunciantes)?j.anunciantes:[];
+    box.innerHTML=lista.length?lista.map(a=>'<div class="mi-guia-item"><span class="mi-guia-item-name">'+escapeHtml_(a.anunciante_nombre||a.nombre||'Comercio')+'</span><span class="muted">'+escapeHtml_(a.rol||'')+'</span></div>').join(''):'<div class="mi-guia-empty">Todavía no tenés comercios asociados a tu cuenta.</div>';
+  }catch(e){box.innerHTML='<div class="mi-guia-empty">No se pudieron cargar tus comercios.</div>';}
 }
 
 function showLogin(){
@@ -900,6 +949,8 @@ function renderSession(){
       (sesionSuscriptor.mail ? ' · '+sesionSuscriptor.mail : '');
     fillCities(el('profile-city'),sesionSuscriptor.ciudad_predeterminada_id||'');
     renderMiGuia();
+    actualizarLinksAyuda_();
+    cargarComerciosAutorizados_();
   }
 
 }
