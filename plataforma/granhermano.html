@@ -65,7 +65,7 @@
     <section id="view-publicidad" class="view"><div class="card"><h2>Publicidad</h2><div class="notice"><b>Módulo en desarrollo.</b> Aquí se administrarán piezas publicitarias, formatos, cupos, ciudades, categorías, prioridad, vigencia y distribución en Guía, Eventos y Actividades.</div></div></section>
     <section id="view-anunciantes" class="view"><div class="card"><h2>Altas y reclamos pendientes</h2><div id="anunciantesPendientes"></div></div><div id="anuListado" class="card"><h2>Anunciantes</h2><div class="toolbar"><input id="qAnu" placeholder="Buscar por nombre o ID..."><select id="anuCiudad"><option value="">Todas las ciudades</option></select><button id="btnBuscarAnu">Actualizar listado</button></div><div id="resAnu" class="muted">Cargando anunciantes...</div></div><div id="anuFicha" class="card hidden"><button class="sec back" onclick="volverAnunciantes()">← Volver a anunciantes</button><div id="detalle"></div></div></section>
     <section id="view-suscriptores" class="view"><div id="susListado" class="card"><h2>Suscriptores</h2><div class="toolbar"><input id="qSus" placeholder="Buscar por nombre, mail o ID..."><select id="susTipo"><option value="">Todos</option><option value="RESIDENTE">Residentes</option><option value="NO_RESIDENTE">No residentes / visitantes</option></select><button id="btnBuscarSus">Actualizar listado</button></div><div id="resSus" class="muted">Cargando suscriptores...</div></div><div id="susFicha" class="card hidden"><button class="sec back" onclick="volverSuscriptores()">← Volver a suscriptores</button><div id="detalleSuscriptor"></div></div></section>
-    <section id="view-ciudades" class="view"><div class="card"><h2>Ciudades / Zonas / Barrios</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad..."><button id="btnCiudadesRefresh">Actualizar</button><button id="btnNuevaCiudad" type="button" onclick="ghNuevaCiudad()">Agregar ciudad</button></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div><div id="ciudadNodos" class="card hidden"><h2>Nodos de la ciudad</h2><div class="muted">Los nodos se administran dentro de la ciudad seleccionada.</div><div id="nodosCiudadList" style="margin-top:12px"></div></div></section>
+    <section id="view-ciudades" class="view"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div><div id="ciudadNodos" class="card hidden"><h2>Nodos / Zonas / Barrios</h2><div class="muted">Cada elemento queda vinculado a la ciudad/partido seleccionada.</div><div id="nodosCiudadList" style="margin-top:12px"></div></div></section>
     <section id="view-configuracion" class="view">
       <div class="card">
         <h2>Configuración de plataforma</h2>
@@ -90,6 +90,8 @@ let GH_PENDING_ACTIVITIES=[];
 let GH_PENDING_ADVERTISERS=[];
 let GH_PUBLIC_EVENTS=[];
 let GH_CITIES=[];
+let GH_COUNTRIES=[];
+let GH_PROVINCES=[];
 let GH_CITY_STATS={};
 let GH_CATALOG_CACHE={};
 
@@ -213,7 +215,14 @@ async function ghCargarEventosPublicos(){
   const b=document.getElementById('stEvtFreePub');if(b)b.textContent=free.length;
 }
 async function ghCargarCiudades(){
-  try{const j=await ghFetchJson(EVENTS_API+'?action=getcities');GH_CITIES=Array.isArray(j)?j:(Array.isArray(j.ciudades)?j.ciudades:[]);}catch(e){GH_CITIES=[];}
+  try{
+    const j=await api('territorios');
+    GH_CITIES=Array.isArray(j.ciudades)?j.ciudades:[];
+    GH_COUNTRIES=Array.isArray(j.paises)?j.paises:[];
+    GH_PROVINCES=Array.isArray(j.provincias)?j.provincias:[];
+  }catch(e){
+    try{const j=await ghFetchJson(EVENTS_API+'?action=getcities');GH_CITIES=Array.isArray(j)?j:(Array.isArray(j.ciudades)?j.ciudades:[]);}catch(_){GH_CITIES=[];}
+  }
   const opts='<option value="">Todas las ciudades</option>'+GH_CITIES.map(function(x){const id=String(x.ciudad_id||x.id||'').trim();const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id).trim();return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');
   const a=document.getElementById('evCiudad');if(a)a.innerHTML=opts;
   const b=document.getElementById('anuCiudad');if(b)b.innerHTML=opts;
@@ -267,7 +276,33 @@ function ghRenderCiudades(){const sel=document.getElementById('ciuSelect');if(!s
 function ghRenderTodo(){ghRenderPendientesInicio();ghRenderEventos();ghRenderActividades();ghRenderAnunciantesPendientes();ghRenderCiudades();informarAltura();}
 function ghGoView(name){document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});window.scrollTo({top:0,behavior:'auto'});if(name==='configuracion')ghCargarCatalogos();if(name==='anunciantes'){if(!(GH_CATALOG_CACHE.niveles_anunciante||[]).length)ghCargarCatalogos().then(ghRenderAnunciantesPendientes);buscarAnu();}if(name==='suscriptores')buscarSus();informarAltura();}
 
-function ghNuevaCiudad(){alert('El alta de ciudades todavía no está conectada al backend. La interfaz ya quedó ubicada en Ciudades; no voy a guardar una ciudad hasta conectar la operación real.');}
+
+function ghTerrId_(tipo){return tipo.toUpperCase()+'_'+Date.now();}
+function ghNuevoTerritorio(tipo){
+  const box=document.getElementById('territorioAlta'); const id=ghTerrId_(tipo);
+  const paisOpts=GH_COUNTRIES.map(x=>'<option value="'+esc(x.pais_id||x.id||'')+'">'+esc(x.nombre||x.pais_visible||x.pais||x.pais_id||x.id)+'</option>').join('');
+  const provOpts=GH_PROVINCES.map(x=>'<option value="'+esc(x.provincia_id||x.id||'')+'" data-pais="'+esc(x.pais_id||'')+'">'+esc(x.nombre||x.provincia_visible||x.provincia||x.provincia_id||x.id)+'</option>').join('');
+  let rel='';
+  if(tipo==='provincia') rel='<label>País</label><select data-terr-pais="'+id+'"><option value="">Seleccioná país</option>'+paisOpts+'</select>';
+  if(tipo==='ciudad') rel='<label>País</label><select data-terr-pais="'+id+'" onchange="ghFiltrarProvinciasAlta(\''+id+'\')"><option value="">Seleccioná país</option>'+paisOpts+'</select><label>Provincia / Estado</label><select data-terr-prov="'+id+'"><option value="">Seleccioná provincia / estado</option>'+provOpts+'</select>';
+  const titulo=tipo==='pais'?'País':(tipo==='provincia'?'Provincia / Estado':'Ciudad / Partido');
+  box.innerHTML='<div class="item"><h3>Agregar '+titulo+'</h3><div class="formgrid"><div><label>Nombre</label><input data-terr-nombre="'+id+'" placeholder="'+titulo+'"></div><div>'+rel+'</div></div><button onclick="ghGuardarTerritorio(\''+tipo+'\',\''+id+'\')">Guardar</button> <button class="sec" onclick="document.getElementById(\'territorioAlta\').innerHTML=\'\'">Cancelar</button></div>';
+}
+function ghFiltrarProvinciasAlta(id){
+  const pais=(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'';
+  const sel=document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]'); if(!sel)return;
+  sel.innerHTML='<option value="">Seleccioná provincia / estado</option>'+GH_PROVINCES.filter(x=>String(x.pais_id||'')===pais).map(x=>'<option value="'+esc(x.provincia_id||x.id||'')+'">'+esc(x.nombre||x.provincia_visible||x.provincia||x.provincia_id||x.id)+'</option>').join('');
+}
+async function ghGuardarTerritorio(tipo,id){
+  const nombre=(document.querySelector('[data-terr-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
+  if(!nombre.trim()){alert('Falta el nombre.');return;}
+  const item={activo:true};
+  if(tipo==='pais'){item.pais_id=id;item.nombre=nombre.trim();item.pais_visible=nombre.trim();}
+  if(tipo==='provincia'){item.provincia_id=id;item.nombre=nombre.trim();item.provincia_visible=nombre.trim();item.pais_id=(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'';if(!item.pais_id){alert('Seleccioná el país.');return;}}
+  if(tipo==='ciudad'){item.ciudad_id=id;item.nombre=nombre.trim();item.ciudad=nombre.trim();item.ciudad_visible=nombre.trim();item.pais_id=(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'';item.provincia_id=(document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]')||{}).value||'';if(!item.pais_id||!item.provincia_id){alert('Seleccioná país y provincia / estado.');return;}}
+  try{await api('guardar_territorio',{tipo,item},'POST');document.getElementById('territorioAlta').innerHTML='';await ghCargarCiudades();ghRenderCiudades();}
+  catch(e){alert(e.message);}
+}
 
 async function buscarSus(){
   const box=document.getElementById('resSus');
@@ -392,19 +427,19 @@ async function ghCargarNodosCiudad(ciudadId){
     const j=await api('listar_catalogo',{tipo:'nodos',ciudad_id:ciudadId});
     const rows=j.results||[];
     box.innerHTML='<div class="toolbar"><button onclick="ghNuevoNodo(\''+esc(ciudadId)+'\')">+ Agregar nodo</button></div>'+rows.map(function(x){
-      const id=String(x.nodo_id||x.id||'');return '<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-nodo-nombre="'+esc(id)+'" value="'+esc(x.nombre||'')+'"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-nodo-activo="'+esc(id)+'" '+(x.activo===false?'':'checked')+'> Activo</label></div><button onclick="ghGuardarNodo(\''+esc(ciudadId)+'\',\''+esc(id)+'\')">Guardar</button></div>';
+      const id=String(x.nodo_id||x.id||'');return '<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-nodo-nombre="'+esc(id)+'" value="'+esc(x.nombre||'')+'"></div><div><label>Tipo</label><select data-nodo-tipo="'+esc(id)+'"><option value="NODO" '+(String(x.tipo||'NODO')==='NODO'?'selected':'')+'>Nodo</option><option value="ZONA" '+(String(x.tipo||'')==='ZONA'?'selected':'')+'>Zona</option><option value="BARRIO" '+(String(x.tipo||'')==='BARRIO'?'selected':'')+'>Barrio</option><option value="LOCALIDAD" '+(String(x.tipo||'')==='LOCALIDAD'?'selected':'')+'>Localidad</option></select></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-nodo-activo="'+esc(id)+'" '+(x.activo===false?'':'checked')+'> Activo</label></div><button onclick="ghGuardarNodo(\''+esc(ciudadId)+'\',\''+esc(id)+'\')">Guardar</button></div>';
     }).join('')||'<div class="muted">Esta ciudad todavía no tiene nodos.</div>';
   }catch(e){box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
 function ghNuevoNodo(ciudadId){
   const box=document.getElementById('nodosCiudadList');const id='NODO_'+Date.now();
-  box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-nodo-nombre="'+id+'" placeholder="Nombre del nodo"></div><div><label>ID</label><input value="'+id+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-nodo-activo="'+id+'" checked> Activo</label></div><button onclick="ghGuardarNodo(\''+esc(ciudadId)+'\',\''+id+'\')">Guardar</button></div>');
+  box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-nodo-nombre="'+id+'" placeholder="Nombre"></div><div><label>Tipo</label><select data-nodo-tipo="'+id+'"><option value="NODO">Nodo</option><option value="ZONA">Zona</option><option value="BARRIO">Barrio</option><option value="LOCALIDAD">Localidad</option></select></div><div><label>ID</label><input value="'+id+'" disabled></div></div><div class="checks"><label><input type="checkbox" data-nodo-activo="'+id+'" checked> Activo</label></div><button onclick="ghGuardarNodo(\''+esc(ciudadId)+'\',\''+id+'\')">Guardar</button></div>');
 }
 async function ghGuardarNodo(ciudadId,id){
   const nombre=(document.querySelector('[data-nodo-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
   const activo=!!(document.querySelector('[data-nodo-activo="'+CSS.escape(id)+'"]')||{}).checked;
   if(!nombre.trim()){alert('Falta el nombre.');return;}
-  try{await api('guardar_catalogo',{tipo:'nodos',ciudad_id:ciudadId,item:{nodo_id:id,ciudad_id:ciudadId,nombre:nombre.trim(),activo}},'POST');await ghCargarNodosCiudad(ciudadId);}
+  try{const tipo=(document.querySelector('[data-nodo-tipo="'+CSS.escape(id)+'"]')||{}).value||'NODO';await api('guardar_catalogo',{tipo:'nodos',ciudad_id:ciudadId,item:{nodo_id:id,ciudad_id:ciudadId,nombre:nombre.trim(),tipo,activo}},'POST');await ghCargarNodosCiudad(ciudadId);}
   catch(e){alert(e.message);}
 }
 
@@ -413,7 +448,7 @@ document.getElementById('ghTabs').addEventListener('click',function(e){const b=e
 document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades()]);ghRenderTodo();};
 document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
-document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}const st=GH_CITY_STATS[id]||{};d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??0)+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??0)+'</b></div></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad.</div></div>';if(n)n.classList.remove('hidden');ghCargarNodosCiudad(id);informarAltura();});
+document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}const st=GH_CITY_STATS[id]||{};d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??0)+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??0)+'</b></div></div><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad/partido.</div></div>';if(n)n.classList.remove('hidden');ghCargarNodosCiudad(id);informarAltura();});
 document.getElementById('btnLogin').onclick=login;
 document.getElementById('btnBuscarSus').onclick=buscarSus;
 document.getElementById('btnBuscarAnu').onclick=buscarAnu;
