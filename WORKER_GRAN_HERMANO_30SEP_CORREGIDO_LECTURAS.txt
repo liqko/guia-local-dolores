@@ -599,28 +599,92 @@ function guideCacheKey_(paisId, provinciaId, ciudadId){
   ].join(":");
 }
 
-async function invalidateGuideForAdvertiser_(env, advertiserId){
+async function refreshGuideCacheForAdvertiser_(
+  env,
+  advertiserId,
+  extraCityIds=[]
+){
   const aid=String(advertiserId||"").trim();
   if(!aid) return;
 
   try{
-    await gldCacheDelete_("commerce:public-guide-data:v3");
+    // IMPORTANTE:
+    // Una modificación puntual NO invalida ni reconstruye toda la ciudad.
+    // Sólo actualiza las ciudades donde está este anunciante.
     const sedes = await firestoreQueryEqual(
       env, COLL_SEDES, "anunciante_id", aid
     );
 
-    const keys = new Set();
-    for(const s of sedes){
-      keys.add(
-        guideCacheKey_(
-          s.pais_id || "",
-          s.provincia_id || "",
-          s.ciudad_id || ""
-        )
-      );
-    }
+    const cityIds=new Set(
+      [
+        ...sedes.map(s=>String(s && s.ciudad_id || "").trim()),
+        ...((Array.isArray(extraCityIds) ? extraCityIds : [])
+          .map(v=>String(v||"").trim()))
+      ].filter(Boolean)
+    );
 
-    await Promise.all([...keys].map(k=>gldCacheDelete_(k)));
+    const advertiser=await firestoreGetDocument(
+      env,COLL_ANUNCIANTES,aid
+    );
+    const admin=await firestoreGetDocument(
+      env,COLL_ADMIN,aid
+    );
+    const catalogs=await loadPublicGuideCatalogsLight_(env);
+
+    for(const ciudadId of cityIds){
+      const cacheKey=guideCacheKey_("","",ciudadId);
+      const cached=await gldCacheGetJson_(cacheKey);
+
+      // Si la ciudad no está en caché, no la reconstruimos.
+      // La próxima carga normal podrá construirla una sola vez.
+      if(!Array.isArray(cached)) continue;
+
+      let ciudadDoc=await firestoreGetDocument(
+        env,COLL_CIUDADES,ciudadId
+      );
+      const provinciaId=String(
+        (ciudadDoc && ciudadDoc.provincia_id) || ""
+      ).trim();
+      const paisId=String(
+        (ciudadDoc && ciudadDoc.pais_id) || ""
+      ).trim();
+
+      const provinciaDoc=provinciaId
+        ? await firestoreGetDocument(env,COLL_PROVINCIAS,provinciaId)
+        : null;
+      const paisDoc=paisId
+        ? await firestoreGetDocument(env,COLL_PAISES,paisId)
+        : null;
+
+      const citySedes=(sedes||[]).filter(s =>
+        String(s && s.ciudad_id || "").trim()===ciudadId &&
+        publicSedeActiva_(s)
+      );
+
+      const rows=buildPublicGuideRows_({
+        advertisers:advertiser ? [advertiser] : [],
+        admins:admin ? [admin] : [],
+        sedes:citySedes,
+        segmentos:catalogs.segmentos||[],
+        categorias:catalogs.categorias||[],
+        actividades:catalogs.actividades||[],
+        acciones:catalogs.acciones||[],
+        nodos:catalogs.nodos||[],
+        funcionalidades:[],
+        niveles_anunciante:[],
+        ciudades:ciudadDoc ? [ciudadDoc] : [],
+        provincias:provinciaDoc ? [provinciaDoc] : [],
+        paises:paisDoc ? [paisDoc] : []
+      });
+
+      const next=cached.filter(row =>
+        String(row && row.id || "").trim()!==aid
+      );
+
+      if(rows.length) next.push(rows[0]);
+
+      await gldCachePutJson_(cacheKey,next,1800);
+    }
   }catch(_){}
 }
 
@@ -2712,7 +2776,7 @@ async function commerceSetDatos_(env, body){
   delete merged.__id;
 
   await firestoreSetDocument(env, COLL_ANUNCIANTES, id, merged);
-  await invalidateGuideForAdvertiser_(env, id);
+  await refreshGuideCacheForAdvertiser_(env, id);
 
   return jsonResponse({
     success:true,
@@ -2796,7 +2860,7 @@ async function commerceSetRelacionesSede_(env, body){
   delete updated.__id;
 
   await firestoreSetDocument(env, COLL_SEDES, sedeId, updated);
-  await invalidateGuideForAdvertiser_(
+  await refreshGuideCacheForAdvertiser_(
     env,
     String(updated.anunciante_id || "").trim()
   );
@@ -2837,9 +2901,10 @@ async function commerceDeleteSede_(env, body){
   }
 
   await firestoreDeleteDocument(env, COLL_SEDES, sedeId);
-  await invalidateGuideForAdvertiser_(
+  await refreshGuideCacheForAdvertiser_(
     env,
-    advertiserId || String(sede && sede.anunciante_id || "").trim()
+    advertiserId || String(sede && sede.anunciante_id || "").trim(),
+    [String(sede && sede.ciudad_id || "").trim()]
   );
 
   return jsonResponse({
