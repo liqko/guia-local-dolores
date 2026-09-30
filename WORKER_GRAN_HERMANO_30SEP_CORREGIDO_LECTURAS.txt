@@ -162,6 +162,9 @@ function jsonResponse(obj, status=200){
   });
 }
 
+function responseWithError(message, status=400){
+  return jsonResponse({ success:false, message }, status);
+}
 
 // =========================================================================
 // FIREBASE / FIRESTORE
@@ -596,263 +599,78 @@ function guideCacheKey_(paisId, provinciaId, ciudadId){
   ].join(":");
 }
 
-async function resolvePublicClassificationTargeted_(env,advertiser){
-  const segmentoId=String(advertiser && advertiser.segmento_id || "").trim();
-  const categoriaIds=normalizeIdsArray_(
-    advertiser && (advertiser.categoria_ids || advertiser.categoria_id)
-  );
-
-  const [segmentos,categorias]=await Promise.all([
-    segmentoId
-      ? firestoreGetMany_(env,COLL_SEGMENTOS,[segmentoId])
-      : Promise.resolve([]),
-    categoriaIds.length
-      ? firestoreGetMany_(env,COLL_CATEGORIAS,categoriaIds)
-      : Promise.resolve([])
-  ]);
-
-  const seg=segmentos[0] || {};
-  const catMap=new Map(
-    categorias.map(c=>[
-      String(c.categoria_id || c.id || "").trim(),
-      c
-    ])
-  );
-  const catNames=categoriaIds
-    .map(id=>catMap.get(id))
-    .filter(Boolean)
-    .map(c=>String(c.nombre || c.titulo || "").trim())
-    .filter(Boolean);
-
-  return {
-    segmento_id:segmentoId,
-    segmento:String(seg.nombre || seg.titulo || "").trim(),
-    categoria_id:categoriaIds.join(";"),
-    categoria:catNames.join("; "),
-    segmento_ids:segmentoId ? [segmentoId] : [],
-    categoria_ids:categoriaIds
-  };
-}
-
-async function patchPublicSedeTargeted_(env,raw,previous={}){
-  const cityId=String(raw && raw.ciudad_id || "").trim();
-  const ciudad=cityId
-    ? await firestoreGetDocument(env,COLL_CIUDADES,cityId)
-    : null;
-  const provincia=ciudad && ciudad.provincia_id
-    ? await firestoreGetDocument(env,COLL_PROVINCIAS,String(ciudad.provincia_id).trim())
-    : null;
-
-  const provinciaId=String(
-    raw && raw.provincia_id ||
-    (ciudad && ciudad.provincia_id) ||
-    ""
-  ).trim();
-  const paisId=String(
-    raw && raw.pais_id ||
-    (ciudad && ciudad.pais_id) ||
-    (provincia && provincia.pais_id) ||
-    ""
-  ).trim();
-
-  const [provDoc,paisDoc]=await Promise.all([
-    provincia || (provinciaId
-      ? firestoreGetDocument(env,COLL_PROVINCIAS,provinciaId)
-      : Promise.resolve(null)),
-    paisId
-      ? firestoreGetDocument(env,COLL_PAISES,paisId)
-      : Promise.resolve(null)
-  ]);
-
-  const activityIds=normalizeIdsArray_(raw && raw.actividad_ids);
-  const actionIds=normalizeIdsArray_(raw && raw.accion_ids);
-  const nodeIds=normalizeIdsArray_(raw && raw.nodo_ids);
-
-  const [activityDocs,actionDocs,nodeDocs]=await Promise.all([
-    activityIds.length ? firestoreGetMany_(env,COLL_ACTIVIDADES,activityIds) : Promise.resolve([]),
-    actionIds.length ? firestoreGetMany_(env,COLL_ACCIONES,actionIds) : Promise.resolve([]),
-    nodeIds.length ? firestoreGetMany_(env,COLL_NODOS,nodeIds) : Promise.resolve([])
-  ]);
-
-  const byId=(rows,field)=>new Map(
-    rows.map(x=>[String(x && (x[field] || x.id) || "").trim(),x])
-  );
-
-  const activityMap=byId(activityDocs,"actividad_id");
-  const actionMap=byId(actionDocs,"accion_id");
-  const nodeMap=byId(nodeDocs,"nodo_id");
-
-  const sede={
-    ...previous,
-    sede_id:String(raw && (raw.sede_id || raw.id) || "").trim(),
-    anunciante_id:String(raw && raw.anunciante_id || "").trim(),
-    nombre_sede:String(raw && raw.nombre_sede || "").trim(),
-    direccion:String(raw && raw.direccion || "").trim(),
-    pais_id:paisId,
-    pais:String(paisDoc && (paisDoc.nombre || paisDoc.pais) || previous.pais || "").trim(),
-    provincia_id:provinciaId,
-    provincia:String(provDoc && (provDoc.nombre || provDoc.provincia) || previous.provincia || "").trim(),
-    ciudad_id:cityId,
-    ciudad:String(ciudad && (ciudad.nombre || ciudad.ciudad || ciudad.ciudad_visible) || previous.ciudad || "").trim(),
-    codigo_postal:String(raw && raw.codigo_postal || "").trim(),
-    lat:raw && raw.lat || "",
-    lng:raw && raw.lng || "",
-    maps:raw && (raw.maps || raw.llegar) || "",
-    estado:raw && raw.estado || "",
-    actividades:activityIds.map(id=>{
-      const x=activityMap.get(id)||{};
-      return {actividad_id:id,nombre:String(x.nombre||x.titulo||"").trim(),insignia:String(x.insignia||"").trim()};
-    }),
-    acciones:actionIds.map(id=>{
-      const x=actionMap.get(id)||{};
-      return {accion_id:id,nombre:String(x.nombre||x.titulo||"").trim(),insignia:String(x.insignia||"").trim()};
-    }),
-    nodos:nodeIds.map(id=>{
-      const x=nodeMap.get(id)||{};
-      return {nodo_id:id,nombre:String(x.nombre||x.titulo||"").trim(),insignia:String(x.insignia||"").trim()};
-    })
-  };
-
-  [
-    "telefono","telefono2","telefono3","telefono4","telefono5",
-    "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
-    "mail","mail2","mail3","instagram","facebook","youtube","tiktok","x","linkedin"
-  ].forEach(k=>sede[k]=raw && raw[k] || "");
-
-  for(let i=1;i<=10;i++) sede["img"+i]=raw && raw["img"+i] || "";
-
-  return sede;
-}
-
-async function refreshGuideCacheForAdvertiser_(
-  env,
-  advertiserId,
-  extraCityIds=[],
-  changedSedeIds=[]
-){
+async function invalidateGuideForAdvertiser_(env, advertiserId){
   const aid=String(advertiserId||"").trim();
   if(!aid) return;
 
   try{
-    const changedIds=(Array.isArray(changedSedeIds)?changedSedeIds:[])
-      .map(v=>String(v||"").trim()).filter(Boolean);
-
-    let sedes=[];
-    if(changedIds.length){
-      sedes=await firestoreGetMany_(env,COLL_SEDES,changedIds);
-    }else{
-      sedes=await firestoreQueryEqual(
-        env,COLL_SEDES,"anunciante_id",aid
-      );
-    }
-
-    const cityIds=new Set(
-      [
-        ...(Array.isArray(extraCityIds)?extraCityIds:[]),
-        ...sedes.map(s=>String(s && s.ciudad_id || "").trim())
-      ].filter(Boolean)
+    await gldCacheDelete_("commerce:public-guide-data:v3");
+    const sedes = await firestoreQueryEqual(
+      env, COLL_SEDES, "anunciante_id", aid
     );
 
-    const [advertiser,admin]=await Promise.all([
-      firestoreGetDocument(env,COLL_ANUNCIANTES,aid),
-      firestoreGetDocument(env,COLL_ADMIN,aid)
-    ]);
-
-    if(!advertiser) return;
-    const classification=await resolvePublicClassificationTargeted_(env,advertiser);
-
-    for(const ciudadId of cityIds){
-      const ciudadDoc=await firestoreGetDocument(env,COLL_CIUDADES,ciudadId);
-      const provinciaId=String(ciudadDoc && ciudadDoc.provincia_id || "").trim();
-      const paisId=String(ciudadDoc && ciudadDoc.pais_id || "").trim();
-      const cacheKey=guideCacheKey_(paisId,provinciaId,ciudadId);
-      const cached=await gldCacheGetJson_(cacheKey);
-
-      if(!Array.isArray(cached)) continue;
-
-      const idx=cached.findIndex(row =>
-        String(row && row.id || "").trim()===aid
+    const keys = new Set();
+    for(const s of sedes){
+      keys.add(
+        guideCacheKey_(
+          s.pais_id || "",
+          s.provincia_id || "",
+          s.ciudad_id || ""
+        )
       );
-      if(idx<0) continue;
-
-      const currentRow=cached[idx];
-      const nextRow={
-        ...currentRow,
-        nombre:String(advertiser.nombre||"").trim(),
-        actividad:String(advertiser.actividad||"").trim(),
-        descripcion:String(advertiser.descripcion||"").trim(),
-        tags:String(advertiser.tags||"").trim(),
-        adicionales:String(advertiser.adicionales||"").trim(),
-        logo:String(advertiser.logo||"").trim(),
-        link:String(advertiser.link||"").trim(),
-        nivel:admin && admin.nivel || "",
-        subnivel:admin && admin.subnivel || "",
-        segmento_id:classification.segmento_id,
-        segmento:classification.segmento,
-        categoria_id:classification.categoria_id,
-        categoria:classification.categoria,
-        capacidades:publicAdmin_(admin||{})
-      };
-
-      if(changedIds.length){
-        const newCityIds=new Set(
-          sedes.map(s=>String(s && s.ciudad_id || "").trim()).filter(Boolean)
-        );
-        const sedesActualizadas=[];
-
-        for(const s of (currentRow.sedes||[])){
-          const sid=String(s && s.sede_id || "").trim();
-          if(changedIds.includes(sid)){
-            const raw=sedes.find(x=>
-              String(x && (x.sede_id||x.id)||"").trim()===sid
-            );
-
-            if(raw && String(raw.ciudad_id||"").trim()===ciudadId){
-              sedesActualizadas.push(
-                await patchPublicSedeTargeted_(env,raw,s)
-              );
-            }else if(raw){
-              // La sede se mudó: no queda duplicada en la ciudad anterior.
-              continue;
-            }else{
-              continue;
-            }
-          }else{
-            sedesActualizadas.push(s);
-          }
-        }
-
-        for(const raw of sedes){
-          const sid=String(raw && (raw.sede_id||raw.id)||"").trim();
-          if(!sid || !newCityIds.has(ciudadId)) continue;
-          if(!sedesActualizadas.some(s=>String(s.sede_id||"").trim()===sid)){
-            sedesActualizadas.push(
-              await patchPublicSedeTargeted_(env,raw,{})
-            );
-          }
-        }
-
-        nextRow.sedes=sedesActualizadas;
-
-        if(!sedesActualizadas.length){
-          cached.splice(idx,1);
-          await gldCachePutJson_(cacheKey,cached,1800);
-          continue;
-        }
-
-        const first=sedesActualizadas[0]||{};
-        [
-          "telefono","telefono2","telefono3","telefono4","telefono5",
-          "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
-          "mail","mail2","mail3","instagram","facebook","youtube","tiktok","x","linkedin"
-        ].forEach(k=>nextRow[k]=first[k]||"");
-      }
-
-      cached[idx]=nextRow;
-      await gldCachePutJson_(cacheKey,cached,1800);
     }
+
+    await Promise.all([...keys].map(k=>gldCacheDelete_(k)));
   }catch(_){}
 }
+
+async function firestoreSetDocument(env, collection, id, data){
+  const doc = await firestoreRequest(
+    env,
+    `${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
+    {
+      method:"PATCH",
+      body:{
+        fields:jsObjectToFirestoreFields(data)
+      }
+    }
+  );
+
+  return firestoreDocumentToJs(doc, id);
+}
+
+async function firestoreDeleteDocument(env, collection, id){
+  await firestoreRequest(
+    env,
+    `${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
+    {
+      method:"DELETE",
+      allow404:true
+    }
+  );
+
+  return true;
+}
+
+// =========================================================================
+// EFEMÉRIDES - DIRECTO A FIRESTORE
+// =========================================================================
+
+const COLL_EFEMERIDES = "efemerides_bis";
+const COLL_CIUDADES = "ciudades";
+const COLL_PROVINCIAS = "provincias";
+const COLL_PAISES = "paises";
+const COLL_ADMIN = "anunciantes_administracion";
+const COLL_ANUNCIANTES = "anunciantes";
+const COLL_SEDES = "anunciantes_sedes";
+const COLL_CATEGORIAS = "categorias";
+const COLL_ACTIVIDADES = "actividades_clave";
+const COLL_ACCIONES = "acciones";
+const COLL_NODOS = "nodos";
+const COLL_SEGMENTOS = "segmentos";
+const COLL_FUNCIONALIDADES = "funcionalidades";
+const COLL_NIVELES_ANUNCIANTE = "niveles_anunciante";
+
 function normalizeAction(v){
   return String(v || "")
     .trim()
@@ -2106,7 +1924,7 @@ function buildPublicGuideRows_(data){
     const admin = adminMap.get(id);
     if(!admin) continue;
 
-    // Sólo publica anunciantes aprobados.
+    // Igual que el Apps Script vigente: sólo publica aprobados.
     if(
       admin.aprobado !== undefined &&
       !truthyValue_(admin.aprobado)
@@ -2894,7 +2712,7 @@ async function commerceSetDatos_(env, body){
   delete merged.__id;
 
   await firestoreSetDocument(env, COLL_ANUNCIANTES, id, merged);
-  await refreshGuideCacheForAdvertiser_(env, id);
+  await invalidateGuideForAdvertiser_(env, id);
 
   return jsonResponse({
     success:true,
@@ -2919,7 +2737,6 @@ async function commerceSetSedes_(env, body){
 
   const incoming = Array.isArray(body.sedes) ? body.sedes : [];
   const saved = [];
-  const oldCityIds = new Set();
 
   for(const raw of incoming){
     const existingId = String(raw && raw.sede_id || "").trim();
@@ -2928,10 +2745,6 @@ async function commerceSetSedes_(env, body){
     const existing = existingId
       ? await firestoreGetDocument(env, COLL_SEDES, sedeId)
       : null;
-
-    if(existing && existing.ciudad_id){
-      oldCityIds.add(String(existing.ciudad_id).trim());
-    }
 
     const sede = {
       ...(existing || {}),
@@ -2950,12 +2763,7 @@ async function commerceSetSedes_(env, body){
     saved.push(sedeId);
   }
 
-  await refreshGuideCacheForAdvertiser_(
-    env,
-    advertiserId,
-    [...oldCityIds],
-    saved
-  );
+  await invalidateGuideForAdvertiser_(env, advertiserId);
 
   return jsonResponse({
     success:true,
@@ -2988,7 +2796,7 @@ async function commerceSetRelacionesSede_(env, body){
   delete updated.__id;
 
   await firestoreSetDocument(env, COLL_SEDES, sedeId, updated);
-  await refreshGuideCacheForAdvertiser_(
+  await invalidateGuideForAdvertiser_(
     env,
     String(updated.anunciante_id || "").trim()
   );
@@ -3029,10 +2837,9 @@ async function commerceDeleteSede_(env, body){
   }
 
   await firestoreDeleteDocument(env, COLL_SEDES, sedeId);
-  await refreshGuideCacheForAdvertiser_(
+  await invalidateGuideForAdvertiser_(
     env,
-    advertiserId || String(sede && sede.anunciante_id || "").trim(),
-    [String(sede && sede.ciudad_id || "").trim()]
+    advertiserId || String(sede && sede.anunciante_id || "").trim()
   );
 
   return jsonResponse({
@@ -3043,8 +2850,197 @@ async function commerceDeleteSede_(env, body){
   },200);
 }
 
+async function commerceCreateAdvertiser_(env, body){
+  const payload = body.payload && typeof body.payload === "object"
+    ? body.payload
+    : body;
 
+  const id = String(payload.id || "").trim() || generateAdvertiserId_();
 
+  const existing = await firestoreGetDocument(env, COLL_ANUNCIANTES, id);
+  if(existing){
+    return jsonResponse({
+      success:false,
+      error:"id_anunciante_existente"
+    },409);
+  }
+
+  const categoriaIds = normalizeIdsArray_(
+    payload.categoria_ids || payload.categoria_id
+  );
+
+  const doc = {
+    id,
+    nombre:String(payload.nombre || "").trim(),
+    segmento_id:String(payload.segmento_id || "").trim(),
+    categoria_ids:categoriaIds,
+    actividad:String(payload.actividad || "").trim(),
+    descripcion:String(payload.descripcion || "").trim(),
+    tags:String(payload.tags || "").trim(),
+    adicionales:String(payload.adicionales || "").trim(),
+    logo:String(payload.logo || "").trim(),
+    link:String(payload.link || "").trim(),
+    creado_en:new Date().toISOString(),
+    actualizado_en:new Date().toISOString()
+  };
+
+  if(!doc.nombre){
+    return jsonResponse({
+      success:false,
+      error:"Falta nombre"
+    },400);
+  }
+
+  await firestoreSetDocument(env, COLL_ANUNCIANTES, id, doc);
+
+  const adminPayload = payload.administracion && typeof payload.administracion === "object"
+    ? payload.administracion
+    : {};
+
+  await firestoreSetDocument(env, COLL_ADMIN, id, {
+    id,
+    aprobado:adminPayload.aprobado ?? false,
+    nivel:adminPayload.nivel ?? 0,
+    subnivel:adminPayload.subnivel ?? 0,
+    verificado:adminPayload.verificado ?? "",
+    gold:adminPayload.gold ?? "",
+    funcionalidades:Array.isArray(adminPayload.funcionalidades)
+      ? adminPayload.funcionalidades
+      : normalizeIdsArray_(adminPayload.funcionalidades),
+    creado_en:new Date().toISOString(),
+    actualizado_en:new Date().toISOString()
+  });
+
+  return jsonResponse({
+    success:true,
+    created:true,
+    id,
+    source:"firestore"
+  },200);
+}
+
+async function commerceDuplicateAdvertiser_(env, body){
+  const sourceId = String(
+    body.source_id ||
+    body.id ||
+    body.__id ||
+    body.advertiserId ||
+    ""
+  ).trim();
+
+  if(!sourceId){
+    return jsonResponse({success:false,error:"Falta source_id"},400);
+  }
+
+  const [
+    source,
+    sourceAdmin,
+    allSedes
+  ] = await Promise.all([
+    firestoreGetDocument(env, COLL_ANUNCIANTES, sourceId),
+    firestoreGetDocument(env, COLL_ADMIN, sourceId),
+    firestoreListCollection(env, COLL_SEDES)
+  ]);
+
+  if(!source){
+    return jsonResponse({
+      success:false,
+      error:"anunciante_no_encontrado"
+    },404);
+  }
+
+  const newId = generateAdvertiserId_();
+  const nombre = String(
+    body.nombre ||
+    (source.nombre ? `${source.nombre} - copia` : "Copia")
+  ).trim();
+
+  const newDoc = {
+    ...source,
+    id:newId,
+    nombre,
+    creado_en:new Date().toISOString(),
+    actualizado_en:new Date().toISOString()
+  };
+  delete newDoc.__id;
+
+  await firestoreSetDocument(env, COLL_ANUNCIANTES, newId, newDoc);
+
+  if(sourceAdmin){
+    const newAdmin = {
+      ...sourceAdmin,
+      id:newId,
+      aprobado:false,
+      creado_en:new Date().toISOString(),
+      actualizado_en:new Date().toISOString()
+    };
+    delete newAdmin.__id;
+    await firestoreSetDocument(env, COLL_ADMIN, newId, newAdmin);
+  }
+
+  const sourceSedes = allSedes.filter(
+    s => String(s.anunciante_id || "").trim() === sourceId
+  );
+
+  for(const sede of sourceSedes){
+    const newSedeId = generateSedeId_(newId);
+    const copy = {
+      ...sede,
+      sede_id:newSedeId,
+      anunciante_id:newId,
+      creado_en:new Date().toISOString(),
+      actualizado_en:new Date().toISOString()
+    };
+    delete copy.__id;
+    await firestoreSetDocument(env, COLL_SEDES, newSedeId, copy);
+  }
+
+  return jsonResponse({
+    success:true,
+    duplicated:true,
+    source_id:sourceId,
+    id:newId,
+    source:"firestore"
+  },200);
+}
+
+async function commerceDeleteAdvertiser_(env, body){
+  const id = String(
+    body.id ||
+    body.__id ||
+    body.advertiserId ||
+    ""
+  ).trim();
+
+  if(!id){
+    return jsonResponse({success:false,error:"Falta id"},400);
+  }
+
+  const allSedes = await firestoreListCollection(env, COLL_SEDES);
+  const related = allSedes.filter(
+    s => String(s.anunciante_id || "").trim() === id
+  );
+
+  for(const sede of related){
+    const sedeId = String(sede.sede_id || sede.id || "").trim();
+    if(sedeId){
+      await firestoreDeleteDocument(env, COLL_SEDES, sedeId);
+    }
+  }
+
+  await Promise.all([
+    firestoreDeleteDocument(env, COLL_ANUNCIANTES, id),
+    firestoreDeleteDocument(env, COLL_ADMIN, id)
+  ]);
+
+  return jsonResponse({
+    success:true,
+    deleted:true,
+    id,
+    sedes_eliminadas:related.length,
+    source:"firestore"
+  },200);
+}
 
 async function handleCommerceRequest(request, env){
   if(request.method === "GET"){
@@ -4620,16 +4616,9 @@ async function superadminGuardarTerritorio_(env,p){
   if(!actual.creado_en) next.creado_en=now;
   await firestoreSetDocument(env,def.collection,id,next);
   if(typeof gldCacheDelete_==='function'){
+    await gldCacheDelete_('commerce:public-guide-data:v3');
+    await gldCacheDelete_('commerce:catalogs:v2');
     await gldCacheDelete_('commerce:public-locations:v1');
-
-    if(tipo === 'ciudad'){
-      const cacheKey = guideCacheKey_(
-        String(next.pais_id || '').trim(),
-        String(next.provincia_id || '').trim(),
-        id
-      );
-      await gldCacheDelete_(cacheKey);
-    }
   }
   return {success:true,item:next};
 }
@@ -4816,6 +4805,9 @@ async function superadminGuardarCatalogo_(env,p){
   await firestoreSetDocument(env,def.collection,id,next);
   if(typeof gldCacheDelete_==="function"){
     await gldCacheDelete_("commerce:catalogs:v2");
+    if(String(p.tipo||"").trim().toLowerCase()==="niveles_anunciante"){
+      await gldCacheDelete_("commerce:public-guide-data:v3");
+    }
   }
   return {success:true,item:next};
 }
@@ -4859,8 +4851,10 @@ async function superadminActualizarAnuncianteComercial_(env,p){
     }
   }
 
-  await refreshGuideCacheForAdvertiser_(env, aid);
-  await gldCacheDelete_("commerce:catalogs:v2");
+  if(typeof gldCacheDelete_==="function"){
+    await gldCacheDelete_("commerce:public-guide-data:v3");
+    await gldCacheDelete_("commerce:catalogs:v2");
+  }
   return {success:true,anunciante_id:aid};
 }
 
@@ -4999,7 +4993,6 @@ async function superadminResolverPendiente_(env, p, auth){
   if(tipo==="EVENTO"){
     const doc=await firestoreGetDocument(env,"eventos",id);
     if(!doc) return {success:false,message:"Evento no encontrado."};
-    const anterior={...doc};
 
     doc.estado_moderacion=decision==="APROBAR" ? "APROBADO" : "RECHAZADO";
     doc.moderado_por=String(auth.sid || "").trim();
@@ -5007,7 +5000,9 @@ async function superadminResolverPendiente_(env, p, auth){
     doc.actualizado=new Date().toISOString();
 
     await firestoreSetDocument(env,"eventos",id,doc);
-    await evtPatchPublicCache_(env,anterior,doc,"upsert");
+    if(typeof gldCacheDelete_==="function"){
+      await gldCacheDelete_("events:public:"+String(doc.ciudad_id || "").trim());
+    }
     return {success:true,tipo,id,decision};
   }
 
@@ -5126,7 +5121,8 @@ async function handleSuperadminRequest(request, env){
 
 // =========================================================================
 // FARMACIAS DE TURNO - FIRESTORE
-// Lectura y administración en Firestore.
+// V1: lectura pública directa. El panel de administración sigue temporalmente
+// en Apps Script hasta completar la segunda etapa.
 // =========================================================================
 
 const COLL_FARMACIAS_CICLOS = "farmacias_ciclos";
@@ -5594,26 +5590,10 @@ async function farmGuardarCicloFirestore_(env, advertiserId, body){
       ? body.payload
       : body || {};
 
-  const farmCfg =
-    admin.funcionalidades_config &&
-    typeof admin.funcionalidades_config === "object"
-      ? (
-          admin.funcionalidades_config.TURNOS_FARMA ||
-          admin.funcionalidades_config.FARMACIAS ||
-          admin.funcionalidades_config.turnos_farma ||
-          {}
-        )
-      : {};
-  const todasCiudades =
-    truthyValue_(farmCfg.todas_ciudades) ||
-    farmText_(admin.turnos_farma) === "*";
+  const ciudades = await firestoreListCollection(env, COLL_CIUDADES);
+  const permitidas = farmAllowedCities_(admin, ciudades);
   const allowedCityIds = new Set(
-    Array.isArray(farmCfg.ciudades)
-      ? farmCfg.ciudades.map(farmText_).filter(Boolean)
-      : farmText_(admin.turnos_farma)
-          .split(/[;,|]+/)
-          .map(farmText_)
-          .filter(v => v && v !== "*")
+    permitidas.map(c => farmText_(c.ciudad_id || c.id))
   );
 
   let cicloId = farmText_(payload.ciclo_id);
@@ -5634,7 +5614,7 @@ async function farmGuardarCicloFirestore_(env, advertiserId, body){
 
   const ciudadId = farmText_(merged.ciudad_id);
 
-  if(!ciudadId || (!todasCiudades && !allowedCityIds.has(ciudadId))){
+  if(!ciudadId || !allowedCityIds.has(ciudadId)){
     return {
       success:false,
       message:"La ciudad no está habilitada para esta cuenta."
@@ -5839,7 +5819,8 @@ async function handleFarmaciasRequest(request, env){
 
 // =========================================================================
 // ACTIVIDADES - FIRESTORE
-// Lectura y administración en Firestore.
+// V1: lectura pública directa.
+// El panel administrativo continúa temporalmente en Apps Script.
 // =========================================================================
 
 const COLL_ACTIVIDADES_MOD = "actividades";
@@ -6837,29 +6818,6 @@ async function promoEnsureWriteAllowed_(env, advertiserId){
   };
 }
 
-async function promoFindCategory_(env, categoria){
-  const value=promoText_(categoria);
-  if(!value) return {};
-
-  const normalized=normalizeFeatureName(value);
-  for(const field of ["categoria","nombre","titulo"]){
-    const rows=await firestoreQueryEqual(env,COLL_PROMOS_CATEGORIAS,field,value);
-    const hit=rows.find(c =>
-      normalizeFeatureName(
-        c.categoria || c.nombre || c.titulo || c.id
-      ) === normalized
-    );
-    if(hit) return hit;
-  }
-
-  const byId=await firestoreGetDocument(
-    env,
-    COLL_PROMOS_CATEGORIAS,
-    value
-  );
-  return byId || {};
-}
-
 async function promoCreateFirestore_(env, advertiserId, payload){
   const aid = promoText_(advertiserId);
   const data = payload && typeof payload === "object" ? payload : {};
@@ -6907,14 +6865,17 @@ async function promoCreateFirestore_(env, advertiserId, payload){
     };
   }
 
-  const advertiser = await firestoreGetDocument(
-    env,
-    COLL_ANUNCIANTES,
-    aid
-  );
+  const [advertiser, categorias] = await Promise.all([
+    firestoreGetDocument(env, COLL_ANUNCIANTES, aid),
+    firestoreListCollection(env, COLL_PROMOS_CATEGORIAS)
+  ]);
 
   const categoriaNombre = promoText_(data.categoria);
-  const cat = await promoFindCategory_(env,categoriaNombre);
+  const cat = categorias.find(c =>
+    normalizeFeatureName(
+      c.titulo || c.nombre || c.categoria || c.id
+    ) === normalizeFeatureName(categoriaNombre)
+  ) || {};
 
   const promoId = promoRandomId_();
 
@@ -7056,7 +7017,17 @@ async function promoUpdateFirestore_(env, advertiserId, payload){
   }
 
   if(Object.prototype.hasOwnProperty.call(data,"categoria")){
-    const cat = await promoFindCategory_(env,next.categoria);
+    const categorias = await firestoreListCollection(
+      env,
+      COLL_PROMOS_CATEGORIAS
+    );
+
+    const cat = categorias.find(c =>
+      normalizeFeatureName(
+        c.titulo || c.nombre || c.categoria || c.id
+      ) === normalizeFeatureName(next.categoria)
+    ) || {};
+
     next.logo_categoria = promoText_(cat.logo);
   }
 
@@ -7784,7 +7755,9 @@ async function evtVipCreate_(env, advertiserId, payload){
     data.programacion
   );
 
-  await evtPatchPublicCache_(env,null,doc,"upsert");
+  await gldCacheDelete_(
+    "events:public:" + evtText_(doc.ciudad_id)
+  );
 
   return {
     success:true,
@@ -7848,7 +7821,10 @@ async function evtVipUpdate_(env, advertiserId, payload){
     );
   }
 
-  await evtPatchPublicCache_(env,current,next,"upsert");
+  await Promise.all([
+    gldCacheDelete_("events:public:"+evtText_(current.ciudad_id)),
+    gldCacheDelete_("events:public:"+evtText_(next.ciudad_id))
+  ]);
 
   return {
     success:true,
@@ -7917,7 +7893,9 @@ async function evtVipPause_(env, advertiserId, payload){
     current
   );
 
-  await evtPatchPublicCache_(env,current,current,"upsert");
+  await gldCacheDelete_(
+    "events:public:"+evtText_(current.ciudad_id)
+  );
 
   return {success:true,evento_id:eventoId};
 }
@@ -7947,7 +7925,9 @@ async function evtVipDelete_(env, advertiserId, payload){
     evtDeleteProgramacion_(env,eventoId)
   ]);
 
-  await evtPatchPublicCache_(env,current,current,"delete");
+  await gldCacheDelete_(
+    "events:public:"+evtText_(current.ciudad_id)
+  );
 
   return {
     success:true,
@@ -8053,7 +8033,9 @@ async function evtFreeCreate_(env, advertiserId, payload){
     doc
   );
 
-  await evtPatchPublicCache_(env,null,doc,"upsert");
+  await gldCacheDelete_(
+    "events:public:"+evtText_(doc.ciudad_id)
+  );
 
   return {
     success:true,
@@ -8103,7 +8085,10 @@ async function evtFreeUpdate_(env, advertiserId, payload){
     next
   );
 
-  await evtPatchPublicCache_(env,current,next,"upsert");
+  await Promise.all([
+    gldCacheDelete_("events:public:"+evtText_(current.ciudad_id)),
+    gldCacheDelete_("events:public:"+evtText_(next.ciudad_id))
+  ]);
 
   return {
     success:true,
@@ -8142,7 +8127,9 @@ async function evtFreePause_(env, advertiserId, payload){
     current
   );
 
-  await evtPatchPublicCache_(env,current,current,"upsert");
+  await gldCacheDelete_(
+    "events:public:"+evtText_(current.ciudad_id)
+  );
 
   return {success:true,evento_id:eventoId};
 }
@@ -8173,39 +8160,15 @@ async function evtFreeDelete_(env, advertiserId, payload){
     eventoId
   );
 
-  await evtPatchPublicCache_(env,current,current,"delete");
+  await gldCacheDelete_(
+    "events:public:"+evtText_(current.ciudad_id)
+  );
 
   return {
     success:true,
     deleted:true,
     evento_id:eventoId
   };
-}
-
-async function evtPatchPublicCache_(env, previous, next, mode="upsert"){
-  const prevCity=evtText_(previous && previous.ciudad_id);
-  const nextCity=evtText_(next && next.ciudad_id);
-  const prevId=evtText_(previous && (previous.evento_id || previous.id));
-  const nextId=evtText_(next && (next.evento_id || next.id));
-  const id=nextId || prevId;
-
-  if(prevCity && (!nextCity || prevCity!==nextCity)){
-    await patchCachedArrayItem_(
-      "events:public:"+prevCity,
-      prevId,
-      null,
-      {idField:"evento_id",mode:"delete",ttl:600}
-    );
-  }
-
-  if(nextCity && id){
-    await patchCachedArrayItem_(
-      "events:public:"+nextCity,
-      id,
-      next,
-      {idField:"evento_id",mode:mode,ttl:600}
-    );
-  }
 }
 
 async function evtPublicEvents_(env, ciudadId){
