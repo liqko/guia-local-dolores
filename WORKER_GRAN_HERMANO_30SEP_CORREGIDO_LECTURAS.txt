@@ -5495,10 +5495,26 @@ async function farmGuardarCicloFirestore_(env, advertiserId, body){
       ? body.payload
       : body || {};
 
-  const ciudades = await firestoreListCollection(env, COLL_CIUDADES);
-  const permitidas = farmAllowedCities_(admin, ciudades);
+  const farmCfg =
+    admin.funcionalidades_config &&
+    typeof admin.funcionalidades_config === "object"
+      ? (
+          admin.funcionalidades_config.TURNOS_FARMA ||
+          admin.funcionalidades_config.FARMACIAS ||
+          admin.funcionalidades_config.turnos_farma ||
+          {}
+        )
+      : {};
+  const todasCiudades =
+    truthyValue_(farmCfg.todas_ciudades) ||
+    farmText_(admin.turnos_farma) === "*";
   const allowedCityIds = new Set(
-    permitidas.map(c => farmText_(c.ciudad_id || c.id))
+    Array.isArray(farmCfg.ciudades)
+      ? farmCfg.ciudades.map(farmText_).filter(Boolean)
+      : farmText_(admin.turnos_farma)
+          .split(/[;,|]+/)
+          .map(farmText_)
+          .filter(v => v && v !== "*")
   );
 
   let cicloId = farmText_(payload.ciclo_id);
@@ -5519,7 +5535,7 @@ async function farmGuardarCicloFirestore_(env, advertiserId, body){
 
   const ciudadId = farmText_(merged.ciudad_id);
 
-  if(!ciudadId || !allowedCityIds.has(ciudadId)){
+  if(!ciudadId || (!todasCiudades && !allowedCityIds.has(ciudadId))){
     return {
       success:false,
       message:"La ciudad no está habilitada para esta cuenta."
@@ -6722,6 +6738,29 @@ async function promoEnsureWriteAllowed_(env, advertiserId){
   };
 }
 
+async function promoFindCategory_(env, categoria){
+  const value=promoText_(categoria);
+  if(!value) return {};
+
+  const normalized=normalizeFeatureName(value);
+  for(const field of ["categoria","nombre","titulo"]){
+    const rows=await firestoreQueryEqual(env,COLL_PROMOS_CATEGORIAS,field,value);
+    const hit=rows.find(c =>
+      normalizeFeatureName(
+        c.categoria || c.nombre || c.titulo || c.id
+      ) === normalized
+    );
+    if(hit) return hit;
+  }
+
+  const byId=await firestoreGetDocument(
+    env,
+    COLL_PROMOS_CATEGORIAS,
+    value
+  );
+  return byId || {};
+}
+
 async function promoCreateFirestore_(env, advertiserId, payload){
   const aid = promoText_(advertiserId);
   const data = payload && typeof payload === "object" ? payload : {};
@@ -6769,17 +6808,14 @@ async function promoCreateFirestore_(env, advertiserId, payload){
     };
   }
 
-  const [advertiser, categorias] = await Promise.all([
-    firestoreGetDocument(env, COLL_ANUNCIANTES, aid),
-    firestoreListCollection(env, COLL_PROMOS_CATEGORIAS)
-  ]);
+  const advertiser = await firestoreGetDocument(
+    env,
+    COLL_ANUNCIANTES,
+    aid
+  );
 
   const categoriaNombre = promoText_(data.categoria);
-  const cat = categorias.find(c =>
-    normalizeFeatureName(
-      c.titulo || c.nombre || c.categoria || c.id
-    ) === normalizeFeatureName(categoriaNombre)
-  ) || {};
+  const cat = await promoFindCategory_(env,categoriaNombre);
 
   const promoId = promoRandomId_();
 
@@ -6921,17 +6957,7 @@ async function promoUpdateFirestore_(env, advertiserId, payload){
   }
 
   if(Object.prototype.hasOwnProperty.call(data,"categoria")){
-    const categorias = await firestoreListCollection(
-      env,
-      COLL_PROMOS_CATEGORIAS
-    );
-
-    const cat = categorias.find(c =>
-      normalizeFeatureName(
-        c.titulo || c.nombre || c.categoria || c.id
-      ) === normalizeFeatureName(next.categoria)
-    ) || {};
-
+    const cat = await promoFindCategory_(env,next.categoria);
     next.logo_categoria = promoText_(cat.logo);
   }
 
