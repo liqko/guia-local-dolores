@@ -1821,8 +1821,6 @@ async function loadPublicGuideDataForTerritory_(env,paisId,provinciaId,ciudadId)
   provinciaId=String(provinciaId||"").trim();
   ciudadId=String(ciudadId||"").trim();
 
-  // La Guía pública siempre debe trabajar con un territorio. Evita cualquier
-  // lectura accidental de anunciantes/sedes de todas las ciudades.
   if(!ciudadId && !provinciaId && !paisId){
     return {
       advertisers:[],admins:[],sedes:[],
@@ -1832,58 +1830,72 @@ async function loadPublicGuideDataForTerritory_(env,paisId,provinciaId,ciudadId)
     };
   }
 
-  let sedes=[];
-  if(ciudadId){
-    sedes=await firestoreQueryEqual(env,COLL_SEDES,"ciudad_id",ciudadId);
-  }else if(provinciaId){
-    sedes=await firestoreQueryEqual(env,COLL_SEDES,"provincia_id",provinciaId);
-  }else{
-    sedes=await firestoreQueryEqual(env,COLL_SEDES,"pais_id",paisId);
-  }
-  sedes=(sedes||[]).filter(publicSedeActiva_);
+  // La Guía pública parte siempre del territorio solicitado.
+  // Nunca reconstruye catálogos completos para resolver una ciudad.
+  const sedes=ciudadId
+    ? (await firestoreQueryEqual(env,COLL_SEDES,"ciudad_id",ciudadId)).filter(publicSedeActiva_)
+    : provinciaId
+      ? (await firestoreQueryEqual(env,COLL_SEDES,"provincia_id",provinciaId)).filter(publicSedeActiva_)
+      : (await firestoreQueryEqual(env,COLL_SEDES,"pais_id",paisId)).filter(publicSedeActiva_);
 
   const advertiserIds=[...new Set(
     sedes.map(s=>String(s.anunciante_id||"").trim()).filter(Boolean)
   )];
 
-  const [advertisers,admins,catalogs] = await Promise.all([
+  const [advertisers,admins]=await Promise.all([
     firestoreGetMany_(env,COLL_ANUNCIANTES,advertiserIds),
-    firestoreGetMany_(env,COLL_ADMIN,advertiserIds),
-    loadPublicGuideCatalogsLight_(env)
+    firestoreGetMany_(env,COLL_ADMIN,advertiserIds)
+  ]);
+
+  // Cargar únicamente las relaciones realmente utilizadas por esta ciudad.
+  const segmentoIds=[...new Set(
+    advertisers.map(a=>String(a.segmento_id||"").trim()).filter(Boolean)
+  )];
+  const categoriaIds=[...new Set(
+    advertisers.flatMap(a=>normalizeIdsArray_(a.categoria_ids || a.categoria_id))
+  )];
+  const actividadIds=[...new Set(
+    sedes.flatMap(s=>normalizeIdsArray_(s.actividad_ids))
+  )];
+  const accionIds=[...new Set(
+    sedes.flatMap(s=>normalizeIdsArray_(s.accion_ids))
+  )];
+  const nodoIds=[...new Set(
+    sedes.flatMap(s=>normalizeIdsArray_(s.nodo_ids))
+  )];
+
+  const [segmentos,categorias,actividades,acciones,nodos]=await Promise.all([
+    segmentoIds.length ? firestoreGetMany_(env,COLL_SEGMENTOS,segmentoIds) : Promise.resolve([]),
+    categoriaIds.length ? firestoreGetMany_(env,COLL_CATEGORIAS,categoriaIds) : Promise.resolve([]),
+    actividadIds.length ? firestoreGetMany_(env,COLL_ACTIVIDADES,actividadIds) : Promise.resolve([]),
+    accionIds.length ? firestoreGetMany_(env,COLL_ACCIONES,accionIds) : Promise.resolve([]),
+    nodoIds.length ? firestoreGetMany_(env,COLL_NODOS,nodoIds) : Promise.resolve([])
   ]);
 
   let ciudadDoc=null, provinciaDoc=null, paisDoc=null;
 
   if(ciudadId){
     ciudadDoc=await firestoreGetDocument(env,COLL_CIUDADES,ciudadId);
-    if(!provinciaId){
-      provinciaId=String(ciudadDoc && ciudadDoc.provincia_id || "").trim();
-    }
-    if(!paisId){
-      paisId=String(ciudadDoc && ciudadDoc.pais_id || "").trim();
-    }
+    if(!provinciaId) provinciaId=String(ciudadDoc && ciudadDoc.provincia_id || "").trim();
+    if(!paisId) paisId=String(ciudadDoc && ciudadDoc.pais_id || "").trim();
   }
 
   if(provinciaId){
     provinciaDoc=await firestoreGetDocument(env,COLL_PROVINCIAS,provinciaId);
-    if(!paisId){
-      paisId=String(provinciaDoc && provinciaDoc.pais_id || "").trim();
-    }
+    if(!paisId) paisId=String(provinciaDoc && provinciaDoc.pais_id || "").trim();
   }
 
-  if(paisId){
-    paisDoc=await firestoreGetDocument(env,COLL_PAISES,paisId);
-  }
+  if(paisId) paisDoc=await firestoreGetDocument(env,COLL_PAISES,paisId);
 
   return {
     advertisers,
     admins,
     sedes,
-    segmentos:catalogs.segmentos||[],
-    categorias:catalogs.categorias||[],
-    actividades:catalogs.actividades||[],
-    acciones:catalogs.acciones||[],
-    nodos:catalogs.nodos||[],
+    segmentos:segmentos.filter(publicCatalogActive_),
+    categorias:categorias.filter(publicCatalogActive_),
+    actividades:actividades.filter(publicCatalogActive_),
+    acciones:acciones.filter(publicCatalogActive_),
+    nodos:nodos.filter(publicCatalogActive_),
     funcionalidades:[],
     niveles_anunciante:[],
     ciudades:ciudadDoc?[ciudadDoc]:[],
@@ -1891,7 +1903,6 @@ async function loadPublicGuideDataForTerritory_(env,paisId,provinciaId,ciudadId)
     paises:paisDoc?[paisDoc]:[]
   };
 }
-
 function buildPublicGuideRows_(data){
   const adminMap = new Map(
     data.admins.map(r => [String(r.id || "").trim(),r])
