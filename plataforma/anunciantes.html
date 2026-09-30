@@ -1485,11 +1485,6 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
         // Todo lo que modifica visualmente Anunciantes forma parte de UNA sola carga.
         // Se pide en paralelo, pero NO se renderiza nada hasta que termina el conjunto.
-        const publicidadCargaPromise = obtenerBannersPromise().catch(err=>{ console.warn('Publicidad:',err); return {publicidades:[]}; });
-        const eventosCargaPromise = obtenerEventosPromise().catch(err=>{ console.warn('Eventos:',err); return []; });
-        const promosCargaPromise = obtenerPromosPromise().catch(err=>{ console.warn('Promos:',err); return []; });
-        const actividadesCargaPromise = obtenerActividadesPromise().catch(err=>{ console.warn('Actividades:',err); return {actividades:[]}; });
-        const bootstrapCargaPromise = Promise.resolve(null); // Evita lectura global de catálogos al abrir la Guía.
         const favoritosCargaPromise = extras.favoritosPromise || Promise.resolve();
 
         const contenedorCarga = document.getElementById('contenedor');
@@ -1497,15 +1492,16 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         if(destacadasCarga) destacadasCarga.innerHTML = '';
         if(contenedorCarga) contenedorCarga.innerHTML = '';
 
-        const [dataResponse, publicidadLoaded, eventsLoaded, promosLoaded, actividadesLoaded] = await Promise.all([
-          guiaPromise,
-          publicidadCargaPromise,
-          eventosCargaPromise,
-          promosCargaPromise,
-          actividadesCargaPromise,
-          bootstrapCargaPromise,
-          favoritosCargaPromise
-        ]).then(values=>[values[0],values[1],values[2],values[3],values[4]]);
+        // CRÍTICO: la Guía pública NO espera módulos secundarios.
+        // Primero se leen y renderizan los anunciantes de la ciudad.
+        const dataResponse = await guiaPromise;
+        let publicidadLoaded = {publicidades:[]};
+        let eventsLoaded = [];
+        let promosLoaded = [];
+        let actividadesLoaded = {actividades:[]};
+
+        // Favoritos tampoco bloquean la carga visual.
+        Promise.resolve(favoritosCargaPromise).catch(()=>{});
 
         let rawBanners = (publicidadLoaded && Array.isArray(publicidadLoaded.publicidades)) ? publicidadLoaded.publicidades : [];
         let rawEventsResponse = eventsLoaded || [];
@@ -2924,6 +2920,49 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         // Un solo render: Nivel 6, resto de anunciantes, favoritos, acciones y publicidad aparecen juntos.
         render();
         gldModuloListo();
+
+        // Los módulos secundarios se cargan DESPUÉS y nunca bloquean la Guía.
+        Promise.allSettled([
+          obtenerBannersPromise(),
+          obtenerEventosPromise(),
+          obtenerPromosPromise(),
+          obtenerActividadesPromise()
+        ]).then(resultados=>{
+          publicidadLoaded = resultados[0].status==='fulfilled' ? resultados[0].value : {publicidades:[]};
+          eventsLoaded = resultados[1].status==='fulfilled' ? resultados[1].value : [];
+          promosLoaded = resultados[2].status==='fulfilled' ? resultados[2].value : [];
+          actividadesLoaded = resultados[3].status==='fulfilled' ? resultados[3].value : {actividades:[]};
+
+          rawBanners = (publicidadLoaded && Array.isArray(publicidadLoaded.publicidades)) ? publicidadLoaded.publicidades : [];
+          rawEventsResponse = eventsLoaded || [];
+          rawPromosResponse = promosLoaded || [];
+
+          rawEventsList = Array.isArray(rawEventsResponse)
+            ? rawEventsResponse
+            : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
+          activeEvents = rawEventsList.filter(eventIsActive);
+
+          rawPromosList = Array.isArray(rawPromosResponse)
+            ? rawPromosResponse
+            : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+          activePromos = rawPromosList.filter(p => promoIsActive(p) && promoMatchesCurrentCity(p));
+
+          activeActivities=(actividadesLoaded && Array.isArray(actividadesLoaded.actividades))
+            ? actividadesLoaded.actividades
+            : [];
+
+          banners = rawBanners.map(p=>({
+            publicidad_id:String(p.publicidad_id||''),
+            formato:String(p.formato||'').toUpperCase(),
+            titulo:String(p.titulo||''),
+            media_items:Array.isArray(p.media)?p.media:[],
+            cta:String(p.cta_destino||''),
+            cta_texto:String(p.cta_texto||''),
+            categoria_ids:[...new Set((p.segmentacion||[]).map(s=>String(s.categoria_id||'').trim()).filter(Boolean))]
+          })).filter(p=>p.media_items.length);
+
+          render();
+        }).catch(()=>{});
 
         window.addEventListener('scroll', () => {
           const topBtn = document.getElementById('topBtn');
