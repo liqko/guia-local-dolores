@@ -1892,34 +1892,42 @@ function abrirSolicitudAnunciante_(modo){
   mostrarPanel('alta-anunciante');
 }
 
-function enviarSolicitudAnunciante_(){
+async function enviarSolicitudAnunciante_(){
   const modo=String(document.getElementById('alta-anunciante-modo')?.value||'CREAR').toUpperCase();
   const nombre=String(document.getElementById('alta-anunciante-nombre')?.value||'').trim();
-  if(!nombre){
-    alert('Completá el nombre del anunciante.');
+  if(!nombre){ alert('Completá el nombre del anunciante.'); return; }
+  if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id){ alert('Primero iniciá sesión con tu cuenta.'); return; }
+  const coincidencia=(comercios||[]).find(x=>String(x.nombre||'').trim().toLowerCase()===nombre.toLowerCase());
+  if(modo==='RECLAMAR' && (!coincidencia || !coincidencia.id)){
+    alert('Para reclamar, seleccioná un anuncio que ya exista en Guía Local.');
     return;
   }
-  const ctx=whatsappContextoCuenta_();
-  const coincidencia=(comercios||[]).find(x=>String(x.nombre||'').trim().toLowerCase()===nombre.toLowerCase());
-  const lineas=[
-    `GLD_SOLICITUD: ${modo==='RECLAMAR'?'RECLAMAR_ANUNCIO':'CREAR_ANUNCIO'}`,
-    modo==='RECLAMAR'
-      ? 'Quiero reclamar la administración de un anuncio existente.'
-      : 'Quiero solicitar el alta de un nuevo anuncio.',
-    ctx.nombre ? 'Persona: '+ctx.nombre : '',
-    ctx.mail ? 'Mail de la cuenta: '+ctx.mail : '',
-    ctx.suscriptorId ? 'Suscriptor ID: '+ctx.suscriptorId : '',
-    'Anunciante: '+nombre,
-    coincidencia&&coincidencia.id ? 'Anunciante ID: '+coincidencia.id : '',
-    'Actividad: '+String(document.getElementById('alta-anunciante-actividad')?.value||'').trim(),
-    'Ciudad: '+String(document.getElementById('alta-anunciante-ciudad')?.value||'').trim(),
-    'Dirección: '+String(document.getElementById('alta-anunciante-direccion')?.value||'').trim(),
-    'WhatsApp/Teléfono: '+String(document.getElementById('alta-anunciante-whatsapp')?.value||'').trim(),
-    'Mail de contacto: '+String(document.getElementById('alta-anunciante-mail')?.value||'').trim(),
-    'Web/Red: '+String(document.getElementById('alta-anunciante-web')?.value||'').trim(),
-    'Descripción: '+String(document.getElementById('alta-anunciante-descripcion')?.value||'').trim()
-  ].filter(x=>x && !/: $/.test(x));
-  openWhatsApp(lineas.join('\n'));
+  const payload={
+    action:'solicitar_anunciante',
+    suscriptor_id:sesionSuscriptor.suscriptor_id,
+    modo,
+    nombre,
+    anunciante_id:coincidencia&&coincidencia.id ? coincidencia.id : '',
+    actividad:String(document.getElementById('alta-anunciante-actividad')?.value||'').trim(),
+    ciudad:String(document.getElementById('alta-anunciante-ciudad')?.value||'').trim(),
+    direccion:String(document.getElementById('alta-anunciante-direccion')?.value||'').trim(),
+    whatsapp:String(document.getElementById('alta-anunciante-whatsapp')?.value||'').trim(),
+    mail:String(document.getElementById('alta-anunciante-mail')?.value||'').trim(),
+    web:String(document.getElementById('alta-anunciante-web')?.value||'').trim(),
+    descripcion:String(document.getElementById('alta-anunciante-descripcion')?.value||'').trim()
+  };
+  const btn=document.getElementById('btnEnviarSolicitudAnunciante');
+  if(btn) btn.disabled=true;
+  try{
+    const j=await apiSuscriptores_(payload);
+    if(!j || j.success!==true) throw new Error((j&&(j.message||j.error))||'No se pudo enviar la solicitud.');
+    alert('Solicitud enviada. Quedó pendiente de revisión.');
+    mostrarPanel('seleccion-anunciante');
+  }catch(e){
+    alert(e.message||'No se pudo enviar la solicitud.');
+  }finally{
+    if(btn) btn.disabled=false;
+  }
 }
 
 function parseLevel(levelStr){
