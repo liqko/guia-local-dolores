@@ -1794,7 +1794,7 @@ const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> 
 let currentCommerceSedes = [];
 let commerceCatalogs = {
   segmentos:[], categorias:[], ciudades:[],
-  actividades_clave:[], acciones:[], nodos:[]
+  actividades_clave:[], acciones:[], nodos:[], niveles_anunciante:[]
 };
 const COMMERCE_IMAGE_UPLOAD_NOTE = `
   <b>Imágenes (URL)</b><br>
@@ -1930,8 +1930,7 @@ function parseLevel(levelStr){
 }
 function isAllowedLevel(levelStr){
   const n = parseLevel(levelStr);
-  if(isNaN(n)) return false;
-  return n !== 3;
+  return !isNaN(n);
 }
 
 /* GViz helpers */
@@ -2950,6 +2949,15 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
 
   let imageNoteRendered = false;
 
+  const nivelActual=String((sesion&&sesion.administracion&&sesion.administracion.nivel)??'').trim();
+  const reglaNivel=(commerceCatalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id??x.numero??x.id??'').trim()===nivelActual)||{};
+  const limiteCampo=(fieldName)=>{
+    if(fieldName==='descripcion') return Math.max(0,Number(reglaNivel.descripcion_max??500));
+    if(fieldName==='tags') return reglaNivel.tags_habilitados===true ? Math.max(0,Number(reglaNivel.tags_max??0)) : 0;
+    if(fieldName==='adicionales') return Math.max(0,Number(reglaNivel.adicionales_max??150));
+    return null;
+  };
+
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
@@ -2971,12 +2979,13 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
     }
 
     let maxLengthAttr = '';
-    let maxLengthNum = null;
-    if(fieldName === 'descripcion') { maxLengthAttr = ' maxlength="700"'; maxLengthNum = 700; }
-    else if(fieldName === 'tags') { maxLengthAttr = ' maxlength="300"'; maxLengthNum = 300; }
-    else if(fieldName === 'adicionales') { maxLengthAttr = ' maxlength="150"'; maxLengthNum = 150; }
-
-    const restrictionHtml = maxLengthNum ? ` <span style="color:#c00;font-weight:normal;font-size:.9em">(Hasta ${maxLengthNum} caracteres)</span>` : '';
+    const maxLengthNum = limiteCampo(fieldName);
+    if(maxLengthNum!==null && maxLengthNum>0) maxLengthAttr = ' maxlength="'+maxLengthNum+'"';
+    if(fieldName==='tags' && maxLengthNum===0){
+      html += '<div class="data-field-card"><label><strong>TAGS</strong></label><div class="small-muted">Este nivel no incluye tags.</div></div>';
+      return;
+    }
+    const restrictionHtml = maxLengthNum!==null && maxLengthNum>0 ? ` <span style="color:#c00;font-weight:normal;font-size:.9em">(Hasta ${maxLengthNum} caracteres)</span>` : '';
     const labelHtml = `<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
 
     if(fieldName === 'descripcion'){
@@ -8059,7 +8068,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         ciudades:Array.isArray(rawDatos.ciudades) ? rawDatos.ciudades : [],
         actividades_clave:Array.isArray(rawDatos.actividades_clave) ? rawDatos.actividades_clave : [],
         acciones:Array.isArray(rawDatos.acciones) ? rawDatos.acciones : [],
-        nodos:Array.isArray(rawDatos.nodos) ? rawDatos.nodos : []
+        nodos:Array.isArray(rawDatos.nodos) ? rawDatos.nodos : [],
+        niveles_anunciante:Array.isArray(rawDatos.niveles_anunciante) ? rawDatos.niveles_anunciante : []
       };
 
       const newPlanillaId = rawDatos.planilla_id || administracion.planilla_id || datos.planilla_id;
