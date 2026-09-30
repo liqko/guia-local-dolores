@@ -162,9 +162,6 @@ function jsonResponse(obj, status=200){
   });
 }
 
-function responseWithError(message, status=400){
-  return jsonResponse({ success:false, message }, status);
-}
 
 // =========================================================================
 // FIREBASE / FIRESTORE
@@ -1988,7 +1985,7 @@ function buildPublicGuideRows_(data){
     const admin = adminMap.get(id);
     if(!admin) continue;
 
-    // Igual que el Apps Script vigente: sólo publica aprobados.
+    // Sólo publica anunciantes aprobados.
     if(
       admin.aprobado !== undefined &&
       !truthyValue_(admin.aprobado)
@@ -2924,197 +2921,8 @@ async function commerceDeleteSede_(env, body){
   },200);
 }
 
-async function commerceCreateAdvertiser_(env, body){
-  const payload = body.payload && typeof body.payload === "object"
-    ? body.payload
-    : body;
 
-  const id = String(payload.id || "").trim() || generateAdvertiserId_();
 
-  const existing = await firestoreGetDocument(env, COLL_ANUNCIANTES, id);
-  if(existing){
-    return jsonResponse({
-      success:false,
-      error:"id_anunciante_existente"
-    },409);
-  }
-
-  const categoriaIds = normalizeIdsArray_(
-    payload.categoria_ids || payload.categoria_id
-  );
-
-  const doc = {
-    id,
-    nombre:String(payload.nombre || "").trim(),
-    segmento_id:String(payload.segmento_id || "").trim(),
-    categoria_ids:categoriaIds,
-    actividad:String(payload.actividad || "").trim(),
-    descripcion:String(payload.descripcion || "").trim(),
-    tags:String(payload.tags || "").trim(),
-    adicionales:String(payload.adicionales || "").trim(),
-    logo:String(payload.logo || "").trim(),
-    link:String(payload.link || "").trim(),
-    creado_en:new Date().toISOString(),
-    actualizado_en:new Date().toISOString()
-  };
-
-  if(!doc.nombre){
-    return jsonResponse({
-      success:false,
-      error:"Falta nombre"
-    },400);
-  }
-
-  await firestoreSetDocument(env, COLL_ANUNCIANTES, id, doc);
-
-  const adminPayload = payload.administracion && typeof payload.administracion === "object"
-    ? payload.administracion
-    : {};
-
-  await firestoreSetDocument(env, COLL_ADMIN, id, {
-    id,
-    aprobado:adminPayload.aprobado ?? false,
-    nivel:adminPayload.nivel ?? 0,
-    subnivel:adminPayload.subnivel ?? 0,
-    verificado:adminPayload.verificado ?? "",
-    gold:adminPayload.gold ?? "",
-    funcionalidades:Array.isArray(adminPayload.funcionalidades)
-      ? adminPayload.funcionalidades
-      : normalizeIdsArray_(adminPayload.funcionalidades),
-    creado_en:new Date().toISOString(),
-    actualizado_en:new Date().toISOString()
-  });
-
-  return jsonResponse({
-    success:true,
-    created:true,
-    id,
-    source:"firestore"
-  },200);
-}
-
-async function commerceDuplicateAdvertiser_(env, body){
-  const sourceId = String(
-    body.source_id ||
-    body.id ||
-    body.__id ||
-    body.advertiserId ||
-    ""
-  ).trim();
-
-  if(!sourceId){
-    return jsonResponse({success:false,error:"Falta source_id"},400);
-  }
-
-  const [
-    source,
-    sourceAdmin,
-    allSedes
-  ] = await Promise.all([
-    firestoreGetDocument(env, COLL_ANUNCIANTES, sourceId),
-    firestoreGetDocument(env, COLL_ADMIN, sourceId),
-    firestoreListCollection(env, COLL_SEDES)
-  ]);
-
-  if(!source){
-    return jsonResponse({
-      success:false,
-      error:"anunciante_no_encontrado"
-    },404);
-  }
-
-  const newId = generateAdvertiserId_();
-  const nombre = String(
-    body.nombre ||
-    (source.nombre ? `${source.nombre} - copia` : "Copia")
-  ).trim();
-
-  const newDoc = {
-    ...source,
-    id:newId,
-    nombre,
-    creado_en:new Date().toISOString(),
-    actualizado_en:new Date().toISOString()
-  };
-  delete newDoc.__id;
-
-  await firestoreSetDocument(env, COLL_ANUNCIANTES, newId, newDoc);
-
-  if(sourceAdmin){
-    const newAdmin = {
-      ...sourceAdmin,
-      id:newId,
-      aprobado:false,
-      creado_en:new Date().toISOString(),
-      actualizado_en:new Date().toISOString()
-    };
-    delete newAdmin.__id;
-    await firestoreSetDocument(env, COLL_ADMIN, newId, newAdmin);
-  }
-
-  const sourceSedes = allSedes.filter(
-    s => String(s.anunciante_id || "").trim() === sourceId
-  );
-
-  for(const sede of sourceSedes){
-    const newSedeId = generateSedeId_(newId);
-    const copy = {
-      ...sede,
-      sede_id:newSedeId,
-      anunciante_id:newId,
-      creado_en:new Date().toISOString(),
-      actualizado_en:new Date().toISOString()
-    };
-    delete copy.__id;
-    await firestoreSetDocument(env, COLL_SEDES, newSedeId, copy);
-  }
-
-  return jsonResponse({
-    success:true,
-    duplicated:true,
-    source_id:sourceId,
-    id:newId,
-    source:"firestore"
-  },200);
-}
-
-async function commerceDeleteAdvertiser_(env, body){
-  const id = String(
-    body.id ||
-    body.__id ||
-    body.advertiserId ||
-    ""
-  ).trim();
-
-  if(!id){
-    return jsonResponse({success:false,error:"Falta id"},400);
-  }
-
-  const allSedes = await firestoreListCollection(env, COLL_SEDES);
-  const related = allSedes.filter(
-    s => String(s.anunciante_id || "").trim() === id
-  );
-
-  for(const sede of related){
-    const sedeId = String(sede.sede_id || sede.id || "").trim();
-    if(sedeId){
-      await firestoreDeleteDocument(env, COLL_SEDES, sedeId);
-    }
-  }
-
-  await Promise.all([
-    firestoreDeleteDocument(env, COLL_ANUNCIANTES, id),
-    firestoreDeleteDocument(env, COLL_ADMIN, id)
-  ]);
-
-  return jsonResponse({
-    success:true,
-    deleted:true,
-    id,
-    sedes_eliminadas:related.length,
-    source:"firestore"
-  },200);
-}
 
 async function handleCommerceRequest(request, env){
   if(request.method === "GET"){
@@ -4690,9 +4498,16 @@ async function superadminGuardarTerritorio_(env,p){
   if(!actual.creado_en) next.creado_en=now;
   await firestoreSetDocument(env,def.collection,id,next);
   if(typeof gldCacheDelete_==='function'){
-    await gldCacheDelete_('commerce:public-guide-data:v3');
-    await gldCacheDelete_('commerce:catalogs:v2');
     await gldCacheDelete_('commerce:public-locations:v1');
+
+    if(tipo === 'ciudad'){
+      const cacheKey = guideCacheKey_(
+        String(next.pais_id || '').trim(),
+        String(next.provincia_id || '').trim(),
+        id
+      );
+      await gldCacheDelete_(cacheKey);
+    }
   }
   return {success:true,item:next};
 }
@@ -4879,9 +4694,6 @@ async function superadminGuardarCatalogo_(env,p){
   await firestoreSetDocument(env,def.collection,id,next);
   if(typeof gldCacheDelete_==="function"){
     await gldCacheDelete_("commerce:catalogs:v2");
-    if(String(p.tipo||"").trim().toLowerCase()==="niveles_anunciante"){
-      await gldCacheDelete_("commerce:public-guide-data:v3");
-    }
   }
   return {success:true,item:next};
 }
@@ -4925,10 +4737,8 @@ async function superadminActualizarAnuncianteComercial_(env,p){
     }
   }
 
-  if(typeof gldCacheDelete_==="function"){
-    await gldCacheDelete_("commerce:public-guide-data:v3");
-    await gldCacheDelete_("commerce:catalogs:v2");
-  }
+  await refreshGuideCacheForAdvertiser_(env, aid);
+  await gldCacheDelete_("commerce:catalogs:v2");
   return {success:true,anunciante_id:aid};
 }
 
@@ -5195,8 +5005,7 @@ async function handleSuperadminRequest(request, env){
 
 // =========================================================================
 // FARMACIAS DE TURNO - FIRESTORE
-// V1: lectura pública directa. El panel de administración sigue temporalmente
-// en Apps Script hasta completar la segunda etapa.
+// Lectura y administración en Firestore.
 // =========================================================================
 
 const COLL_FARMACIAS_CICLOS = "farmacias_ciclos";
@@ -5893,8 +5702,7 @@ async function handleFarmaciasRequest(request, env){
 
 // =========================================================================
 // ACTIVIDADES - FIRESTORE
-// V1: lectura pública directa.
-// El panel administrativo continúa temporalmente en Apps Script.
+// Lectura y administración en Firestore.
 // =========================================================================
 
 const COLL_ACTIVIDADES_MOD = "actividades";
