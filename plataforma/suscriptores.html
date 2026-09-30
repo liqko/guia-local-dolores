@@ -493,6 +493,18 @@ button:disabled{opacity:.65;cursor:wait}
           <button id="register-btn" class="primary" type="button">Registrarme</button>
           <div id="register-msg" class="msg"></div>
         </div>
+
+        <div id="verify-box" class="full hidden">
+          <div class="info">
+            <strong>Verificá tu correo</strong><br>
+            Te enviamos un código de 6 números. Ingresalo para habilitar tu cuenta.
+          </div>
+          <label for="verify-code">Código de verificación</label>
+          <input id="verify-code" type="text" inputmode="numeric" maxlength="6" placeholder="000000">
+          <button id="verify-btn" class="primary" type="button" style="margin-top:10px">Verificar correo</button>
+          <button id="verify-resend-btn" class="secondary" type="button" style="margin-top:8px">Reenviar código</button>
+          <div id="verify-msg" class="msg"></div>
+        </div>
       </div>
     </div>
 
@@ -982,6 +994,13 @@ async function login(){
       return;
     }
 
+    if(j.requiere_verificacion){
+      el('verify-box')?.classList.remove('hidden');
+      el('reg-mail').value=mail;
+      await requestVerification(mail);
+      msg('login-msg','Primero verificá tu correo. Te enviamos un código.',false);
+      return;
+    }
     saveSession(j.suscriptor);
   }catch(err){
     msg('login-msg','No se pudo conectar con el sistema.',false);
@@ -1044,9 +1063,54 @@ async function register(){
       return;
     }
 
-    saveSession(j.suscriptor);
+    el('verify-box').classList.remove('hidden');
+    await requestVerification(payload.mail);
+    msg('register-msg','Cuenta creada. Revisá tu correo e ingresá el código para habilitarla.',true);
+    el('verify-code').focus();
   }catch(err){
     msg('register-msg','No se pudo conectar con el sistema.',false);
+  }finally{
+    setBusy(btn,false);
+  }
+}
+
+
+async function requestVerification(mailValue){
+  const mail=String(mailValue||el('reg-mail')?.value||el('login-mail')?.value||'').trim();
+  if(!mail) return;
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'solicitar_verificacion',mail})
+    });
+    const j=await r.json();
+    msg('verify-msg',j.message||'Revisá tu correo.',j.success===true);
+  }catch(e){
+    msg('verify-msg','No se pudo enviar el código de verificación.',false);
+  }
+}
+
+async function confirmVerification(){
+  const mail=String(el('reg-mail')?.value||el('login-mail')?.value||'').trim();
+  const codigo=String(el('verify-code')?.value||'').trim();
+  if(!mail || !codigo){ msg('verify-msg','Ingresá el código recibido por mail.',false); return; }
+  const btn=el('verify-btn');
+  setBusy(btn,true,'Verificando...');
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'confirmar_verificacion',mail,codigo})
+    });
+    const j=await r.json();
+    if(!j.success){ msg('verify-msg',j.message||'No se pudo verificar el correo.',false); return; }
+    msg('verify-msg','Correo verificado. Ya podés ingresar con tu cuenta.',true);
+    el('verify-box').classList.add('hidden');
+    el('login-mail').value=mail;
+    document.getElementById('tab-login')?.click();
+  }catch(e){
+    msg('verify-msg','No se pudo verificar el correo.',false);
   }finally{
     setBusy(btn,false);
   }
@@ -1282,6 +1346,8 @@ el('reg-origen').addEventListener('change',function(){
 });
 el('login-btn').addEventListener('click',login);
 el('register-btn').addEventListener('click',register);
+el('verify-btn')?.addEventListener('click',confirmVerification);
+el('verify-resend-btn')?.addEventListener('click',()=>requestVerification());
 el('forgot-btn').addEventListener('click',showRecovery);
 el('recovery-btn').addEventListener('click',requestRecovery);
 el('recovery-reset-btn').addEventListener('click',resetRecoveryPassword);
