@@ -63,19 +63,19 @@ const GUIDE_PAGE_URL='https://guialocal.ar/guia/';
 let ciudades=[];
 let seleccionada=null;
 
-function jsonp(params={},timeoutMs=20000){
-  return new Promise((resolve,reject)=>{
-    const cb='__gld_loc_'+Date.now()+'_'+Math.floor(Math.random()*1e6);
-    const s=document.createElement('script');
-    const timer=setTimeout(()=>{cleanup();reject(new Error('Tiempo de espera agotado'));},timeoutMs);
-    function cleanup(){clearTimeout(timer);try{delete window[cb]}catch(e){}if(s.parentNode)s.remove()}
-    window[cb]=data=>{cleanup();resolve(data)};
-    const u=new URL(API);
-    Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
-    u.searchParams.set('callback',cb);u.searchParams.set('_ts',Date.now());
-    s.onerror=()=>{cleanup();reject(new Error('No se pudo cargar la ubicación'))};
-    s.src=u.toString();document.head.appendChild(s);
-  });
+async function jsonp(params={},timeoutMs=20000){
+  const u=new URL(API);
+  Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,v));
+  u.searchParams.set('_ts',Date.now());
+  const controller=new AbortController();
+  const timer=setTimeout(()=>controller.abort(),timeoutMs);
+  try{
+    const r=await fetch(u.toString(),{cache:'no-store',signal:controller.signal});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    return await r.json();
+  }finally{
+    clearTimeout(timer);
+  }
 }
 
 function ciudadNombre(c){return String(c.ciudad_visible||c.ciudad||c.nombre||c.ciudad_id||'').trim()}
