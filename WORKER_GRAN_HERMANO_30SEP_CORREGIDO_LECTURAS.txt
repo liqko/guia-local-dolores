@@ -685,6 +685,29 @@ async function refreshGuideCacheForAdvertiser_(
   }catch(_){}
 }
 
+async function patchCachedArrayItem_(key, itemId, item, options={}){
+  const cached=await gldCacheGetJson_(key);
+  if(!Array.isArray(cached)) return false;
+
+  const idField=String(options.idField || "id");
+  const mode=String(options.mode || "upsert");
+
+  const idx=cached.findIndex(x =>
+    String(x && x[idField] || "").trim() === String(itemId || "").trim()
+  );
+
+  if(mode==="delete"){
+    if(idx<0) return true;
+    cached.splice(idx,1);
+  }else{
+    if(idx<0) cached.push(item);
+    else cached[idx]=item;
+  }
+
+  await gldCachePutJson_(key,cached,Number(options.ttl || 600));
+  return true;
+}
+
 async function firestoreSetDocument(env, collection, id, data){
   const doc = await firestoreRequest(
     env,
@@ -7703,10 +7726,7 @@ async function evtVipUpdate_(env, advertiserId, payload){
     );
   }
 
-  await Promise.all([
-    gldCacheDelete_("events:public:"+evtText_(current.ciudad_id)),
-    gldCacheDelete_("events:public:"+evtText_(next.ciudad_id))
-  ]);
+  await evtPatchPublicCache_(env,current,next,"upsert");
 
   return {
     success:true,
@@ -7775,9 +7795,7 @@ async function evtVipPause_(env, advertiserId, payload){
     current
   );
 
-  await gldCacheDelete_(
-    "events:public:"+evtText_(current.ciudad_id)
-  );
+  await evtPatchPublicCache_(env,current,current,"upsert");
 
   return {success:true,evento_id:eventoId};
 }
@@ -7807,9 +7825,7 @@ async function evtVipDelete_(env, advertiserId, payload){
     evtDeleteProgramacion_(env,eventoId)
   ]);
 
-  await gldCacheDelete_(
-    "events:public:"+evtText_(current.ciudad_id)
-  );
+  await evtPatchPublicCache_(env,current,current,"delete");
 
   return {
     success:true,
@@ -7915,9 +7931,7 @@ async function evtFreeCreate_(env, advertiserId, payload){
     doc
   );
 
-  await gldCacheDelete_(
-    "events:public:"+evtText_(doc.ciudad_id)
-  );
+  await evtPatchPublicCache_(env,null,doc,"upsert");
 
   return {
     success:true,
@@ -8009,9 +8023,7 @@ async function evtFreePause_(env, advertiserId, payload){
     current
   );
 
-  await gldCacheDelete_(
-    "events:public:"+evtText_(current.ciudad_id)
-  );
+  await evtPatchPublicCache_(env,current,current,"upsert");
 
   return {success:true,evento_id:eventoId};
 }
@@ -8042,15 +8054,39 @@ async function evtFreeDelete_(env, advertiserId, payload){
     eventoId
   );
 
-  await gldCacheDelete_(
-    "events:public:"+evtText_(current.ciudad_id)
-  );
+  await evtPatchPublicCache_(env,current,current,"delete");
 
   return {
     success:true,
     deleted:true,
     evento_id:eventoId
   };
+}
+
+async function evtPatchPublicCache_(env, previous, next, mode="upsert"){
+  const prevCity=evtText_(previous && previous.ciudad_id);
+  const nextCity=evtText_(next && next.ciudad_id);
+  const prevId=evtText_(previous && (previous.evento_id || previous.id));
+  const nextId=evtText_(next && (next.evento_id || next.id));
+  const id=nextId || prevId;
+
+  if(prevCity && (!nextCity || prevCity!==nextCity)){
+    await patchCachedArrayItem_(
+      "events:public:"+prevCity,
+      prevId,
+      null,
+      {idField:"evento_id",mode:"delete",ttl:600}
+    );
+  }
+
+  if(nextCity && id){
+    await patchCachedArrayItem_(
+      "events:public:"+nextCity,
+      id,
+      next,
+      {idField:"evento_id",mode:mode,ttl:600}
+    );
+  }
 }
 
 async function evtPublicEvents_(env, ciudadId){
