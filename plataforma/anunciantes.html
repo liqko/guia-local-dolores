@@ -1492,15 +1492,21 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         if(destacadasCarga) destacadasCarga.innerHTML = '';
         if(contenedorCarga) contenedorCarga.innerHTML = '';
 
-        // CRÍTICO: la Guía pública NO espera módulos secundarios.
-        // Primero se leen y renderizan los anunciantes de la ciudad.
-        const dataResponse = await guiaPromise;
-        let publicidadLoaded = {publicidades:[]};
+        // La Guía y SU publicidad forman una única carga visual:
+        // la publicidad se intercala entre las tarjetas de anunciantes.
+        const publicidadCargaPromise = obtenerBannersPromise()
+          .catch(err=>{ console.warn('Publicidad:',err); return {publicidades:[]}; });
+
+        const [dataResponse, publicidadLoaded] = await Promise.all([
+          guiaPromise,
+          publicidadCargaPromise
+        ]);
+
         let eventsLoaded = [];
         let promosLoaded = [];
         let actividadesLoaded = {actividades:[]};
 
-        // Favoritos tampoco bloquean la carga visual.
+        // Favoritos no bloquean la carga visual.
         Promise.resolve(favoritosCargaPromise).catch(()=>{});
 
         let rawBanners = (publicidadLoaded && Array.isArray(publicidadLoaded.publicidades)) ? publicidadLoaded.publicidades : [];
@@ -2923,17 +2929,14 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
         // Los módulos secundarios se cargan DESPUÉS y nunca bloquean la Guía.
         Promise.allSettled([
-          obtenerBannersPromise(),
           obtenerEventosPromise(),
           obtenerPromosPromise(),
           obtenerActividadesPromise()
         ]).then(resultados=>{
-          publicidadLoaded = resultados[0].status==='fulfilled' ? resultados[0].value : {publicidades:[]};
-          eventsLoaded = resultados[1].status==='fulfilled' ? resultados[1].value : [];
-          promosLoaded = resultados[2].status==='fulfilled' ? resultados[2].value : [];
-          actividadesLoaded = resultados[3].status==='fulfilled' ? resultados[3].value : {actividades:[]};
+          eventsLoaded = resultados[0].status==='fulfilled' ? resultados[0].value : [];
+          promosLoaded = resultados[1].status==='fulfilled' ? resultados[1].value : [];
+          actividadesLoaded = resultados[2].status==='fulfilled' ? resultados[2].value : {actividades:[]};
 
-          rawBanners = (publicidadLoaded && Array.isArray(publicidadLoaded.publicidades)) ? publicidadLoaded.publicidades : [];
           rawEventsResponse = eventsLoaded || [];
           rawPromosResponse = promosLoaded || [];
 
@@ -2951,17 +2954,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             ? actividadesLoaded.actividades
             : [];
 
-          banners = rawBanners.map(p=>({
-            publicidad_id:String(p.publicidad_id||''),
-            formato:String(p.formato||'').toUpperCase(),
-            titulo:String(p.titulo||''),
-            media_items:Array.isArray(p.media)?p.media:[],
-            cta:String(p.cta_destino||''),
-            cta_texto:String(p.cta_texto||''),
-            categoria_ids:[...new Set((p.segmentacion||[]).map(s=>String(s.categoria_id||'').trim()).filter(Boolean))]
-          })).filter(p=>p.media_items.length);
-
-          render();
+          actualizarBotonesModulosVisibles();
         }).catch(()=>{});
 
         window.addEventListener('scroll', () => {
