@@ -636,20 +636,12 @@ async function resolvePublicClassificationTargeted_(env,advertiser){
 
 async function patchPublicSedeTargeted_(env,raw,previous={}){
   const cityId=String(raw && raw.ciudad_id || "").trim();
-  const [ciudad,provincia,pais]=await Promise.all([
-    cityId
-      ? firestoreGetDocument(env,COLL_CIUDADES,cityId)
-      : Promise.resolve(null),
-    cityId
-      ? (async()=>{
-          const c=await firestoreGetDocument(env,COLL_CIUDADES,cityId);
-          return c && c.provincia_id
-            ? firestoreGetDocument(env,COLL_PROVINCIAS,String(c.provincia_id).trim())
-            : null;
-        })()
-      : Promise.resolve(null),
-    Promise.resolve(null)
-  ]);
+  const ciudad=cityId
+    ? await firestoreGetDocument(env,COLL_CIUDADES,cityId)
+    : null;
+  const provincia=ciudad && ciudad.provincia_id
+    ? await firestoreGetDocument(env,COLL_PROVINCIAS,String(ciudad.provincia_id).trim())
+    : null;
 
   const provinciaId=String(
     raw && raw.provincia_id ||
@@ -761,14 +753,13 @@ async function refreshGuideCacheForAdvertiser_(
       ].filter(Boolean)
     );
 
-    const [advertiser,admin,classification]=await Promise.all([
+    const [advertiser,admin]=await Promise.all([
       firestoreGetDocument(env,COLL_ANUNCIANTES,aid),
-      firestoreGetDocument(env,COLL_ADMIN,aid),
-      firestoreGetDocument(env,COLL_ANUNCIANTES,aid)
-        .then(a=>resolvePublicClassificationTargeted_(env,a||{}))
+      firestoreGetDocument(env,COLL_ADMIN,aid)
     ]);
 
     if(!advertiser) return;
+    const classification=await resolvePublicClassificationTargeted_(env,advertiser);
 
     for(const ciudadId of cityIds){
       const ciudadDoc=await firestoreGetDocument(env,COLL_CIUDADES,ciudadId);
@@ -804,30 +795,50 @@ async function refreshGuideCacheForAdvertiser_(
       };
 
       if(changedIds.length){
+        const newCityIds=new Set(
+          sedes.map(s=>String(s && s.ciudad_id || "").trim()).filter(Boolean)
+        );
         const sedesActualizadas=[];
+
         for(const s of (currentRow.sedes||[])){
           const sid=String(s && s.sede_id || "").trim();
-          const raw=sedes.find(x=>String(x && (x.sede_id||x.id)||"").trim()===sid);
-          if(raw){
-            sedesActualizadas.push(
-              await patchPublicSedeTargeted_(env,raw,s)
+          if(changedIds.includes(sid)){
+            const raw=sedes.find(x=>
+              String(x && (x.sede_id||x.id)||"").trim()===sid
             );
+
+            if(raw && String(raw.ciudad_id||"").trim()===ciudadId){
+              sedesActualizadas.push(
+                await patchPublicSedeTargeted_(env,raw,s)
+              );
+            }else if(raw){
+              // La sede se mudó: no queda duplicada en la ciudad anterior.
+              continue;
+            }else{
+              continue;
+            }
           }else{
             sedesActualizadas.push(s);
           }
         }
+
         for(const raw of sedes){
           const sid=String(raw && (raw.sede_id||raw.id)||"").trim();
-          if(!sid || !String(raw.ciudad_id||"").trim()) continue;
+          if(!sid || !newCityIds.has(ciudadId)) continue;
           if(!sedesActualizadas.some(s=>String(s.sede_id||"").trim()===sid)){
-            if(String(raw.ciudad_id).trim()===ciudadId){
-              sedesActualizadas.push(
-                await patchPublicSedeTargeted_(env,raw,{})
-              );
-            }
+            sedesActualizadas.push(
+              await patchPublicSedeTargeted_(env,raw,{})
+            );
           }
         }
+
         nextRow.sedes=sedesActualizadas;
+
+        if(!sedesActualizadas.length){
+          cached.splice(idx,1);
+          await gldCachePutJson_(cacheKey,cached,1800);
+          continue;
+        }
 
         const first=sedesActualizadas[0]||{};
         [
