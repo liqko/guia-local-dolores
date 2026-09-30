@@ -596,165 +596,252 @@ function guideCacheKey_(paisId, provinciaId, ciudadId){
   ].join(":");
 }
 
+async function resolvePublicClassificationTargeted_(env,advertiser){
+  const segmentoId=String(advertiser && advertiser.segmento_id || "").trim();
+  const categoriaIds=normalizeIdsArray_(
+    advertiser && (advertiser.categoria_ids || advertiser.categoria_id)
+  );
+
+  const [segmentos,categorias]=await Promise.all([
+    segmentoId
+      ? firestoreGetMany_(env,COLL_SEGMENTOS,[segmentoId])
+      : Promise.resolve([]),
+    categoriaIds.length
+      ? firestoreGetMany_(env,COLL_CATEGORIAS,categoriaIds)
+      : Promise.resolve([])
+  ]);
+
+  const seg=segmentos[0] || {};
+  const catMap=new Map(
+    categorias.map(c=>[
+      String(c.categoria_id || c.id || "").trim(),
+      c
+    ])
+  );
+  const catNames=categoriaIds
+    .map(id=>catMap.get(id))
+    .filter(Boolean)
+    .map(c=>String(c.nombre || c.titulo || "").trim())
+    .filter(Boolean);
+
+  return {
+    segmento_id:segmentoId,
+    segmento:String(seg.nombre || seg.titulo || "").trim(),
+    categoria_id:categoriaIds.join(";"),
+    categoria:catNames.join("; "),
+    segmento_ids:segmentoId ? [segmentoId] : [],
+    categoria_ids:categoriaIds
+  };
+}
+
+async function patchPublicSedeTargeted_(env,raw,previous={}){
+  const cityId=String(raw && raw.ciudad_id || "").trim();
+  const [ciudad,provincia,pais]=await Promise.all([
+    cityId
+      ? firestoreGetDocument(env,COLL_CIUDADES,cityId)
+      : Promise.resolve(null),
+    cityId
+      ? (async()=>{
+          const c=await firestoreGetDocument(env,COLL_CIUDADES,cityId);
+          return c && c.provincia_id
+            ? firestoreGetDocument(env,COLL_PROVINCIAS,String(c.provincia_id).trim())
+            : null;
+        })()
+      : Promise.resolve(null),
+    Promise.resolve(null)
+  ]);
+
+  const provinciaId=String(
+    raw && raw.provincia_id ||
+    (ciudad && ciudad.provincia_id) ||
+    ""
+  ).trim();
+  const paisId=String(
+    raw && raw.pais_id ||
+    (ciudad && ciudad.pais_id) ||
+    (provincia && provincia.pais_id) ||
+    ""
+  ).trim();
+
+  const [provDoc,paisDoc]=await Promise.all([
+    provincia || (provinciaId
+      ? firestoreGetDocument(env,COLL_PROVINCIAS,provinciaId)
+      : Promise.resolve(null)),
+    paisId
+      ? firestoreGetDocument(env,COLL_PAISES,paisId)
+      : Promise.resolve(null)
+  ]);
+
+  const activityIds=normalizeIdsArray_(raw && raw.actividad_ids);
+  const actionIds=normalizeIdsArray_(raw && raw.accion_ids);
+  const nodeIds=normalizeIdsArray_(raw && raw.nodo_ids);
+
+  const [activityDocs,actionDocs,nodeDocs]=await Promise.all([
+    activityIds.length ? firestoreGetMany_(env,COLL_ACTIVIDADES,activityIds) : Promise.resolve([]),
+    actionIds.length ? firestoreGetMany_(env,COLL_ACCIONES,actionIds) : Promise.resolve([]),
+    nodeIds.length ? firestoreGetMany_(env,COLL_NODOS,nodeIds) : Promise.resolve([])
+  ]);
+
+  const byId=(rows,field)=>new Map(
+    rows.map(x=>[String(x && (x[field] || x.id) || "").trim(),x])
+  );
+
+  const activityMap=byId(activityDocs,"actividad_id");
+  const actionMap=byId(actionDocs,"accion_id");
+  const nodeMap=byId(nodeDocs,"nodo_id");
+
+  const sede={
+    ...previous,
+    sede_id:String(raw && (raw.sede_id || raw.id) || "").trim(),
+    anunciante_id:String(raw && raw.anunciante_id || "").trim(),
+    nombre_sede:String(raw && raw.nombre_sede || "").trim(),
+    direccion:String(raw && raw.direccion || "").trim(),
+    pais_id:paisId,
+    pais:String(paisDoc && (paisDoc.nombre || paisDoc.pais) || previous.pais || "").trim(),
+    provincia_id:provinciaId,
+    provincia:String(provDoc && (provDoc.nombre || provDoc.provincia) || previous.provincia || "").trim(),
+    ciudad_id:cityId,
+    ciudad:String(ciudad && (ciudad.nombre || ciudad.ciudad || ciudad.ciudad_visible) || previous.ciudad || "").trim(),
+    codigo_postal:String(raw && raw.codigo_postal || "").trim(),
+    lat:raw && raw.lat || "",
+    lng:raw && raw.lng || "",
+    maps:raw && (raw.maps || raw.llegar) || "",
+    estado:raw && raw.estado || "",
+    actividades:activityIds.map(id=>{
+      const x=activityMap.get(id)||{};
+      return {actividad_id:id,nombre:String(x.nombre||x.titulo||"").trim(),insignia:String(x.insignia||"").trim()};
+    }),
+    acciones:actionIds.map(id=>{
+      const x=actionMap.get(id)||{};
+      return {accion_id:id,nombre:String(x.nombre||x.titulo||"").trim(),insignia:String(x.insignia||"").trim()};
+    }),
+    nodos:nodeIds.map(id=>{
+      const x=nodeMap.get(id)||{};
+      return {nodo_id:id,nombre:String(x.nombre||x.titulo||"").trim(),insignia:String(x.insignia||"").trim()};
+    })
+  };
+
+  [
+    "telefono","telefono2","telefono3","telefono4","telefono5",
+    "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
+    "mail","mail2","mail3","instagram","facebook","youtube","tiktok","x","linkedin"
+  ].forEach(k=>sede[k]=raw && raw[k] || "");
+
+  for(let i=1;i<=10;i++) sede["img"+i]=raw && raw["img"+i] || "";
+
+  return sede;
+}
+
 async function refreshGuideCacheForAdvertiser_(
   env,
   advertiserId,
-  extraCityIds=[]
+  extraCityIds=[],
+  changedSedeIds=[]
 ){
   const aid=String(advertiserId||"").trim();
   if(!aid) return;
 
   try{
-    // IMPORTANTE:
-    // Una modificación puntual NO invalida ni reconstruye toda la ciudad.
-    // Sólo actualiza las ciudades donde está este anunciante.
-    const sedes = await firestoreQueryEqual(
-      env, COLL_SEDES, "anunciante_id", aid
-    );
+    const changedIds=(Array.isArray(changedSedeIds)?changedSedeIds:[])
+      .map(v=>String(v||"").trim()).filter(Boolean);
+
+    let sedes=[];
+    if(changedIds.length){
+      sedes=await firestoreGetMany_(env,COLL_SEDES,changedIds);
+    }else{
+      sedes=await firestoreQueryEqual(
+        env,COLL_SEDES,"anunciante_id",aid
+      );
+    }
 
     const cityIds=new Set(
       [
-        ...sedes.map(s=>String(s && s.ciudad_id || "").trim()),
-        ...((Array.isArray(extraCityIds) ? extraCityIds : [])
-          .map(v=>String(v||"").trim()))
+        ...(Array.isArray(extraCityIds)?extraCityIds:[]),
+        ...sedes.map(s=>String(s && s.ciudad_id || "").trim())
       ].filter(Boolean)
     );
 
-    const advertiser=await firestoreGetDocument(
-      env,COLL_ANUNCIANTES,aid
-    );
-    const admin=await firestoreGetDocument(
-      env,COLL_ADMIN,aid
-    );
-    const catalogs=await loadPublicGuideCatalogsLight_(env);
+    const [advertiser,admin,classification]=await Promise.all([
+      firestoreGetDocument(env,COLL_ANUNCIANTES,aid),
+      firestoreGetDocument(env,COLL_ADMIN,aid),
+      firestoreGetDocument(env,COLL_ANUNCIANTES,aid)
+        .then(a=>resolvePublicClassificationTargeted_(env,a||{}))
+    ]);
+
+    if(!advertiser) return;
 
     for(const ciudadId of cityIds){
-      const ciudadDoc=await firestoreGetDocument(
-        env,COLL_CIUDADES,ciudadId
-      );
-      const provinciaId=String(
-        (ciudadDoc && ciudadDoc.provincia_id) || ""
-      ).trim();
-      const paisId=String(
-        (ciudadDoc && ciudadDoc.pais_id) || ""
-      ).trim();
-
+      const ciudadDoc=await firestoreGetDocument(env,COLL_CIUDADES,ciudadId);
+      const provinciaId=String(ciudadDoc && ciudadDoc.provincia_id || "").trim();
+      const paisId=String(ciudadDoc && ciudadDoc.pais_id || "").trim();
       const cacheKey=guideCacheKey_(paisId,provinciaId,ciudadId);
       const cached=await gldCacheGetJson_(cacheKey);
 
-      // Si la ciudad no está en caché, no la reconstruimos.
-      // La próxima carga normal podrá construirla una sola vez.
       if(!Array.isArray(cached)) continue;
 
-      const provinciaDoc=provinciaId
-        ? await firestoreGetDocument(env,COLL_PROVINCIAS,provinciaId)
-        : null;
-      const paisDoc=paisId
-        ? await firestoreGetDocument(env,COLL_PAISES,paisId)
-        : null;
-
-      const citySedes=(sedes||[]).filter(s =>
-        String(s && s.ciudad_id || "").trim()===ciudadId &&
-        publicSedeActiva_(s)
+      const idx=cached.findIndex(row =>
+        String(row && row.id || "").trim()===aid
       );
+      if(idx<0) continue;
 
-      const rows=buildPublicGuideRows_({
-        advertisers:advertiser ? [advertiser] : [],
-        admins:admin ? [admin] : [],
-        sedes:citySedes,
-        segmentos:catalogs.segmentos||[],
-        categorias:catalogs.categorias||[],
-        actividades:catalogs.actividades||[],
-        acciones:catalogs.acciones||[],
-        nodos:catalogs.nodos||[],
-        funcionalidades:[],
-        niveles_anunciante:[],
-        ciudades:ciudadDoc ? [ciudadDoc] : [],
-        provincias:provinciaDoc ? [provinciaDoc] : [],
-        paises:paisDoc ? [paisDoc] : []
-      });
+      const currentRow=cached[idx];
+      const nextRow={
+        ...currentRow,
+        nombre:String(advertiser.nombre||"").trim(),
+        actividad:String(advertiser.actividad||"").trim(),
+        descripcion:String(advertiser.descripcion||"").trim(),
+        tags:String(advertiser.tags||"").trim(),
+        adicionales:String(advertiser.adicionales||"").trim(),
+        logo:String(advertiser.logo||"").trim(),
+        link:String(advertiser.link||"").trim(),
+        nivel:admin && admin.nivel || "",
+        subnivel:admin && admin.subnivel || "",
+        segmento_id:classification.segmento_id,
+        segmento:classification.segmento,
+        categoria_id:classification.categoria_id,
+        categoria:classification.categoria,
+        capacidades:publicAdmin_(admin||{})
+      };
 
-      const next=cached.filter(row =>
-        String(row && row.id || "").trim()!==aid
-      );
+      if(changedIds.length){
+        const sedesActualizadas=[];
+        for(const s of (currentRow.sedes||[])){
+          const sid=String(s && s.sede_id || "").trim();
+          const raw=sedes.find(x=>String(x && (x.sede_id||x.id)||"").trim()===sid);
+          if(raw){
+            sedesActualizadas.push(
+              await patchPublicSedeTargeted_(env,raw,s)
+            );
+          }else{
+            sedesActualizadas.push(s);
+          }
+        }
+        for(const raw of sedes){
+          const sid=String(raw && (raw.sede_id||raw.id)||"").trim();
+          if(!sid || !String(raw.ciudad_id||"").trim()) continue;
+          if(!sedesActualizadas.some(s=>String(s.sede_id||"").trim()===sid)){
+            if(String(raw.ciudad_id).trim()===ciudadId){
+              sedesActualizadas.push(
+                await patchPublicSedeTargeted_(env,raw,{})
+              );
+            }
+          }
+        }
+        nextRow.sedes=sedesActualizadas;
 
-      if(rows.length) next.push(rows[0]);
+        const first=sedesActualizadas[0]||{};
+        [
+          "telefono","telefono2","telefono3","telefono4","telefono5",
+          "whatsapp","whatsapp2","whatsapp3","whatsapp4","whatsapp5",
+          "mail","mail2","mail3","instagram","facebook","youtube","tiktok","x","linkedin"
+        ].forEach(k=>nextRow[k]=first[k]||"");
+      }
 
-      await gldCachePutJson_(cacheKey,next,1800);
+      cached[idx]=nextRow;
+      await gldCachePutJson_(cacheKey,cached,1800);
     }
   }catch(_){}
 }
-
-async function patchCachedArrayItem_(key, itemId, item, options={}){
-  const cached=await gldCacheGetJson_(key);
-  if(!Array.isArray(cached)) return false;
-
-  const idField=String(options.idField || "id");
-  const mode=String(options.mode || "upsert");
-
-  const idx=cached.findIndex(x =>
-    String(x && x[idField] || "").trim() === String(itemId || "").trim()
-  );
-
-  if(mode==="delete"){
-    if(idx<0) return true;
-    cached.splice(idx,1);
-  }else{
-    if(idx<0) cached.push(item);
-    else cached[idx]=item;
-  }
-
-  await gldCachePutJson_(key,cached,Number(options.ttl || 600));
-  return true;
-}
-
-async function firestoreSetDocument(env, collection, id, data){
-  const doc = await firestoreRequest(
-    env,
-    `${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
-    {
-      method:"PATCH",
-      body:{
-        fields:jsObjectToFirestoreFields(data)
-      }
-    }
-  );
-
-  return firestoreDocumentToJs(doc, id);
-}
-
-async function firestoreDeleteDocument(env, collection, id){
-  await firestoreRequest(
-    env,
-    `${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,
-    {
-      method:"DELETE",
-      allow404:true
-    }
-  );
-
-  return true;
-}
-
-// =========================================================================
-// EFEMÉRIDES - DIRECTO A FIRESTORE
-// =========================================================================
-
-const COLL_EFEMERIDES = "efemerides_bis";
-const COLL_CIUDADES = "ciudades";
-const COLL_PROVINCIAS = "provincias";
-const COLL_PAISES = "paises";
-const COLL_ADMIN = "anunciantes_administracion";
-const COLL_ANUNCIANTES = "anunciantes";
-const COLL_SEDES = "anunciantes_sedes";
-const COLL_CATEGORIAS = "categorias";
-const COLL_ACTIVIDADES = "actividades_clave";
-const COLL_ACCIONES = "acciones";
-const COLL_NODOS = "nodos";
-const COLL_SEGMENTOS = "segmentos";
-const COLL_FUNCIONALIDADES = "funcionalidades";
-const COLL_NIVELES_ANUNCIANTE = "niveles_anunciante";
-
 function normalizeAction(v){
   return String(v || "")
     .trim()
@@ -2855,7 +2942,8 @@ async function commerceSetSedes_(env, body){
   await refreshGuideCacheForAdvertiser_(
     env,
     advertiserId,
-    [...oldCityIds]
+    [...oldCityIds],
+    saved
   );
 
   return jsonResponse({
