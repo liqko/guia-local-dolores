@@ -194,6 +194,15 @@ async function abrirApp(){
     }
     ghAplicarResumen(j);
 
+    await Promise.all([
+      cargarPendientes(false),
+      ghCargarEventosPublicos(false)
+    ]);
+
+    ghRenderPendientesInicio();
+    ghRenderEventos();
+    ghRenderActividades();
+    ghRenderAnunciantesPendientes();
     ghGoView('inicio');
     informarAltura();
   }catch(e){
@@ -203,21 +212,30 @@ async function abrirApp(){
     document.getElementById('app').style.display='none';
   }
 }
-async function cargarPendientes(){
+async function cargarPendientes(force=false){
   const box=document.getElementById('pendientes');
   if(box) box.innerHTML='Cargando pendientes...';
   try{
-    const j=await api('pendientes');
+    let j=!force?ghLocalGet('pendientes'):null;
+    if(!j){
+      j=await api('pendientes');
+      ghLocalSet('pendientes',j);
+    }
     GH_PENDING_EVENTS=Array.isArray(j.eventos)?j.eventos:[];
     GH_PENDING_ACTIVITIES=Array.isArray(j.actividades)?j.actividades:[];
     GH_PENDING_ADVERTISERS=Array.isArray(j.anunciantes)?j.anunciantes:[];
     document.getElementById('stEvt').textContent=j.cantidades&&j.cantidades.eventos!==undefined?j.cantidades.eventos:GH_PENDING_EVENTS.length;
     document.getElementById('stAct').textContent=j.cantidades&&j.cantidades.actividades!==undefined?j.cantidades.actividades:GH_PENDING_ACTIVITIES.length;
-    const actPub=document.getElementById('stActPub');if(actPub)actPub.textContent=j.cantidades&&j.cantidades.actividades_publicadas!==undefined?j.cantidades.actividades_publicadas:'-';
-    const anuPend=document.getElementById('stAnuPend'); if(anuPend) anuPend.textContent=j.cantidades&&j.cantidades.anunciantes!==undefined?j.cantidades.anunciantes:GH_PENDING_ADVERTISERS.length;
-
+    const actPub=document.getElementById('stActPub');
+    if(actPub) actPub.textContent=j.cantidades&&j.cantidades.actividades_publicadas!==undefined?j.cantidades.actividades_publicadas:'-';
+    const anuPend=document.getElementById('stAnuPend');
+    if(anuPend) anuPend.textContent=j.cantidades&&j.cantidades.anunciantes!==undefined?j.cantidades.anunciantes:GH_PENDING_ADVERTISERS.length;
     ghRenderPendientesInicio();
-  }catch(e){if(box) box.innerHTML='<p class="error">'+esc(e.message)+'</p>';}
+    return j;
+  }catch(e){
+    if(box) box.innerHTML='<p class="error">'+esc(e.message)+'</p>';
+    return null;
+  }
 }
 
 async function resolverPendiente(tipo,id,decision){
@@ -229,7 +247,8 @@ async function resolverPendiente(tipo,id,decision){
       if(sel){ if(!sel.value){alert('Seleccioná el nivel para aprobar el nuevo anunciante.');return;} payload.nivel=sel.value; }
     }
     await api('resolver_pendiente',payload,'POST');
-    await cargarPendientes();
+    ghLocalDel('pendientes');
+    await cargarPendientes(true);
     ghRenderTodo();
   }catch(e){
     alert(e.message);
@@ -245,12 +264,22 @@ function ghCityId(x){return String((x&&(x.ciudad_id||x.city_id||x.ciudad))||'').
 function ghEventSearch(x){return ghNorm([x.nombre,x.nombre_evento,x.organizador,x.organizador_principal,x.lugar,x.descripcion,x.categoria,x.ciudad_visible].join(' '));}
 
 async function ghFetchJson(url){const r=await fetch(url,{cache:'no-store'});const j=await r.json();if(!r.ok)throw new Error('HTTP '+r.status);return j;}
-async function ghCargarEventosPublicos(){
-  try{const j=await ghFetchJson(EVENTS_API+'?action=getevents');GH_PUBLIC_EVENTS=Array.isArray(j)?j:(Array.isArray(j.events)?j.events:(Array.isArray(j.eventos)?j.eventos:[]));}catch(e){GH_PUBLIC_EVENTS=[];}
+async function ghCargarEventosPublicos(force=false){
+  try{
+    let j=!force?ghLocalGet('eventos_publicos'):null;
+    if(!j){
+      j=await ghFetchJson(EVENTS_API+'?action=getevents');
+      ghLocalSet('eventos_publicos',j);
+    }
+    GH_PUBLIC_EVENTS=Array.isArray(j)?j:(Array.isArray(j.events)?j.events:(Array.isArray(j.eventos)?j.eventos:[]));
+  }catch(e){
+    GH_PUBLIC_EVENTS=[];
+  }
   const vip=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='VIP';});
   const free=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='FREE';});
   const a=document.getElementById('stEvtPub');if(a)a.textContent=vip.length;
   const b=document.getElementById('stEvtFreePub');if(b)b.textContent=free.length;
+  return GH_PUBLIC_EVENTS;
 }
 async function ghCargarCiudades(force=false){
   try{
@@ -533,7 +562,7 @@ document.getElementById('cfgTabs').addEventListener('click',function(e){
   informarAltura();
 });
 ['evQ','evCiudad','evEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evQ'?'input':'change',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');});});
-document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades(true)]);ghRenderTodo();};
+document.getElementById('btnEvtRefresh').onclick=async function(){ghLocalDel('pendientes');ghLocalDel('eventos_publicos');await Promise.all([cargarPendientes(true),ghCargarEventosPublicos(true),ghCargarCiudades(true)]);ghRenderTodo();};
 document.getElementById('btnCiudadesRefresh').onclick=async function(){ghLocalDel('territorios');await ghCargarCiudades(true);ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
 document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}const st=GH_CITY_STATS[id]||{};d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??0)+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??0)+'</b></div></div><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad/partido.</div></div>';if(n)n.classList.remove('hidden');ghCargarNodosCiudad(id);informarAltura();});
