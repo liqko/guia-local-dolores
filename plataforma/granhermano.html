@@ -171,10 +171,13 @@ async function abrirApp(){
     document.getElementById('stSus').textContent=j.resumen.suscriptores;
     document.getElementById('stAnu').textContent=j.resumen.anunciantes;
     document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
+    const vip=document.getElementById('stEvtPub'); if(vip) vip.textContent=j.resumen.eventos_vip_publicados ?? '-';
+    const free=document.getElementById('stEvtFreePub'); if(free) free.textContent=j.resumen.eventos_free_publicados ?? '-';
+    const act=document.getElementById('stActPub'); if(act) act.textContent=j.resumen.actividades_publicadas ?? '-';
     GH_CITY_STATS={};
     (j.resumen.por_ciudad||[]).forEach(function(x){GH_CITY_STATS[String(x.ciudad_id||'')]=x;});
-    await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades(),ghCargarCatalogos()]);
-    ghRenderTodo();
+    await cargarPendientes();
+    ghRenderPendientesInicio();
     ghGoView('inicio');
   }catch(e){
     TOKEN='';
@@ -226,11 +229,18 @@ function ghEventSearch(x){return ghNorm([x.nombre,x.nombre_evento,x.organizador,
 
 async function ghFetchJson(url){const r=await fetch(url);const j=await r.json();if(!r.ok)throw new Error('HTTP '+r.status);return j;}
 async function ghCargarEventosPublicos(){
-  try{const j=await ghFetchJson(EVENTS_API+'?action=getevents');GH_PUBLIC_EVENTS=Array.isArray(j)?j:(Array.isArray(j.events)?j.events:(Array.isArray(j.eventos)?j.eventos:[]));}catch(e){GH_PUBLIC_EVENTS=[];}
-  const vip=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='VIP';});
-  const free=GH_PUBLIC_EVENTS.filter(function(x){return ghPublicKind(x)==='FREE';});
-  const a=document.getElementById('stEvtPub');if(a)a.textContent=vip.length;
-  const b=document.getElementById('stEvtFreePub');if(b)b.textContent=free.length;
+  const ciudad=String((document.getElementById('evCiudad')||{}).value||'');
+  try{
+    const j=await api('buscar_eventos',{ciudad_id:ciudad,limit:100});
+    const all=Array.isArray(j.results)?j.results:[];
+    GH_PUBLIC_EVENTS=all.filter(function(x){
+      const e=String(x.estado_moderacion||x.estado||'').trim().toUpperCase();
+      return !e || e==='PUBLICADO' || e==='ACTIVO';
+    });
+  }catch(e){
+    GH_PUBLIC_EVENTS=[];
+  }
+  ghRenderEventos();
 }
 async function ghCargarCiudades(){
   try{
@@ -292,7 +302,25 @@ function ghRenderActividades(){
 }
 function ghRenderCiudades(){const sel=document.getElementById('ciuSelect');if(!sel)return;const q=ghNorm((document.getElementById('ciuQ')||{}).value||'');const list=GH_CITIES.filter(function(x){return !q||ghNorm(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id).indexOf(q)>=0;});sel.innerHTML='<option value="">Seleccioná una ciudad</option>'+list.map(function(x){const id=String(x.ciudad_id||x.id||'');const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id);return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');const d=document.getElementById('ciudadDetalle');if(d)d.textContent=list.length?list.length+' ciudad(es) encontradas.':'Sin coincidencias.';}
 function ghRenderTodo(){ghRenderPendientesInicio();ghRenderEventos();ghRenderActividades();ghRenderAnunciantesPendientes();ghRenderCiudades();informarAltura();}
-function ghGoView(name){document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});window.scrollTo({top:0,behavior:'auto'});if(name==='configuracion')ghCargarCatalogos();if(name==='anunciantes'){if(!(GH_CATALOG_CACHE.niveles_anunciante||[]).length)ghCargarCatalogos().then(ghRenderAnunciantesPendientes);buscarAnu();}if(name==='suscriptores')buscarSus();informarAltura();}
+function ghGoView(name){
+  document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});
+  document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});
+  window.scrollTo({top:0,behavior:'auto'});
+  if(name==='eventos'){
+    ghCargarCiudades().then(ghCargarEventosPublicos);
+  }
+  if(name==='ciudades'){
+    ghCargarCiudades().then(ghRenderCiudades);
+  }
+  if(name==='configuracion') ghCargarCatalogos();
+  if(name==='anunciantes'){
+    ghCargarCiudades();
+    if(!(GH_CATALOG_CACHE.niveles_anunciante||[]).length) ghCargarCatalogos().then(ghRenderAnunciantesPendientes);
+    buscarAnu();
+  }
+  if(name==='suscriptores') buscarSus();
+  informarAltura();
+}
 
 
 function ghTerrId_(tipo){return tipo.toUpperCase()+'_'+Date.now();}
@@ -475,11 +503,26 @@ document.getElementById('cfgTabs').addEventListener('click',function(e){
   document.querySelectorAll('[data-cfgpane]').forEach(x=>x.classList.toggle('hidden',x.getAttribute('data-cfgpane')!==b.dataset.cfg));
   informarAltura();
 });
-['evQ','evCiudad','evEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evQ'?'input':'change',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');});});
-document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades()]);ghRenderTodo();};
+document.getElementById('evQ').addEventListener('input',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');ghFiltrarEventos('eventosFreeList','evQ','evCiudad','evEstado');});
+document.getElementById('evEstado').addEventListener('change',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');ghFiltrarEventos('eventosFreeList','evQ','evCiudad','evEstado');});
+document.getElementById('evCiudad').addEventListener('change',ghCargarEventosPublicos);
+document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarCiudades()]);await ghCargarEventosPublicos();ghRenderTodo();};
 document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
-document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}const st=GH_CITY_STATS[id]||{};d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??0)+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??0)+'</b></div></div><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad/partido.</div></div>';if(n)n.classList.remove('hidden');ghCargarNodosCiudad(id);informarAltura();});
+document.getElementById('ciuSelect').addEventListener('change',async function(){
+  const id=this.value;
+  const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});
+  const d=document.getElementById('ciudadDetalle');
+  const n=document.getElementById('ciudadNodos');
+  if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}
+  d.textContent='Cargando datos de la ciudad...';
+  let st={};
+  try{st=await api('resumen_ciudad',{ciudad_id:id});GH_CITY_STATS[id]=st;}catch(_){st=GH_CITY_STATS[id]||{};}
+  d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??'-')+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??'-')+'</b></div></div><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad/partido.</div></div>';
+  if(n)n.classList.remove('hidden');
+  ghCargarNodosCiudad(id);
+  informarAltura();
+});
 document.getElementById('btnLogin').onclick=login;
 document.getElementById('btnBuscarSus').onclick=buscarSus;
 document.getElementById('btnBuscarAnu').onclick=buscarAnu;
