@@ -113,6 +113,25 @@ let GH_PROVINCES=[];
 let GH_CITY_STATS={};
 let GH_CATALOG_CACHE={};
 
+const GH_LOCAL_PREFIX='gld_gh_cache_v1:';
+function ghLocalGet(key){
+  try{return JSON.parse(localStorage.getItem(GH_LOCAL_PREFIX+key)||'null');}catch(_){return null;}
+}
+function ghLocalSet(key,value){
+  try{localStorage.setItem(GH_LOCAL_PREFIX+key,JSON.stringify(value));}catch(_){}
+}
+function ghLocalDel(key){
+  try{localStorage.removeItem(GH_LOCAL_PREFIX+key);}catch(_){}
+}
+function ghAplicarResumen(j){
+  if(!j||!j.resumen)return;
+  document.getElementById('stSus').textContent=j.resumen.suscriptores ?? '-';
+  document.getElementById('stAnu').textContent=j.resumen.anunciantes ?? '-';
+  document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
+  GH_CITY_STATS={};
+  (j.resumen.por_ciudad||[]).forEach(function(x){GH_CITY_STATS[String(x.ciudad_id||'')]=x;});
+}
+
 function esc(v){
   return String(v??'').replace(/[&<>"']/g,c=>({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'
@@ -165,17 +184,18 @@ async function login(){
 
 async function abrirApp(){
   try{
-    const j=await api('resumen');
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
-    document.getElementById('stSus').textContent=j.resumen.suscriptores;
-    document.getElementById('stAnu').textContent=j.resumen.anunciantes;
-    document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
-    GH_CITY_STATS={};
-    (j.resumen.por_ciudad||[]).forEach(function(x){GH_CITY_STATS[String(x.ciudad_id||'')]=x;});
-    await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades(),ghCargarCatalogos()]);
-    ghRenderTodo();
+
+    let j=ghLocalGet('resumen');
+    if(!j){
+      j=await api('resumen');
+      ghLocalSet('resumen',j);
+    }
+    ghAplicarResumen(j);
+
     ghGoView('inicio');
+    informarAltura();
   }catch(e){
     TOKEN='';
     localStorage.removeItem('gld_superadmin_token');
@@ -232,14 +252,18 @@ async function ghCargarEventosPublicos(){
   const a=document.getElementById('stEvtPub');if(a)a.textContent=vip.length;
   const b=document.getElementById('stEvtFreePub');if(b)b.textContent=free.length;
 }
-async function ghCargarCiudades(){
+async function ghCargarCiudades(force=false){
   try{
-    const j=await api('territorios');
+    let j=!force?ghLocalGet('territorios'):null;
+    if(!j){
+      j=await api('territorios');
+      ghLocalSet('territorios',j);
+    }
     GH_CITIES=Array.isArray(j.ciudades)?j.ciudades:[];
     GH_COUNTRIES=Array.isArray(j.paises)?j.paises:[];
     GH_PROVINCES=Array.isArray(j.provincias)?j.provincias:[];
   }catch(e){
-    try{const j=await ghFetchJson(EVENTS_API+'?action=getcities');GH_CITIES=Array.isArray(j)?j:(Array.isArray(j.ciudades)?j.ciudades:[]);}catch(_){GH_CITIES=[];}
+    GH_CITIES=[];GH_COUNTRIES=[];GH_PROVINCES=[];
   }
   const opts='<option value="">Todas las ciudades</option>'+GH_CITIES.map(function(x){const id=String(x.ciudad_id||x.id||'').trim();const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id).trim();return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');
   const a=document.getElementById('evCiudad');if(a)a.innerHTML=opts;
@@ -292,7 +316,33 @@ function ghRenderActividades(){
 }
 function ghRenderCiudades(){const sel=document.getElementById('ciuSelect');if(!sel)return;const q=ghNorm((document.getElementById('ciuQ')||{}).value||'');const list=GH_CITIES.filter(function(x){return !q||ghNorm(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id).indexOf(q)>=0;});sel.innerHTML='<option value="">Seleccioná una ciudad</option>'+list.map(function(x){const id=String(x.ciudad_id||x.id||'');const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id);return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');const d=document.getElementById('ciudadDetalle');if(d)d.textContent=list.length?list.length+' ciudad(es) encontradas.':'Sin coincidencias.';}
 function ghRenderTodo(){ghRenderPendientesInicio();ghRenderEventos();ghRenderActividades();ghRenderAnunciantesPendientes();ghRenderCiudades();informarAltura();}
-function ghGoView(name){document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});window.scrollTo({top:0,behavior:'auto'});if(name==='configuracion')ghCargarCatalogos();if(name==='anunciantes'){if(!(GH_CATALOG_CACHE.niveles_anunciante||[]).length)ghCargarCatalogos().then(ghRenderAnunciantesPendientes);buscarAnu();}if(name==='suscriptores')buscarSus();informarAltura();}
+function ghGoView(name){
+  document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});
+  document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});
+  window.scrollTo({top:0,behavior:'auto'});
+
+  if(name==='eventos'){
+    Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades()]).then(ghRenderTodo);
+  }
+  if(name==='actividades'){
+    cargarPendientes().then(ghRenderActividades);
+  }
+  if(name==='ciudades'){
+    ghCargarCiudades().then(ghRenderCiudades);
+  }
+  if(name==='configuracion'){
+    ghCargarCatalogos();
+  }
+  if(name==='anunciantes'){
+    if(!(GH_CATALOG_CACHE.niveles_anunciante||[]).length){
+      ghCargarCatalogos().then(ghRenderAnunciantesPendientes);
+    }
+    ghCargarCiudades();
+    buscarAnu();
+  }
+  if(name==='suscriptores')buscarSus();
+  informarAltura();
+}
 
 
 function ghTerrId_(tipo){return tipo.toUpperCase()+'_'+Date.now();}
@@ -424,12 +474,19 @@ function ghRenderCatalogo(def,rows){
   box.innerHTML='<div class="toolbar"><button onclick="ghNuevoCatalogo(\''+def.tipo+'\')">+ Agregar</button></div>'+(items||'<div class="muted">No hay elementos cargados.</div>');
 }
 
-async function ghCargarCatalogo(def){
+async function ghCargarCatalogo(def,force=false){
   const box=document.getElementById(def.box);if(box)box.innerHTML='<div class="muted">Cargando...</div>';
-  try{const j=await api('listar_catalogo',{tipo:def.tipo});GH_CATALOG_CACHE[def.tipo]=j.results||[];ghRenderCatalogo(def,j.results||[]);}
-  catch(e){if(box)box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
+  try{
+    let j=!force?ghLocalGet('catalogo:'+def.tipo):null;
+    if(!j){
+      j=await api('listar_catalogo',{tipo:def.tipo});
+      ghLocalSet('catalogo:'+def.tipo,j);
+    }
+    GH_CATALOG_CACHE[def.tipo]=j.results||[];
+    ghRenderCatalogo(def,j.results||[]);
+  }catch(e){if(box)box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
-async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
+async function ghCargarCatalogos(force=false){await Promise.all(GH_CATALOGOS.map(def=>ghCargarCatalogo(def,force)));informarAltura();}
 function ghNuevoCatalogo(tipo){
   const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
   const box=document.getElementById(def.box);const id=ghCatalogoIdNuevo(tipo);
@@ -441,7 +498,7 @@ async function ghGuardarCatalogo(tipo,id){
   const nombre=(document.querySelector('[data-cat-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
   const activo=!!(document.querySelector('[data-cat-activo="'+CSS.escape(id)+'"]')||{}).checked;
   if(!nombre.trim()){alert('Falta el nombre.');return;}
-  try{const item={[def.idField]:id,nombre:nombre.trim(),activo};if(tipo==='niveles_anunciante'){const numero=Number((document.querySelector('[data-cat-numero="'+CSS.escape(id)+'"]')||{}).value);if(!Number.isFinite(numero)||numero<=0){alert('Indicá un número de nivel válido.');return;}item.numero=numero;item.orden=Number((document.querySelector('[data-cat-orden="'+CSS.escape(id)+'"]')||{}).value||item.numero);item.prioridad=item.orden;item.descripcion_max=Math.max(0,Number((document.querySelector('[data-cat-descmax="'+CSS.escape(id)+'"]')||{}).value||0));item.adicionales_max=Math.max(0,Number((document.querySelector('[data-cat-adicmax="'+CSS.escape(id)+'"]')||{}).value||0));item.tags_max=Math.max(0,Number((document.querySelector('[data-cat-tagsmax="'+CSS.escape(id)+'"]')||{}).value||0));item.imagenes_max=Math.min(5,Math.max(0,Number((document.querySelector('[data-cat-imgmax="'+CSS.escape(id)+'"]')||{}).value||0)));item.tags_habilitados=!!(document.querySelector('[data-cat-tags="'+CSS.escape(id)+'"]')||{}).checked;item.imagenes_habilitadas=!!(document.querySelector('[data-cat-imagenes="'+CSS.escape(id)+'"]')||{}).checked;item.destacado=!!(document.querySelector('[data-cat-destacado="'+CSS.escape(id)+'"]')||{}).checked;}await api('guardar_catalogo',{tipo,item},'POST');await ghCargarCatalogo(def);}
+  try{const item={[def.idField]:id,nombre:nombre.trim(),activo};if(tipo==='niveles_anunciante'){const numero=Number((document.querySelector('[data-cat-numero="'+CSS.escape(id)+'"]')||{}).value);if(!Number.isFinite(numero)||numero<=0){alert('Indicá un número de nivel válido.');return;}item.numero=numero;item.orden=Number((document.querySelector('[data-cat-orden="'+CSS.escape(id)+'"]')||{}).value||item.numero);item.prioridad=item.orden;item.descripcion_max=Math.max(0,Number((document.querySelector('[data-cat-descmax="'+CSS.escape(id)+'"]')||{}).value||0));item.adicionales_max=Math.max(0,Number((document.querySelector('[data-cat-adicmax="'+CSS.escape(id)+'"]')||{}).value||0));item.tags_max=Math.max(0,Number((document.querySelector('[data-cat-tagsmax="'+CSS.escape(id)+'"]')||{}).value||0));item.imagenes_max=Math.min(5,Math.max(0,Number((document.querySelector('[data-cat-imgmax="'+CSS.escape(id)+'"]')||{}).value||0)));item.tags_habilitados=!!(document.querySelector('[data-cat-tags="'+CSS.escape(id)+'"]')||{}).checked;item.imagenes_habilitadas=!!(document.querySelector('[data-cat-imagenes="'+CSS.escape(id)+'"]')||{}).checked;item.destacado=!!(document.querySelector('[data-cat-destacado="'+CSS.escape(id)+'"]')||{}).checked;}await api('guardar_catalogo',{tipo,item},'POST');ghLocalDel('catalogo:'+def.tipo);await ghCargarCatalogo(def,true);}
   catch(e){alert(e.message);}
 }
 
@@ -476,8 +533,8 @@ document.getElementById('cfgTabs').addEventListener('click',function(e){
   informarAltura();
 });
 ['evQ','evCiudad','evEstado'].forEach(function(id){const el=document.getElementById(id);el.addEventListener(id==='evQ'?'input':'change',function(){ghFiltrarEventos('eventosList','evQ','evCiudad','evEstado');});});
-document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades()]);ghRenderTodo();};
-document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
+document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([cargarPendientes(),ghCargarEventosPublicos(),ghCargarCiudades(true)]);ghRenderTodo();};
+document.getElementById('btnCiudadesRefresh').onclick=async function(){ghLocalDel('territorios');await ghCargarCiudades(true);ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
 document.getElementById('ciuSelect').addEventListener('change',function(){const id=this.value;const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});const d=document.getElementById('ciudadDetalle');const n=document.getElementById('ciudadNodos');if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}const st=GH_CITY_STATS[id]||{};d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??0)+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??0)+'</b></div></div><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad/partido.</div></div>';if(n)n.classList.remove('hidden');ghCargarNodosCiudad(id);informarAltura();});
 document.getElementById('btnLogin').onclick=login;
