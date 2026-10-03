@@ -7,6 +7,7 @@ import {rebuildActivitiesAll} from "../core/activities-read-model.js";
 import {rebuildPublicityAll} from "../core/publicity-read-model.js";
 import {rebuildEfemeridesAllV2} from "../core/efemerides-rebuild-v2.js";
 import {rebuildFarmAll} from "../core/farmacias-read-model.js";
+import {rebuildAdminIndexesV2} from "../core/admin-indexes-v2.js";
 
 /**
  * Seed/rebuild integral de la capa intermedia.
@@ -31,7 +32,8 @@ export async function rebuildAllReadModelsV2({env,request,db,cache}){
     activities,
     publicity,
     efemerides,
-    pharmacies
+    pharmacies,
+    adminIndexes
   ]=await Promise.all([
     rebuildGuideAllV2({db,cache}),
     rebuildPromosAll({db,cache}),
@@ -39,7 +41,8 @@ export async function rebuildAllReadModelsV2({env,request,db,cache}){
     rebuildActivitiesAll({db,cache}),
     rebuildPublicityAll({db,cache}),
     rebuildEfemeridesAllV2({db,cache}),
-    rebuildFarmAll({db,cache})
+    rebuildFarmAll({db,cache}),
+    rebuildAdminIndexesV2({db,cache})
   ]);
 
   return{
@@ -54,6 +57,7 @@ export async function rebuildAllReadModelsV2({env,request,db,cache}){
     activities,
     publicity,
     efemerides,
-    pharmacies
+    pharmacies,
+    adminIndexes
   };
 }
