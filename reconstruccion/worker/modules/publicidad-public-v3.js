@@ -61,7 +61,20 @@ export async function publicidadPublicaV3({cache,cityId,moduleName,categoryId=""
         .filter(activeMedia)
         .sort((a,b)=>Number(a.orden||0)-Number(b.orden||0));
 
-      return {...p,media,segmentacion:seg};
+      const first=media[0]||{};
+      const tipo=text(first.tipo_media||p.formato).toUpperCase();
+      const url=text(first.url);
+
+      return {
+        ...p,
+        media,
+        segmentacion:seg,
+        ciudad_id:city,
+        img:tipo==="IMAGEN"?url:"",
+        media_url:tipo==="IMAGEN"?"":url,
+        cta:text(p.cta_destino||p.cta),
+        poster:text(first.poster||p.poster)
+      };
     })
     .filter(Boolean);
 
