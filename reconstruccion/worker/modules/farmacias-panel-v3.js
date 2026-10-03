@@ -28,5 +28,11 @@ export async function farmaciasPanelDataV3({db,cache,advertiserId,featureAllowed
     ? ((territorio&&territorio.ciudades)||[]).filter(c=>allowedCityIds.includes(text(c.ciudad_id||c.id)))
     : ((territorio&&territorio.ciudades)||[]);
 
-  return{success:true,farmacias,ciclos:cicloData,ciudades};
+  return{
+    success:true,
+    farmacias,
+    ciclos:cicloData,
+    participantes:cicloData.flatMap(c=>Array.isArray(c.participantes)?c.participantes:[]),
+    ciudades
+  };
 }
