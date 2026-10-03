@@ -195,7 +195,13 @@ export async function routePanelV3({path,request,url,env,db,cache}){
   if(path==="/publicidad"&&request.method==="POST"){
     const body=await bodyOf(request),action=actionOf(url,body),aid=aidOf(url,body);
     const auth=await requirePanel(env,request,aid,"publicidad",true);if(auth.response)return auth.response;
-    if(action==="guardar")return json(await publicitySaveV2({db,cache,advertiserId:aid,body}));
+    if(action==="guardar"){
+      const admin=await db.get("anunciantes_administracion",aid);
+      return json(await publicitySaveV2({
+        db,cache,advertiserId:aid,body,
+        config:configFromAdmin(admin||{})
+      }));
+    }
     if(action==="actualizar_activos")return json(await publicityActiveChangeV3({db,cache,advertiserId:aid,ids:body.publicidad_ids}));
     if(action==="eliminar")return json(await publicityDeleteSafeV3({db,cache,advertiserId:aid,publicityId:text(body.publicidad_id)}));
     return null;
