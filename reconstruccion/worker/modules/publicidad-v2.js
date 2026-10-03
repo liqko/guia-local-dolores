@@ -3,7 +3,20 @@ const text=v=>String(v??"").trim();
 
 export async function publicityPublicV2({cache,cityId}){return getPublicityCity({cache,cityId});}
 
-export async function publicitySaveV2({db,cache,advertiserId,body}){
+function parseCategoriaKey(value){
+  const raw=text(value);
+  const idx=raw.indexOf(":");
+  if(idx>0){
+    return {
+      categoria_key:raw,
+      ubicacion_id:raw.slice(0,idx),
+      categoria_id:raw.slice(idx+1)
+    };
+  }
+  return {categoria_key:raw,ubicacion_id:"",categoria_id:raw};
+}
+
+export async function publicitySaveV2({db,cache,advertiserId,body,config={}}){
   const data=body&&body.payload&&typeof body.payload==="object"?body.payload:{};
   const id=text(data.publicidad_id)||("PUB-"+crypto.randomUUID());
   const current=text(data.publicidad_id)?await db.get("publicidades",id):null;
@@ -35,22 +48,55 @@ export async function publicitySaveV2({db,cache,advertiserId,body}){
 
   if(Array.isArray(data.media)){
     const old=await db.queryEqual("publicidad_media","publicidad_id",id);
-    for(const x of old){const xid=text(x.media_id||x.id);if(xid)await db.delete("publicidad_media",xid);}
-    for(const m of data.media){
-      const mid="PM-"+crypto.randomUUID();
-      await db.patch("publicidad_media",mid,{...m,media_id:mid,publicidad_id:id,actualizado:now});
+    for(const x of old){
+      const xid=text(x.media_id||x.id);
+      if(xid)await db.delete("publicidad_media",xid);
+    }
+    let orden=0;
+    for(const m of data.media.filter(x=>text(x&&x.url))){
+      orden++;
+      const mid="MED-"+crypto.randomUUID();
+      await db.patch("publicidad_media",mid,{
+        media_id:mid,
+        publicidad_id:id,
+        tipo_media:text(data.formato||doc.formato).toUpperCase(),
+        url:text(m.url),
+        poster:text(m.poster),
+        orden,
+        activo:true,
+        actualizado:now
+      });
     }
   }
 
   if(Array.isArray(data.ciudades)||Array.isArray(data.categorias)){
     const old=await db.queryEqual("publicidad_segmentacion","publicidad_id",id);
-    for(const x of old){const xid=text(x.segmentacion_id||x.id);if(xid)await db.delete("publicidad_segmentacion",xid);}
-    const cities=Array.isArray(data.ciudades)?data.ciudades.map(text).filter(Boolean):[];
-    const cats=Array.isArray(data.categorias)?data.categorias.map(text).filter(Boolean):[""];
+    for(const x of old){
+      const xid=text(x.segmentacion_id||x.id);
+      if(xid)await db.delete("publicidad_segmentacion",xid);
+    }
+
+    const cities=Array.isArray(data.ciudades)?[...new Set(data.ciudades.map(text).filter(Boolean))]:[];
+    const cats=Array.isArray(data.categorias)?[...new Set(data.categorias.map(text).filter(Boolean))]:[];
+
     for(const city of cities){
-      for(const cat of cats){
-        const sid="PS-"+crypto.randomUUID();
-        await db.patch("publicidad_segmentacion",sid,{segmentacion_id:sid,publicidad_id:id,ciudad_id:city,categoria_key:cat,actualizado:now});
+      for(const raw of cats){
+        const cat=parseCategoriaKey(raw);
+        if(!cat.ubicacion_id||!cat.categoria_id)continue;
+
+        const sid="SEG-"+crypto.randomUUID();
+        await db.patch("publicidad_segmentacion",sid,{
+          segmentacion_id:sid,
+          publicidad_id:id,
+          ciudad_id:city,
+          ubicacion_id:cat.ubicacion_id,
+          categoria_id:cat.categoria_id,
+          categoria_key:cat.categoria_key,
+          prioridad_id:text(config.prioridad_id).toUpperCase(),
+          activo:true,
+          creado:now,
+          actualizado:now
+        });
       }
     }
   }
