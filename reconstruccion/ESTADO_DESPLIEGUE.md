@@ -1,24 +1,44 @@
-# Reconstrucción total Guía Local — Estado de despliegue
+# Reconstrucción total — estado técnico
 
-**NO DESPLEGAR TODAVÍA.**
+## NO DESPLEGAR TODAVÍA
 
-La rama `reconstruccion-total-03oct` es un entorno de construcción aislado de producción.
+Rama: `reconstruccion-total-03oct`
 
-## Qué ya existe en esta rama
-- `reconstruccion/worker/WORKER_NUEVO_TERRITORIO_V1_03OCT.js`
-- `reconstruccion/plataforma/granhermano-territorio-v1.html`
+### Núcleo nuevo
+- `reconstruccion/worker/app.js` — router modular V2.
+- `reconstruccion/worker/core/db.js` — Firestore sin efectos laterales.
+- `reconstruccion/worker/core/cache.js` — KV.
+- `reconstruccion/worker/core/http.js`
+- `reconstruccion/worker/core/auth-admin.js`
+- `reconstruccion/worker/core/catalogs.js`
+- `reconstruccion/worker/core/contracts.js`
+
+### Módulos nuevos
+- Territorio: implementado y conectado al router.
+- Commerce: panel data modular creado.
+- Promos: panel data modular creado.
+- Eventos: panel data modular creado.
+- Actividades: panel data modular creado.
+- Publicidad: panel data modular creado.
+- Efemérides: panel data modular creado.
+- Farmacias: panel data modular creado.
+
+### Interfaces de reconstrucción
+- `reconstruccion/plataforma/inicio-territorio-v1.html`
 - `reconstruccion/plataforma/carcasa-territorio-v1.html`
+- `reconstruccion/plataforma/granhermano-territorio-v2.html`
+- `reconstruccion/plataforma/login-territorio-v1.html`
 
-## Qué significa
-Estos archivos forman el primer bloque de la arquitectura nueva de Territorio/Ciudades. Todavía no reemplazan los archivos de producción ni el Worker desplegado.
+### Regla ya aplicada
+Los módulos del panel del anunciante dejan de recibir catálogos propios de ciudades. Todos usan el mismo `/territory/public`, cacheado una vez en navegador y servido desde KV/CDN.
 
-## Regla de trabajo
-No pedir al usuario que copie o despliegue piezas sueltas. El primer despliegue se hará cuando el bloque mínimo coherente esté cerrado:
-1. Worker nuevo con Territorio.
-2. Capa KV configurada.
-3. Gran Admin conectado.
-4. Carcasa pública conectada.
-5. Inicialización controlada del catálogo territorial.
-6. Prueba integrada fuera de producción.
+### Auditoría
+`reconstruccion/auditoria/AUDITAR_RECONSTRUCCION.js` detecta la reaparición de patrones prohibidos como:
+- `territorios` viejo;
+- `resumen_ciudad`;
+- `ubicaciones` viejo;
+- polling;
+- commerce usado como catálogo territorial.
 
-Hasta ese punto, todo cambio queda únicamente en la rama de reconstrucción.
+### Próximo segmento
+Integrar autenticación del anunciante al núcleo modular y conectar los módulos panel-data al router nuevo. Después, eliminar de los backends reconstruidos cualquier carga de ciudades/catálogos que ya venga de KV.
