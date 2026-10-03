@@ -62,3 +62,24 @@ La auditoría de `login-modular-v3.html` no detecta llamadas privadas sin `Autho
 ### Estado
 **NO DESPLEGAR TODAVÍA.**
 Faltan cerrar programación de Eventos, FREE completo, mutaciones de Actividades/Publicidad/Efemérides/Farmacias y pruebas integradas del entrypoint V6.
+
+
+## Avance 03OCT — Actividades / Publicidad / Efemérides / Farmacias
+
+- `core/activities-read-model.js` + `modules/actividades-v2.js`: read model por ciudad, alta/edición, horarios, pausar/reanudar/renovar/eliminar.
+- `core/publicity-read-model.js` + `modules/publicidad-v2.js`: publicidad pública por ciudad y guardado/eliminación puntual.
+- `core/efemerides-read-model.js` + `modules/efemerides-v2.js`: efemérides públicas por ciudad y mutaciones puntuales con permisos.
+- `core/farmacias-read-model.js` + `modules/farmacias-v2.js`: ciclos de farmacia por ciudad en KV y guardado incremental.
+- `routes/public-v2.js`: lecturas públicas de Territorio, Guía, Promos, Eventos, Actividades, Publicidad, Efemérides y Farmacias desde capa intermedia.
+- `routes/panel-v2.js`: panel modular V2 con Commerce, Promos, Eventos VIP, Actividades, Publicidad, Efemérides (lectura) y Farmacias.
+- `routes/admin-v2.js`: rebuilds explícitos de todos los read models y moderación de Eventos.
+- `app-main-v7.js`: entrypoint modular V7.
+
+### Pendientes inmediatos antes de despliegue
+- Eventos FREE completo + programación VIP/FREE.
+- Publicidad: selección de activos y límite diario.
+- Efemérides: conectar mutaciones V2 al router panel.
+- Pruebas integradas/sintaxis/imports del Worker V7.
+- Configuración real del binding KV y seed controlado.
+
+**NO DESPLEGAR TODAVÍA.**
