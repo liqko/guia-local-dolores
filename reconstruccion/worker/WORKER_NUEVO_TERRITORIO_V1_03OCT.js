@@ -35,6 +35,16 @@ function json(data,status=200){
     headers:{"Content-Type":"application/json; charset=utf-8",...cors()}
   });
 }
+function publicJson(data,status=200){
+  return new Response(JSON.stringify(data),{
+    status,
+    headers:{
+      "Content-Type":"application/json; charset=utf-8",
+      "Cache-Control":"public, max-age=300, s-maxage=3600, stale-while-revalidate=86400",
+      ...cors()
+    }
+  });
+}
 function cleanPath(pathname){
   const p=String(pathname||"/").replace(/\\/+/g,"/");
   return p.length>1 && p.endsWith("/") ? p.slice(0,-1) : p;
@@ -329,7 +339,7 @@ function sortCities(rows){
 async function publicTerritory(env){
   const data=await kvGet(env,KV_PUBLIC);
   if(!data) return json({success:false,message:"Catálogo territorial no inicializado"},503);
-  return json({success:true,...packet(data)});
+  return publicJson({success:true,...packet(data)});
 }
 async function adminTerritory(env,request){
   const auth=await verifyAdmin(env,request);
