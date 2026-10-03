@@ -2,6 +2,7 @@ import {json} from "../core/http.js";
 import {verifyAdmin} from "../core/auth-admin.js";
 import {routeAdminV5} from "./admin-v5.js";
 import {pendingAllV2,resolvePendingV2} from "../modules/moderacion-general-v2.js";
+import {rebuildEfemeridesAllV2} from "../core/efemerides-rebuild-v2.js";
 
 const text=v=>String(v??"").trim();
 
@@ -12,6 +13,15 @@ function canModerate(auth){
 
 export async function routeAdminV6(ctx){
   const {path,request,env,db,cache}=ctx;
+
+  if(path==="/superadmin/efemerides/rebuild-cache"&&request.method==="POST"){
+    const auth=await verifyAdmin(env,request);
+    if(!auth.ok)return json({success:false,message:auth.message},401);
+    if(!["SUPERADMIN_PRINCIPAL","SUPERADMIN"].includes(text(auth.rol).toUpperCase())){
+      return json({success:false,message:"Permiso insuficiente."},403);
+    }
+    return json(await rebuildEfemeridesAllV2({db,cache}));
+  }
 
   if(path==="/superadmin/moderation/pending"&&request.method==="GET"){
     const auth=await verifyAdmin(env,request);
