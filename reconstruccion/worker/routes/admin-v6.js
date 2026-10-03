@@ -2,7 +2,7 @@ import {json} from "../core/http.js";
 import {verifyAdmin} from "../core/auth-admin.js";
 import {routeAdminV5} from "./admin-v5.js";
 import {pendingAllV2,resolvePendingV2} from "../modules/moderacion-general-v2.js";
-import {rebuildEfemeridesAllV2} from "../core/efemerides-rebuild-v2.js";
+import {rebuildEfemeridesAllV3} from "../core/efemerides-read-model-v2.js";
 
 const text=v=>String(v??"").trim();
 
@@ -20,7 +20,7 @@ export async function routeAdminV6(ctx){
     if(!["SUPERADMIN_PRINCIPAL","SUPERADMIN"].includes(text(auth.rol).toUpperCase())){
       return json({success:false,message:"Permiso insuficiente."},403);
     }
-    return json(await rebuildEfemeridesAllV2({db,cache}));
+    return json(await rebuildEfemeridesAllV3({db,cache}));
   }
 
   if(path==="/superadmin/moderation/pending"&&request.method==="GET"){
