@@ -7,7 +7,8 @@ const KEYS={
   promos:"catalogs:promos:v1",
   eventos:"catalogs:eventos:v1",
   actividades:"catalogs:actividades:v1",
-  publicidad:"catalogs:publicidad:v1"
+  publicidad:"catalogs:publicidad:v1",
+  admin:"admin:catalogs:v2"
 };
 
 function active(x){
@@ -42,7 +43,8 @@ export async function rebuildCatalogs({db,cache}){
   const [
     segmentos,categorias,actividades,acciones,nodos,funcionalidades,niveles,
     promosCategorias,eventosCategorias,lugares,
-    actividadesCategorias,publicidadCategorias,publicidadUbicaciones,publicidadPrioridades
+    actividadesCategorias,publicidadCategorias,publicidadUbicaciones,publicidadPrioridades,
+    moderacion18
   ]=await Promise.all([
     db.listCollection("segmentos"),
     db.listCollection("categorias"),
@@ -57,7 +59,8 @@ export async function rebuildCatalogs({db,cache}){
     db.listCollection("actividades_categorias"),
     db.listCollection("publicidad_categorias"),
     db.listCollection("publicidad_ubicaciones"),
-    db.listCollection("publicidad_prioridades")
+    db.listCollection("publicidad_prioridades"),
+    db.listCollection("eventos_moderacion_palabras")
   ]);
 
   const now=new Date().toISOString();
@@ -66,7 +69,21 @@ export async function rebuildCatalogs({db,cache}){
     cache.put(KEYS.promos,{updated_at:now,categorias:onlyActive(promosCategorias)}),
     cache.put(KEYS.eventos,{updated_at:now,categorias:onlyActive(eventosCategorias),lugares:onlyActive(lugares),partners:[]}),
     cache.put(KEYS.actividades,{updated_at:now,categorias:onlyActive(actividadesCategorias),lugares:onlyActive(lugares)}),
-    cache.put(KEYS.publicidad,{updated_at:now,categorias:onlyActive(publicidadCategorias),ubicaciones:onlyActive(publicidadUbicaciones),prioridades:onlyActive(publicidadPrioridades)})
+    cache.put(KEYS.publicidad,{updated_at:now,categorias:onlyActive(publicidadCategorias),ubicaciones:onlyActive(publicidadUbicaciones),prioridades:onlyActive(publicidadPrioridades)}),
+    cache.put(KEYS.admin,{
+      version:2,
+      updated_at:now,
+      segmentos,
+      niveles_anunciante:niveles,
+      funcionalidades,
+      categorias,
+      actividades_clave:actividades,
+      acciones,
+      nodos,
+      eventos_categorias:eventosCategorias,
+      actividades_categorias:actividadesCategorias,
+      moderacion_18:moderacion18
+    })
   ]);
 
   return {success:true,updated_at:now};
