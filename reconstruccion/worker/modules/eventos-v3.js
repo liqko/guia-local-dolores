@@ -116,7 +116,13 @@ export async function createEventV3({db,cache,advertiserId,payload,max,advertise
   const saved=await db.patch("eventos",eventId,doc);
   await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:doc.ciudad_id});
   await syncEventV2({db,cache,next:saved});
-  return{success:true,created:true,evento_id:eventId,estado_moderacion:"PENDIENTE"};
+  return{
+    success:true,
+    created:true,
+    evento_id:eventId,
+    estado_moderacion:"PENDIENTE",
+    evento:{...saved,programacion:Array.isArray(data.programacion)?data.programacion:[]}
+  };
 }
 export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"}){
   const data=payload&&typeof payload==="object"?payload:{},eventId=text(data.evento_id);
@@ -136,7 +142,13 @@ export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"})
     await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:next.ciudad_id});
   }
   await syncEventV2({db,cache,current,next:saved});
-  return{success:true,updated:true,evento_id:eventId,estado_moderacion:"PENDIENTE"};
+  return{
+    success:true,
+    updated:true,
+    evento_id:eventId,
+    estado_moderacion:"PENDIENTE",
+    evento:{...saved,programacion:Array.isArray(validation.programacion)?validation.programacion:[]}
+  };
 }
 export async function pauseEventV3({db,cache,advertiserId,payload,max,level="VIP"}){
   const eventId=text(payload&&payload.evento_id);if(!eventId)throw new Error("Falta evento_id.");
@@ -150,7 +162,7 @@ export async function pauseEventV3({db,cache,advertiserId,payload,max,level="VIP
   }
   const saved=await db.patch("eventos",eventId,{pausado:pause,actualizado:new Date().toISOString()},{mustExist:true});
   await syncEventV2({db,cache,current,next:saved});
-  return{success:true,evento_id:eventId};
+  return{success:true,evento_id:eventId,evento:saved};
 }
 export async function deleteEventV3({db,cache,advertiserId,payload,level="VIP"}){
   const eventId=text(payload&&payload.evento_id);if(!eventId)throw new Error("Falta evento_id.");
