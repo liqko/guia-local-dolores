@@ -4,7 +4,7 @@ import {rebuildCatalogs} from "../core/catalogs.js";
 import {rebuildGuideAll} from "../core/guide-read-model.js";
 import {rebuildPromosAll} from "../core/promos-read-model.js";
 import {rebuildEventsAllV2} from "../core/events-read-model-v2.js";
-import {rebuildActivitiesAll} from "../core/activities-read-model.js";
+import {rebuildActivitiesAllV2} from "../core/activities-read-model-v2.js";
 import {rebuildPublicityAll} from "../core/publicity-read-model.js";
 import {rebuildFarmAll} from "../core/farmacias-read-model.js";
 import {
@@ -45,7 +45,7 @@ export async function routeAdminV3({path,request,env,db,cache}){
   if(path==="/superadmin/guide/rebuild-cache"&&request.method==="POST")return json(await rebuildGuideAll({db,cache}));
   if(path==="/superadmin/promos/rebuild-cache"&&request.method==="POST")return json(await rebuildPromosAll({db,cache}));
   if(path==="/superadmin/events/rebuild-cache"&&request.method==="POST")return json(await rebuildEventsAllV2({db,cache}));
-  if(path==="/superadmin/activities/rebuild-cache"&&request.method==="POST")return json(await rebuildActivitiesAll({db,cache}));
+  if(path==="/superadmin/activities/rebuild-cache"&&request.method==="POST")return json(await rebuildActivitiesAllV2({db,cache}));
   if(path==="/superadmin/publicity/rebuild-cache"&&request.method==="POST")return json(await rebuildPublicityAll({db,cache}));
   if(path==="/superadmin/pharmacies/rebuild-cache"&&request.method==="POST")return json(await rebuildFarmAll({db,cache}));
 
