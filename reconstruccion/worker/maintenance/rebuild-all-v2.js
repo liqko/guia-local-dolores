@@ -5,7 +5,7 @@ import {rebuildPromosAll} from "../core/promos-read-model.js";
 import {rebuildEventsAllV2} from "../core/events-read-model-v2.js";
 import {rebuildActivitiesAllV2} from "../core/activities-read-model-v2.js";
 import {rebuildPublicityAllV2} from "../core/publicity-read-model-v2.js";
-import {rebuildEfemeridesAllV2} from "../core/efemerides-rebuild-v2.js";
+import {rebuildEfemeridesAllV3} from "../core/efemerides-read-model-v2.js";
 import {rebuildFarmAll} from "../core/farmacias-read-model.js";
 import {rebuildAdminIndexesV2} from "../core/admin-indexes-v2.js";
 
@@ -40,7 +40,7 @@ export async function rebuildAllReadModelsV2({env,request,db,cache}){
     rebuildEventsAllV2({db,cache}),
     rebuildActivitiesAllV2({db,cache}),
     rebuildPublicityAllV2({db,cache}),
-    rebuildEfemeridesAllV2({db,cache}),
+    rebuildEfemeridesAllV3({db,cache}),
     rebuildFarmAll({db,cache}),
     rebuildAdminIndexesV2({db,cache})
   ]);
