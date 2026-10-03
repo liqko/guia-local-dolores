@@ -6,7 +6,7 @@ import {rebuildPromosAll} from "../core/promos-read-model.js";
 import {rebuildEventsAllV2} from "../core/events-read-model-v2.js";
 import {rebuildActivitiesAllV2} from "../core/activities-read-model-v2.js";
 import {rebuildPublicityAllV2} from "../core/publicity-read-model-v2.js";
-import {rebuildFarmAll} from "../core/farmacias-read-model.js";
+import {rebuildFarmAllV2} from "../core/farmacias-read-model-v2.js";
 import {
   territoryAdmin,saveCountry,saveProvince,saveCity,rebuildTerritory
 } from "../modules/territory.js";
