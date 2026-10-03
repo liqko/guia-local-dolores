@@ -1,6 +1,7 @@
 import {resolveEventModerationV2} from "./moderacion-eventos-v2.js";
 import {syncActivity} from "../core/activities-read-model.js";
 import {syncGuideAdvertiserV2} from "../core/guide-read-model-v2.js";
+import {syncAdvertiserIndexV2} from "../core/admin-indexes-v2.js";
 
 const text=v=>String(v??"").trim();
 
@@ -189,7 +190,12 @@ export async function resolvePendingV2({db,cache,auth,tipo,id,decision,nivel=""}
       actualizado_en:now
     },{mustExist:true});
 
-    if(modo==="CREAR")await syncGuideAdvertiserV2({db,cache,advertiserId:aid});
+    if(modo==="CREAR"){
+      await Promise.all([
+        syncGuideAdvertiserV2({db,cache,advertiserId:aid}),
+        syncAdvertiserIndexV2({db,cache,advertiserId:aid})
+      ]);
+    }
 
     return{success:true,tipo:kind,id:itemId,decision:dec,anunciante_id:aid,suscriptor_id:sid};
   }
