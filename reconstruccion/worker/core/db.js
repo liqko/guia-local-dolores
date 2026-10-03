@@ -85,12 +85,20 @@ export function createDb(env){
       const d=await request(env,`${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,{allow404:true});
       return docToJs(d,id);
     },
-    async patch(collection,id,patch){
+    async patch(collection,id,patch,{mustExist=false}={}){
       const clean={};for(const[k,v]of Object.entries(patch||{}))if(v!==undefined)clean[k]=v;
       const qs=new URLSearchParams();Object.keys(clean).forEach(k=>qs.append("updateMask.fieldPaths",k));
+      if(mustExist)qs.set("currentDocument.exists","true");
       const fields={};for(const[k,v]of Object.entries(clean))fields[k]=toFs(v);
       const d=await request(env,`${encodeURIComponent(collection)}/${encodeURIComponent(id)}?${qs}`,{method:"PATCH",body:{fields}});
       return docToJs(d,id);
+    },
+    async delete(collection,id,{mustExist=false}={}){
+      const qs=new URLSearchParams();
+      if(mustExist)qs.set("currentDocument.exists","true");
+      const suffix=qs.toString()?"?"+qs.toString():"";
+      await request(env,`${encodeURIComponent(collection)}/${encodeURIComponent(id)}${suffix}`,{method:"DELETE"});
+      return true;
     },
     /**
      * Sólo para mantenimiento explícito / seed de cachés.
