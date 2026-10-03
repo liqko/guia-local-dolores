@@ -42,9 +42,19 @@ async function requirePanel(env,request,aid,moduleName,write=false){
 async function allowedFarmCities({db,cache,aid}){
   const admin=await db.get("anunciantes_administracion",aid);
   const territory=(await cache.get("territorio:public:v1"))||{};
-  return Array.isArray(admin&&admin.farmacias_ciudades)&&admin.farmacias_ciudades.length
-    ? admin.farmacias_ciudades.map(text)
-    : (territory.ciudades||[]).map(c=>text(c.ciudad_id||c.id)).filter(Boolean);
+  const cfgRoot=admin&&admin.funcionalidades_config&&typeof admin.funcionalidades_config==="object"
+    ? admin.funcionalidades_config
+    : {};
+  const cfg=cfgRoot.TURNOS_FARMA||cfgRoot.FARMACIAS||cfgRoot.turnos_farma||{};
+  const all=truthy(cfg.todas_ciudades)||text(admin&&admin.turnos_farma)==="*";
+  const ids=Array.isArray(cfg.ciudades)
+    ? cfg.ciudades.map(text).filter(Boolean)
+    : text(admin&&admin.turnos_farma).split(/[;,|]+/).map(text).filter(v=>v&&v!=="*");
+
+  if(all||!ids.length){
+    return (territory.ciudades||[]).map(c=>text(c.ciudad_id||c.id)).filter(Boolean);
+  }
+  return [...new Set(ids)];
 }
 
 export async function routePanelV4(ctx){
