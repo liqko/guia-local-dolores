@@ -92,6 +92,21 @@ export function createDb(env){
       const d=await request(env,`${encodeURIComponent(collection)}/${encodeURIComponent(id)}?${qs}`,{method:"PATCH",body:{fields}});
       return docToJs(d,id);
     },
+    /**
+     * Sólo para mantenimiento explícito / seed de cachés.
+     * No usar dentro de acciones interactivas normales.
+     */
+    async listCollection(collection,pageSize=1000){
+      let pageToken=""; const out=[];
+      do{
+        const qs=new URLSearchParams({pageSize:String(pageSize)});
+        if(pageToken)qs.set("pageToken",pageToken);
+        const j=await request(env,`${encodeURIComponent(collection)}?${qs}`)||{};
+        for(const d of (j.documents||[]))out.push(docToJs(d));
+        pageToken=String(j.nextPageToken||"");
+      }while(pageToken);
+      return out;
+    },
     async queryEqual(collection,field,value,limit=1000){
       const project=text(env.FIREBASE_PROJECT_ID);
       const url=`https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents:runQuery`;
