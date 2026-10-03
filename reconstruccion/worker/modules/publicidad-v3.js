@@ -15,7 +15,8 @@ function configFromAdmin(admin){
   return {
     activas_max:n(cfg.activas_max,cfg.activas,cfg.max_activas,admin&&admin.publicidad_activas_max),
     guardadas_max:n(cfg.guardadas_max,cfg.guardadas,cfg.max_guardadas,admin&&admin.publicidad_guardadas_max),
-    cambios_activos_por_dia_max:n(cfg.cambios_activos_por_dia_max,cfg.cambios_diarios,admin&&admin.publicidad_cambios_diarios)
+    cambios_activos_por_dia_max:n(cfg.cambios_activos_por_dia_max,cfg.cambios_diarios,admin&&admin.publicidad_cambios_diarios),
+    prioridad_id:text(cfg.prioridad_id||cfg.prioridad||admin&&admin.publicidad_prioridad_id)
   };
 }
 export async function publicityActiveChangeV3({db,cache,advertiserId,ids}){
