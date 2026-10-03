@@ -1,5 +1,6 @@
 import {patchGuideAdminFieldsV2} from "../core/guide-read-model-v2.js";
 import {patchGuideSegmentV2} from "../core/guide-patch-v2.js";
+import {patchAdvertiserIndexCommercialV2} from "../core/admin-indexes-v2.js";
 
 const text=v=>String(v??"").trim();
 
@@ -41,7 +42,10 @@ export async function updateAdvertiserCommercialV2({db,cache,auth,advertiserId,p
   if(adminTouched){
     await db.patch("anunciantes_administracion",aid,adminPatch,{mustExist:true});
     firestoreWrites++;
-    await patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:adminPatch});
+    await Promise.all([
+      patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:adminPatch}),
+      patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch:adminPatch})
+    ]);
   }
 
   let segmentoId=null;
