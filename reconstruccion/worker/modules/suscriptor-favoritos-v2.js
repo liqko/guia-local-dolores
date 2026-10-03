@@ -5,7 +5,7 @@
 import {verifySubscriberSession} from "./suscriptores.js";
 
 const text=v=>String(v??"").trim();
-const allowedTypes=new Set(["ANUNCIANTE","EVENTO","PROMO","ACTIVIDAD"]);
+const allowedTypes=new Set(["ANUNCIANTE","EVENTO","PROMO","ACTIVIDAD","CIUDAD"]);
 
 function typeOf(v){
   const t=text(v).toUpperCase();
