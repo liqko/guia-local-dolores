@@ -41,10 +41,14 @@ function perms(rel,admin){
 }
 
 export async function subscriberLoginV2({env,db,body}){
-  const mail=norm(body&&body.mail),clave=text(body&&body.clave);
+  const originalMail=text(body&&body.mail);
+  const mail=norm(originalMail),clave=text(body&&body.clave);
   if(!mail||!clave)return{success:false,message:"Falta mail o clave"};
 
-  const matches=await db.queryEqual("suscriptores","mail",mail,5);
+  let matches=await db.queryEqual("suscriptores","mail",mail,5);
+  if(!matches.length&&originalMail&&originalMail!==mail){
+    matches=await db.queryEqual("suscriptores","mail",originalMail,5);
+  }
   const sus=matches.find(x=>norm(x.mail)===mail);
   if(!sus||text(sus.clave)!==clave)return{success:false,message:"Mail o clave incorrectos"};
   if(sus.activo!==undefined&&sus.activo!==null&&sus.activo!==""&&!truthy(sus.activo)){
