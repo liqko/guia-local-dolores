@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Guía Local - Elegir ciudad</title>
+  <style>
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;width:100%;min-height:100%;font-family:'Segoe UI','Roboto',Arial,sans-serif;background:transparent;color:#263238}
+    body{padding:18px}
+    .ubicacion-wrap{width:min(94vw,520px);margin:0 auto;background:#f5e1d4;border-radius:16px;padding:20px;box-shadow:0 8px 28px rgba(0,0,0,.14)}
+    .marca{display:flex;align-items:center;gap:12px;margin-bottom:14px}
+    .marca img{width:54px;height:54px;object-fit:contain}
+    .marca h1{margin:0;color:#006699;font-size:1.65rem;letter-spacing:.4px}
+    .marca p{margin:3px 0 0;color:#4d6f7d;font-size:.95rem}
+    label{display:block;font-weight:800;margin:12px 0 5px}
+    .buscador-wrap{position:relative}
+    input,button{width:100%;min-height:48px;border-radius:10px;font-size:1rem}
+    input{border:1px solid #b8c3c8;background:#fff;padding:10px 12px}
+    input:focus{outline:3px solid rgba(0,102,153,.13);border-color:#006699}
+    .resultados{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;background:#fff;border:1px solid #b8c3c8;border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.16);padding:5px}
+    .resultado{display:block;width:100%;min-height:44px;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:#263238;text-align:left;font-weight:700;cursor:pointer}
+    .resultado:hover,.resultado:focus{background:#edf7fb;outline:none}
+    #entrar{border:0;background:#006699;color:#fff;font-weight:900;padding:11px 14px;margin-top:16px;cursor:pointer}
+    #entrar:disabled{opacity:.45;cursor:not-allowed}
+    .no-disponible{display:none;margin-top:10px;padding:11px 12px;border-radius:10px;background:rgba(255,255,255,.72);font-size:.9rem;line-height:1.35}
+    .no-disponible a{display:block;margin-top:7px;color:#006699;font-weight:800;text-decoration:none}
+    .msg{margin-top:10px;color:#a12626;font-weight:700;min-height:20px}
+    .filtros-pais{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
+    .filtro-pais{border:1px solid rgba(0,102,153,.22);background:#fff;color:#006699;border-radius:999px;padding:7px 11px;font-weight:800;cursor:pointer}
+    .filtro-pais.active{background:#006699;color:#fff}
+    @media(max-width:600px){body{padding:8px}.ubicacion-wrap{width:100%;padding:16px;border-radius:12px}.marca h1{font-size:1.35rem}}
+  </style>
+</head>
+<body>
+  <main class="ubicacion-wrap">
+    <div class="marca">
+      <img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png" alt="Guía Local">
+      <div>
+        <h1>Guía Local</h1>
+        <p>Encontrá tu ciudad e ingresá directamente.</p>
+      </div>
+    </div>
+
+    <div id="filtrosPais" class="filtros-pais" aria-label="Filtrar por país"></div>
+
+    <label for="buscarCiudad">¿Qué ciudad querés consultar?</label>
+    <div class="buscador-wrap">
+      <input id="buscarCiudad" type="search" placeholder="Escribí ciudad o provincia" autocomplete="off" disabled>
+      <div id="resultados" class="resultados" hidden></div>
+    </div>
+
+    <div id="noDisponible" class="no-disponible">
+      <strong>La ciudad que buscás todavía no está disponible en Guía Local.</strong>
+      <a id="solicitarCiudad" href="#" target="_blank" rel="noopener noreferrer">Quiero que Guía Local llegue a mi ciudad</a>
+      <div id="graciasCiudad" style="display:none;margin-top:8px;color:#006699;font-weight:700">¡Gracias por tu interés! Vamos a trabajar para incorporar tu ciudad a Guía Local.</div>
+    </div>
+
+    <button id="entrar" disabled>Ingresar a la guía</button>
+    <div id="msg" class="msg"></div>
+  </main>
+
+<script>
+const TERRITORY_PUBLIC_API="https://login.liqkoargentina.workers.dev/territory/public";
+const CITY_CONTEXT_KEY='gld_ciudad_contexto';
+const SUBSCRIBER_SESSION_KEY='gld_suscriptor_session_v1';
+const GUIDE_PAGE_URL='https://guialocal.ar/guia/';
+let ciudades=[];
+let seleccionada=null;
+
+async function cargarTerritorioPublico(){
+  const r=await fetch(TERRITORY_PUBLIC_API,{method:'GET',mode:'cors',cache:'default'});
+  const j=await r.json().catch(()=>null);
+  if(!r.ok || !j || j.success!==true){
+    throw new Error((j&&(j.message||j.error))||'No se pudieron cargar las ciudades.');
+  }
+  return j;
+}
+
+function ciudadNombre(c){return String(c.ciudad_visible||c.ciudad||c.nombre||c.ciudad_id||'').trim()}
+function paisMarca(c){
+  const code=String(c.pais_codigo||'').trim().toUpperCase();
+  if(code) return code;
+  const id=String(c.pais_id||'').trim().toUpperCase();
+  return ({ARG:'AR',BRA:'BR',URY:'UY'})[id]||id.slice(0,2)||'--';
+}
+function etiqueta(c){
+  const prov=String(c.provincia_visible||c.provincia||c.provincia_id||'').trim();
+  const pais=String(c.pais_visible||c.pais||'').trim();
+  return ciudadNombre(c)+(prov?' · '+prov:'')+(pais?' · '+pais:'');
+}
+function textoBusqueda(c){
+  return [
+    ciudadNombre(c),
+    c.provincia_visible,c.provincia,c.provincia_id,
+    c.pais_visible,c.pais,c.pais_id,c.pais_codigo
+  ].filter(Boolean).join(' ').toLocaleLowerCase('es');
+}
+
+const buscar=document.getElementById('buscarCiudad');
+const resultados=document.getElementById('resultados');
+const entrar=document.getElementById('entrar');
+const msg=document.getElementById('msg');
+const noDisponible=document.getElementById('noDisponible');
+const solicitarCiudad=document.getElementById('solicitarCiudad');
+const graciasCiudad=document.getElementById('graciasCiudad');
+const WHATSAPP_SOLICITUD_CIUDAD='5491150972086';
+
+// Si existe una sesión iniciada con ciudad predeterminada, la portada no
+// vuelve a pedir ciudad. La cuenta tiene prioridad sobre el selector.
+try{
+  const sesion=JSON.parse(localStorage.getItem(SUBSCRIBER_SESSION_KEY)||'null');
+  const ciudadPredeterminada=String(sesion&&sesion.ciudad_predeterminada_id||'').trim();
+  if(sesion&&sesion.suscriptor_id&&ciudadPredeterminada){
+    const u=new URL(GUIDE_PAGE_URL);
+    u.searchParams.set('ciudad_id',ciudadPredeterminada);
+    window.top.location.replace(u.toString());
+  }
+}catch(e){}
+
+let paisFiltro='';
+cargarTerritorioPublico().then(raw=>{
+  ciudades=Array.isArray(raw.ciudades)?raw.ciudades:[];
+  ciudades=ciudades.filter(c=>c&&(c.ciudad_id||c.id)&&ciudadNombre(c));
+  buscar.disabled=false;
+  renderPaises();
+}).catch((e)=>{
+  msg.textContent=e.message||'No se pudieron cargar las ciudades.';
+});
+
+function renderPaises(){
+  const box=document.getElementById('filtrosPais');
+  if(!box)return;
+  const mapa=new Map();
+  ciudades.forEach(c=>{
+    const id=String(c.pais_id||'').trim();
+    const nombre=String(c.pais_visible||c.pais||id).trim();
+    if(id&&!mapa.has(id)) mapa.set(id,{id,nombre,codigo:paisMarca(c)});
+  });
+  const items=[{id:'',nombre:'Todos',codigo:'🌎'},...mapa.values()];
+  box.innerHTML=items.map(x=>'<button type="button" class="filtro-pais'+(paisFiltro===x.id?' active':'')+'" data-pais="'+escAttr(x.id)+'">'+escHtml((x.codigo?x.codigo+' · ':'')+x.nombre)+'</button>').join('');
+  box.querySelectorAll('[data-pais]').forEach(btn=>{
+    btn.onclick=()=>{
+      paisFiltro=btn.dataset.pais||'';
+      renderPaises();
+      if(buscar.value.trim()) mostrarResultados();
+      else mostrarCiudadesPais();
+    };
+  });
+}
+
+function escHtml(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+function escAttr(v){return escHtml(v);}
+
+function mostrarCiudadesPais(){
+  seleccionada=null;entrar.disabled=true;
+  resultados.innerHTML='';resultados.hidden=true;noDisponible.style.display='none';
+  if(!paisFiltro) return;
+  const matches=ciudades.filter(c=>String(c.pais_id||'')===paisFiltro).slice(0,40);
+  if(!matches.length) return;
+  resultados.hidden=false;
+  matches.forEach(c=>agregarResultado(c));
+}
+
+function agregarResultado(c){
+  const b=document.createElement('button');
+  b.type='button';
+  b.className='resultado';
+  b.textContent=etiqueta(c);
+  b.onclick=()=>{
+    seleccionada=c;
+    buscar.value=ciudadNombre(c);
+    resultados.hidden=true;
+    entrar.disabled=false;
+    noDisponible.style.display='none';
+  };
+  resultados.appendChild(b);
+}
+
+function mostrarResultados(){
+  seleccionada=null;entrar.disabled=true;
+  const q=buscar.value.trim().toLocaleLowerCase('es');
+  resultados.innerHTML='';resultados.hidden=true;noDisponible.style.display='none';
+  if(!q)return;
+
+  const matches=ciudades.filter(c=>
+    (!paisFiltro || String(c.pais_id||'')===paisFiltro) &&
+    textoBusqueda(c).includes(q)
+  ).slice(0,20);
+  if(!matches.length){
+    noDisponible.style.display='block';
+    const ciudadSolicitada=buscar.value.trim();
+    const mensaje='Hola, quiero que Guía Local llegue a '+ciudadSolicitada+'.';
+    solicitarCiudad.href='https://wa.me/'+WHATSAPP_SOLICITUD_CIUDAD+'?text='+encodeURIComponent(mensaje);
+    enviarAltura();
+    return;
+  }
+
+  matches.forEach(c=>{
+    const b=document.createElement('button');
+    b.type='button';b.className='resultado';b.textContent=etiqueta(c);
+    b.addEventListener('click',()=>{
+      seleccionada=c;buscar.value=etiqueta(c);resultados.hidden=true;
+      noDisponible.style.display='none';entrar.disabled=false;enviarAltura();
+    });
+    resultados.appendChild(b);
+  });
+  resultados.hidden=false;enviarAltura();
+}
+
+buscar.addEventListener('input',mostrarResultados);
+buscar.addEventListener('focus',()=>{if(buscar.value.trim()&&!seleccionada)mostrarResultados()});
+solicitarCiudad.addEventListener('click',()=>{
+  graciasCiudad.style.display='block';
+  enviarAltura();
+});
+
+entrar.addEventListener('click',()=>{
+  if(!seleccionada)return;
+  const ctx={
+    pais_id:String(seleccionada.pais_id||''),
+    provincia_id:String(seleccionada.provincia_id||''),
+    ciudad_id:String(seleccionada.ciudad_id||seleccionada.id||''),
+    pais:String(seleccionada.pais_visible||seleccionada.pais||''),
+    provincia:String(seleccionada.provincia_visible||seleccionada.provincia||''),
+    ciudad:ciudadNombre(seleccionada),
+    ts:Date.now()
+  };
+  try{localStorage.setItem(CITY_CONTEXT_KEY,JSON.stringify(ctx))}catch(e){}
+  const u=new URL(GUIDE_PAGE_URL);
+  Object.entries(ctx).forEach(([k,v])=>{if(k!=='ts'&&v)u.searchParams.set(k,v)});
+  try{window.top.location.href=u.toString()}catch(e){window.location.href=u.toString()}
+});
+
+function enviarAltura(){
+  window.parent.postMessage({tipo:'alturaPie',altura:document.documentElement.scrollHeight},'*');
+}
+window.addEventListener('load',enviarAltura);
+window.addEventListener('resize',enviarAltura);
+new ResizeObserver(enviarAltura).observe(document.body);
+</script>
+</body>
+</html>
