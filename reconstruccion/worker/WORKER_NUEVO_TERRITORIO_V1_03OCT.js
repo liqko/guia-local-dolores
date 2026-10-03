@@ -297,6 +297,16 @@ function publicCity(row){
     activa:active(row)
   };
 }
+function publicCityFromAdmin(row,admin){
+  const provincia=(admin.provincias||[]).find(x=>t(x.provincia_id||x.id)===t(row.provincia_id))||{};
+  const pais=(admin.paises||[]).find(x=>t(x.pais_id||x.id)===t(row.pais_id||provincia.pais_id))||{};
+  return publicCity({
+    ...row,
+    provincia_visible:t(row.provincia_visible||row.provincia||provincia.provincia_visible||provincia.nombre||provincia.provincia),
+    pais_visible:t(row.pais_visible||row.pais||pais.pais_visible||pais.nombre||pais.pais),
+    pais_codigo:t(row.pais_codigo||row.codigo_pais||pais.pais_codigo||pais.codigo_pais||pais.codigo)
+  });
+}
 function upsert(rows,idField,item){
   const id=t(item[idField]||item.id);
   const out=[...(Array.isArray(rows)?rows:[])];
@@ -381,7 +391,7 @@ async function saveCity(env,request,idFromPath=""){
 
   const pub=packet(await kvGet(env,KV_PUBLIC));
   let cities=remove(pub.ciudades,"ciudad_id",ciudad_id);
-  if(active(saved||city)) cities=upsert(cities,"ciudad_id",publicCity(saved||city));
+  if(active(saved||city)) cities=upsert(cities,"ciudad_id",publicCityFromAdmin(saved||city,admin));
 
   const nextPublic={
     ...pub,
@@ -401,6 +411,84 @@ async function saveCity(env,request,idFromPath=""){
     firestore_writes:1,
     firestore_global_reads:0
   });
+}
+
+
+async function saveCountry(env,request,idFromPath=""){
+  const auth=await verifyAdmin(env,request);
+  if(!auth.ok) return json({success:false,message:auth.message},401);
+
+  let body={};
+  try{ body=await request.json(); }catch(_){}
+  const item=body.item && typeof body.item==="object" ? body.item : body;
+  const pais_id=t(idFromPath||item.pais_id||item.id);
+  const nombre=t(item.pais_visible||item.nombre||item.pais);
+  if(!pais_id) return json({success:false,message:"Falta pais_id"},400);
+  if(!nombre) return json({success:false,message:"Falta nombre de país"},400);
+
+  const country={
+    ...item,
+    pais_id,
+    nombre,
+    pais_visible:nombre,
+    activo:item.activo!==undefined?b(item.activo):(item.activa!==undefined?b(item.activa):true),
+    actualizado_en:new Date().toISOString()
+  };
+
+  const saved=await fsPatch(env,COLL_PAISES,pais_id,country);
+  const admin=packet(await kvGet(env,KV_ADMIN));
+  const now=new Date().toISOString();
+  const nextAdmin={...admin,updated_at:now,paises:upsert(admin.paises,"pais_id",saved||country)};
+
+  const pub=packet(await kvGet(env,KV_PUBLIC));
+  let countries=remove(pub.paises,"pais_id",pais_id);
+  if(active(saved||country)) countries=upsert(countries,"pais_id",saved||country);
+  const nextPublic={...pub,version:1,updated_at:now,paises:countries};
+
+  await Promise.all([kvPut(env,KV_ADMIN,nextAdmin),kvPut(env,KV_PUBLIC,nextPublic)]);
+  return json({success:true,pais:saved||country,firestore_writes:1,firestore_global_reads:0});
+}
+
+async function saveProvince(env,request,idFromPath=""){
+  const auth=await verifyAdmin(env,request);
+  if(!auth.ok) return json({success:false,message:auth.message},401);
+
+  let body={};
+  try{ body=await request.json(); }catch(_){}
+  const item=body.item && typeof body.item==="object" ? body.item : body;
+  const provincia_id=t(idFromPath||item.provincia_id||item.id);
+  const nombre=t(item.provincia_visible||item.nombre||item.provincia);
+  const pais_id=t(item.pais_id);
+
+  if(!provincia_id) return json({success:false,message:"Falta provincia_id"},400);
+  if(!nombre) return json({success:false,message:"Falta nombre de provincia/estado"},400);
+  if(!pais_id) return json({success:false,message:"Falta pais_id"},400);
+
+  const admin=packet(await kvGet(env,KV_ADMIN));
+  const paisOk=admin.paises.some(x=>t(x.pais_id||x.id)===pais_id);
+  if(!paisOk) return json({success:false,message:"pais_id inexistente"},400);
+
+  const province={
+    ...item,
+    provincia_id,
+    nombre,
+    provincia_visible:nombre,
+    pais_id,
+    activo:item.activo!==undefined?b(item.activo):(item.activa!==undefined?b(item.activa):true),
+    actualizado_en:new Date().toISOString()
+  };
+
+  const saved=await fsPatch(env,COLL_PROVINCIAS,provincia_id,province);
+  const now=new Date().toISOString();
+  const nextAdmin={...admin,updated_at:now,provincias:upsert(admin.provincias,"provincia_id",saved||province)};
+
+  const pub=packet(await kvGet(env,KV_PUBLIC));
+  let provinces=remove(pub.provincias,"provincia_id",provincia_id);
+  if(active(saved||province)) provinces=upsert(provinces,"provincia_id",saved||province);
+  const nextPublic={...pub,version:1,updated_at:now,provincias:provinces};
+
+  await Promise.all([kvPut(env,KV_ADMIN,nextAdmin),kvPut(env,KV_PUBLIC,nextPublic)]);
+  return json({success:true,provincia:saved||province,firestore_writes:1,firestore_global_reads:0});
 }
 
 /* Mantenimiento explícito. NUNCA se llama desde una lectura o escritura normal. */
@@ -424,7 +512,7 @@ async function rebuildTerritory(env,request){
     updated_at:now,
     paises:paises.filter(active),
     provincias:provincias.filter(active),
-    ciudades:sortCities(ciudades.filter(active).map(publicCity))
+    ciudades:sortCities(ciudades.filter(active).map(x=>publicCityFromAdmin(x,admin)))
   };
 
   await Promise.all([kvPut(env,KV_ADMIN,admin),kvPut(env,KV_PUBLIC,pub)]);
@@ -458,8 +546,24 @@ export default {
       if(p==="/superadmin/territory/rebuild-cache" && request.method==="POST"){
         return rebuildTerritory(env,request);
       }
+      if(p==="/superadmin/countries/create" && request.method==="POST"){
+        return saveCountry(env,request);
+      }
+      if(p==="/superadmin/provinces/create" && request.method==="POST"){
+        return saveProvince(env,request);
+      }
       if(p==="/superadmin/cities/create" && request.method==="POST"){
         return saveCity(env,request);
+      }
+
+      const countryMatch=p.match(/^\\/superadmin\\/countries\\/([^/]+)$/);
+      if(countryMatch && request.method==="PATCH"){
+        return saveCountry(env,request,decodeURIComponent(countryMatch[1]));
+      }
+
+      const provinceMatch=p.match(/^\\/superadmin\\/provinces\\/([^/]+)$/);
+      if(provinceMatch && request.method==="PATCH"){
+        return saveProvince(env,request,decodeURIComponent(provinceMatch[1]));
       }
 
       const match=p.match(/^\\/superadmin\\/cities\\/([^/]+)$/);
