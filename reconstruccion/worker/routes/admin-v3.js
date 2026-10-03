@@ -47,7 +47,7 @@ export async function routeAdminV3({path,request,env,db,cache}){
   if(path==="/superadmin/events/rebuild-cache"&&request.method==="POST")return json(await rebuildEventsAllV2({db,cache}));
   if(path==="/superadmin/activities/rebuild-cache"&&request.method==="POST")return json(await rebuildActivitiesAllV2({db,cache}));
   if(path==="/superadmin/publicity/rebuild-cache"&&request.method==="POST")return json(await rebuildPublicityAllV2({db,cache}));
-  if(path==="/superadmin/pharmacies/rebuild-cache"&&request.method==="POST")return json(await rebuildFarmAll({db,cache}));
+  if(path==="/superadmin/pharmacies/rebuild-cache"&&request.method==="POST")return json(await rebuildFarmAllV2({db,cache}));
 
   if(path==="/superadmin/moderation/events/pending"&&request.method==="GET"){
     return json(await pendingEventsV2({db,limit:100}));
