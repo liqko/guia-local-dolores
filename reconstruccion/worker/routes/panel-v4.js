@@ -80,7 +80,8 @@ export async function routePanelV4(ctx){
 
     if(action==="getvipevents"||action==="getfreeevents"){
       const panel=await eventsPanelDataV2({db,cache,advertiserId:aid,featureEnabled,cupo});
-      return json({success:true,eventos:action==="getfreeevents"?panel.eventos_free:panel.eventos});
+      const rows=action==="getfreeevents"?panel.eventos_free:panel.eventos;
+      return json({success:true,events:rows,eventos:rows,rows});
     }
 
     if(action==="checkfreeeventduplicates"){
