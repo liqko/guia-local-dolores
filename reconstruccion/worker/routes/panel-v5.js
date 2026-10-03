@@ -6,6 +6,7 @@ import {
 } from "../modules/commerce-v2.js";
 import {getCommerceCatalogs} from "../core/catalogs.js";
 import {syncGuideAdvertiserV2} from "../core/guide-read-model-v2.js";
+import {syncAdvertiserIndexV2} from "../core/admin-indexes-v2.js";
 
 const text=v=>String(v??"").trim();
 async function bodyOf(request){try{return await request.json()}catch(_){return{}}}
@@ -47,7 +48,10 @@ export async function routePanelV5(ctx){
 
     if(action==="set_datos"){
       const out=await commerceSetDatos({db,advertiserId:aid,body});
-      await syncGuideAdvertiserV2({db,cache,advertiserId:aid});
+      await Promise.all([
+        syncGuideAdvertiserV2({db,cache,advertiserId:aid}),
+        syncAdvertiserIndexV2({db,cache,advertiserId:aid})
+      ]);
       return json(out);
     }
 
@@ -55,7 +59,10 @@ export async function routePanelV5(ctx){
       const previous=await db.queryEqual("anunciantes_sedes","anunciante_id",aid,500);
       const previousCities=[...new Set(previous.map(x=>text(x.ciudad_id)).filter(Boolean))];
       const out=await commerceSetSedes({db,advertiserId:aid,body});
-      await syncGuideAdvertiserV2({db,cache,advertiserId:aid,affectedCityIds:previousCities});
+      await Promise.all([
+        syncGuideAdvertiserV2({db,cache,advertiserId:aid,affectedCityIds:previousCities}),
+        syncAdvertiserIndexV2({db,cache,advertiserId:aid})
+      ]);
       return json(out);
     }
 
