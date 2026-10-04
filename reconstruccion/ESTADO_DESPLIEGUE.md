@@ -1,85 +1,60 @@
-# Reconstrucción total — estado técnico
+# Reconstrucción total — V32 (continuación de V31)
 
-## NO DESPLEGAR TODAVÍA
+**NO DESPLEGAR TODAVÍA.** Rama: `reconstruccion-total-03oct`. No modificar `main`.
 
-Rama: `reconstruccion-total-03oct`
+## Base verificada
 
-### Núcleo nuevo
-- `reconstruccion/worker/app.js` — router modular V2.
-- `reconstruccion/worker/core/db.js` — Firestore sin efectos laterales.
-- `reconstruccion/worker/core/cache.js` — KV.
-- `reconstruccion/worker/core/http.js`
-- `reconstruccion/worker/core/auth-admin.js`
-- `reconstruccion/worker/core/catalogs.js`
-- `reconstruccion/worker/core/contracts.js`
+V31: commit `203de30190ff69d8ced0bff67942e89d1541d160`.
+El Worker vigente sigue siendo `worker/app-main-v31.js`, con rutas públicas V12,
+panel V15 y administración V11. V32 corrige la integración de interfaces sobre ese Worker.
 
-### Módulos nuevos
-- Territorio: implementado y conectado al router.
-- Commerce: panel data modular creado.
-- Promos: panel data modular creado.
-- Eventos: panel data modular creado.
-- Actividades: panel data modular creado.
-- Publicidad: panel data modular creado.
-- Efemérides: panel data modular creado.
-- Farmacias: panel data modular creado.
+## Interfaces vigentes para revisión
 
-### Interfaces de reconstrucción
-- `reconstruccion/plataforma/inicio-territorio-v1.html`
-- `reconstruccion/plataforma/carcasa-territorio-v1.html`
-- `reconstruccion/plataforma/granhermano-territorio-v2.html`
-- `reconstruccion/plataforma/login-territorio-v1.html`
+- Carcasa: `plataforma/carcasa-territorio-v3.html`.
+- Guía central: `plataforma/anunciantes-publico-v4.html`.
+- Suscriptores: `plataforma/suscriptores-v2.html`.
+- Panel anunciante: `plataforma/login-modular-v11.html`.
+- Gran Hermano: `plataforma/granhermano-v2.html`.
+- Promos/Eventos/Actividades: `plataforma/promos-public-v1.html`,
+  `plataforma/eventos-public-v1.html`, `plataforma/actividades-public-v1.html`.
+- Farmacias: `plataforma/farma-turnos-public-v1.html`.
 
-### Regla ya aplicada
-Los módulos del panel del anunciante dejan de recibir catálogos propios de ciudades. Todos usan el mismo `/territory/public`, cacheado una vez en navegador y servido desde KV/CDN.
+La Carcasa V3 abre los archivos reconstruidos de su propia carpeta; no mezcla
+los módulos anteriores de producción. Las direcciones del Worker siguen siendo
+las previstas para el despliegue posterior. No se conectó producción a estas interfaces.
 
-### Auditoría
-`reconstruccion/auditoria/AUDITAR_RECONSTRUCCION.js` detecta la reaparición de patrones prohibidos como:
-- `territorios` viejo;
-- `resumen_ciudad`;
-- `ubicaciones` viejo;
-- polling;
-- commerce usado como catálogo territorial.
+## Correcciones V32
 
-### Próximo segmento
-Integrar autenticación del anunciante al núcleo modular y conectar los módulos panel-data al router nuevo. Después, eliminar de los backends reconstruidos cualquier carga de ciudades/catálogos que ya venga de KV.
+- Guía y catálogos públicos de Carcasa usan `/guide` y `/catalogs/public/guide`.
+- Promos siempre incluye `ciudad_id`.
+- Eventos en el iframe de Guía genera su URL con `URL/searchParams`;
+  antes concatenaba `&ciudad_id` sin un signo `?` y la ruta devolvía 404.
+- Promesas y cachés auxiliares separadas por ciudad, con deduplicación de llamadas.
+- Las respuestas fallidas no se guardan y permiten reintentar.
+- Las relaciones de actividades/acciones/nodos preparadas dentro de cada sede
+  se conservan durante la hidratación de las tarjetas.
+- La Guía reconoce insignias booleanas del Worker además del valor histórico `x`.
+- El timeout de Carcasa no muestra error si el módulo ya terminó de cargar.
+- Nuevos prefijos de caché evitan recuperar los paquetes del circuito anterior.
 
+## Validación
 
-## Avance 03OCT — bloque sesión / Commerce / Promos / Eventos
+`node reconstruccion/auditoria/TEST_CARCASA_V32.mjs` ejecuta funciones extraídas
+de ambas interfaces contra el entrypoint real V31 con KV de prueba: Guía,
+catálogos, Eventos, Promos y Actividades, dos ciudades, deduplicación,
+reintentos, relaciones, insignias y timeout. Bloquea llamadas externas y
+escrituras: las lecturas probadas no acceden a Firestore ni escriben KV.
 
-- `modules/suscriptores.js`: login con sesión HMAC. El login ya no necesita escribir `ultimo_acceso`.
-- `plataforma/login-modular-v3.html`: token firmado persistido, restauración de sesión y Authorization en llamadas privadas.
-- `modules/commerce-v2.js`: lecturas y mutaciones puntuales de datos/sedes.
-- `core/guide-read-model.js`: proyección pública por ciudad en KV.
-- `core/promos-read-model.js` + `modules/promos-v2.js`: Promos públicas por ciudad e invalidación incremental.
-- `core/events-read-model.js` + `modules/eventos-v2.js`: Eventos públicos por ciudad e invalidación incremental.
-- `modules/moderacion-eventos.js`: pendientes por query `estado_moderacion=PENDIENTE`; aprobación/rechazo sobre ID exacto.
-- `routes/public.js`, `routes/panel.js`, `routes/admin.js`: separación física de rutas.
-- `app-main-v6.js`: entrypoint modular nuevo.
+Las auditorías previas y la prueba de rotación de Farmacias se conservan.
+El workflow V32 ejecuta estas verificaciones al subir cambios de reconstrucción.
 
-### Validación HTML
-La auditoría de `login-modular-v3.html` no detecta llamadas privadas sin `Authorization`. Las únicas llamadas sin token son las deliberadamente públicas: Territorio y búsqueda pública.
+## Próximo trabajo
 
-### Estado
-**NO DESPLEGAR TODAVÍA.**
-Faltan cerrar programación de Eventos, FREE completo, mutaciones de Actividades/Publicidad/Efemérides/Farmacias y pruebas integradas del entrypoint V6.
+1. Pruebas funcionales de mutaciones y moderación con datos de prueba:
+   alta/edición/pausa/eliminación, aprobación/rechazo y reflejo público.
+2. Revisar de punta a punta permisos, cuotas y correo de verificación/recuperación.
+3. Prueba visual completa de carga inicial, cambio de módulos y reintento.
+4. Preparar configuración y seed KV controlado para un entorno de prueba.
 
-
-## Avance 03OCT — Actividades / Publicidad / Efemérides / Farmacias
-
-- `core/activities-read-model.js` + `modules/actividades-v2.js`: read model por ciudad, alta/edición, horarios, pausar/reanudar/renovar/eliminar.
-- `core/publicity-read-model.js` + `modules/publicidad-v2.js`: publicidad pública por ciudad y guardado/eliminación puntual.
-- `core/efemerides-read-model.js` + `modules/efemerides-v2.js`: efemérides públicas por ciudad y mutaciones puntuales con permisos.
-- `core/farmacias-read-model.js` + `modules/farmacias-v2.js`: ciclos de farmacia por ciudad en KV y guardado incremental.
-- `routes/public-v2.js`: lecturas públicas de Territorio, Guía, Promos, Eventos, Actividades, Publicidad, Efemérides y Farmacias desde capa intermedia.
-- `routes/panel-v2.js`: panel modular V2 con Commerce, Promos, Eventos VIP, Actividades, Publicidad, Efemérides (lectura) y Farmacias.
-- `routes/admin-v2.js`: rebuilds explícitos de todos los read models y moderación de Eventos.
-- `app-main-v7.js`: entrypoint modular V7.
-
-### Pendientes inmediatos antes de despliegue
-- Eventos FREE completo + programación VIP/FREE.
-- Publicidad: selección de activos y límite diario.
-- Efemérides: conectar mutaciones V2 al router panel.
-- Pruebas integradas/sintaxis/imports del Worker V7.
-- Configuración real del binding KV y seed controlado.
-
-**NO DESPLEGAR TODAVÍA.**
+Estas pruebas locales no certifican el despliegue, credenciales, puente de correo
+ni presentación visual en el navegador. Mantener sin desplegar hasta cerrar esos puntos.
