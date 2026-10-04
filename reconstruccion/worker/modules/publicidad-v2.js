@@ -16,7 +16,7 @@ function parseCategoriaKey(value){
   return {categoria_key:raw,ubicacion_id:"",categoria_id:raw};
 }
 
-export async function publicitySaveV2({db,cache,advertiserId,body,config={}}){
+export async function publicitySaveV2({db,cache,advertiserId,body,config={prioridad_id:undefined}}){
   const data=body&&body.payload&&typeof body.payload==="object"?body.payload:{};
   const id=text(data.publicidad_id)||("PUB-"+crypto.randomUUID());
   const current=text(data.publicidad_id)?await db.get("publicidades",id):null;

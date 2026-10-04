@@ -43,7 +43,7 @@ function cityEvent(event,programacion,city){
   return cleanEvent({...event,ciudad_origen_id:text(event.ciudad_id),ciudad_id:city,
     ...(dates.length?{fecha_desde:dates[0],fecha_hasta:dates.at(-1)}:{})},local);
 }
-export async function syncEventV2({db,cache,current=null,next=null,previousProgramacion=[],programacion:provided}){
+export async function syncEventV2({db,cache,current=null,next=null,previousProgramacion=[],programacion:provided=undefined}){
   const id=text(next?.evento_id||current?.evento_id||next?.id||current?.id);
   const previous=await cache.get(coverageKey(id));
   const programacion=provided??(next?await getPreparedRelationsV1({cache,type:"event",id,current:current||next,

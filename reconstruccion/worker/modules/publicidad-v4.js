@@ -15,7 +15,7 @@ function dateKeyArgentina(){
   return new Date(Date.now()-3*60*60*1000).toISOString().slice(0,10);
 }
 
-export async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
+export async function publicitySaveV4({db,cache,advertiserId,body,config={guardadas_max:undefined,prioridad_id:undefined}}){
   const data=body&&body.payload&&typeof body.payload==="object"?body.payload:{};
   const id=text(data.publicidad_id)||("PUB-"+crypto.randomUUID());
   const current=text(data.publicidad_id)?await db.get("publicidades",id):null;

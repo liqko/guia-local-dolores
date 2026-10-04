@@ -59,7 +59,7 @@ async function validateEvent({db,cache,advertiserId,data,validateLocations=true,
     await validateLocation({db,cache,advertiserId,row:data,fallbackCity:data.ciudad_id});
   }
 }
-async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,fallbackCity,previous}){
+async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,fallbackCity,previous=undefined}){
   const old=previous??await db.queryEqual("evento_programacion","evento_id",eventId,500);
   const byId=new Map(old.map(p=>[text(p.evento_programacion_id||p.id),p]));
   const kept=new Set(),saved=[];

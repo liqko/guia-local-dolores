@@ -1,7 +1,7 @@
 import {changedFieldsV1} from "./changed-fields-v1.js";
 const text=v=>String(v??'').trim();
 // Sólo reutiliza IDs que pertenecen al padre consultado; conserva filas sin cambios.
-export async function patchChildRowsV1({db,collection,idField,prefix,previous=[],desired=[],matchKey}){
+export async function patchChildRowsV1({db,collection,idField,prefix,previous=[],desired=[],matchKey=undefined}){
   const byId=new Map(previous.map(r=>[text(r[idField]||r.id),r]));
   const used=new Set(),prepared=[];
   for(let i=0;i<desired.length;i++){

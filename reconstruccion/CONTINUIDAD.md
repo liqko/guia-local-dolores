@@ -151,3 +151,12 @@ Aclaración de publicación: el worktree real de main no contiene .github/workfl
 El workflow Firebase visto antes pertenecía a la rama de reconstrucción.
 No afirmar publicación automática de estos HTML: están actualizados en GitHub;
 la activación web todavía no está comprobada.
+
+## V39 — nueve errores de comprobación del Worker
+- Captura de Cloudflare reproducida: TypeScript 5.9.3 reportó exactamente nueve errores en V38.
+- Corrección en cinco módulos fuente: parámetros opcionales previous, programacion, matchKey y campos por defecto de configuración Publicidad. Semántica de valores omitidos conservada.
+- Bundle final V39: cero errores con --allowJs --checkJs --noEmit --target ES2022 --module ESNext --lib ES2022,DOM. Sin ts-nocheck.
+- Repetidas por el cambio: 75 casos de aislamiento, 15 mutaciones y ocho flujos existentes, aprobados.
+- Main recibe worker/WORKER_COMPLETO_V39.js. V38 se conserva como histórico.
+- Error de arranque separado observado: Falta binding GLD_CACHE_KV. El usuario debe vincular KV con ese nombre; el código no puede crear bindings.
+- Luego confirmar despliegue manual V39 y avanzar pruebas reales; correo/seed aún pendientes.
