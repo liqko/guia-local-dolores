@@ -1720,6 +1720,29 @@ const WORKER_EFEMERIDES_URL = WORKER_ORIGIN + '/efemerides';
 const WORKER_ACTIVIDADES_URL = WORKER_ORIGIN + '/actividades';
 const WORKER_PUBLICIDAD_URL = WORKER_ORIGIN + '/publicidad';
 const SUSCRIPTORES_URL = WORKER_ORIGIN + '/suscriptores';
+const WORKER_TERRITORY_PUBLIC_URL = WORKER_ORIGIN + '/territory/public';
+let gldTerritoryPublicPromise = null;
+async function gldTerritoryPublic_(){
+  if(!gldTerritoryPublicPromise){
+    gldTerritoryPublicPromise=fetch(WORKER_TERRITORY_PUBLIC_URL,{method:'GET',mode:'cors',cache:'default'})
+      .then(async r=>{
+        const data=await r.json().catch(()=>null);
+        if(!r.ok || !data || data.success!==true){
+          throw new Error((data&&(data.message||data.error))||'No se pudo cargar el catálogo territorial.');
+        }
+        return {
+          paises:Array.isArray(data.paises)?data.paises:[],
+          provincias:Array.isArray(data.provincias)?data.provincias:[],
+          ciudades:Array.isArray(data.ciudades)?data.ciudades.map(c=>({...c,ciudad:c.ciudad||c.ciudad_visible||c.nombre||c.ciudad_id,provincia:c.provincia||c.provincia_visible||'',pais:c.pais||c.pais_visible||''})):[]
+        };
+      })
+      .catch(err=>{
+        gldTerritoryPublicPromise=null;
+        throw err;
+      });
+  }
+  return gldTerritoryPublicPromise;
+}
 const GENERIC_PARTNER_LOGO = "https://res.cloudinary.com/dw3oovvb1/image/upload/v1761345482/mpeum21vwegc0acgvrfw.png";
 const EVENT_PARTNER_OTHER_VALUE = '__OTHER__';
 const EVENT_FREE_OTHER_CATEGORY = '__OTHER_CATEGORY__';
@@ -1740,6 +1763,14 @@ let comercios = [];
 let sesion = null;
 let sesionSuscriptor = null;
 let autorizacionesAnunciante = [];
+let gldSubscriberToken = '';
+
+function gldAuthHeaders_(extra={}){
+  return {
+    ...(gldSubscriberToken ? {Authorization:'Bearer '+gldSubscriberToken} : {}),
+    ...extra
+  };
+}
 let evLists = {
   categorias: [],
   ciudades: [],
@@ -2684,7 +2715,7 @@ async function events_get(action, extraParams={}){
     }
   });
 
-  const r = await fetch(url.toString(), { mode:'cors' });
+  const r = await fetch(url.toString(), { mode:'cors', headers:gldAuthHeaders_() });
   const text = await r.text();
   let json;
   try { json = JSON.parse(text); }
@@ -2728,9 +2759,10 @@ async function loadEventosPanelData(){
     }
 
     const data=res.json;
+    const territorio=await gldTerritoryPublic_();
 
     evLists.categorias=Array.isArray(data.categorias) ? data.categorias : [];
-    evLists.ciudades=Array.isArray(data.ciudades) ? data.ciudades : [];
+    evLists.ciudades=territorio.ciudades;
     evLists.partners=Array.isArray(data.partners) ? data.partners : [];
 
     evLists.lugaresTodos=(Array.isArray(data.lugares) ? data.lugares : []).map(o=>{
@@ -2798,7 +2830,12 @@ async function loadEventosPanelData(){
 
 /* ====================== API helpers ====================== */
 async function postJson(url, body){
-  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, mode:'cors', body: JSON.stringify(body) });
+  const r = await fetch(url, {
+    method:'POST',
+    headers:gldAuthHeaders_({'Content-Type':'application/json'}),
+    mode:'cors',
+    body:JSON.stringify(body)
+  });
   const text = await r.text();
   let json;
   try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText:text }; }
@@ -2894,7 +2931,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
 
   const segmentoActual = String(values.segmento_id || clasificacion.segmento_id || '').trim();
   const categoriasActuales = new Set(
-    String(values.categoria_id || clasificacion.categoria_id || '')
+    String(values.categoria_ids || values.categoria_id || clasificacion.categoria_ids || clasificacion.categoria_id || '')
       .split(/[;,|\n]+/).map(v=>v.trim()).filter(Boolean)
   );
 
@@ -3180,6 +3217,7 @@ function actividadesLugarOptions_(tipo,ciudadId,selected=''){
 function actividadesCrearHorarioCard_(h={}){
   const wrap=document.createElement('div');
   wrap.className='act-horario-card';
+  wrap.dataset.horarioId=String(h.actividad_horario_id||h.id||'').trim();
   wrap.style.cssText='border:1px solid #e5e5e5;border-radius:10px;padding:12px;margin:10px 0;background:#fafafa';
 
   const tipo=String(h.tipo_lugar||'').toUpperCase();
@@ -3433,6 +3471,32 @@ function actividadesAbrirActividadEnForm_(actividad,duplicar=false){
   document.getElementById('actividades-form-card')?.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
+function actividadesRefreshLocal_(rows){
+  actividadesState.actividades=Array.isArray(rows)?rows:[];
+  const max=Math.max(0,Number(actividadesState.cupo&&actividadesState.cupo.max||0));
+  const activas=actividadesState.actividades.filter(a=>a.activo!==false && String(a.estado||'').toUpperCase()!=='PAUSADA').length;
+  actividadesState.cupo={
+    ...(actividadesState.cupo||{}),
+    max,
+    activas,
+    total:actividadesState.actividades.length,
+    totalMax:max>0?max*2:0
+  };
+  actividadesRenderLista_();
+}
+function actividadUpsertLocal_(actividad){
+  if(!actividad)return;
+  const id=String(actividad.actividad_id||actividad.id||'').trim();
+  if(!id)return;
+  const rows=(actividadesState.actividades||[]).filter(x=>String(x.actividad_id||x.id||'').trim()!==id);
+  rows.push(actividad);
+  actividadesRefreshLocal_(rows);
+}
+function actividadRemoveLocal_(actividadId){
+  const id=String(actividadId||'').trim();
+  actividadesRefreshLocal_((actividadesState.actividades||[]).filter(x=>String(x.actividad_id||x.id||'').trim()!==id));
+}
+
 function actividadesRenderLista_(){
   const box=document.getElementById('actividades-list');
   const st=document.getElementById('actividades-status');
@@ -3536,7 +3600,8 @@ function actividadesRenderLista_(){
         async()=>{
           const res=await postJson(WORKER_ACTIVIDADES_URL,{action,advertiserId:sesion.id,actividad_id:id});
           if(res.status>=200 && res.status<300 && res.json && res.json.success){
-            await loadActividadesUI(true);
+            if(action==='eliminar') actividadRemoveLocal_(id);
+            else actividadUpsertLocal_(res.json.actividad);
             setMsg('actividades-msg','ok',
               action==='renovar'?'Actividad renovada por 30 días.':
               action==='pausar'?'Actividad pausada.':
@@ -3573,7 +3638,7 @@ function actividadesHorarioPayload_(card,index){
   if(!dia_semana) throw new Error(`Bloque ${index+1}: seleccioná un día.`);
   if(!hora_desde) throw new Error(`Bloque ${index+1}: completá la hora de inicio.`);
 
-  const out={ciudad_id,tipo_lugar,sector,responsable,dia_semana,hora_desde,hora_hasta,observaciones,activo:true};
+  const out={actividad_horario_id:String(card.dataset.horarioId||''),ciudad_id,tipo_lugar,sector,responsable,dia_semana,hora_desde,hora_hasta,observaciones,activo:true};
 
   if(tipo_lugar==='SEDE' || tipo_lugar==='LUGAR'){
     const sel=card.querySelector('.act-h-lugar');
@@ -3607,17 +3672,18 @@ async function loadActividadesUI(force=false){
 
   try{
     const url=WORKER_ACTIVIDADES_URL+'?action=getpaneldata&advertiserId='+encodeURIComponent(sesion.id);
-    const r=await fetch(url,{mode:'cors',cache:'no-store'});
+    const r=await fetch(url,{mode:'cors',cache:'no-store',headers:gldAuthHeaders_()});
     const data=await r.json();
 
     if(!r.ok || !data || data.success!==true){
       throw new Error((data&&(data.error||data.message))||'No se pudo cargar Actividades.');
     }
 
+    const territorio=await gldTerritoryPublic_();
     actividadesState={
       permisos:data.permisos||null,
       cupo:data.cupo||null,
-      ciudades:Array.isArray(data.ciudades)?data.ciudades:[],
+      ciudades:territorio.ciudades,
       lugares:Array.isArray(data.lugares)?data.lugares:[],
       sedes:Array.isArray(data.sedes)?data.sedes:[],
       categorias:Array.isArray(data.categorias)?data.categorias:[],
@@ -3723,7 +3789,7 @@ function initActividadesUI_(){
           const res=await postJson(WORKER_ACTIVIDADES_URL,{action:'guardar',advertiserId:sesion.id,payload});
           if(res.status>=200 && res.status<300 && res.json && res.json.success){
             actividadesResetForm_();
-            await loadActividadesUI(true);
+            actividadUpsertLocal_(res.json.actividad);
             setMsg('actividades-msg','ok',editando?'Actividad actualizada.':'Actividad creada.');
           }else if(await handleUnconfirmedOperation(res,{msgId:'actividades-msg',reload:()=>loadActividadesUI(true)})){
             return;
@@ -4169,7 +4235,7 @@ async function pubUiAplicarActivos_(){
       });
 
       if(res.status>=200 && res.status<300 && res.json && res.json.success){
-        await loadPublicidadUI(true);
+        pubUiSetActiveLocal_(ids,res.json.cambios_activos||publicidadState.cambios_activos);
 
         setMsg(
           'publicidad-msg',
@@ -4209,6 +4275,41 @@ async function pubUiAplicarActivos_(){
   );
 }
 
+
+function pubUiRefreshLocal_(){
+  const rows=Array.isArray(publicidadState.publicidades)?publicidadState.publicidades:[];
+  const cp=publicidadState.cupo||{};
+  publicidadState.cupo={
+    ...cp,
+    activas:rows.filter(p=>String(p.estado||'').toUpperCase()==='ACTIVA').length,
+    guardadas:rows.length
+  };
+  pubUiLista_();
+  pubUiActivos_();
+}
+function pubUiUpsertLocal_(publicidad){
+  if(!publicidad)return;
+  const id=String(publicidad.publicidad_id||publicidad.id||'').trim();
+  if(!id)return;
+  const rows=(publicidadState.publicidades||[]).filter(x=>String(x.publicidad_id||x.id||'').trim()!==id);
+  rows.push(publicidad);
+  publicidadState.publicidades=rows;
+  pubUiRefreshLocal_();
+}
+function pubUiRemoveLocal_(publicidadId){
+  const id=String(publicidadId||'').trim();
+  publicidadState.publicidades=(publicidadState.publicidades||[]).filter(x=>String(x.publicidad_id||x.id||'').trim()!==id);
+  pubUiRefreshLocal_();
+}
+function pubUiSetActiveLocal_(ids,cambios){
+  const selected=new Set((Array.isArray(ids)?ids:[]).map(String));
+  publicidadState.publicidades=(publicidadState.publicidades||[]).map(p=>({
+    ...p,
+    estado:selected.has(String(p.publicidad_id||p.id||''))?'ACTIVA':'INACTIVA'
+  }));
+  if(cambios) publicidadState.cambios_activos=cambios;
+  pubUiRefreshLocal_();
+}
 
 function pubUiLista_(){
   const box=document.getElementById('publicidad-list');
@@ -4305,7 +4406,7 @@ function pubUiLista_(){
           });
 
           if(res.status>=200 && res.status<300 && res.json && res.json.success){
-            await loadPublicidadUI(true);
+            pubUiRemoveLocal_(p.publicidad_id);
             setMsg('publicidad-msg','ok','Publicidad eliminada.');
           }else if(
             await handleUnconfirmedOperation(
@@ -4346,7 +4447,7 @@ async function loadPublicidadUI(force=false){
       '?action=getpaneldata&advertiserId='+
       encodeURIComponent(sesion.id);
 
-    const r=await fetch(url,{mode:'cors',cache:'no-store'});
+    const r=await fetch(url,{mode:'cors',cache:'no-store',headers:gldAuthHeaders_()});
     const data=await r.json();
 
     if(!r.ok || !data || data.success!==true){
@@ -4356,11 +4457,12 @@ async function loadPublicidadUI(force=false){
       );
     }
 
+    const territorio=await gldTerritoryPublic_();
     publicidadState={
       config:data.config||null,
       cupo:data.cupo||null,
       cambios_activos:data.cambios_activos||null,
-      ciudades:Array.isArray(data.ciudades)?data.ciudades:[],
+      ciudades:territorio.ciudades,
       categorias:Array.isArray(data.categorias)?data.categorias:[],
       ubicaciones:Array.isArray(data.ubicaciones)?data.ubicaciones:[],
       prioridades:Array.isArray(data.prioridades)?data.prioridades:[],
@@ -4508,7 +4610,7 @@ function initPublicidadUI_(){
 
             if(res.status>=200 && res.status<300 && res.json && res.json.success){
               pubUiReset_();
-              await loadPublicidadUI(true);
+              pubUiUpsertLocal_(res.json.publicidad);
 
               setMsg(
                 'publicidad-msg',
@@ -4704,6 +4806,29 @@ function efemFechaLabel(r){
   return efemFechaFijaTexto(r.fecha) || String(r.fecha||'');
 }
 
+function efemRefreshLocal_(rows){
+  efemState.efemerides=Array.isArray(rows)?rows:[];
+  efemRenderList();
+  const st=document.getElementById('efem-status');
+  if(st){
+    st.textContent=efemState.efemerides.length
+      ? `${efemState.efemerides.length} efeméride(s).`
+      : 'No hay efemérides cargadas.';
+  }
+}
+function efemUpsertLocal_(row){
+  if(!row)return;
+  const id=String(row.efemeride_id||row.id||'').trim();
+  if(!id)return;
+  const rows=(efemState.efemerides||[]).filter(x=>String(x.efemeride_id||x.id||'').trim()!==id);
+  rows.push(row);
+  efemRefreshLocal_(rows);
+}
+function efemRemoveLocal_(id){
+  const wanted=String(id||'').trim();
+  efemRefreshLocal_((efemState.efemerides||[]).filter(x=>String(x.efemeride_id||x.id||'').trim()!==wanted));
+}
+
 function efemRenderList(){
   const box=document.getElementById('efem-list');
   const countBox=document.getElementById('efem-results-count');
@@ -4857,7 +4982,7 @@ function efemRenderList(){
           const res=await efemerides_post({action:'eliminar',efemeride_id:id});
           if(res.status===200 && res.json && res.json.success){
             if(String(document.getElementById('efem-id')?.value||'')===String(id)) efemClearForm();
-            await loadEfemeridesUI(true);
+            efemRemoveLocal_(id);
             setMsg('efem-msg','ok','Efeméride eliminada.');
           }else if(res.json && res.json.error==='efemeride_id_no_encontrado'){
             await loadEfemeridesUI(true);
@@ -4892,7 +5017,7 @@ function efemRenderList(){
       try{
         const res=await efemerides_post({action,efemeride_id:id});
         if(res.status===200 && res.json && res.json.success){
-          await loadEfemeridesUI(true);
+          efemUpsertLocal_(res.json.efemeride);
           setMsg('efem-msg','ok',publicando?'Efeméride publicada.':'Efeméride pausada.');
         }else if(res.json && res.json.error==='efemeride_id_no_encontrado'){
           await loadEfemeridesUI(true);
@@ -4956,8 +5081,9 @@ async function loadEfemeridesUI(preserveMessage=false){
       efemerides_grl:efemTruthy(permisos.efemerides_grl),
       efemerides_provincial:efemTruthy(permisos.efemerides_provincial)
     };
-    efemState.ciudades=Array.isArray(res.json.ciudades)?res.json.ciudades:[];
-    efemState.provincias=Array.isArray(res.json.provincias)?res.json.provincias:[];
+    const territorio=await gldTerritoryPublic_();
+    efemState.ciudades=territorio.ciudades;
+    efemState.provincias=territorio.provincias;
     efemState.efemerides=Array.isArray(res.json.efemerides)?res.json.efemerides:[];
     efemState.loaded=true;
 
@@ -5058,8 +5184,8 @@ async function efemGuardar(){
       const res=await efemerides_post({action:'guardar',payload});
 
       if(res.status===200 && res.json && res.json.success){
+        efemUpsertLocal_(res.json.efemeride);
         efemClearForm();
-        await loadEfemeridesUI(true);
         setMsg('efem-msg','ok',editando?'Cambios guardados.':'Efeméride creada.');
       }else if(await handleUnconfirmedOperation(res,{
         msgId:'efem-msg',
@@ -5095,7 +5221,7 @@ async function farmacias_get(action, extraParams={}){
   Object.entries(extraParams||{}).forEach(([k,v])=>{
     if(v!==undefined && v!==null && String(v).trim()!=='') url.searchParams.set(k,String(v));
   });
-  const r=await fetch(url.toString(),{mode:'cors'});
+  const r=await fetch(url.toString(),{mode:'cors',headers:gldAuthHeaders_()});
   const text=await r.text();
   let json;
   try{ json=JSON.parse(text); }catch(e){ throw new Error('Respuesta inválida del servicio de Farmacias'); }
@@ -5301,8 +5427,9 @@ async function loadFarmaciasUI(){
     }
 
     const data=res.json;
+    const territorio=await gldTerritoryPublic_();
 
-    farmaState.ciudades=Array.isArray(data.ciudades) ? data.ciudades : [];
+    farmaState.ciudades=territorio.ciudades;
     farmaState.farmaciasTodas=Array.isArray(data.farmacias) ? data.farmacias : [];
     farmaState.ciclos=Array.isArray(data.ciclos) ? data.ciclos : [];
     farmaState.participantesTodos=Array.isArray(data.participantes) ? data.participantes : [];
@@ -5513,7 +5640,12 @@ function addEmptySedeCard(){
   const wrap = document.querySelector('.commerce-sedes-wrap');
   if(!wrap) return;
 
-  const existing = wrap.querySelector('.commerce-sede-card');
+  let existing = wrap.querySelector('.commerce-sede-card');
+  if(!existing){
+    const template=document.createElement('div');
+    template.innerHTML=buildCommerceFieldsMarkup({}, {}, [{}]);
+    existing=template.querySelector('.commerce-sede-card');
+  }
   if(existing){
     const clone = existing.cloneNode(true);
     clone.querySelectorAll('input[type="text"], textarea').forEach(el=>{ el.value=''; });
@@ -5559,6 +5691,8 @@ async function deleteSedeCard(card){
     const res = await commerce_post({action:'delete_sede', id:id, __id:id, sede_id:sedeId});
     if(res.status === 200 && res.json && res.json.success){
       card.remove();
+      currentCommerceSedes=currentCommerceSedes.filter(s=>String(s.sede_id||'')!==String(sedeId));
+      commerceBeginEditSession_();
       setMsg('msg-datos-comercio','ok','Sede eliminada.');
     }else if(await handleUnconfirmedOperation(res,{
       msgId:'msg-datos-comercio',
@@ -5867,7 +6001,7 @@ function bindPromosListActions(){
           const r = await promos_post({ action: 'updatePromo', payload: { promo_id: pid, pausado: newPauseState } });
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', isPaused ? 'Promo reanudada.' : 'Promo pausada.');
-            await loadPromosUI();
+            promoUpsertLocal_(r.json.promo || Object.assign({},(window.__lastPromos||[]).find(x=>String(x.promo_id||'')===String(pid))||{}, {promo_id:pid,pausado:!isPaused}));
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
             reload:()=>loadPromosUI(),
@@ -5894,7 +6028,7 @@ function bindPromosListActions(){
           const r = await promos_post({ action: 'deletePromo', payload: { promo_id: pid } });
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', 'Promo borrada.');
-            await loadPromosUI();
+            promoRemoveLocal_(pid);
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
             reload:()=>loadPromosUI(),
@@ -5957,7 +6091,7 @@ function bindPromosListActions(){
         }});
         if(r.status === 200 && r.json && (r.json.success || r.json.created)){
           setMsg('promos-msg', 'ok', 'Promo duplicada.');
-          await loadPromosUI();
+          promoUpsertLocal_(r.json.promo);
         } else {
           setMsg('promos-msg', 'err', 'No se pudo duplicar la promo. Intentá nuevamente.');
         }
@@ -5971,6 +6105,33 @@ function renderPromosList(promos){
   if(isMobile) renderPromosCards(promos);
   else renderPromosTable(promos);
   bindPromosListActions();
+}
+
+function promoRefreshLocal_(nextPromos){
+  const rows=Array.isArray(nextPromos)?nextPromos:[];
+  window.__lastPromos=rows;
+  promoState.promos=rows;
+  renderPromosList(rows);
+  const cupo=calcularCupoPublicacion(rows,sesion.promos_cant);
+  const st=document.getElementById('promos-status');
+  if(st) st.innerHTML=textoCupoPublicacion(cupo);
+  const btnCreate=document.getElementById('promo-create');
+  if(btnCreate && btnCreate.dataset.mode!=='edit'){
+    if(!cupo.puedeCrear) btnCreate.setAttribute('disabled','true');
+    else btnCreate.removeAttribute('disabled');
+  }
+}
+function promoUpsertLocal_(promo){
+  if(!promo)return;
+  const id=String(promo.promo_id||promo.id||'').trim();
+  if(!id)return;
+  const rows=(window.__lastPromos||[]).filter(x=>String(x.promo_id||x.id||'').trim()!==id);
+  rows.push(promo);
+  promoRefreshLocal_(rows);
+}
+function promoRemoveLocal_(promoId){
+  const id=String(promoId||'').trim();
+  promoRefreshLocal_((window.__lastPromos||[]).filter(x=>String(x.promo_id||x.id||'').trim()!==id));
 }
 
 function cargarCiudadesPromo(){
@@ -6011,10 +6172,11 @@ async function loadPromosPanelData(){
     sesion.promos_cant=Number.isFinite(promosCantLocal) ? promosCantLocal : 0;
     localStorage.setItem('promos_cant',String(sesion.promos_cant));
 
+    const territorio=await gldTerritoryPublic_();
     promoState={
       advertiser:data.advertiser || null,
       sedes:Array.isArray(data.sedes) ? data.sedes : [],
-      ciudades:Array.isArray(data.ciudades) ? data.ciudades : [],
+      ciudades:territorio.ciudades,
       categorias:Array.isArray(data.categorias) ? data.categorias : [],
       promos:Array.isArray(data.promos) ? data.promos : []
     };
@@ -6499,7 +6661,8 @@ function bindEventsListActions(){
           const res = await events_post({ action:'pauseVipEvent', payload: { evento_id: evId, pause: newPauseState } });
           if(res.status === 200 && res.json && res.json.success){
             setMsg('eventos-msg', 'ok', isPaused ? 'Evento reanudado.' : 'Evento pausado.');
-            await loadEventsUI();
+            const actual=(window.__lastEvents||[]).find(x=>String(x.evento_id||'')===String(evId))||{};
+            eventUpsertLocal_(Object.assign({},actual,res.json.evento||{}, {evento_id:evId,pausado:newPauseState}));
           } else if(await handleUnconfirmedOperation(res,{
             msgId:'eventos-msg',
             reload:()=>loadEventsUI(),
@@ -6526,7 +6689,7 @@ function bindEventsListActions(){
           const res = await events_post({ action:'deleteVipEvent', payload: { evento_id: evId } });
           if(res.status === 200 && res.json && (res.json.success || res.json.deleted)){
             setMsg('eventos-msg', 'ok', 'Evento VIP borrado.');
-            await loadEventsUI();
+            eventRemoveLocal_(evId);
           } else if(await handleUnconfirmedOperation(res,{
             msgId:'eventos-msg',
             reload:()=>loadEventsUI(),
@@ -6665,7 +6828,7 @@ function bindEventsListActions(){
           const res = await events_post({ action:'createVipEvent', payload: copyPayload });
           if(res.status === 200 && res.json && (res.json.success || res.json.created)){
             setMsg('eventos-msg', 'ok', 'Evento duplicado.');
-            await loadEventsUI();
+            eventUpsertLocal_(res.json.evento);
           } else {
             setMsg('eventos-msg', 'err', 'Error duplicando: ' + JSON.stringify(res.json));
           }
@@ -6680,6 +6843,32 @@ function renderEventsList(events){
   if(isMobile) renderEventsCards(events);
   else renderEventsTable(events);
   bindEventsListActions();
+}
+
+function eventRefreshLocal_(rows){
+  const events=Array.isArray(rows)?rows:[];
+  window.__lastEvents=events;
+  renderEventsList(events);
+  const cupo=calcularCupoPublicacion(events,sesion.eventos_cant);
+  const st=document.getElementById('eventos-status');
+  if(st) st.innerHTML=textoCupoPublicacion(cupo);
+  const btnCreate=document.getElementById('ev-create');
+  if(btnCreate && btnCreate.dataset.mode!=='edit'){
+    if(!cupo.puedeCrear) btnCreate.setAttribute('disabled','true');
+    else btnCreate.removeAttribute('disabled');
+  }
+}
+function eventUpsertLocal_(evento){
+  if(!evento)return;
+  const id=String(evento.evento_id||evento.id||'').trim();
+  if(!id)return;
+  const rows=(window.__lastEvents||[]).filter(x=>String(x.evento_id||x.id||'').trim()!==id);
+  rows.push(evento);
+  eventRefreshLocal_(rows);
+}
+function eventRemoveLocal_(eventoId){
+  const id=String(eventoId||'').trim();
+  eventRefreshLocal_((window.__lastEvents||[]).filter(x=>String(x.evento_id||x.id||'').trim()!==id));
 }
 
 async function loadEventsUI(){
@@ -6972,6 +7161,26 @@ function buildFreeEventPayload_(){
   };
 }
 
+function freeEventRefreshLocal_(rows){
+  const events=Array.isArray(rows)?rows:[];
+  window.__lastFreeEvents=events;
+  renderFreeEvents_(events);
+  const st=document.getElementById('eventos-free-status');
+  if(st) st.textContent=`${events.length} evento${events.length===1?'':'s'} free cargado${events.length===1?'':'s'}.`;
+}
+function freeEventUpsertLocal_(evento){
+  if(!evento)return;
+  const id=String(evento.evento_id||evento.id||'').trim();
+  if(!id)return;
+  const rows=(window.__lastFreeEvents||[]).filter(x=>String(x.evento_id||x.id||'').trim()!==id);
+  rows.push(evento);
+  freeEventRefreshLocal_(rows);
+}
+function freeEventRemoveLocal_(eventoId){
+  const id=String(eventoId||'').trim();
+  freeEventRefreshLocal_((window.__lastFreeEvents||[]).filter(x=>String(x.evento_id||x.id||'').trim()!==id));
+}
+
 function renderFreeEvents_(events){
   const box=document.getElementById('eventos-free-list');
   if(!box) return;
@@ -7043,7 +7252,11 @@ function renderFreeEvents_(events){
         await runDashboardAction(btn.dataset.paused==='1'?'Reactivando evento free...':'Pausando evento free...',async()=>{
           const res=await events_post({action:'pauseFreeEvent',payload:{evento_id:id,pausado:btn.dataset.paused!=='1'}});
           if(res.status===200 && res.json && res.json.success){
-            await loadEventosFreePanelData();
+            const actual=(window.__lastFreeEvents||[]).find(x=>String(x.evento_id||'')===String(id))||{};
+            freeEventUpsertLocal_(Object.assign({},actual,res.json.evento||{},{
+              evento_id:id,
+              pausado:btn.dataset.paused!=='1'
+            }));
           }else{
             setMsg('eventos-free-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo cambiar el estado.');
           }
@@ -7062,7 +7275,7 @@ function renderFreeEvents_(events){
               clearFreeEventForm_();
               const save=document.getElementById('evf-guardar'); if(save) save.textContent='Crear evento free';
             }
-            await loadEventosFreePanelData();
+            freeEventRemoveLocal_(id);
           }else{
             setMsg('eventos-free-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo eliminar.');
           }
@@ -7096,8 +7309,9 @@ async function loadEventosFreePanelData(){
       throw new Error('El anunciante no tiene habilitada la funcionalidad EVENTOS FREE.');
     }
 
+    const territorio=await gldTerritoryPublic_();
     evLists.categorias=Array.isArray(data.categorias)?data.categorias:evLists.categorias;
-    evLists.ciudades=Array.isArray(data.ciudades)?data.ciudades:evLists.ciudades;
+    evLists.ciudades=territorio.ciudades;
     fillFreeEventCatalogs_(data);
 
     const events=Array.isArray(data.eventos_free)?data.eventos_free:[];
@@ -7136,7 +7350,9 @@ function cancelEventEdit(){
 document.addEventListener('DOMContentLoaded', ()=>{
   installGlobalSelectTypeSearch_();
 
-  const SUSCRIPTOR_SESSION_KEY='gld_suscriptor_session_v1';
+  const SUSCRIPTOR_SESSION_KEY='gld_suscriptor_session_v2';
+  const SUSCRIPTOR_TOKEN_KEY='gld_suscriptor_token_v2';
+  const SUSCRIPTOR_AUTHS_KEY='gld_suscriptor_authorizations_v2';
   const DASHBOARD_ADVERTISER_KEY='gld_dashboard_anunciante_id_v1';
 
   function guardarSesionSuscriptor_(data){
@@ -7159,6 +7375,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
     limpiarContextoAnunciante_();
     guardarSesionSuscriptor_(null);
     autorizacionesAnunciante=[];
+    gldSubscriberToken='';
+    localStorage.removeItem(SUSCRIPTOR_TOKEN_KEY);
+    localStorage.removeItem(SUSCRIPTOR_AUTHS_KEY);
     document.getElementById('login-form')?.reset();
     mostrarPanel('login');
   }
@@ -7251,7 +7470,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   async function apiSuscriptores_(payload){
     const r=await fetch(SUSCRIPTORES_URL,{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:gldAuthHeaders_({'Content-Type':'application/json'}),
       body:JSON.stringify(payload),
       mode:'cors'
     });
@@ -7279,15 +7498,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
 
   async function obtenerAutorizaciones_(){
-    if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id) return [];
-    const data=await apiSuscriptores_({
-      action:'anunciantes_autorizados',
-      suscriptor_id:sesionSuscriptor.suscriptor_id
-    });
-    if(!data || data.success!==true || !Array.isArray(data.anunciantes)){
-      throw new Error((data&&(data.message||data.error))||'No se pudieron cargar los anunciantes autorizados.');
+    if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id || !gldSubscriberToken) return [];
+    const data=await apiSuscriptores_({action:'session'});
+    if(!data || data.success!==true){
+      throw new Error((data&&(data.message||data.error))||'La sesión venció.');
     }
-    autorizacionesAnunciante=data.anunciantes;
+    let saved=[];
+    try{ saved=JSON.parse(localStorage.getItem(SUSCRIPTOR_AUTHS_KEY)||'[]'); }catch(_){}
+    autorizacionesAnunciante=Array.isArray(saved)?saved:[];
     return autorizacionesAnunciante;
   }
 
@@ -7324,16 +7542,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const nombre=nombreAnuncianteRelacion_(rel);
     const idAnterior=String(sesion&&sesion.id||'').trim();
 
-    showGlobalBlocking_('Cargando anunciante...','Validando permisos actuales.',document.activeElement);
+    showGlobalBlocking_('Cargando anunciante...','Preparando permisos y módulos.',document.activeElement);
     try{
-      const url=`${WORKER_ORIGIN}/commerce?action=permisos_panel&id=${encodeURIComponent(id)}`;
-      const r=await fetch(url,{method:'GET',mode:'cors',cache:'no-store'});
-      const j=await r.json().catch(()=>null);
-      if(!r.ok || !j || j.success!==true || !j.administracion || typeof j.administracion!=='object'){
-        throw new Error((j&&(j.message||j.error))||'No se pudieron validar los permisos del anunciante.');
+      let administracion=(rel&&rel.administracion&&typeof rel.administracion==='object') ? rel.administracion : null;
+      if(!administracion){
+        const url=`${WORKER_ORIGIN}/commerce?action=permisos_panel&id=${encodeURIComponent(id)}`;
+        const r=await fetch(url,{method:'GET',mode:'cors',cache:'no-store',headers:gldAuthHeaders_()});
+        const j=await r.json().catch(()=>null);
+        if(!r.ok || !j || j.success!==true || !j.administracion || typeof j.administracion!=='object'){
+          throw new Error((j&&(j.message||j.error))||'No se pudieron validar los permisos del anunciante.');
+        }
+        administracion=j.administracion||{};
       }
-
-      const administracion=j.administracion||{};
       sesion={
         id:id,
         nombre:nombre,
@@ -7400,23 +7620,29 @@ document.addEventListener('DOMContentLoaded', ()=>{
   async function restaurarSesionSuscriptor_(){
     let raw=null;
     try{ raw=JSON.parse(localStorage.getItem(SUSCRIPTOR_SESSION_KEY)||'null'); }catch(e){}
-    if(!raw || !raw.suscriptor_id){
+    gldSubscriberToken=String(localStorage.getItem(SUSCRIPTOR_TOKEN_KEY)||'');
+    try{ autorizacionesAnunciante=JSON.parse(localStorage.getItem(SUSCRIPTOR_AUTHS_KEY)||'[]'); }catch(_){ autorizacionesAnunciante=[]; }
+
+    if(!raw || !raw.suscriptor_id || !gldSubscriberToken){
       hideGlobalBlocking_();
       mostrarPanel('login');
       return;
     }
 
     sesionSuscriptor=raw;
-    showGlobalBlocking_(
-      'Cargando tu cuenta...',
-      'Recuperando tu sesión y el anunciante seleccionado.',
-      null
-    );
+    showGlobalBlocking_('Cargando tu cuenta...','Validando la sesión guardada.',null);
 
     try{
+      const check=await apiSuscriptores_({action:'session'});
+      if(!check || check.success!==true) throw new Error('La sesión venció. Ingresá nuevamente.');
       await abrirCuentaAutorizada_({autoAbrir:true});
     }catch(e){
       limpiarContextoAnunciante_();
+      guardarSesionSuscriptor_(null);
+      gldSubscriberToken='';
+      autorizacionesAnunciante=[];
+      localStorage.removeItem(SUSCRIPTOR_TOKEN_KEY);
+      localStorage.removeItem(SUSCRIPTOR_AUTHS_KEY);
       const msg=document.getElementById('login-msg');
       if(msg) msg.innerHTML=`<span class="error">${htmlEscape(e.message||e)}</span>`;
       mostrarPanel('login');
@@ -7478,6 +7704,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const hayDatos=Object.keys(dataPatch)
           .some(k=>!['action','id','__id','comercio_id'].includes(k));
         const haySedes=Array.isArray(sedePayload.sedes) && sedePayload.sedes.length>0;
+        let savedSedes=[];
 
         if(!hayDatos && !haySedes){
           setMsg('msg-datos-comercio','ok','No hay cambios para guardar.');
@@ -7534,10 +7761,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
             );
             return;
           }
+          savedSedes=Array.isArray(sedeResponse.json.sedes)?sedeResponse.json.sedes:[];
         }
 
-        // Lectura posterior para dejar formulario y baseline exactamente como quedaron guardados.
-        await loadCommerceUI();
+        // Usar las filas devueltas por el guardado, también para IDs de sedes nuevas.
+        if(savedSedes.length){
+          const incomingIds=new Set(sedePayload.sedes.map(s=>String(s.sede_id||'')).filter(Boolean));
+          const newRows=savedSedes.filter(s=>!incomingIds.has(String(s.sede_id||'')));
+          const newCards=Array.from(document.querySelectorAll('#form-datos-comercio .commerce-sede-card')).filter(c=>!c.querySelector('[name="sede_id"]')?.value);
+          newCards.forEach((card,i)=>{if(newRows[i])card.querySelector('[name="sede_id"]').value=newRows[i].sede_id;});
+          const savedIds=new Set(savedSedes.map(s=>String(s.sede_id)));
+          currentCommerceSedes=[...currentCommerceSedes.filter(s=>!savedIds.has(String(s.sede_id))),...savedSedes];
+        }
+        commerceBeginEditSession_();
         setMsg('msg-datos-comercio','ok','Cambios guardados.');
 
       }catch(err){
@@ -7630,7 +7866,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         clave_nueva:nueva
       });
       if(!data || data.success!==true) throw new Error((data&&(data.message||data.error))||'No se pudo cambiar la contraseña.');
-      if(msg) msg.innerHTML='<span class="success">Contraseña actualizada.</span>';
+      cerrarSesionCompleta_();
+      document.getElementById('login-msg').innerHTML='<span class="success">Contraseña actualizada. Volvé a ingresar.</span>';
     }catch(e){ if(msg) msg.innerHTML=`<span class="error">${htmlEscape(e.message||e)}</span>`; }
     finally{ btn.disabled=false; btn.textContent='Cambiar contraseña'; }
   });
@@ -7676,9 +7913,9 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:editingPromoId},promoPatch) });
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', 'Promo actualizada.');
+            promoUpsertLocal_(r.json.promo);
             promoSetCreateMode();
             promoClearForm();
-            await loadPromosUI();
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
             reload:()=>loadPromosUI(),
@@ -7705,8 +7942,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           const r = await promos_post({ action: 'createPromo', payload: promoPayload });
           if(r.status === 200 && r.json && (r.json.success || r.json.created)){
             setMsg('promos-msg', 'ok', 'Promo creada.');
+            promoUpsertLocal_(r.json.promo);
             promoClearForm();
-            await loadPromosUI();
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
             reload:()=>loadPromosUI(),
@@ -7774,6 +8011,16 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         const res=await farmacias_post({action:'guardar_ciclo',payload});
 
         if(res.status===200 && res.json && res.json.success){
+          const ciclo=res.json.ciclo||null;
+          if(ciclo){
+            const id=String(ciclo.ciclo_id||'').trim();
+            farmaState.ciclos=(farmaState.ciclos||[]).filter(c=>String(c.ciclo_id||'').trim()!==id);
+            farmaState.ciclos.push(ciclo);
+
+            farmaState.participantesTodos=(farmaState.participantesTodos||[])
+              .filter(p=>String(p.ciclo_id||'').trim()!==id)
+              .concat(Array.isArray(ciclo.participantes)?ciclo.participantes:[]);
+          }
           setMsg('farma-msg','ok','Ciclo guardado correctamente.');
           await loadFarmaCityData();
         }else if(await handleUnconfirmedOperation(res,{
@@ -7866,7 +8113,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         clearFreeEventForm_();
         const save=document.getElementById('evf-guardar');
         if(save) save.textContent='Crear evento free';
-        await loadEventosFreePanelData();
+        freeEventUpsertLocal_(res.json.evento);
         setMsg('eventos-free-msg','ok',editing?'Evento free actualizado.':'Evento free enviado a revisión.');
       }else{
         setMsg('eventos-free-msg','err',(res.json&&(res.json.error||res.json.message))||'No se pudo guardar el evento free.');
@@ -7918,6 +8165,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, editPatch) });
           if(res.status === 200 && res.json && (res.json.success || res.json.updated)){
             setMsg('eventos-msg', 'ok', 'Evento actualizado.');
+            eventUpsertLocal_(res.json.evento);
             gldEditEnd_('eventos_vip');
             editingEventId = null;
             lastCreatedEventId = null;
@@ -7925,7 +8173,6 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
             btn.dataset.mode = '';
             btn.textContent = 'Crear evento';
             clearEventForm();
-            await loadEventsUI();
           } else if(await handleUnconfirmedOperation(res,{
             msgId:'eventos-msg',
             reload:()=>loadEventsUI(),
@@ -7955,9 +8202,9 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
             lastCreatedEventId = createdId;
 
             setMsg('eventos-msg', 'ok', 'Evento creado.');
+            eventUpsertLocal_(res.json.evento);
 
             clearEventForm();
-            await loadEventsUI();
           } else if(await handleUnconfirmedOperation(res,{
             msgId:'eventos-msg',
             reload:()=>loadEventsUI(),
@@ -8032,7 +8279,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     const url = `${WORKER_ORIGIN}/commerce?action=anunciante&id=${encodeURIComponent(sesion.id)}`;
 
     try{
-      const r = await fetch(url, { method:'GET', mode:'cors' });
+      const r = await fetch(url, { method:'GET', mode:'cors', headers:gldAuthHeaders_() });
       const rawResponse = await r.json().catch(()=>({ error:'Respuesta inválida'}));
 
       if(rawResponse.error || rawResponse.success===false){
@@ -8048,11 +8295,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       const clasificacion = rawDatos.clasificacion || {};
       const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
 
+      const territorio=await gldTerritoryPublic_();
       currentCommerceSedes = sedes;
       commerceCatalogs = {
         segmentos:Array.isArray(rawDatos.segmentos) ? rawDatos.segmentos : [],
         categorias:Array.isArray(rawDatos.categorias) ? rawDatos.categorias : [],
-        ciudades:Array.isArray(rawDatos.ciudades) ? rawDatos.ciudades : [],
+        ciudades:territorio.ciudades,
         actividades_clave:Array.isArray(rawDatos.actividades_clave) ? rawDatos.actividades_clave : [],
         acciones:Array.isArray(rawDatos.acciones) ? rawDatos.acciones : [],
         nodos:Array.isArray(rawDatos.nodos) ? rawDatos.nodos : [],
@@ -8120,8 +8368,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         return;
       }
 
-      guardarSesionSuscriptor_(data.suscriptor);
+      if(!data.token) throw new Error('El servidor no devolvió una sesión válida.');
+      gldSubscriberToken=String(data.token);
+      localStorage.setItem(SUSCRIPTOR_TOKEN_KEY,gldSubscriberToken);
       autorizacionesAnunciante=anunciantesLogin;
+      localStorage.setItem(SUSCRIPTOR_AUTHS_KEY,JSON.stringify(autorizacionesAnunciante));
+      guardarSesionSuscriptor_(data.suscriptor);
       limpiarContextoAnunciante_();
       await abrirCuentaAutorizada_({autoAbrir:true});
     }catch(err){

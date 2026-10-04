@@ -1185,19 +1185,22 @@ html,body{
       }catch(e){ return ''; }
     }
 
-    const ANUNCIANTES_API = "https://login.liqkoargentina.workers.dev/commerce";
+    const ANUNCIANTES_API = "https://login.liqkoargentina.workers.dev/guide";
+    const GUIA_CATALOGOS_API = "https://login.liqkoargentina.workers.dev/catalogs/public/guide";
 
-    async function jsonpApi(params={}, timeoutMs=15000) {
+    async function guiaPublicApi(params={}, timeoutMs=15000) {
       const u = new URL(ANUNCIANTES_API);
       Object.entries(params).forEach(([k,v]) => {
-        if(v !== undefined && v !== null && String(v) !== '') u.searchParams.set(k, v);
+        if(k !== 'action' && v !== undefined && v !== null && String(v) !== '') u.searchParams.set(k, v);
       });
 const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try{
         const r = await fetch(u.toString(), {signal:controller.signal});
         if(!r.ok) throw new Error('HTTP '+r.status);
-        return await r.json();
+        const data=await r.json();
+        if(!data || data.success!==true) throw new Error((data && data.message) || 'Guía no disponible');
+        return data;
       }finally{
         clearTimeout(timer);
       }
@@ -1242,7 +1245,8 @@ const controller = new AbortController();
     }
 
     const GLD_SUSCRIPTORES_API = 'https://login.liqkoargentina.workers.dev/suscriptores';
-    const GLD_SUSCRIPTOR_SESSION_KEY = 'gld_suscriptor_session_v1';
+    const GLD_SUSCRIPTOR_SESSION_KEY = 'gld_suscriptor_session_v2';
+    const GLD_SUSCRIPTOR_TOKEN_KEY = 'gld_suscriptor_token_v2';
     const GLD_CITY_PREF_SKIP_KEY = 'gld_ciudad_preferencia_omitida';
     const GLD_CITY_CHANGE_PENDING_KEY = 'gld_cambio_ciudad_pendiente';
 
@@ -1254,10 +1258,20 @@ const controller = new AbortController();
       }catch(e){ return null; }
     }
 
-    function gldSetSubscriberSession(s){
+    function gldGetSubscriberToken(){
+      try{return String(localStorage.getItem(GLD_SUSCRIPTOR_TOKEN_KEY)||'').trim();}
+      catch(e){return '';}
+    }
+
+    function gldSetSubscriberSession(s,token){
       try{
-        if(s && s.suscriptor_id) localStorage.setItem(GLD_SUSCRIPTOR_SESSION_KEY,JSON.stringify(s));
-        else localStorage.removeItem(GLD_SUSCRIPTOR_SESSION_KEY);
+        if(s && s.suscriptor_id){
+          localStorage.setItem(GLD_SUSCRIPTOR_SESSION_KEY,JSON.stringify(s));
+          if(token) localStorage.setItem(GLD_SUSCRIPTOR_TOKEN_KEY,String(token));
+        }else{
+          localStorage.removeItem(GLD_SUSCRIPTOR_SESSION_KEY);
+          localStorage.removeItem(GLD_SUSCRIPTOR_TOKEN_KEY);
+        }
       }catch(e){}
       gldActualizarAccesoSuperior();
     }
@@ -1271,7 +1285,7 @@ const controller = new AbortController();
     }
 
     function gldIsSubscriberLogged(){
-      return !!gldGetSubscriberSession();
+      return !!gldGetSubscriberSession() && !!gldGetSubscriberToken();
     }
 
     let gldFavoritosAnunciantes=new Set();
@@ -1310,21 +1324,30 @@ const controller = new AbortController();
       gldPintarFavoritosAnunciantes();
 
       try{
+        const token=gldGetSubscriberToken();
+        if(!token)return;
         const u=new URL(GLD_SUSCRIPTORES_API);
         u.searchParams.set('action','favoritos');
-        u.searchParams.set('suscriptor_id',s.suscriptor_id);
         u.searchParams.set('tipo','ANUNCIANTE');
-const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDelay:400});
-        if(data && data.success===true && Array.isArray(data.favoritos)){
-          const frescos=new Set();
-          data.favoritos.forEach(f=>{
-            const id=String(f&&f.referencia_id||'').trim();
-            if(id) frescos.add(id);
-          });
-          gldFavoritosAnunciantes=frescos;
-          gldGuardarFavoritosCache(s.suscriptor_id);
-          gldPintarFavoritosAnunciantes();
+
+        const r=await fetch(u.toString(),{
+          method:'GET',
+          cache:'no-store',
+          headers:{Authorization:'Bearer '+token}
+        });
+        const data=await r.json().catch(()=>null);
+        if(!r.ok||!data||data.success!==true){
+          throw new Error((data&&(data.message||data.error))||'No se pudieron cargar los favoritos.');
         }
+
+        const frescos=new Set();
+        (data.favoritos||[]).forEach(f=>{
+          const id=String(f&&f.referencia_id||'').trim();
+          if(id) frescos.add(id);
+        });
+        gldFavoritosAnunciantes=frescos;
+        gldGuardarFavoritosCache(s.suscriptor_id);
+        gldPintarFavoritosAnunciantes();
       }catch(e){
         console.warn('Favoritos anunciantes:',e);
       }
@@ -1340,16 +1363,20 @@ const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDela
       }
 
       const session=gldGetSubscriberSession();
+      const token=gldGetSubscriberToken();
       const activo=gldFavoritosAnunciantes.has(id);
       btn.disabled=true;
 
       try{
+        if(!token)throw new Error('La sesión venció. Ingresá nuevamente.');
         const r=await fetch(GLD_SUSCRIPTORES_API,{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers:{
+            'Content-Type':'application/json',
+            Authorization:'Bearer '+token
+          },
           body:JSON.stringify({
             action:activo?'quitar_favorito':'agregar_favorito',
-            suscriptor_id:session.suscriptor_id,
             tipo:'ANUNCIANTE',
             referencia_id:id,
             nombre_ref:String(nombre||'').trim(),
@@ -1473,7 +1500,8 @@ const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDela
           throw new Error((data && data.message) || 'No se pudo ingresar.');
         }
 
-        gldSetSubscriberSession(data.suscriptor);
+        if(!data.token) throw new Error('No se recibió una sesión válida.');
+        gldSetSubscriberSession(data.suscriptor,data.token);
         if(msg){msg.textContent='Ingreso correcto.';msg.className='gld-subscriber-msg ok';}
         const destino=gldModuloPendienteLogin;
         const opcionesDestino=Object.assign({forzar:true},gldModuloPendienteOpciones||{});
@@ -1815,12 +1843,16 @@ const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDela
           if(status){status.textContent='Guardando en favoritas...';status.className='gld-city-pref-status';}
 
           try{
+            const token=gldGetSubscriberToken();
+            if(!token)throw new Error('La sesión venció. Ingresá nuevamente.');
             const r=await fetch(GLD_SUSCRIPTORES_API,{
               method:'POST',
-              headers:{'Content-Type':'application/json'},
+              headers:{
+                'Content-Type':'application/json',
+                Authorization:'Bearer '+token
+              },
               body:JSON.stringify({
                 action:'agregar_favorito',
-                suscriptor_id:session.suscriptor_id,
                 tipo:'CIUDAD',
                 referencia_id:String(ciudadId),
                 nombre_ref:String(ciudadNombre||'').trim(),
@@ -1853,12 +1885,16 @@ const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDela
           if(status){status.textContent='Guardando...';status.className='gld-city-pref-status';}
 
           try{
+            const token=gldGetSubscriberToken();
+            if(!token)throw new Error('La sesión venció. Ingresá nuevamente.');
             const r=await fetch(GLD_SUSCRIPTORES_API,{
               method:'POST',
-              headers:{'Content-Type':'application/json'},
+              headers:{
+                'Content-Type':'application/json',
+                Authorization:'Bearer '+token
+              },
               body:JSON.stringify({
                 action:'actualizar_ciudad',
-                suscriptor_id:session.suscriptor_id,
                 ciudad_predeterminada_id:String(ciudadId)
               })
             });
@@ -1896,6 +1932,8 @@ const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDela
     let ciudadSeleccionada = queryInicial.get('ciudad_id') || '';
 
     const CITY_CONTEXT_KEY='gld_ciudad_contexto';
+    const TERRITORY_PUBLIC_API='https://login.liqkoargentina.workers.dev/territory/public';
+    let territorioPublicoPromise=null;
     try{
       const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
       if(saved){
@@ -2264,7 +2302,7 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
     let metaPorIdGlobal = {};
     let bootstrapCompletoPromise = null;
     const guiaPrefetchCache = new Map();
-    const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v2:';
+    const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v3:';
     const GUIA_LOCAL_CACHE_MS = 2 * 60 * 60 * 1000;
 
     function guiaLocalCacheKey(paisId, provinciaId, ciudadId){
@@ -2313,7 +2351,7 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
       if(!guiaPrefetchCache.has(key)){
         guiaPrefetchCache.set(
           key,
-          jsonpApi({
+          guiaPublicApi({
             action:'guia',
             pais_id:paisId,
             provincia_id:provinciaId,
@@ -2330,8 +2368,7 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
       return guiaPrefetchCache.get(key);
     }
 
-    const urlAnunciantes = ANUNCIANTES_API + '?action=guia'
-      + '&pais_id=' + encodeURIComponent(paisSeleccionado)
+    const urlAnunciantes = ANUNCIANTES_API + '?pais_id=' + encodeURIComponent(paisSeleccionado)
       + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
       + '&ciudad_id=' + encodeURIComponent(ciudadSeleccionada);
     /* Integración con agenda de eventos: usa el MISMO origen de datos de la página Eventos. */
@@ -2347,21 +2384,19 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
     const FARMACIAS_ENDPOINT = "https://login.liqkoargentina.workers.dev/farmacias";
     const EFEMERIDES_ENDPOINT = "https://login.liqkoargentina.workers.dev/efemerides";
 
-    // Recursos secundarios de la Guía: no compiten con el arranque principal.
-    let eventsPromise=null;
-    let promosPromise=null;
-    let actividadesPromise=null;
+    // Cada ciudad conserva su propia carga, sin reutilizar datos de otra ciudad.
+    const moduloPromises=new Map();
     const GLD_MODULO_CACHE_MS=60*60*1000;
-    const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v1:';
-    const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v1:';
-    const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v1:';
+    const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v2:';
+    const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v2:';
+    const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v2:';
 
     function gldLeerModuloCache(prefix,ciudadId){
       try{
         const raw=localStorage.getItem(prefix+String(ciudadId||'').trim());
         if(!raw) return null;
         const x=JSON.parse(raw);
-        if(!x || !x.data || Date.now()-Number(x.ts||0)>GLD_MODULO_CACHE_MS) return null;
+        if(!x || !x.data || x.data.success!==true || Date.now()-Number(x.ts||0)>GLD_MODULO_CACHE_MS) return null;
         return x.data;
       }catch(e){return null;}
     }
@@ -2372,82 +2407,36 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
       }catch(e){}
     }
 
-    function obtenerEventosPromise(){
-      if(!eventsPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_EVENTOS_CACHE_PREFIX,ciudadId);
-        if(cached){
-          eventsPromise=Promise.resolve(cached);
-        }else{
-          eventsPromise=fetch(EVENTS_ENDPOINT+(ciudadId?'&ciudad_id='+encodeURIComponent(ciudadId):''))
-            .then(r=>{
-              if(!r.ok) throw new Error('Eventos HTTP '+r.status);
-              return r.json();
-            })
-            .then(data=>{
-              gldGuardarModuloCache(GLD_EVENTOS_CACHE_PREFIX,ciudadId,data);
-              return data;
-            })
-            .catch(err=>{
-              eventsPromise=null;
-              console.warn('Eventos para tarjetas:',err);
-              return [];
-            });
-        }
+    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada){
+      const city=String(ciudadId||'').trim();
+      if(!city)return Promise.reject(new Error('Seleccioná una ciudad'));
+      const key=prefix+city;
+      if(!moduloPromises.has(key)){
+        const cached=gldLeerModuloCache(prefix,city);
+        const u=new URL(endpoint);
+        u.searchParams.set('ciudad_id',city);
+        if(action)u.searchParams.set('action',action);
+        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString()).then(({data})=>{
+          if(!data || data.success!==true)throw new Error((data && data.message) || 'Contenido no disponible');
+          gldGuardarModuloCache(prefix,city,data);
+          return data;
+        });
+        moduloPromises.set(key,pending.catch(err=>{
+          moduloPromises.delete(key);
+          throw err;
+        }));
       }
-      return eventsPromise;
+      return moduloPromises.get(key);
     }
 
-    function obtenerPromosPromise(){
-      if(!promosPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_PROMOS_CACHE_PREFIX,ciudadId);
-        if(cached){
-          promosPromise=Promise.resolve(cached);
-        }else{
-          promosPromise=fetch(PROMOS_ENDPOINT).then(r=>{
-            if(!r.ok) throw new Error('Promos HTTP '+r.status);
-            return r.json();
-          }).then(data=>{
-            gldGuardarModuloCache(GLD_PROMOS_CACHE_PREFIX,ciudadId,data);
-            return data;
-          }).catch(err=>{
-            promosPromise=null;
-            console.error('Error cargando promos para tarjetas:',err);
-            return [];
-          });
-        }
-      }
-      return promosPromise;
+    function obtenerEventosPromise(ciudadId=ciudadSeleccionada){
+      return obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId);
     }
-
-    function obtenerActividadesPromise(){
-      if(!actividadesPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_ACTIVIDADES_CACHE_PREFIX,ciudadId);
-        if(cached){
-          actividadesPromise=Promise.resolve(cached);
-        }else{
-          const u=new URL(ACTIVIDADES_ENDPOINT);
-          u.searchParams.set('action','publicas');
-          u.searchParams.set('ciudad_id',ciudadId);
-actividadesPromise=fetch(u.toString())
-            .then(r=>{
-              if(!r.ok) throw new Error('Actividades HTTP '+r.status);
-              return r.json();
-            })
-            .then(data=>{
-              gldGuardarModuloCache(GLD_ACTIVIDADES_CACHE_PREFIX,ciudadId,data);
-              return data;
-            })
-            .catch(err=>{
-              actividadesPromise=null;
-              console.error('Error cargando actividades para tarjetas:',err);
-              return {success:false,actividades:[]};
-            });
-        }
-      }
-      return actividadesPromise;
+    function obtenerPromosPromise(ciudadId=ciudadSeleccionada){
+      return obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId);
+    }
+    function obtenerActividadesPromise(ciudadId=ciudadSeleccionada){
+      return obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId);
     }
 
     let gldLiberarCargaSecundaria = null;
@@ -2469,17 +2458,18 @@ actividadesPromise=fetch(u.toString())
       try {
         let guiaPromise = guiaPromiseInicial
           || prefetchGuia(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada)
-          || jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
+          || guiaPublicApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
 
         // Si una precarga falla o demora, reintentamos una vez antes de declarar que la guía no carga.
         guiaPromise = guiaPromise.catch(() => {
           guiaPrefetchCache.delete(guiaKey(paisSeleccionado, provinciaSeleccionada, ciudadSeleccionada));
-          return jsonpApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
+          return guiaPublicApi({action:'guia', pais_id:paisSeleccionado, provincia_id:provinciaSeleccionada, ciudad_id:ciudadSeleccionada}, 8000);
         });
         // Eventos, Promos y Actividades cargan después de la Guía principal.
-        const eventosCargaPromise = gldCargaSecundariaGate.then(() => obtenerEventosPromise());
-        const promosCargaPromise = gldCargaSecundariaGate.then(() => obtenerPromosPromise());
-        const actividadesCargaPromise = gldCargaSecundariaGate.then(() => obtenerActividadesPromise());
+        const ciudadCarga=String(ciudadSeleccionada||'').trim();
+        const eventosCargaPromise = gldCargaSecundariaGate.then(() => obtenerEventosPromise(ciudadCarga));
+        const promosCargaPromise = gldCargaSecundariaGate.then(() => obtenerPromosPromise(ciudadCarga));
+        const actividadesCargaPromise = gldCargaSecundariaGate.then(() => obtenerActividadesPromise(ciudadCarga));
 
         const contenedorCarga = document.getElementById('contenedor');
         const destacadasCarga = document.getElementById('destacadasBar');
@@ -2757,7 +2747,7 @@ actividadesPromise=fetch(u.toString())
 
           out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
             const sede = Object.assign({}, raw);
-            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:[],acciones:[],nodos:[]};
+            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:sede.actividades||[],acciones:sede.acciones||[],nodos:sede.nodos||[]};
             sede.relaciones = {
               actividades:enriquecerRelacion(rel.actividades, catalogosGlobales.actividades, 'actividad_id'),
               acciones:enriquecerRelacion(rel.acciones, catalogosGlobales.acciones, 'accion_id'),
@@ -3529,7 +3519,7 @@ actividadesPromise=fetch(u.toString())
 
       (rows || []).forEach(r => {
         const id = String(r[idField] || '').trim();
-        const nombre = String(r.nombre || '').trim();
+        const nombre = String(r.nombre || r.ciudad_visible || r.provincia_visible || r.pais_visible || '').trim();
         if(id && nombre) {
           const op = document.createElement('option');
           op.value = id;
@@ -3540,16 +3530,33 @@ actividadesPromise=fetch(u.toString())
     }
 
     async function cargarUbicaciones() {
-      const data = await jsonpApi({action:'ubicaciones'}, 15000);
-      if(!data || data.success !== true) {
-        throw new Error((data && (data.error || data.message)) || 'Ubicaciones inválidas');
+      if(!territorioPublicoPromise){
+        territorioPublicoPromise=fetch(TERRITORY_PUBLIC_API,{
+          method:'GET',
+          mode:'cors',
+          cache:'default'
+        }).then(async r=>{
+          const data=await r.json().catch(()=>null);
+          if(!r.ok || !data || data.success!==true){
+            throw new Error((data && (data.error || data.message)) || 'Ubicaciones inválidas');
+          }
+          return {
+            success:true,
+            paises:Array.isArray(data.paises)?data.paises:[],
+            provincias:Array.isArray(data.provincias)?data.provincias:[],
+            ciudades:Array.isArray(data.ciudades)?data.ciudades:[]
+          };
+        }).catch(err=>{
+          territorioPublicoPromise=null;
+          throw err;
+        });
       }
-      return data;
+      return territorioPublicoPromise;
     }
 
     function iniciarBootstrapCompleto(){
       if(!bootstrapCompletoPromise){
-        bootstrapCompletoPromise = jsonpApi({action:'bootstrap'}, 30000)
+        bootstrapCompletoPromise = gldFetchJson(GUIA_CATALOGOS_API, {}, {timeoutMs:15000}).then(({data})=>data)
           .then(data=>{
             if(!data || data.success !== true){
               throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
@@ -3591,7 +3598,7 @@ actividadesPromise=fetch(u.toString())
 
       (rows || []).forEach(r => {
         const id = String(r[idField] || '').trim();
-        const nombre = String(r.nombre || '').trim();
+        const nombre = String(r.nombre || r.ciudad_visible || r.provincia_visible || r.pais_visible || '').trim();
         if(!id || !nombre) return;
 
         const op = document.createElement('option');
@@ -3608,7 +3615,7 @@ actividadesPromise=fetch(u.toString())
       const pais = (paises || []).find(p => normId(p.pais_id) === normId(paisSeleccionado));
       if(!pais) return false;
 
-      return ref === normId(pais.pais_id) || ref === normId(pais.nombre);
+      return ref === normId(pais.pais_id) || ref === normId(pais.nombre || pais.pais_visible);
     }
 
     function perteneceACiudad(ciudad, provinciaSeleccionada, provincias){
@@ -3618,7 +3625,7 @@ actividadesPromise=fetch(u.toString())
       const provincia = (provincias || []).find(p => normId(p.provincia_id) === normId(provinciaSeleccionada));
       if(!provincia) return false;
 
-      return ref === normId(provincia.provincia_id) || ref === normId(provincia.nombre);
+      return ref === normId(provincia.provincia_id) || ref === normId(provincia.nombre || provincia.provincia_visible);
     }
 
     async function iniciarGuiaDesdeMochila(){
@@ -4313,7 +4320,7 @@ actividadesPromise=fetch(u.toString())
     frame.addEventListener('load',onload);
 
     setTimeout(()=>{
-      if(miToken!==tokenCarga || !esperaReadyInterno) return;
+      if(miToken!==tokenCarga || !esperaReadyInterno || !gldModuloCargando) return;
       const box=document.getElementById('gldBloqueoTotal');
       const txt=document.getElementById('gldBloqueoTexto');
       if(box) box.classList.add('error');

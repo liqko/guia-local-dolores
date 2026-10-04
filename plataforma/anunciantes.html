@@ -390,6 +390,10 @@ html,body{
   background:transparent!important;
 }
 
+/* El ancho incluye padding y borde, también dentro del iframe móvil. */
+.selector-bar,.buscador-global,.buscador-global input,.selector-bar select,
+.filtro-multi,.paginacion-zocalo,.pagination-bar{box-sizing:border-box;}
+
 /* Filtros: componentes blancos sobre fondo transparente */
 .selector-bar{
   padding:.7rem .75rem .35rem!important;
@@ -1043,17 +1047,27 @@ html,body,
       }catch(e){ return ''; }
     }
 
-    const ANUNCIANTES_API = "https://login.liqkoargentina.workers.dev/commerce";
+    const GLD_WORKER_ORIGIN = "https://login.liqkoargentina.workers.dev";
 
     async function jsonpApi(params={}, timeoutMs=15000) {
-      const u = new URL(ANUNCIANTES_API);
-      Object.entries(params).forEach(([k,v]) => {
-        if(v !== undefined && v !== null && String(v) !== '') u.searchParams.set(k, v);
-      });
-const controller = new AbortController();
+      const action=String(params.action||'').trim().toLowerCase();
+      let u;
+
+      if(action==='guia'){
+        u=new URL(GLD_WORKER_ORIGIN+'/guide');
+        if(params.ciudad_id)u.searchParams.set('ciudad_id',params.ciudad_id);
+      }else if(action==='ubicaciones'){
+        u=new URL(GLD_WORKER_ORIGIN+'/territory/public');
+      }else if(action==='bootstrap'){
+        u=new URL(GLD_WORKER_ORIGIN+'/catalogs/public/guide');
+      }else{
+        throw new Error('Acción pública no soportada: '+action);
+      }
+
+      const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try{
-        const r = await fetch(u.toString(), {signal:controller.signal});
+        const r = await fetch(u.toString(), {signal:controller.signal,cache:'default'});
         if(!r.ok) throw new Error('HTTP '+r.status);
         return await r.json();
       }finally{
@@ -1098,7 +1112,13 @@ const controller = new AbortController();
       }
     }
     const GLD_SUSCRIPTORES_API = 'https://login.liqkoargentina.workers.dev/suscriptores';
-    const GLD_SUSCRIPTOR_SESSION_KEY = 'gld_suscriptor_session_v1';
+    const GLD_SUSCRIPTOR_SESSION_KEY = 'gld_suscriptor_session_v2';
+    const GLD_SUSCRIPTOR_TOKEN_KEY = 'gld_suscriptor_token_v2';
+
+    function gldGetSubscriberToken(){
+      try{return String(localStorage.getItem(GLD_SUSCRIPTOR_TOKEN_KEY)||'').trim();}
+      catch(e){return '';}
+    }
 
     function gldGetSubscriberSession(){
       try{
@@ -1108,7 +1128,7 @@ const controller = new AbortController();
       }catch(e){ return null; }
     }
     function gldIsSubscriberLogged(){
-      return !!gldGetSubscriberSession();
+      return !!gldGetSubscriberSession() && !!gldGetSubscriberToken();
     }
 
     let gldFavoritosAnunciantes=new Set();
@@ -1147,21 +1167,28 @@ const controller = new AbortController();
       gldPintarFavoritosAnunciantes();
 
       try{
+        const token=gldGetSubscriberToken();
+        if(!token)return;
         const u=new URL(GLD_SUSCRIPTORES_API);
         u.searchParams.set('action','favoritos');
-        u.searchParams.set('suscriptor_id',s.suscriptor_id);
         u.searchParams.set('tipo','ANUNCIANTE');
-const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDelay:400});
-        if(data && data.success===true && Array.isArray(data.favoritos)){
-          const frescos=new Set();
-          data.favoritos.forEach(f=>{
-            const id=String(f&&f.referencia_id||'').trim();
-            if(id) frescos.add(id);
-          });
-          gldFavoritosAnunciantes=frescos;
-          gldGuardarFavoritosCache(s.suscriptor_id);
-          gldPintarFavoritosAnunciantes();
+        const r=await fetch(u.toString(),{
+          method:'GET',
+          cache:'no-store',
+          headers:{Authorization:'Bearer '+token}
+        });
+        const data=await r.json().catch(()=>null);
+        if(!r.ok||!data||data.success!==true){
+          throw new Error((data&&(data.message||data.error))||'No se pudieron cargar los favoritos.');
         }
+        const frescos=new Set();
+        (data.favoritos||[]).forEach(f=>{
+          const id=String(f&&f.referencia_id||'').trim();
+          if(id) frescos.add(id);
+        });
+        gldFavoritosAnunciantes=frescos;
+        gldGuardarFavoritosCache(s.suscriptor_id);
+        gldPintarFavoritosAnunciantes();
       }catch(e){
         console.warn('Favoritos anunciantes:',e);
       }
@@ -1177,16 +1204,20 @@ const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDela
       }
 
       const session=gldGetSubscriberSession();
+      const token=gldGetSubscriberToken();
       const activo=gldFavoritosAnunciantes.has(id);
       btn.disabled=true;
 
       try{
+        if(!token)throw new Error('La sesión venció. Ingresá nuevamente.');
         const r=await fetch(GLD_SUSCRIPTORES_API,{
           method:'POST',
-          headers:{'Content-Type':'application/json'},
+          headers:{
+            'Content-Type':'application/json',
+            Authorization:'Bearer '+token
+          },
           body:JSON.stringify({
             action:activo?'quitar_favorito':'agregar_favorito',
-            suscriptor_id:session.suscriptor_id,
             tipo:'ANUNCIANTE',
             referencia_id:id,
             nombre_ref:String(nombre||'').trim(),
@@ -1228,7 +1259,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
     let metaPorIdGlobal = {};
     let bootstrapCompletoPromise = null;
     const guiaPrefetchCache = new Map();
-    const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v2:';
+    const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v3:';
     const GUIA_LOCAL_CACHE_MS = 2 * 60 * 60 * 1000;
 
     function guiaLocalCacheKey(paisId, provinciaId, ciudadId){
@@ -1294,10 +1325,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       return guiaPrefetchCache.get(key);
     }
 
-    const urlAnunciantes = ANUNCIANTES_API + '?action=guia'
-      + '&pais_id=' + encodeURIComponent(paisSeleccionado)
-      + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
-      + '&ciudad_id=' + encodeURIComponent(ciudadSeleccionada);
+    const urlAnunciantes = GLD_WORKER_ORIGIN + '/guide?ciudad_id=' + encodeURIComponent(ciudadSeleccionada);
     const PUBLICIDAD_ENDPOINT = "https://login.liqkoargentina.workers.dev/publicidad";
     function publicidadPublicaUrl(modulo,categoriaId=''){
       const u=new URL(PUBLICIDAD_ENDPOINT);
@@ -1310,7 +1338,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
     /* Integración con agenda de eventos: usa el MISMO origen de datos de la página Eventos. */
     const EVENTS_WEBAPP_URL = "https://login.liqkoargentina.workers.dev/events-new";
-    const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL + "?action=getevents";
+    const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL;
     const EVENTS_PAGE_URL = 'https://guialocal.ar/eventos/';
 
     /* Promociones se consulta exclusivamente mediante el Worker actual. */
@@ -1318,23 +1346,21 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
     const PROMOS_PAGE_URL = 'https://guialocal.ar/promos/';
     const ACTIVIDADES_ENDPOINT = "https://login.liqkoargentina.workers.dev/actividades";
 
-    // Datos auxiliares propios de las tarjetas de anunciantes.
     let bannersPromise=null;
-    let eventsPromise=null;
-    let promosPromise=null;
-    let actividadesPromise=null;
+    const GLD_PUBLICIDAD_CACHE_PREFIX='gld_publicidad_guia_cache_v2:';
+    // Cada ciudad conserva su propia carga, sin reutilizar datos de otra ciudad.
+    const moduloPromises=new Map();
     const GLD_MODULO_CACHE_MS=60*60*1000;
-    const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v1:';
-    const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v1:';
-    const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v1:';
-    const GLD_PUBLICIDAD_CACHE_PREFIX='gld_publicidad_guia_cache_v1:';
+    const GLD_EVENTOS_CACHE_PREFIX='gld_eventos_modulo_cache_v2:';
+    const GLD_PROMOS_CACHE_PREFIX='gld_promos_modulo_cache_v2:';
+    const GLD_ACTIVIDADES_CACHE_PREFIX='gld_actividades_modulo_cache_v2:';
 
     function gldLeerModuloCache(prefix,ciudadId){
       try{
         const raw=localStorage.getItem(prefix+String(ciudadId||'').trim());
         if(!raw) return null;
         const x=JSON.parse(raw);
-        if(!x || !x.data || Date.now()-Number(x.ts||0)>GLD_MODULO_CACHE_MS) return null;
+        if(!x || !x.data || x.data.success!==true || Date.now()-Number(x.ts||0)>GLD_MODULO_CACHE_MS) return null;
         return x.data;
       }catch(e){return null;}
     }
@@ -1343,6 +1369,38 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       try{
         localStorage.setItem(prefix+String(ciudadId||'').trim(),JSON.stringify({ts:Date.now(),data}));
       }catch(e){}
+    }
+
+    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada){
+      const city=String(ciudadId||'').trim();
+      if(!city)return Promise.reject(new Error('Seleccioná una ciudad'));
+      const key=prefix+city;
+      if(!moduloPromises.has(key)){
+        const cached=gldLeerModuloCache(prefix,city);
+        const u=new URL(endpoint);
+        u.searchParams.set('ciudad_id',city);
+        if(action)u.searchParams.set('action',action);
+        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString()).then(({data})=>{
+          if(!data || data.success!==true)throw new Error((data && data.message) || 'Contenido no disponible');
+          gldGuardarModuloCache(prefix,city,data);
+          return data;
+        });
+        moduloPromises.set(key,pending.catch(err=>{
+          moduloPromises.delete(key);
+          throw err;
+        }));
+      }
+      return moduloPromises.get(key);
+    }
+
+    function obtenerEventosPromise(ciudadId=ciudadSeleccionada){
+      return obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId);
+    }
+    function obtenerPromosPromise(ciudadId=ciudadSeleccionada){
+      return obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId);
+    }
+    function obtenerActividadesPromise(ciudadId=ciudadSeleccionada){
+      return obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId);
     }
 
     function obtenerBannersPromise(){
@@ -1369,84 +1427,6 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         }
       }
       return bannersPromise;
-    }
-
-    function obtenerEventosPromise(){
-      if(!eventsPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_EVENTOS_CACHE_PREFIX,ciudadId);
-        if(cached){
-          eventsPromise=Promise.resolve(cached);
-        }else{
-          eventsPromise=fetch(EVENTS_ENDPOINT+(ciudadId?'&ciudad_id='+encodeURIComponent(ciudadId):''))
-            .then(r=>{
-              if(!r.ok) throw new Error('Eventos HTTP '+r.status);
-              return r.json();
-            })
-            .then(data=>{
-              gldGuardarModuloCache(GLD_EVENTOS_CACHE_PREFIX,ciudadId,data);
-              return data;
-            })
-            .catch(err=>{
-              eventsPromise=null;
-              console.warn('Eventos para tarjetas:',err);
-              return [];
-            });
-        }
-      }
-      return eventsPromise;
-    }
-
-    function obtenerPromosPromise(){
-      if(!promosPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_PROMOS_CACHE_PREFIX,ciudadId);
-        if(cached){
-          promosPromise=Promise.resolve(cached);
-        }else{
-          promosPromise=fetch(PROMOS_ENDPOINT).then(r=>{
-            if(!r.ok) throw new Error('Promos HTTP '+r.status);
-            return r.json();
-          }).then(data=>{
-            gldGuardarModuloCache(GLD_PROMOS_CACHE_PREFIX,ciudadId,data);
-            return data;
-          }).catch(err=>{
-            promosPromise=null;
-            console.error('Error cargando promos para tarjetas:',err);
-            return [];
-          });
-        }
-      }
-      return promosPromise;
-    }
-
-    function obtenerActividadesPromise(){
-      if(!actividadesPromise){
-        const ciudadId=String(ciudadSeleccionada||'').trim();
-        const cached=gldLeerModuloCache(GLD_ACTIVIDADES_CACHE_PREFIX,ciudadId);
-        if(cached){
-          actividadesPromise=Promise.resolve(cached);
-        }else{
-          const u=new URL(ACTIVIDADES_ENDPOINT);
-          u.searchParams.set('action','publicas');
-          u.searchParams.set('ciudad_id',ciudadId);
-          actividadesPromise=fetch(u.toString())
-            .then(r=>{
-              if(!r.ok) throw new Error('Actividades HTTP '+r.status);
-              return r.json();
-            })
-            .then(data=>{
-              gldGuardarModuloCache(GLD_ACTIVIDADES_CACHE_PREFIX,ciudadId,data);
-              return data;
-            })
-            .catch(err=>{
-              actividadesPromise=null;
-              console.error('Error cargando actividades para tarjetas:',err);
-              return {success:false,actividades:[]};
-            });
-        }
-      }
-      return actividadesPromise;
     }
 
     let gldLiberarCargaSecundaria = null;
@@ -1733,6 +1713,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           parts = parts.map((p, i) => (i===0 ? p.replace(/(?:^|\s|-)\S/g, l => l.toUpperCase()) : p));
           return parts.join('/');
         }
+        function gldInsigniaActiva(v){return v===true||v===1||['true','1','x','si','sí'].includes(String(v??'').trim().toLowerCase());}
         function limpiarCampos(item){ const nuevo={}; for (let k in item){ if(!/^agregar\s/i.test(k)) nuevo[k]=item[k]; } return nuevo; }
 
         function relKey(v){
@@ -1765,7 +1746,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
           out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
             const sede = Object.assign({}, raw);
-            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:[],acciones:[],nodos:[]};
+            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:sede.actividades||[],acciones:sede.acciones||[],nodos:sede.nodos||[]};
             sede.relaciones = {
               actividades:enriquecerRelacion(rel.actividades, catalogosGlobales.actividades, 'actividad_id'),
               acciones:enriquecerRelacion(rel.acciones, catalogosGlobales.acciones, 'accion_id'),
@@ -2107,8 +2088,8 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             const safeNombre=String(item.nombre||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
             html += `<div class="badge-icons">`;
-            if(nivelVisual !== 3 && String(item.verificado||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
-            if(nivelVisual !== 3 && String(item.gold||'').trim().toLowerCase()==='x') html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
+            if(nivelVisual !== 3 && gldInsigniaActiva(item.verificado)) html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
+            if(nivelVisual !== 3 && gldInsigniaActiva(item.gold)) html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
             if(anuncianteFavId && nivelVisual !== 3) html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'${safeNombre.replace(/'/g,"&#039;")}')" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
             html += `</div>`;
           }

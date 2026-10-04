@@ -103,6 +103,7 @@
 const API='https://login.liqkoargentina.workers.dev/superadmin';
 let TOKEN=localStorage.getItem('gld_superadmin_token')||'';
 const EVENTS_API='https://login.liqkoargentina.workers.dev/events-new';
+const TERRITORY_API_ORIGIN='https://login.liqkoargentina.workers.dev';
 let GH_PENDING_EVENTS=[];
 let GH_PENDING_ACTIVITIES=[];
 let GH_PENDING_ADVERTISERS=[];
@@ -120,24 +121,81 @@ function esc(v){
 }
 
 async function api(action,data={},method='GET'){
-  let url=API+'?action='+encodeURIComponent(action);
+  if(action==='actualizar_anunciante_comercial')return ghSaveAdvertiserDelta_(data);
+  if(action==='guardar_catalogo'){
+    const item=data.item||{},idField=(GH_CATALOGOS.find(d=>d.tipo===data.tipo)||{idField:'nodo_id'}).idField;
+    const previous=(GH_CATALOG_CACHE[data.tipo]||[]).find(x=>String(x[idField]||x.id||'')===String(item[idField]||''));
+    if(previous){
+      const patch={};
+      for(const [k,v]of Object.entries(item))if(k===idField||ghDifferent_(previous[k],v))patch[k]=v;
+      if(Object.keys(patch).every(k=>k===idField))return{success:true,updated:false,item:previous};
+      data={...data,item:patch};
+    }
+  }
+  const routes={
+    buscar_suscriptores:'/subscribers/search',buscar_anunciantes:'/advertisers/search',
+    detalle_suscriptor:'/subscribers/'+encodeURIComponent(data.suscriptor_id||''),
+    detalle_anunciante:'/advertisers/'+encodeURIComponent(data.anunciante_id||''),
+    listar_catalogo:'/catalogs/'+encodeURIComponent(data.tipo||''),
+    guardar_catalogo:'/catalogs/'+encodeURIComponent(data.tipo||'')
+  };
+  if(!routes[action])throw new Error('Acción administrativa no conectada: '+action);
+  return ghAdminRequest_(routes[action],data,method);
+}
+
+async function ghAdminRequest_(path,data={},method='GET'){
+  let url=API+path;
   const opts={method,headers:{}};
 
   if(TOKEN) opts.headers.Authorization='Bearer '+TOKEN;
 
   if(method==='POST'){
     opts.headers['Content-Type']='application/json';
-    opts.body=JSON.stringify({action,...data});
+    opts.body=JSON.stringify(data);
   }else{
     Object.entries(data).forEach(([k,v])=>{
-      url+='&'+encodeURIComponent(k)+'='+encodeURIComponent(v??'');
+      url+=(url.includes('?')?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v??'');
     });
   }
 
   const r=await fetch(url,opts);
   const j=await r.json();
-  if(!j.success) throw new Error(j.message||j.error||'Error');
+  if(!r.ok||!j.success) throw new Error(j.message||j.error||'Error');
   return j;
+}
+
+let GH_EDIT_BASE=null;
+function ghComparable_(v){
+  if(Array.isArray(v))return v.every(x=>typeof x!=='object')?[...v].sort():v.map(ghComparable_);
+  if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,ghComparable_(v[k])]));
+  return v;
+}
+function ghDifferent_(a,b){return JSON.stringify(ghComparable_(a))!==JSON.stringify(ghComparable_(b));}
+async function ghSaveAdvertiserDelta_(data){
+  if(!GH_EDIT_BASE||GH_EDIT_BASE.anunciante_id!==data.anunciante_id)throw new Error('Volvé a abrir la ficha antes de guardar.');
+  const id=encodeURIComponent(data.anunciante_id),base=GH_EDIT_BASE;
+  let changed=false;
+  for(const [route,fields]of [
+    ['commercial',['nivel','subnivel','aprobado','verificado','gold','funcionalidades']],
+    ['profile',['segmento_id','categoria_ids','pet','eco','gayfriendly']]
+  ]){
+    const patch={};
+    for(const k of fields)if(ghDifferent_(base[k],data[k]))patch[k]=data[k];
+    if(!Object.keys(patch).length)continue;
+    await ghAdminRequest_('/advertisers/'+id+'/'+route,{payload:patch},'POST');
+    Object.assign(base,patch);changed=true;
+  }
+  const old=new Map((base.sedes||[]).map(s=>[s.sede_id,s])),sedes=[];
+  for(const row of data.sedes||[]){
+    const previous=old.get(row.sede_id)||{},patch={sede_id:row.sede_id};
+    for(const k of ['actividad_ids','accion_ids','nodo_ids'])if(ghDifferent_(previous[k],row[k]))patch[k]=row[k];
+    if(Object.keys(patch).length>1)sedes.push(patch);
+  }
+  if(sedes.length){
+    await ghAdminRequest_('/advertisers/'+id+'/sedes/relations',{sedes},'POST');
+    base.sedes=structuredClone(data.sedes);changed=true;
+  }
+  return{success:true,updated:changed};
 }
 
 async function login(){
@@ -146,11 +204,16 @@ async function login(){
   msg.textContent='Ingresando...';
   btn.disabled=true;
   try{
-    const j=await api('login',{
-      mail:document.getElementById('mail').value.trim(),
-      clave:document.getElementById('clave').value
-    },'POST');
-    if(!j.token) throw new Error('No se recibió una sesión válida.');
+    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/session/login',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        mail:document.getElementById('mail').value.trim(),
+        clave:document.getElementById('clave').value
+      })
+    });
+    const j=await r.json();
+    if(!r.ok||!j.success||!j.token) throw new Error(j.message||'No se recibió una sesión válida.');
     TOKEN=j.token;
     localStorage.setItem('gld_superadmin_token',TOKEN);
     await abrirApp();
@@ -165,17 +228,22 @@ async function login(){
 
 async function abrirApp(){
   try{
-    const j=await api('resumen');
+    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/dashboard',{
+      headers:{Authorization:'Bearer '+TOKEN}
+    });
+    const j=await r.json();
+    if(!r.ok||!j.success) throw new Error(j.message||'Sesión inválida.');
+
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
     document.getElementById('stSus').textContent=j.resumen.suscriptores;
     document.getElementById('stAnu').textContent=j.resumen.anunciantes;
     document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
-    const vip=document.getElementById('stEvtPub'); if(vip) vip.textContent=j.resumen.eventos_vip_publicados ?? '-';
-    const free=document.getElementById('stEvtFreePub'); if(free) free.textContent=j.resumen.eventos_free_publicados ?? '-';
-    const act=document.getElementById('stActPub'); if(act) act.textContent=j.resumen.actividades_publicadas ?? '-';
+    const vip=document.getElementById('stEvtPub'); if(vip) vip.textContent='-';
+    const free=document.getElementById('stEvtFreePub'); if(free) free.textContent='-';
+    const act=document.getElementById('stActPub'); if(act) act.textContent='-';
     GH_CITY_STATS={};
-    (j.resumen.por_ciudad||[]).forEach(function(x){GH_CITY_STATS[String(x.ciudad_id||'')]=x;});
+
     await cargarPendientes();
     ghRenderPendientesInicio();
     ghGoView('inicio');
@@ -190,17 +258,24 @@ async function cargarPendientes(){
   const box=document.getElementById('pendientes');
   if(box) box.innerHTML='Cargando pendientes...';
   try{
-    const j=await api('pendientes');
+    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/moderation/pending',{
+      headers:{Authorization:'Bearer '+TOKEN}
+    });
+    const j=await r.json();
+    if(!r.ok||!j.success) throw new Error(j.message||'No se pudieron cargar los pendientes.');
+
     GH_PENDING_EVENTS=Array.isArray(j.eventos)?j.eventos:[];
     GH_PENDING_ACTIVITIES=Array.isArray(j.actividades)?j.actividades:[];
     GH_PENDING_ADVERTISERS=Array.isArray(j.anunciantes)?j.anunciantes:[];
     document.getElementById('stEvt').textContent=j.cantidades&&j.cantidades.eventos!==undefined?j.cantidades.eventos:GH_PENDING_EVENTS.length;
     document.getElementById('stAct').textContent=j.cantidades&&j.cantidades.actividades!==undefined?j.cantidades.actividades:GH_PENDING_ACTIVITIES.length;
-    const actPub=document.getElementById('stActPub');if(actPub)actPub.textContent=j.cantidades&&j.cantidades.actividades_publicadas!==undefined?j.cantidades.actividades_publicadas:'-';
-    const anuPend=document.getElementById('stAnuPend'); if(anuPend) anuPend.textContent=j.cantidades&&j.cantidades.anunciantes!==undefined?j.cantidades.anunciantes:GH_PENDING_ADVERTISERS.length;
+    const anuPend=document.getElementById('stAnuPend');
+    if(anuPend) anuPend.textContent=j.cantidades&&j.cantidades.anunciantes!==undefined?j.cantidades.anunciantes:GH_PENDING_ADVERTISERS.length;
 
     ghRenderPendientesInicio();
-  }catch(e){if(box) box.innerHTML='<p class="error">'+esc(e.message)+'</p>';}
+  }catch(e){
+    if(box) box.innerHTML='<p class="error">'+esc(e.message)+'</p>';
+  }
 }
 
 async function resolverPendiente(tipo,id,decision){
@@ -209,10 +284,31 @@ async function resolverPendiente(tipo,id,decision){
     const payload={tipo,id,decision};
     if(tipo==='ANUNCIANTE' && decision==='APROBAR'){
       const sel=document.querySelector('[data-anu-nivel="'+CSS.escape(id)+'"]');
-      if(sel){ if(!sel.value){alert('Seleccioná el nivel para aprobar el nuevo anunciante.');return;} payload.nivel=sel.value; }
+      if(sel){
+        if(!sel.value){alert('Seleccioná el nivel para aprobar el nuevo anunciante.');return;}
+        payload.nivel=sel.value;
+      }
     }
-    await api('resolver_pendiente',payload,'POST');
-    await cargarPendientes();
+
+    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/moderation/resolve',{
+      method:'POST',
+      headers:{
+        Authorization:'Bearer '+TOKEN,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify(payload)
+    });
+    const j=await r.json();
+    if(!r.ok||!j.success) throw new Error(j.message||'No se pudo resolver el pendiente.');
+
+    const kind=String(tipo||'').toUpperCase();
+    if(kind==='EVENTO') GH_PENDING_EVENTS=GH_PENDING_EVENTS.filter(x=>String(x.id||x.evento_id||'')!==String(id));
+    if(kind==='ACTIVIDAD') GH_PENDING_ACTIVITIES=GH_PENDING_ACTIVITIES.filter(x=>String(x.id||x.actividad_id||'')!==String(id));
+    if(kind==='ANUNCIANTE') GH_PENDING_ADVERTISERS=GH_PENDING_ADVERTISERS.filter(x=>String(x.id||x.solicitud_id||'')!==String(id));
+
+    document.getElementById('stEvt').textContent=GH_PENDING_EVENTS.length;
+    document.getElementById('stAct').textContent=GH_PENDING_ACTIVITIES.length;
+    const anuPend=document.getElementById('stAnuPend');if(anuPend) anuPend.textContent=GH_PENDING_ADVERTISERS.length;
     ghRenderTodo();
   }catch(e){
     alert(e.message);
@@ -230,28 +326,39 @@ function ghEventSearch(x){return ghNorm([x.nombre,x.nombre_evento,x.organizador,
 async function ghFetchJson(url){const r=await fetch(url);const j=await r.json();if(!r.ok)throw new Error('HTTP '+r.status);return j;}
 async function ghCargarEventosPublicos(){
   const ciudad=String((document.getElementById('evCiudad')||{}).value||'');
+  if(!ciudad){
+    GH_PUBLIC_EVENTS=[];
+    ghRenderEventos();
+    return;
+  }
   try{
-    const j=await api('buscar_eventos',{ciudad_id:ciudad,limit:100});
-    const all=Array.isArray(j.results)?j.results:[];
-    GH_PUBLIC_EVENTS=all.filter(function(x){
-      const e=String(x.estado_moderacion||x.estado||'').trim().toUpperCase();
-      return !e || e==='PUBLICADO' || e==='ACTIVO';
-    });
+    const u=new URL(EVENTS_API);
+    u.searchParams.set('action','getevents');
+    u.searchParams.set('ciudad_id',ciudad);
+    const r=await fetch(u.toString(),{cache:'no-store'});
+    const j=await r.json();
+    if(!r.ok||!j.success) throw new Error(j.message||'No se pudieron cargar los eventos.');
+    GH_PUBLIC_EVENTS=Array.isArray(j.events)?j.events:(Array.isArray(j.data)?j.data:[]);
   }catch(e){
     GH_PUBLIC_EVENTS=[];
   }
   ghRenderEventos();
 }
 async function ghCargarCiudades(){
-  try{
-    const j=await api('territorios');
-    GH_CITIES=Array.isArray(j.ciudades)?j.ciudades:[];
-    GH_COUNTRIES=Array.isArray(j.paises)?j.paises:[];
-    GH_PROVINCES=Array.isArray(j.provincias)?j.provincias:[];
-  }catch(e){
-    try{const j=await ghFetchJson(EVENTS_API+'?action=getcities');GH_CITIES=Array.isArray(j)?j:(Array.isArray(j.ciudades)?j.ciudades:[]);}catch(_){GH_CITIES=[];}
-  }
-  const opts='<option value="">Todas las ciudades</option>'+GH_CITIES.map(function(x){const id=String(x.ciudad_id||x.id||'').trim();const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id).trim();return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');
+  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/territory',{
+    headers:{Authorization:'Bearer '+TOKEN}
+  });
+  const j=await r.json();
+  if(!r.ok||!j.success) throw new Error(j.message||'No se pudo cargar Territorio.');
+  GH_CITIES=Array.isArray(j.ciudades)?j.ciudades:[];
+  GH_COUNTRIES=Array.isArray(j.paises)?j.paises:[];
+  GH_PROVINCES=Array.isArray(j.provincias)?j.provincias:[];
+  const opts='<option value="">Todas las ciudades</option>'+GH_CITIES.map(function(x){
+    const id=String(x.ciudad_id||x.id||'').trim();
+    const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id).trim();
+    const prov=String(x.provincia_visible||x.provincia||'').trim();
+    return '<option value="'+esc(id)+'">'+esc(nm+(prov?' · '+prov:''))+'</option>';
+  }).join('');
   const a=document.getElementById('evCiudad');if(a)a.innerHTML=opts;
   const b=document.getElementById('anuCiudad');if(b)b.innerHTML=opts;
 }
@@ -347,12 +454,35 @@ function ghFiltrarProvinciasAlta(id){
 async function ghGuardarTerritorio(tipo,id){
   const nombre=(document.querySelector('[data-terr-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
   if(!nombre.trim()){alert('Falta el nombre.');return;}
-  const item={activo:true};
-  if(tipo==='pais'){item.pais_id=id;item.nombre=nombre.trim();item.pais_visible=nombre.trim();}
-  if(tipo==='provincia'){item.provincia_id=id;item.nombre=nombre.trim();item.provincia_visible=nombre.trim();item.pais_id=(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'';if(!item.pais_id){alert('Seleccioná el país.');return;}}
-  if(tipo==='ciudad'){item.ciudad_id=id;item.nombre=nombre.trim();item.ciudad=nombre.trim();item.ciudad_visible=nombre.trim();item.pais_id=(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'';item.provincia_id=(document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]')||{}).value||'';if(!item.pais_id||!item.provincia_id){alert('Seleccioná país y provincia / estado.');return;}}
-  try{await api('guardar_territorio',{tipo,item},'POST');document.getElementById('territorioAlta').innerHTML='';await ghCargarCiudades();ghRenderCiudades();}
-  catch(e){alert(e.message);}
+  if(tipo!=='ciudad'){
+    alert('En la reconstrucción V1 estamos cerrando primero Ciudades. País y Provincia se mantienen como contexto existente.');
+    return;
+  }
+  const item={
+    ciudad_id:id,
+    nombre:nombre.trim(),
+    ciudad:nombre.trim(),
+    ciudad_visible:nombre.trim(),
+    pais_id:(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'',
+    provincia_id:(document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]')||{}).value||'',
+    activa:true
+  };
+  if(!item.pais_id||!item.provincia_id){alert('Seleccioná país y provincia / estado.');return;}
+  try{
+    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/create',{
+      method:'POST',
+      headers:{
+        Authorization:'Bearer '+TOKEN,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({item})
+    });
+    const j=await r.json();
+    if(!r.ok||!j.success) throw new Error(j.message||'No se pudo guardar la ciudad.');
+    document.getElementById('territorioAlta').innerHTML='';
+    await ghCargarCiudades();
+    ghRenderCiudades();
+  }catch(e){alert(e.message);}
 }
 
 async function buscarSus(){
@@ -419,18 +549,24 @@ async function detalleAnu(id){
     const actCat=actJ.results||[], accCat=accJ.results||[], nodoCat=nodoJ.results||[];
     const sedes=(j.sedes||[]).map(s=>{const sid=String(s.sede_id||s.id||'');const acts=new Set((s.actividad_ids||[]).map(String)),accs=new Set((s.accion_ids||[]).map(String));const nodos=new Set((s.nodo_ids||[]).map(String));const act=actCat.filter(x=>x.activo!==false).map(x=>{const v=String(x.actividad_id||x.id||'');return '<label><input type="checkbox" data-sede="'+esc(sid)+'" data-rel-act="'+esc(v)+'" '+(acts.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');const ac=accCat.filter(x=>x.activo!==false).map(x=>{const v=String(x.accion_id||x.id||'');return '<label><input type="checkbox" data-sede="'+esc(sid)+'" data-rel-acc="'+esc(v)+'" '+(accs.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');const nod=nodoCat.filter(x=>x.activo!==false&&(!s.ciudad_id||String(x.ciudad_id||'')===String(s.ciudad_id))).map(x=>{const v=String(x.nodo_id||x.id||'');return '<label><input type="checkbox" data-sede="'+esc(sid)+'" data-rel-nodo="'+esc(v)+'" '+(nodos.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');return '<details><summary><b>Sede: '+esc(s.nombre_sede||s.nombre||s.direccion||sid)+'</b></summary><details><summary>Actividades clave</summary><div class="checks">'+(act||'<span class="muted">Sin actividades.</span>')+'</div></details><details><summary>Acciones</summary><div class="checks">'+(ac||'<span class="muted">Sin acciones.</span>')+'</div></details><details><summary>Nodos / zonas / barrios</summary><div class="checks">'+(nod||'<span class="muted">Sin nodos para esta ciudad.</span>')+'</div></details></details>';}).join('');
     box.innerHTML='<h3>'+esc(nombre)+'</h3><div class="muted" style="margin-bottom:12px">ID: '+esc(id)+'</div><div class="card"><h3>Estado</h3><div class="checks"><label><input id="anuAprobado" type="checkbox" '+(adm.aprobado===true?'checked':'')+'> Publicado / aprobado</label></div><div class="muted">Pausa, bloqueo y baja se incorporarán cuando estén conectados al comportamiento público real; no se muestran controles falsos.</div></div><div class="card"><h3>Clasificación comercial</h3><div class="formgrid"><div><label>Segmento</label><select id="anuSegmento">'+segOpts+'</select></div><div><label>Nivel</label><select id="anuNivel">'+nivelOpts+'</select></div><div><label>Subnivel</label><input id="anuSubnivel" value="'+esc(adm.subnivel||'')+'"></div></div><details><summary><b>Categorías</b></summary><div class="checks">'+(cats||'<span class="muted">Sin categorías cargadas.</span>')+'</div></details></div><div class="card"><h3>Distinciones / etiquetas</h3><div class="checks"><label><input id="anuVerificado" type="checkbox" '+(adm.verificado===true?'checked':'')+'> Verificado</label><label><input id="anuGold" type="checkbox" '+(adm.gold===true?'checked':'')+'> Gold</label><label><input id="anuPet" type="checkbox" '+(a.pet===true?'checked':'')+'> Pet friendly</label><label><input id="anuEco" type="checkbox" '+(a.eco===true?'checked':'')+'> Eco friendly</label><label><input id="anuGay" type="checkbox" '+(a.gayfriendly===true?'checked':'')+'> Gay friendly</label></div></div><div class="card"><details><summary><b>Funcionalidades</b></summary><div class="checks">'+(funcs||'<span class="muted">Sin funcionalidades cargadas.</span>')+'</div></details></div><div class="card"><h3>Sedes y relaciones</h3>'+(sedes||'<div class="muted">Sin sedes cargadas.</div>')+'</div><button id="btnGuardarAnu" onclick="guardarAnuncianteComercial()">Guardar cambios</button><span id="anuGuardarMsg" style="margin-left:10px"></span>';
+    GH_EDIT_BASE=ghAdvertiserFormPayload_();
     informarAltura();
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 
 function volverAnunciantes(){document.getElementById('anuFicha').classList.add('hidden');document.getElementById('anuListado').classList.remove('hidden');ANUNCIANTE_ACTUAL='';informarAltura();}
 
+function ghAdvertiserFormPayload_(){
+  const categoria_ids=[...document.querySelectorAll('[data-anu-cat]:checked')].map(x=>x.getAttribute('data-anu-cat'));const funcionalidades=[...document.querySelectorAll('[data-anu-fun]:checked')].map(x=>x.getAttribute('data-anu-fun'));
+    const sedes=[...new Set([...document.querySelectorAll('[data-sede]')].map(x=>x.getAttribute('data-sede')))].map(sede_id=>({sede_id,actividad_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-act]:checked')].map(x=>x.getAttribute('data-rel-act')),accion_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-acc]:checked')].map(x=>x.getAttribute('data-rel-acc')),nodo_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-nodo]:checked')].map(x=>x.getAttribute('data-rel-nodo'))}));
+  return {anunciante_id:ANUNCIANTE_ACTUAL,nivel:document.getElementById('anuNivel').value,subnivel:document.getElementById('anuSubnivel').value.trim(),segmento_id:document.getElementById('anuSegmento').value,categoria_ids,aprobado:document.getElementById('anuAprobado').checked,verificado:document.getElementById('anuVerificado').checked,gold:document.getElementById('anuGold').checked,pet:document.getElementById('anuPet').checked,eco:document.getElementById('anuEco').checked,gayfriendly:document.getElementById('anuGay').checked,funcionalidades,sedes,ciudad_ids:ANUNCIANTE_CIUDADES};
+}
+
 async function guardarAnuncianteComercial(){
   if(!ANUNCIANTE_ACTUAL)return;const msg=document.getElementById('anuGuardarMsg');msg.className='muted';msg.textContent='Guardando...';
-  try{const categoria_ids=[...document.querySelectorAll('[data-anu-cat]:checked')].map(x=>x.getAttribute('data-anu-cat'));const funcionalidades=[...document.querySelectorAll('[data-anu-fun]:checked')].map(x=>x.getAttribute('data-anu-fun'));
-    const sedes=[...new Set([...document.querySelectorAll('[data-sede]')].map(x=>x.getAttribute('data-sede')))].map(sede_id=>({sede_id,actividad_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-act]:checked')].map(x=>x.getAttribute('data-rel-act')),accion_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-acc]:checked')].map(x=>x.getAttribute('data-rel-acc')),nodo_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-nodo]:checked')].map(x=>x.getAttribute('data-rel-nodo'))}));
-    await api('actualizar_anunciante_comercial',{anunciante_id:ANUNCIANTE_ACTUAL,nivel:document.getElementById('anuNivel').value,subnivel:document.getElementById('anuSubnivel').value.trim(),segmento_id:document.getElementById('anuSegmento').value,categoria_ids,aprobado:document.getElementById('anuAprobado').checked,verificado:document.getElementById('anuVerificado').checked,gold:document.getElementById('anuGold').checked,pet:document.getElementById('anuPet').checked,eco:document.getElementById('anuEco').checked,gayfriendly:document.getElementById('anuGay').checked,funcionalidades,sedes,ciudad_ids:ANUNCIANTE_CIUDADES},'POST');
-    msg.className='success';msg.textContent='Guardado';
+  try{
+    const result=await api('actualizar_anunciante_comercial',ghAdvertiserFormPayload_(),'POST');
+    msg.className='success';msg.textContent=result.updated?'Guardado':'Sin cambios';
   }catch(e){msg.className='error';msg.textContent=e.message;}
 }
 
@@ -521,10 +657,7 @@ document.getElementById('ciuSelect').addEventListener('change',async function(){
   const d=document.getElementById('ciudadDetalle');
   const n=document.getElementById('ciudadNodos');
   if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';if(n)n.classList.add('hidden');return;}
-  d.textContent='Cargando datos de la ciudad...';
-  let st={};
-  try{st=await api('resumen_ciudad',{ciudad_id:id});GH_CITY_STATS[id]=st;}catch(_){st=GH_CITY_STATS[id]||{};}
-  d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="grid"><div class="stat"><span>Anunciantes</span><b>'+esc(st.anunciantes??'-')+'</b></div><div class="stat"><span>Suscriptores</span><b>'+esc(st.suscriptores??'-')+'</b></div></div><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="muted" style="margin-top:10px">Los nodos, zonas y barrios se administran dentro de esta ciudad/partido.</div></div>';
+  d.innerHTML='<div class="item"><h3>'+esc(x.ciudad_visible||x.nombre||x.ciudad||id)+'</h3><div class="kv"><b>País</b><span>'+esc((GH_COUNTRIES.find(p=>String(p.pais_id||p.id||'')===String(x.pais_id||''))||{}).nombre||x.pais_visible||x.pais_id||'-')+'</span></div><div class="kv"><b>Provincia / Estado</b><span>'+esc((GH_PROVINCES.find(p=>String(p.provincia_id||p.id||'')===String(x.provincia_id||''))||{}).nombre||x.provincia_visible||x.provincia_id||'-')+'</span></div><div class="kv"><b>ID</b><span>'+esc(id)+'</span></div><div class="kv"><b>Estado</b><span>'+esc((x.activa===false||x.activo===false)?'Inactiva':'Activa')+'</span></div><div class="muted" style="margin-top:10px">Esta ficha territorial se resuelve con el catálogo cacheado. No consulta anunciantes ni suscriptores.</div></div>';
   if(n)n.classList.remove('hidden');
   ghCargarNodosCiudad(id);
   informarAltura();

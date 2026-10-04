@@ -651,12 +651,22 @@ button:disabled{opacity:.65;cursor:wait}
 <script>
 const WORKER_ORIGIN = 'https://login.liqkoargentina.workers.dev';
 const SUSCRIPTORES_URL = WORKER_ORIGIN + '/suscriptores';
-const COMMERCE_URL = WORKER_ORIGIN + '/commerce';
-const SESSION_KEY = 'gld_suscriptor_session_v1';
+const TERRITORY_URL = WORKER_ORIGIN + '/territory/public';
+const SESSION_KEY = 'gld_suscriptor_session_v2';
+const TOKEN_KEY = 'gld_suscriptor_token_v2';
 const WHATSAPP_SOPORTE = '5492245459957';
 
 let ciudades = [];
 let sesionSuscriptor = null;
+
+function subscriberToken(){
+  try{return String(localStorage.getItem(TOKEN_KEY)||'').trim();}
+  catch(e){return '';}
+}
+function authHeaders(extra={}){
+  const token=subscriberToken();
+  return token ? {...extra,Authorization:'Bearer '+token} : extra;
+}
 
 function el(id){ return document.getElementById(id); }
 
@@ -693,8 +703,8 @@ async function cargarComerciosAutorizados_(){
   const box=el('mi-guia-comercios');
   if(!box||!sesionSuscriptor||!sesionSuscriptor.suscriptor_id)return;
   try{
-    const u=new URL(SUSCRIPTORES_URL);u.searchParams.set('action','anunciantes_autorizados');u.searchParams.set('suscriptor_id',sesionSuscriptor.suscriptor_id);
-const r=await fetch(u.toString());const j=await r.json();
+    const u=new URL(SUSCRIPTORES_URL);u.searchParams.set('action','anunciantes_autorizados');
+    const r=await fetch(u.toString(),{headers:authHeaders()});const j=await r.json();
     if(!j||j.success!==true)throw new Error('No disponible');
     const lista=Array.isArray(j.anunciantes)?j.anunciantes:[];
     box.innerHTML=lista.length?lista.map(a=>'<div class="mi-guia-item"><span class="mi-guia-item-name">'+escapeHtml_(a.anunciante_nombre||a.nombre||'Comercio')+'</span><span class="muted">'+escapeHtml_(a.rol||'')+'</span></div>').join(''):'<div class="mi-guia-empty">Todavía no tenés comercios asociados a tu cuenta.</div>';
@@ -719,9 +729,9 @@ function fillCities(select,current){
   select.innerHTML='<option value="">Seleccioná una ciudad...</option>';
   ciudades.forEach(c=>{
     const id=String(c.ciudad_id||'').trim();
-    const ciudad=String(c.ciudad||c.nombre||'').trim();
-    const provincia=String(c.provincia||'').trim();
-    const pais=String(c.pais||'').trim();
+    const ciudad=String(c.ciudad_visible||c.ciudad||c.nombre||'').trim();
+    const provincia=String(c.provincia_visible||c.provincia||'').trim();
+    const pais=String(c.pais_visible||c.pais||'').trim();
     if(!id || !ciudad) return;
 
     const op=document.createElement('option');
@@ -737,7 +747,7 @@ async function loadCities(){
   selects.forEach(s=>s.innerHTML='<option value="">Cargando ciudades...</option>');
 
   try{
-    const r=await fetch(COMMERCE_URL+'?action=ubicaciones');
+    const r=await fetch(TERRITORY_URL,{cache:'default'});
     const j=await r.json();
     ciudades=Array.isArray(j.ciudades)?j.ciudades:[];
     fillCities(el('reg-origen'),'');
@@ -763,9 +773,9 @@ function buildGuideUrl(ciudadId){
   if(ciudadObj.provincia_id) u.searchParams.set('provincia_id',String(ciudadObj.provincia_id).trim());
   u.searchParams.set('ciudad_id',id);
 
-  const pais=String(ciudadObj.pais||'').trim();
-  const provincia=String(ciudadObj.provincia||'').trim();
-  const ciudad=String(ciudadObj.ciudad||ciudadObj.nombre||'').trim();
+  const pais=String(ciudadObj.pais_visible||ciudadObj.pais||'').trim();
+  const provincia=String(ciudadObj.provincia_visible||ciudadObj.provincia||'').trim();
+  const ciudad=String(ciudadObj.ciudad_visible||ciudadObj.ciudad||ciudadObj.nombre||'').trim();
 
   if(pais) u.searchParams.set('pais',pais);
   if(provincia) u.searchParams.set('provincia',provincia);
@@ -781,7 +791,7 @@ function cityById(id){
 
 function cityNameById(id){
   const c=cityById(id);
-  return c ? String(c.ciudad||c.nombre||id).trim() : String(id||'').trim();
+  return c ? String(c.ciudad_visible||c.ciudad||c.nombre||id).trim() : String(id||'').trim();
 }
 
 async function apiFavorito(action,tipo,referenciaId){
@@ -791,10 +801,9 @@ async function apiFavorito(action,tipo,referenciaId){
 
   const r=await fetch(SUSCRIPTORES_URL,{
     method:'POST',
-    headers:{'Content-Type':'application/json'},
+    headers:authHeaders({'Content-Type':'application/json'}),
     body:JSON.stringify({
       action,
-      suscriptor_id:sesionSuscriptor.suscriptor_id,
       tipo,
       referencia_id:String(referenciaId||'').trim()
     })
@@ -811,8 +820,7 @@ async function loadFavorites(){
 
   const u=new URL(SUSCRIPTORES_URL);
   u.searchParams.set('action','favoritos');
-  u.searchParams.set('suscriptor_id',sesionSuscriptor.suscriptor_id);
-const r=await fetch(u.toString());
+  const r=await fetch(u.toString(),{headers:authHeaders()});
   const j=await r.json();
   if(!j || j.success!==true) throw new Error((j&&(j.message||j.error))||'No se pudieron cargar los favoritos.');
   return Array.isArray(j.favoritos)?j.favoritos:[];
@@ -827,9 +835,9 @@ function goToCityId(ciudadId){
     pais_id:String(ciudadObj.pais_id||'').trim(),
     provincia_id:String(ciudadObj.provincia_id||'').trim(),
     ciudad_id:ciudadId,
-    pais:String(ciudadObj.pais||'').trim(),
-    provincia:String(ciudadObj.provincia||'').trim(),
-    ciudad:String(ciudadObj.ciudad||ciudadObj.nombre||'').trim(),
+    pais:String(ciudadObj.pais_visible||ciudadObj.pais||'').trim(),
+    provincia:String(ciudadObj.provincia_visible||ciudadObj.provincia||'').trim(),
+    ciudad:String(ciudadObj.ciudad_visible||ciudadObj.ciudad||ciudadObj.nombre||'').trim(),
     ts:Date.now()
   };
 
@@ -929,12 +937,14 @@ async function renderMiGuia(){
 }
 
 
-function saveSession(suscriptor){
+function saveSession(suscriptor,token){
   sesionSuscriptor=suscriptor||null;
   if(sesionSuscriptor){
     localStorage.setItem(SESSION_KEY,JSON.stringify(sesionSuscriptor));
+    if(token) localStorage.setItem(TOKEN_KEY,String(token));
   }else{
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(TOKEN_KEY);
   }
   renderSession();
 }
@@ -978,19 +988,22 @@ async function login(){
     });
     const j=await r.json();
 
-    if(!j.success){
-      msg('login-msg',j.message||'No se pudo ingresar.',false);
-      return;
-    }
-
     if(j.requiere_verificacion){
+      showRegister();
+      msg('register-msg','',false);
+      el('verify-code').value='';
       el('verify-box')?.classList.remove('hidden');
       el('reg-mail').value=mail;
       await requestVerification(mail);
-      msg('login-msg','Primero verificá tu correo. Te enviamos un código.',false);
+      msg('verify-msg','Primero verificá tu correo. Solicitá el código o ingresá el que recibiste.',false);
       return;
     }
-    saveSession(j.suscriptor);
+    if(!j.success){msg('login-msg',j.message||'No se pudo ingresar.',false);return;}
+    if(!j.token){
+      msg('login-msg','No se recibió una sesión válida.',false);
+      return;
+    }
+    saveSession(j.suscriptor,j.token);
   }catch(err){
     msg('login-msg','No se pudo conectar con el sistema.',false);
   }finally{
@@ -1053,8 +1066,8 @@ async function register(){
     }
 
     el('verify-box').classList.remove('hidden');
-    await requestVerification(payload.mail);
-    msg('register-msg','Cuenta creada. Revisá tu correo e ingresá el código para habilitarla.',true);
+    const enviado=await requestVerification(payload.mail);
+    msg('register-msg',enviado?'Cuenta creada. Revisá tu correo e ingresá el código para habilitarla.':'Cuenta creada. No pudimos enviar el código; usá Reenviar código para intentar nuevamente.',enviado);
     el('verify-code').focus();
   }catch(err){
     msg('register-msg','No se pudo conectar con el sistema.',false);
@@ -1075,8 +1088,10 @@ async function requestVerification(mailValue){
     });
     const j=await r.json();
     msg('verify-msg',j.message||'Revisá tu correo.',j.success===true);
+    return j.success===true;
   }catch(e){
     msg('verify-msg','No se pudo enviar el código de verificación.',false);
+    return false;
   }
 }
 
@@ -1218,10 +1233,9 @@ async function saveCity(){
   try{
     const r=await fetch(SUSCRIPTORES_URL,{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:authHeaders({'Content-Type':'application/json'}),
       body:JSON.stringify({
         action:'actualizar_ciudad',
-        suscriptor_id:sesionSuscriptor.suscriptor_id,
         ciudad_predeterminada_id:ciudad
       })
     });
@@ -1278,10 +1292,9 @@ async function deleteAccount(){
   try{
     const r=await fetch(SUSCRIPTORES_URL,{
       method:'POST',
-      headers:{'Content-Type':'application/json'},
+      headers:authHeaders({'Content-Type':'application/json'}),
       body:JSON.stringify({
         action:'eliminar_cuenta',
-        suscriptor_id:sesionSuscriptor.suscriptor_id,
         clave_actual:claveActual,
         confirmar_eliminacion:true
       })
@@ -1299,6 +1312,7 @@ async function deleteAccount(){
     }
 
     localStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(TOKEN_KEY);
     sesionSuscriptor=null;
 
     el('delete-account-box').classList.add('hidden');
@@ -1316,7 +1330,12 @@ async function deleteAccount(){
 function loadStoredSession(){
   try{
     const raw=localStorage.getItem(SESSION_KEY);
-    sesionSuscriptor=raw?JSON.parse(raw):null;
+    const token=subscriberToken();
+    sesionSuscriptor=(raw&&token)?JSON.parse(raw):null;
+    if(!sesionSuscriptor && raw){
+      localStorage.removeItem(SESSION_KEY);
+      localStorage.removeItem(TOKEN_KEY);
+    }
   }catch(_){
     sesionSuscriptor=null;
   }
