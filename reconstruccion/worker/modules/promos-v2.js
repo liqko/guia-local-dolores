@@ -73,6 +73,7 @@ async function quota({db,advertiserId,cupoFromAdmin,excludeId=""}){
 
 export async function promoCreateV2({db,cache,advertiserId,body,cupoFromAdmin}){
   const data=body&&body.payload&&typeof body.payload==="object"?body.payload:body||{};
+  if(text(data.promo_id))throw new Error("El alta de una promo no admite promo_id; usá editar para una promo existente.");
   const ctx=await validateContext({db,cache,advertiserId,data});
   const q=await quota({db,advertiserId,cupoFromAdmin});
   if(q.max<=0||q.active>=q.max)throw new Error("Alcanzaste el máximo de promos activas.");
@@ -80,7 +81,7 @@ export async function promoCreateV2({db,cache,advertiserId,body,cupoFromAdmin}){
   const now=new Date().toISOString();
   const doc={
     ...data,
-    promo_id:text(data.promo_id)||promoId(),
+    promo_id:promoId(),
     anunciante_id:advertiserId,
     id_comercio:advertiserId,
     ciudad_id:ctx.cityId,

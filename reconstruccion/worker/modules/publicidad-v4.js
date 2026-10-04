@@ -16,7 +16,13 @@ export async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
   const data=body&&body.payload&&typeof body.payload==="object"?body.payload:{};
   const id=text(data.publicidad_id)||("PUB-"+crypto.randomUUID());
   const current=text(data.publicidad_id)?await db.get("publicidades",id):null;
+  if(text(data.publicidad_id)&&!current)throw new Error("Publicidad no encontrada.");
   if(current&&text(current.anunciante_id)!==text(advertiserId))throw new Error("La publicidad no pertenece al anunciante.");
+  if(!current){
+    const own=await db.queryEqual("publicidades","anunciante_id",advertiserId,500);
+    const max=Number(config.guardadas_max||0);
+    if(max<=0||own.length>=max)throw new Error("publicidades_maximo_guardadas");
+  }
 
   const previousSeg=current?await db.queryEqual("publicidad_segmentacion","publicidad_id",id,500):[];
   const previousCities=[...new Set(previousSeg.map(x=>text(x.ciudad_id)).filter(Boolean))];

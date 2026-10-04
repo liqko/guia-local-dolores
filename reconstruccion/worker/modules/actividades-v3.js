@@ -144,8 +144,18 @@ export async function activitySaveV3({db,cache,advertiserId,body}){
 }
 
 export async function activityActionV3({db,cache,advertiserId,action,activityId}){
+  if(!["eliminar","pausar","reanudar","renovar"].includes(action))throw new Error("Acción de actividad inválida.");
   const current=await db.get("actividades",activityId);
   if(!current||text(current.anunciante_id)!==text(advertiserId))throw new Error("Actividad no encontrada.");
+
+  if(action==="reanudar"||action==="renovar"){
+    const admin=await db.get("anunciantes_administracion",advertiserId);
+    if(!admin||!enabled(admin))throw new Error("No tenés habilitado el módulo Actividades.");
+    const own=await db.queryEqual("actividades","anunciante_id",advertiserId,500);
+    const active=own.filter(a=>text(a.actividad_id||a.id)!==text(activityId)&&bool(a.activo)&&text(a.estado).toUpperCase()!=="PAUSADA").length;
+    const max=quota(admin);
+    if(max<=0||active>=max)throw new Error("actividades_cupo_activo_completo");
+  }
 
   const hs=await db.queryEqual("actividad_horarios","actividad_id",activityId,500);
   const cities=[...new Set(hs.map(h=>text(h.ciudad_id)).filter(Boolean))];

@@ -1,12 +1,13 @@
-# Reconstrucción total — V32 (continuación de V31)
+# Reconstrucción total — V33 (continuación de V32)
 
 **NO DESPLEGAR TODAVÍA.** Rama: `reconstruccion-total-03oct`. No modificar `main`.
 
 ## Base verificada
 
 V31: commit `203de30190ff69d8ced0bff67942e89d1541d160`.
-El Worker vigente sigue siendo `worker/app-main-v31.js`, con rutas públicas V12,
-panel V15 y administración V11. V32 corrige la integración de interfaces sobre ese Worker.
+V32: commit `c5a231281196ebd0bccbc8f14880ee212a73d96e`.
+El Worker vigente es `worker/app-main-v33.js`, con rutas públicas V12,
+panel V15 y administración V11. V33 corrige los módulos compartidos de ese grafo.
 
 ## Interfaces vigentes para revisión
 
@@ -48,10 +49,34 @@ escrituras: las lecturas probadas no acceden a Firestore ni escriben KV.
 Las auditorías previas y la prueba de rotación de Farmacias se conservan.
 El workflow V32 ejecuta estas verificaciones al subir cambios de reconstrucción.
 
+## Correcciones y pruebas V33
+
+- Duplicar un evento conserva las instancias del original; cada copia obtiene IDs
+  nuevos. Altas/ediciones devuelven la programación realmente guardada.
+- El alta de Promos genera su propio ID y rechaza un ID de edición recibido.
+- Reanudar/renovar Actividades valida el cupo y la habilitación antes de escribir.
+- Las lecturas públicas de Actividades filtran también las vencidas desde KV;
+  no necesitan una nueva mutación para dejar de mostrarlas.
+- Guardar Publicidad respeta el máximo de piezas guardadas; editar un ID inexistente
+  devuelve error y no crea una pieza por accidente.
+- Efemérides normaliza `MÓVIL`, conserva `ULTIMA`, valida fechas reales y comprueba
+  el permiso territorial del contenido original además del destino de una edición.
+
+`TEST_MUTACIONES_V33.mjs` prueba **15 circuitos**: Promos, Eventos VIP/FREE,
+Actividades, Publicidad y Efemérides. Las mutaciones pasan por las rutas privadas
+reales con sesiones HMAC de prueba; el reflejo público se consulta en el Worker
+V33. Firestore y KV usan datos aislados en memoria: no se tocó producción.
+Se comprueban alta/edición/pausa/reanudación/baja, moderación, cambio de ciudad,
+cuotas, permiso, límite diario y conservación de programación original.
+La prueba de intento de sobrescritura de Promo también llama directamente al módulo.
+
+El workflow V33 corre las auditorías anteriores, la integración de Carcasa,
+Farmacias, estos 15 circuitos y los 98 archivos del grafo efectivo del Worker.
+
 ## Próximo trabajo
 
-1. Pruebas funcionales de mutaciones y moderación con datos de prueba:
-   alta/edición/pausa/eliminación, aprobación/rechazo y reflejo público.
+1. Extender la prueba integral a Commerce/sedes, Suscriptores, correo y
+   solicitudes de anunciantes; revisar programación de eventos entre ciudades.
 2. Revisar de punta a punta permisos, cuotas y correo de verificación/recuperación.
 3. Prueba visual completa de carga inicial, cambio de módulos y reintento.
 4. Preparar configuración y seed KV controlado para un entorno de prueba.

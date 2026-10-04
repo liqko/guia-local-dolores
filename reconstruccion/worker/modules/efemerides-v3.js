@@ -2,6 +2,7 @@ import {syncEfemeridePreparedV2} from "../core/efemerides-read-model-v2.js";
 
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
+const norm=v=>text(v).toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
 
 function sanitize(payload){
   const p=payload&&typeof payload==="object"?payload:{};
@@ -10,7 +11,7 @@ function sanitize(payload){
     tipo:text(p.tipo).toUpperCase(),
     provincia_id:text(p.provincia_id),
     ciudad_id:text(p.ciudad_id),
-    tipo_fecha:text(p.tipo_fecha).toUpperCase(),
+    tipo_fecha:norm(p.tipo_fecha),
     nombre:text(p.nombre),
     descripcion:String(p.descripcion||""),
     imagen:String(p.imagen||""),
@@ -27,19 +28,30 @@ function sanitize(payload){
   }
   if(out.tipo_fecha==="MOVIL"){
     out.mes=Number(p.mes||0);
-    out.semana_mes=Number(p.semana_mes||0);
-    out.dia_semana=text(p.dia_semana).toUpperCase();
+    out.semana_mes=norm(p.semana_mes)==="ULTIMA"?"ULTIMA":Number(p.semana_mes||0);
+    out.dia_semana=norm(p.dia_semana);
   }
   return out;
 }
 function validate(d){
   if(!d.tipo)return"Falta tipo";
   if(!d.tipo_fecha)return"Falta tipo_fecha";
+  if(!["GENERAL","PROVINCIAL","LOCAL"].includes(d.tipo))return"Tipo de efeméride inválido";
+  if(!["FIJA","MOVIL"].includes(d.tipo_fecha))return"Tipo de fecha inválido";
   if(!d.nombre)return"Falta nombre";
   if(d.tipo==="LOCAL"&&!d.ciudad_id)return"Falta ciudad_id";
   if(d.tipo==="PROVINCIAL"&&!d.provincia_id)return"Falta provincia_id";
   if(d.tipo_fecha==="FIJA"&&(!d.mes||!d.dia))return"Faltan mes/dia";
   if(d.tipo_fecha==="MOVIL"&&(!d.mes||!d.semana_mes||!d.dia_semana))return"Faltan datos de fecha móvil";
+  if(!Number.isInteger(d.mes)||d.mes<1||d.mes>12)return"Mes inválido";
+  if(d.tipo_fecha==="FIJA"){
+    const max=new Date(Date.UTC(2000,d.mes,0)).getUTCDate();
+    if(!Number.isInteger(d.dia)||d.dia<1||d.dia>max)return"Día inválido";
+  }
+  if(d.tipo_fecha==="MOVIL"){
+    if(d.semana_mes!=="ULTIMA"&&(!Number.isInteger(d.semana_mes)||d.semana_mes<1||d.semana_mes>5))return"Semana inválida";
+    if(!["DOMINGO","LUNES","MARTES","MIERCOLES","JUEVES","VIERNES","SABADO","0","1","2","3","4","5","6"].includes(d.dia_semana))return"Día de semana inválido";
+  }
   return"";
 }
 function canSee(row,p){
@@ -55,6 +67,7 @@ export async function efemSaveV3({db,cache,advertiserId,body,permisos}){
   const reqId=text(payload.efemeride_id||payload.id);
   const existing=reqId?await db.get("efemerides_bis",reqId):null;
   if(reqId&&!existing)throw new Error("Efeméride no encontrada");
+  if(existing&&!canSee(existing,permisos))throw new Error("No autorizado para esta efeméride");
 
   const merged=existing?{...existing,...payload,efemeride_id:reqId}:payload;
   const data=sanitize(merged),err=validate(data);

@@ -38,7 +38,7 @@ export async function getActivitiesCityV2({cache,cityId}){
   const city=text(cityId);
   if(!city)return{success:false,message:"ciudad_id obligatorio",status:400};
   const packet=await cache.get(activityCityKeyV2(city));
-  return packet?{success:true,...packet}:{success:true,ciudad_id:city,actividades:[],cold:true};
+  return packet?{success:true,...packet,actividades:(packet.actividades||[]).filter(isPublic)}:{success:true,ciudad_id:city,actividades:[],cold:true};
 }
 
 export async function rebuildActivitiesAllV2({db,cache}){

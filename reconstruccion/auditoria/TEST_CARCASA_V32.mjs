@@ -17,7 +17,7 @@ for(const city of ['DOL','CAS']){
   packets.set('guide:city:v1:'+city,{ciudad_id:city,anunciantes:[{id:'ADV-'+city,nombre:city}]});
   packets.set('promos:city:v1:'+city,{ciudad_id:city,promos:[{promo_id:'PRO-'+city}]});
   packets.set('events:city:v2:'+city,{ciudad_id:city,events:[{evento_id:'EV-'+city}]});
-  packets.set('activities:city:v2:'+city,{ciudad_id:city,actividades:[{actividad_id:'ACT-'+city}]});
+  packets.set('activities:city:v2:'+city,{ciudad_id:city,actividades:[{actividad_id:'ACT-'+city,activo:true,aprobado:true,estado:'ACTIVA'}]});
 }
 let writes=0,firestoreCalls=0,failNext=false;
 const calls=[];

@@ -5,7 +5,7 @@ import {pathToFileURL} from 'node:url';
 
 // Comprueba el grafo que realmente ejecuta V31, sin incluir prototipos archivados.
 const root=path.resolve('reconstruccion/worker');
-const entry=path.join(root,'app-main-v31.js');
+const entry=path.resolve(process.argv[2]||path.join(root,'app-main-v31.js'));
 const seen=new Set();
 function visit(file){
   if(seen.has(file))return;
@@ -20,4 +20,4 @@ function visit(file){
 }
 visit(entry);
 await import(pathToFileURL(entry));
-console.log(`IMPORTS V32 OK: ${seen.size} archivos del Worker V31, sintaxis e imports efectivos`);
+console.log(`IMPORTS V32 OK: ${seen.size} archivos de ${path.basename(entry)}, sintaxis e imports efectivos`);

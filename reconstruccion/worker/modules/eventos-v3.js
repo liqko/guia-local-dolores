@@ -57,17 +57,22 @@ async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,f
     const pid=text(p.evento_programacion_id||p.id);if(pid)await db.delete("evento_programacion",pid);
   }
   let orden=0;
+  const saved=[];
   for(const raw of (Array.isArray(programacion)?programacion:[])){
     if(!text(raw.fecha))throw new Error("Cada instancia del evento necesita fecha.");
     const city=await validateLocation({db,cache,advertiserId,row:raw,fallbackCity});
-    const pid=text(raw.evento_programacion_id)||id("evp");
+    // Cada reemplazo/duplicación crea filas propias; un ID recibido nunca toma otra instancia.
+    const pid=id("evp");
+    const {id:legacyId,evento_programacion_id:legacyProgramId,...fields}=raw;
     orden++;
-    await db.patch("evento_programacion",pid,{
-      ...raw,evento_programacion_id:pid,evento_id:eventId,ciudad_id:city,
+    const row=await db.patch("evento_programacion",pid,{
+      ...fields,evento_programacion_id:pid,evento_id:eventId,ciudad_id:city,
       fecha:text(raw.fecha),hora_desde:text(raw.hora_desde),hora_hasta:text(raw.hora_hasta),
       activo:raw.activo===false?false:true,orden:Number(raw.orden||orden),actualizado:new Date().toISOString()
     });
+    saved.push(row);
   }
+  return saved;
 }
 async function quota({db,advertiserId,max,free=false,exclude=""}){
   const own=await db.queryEqual("eventos","anunciante_id",advertiserId,500);
@@ -114,14 +119,14 @@ export async function createEventV3({db,cache,advertiserId,payload,max,advertise
   };
   delete doc.confirmar_similar;delete doc.programacion;
   const saved=await db.patch("eventos",eventId,doc);
-  await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:doc.ciudad_id});
+  const programacion=await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:doc.ciudad_id});
   await syncEventV2({db,cache,next:saved});
   return{
     success:true,
     created:true,
     evento_id:eventId,
     estado_moderacion:"PENDIENTE",
-    evento:{...saved,programacion:Array.isArray(data.programacion)?data.programacion:[]}
+    evento:{...saved,programacion}
   };
 }
 export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"}){
@@ -138,8 +143,9 @@ export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"})
   const validation={...next,programacion:Object.prototype.hasOwnProperty.call(data,"programacion")?data.programacion:await db.queryEqual("evento_programacion","evento_id",eventId,500)};
   await validateEvent({db,cache,advertiserId,data:validation});
   const saved=await db.patch("eventos",eventId,next,{mustExist:true});
+  let programacion=validation.programacion;
   if(Object.prototype.hasOwnProperty.call(data,"programacion")){
-    await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:next.ciudad_id});
+    programacion=await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:next.ciudad_id});
   }
   await syncEventV2({db,cache,current,next:saved});
   return{
@@ -147,7 +153,7 @@ export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"})
     updated:true,
     evento_id:eventId,
     estado_moderacion:"PENDIENTE",
-    evento:{...saved,programacion:Array.isArray(validation.programacion)?validation.programacion:[]}
+    evento:{...saved,programacion:Array.isArray(programacion)?programacion:[]}
   };
 }
 export async function pauseEventV3({db,cache,advertiserId,payload,max,level="VIP"}){

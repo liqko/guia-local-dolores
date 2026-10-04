@@ -32,7 +32,7 @@ export async function routePanelV13(ctx){
         const cfg=configFromAdmin(admin||{});
         return json(await publicitySaveV4({
           db,cache,advertiserId:aid,body,
-          config:{prioridad_id:text(cfg.prioridad_id)}
+          config:cfg
         }));
       }
 
