@@ -1,4 +1,5 @@
 import {syncPromo,getPromosCity} from "../core/promos-read-model.js";
+import {changedFieldsV1,sameValueV1} from "../core/changed-fields-v1.js";
 
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
@@ -113,23 +114,28 @@ export async function promoUpdateV2({db,cache,advertiserId,body,cupoFromAdmin}){
   const next={...current};
   for(const k of allowed)if(Object.prototype.hasOwnProperty.call(data,k))next[k]=data[k];
 
-  const ctx=await validateContext({db,cache,advertiserId,data:next});
+  const contextChanged=["ciudad_id","categoria_id","categoria","sede_id"].some(k=>
+    Object.prototype.hasOwnProperty.call(data,k)&&!sameValueV1(data[k],current[k]));
+  if(contextChanged){
+    const contextData={...next};
+    if(Object.prototype.hasOwnProperty.call(data,"categoria")&&!Object.prototype.hasOwnProperty.call(data,"categoria_id"))delete contextData.categoria_id;
+    const ctx=await validateContext({db,cache,advertiserId,data:contextData});
+    next.ciudad_id=ctx.cityId;
+    next.categoria_id=ctx.categoria_id;
+    next.categoria=ctx.categoria;
+    next.logo_categoria=ctx.logo_categoria;
+  }
   if(Object.prototype.hasOwnProperty.call(data,"pausado")&&!bool(data.pausado)&&paused(current)){
     const q=await quota({db,advertiserId,cupoFromAdmin,excludeId:id});
     if(q.active>=q.max)throw new Error("Alcanzaste el máximo de promos activas.");
   }
 
-  next.promo_id=id;
-  next.anunciante_id=advertiserId;
-  next.id_comercio=advertiserId;
-  next.ciudad_id=ctx.cityId;
-  next.categoria_id=ctx.categoria_id;
-  next.categoria=ctx.categoria;
-  next.logo_categoria=ctx.logo_categoria;
-  next.pausado=bool(next.pausado);
+  if(Object.prototype.hasOwnProperty.call(data,"pausado"))next.pausado=bool(next.pausado);
   next.actualizado=new Date().toISOString();
 
-  const saved=await db.patch("promos",id,next,{mustExist:true});
+  const patch=changedFieldsV1(current,next);
+  if(!Object.keys(patch).length)return{success:true,updated:false,promo_id:id,promo:current};
+  const saved=await db.patch("promos",id,patch,{mustExist:true});
   await syncPromo({cache,current,next:saved});
   return{success:true,promo_id:id,promo:saved};
 }

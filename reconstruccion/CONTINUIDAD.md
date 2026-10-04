@@ -62,9 +62,21 @@ Se repitieron el 4/10:
 No hubo nuevas correcciones de código durante estos turnos de aclaración.
 No se ha contado todavía el total de acciones existentes. No inventar un número ni una estimación horaria.
 
+## Avance V36 — 4/10
+- Inventario y evidencia: auditoria/INVENTARIO_AISLAMIENTO.md.
+- TEST_AISLAMIENTO_PUBLICO_V36: 43 casos, 9 familias de consulta; cero DB/red externa/escrituras incluso con KV vacío.
+- TEST_CARCASA_V32 actualizado al entrypoint vigente V35; aprobado.
+- Perfil y relaciones administrativas ya no reconstruyen la tarjeta leyendo anunciante/administración/sedes completos.
+- Relaciones administrativas validan todo el lote antes de escribir y omiten campos intactos.
+- Edición de sede envía sólo campos cambiados, sin repetir identidad ni dirección intactas.
+- TEST_AISLAMIENTO_COMMERCE_V36: 6 circuitos con operaciones y campos exactos.
+- Promos: cambio general no consulta sede/cupo; sólo patch diferencial. Sin cambios no escribe.
+- TEST_AISLAMIENTO_PROMOS_V36: 47 casos / 21 campos generales y operaciones de ciclo de vida.
+- TEST_MUTACIONES_V33 (15 circuitos) y TEST_FLUJO_EXISTENTE_V35 (8) siguen aprobados.
+- No declarar toda administración cerrada: configuración comercial/búsqueda/ficha y otros módulos necesitan cobertura restante.
+
 ## Próxima acción concreta
-Comenzar el inventario de Carcasa y Guía desde sus HTML vigentes y el grafo público V12.
-Después cerrar Modificar datos siguiendo tanto panel como administración.
+Seguir por Eventos: inventario de panel/Gran Hermano, patch diferencial y aislamiento de programación.
 Aplicar aislamiento de guardados en los seis módulos pendientes con pruebas de operaciones.
 No usar una instantánea KV potencialmente obsoleta como sustituto de validación autoritativa de propiedad o borrado.
 

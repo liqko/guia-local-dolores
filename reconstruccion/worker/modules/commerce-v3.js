@@ -71,6 +71,9 @@ export async function commerceSetSedesV3({db,cache,advertiserId,body}){
   const saved=[],changed=[];
   for(const {id,patch,current,existingId} of prepared){
     if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){saved.push(current);continue;}
+    if(current)for(const k of Object.keys(patch)){
+      if(JSON.stringify(current[k])===JSON.stringify(patch[k]))delete patch[k];
+    }
     patch.actualizado_en=new Date().toISOString();
     const doc=await db.patch('anunciantes_sedes',id,patch,{mustExist:!!existingId});
     saved.push(doc);changed.push(doc);

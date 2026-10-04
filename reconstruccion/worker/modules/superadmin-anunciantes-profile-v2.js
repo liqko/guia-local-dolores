@@ -1,4 +1,4 @@
-import {syncGuideAdvertiserV2} from "../core/guide-read-model-v2.js";
+import {patchGuideAdvertiserDataFromCacheV2,patchGuideAdvertiserSedesFromCacheV2} from "../core/commerce-cache-patch-v2.js";
 
 const text=v=>String(v??"").trim();
 
@@ -26,7 +26,7 @@ export async function updateAdvertiserProfileV2({db,cache,auth,advertiserId,payl
   if(!touched)return{success:true,updated:false,anunciante_id:aid};
 
   await db.patch("anunciantes",aid,patch,{mustExist:true});
-  await syncGuideAdvertiserV2({db,cache,advertiserId:aid});
+  await patchGuideAdvertiserDataFromCacheV2({cache,advertiserId:aid,patch});
 
   return{
     success:true,
@@ -43,17 +43,20 @@ export async function updateAdvertiserSedeRelationsV2({db,cache,auth,advertiserI
 
   const rows=Array.isArray(sedes)?sedes:[];
   let writes=0;
+  const prepared=[],seen=new Set(),savedSedes=[];
 
   for(const raw of rows){
     const sid=text(raw&&raw.sede_id);
     if(!sid)continue;
+    if(seen.has(sid))throw new Error("Sede repetida en la operación.");
+    seen.add(sid);
 
     const current=await db.get("anunciantes_sedes",sid);
     if(!current||text(current.anunciante_id)!==aid){
       throw new Error("La sede "+sid+" no pertenece al anunciante.");
     }
 
-    const patch={actualizado_en:new Date().toISOString()};
+    const patch={};
     if(Object.prototype.hasOwnProperty.call(raw,"actividad_ids")){
       patch.actividad_ids=Array.isArray(raw.actividad_ids)?raw.actividad_ids.map(text).filter(Boolean):[];
     }
@@ -64,11 +67,20 @@ export async function updateAdvertiserSedeRelationsV2({db,cache,auth,advertiserI
       patch.nodo_ids=Array.isArray(raw.nodo_ids)?raw.nodo_ids.map(text).filter(Boolean):[];
     }
 
-    await db.patch("anunciantes_sedes",sid,patch,{mustExist:true});
-    writes++;
+    for(const key of Object.keys(patch)){
+      if(JSON.stringify(patch[key])===JSON.stringify(current[key]))delete patch[key];
+    }
+    prepared.push({sid,patch});
   }
 
-  if(writes)await syncGuideAdvertiserV2({db,cache,advertiserId:aid});
+  // Toda la pertenencia se valida antes de la primera escritura.
+  for(const {sid,patch} of prepared){
+    if(!Object.keys(patch).length)continue;
+    patch.actualizado_en=new Date().toISOString();
+    savedSedes.push(await db.patch("anunciantes_sedes",sid,patch,{mustExist:true}));
+    writes++;
+  }
+  if(writes)await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes});
 
   return{success:true,updated:!!writes,sedes_actualizadas:writes,firestore_writes:writes};
 }

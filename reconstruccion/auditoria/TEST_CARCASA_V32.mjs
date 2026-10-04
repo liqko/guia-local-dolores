@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
-import worker from '../worker/app-main-v31.js';
+import worker from '../worker/app-main-v35.js';
 
 const html=fs.readFileSync('reconstruccion/plataforma/carcasa-territorio-v3.html','utf8');
 const guideHtml=fs.readFileSync('reconstruccion/plataforma/anunciantes-publico-v4.html','utf8');

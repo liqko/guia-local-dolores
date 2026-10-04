@@ -84,6 +84,7 @@ function applyCardData(card,patch,catalogs){
   const out={...card};
   const direct=["nombre","actividad","descripcion","tags","adicionales","logo","link","img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"];
   for(const k of direct)if(Object.prototype.hasOwnProperty.call(patch,k))out[k]=text(patch[k]);
+  for(const k of ["pet","eco","gayfriendly"])if(Object.prototype.hasOwnProperty.call(patch,k))out[k]=patch[k];
   if(Object.prototype.hasOwnProperty.call(patch,"segmento_id")){
     const sid=text(patch.segmento_id);
     const x=(catalogs.segmentos||[]).find(s=>text(s.segmento_id||s.id)===sid)||{};
