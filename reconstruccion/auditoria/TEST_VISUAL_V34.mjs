@@ -15,7 +15,9 @@ try{
  await context.route('**/*',async route=>{
   const req=route.request(),url=new URL(req.url());
   if(url.hostname==='login.liqkoargentina.workers.dev'){
+   const before={...f.stats};
    const response=await f.handle(new Request(req.url(),{method:req.method(),headers:req.headers(),...(req.postData()?{body:req.postData()}:{})}));
+   if(req.method()==='GET'&&['/guide','/territory/public','/catalogs/public/guide','/promos','/events-new','/actividades','/farmacias','/efemerides','/publicidad'].includes(url.pathname))assert.deepEqual(f.stats,before,'Consulta pública usa Firestore: '+url.pathname);
    return route.fulfill({status:response.status,headers:Object.fromEntries(response.headers),body:await response.text()});
   }
   if(url.hostname==='ui.prueba.test'){

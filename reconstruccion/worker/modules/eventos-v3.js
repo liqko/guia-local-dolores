@@ -41,6 +41,8 @@ async function validateEvent({db,cache,advertiserId,data}){
   if(!text(data.ciudad_id))throw new Error("Falta ciudad.");
   if(!text(data.fecha_desde))throw new Error("Falta fecha del evento.");
   const programacion=Array.isArray(data.programacion)?data.programacion:[];
+  const programIds=programacion.map(p=>text(p?.evento_programacion_id||p?.id)).filter(Boolean);
+  if(new Set(programIds).size!==programIds.length)throw new Error('Instancia repetida en la programación.');
   if(programacion.length){
     for(let i=0;i<programacion.length;i++){
       const row=programacion[i]||{};
@@ -51,27 +53,28 @@ async function validateEvent({db,cache,advertiserId,data}){
     await validateLocation({db,cache,advertiserId,row:data,fallbackCity:data.ciudad_id});
   }
 }
-async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,fallbackCity}){
-  const old=await db.queryEqual("evento_programacion","evento_id",eventId,500);
-  for(const p of old){
-    const pid=text(p.evento_programacion_id||p.id);if(pid)await db.delete("evento_programacion",pid);
-  }
+async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,fallbackCity,previous}){
+  const old=previous??await db.queryEqual("evento_programacion","evento_id",eventId,500);
+  const byId=new Map(old.map(p=>[text(p.evento_programacion_id||p.id),p]));
+  const kept=new Set(),saved=[];
   let orden=0;
-  const saved=[];
   for(const raw of (Array.isArray(programacion)?programacion:[])){
-    if(!text(raw.fecha))throw new Error("Cada instancia del evento necesita fecha.");
-    const city=await validateLocation({db,cache,advertiserId,row:raw,fallbackCity});
-    // Cada reemplazo/duplicación crea filas propias; un ID recibido nunca toma otra instancia.
-    const pid=id("evp");
-    const {id:legacyId,evento_programacion_id:legacyProgramId,...fields}=raw;
+    const city=text(raw.ciudad_id||fallbackCity);
+    const requested=text(raw.evento_programacion_id||raw.id);
+    const current=byId.get(requested);
+    const pid=current?requested:id('evp');
+    if(kept.has(pid))throw new Error('Instancia repetida en la programación.');
+    kept.add(pid);
+    const {id:legacyId,evento_programacion_id:legacyProgramId,actualizado,...fields}=raw;
     orden++;
-    const row=await db.patch("evento_programacion",pid,{
-      ...fields,evento_programacion_id:pid,evento_id:eventId,ciudad_id:city,
+    const patch={...fields,evento_programacion_id:pid,evento_id:eventId,ciudad_id:city,
+      sede_id:text(raw.sede_id),lugar_id:text(raw.lugar_id),lugar_texto:text(raw.lugar_texto||raw.lugar),direccion:text(raw.direccion),maps:text(raw.maps),
       fecha:text(raw.fecha),hora_desde:text(raw.hora_desde),hora_hasta:text(raw.hora_hasta),
-      activo:raw.activo===false?false:true,orden:Number(raw.orden||orden),actualizado:new Date().toISOString()
-    });
-    saved.push(row);
+      activo:raw.activo===false?false:true,orden:Number(raw.orden||orden)};
+    if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){saved.push(current);continue;}
+    saved.push(await db.patch('evento_programacion',pid,{...patch,actualizado:new Date().toISOString()},{mustExist:!!current}));
   }
+  for(const [pid]of byId)if(!kept.has(pid))await db.delete('evento_programacion',pid);
   return saved;
 }
 async function quota({db,advertiserId,max,free=false,exclude=""}){
@@ -120,7 +123,7 @@ export async function createEventV3({db,cache,advertiserId,payload,max,advertise
   delete doc.confirmar_similar;delete doc.programacion;
   const saved=await db.patch("eventos",eventId,doc);
   const programacion=await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:doc.ciudad_id});
-  await syncEventV2({db,cache,next:saved});
+  await syncEventV2({db,cache,next:saved,programacion});
   return{
     success:true,
     created:true,
@@ -140,14 +143,15 @@ export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"})
   for(const[k,v]of Object.entries(data))if(!["evento_id","programacion"].includes(k))next[k]=v;
   next.evento_id=eventId;next.anunciante_id=advertiserId;next.id_anunciante=advertiserId;next.nivel=level;
   next.estado_moderacion="PENDIENTE";next.estado="PENDIENTE";next.actualizado=new Date().toISOString();
-  const validation={...next,programacion:Object.prototype.hasOwnProperty.call(data,"programacion")?data.programacion:await db.queryEqual("evento_programacion","evento_id",eventId,500)};
+  const previousProgramacion=await db.queryEqual('evento_programacion','evento_id',eventId,500);
+  const validation={...next,programacion:Object.prototype.hasOwnProperty.call(data,'programacion')?data.programacion:previousProgramacion};
   await validateEvent({db,cache,advertiserId,data:validation});
   const saved=await db.patch("eventos",eventId,next,{mustExist:true});
   let programacion=validation.programacion;
   if(Object.prototype.hasOwnProperty.call(data,"programacion")){
-    programacion=await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:next.ciudad_id});
+    programacion=await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:next.ciudad_id,previous:previousProgramacion});
   }
-  await syncEventV2({db,cache,current,next:saved});
+  await syncEventV2({db,cache,current,next:saved,previousProgramacion,programacion});
   return{
     success:true,
     updated:true,
@@ -178,7 +182,7 @@ export async function deleteEventV3({db,cache,advertiserId,payload,level="VIP"})
   const programas=await db.queryEqual("evento_programacion","evento_id",eventId,500);
   for(const p of programas){const pid=text(p.evento_programacion_id||p.id);if(pid)await db.delete("evento_programacion",pid);}
   await db.delete("eventos",eventId,{mustExist:true});
-  await syncEventV2({db,cache,current,next:null});
+  await syncEventV2({db,cache,current,next:null,previousProgramacion:programas});
   return{success:true,deleted:true,evento_id:eventId};
 }
 export async function duplicateVipV3({db,cache,advertiserId,payload,max,advertiser}){

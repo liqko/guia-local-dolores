@@ -1,4 +1,4 @@
-# Reconstrucción total — V34 (continuación de V33)
+# Reconstrucción total — V35 (continuación de V34)
 
 **NO DESPLEGAR TODAVÍA.** Rama: `reconstruccion-total-03oct`. No modificar `main`.
 
@@ -6,7 +6,7 @@
 
 V31: commit `203de30190ff69d8ced0bff67942e89d1541d160`.
 V32: commit `c5a231281196ebd0bccbc8f14880ee212a73d96e`.
-El Worker vigente es `worker/app-main-v34.js`, con rutas públicas V12,
+El Worker vigente es `worker/app-main-v35.js`, con rutas públicas V12,
 panel V15 y administración V11. V33 corrige los módulos compartidos de ese grafo.
 
 ## Interfaces vigentes para revisión
@@ -101,11 +101,48 @@ La prueba de navegador intercepta peticiones y utiliza KV/Firestore y correo
 simulados. **No certifica la entrega de correo real**, credenciales ni despliegue.
 Las pantallas se revisaron con datos de prueba; no se tocó producción.
 
-## Próximo trabajo
+## Cierre del flujo existente V35
 
-1. Extender la integración a Commerce/sedes y solicitudes de anunciantes;
-   revisar programación de eventos entre ciudades.
-2. Preparar configuración y seed KV controlado para un entorno de prueba.
-3. Probar allí la entrega real de verificación/recuperación y los datos completos.
+Alcance confirmado: Carcasa con Farmacias/Efemérides, Guía y tarjetas,
+Promos, Eventos y Actividades; panel del anunciante y Modificar datos.
+Los 61 pendientes históricos, solicitudes de anunciante y retoques de Gran
+Hermano quedan fuera de este cierre. No se agregaron esas funciones.
 
-Mantener sin desplegar hasta cerrar esos puntos.
+Correcciones:
+- Quitar la última sede conserva el anunciante, sus datos y su presencia territorial
+  en KV; la tarjeta puede quedar sin sede física. Mover una sede retira su ubicación
+  anterior. Agregar otra sede utiliza los datos conservados.
+- El panel genera una sede nueva aunque ya no quede ninguna plantilla en pantalla.
+  Usa el ID devuelto por el guardado, sin releer todo el anunciante.
+- Guardar sin cambios no realiza llamadas desde el panel; una sede intacta no escribe.
+- Un lote de sedes se valida completo antes de escribir. Ciudad inválida o sede ajena
+  no deja la primera sede modificada parcialmente.
+- La programación de eventos publica sólo las instancias de cada ciudad y retira
+  las anteriores al editar/pausar/borrar. La cobertura se conserva en KV.
+- Editar imágenes/datos conserva instancias de Eventos y horarios de Actividades
+  que no cambiaron; ya no los borra y recrea completos.
+- Actividades valida los lugares existentes contra su ciudad y el panel conserva
+  el ID de cada horario. Cambiar de lugar limpia las referencias anteriores.
+- Publicidad actualiza sólo las imágenes modificadas; conserva imágenes y
+  segmentaciones intactas. Un cambio parcial de segmentación conserva la otra dimensión.
+- El panel reconoce los nombres visibles del catálogo territorial y vuelve al
+  ingreso después de un cambio de contraseña que revoca su sesión.
+
+Validación añadida: `TEST_FLUJO_EXISTENTE_V35.mjs` (8 circuitos),
+`TEST_PANEL_VISUAL_V35.mjs` (Chromium: login, datos e imagen, borrar última sede,
+agregar otra sin recarga global, guardar sin cambios y abrir/reabrir siete módulos),
+`AUDITAR_HTML_V35.mjs` (9 interfaces vigentes, 15 scripts, sin Firebase directo).
+Se conservan las 15 pruebas de mutaciones, Farmacias, Suscriptores y navegador
+público. Las lecturas públicas se comprueban sin acceso Firestore; las mutaciones
+se comprueban con contadores de documentos de prueba. Esto no mide la factura real.
+
+## Paso siguiente: pruebas en entorno real controlado
+
+El código de este alcance queda preparado para comenzar pruebas con configuración,
+KV inicializado y datos reales de prueba. Sigue sin desplegar a producción.
+Hay que validar credenciales, carga inicial KV, llegada real del correo y los
+recorridos con datos completos. Las pruebas actuales usan DB/KV aislados y correo
+simulado. No certifican que la aplicación desplegada ya funcione.
+
+Los pendientes históricos siguen pendientes; por ejemplo, la eliminación definitiva
+del anunciante conserva el aviso de acción no conectada que ya tenía el panel.

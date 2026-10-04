@@ -47,25 +47,35 @@ export async function commerceSetDatosV3({db,advertiserId,body}){
   return{success:true,updated:true,id:advertiserId,patch,advertiser:saved};
 }
 
-export async function commerceSetSedesV3({db,advertiserId,body}){
+export async function commerceSetSedesV3({db,cache,advertiserId,body}){
   const incoming=Array.isArray(body&&body.sedes)?body.sedes:[];
-  const saved=[];
+  if(incoming.length>100)throw new Error('Demasiadas sedes en una operación.');
+  const territory=incoming.length?await cache.get('territorio:public:v1'):null;
+  const prepared=[],seen=new Set();
+  // Validar toda la operación antes de escribir: una sede ajena no deja cambios parciales.
   for(const raw of incoming){
     const existingId=text(raw&&raw.sede_id);
     const id=existingId||newSedeId(advertiserId);
-    if(existingId){
-      const current=await db.get("anunciantes_sedes",id);
-      if(!current||text(current.anunciante_id)!==text(advertiserId))throw new Error("La sede no pertenece al anunciante.");
-    }
-    const patch={sede_id:id,anunciante_id:advertiserId,actualizado_en:new Date().toISOString()};
+    if(seen.has(id))throw new Error('Sede repetida en la operación.');
+    seen.add(id);
+    const current=existingId?await db.get('anunciantes_sedes',id):null;
+    if(existingId&&(!current||text(current.anunciante_id)!==text(advertiserId)))throw new Error('La sede no pertenece al anunciante.');
+    const patch={sede_id:id,anunciante_id:advertiserId};
     for(const [k,v] of Object.entries(raw||{})){
-      if(!SEDE_ALLOWED.has(k))continue;
-      patch[k]=["actividad_ids","accion_ids","nodo_ids"].includes(k)?ids(v):v;
+      if(SEDE_ALLOWED.has(k))patch[k]=['actividad_ids','accion_ids','nodo_ids'].includes(k)?ids(v):v;
     }
-    const doc=await db.patch("anunciantes_sedes",id,patch,{mustExist:!!existingId});
-    saved.push(doc);
+    const city=text(patch.ciudad_id??current?.ciudad_id);
+    if(!city||!(territory&&territory.ciudades||[]).some(c=>text(c.ciudad_id||c.id)===city))throw new Error('Seleccioná una ciudad válida para la sede.');
+    prepared.push({id,patch,current,existingId});
   }
-  return{success:true,updated:!!saved.length,id:advertiserId,sedes:saved};
+  const saved=[],changed=[];
+  for(const {id,patch,current,existingId} of prepared){
+    if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){saved.push(current);continue;}
+    patch.actualizado_en=new Date().toISOString();
+    const doc=await db.patch('anunciantes_sedes',id,patch,{mustExist:!!existingId});
+    saved.push(doc);changed.push(doc);
+  }
+  return{success:true,updated:!!changed.length,id:advertiserId,sedes:saved,changed_sedes:changed};
 }
 
 export async function commerceDeleteSedeV3({db,advertiserId,body}){

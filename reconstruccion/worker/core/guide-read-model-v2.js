@@ -47,7 +47,7 @@ export function buildGuideCardBaseV2({advertiser,admin,sedes,catalogs,territory,
   if(!advertiser)return null;
   const city=text(cityId);
   const citySedes=(sedes||[]).filter(s=>text(s.ciudad_id)===city);
-  if(!citySedes.length)return null;
+  if(!city)return null;
 
   const segMap=mapBy(catalogs.segmentos,"segmento_id");
   const catMap=mapBy(catalogs.categorias,"categoria_id");
@@ -125,7 +125,8 @@ export async function syncGuideAdvertiserV2({db,cache,advertiserId,affectedCityI
     cache.get(guideAdvertiserKey(aid))
   ]);
 
-  const currentCities=[...new Set((sedes||[]).map(s=>text(s.ciudad_id)).filter(Boolean))];
+  const sedeCities=(sedes||[]).map(s=>text(s.ciudad_id)).filter(Boolean);
+  const currentCities=[...new Set(sedeCities.length?sedeCities:[text(advertiser?.ciudad_id),...(previousBase?.ciudades||[])].filter(Boolean))];
   const previousCities=Array.isArray(previousBase&&previousBase.ciudades)?previousBase.ciudades:[];
   const targets=[...new Set([...(affectedCityIds||[]).map(text),...previousCities,...currentCities].filter(Boolean))];
 
@@ -154,6 +155,7 @@ export async function syncGuideAdvertiserV2({db,cache,advertiserId,affectedCityI
     anunciante_id:aid,
     updated_at:new Date().toISOString(),
     ciudades:currentCities,
+    template:cards[0]||previousBase?.template||previousBase?.cards?.[0],
     cards
   });
 
@@ -196,6 +198,7 @@ export async function patchGuideAdminFieldsV2({cache,advertiserId,patch}){
   await cache.put(guideAdvertiserKey(aid),{
     ...base,
     updated_at:new Date().toISOString(),
+    template:nextCards[0]||Object.assign({},base.template||{},relevant),
     cards:nextCards
   });
 
@@ -219,7 +222,9 @@ export async function rebuildGuideAllV2({db,cache}){
   const byCity=new Map(),baseWrites=[];
   for(const adv of advertisers){
     const aid=text(adv.id||adv.anunciante_id),advSedes=sedesBy.get(aid)||[];
-    const cities=[...new Set(advSedes.map(s=>text(s.ciudad_id)).filter(Boolean))];
+    const previousBase=await cache.get(guideAdvertiserKey(aid));
+    const sedeCities=advSedes.map(s=>text(s.ciudad_id)).filter(Boolean);
+    const cities=[...new Set(sedeCities.length?sedeCities:[text(adv.ciudad_id),...(previousBase?.ciudades||[])].filter(Boolean))];
     const cards=[];
     for(const cityId of cities){
       const card=buildGuideCardBaseV2({
@@ -234,7 +239,7 @@ export async function rebuildGuideAllV2({db,cache}){
       }
     }
     baseWrites.push(cache.put(guideAdvertiserKey(aid),{
-      version:2,anunciante_id:aid,updated_at:new Date().toISOString(),ciudades:cities,cards
+      version:2,anunciante_id:aid,updated_at:new Date().toISOString(),ciudades:cities,template:cards[0]||previousBase?.template,cards
     }));
   }
   const now=new Date().toISOString();

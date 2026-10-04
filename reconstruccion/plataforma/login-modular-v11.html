@@ -1733,7 +1733,7 @@ async function gldTerritoryPublic_(){
         return {
           paises:Array.isArray(data.paises)?data.paises:[],
           provincias:Array.isArray(data.provincias)?data.provincias:[],
-          ciudades:Array.isArray(data.ciudades)?data.ciudades:[]
+          ciudades:Array.isArray(data.ciudades)?data.ciudades.map(c=>({...c,ciudad:c.ciudad||c.ciudad_visible||c.nombre||c.ciudad_id,provincia:c.provincia||c.provincia_visible||'',pais:c.pais||c.pais_visible||''})):[]
         };
       })
       .catch(err=>{
@@ -3217,6 +3217,7 @@ function actividadesLugarOptions_(tipo,ciudadId,selected=''){
 function actividadesCrearHorarioCard_(h={}){
   const wrap=document.createElement('div');
   wrap.className='act-horario-card';
+  wrap.dataset.horarioId=String(h.actividad_horario_id||h.id||'').trim();
   wrap.style.cssText='border:1px solid #e5e5e5;border-radius:10px;padding:12px;margin:10px 0;background:#fafafa';
 
   const tipo=String(h.tipo_lugar||'').toUpperCase();
@@ -3637,7 +3638,7 @@ function actividadesHorarioPayload_(card,index){
   if(!dia_semana) throw new Error(`Bloque ${index+1}: seleccioná un día.`);
   if(!hora_desde) throw new Error(`Bloque ${index+1}: completá la hora de inicio.`);
 
-  const out={ciudad_id,tipo_lugar,sector,responsable,dia_semana,hora_desde,hora_hasta,observaciones,activo:true};
+  const out={actividad_horario_id:String(card.dataset.horarioId||''),ciudad_id,tipo_lugar,sector,responsable,dia_semana,hora_desde,hora_hasta,observaciones,activo:true};
 
   if(tipo_lugar==='SEDE' || tipo_lugar==='LUGAR'){
     const sel=card.querySelector('.act-h-lugar');
@@ -5639,7 +5640,12 @@ function addEmptySedeCard(){
   const wrap = document.querySelector('.commerce-sedes-wrap');
   if(!wrap) return;
 
-  const existing = wrap.querySelector('.commerce-sede-card');
+  let existing = wrap.querySelector('.commerce-sede-card');
+  if(!existing){
+    const template=document.createElement('div');
+    template.innerHTML=buildCommerceFieldsMarkup({}, {}, [{}]);
+    existing=template.querySelector('.commerce-sede-card');
+  }
   if(existing){
     const clone = existing.cloneNode(true);
     clone.querySelectorAll('input[type="text"], textarea').forEach(el=>{ el.value=''; });
@@ -7698,6 +7704,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         const hayDatos=Object.keys(dataPatch)
           .some(k=>!['action','id','__id','comercio_id'].includes(k));
         const haySedes=Array.isArray(sedePayload.sedes) && sedePayload.sedes.length>0;
+        let savedSedes=[];
 
         if(!hayDatos && !haySedes){
           setMsg('msg-datos-comercio','ok','No hay cambios para guardar.');
@@ -7754,19 +7761,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
             );
             return;
           }
+          savedSedes=Array.isArray(sedeResponse.json.sedes)?sedeResponse.json.sedes:[];
         }
 
-        // No releemos todo el anunciante después de cada cambio.
-        // El formulario ya contiene el estado final; sólo una sede NUEVA necesita
-        // recarga puntual para recibir su ID definitivo desde Firestore.
-        const creoSedeNueva=Array.isArray(sedePayload.sedes)
-          && sedePayload.sedes.some(s=>!String(s&&s.sede_id||'').trim());
-
-        if(creoSedeNueva){
-          await loadCommerceUI();
-        }else{
-          commerceBeginEditSession_();
+        // Usar las filas devueltas por el guardado, también para IDs de sedes nuevas.
+        if(savedSedes.length){
+          const incomingIds=new Set(sedePayload.sedes.map(s=>String(s.sede_id||'')).filter(Boolean));
+          const newRows=savedSedes.filter(s=>!incomingIds.has(String(s.sede_id||'')));
+          const newCards=Array.from(document.querySelectorAll('#form-datos-comercio .commerce-sede-card')).filter(c=>!c.querySelector('[name="sede_id"]')?.value);
+          newCards.forEach((card,i)=>{if(newRows[i])card.querySelector('[name="sede_id"]').value=newRows[i].sede_id;});
+          const savedIds=new Set(savedSedes.map(s=>String(s.sede_id)));
+          currentCommerceSedes=[...currentCommerceSedes.filter(s=>!savedIds.has(String(s.sede_id))),...savedSedes];
         }
+        commerceBeginEditSession_();
         setMsg('msg-datos-comercio','ok','Cambios guardados.');
 
       }catch(err){
@@ -7859,7 +7866,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
         clave_nueva:nueva
       });
       if(!data || data.success!==true) throw new Error((data&&(data.message||data.error))||'No se pudo cambiar la contraseña.');
-      if(msg) msg.innerHTML='<span class="success">Contraseña actualizada.</span>';
+      cerrarSesionCompleta_();
+      document.getElementById('login-msg').innerHTML='<span class="success">Contraseña actualizada. Volvé a ingresar.</span>';
     }catch(e){ if(msg) msg.innerHTML=`<span class="error">${htmlEscape(e.message||e)}</span>`; }
     finally{ btn.disabled=false; btn.textContent='Cambiar contraseña'; }
   });

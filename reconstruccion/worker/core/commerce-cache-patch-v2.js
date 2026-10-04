@@ -107,8 +107,9 @@ export async function patchGuideAdvertiserDataFromCacheV2({cache,advertiserId,pa
   if(!base||!Array.isArray(base.cards))return{success:true,needs_seed:true};
 
   const cards=base.cards.map(c=>applyCardData(c,patch,catalogs||{}));
+  const template=applyCardData(base.template||base.cards[0]||{},patch,catalogs||{});
   for(const card of cards)await writeCityPacket(cache,text(card.ciudad_id),aid,card);
-  await cache.put(guideAdvertiserKey(aid),{...base,updated_at:new Date().toISOString(),cards});
+  await cache.put(guideAdvertiserKey(aid),{...base,updated_at:new Date().toISOString(),template,cards});
   await patchAdminIndex(cache,aid,patch,base.ciudades||[]);
   return{success:true,updated:true,firestore_reads:0};
 }
@@ -144,7 +145,7 @@ export async function patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId,s
 
     let card=cards.get(cityId);
     if(!card){
-      const template=[...cards.values()][0]||(base.cards||[])[0];
+      const template=base.template||[...cards.values()][0]||(base.cards||[])[0];
       if(!template)continue;
       const city=(territory&&territory.ciudades||[]).find(c=>text(c.ciudad_id||c.id)===cityId)||{};
       card={...template,ciudad_id:cityId,ciudad:text(city.ciudad_visible),provincia_id:text(city.provincia_id),provincia:text(city.provincia_visible),pais_id:text(city.pais_id),pais:text(city.pais_visible),sedes:[]};
@@ -154,8 +155,9 @@ export async function patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId,s
     affected.add(cityId);
   }
 
+  const hasSedes=[...cards.values()].some(c=>(c.sedes||[]).length);
   for(const [city,card] of [...cards.entries()]){
-    if(!(card.sedes||[]).length){
+    if(hasSedes&&!(card.sedes||[]).length){
       cards.delete(city);
       affected.add(city);
     }
@@ -167,7 +169,7 @@ export async function patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId,s
 
   const nextCards=[...cards.values()];
   const ciudades=nextCards.map(c=>text(c.ciudad_id)).filter(Boolean);
-  await cache.put(guideAdvertiserKey(aid),{...base,updated_at:new Date().toISOString(),ciudades,cards:nextCards});
+  await cache.put(guideAdvertiserKey(aid),{...base,updated_at:new Date().toISOString(),template:base.template||base.cards[0],ciudades,cards:nextCards});
   await patchAdminIndex(cache,aid,{},ciudades);
   return{success:true,updated:true,ciudades_actualizadas:[...affected],firestore_reads:0};
 }

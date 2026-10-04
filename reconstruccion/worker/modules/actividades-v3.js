@@ -1,3 +1,4 @@
+import {patchChildRowsV1} from '../core/child-rows-patch-v1.js';
 import {syncActivityPreparedV2} from "../core/activities-read-model-v2.js";
 
 const text=v=>String(v??"").trim();
@@ -50,6 +51,11 @@ async function validateHorario({db,cache,advertiserId,h}){
     return;
   }
 
+  if(text(h.lugar_id)){
+    const lugar=await db.get('lugares',text(h.lugar_id));
+    if(!lugar||text(lugar.ciudad_id)!==city)throw new Error('El lugar no corresponde a la ciudad.');
+    return;
+  }
   if(!text(h.lugar_texto)||!text(h.direccion)){
     throw new Error("El lugar físico necesita nombre y dirección.");
   }
@@ -62,13 +68,13 @@ export async function activitySaveV3({db,cache,advertiserId,body}){
   const payload=body&&body.payload&&typeof body.payload==="object"?body.payload:{};
   let activityId=text(payload.actividad_id);
   let current=null;
-  const own=await db.queryEqual("actividades","anunciante_id",advertiserId,500);
   const max=quota(admin),totalMax=max>0?max*2:0;
 
   if(activityId){
     current=await db.get("actividades",activityId);
     if(!current||text(current.anunciante_id)!==text(advertiserId))throw new Error("Actividad no encontrada.");
   }else{
+    const own=await db.queryEqual("actividades","anunciante_id",advertiserId,500);
     const active=own.filter(a=>bool(a.activo)&&text(a.estado).toUpperCase()!=="PAUSADA").length;
     if(max<=0)throw new Error("actividades_sin_cupo");
     if(totalMax>0&&own.length>=totalMax)throw new Error("actividades_maximo_guardadas");
@@ -77,6 +83,8 @@ export async function activitySaveV3({db,cache,advertiserId,body}){
   }
 
   const horarios=Array.isArray(payload.horarios)?payload.horarios:[];
+  const scheduleIds=horarios.map(h=>text(h?.actividad_horario_id||h?.id)).filter(Boolean);
+  if(new Set(scheduleIds).size!==scheduleIds.length)throw new Error('Horario repetido en la operación.');
   for(const h of horarios)await validateHorario({db,cache,advertiserId,h});
 
   const oldSchedules=current?await db.queryEqual("actividad_horarios","actividad_id",activityId,500):[];
@@ -105,24 +113,8 @@ export async function activitySaveV3({db,cache,advertiserId,body}){
   let savedHorarios=oldSchedules;
 
   if(Array.isArray(payload.horarios)){
-    for(const h of oldSchedules){
-      const hid=text(h.actividad_horario_id||h.id);
-      if(hid)await db.delete("actividad_horarios",hid);
-    }
-
-    savedHorarios=[];
-    for(const h of horarios){
-      const hid=id("AH");
-      const sh=await db.patch("actividad_horarios",hid,{
-        ...h,
-        actividad_horario_id:hid,
-        actividad_id:activityId,
-        ciudad_id:text(h.ciudad_id),
-        activo:h.activo===undefined?true:bool(h.activo),
-        actualizado:now
-      });
-      savedHorarios.push(sh);
-    }
+    savedHorarios=await patchChildRowsV1({db,collection:'actividad_horarios',idField:'actividad_horario_id',prefix:'AH',previous:oldSchedules,
+      desired:horarios.map(h=>({...h,actividad_id:activityId,ciudad_id:text(h.ciudad_id),sede_id:text(h.sede_id),lugar_id:text(h.lugar_id),lugar_texto:text(h.lugar_texto),direccion:text(h.direccion),maps:text(h.maps),activo:h.activo===undefined?true:bool(h.activo)}))});
   }
 
   await syncActivityPreparedV2({

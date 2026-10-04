@@ -30,19 +30,32 @@ function sort(rows){
     return da.localeCompare(db)||text(a.nombre_evento||a.nombre).localeCompare(text(b.nombre_evento||b.nombre),"es",{sensitivity:"base"});
   });
 }
-export async function syncEventV2({db,cache,current=null,next=null}){
-  const id=text((next&&next.evento_id)||(current&&current.evento_id)||(next&&next.id)||(current&&current.id));
-  const cities=[...new Set([text(current&&current.ciudad_id),text(next&&next.ciudad_id)].filter(Boolean))];
-  let programacion=[];
-  if(next)programacion=await db.queryEqual("evento_programacion","evento_id",id,500);
-
+const coverageKey=id=>'events:coverage:v1:'+text(id);
+function eventCities(event,programacion=[]){
+  if(!event)return[];
+  if(programacion.length)return [...new Set(programacion.filter(p=>p.activo!==false).map(p=>text(p.ciudad_id||event.ciudad_id)).filter(Boolean))];
+  return [text(event.ciudad_id)].filter(Boolean);
+}
+function cityEvent(event,programacion,city){
+  const local=programacion.filter(p=>p.activo!==false&&text(p.ciudad_id||event.ciudad_id)===city);
+  const dates=local.map(p=>text(p.fecha)).filter(Boolean).sort();
+  return cleanEvent({...event,ciudad_origen_id:text(event.ciudad_id),ciudad_id:city,
+    ...(dates.length?{fecha_desde:dates[0],fecha_hasta:dates.at(-1)}:{})},local);
+}
+export async function syncEventV2({db,cache,current=null,next=null,previousProgramacion=[],programacion:provided}){
+  const id=text(next?.evento_id||current?.evento_id||next?.id||current?.id);
+  const previous=await cache.get(coverageKey(id));
+  const programacion=provided??(next?await db.queryEqual('evento_programacion','evento_id',id,500):[]);
+  const nextCities=eventCities(next,programacion);
+  const cities=[...new Set([...(previous?.ciudades||[]),...eventCities(current,previousProgramacion),...nextCities])];
   for(const cityId of cities){
     const key=eventsCityKey(cityId);
-    const packet=(await cache.get(key))||{version:2,ciudad_id:cityId,updated_at:"",events:[]};
-    let rows=(packet.events||[]).filter(x=>text(x.evento_id||x.id)!==id);
-    if(next&&text(next.ciudad_id)===cityId&&published(next))rows.push(cleanEvent(next,programacion));
+    const packet=(await cache.get(key))||{version:2,ciudad_id:cityId,updated_at:'',events:[]};
+    const rows=(packet.events||[]).filter(x=>text(x.evento_id||x.id)!==id);
+    if(next&&nextCities.includes(cityId)&&published(next))rows.push(cityEvent(next,programacion,cityId));
     await cache.put(key,{version:2,ciudad_id:cityId,updated_at:new Date().toISOString(),events:sort(rows)});
   }
+  await cache.put(coverageKey(id),{ciudades:nextCities});
   return{success:true,ciudades_actualizadas:cities};
 }
 export async function getEventsCityV2({cache,cityId}){
@@ -64,11 +77,16 @@ export async function rebuildEventsAllV2({db,cache}){
   }
   const byCity=new Map();
   for(const e of events){
+    const id=text(e.evento_id||e.id),programacion=byEvent.get(id)||[];
+    const cities=eventCities(e,programacion);
+    const previous=await cache.get(coverageKey(id));
+    for(const city of previous?.ciudades||[])if(!byCity.has(city))byCity.set(city,[]);
+    await cache.put(coverageKey(id),{ciudades:cities});
     if(!published(e))continue;
-    const city=text(e.ciudad_id);if(!city)continue;
-    const id=text(e.evento_id||e.id);
-    if(!byCity.has(city))byCity.set(city,[]);
-    byCity.get(city).push(cleanEvent(e,byEvent.get(id)||[]));
+    for(const city of cities){
+      if(!byCity.has(city))byCity.set(city,[]);
+      byCity.get(city).push(cityEvent(e,programacion,city));
+    }
   }
   const now=new Date().toISOString();
   await Promise.all([...byCity.entries()].map(([city,rows])=>cache.put(eventsCityKey(city),{

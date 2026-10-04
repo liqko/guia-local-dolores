@@ -53,9 +53,9 @@ export async function routePanelV10(ctx){
     }
 
     if(action==="set_sedes"){
-      const out=await commerceSetSedesV3({db,advertiserId:aid,body});
+      const out=await commerceSetSedesV3({db,cache,advertiserId:aid,body});
       if(out.updated){
-        await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:out.sedes||[]});
+        await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:out.changed_sedes||[]});
       }
       return json(out);
     }
