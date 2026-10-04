@@ -2,7 +2,7 @@
 Actualizado: 4 de octubre de 2026, Argentina. Este registro debe leerse antes de continuar.
 
 ## Situación y reglas
-- Rama: reconstruccion-total-03oct. No modificar main ni desplegar producción.
+- Rama del código modular: reconstruccion-total-03oct. El 4/10 el usuario autorizó actualizar los nueve HTML originales en main y pidió el Worker completo para desplegarlo él manualmente. Ver última sección: reemplaza la restricción anterior para ese alcance.
 - Base histórica: 9e549f3eb397dffe2097f2ff52941792431f1946 (V35).
 - Avance V36 publicado: 16ec4170e40346e0eac9c77051fce1532f95d4ba.
 - Código V37 publicado: 77d3a01f369bda3138dc1d9df09a424894f9c5fc.
@@ -133,3 +133,21 @@ No usar una instantánea KV potencialmente obsoleta como sustituto de validació
 - Recorrido concreto: pruebas/RECORRIDO_REAL.md. Cubre seed explícito, tres planos, última sede, moderación, correo real, móvil/escritorio y evidencia de consumos.
 - No hubo despliegue, seed ni envío de correo real. Faltan destinos/proyecto/KV/puente y credenciales de prueba configurados en un entorno separado. No hay evidencia de acceso disponible a Cloudflare en esta sesión.
 - Siguiente paso: recibir o localizar configuración del entorno de pruebas, generar paquete con esos valores, verificarlo y ejecutar el recorrido. No rehacer V37 ni ampliar pendientes históricos.
+
+## Cambio autorizado de destino — originales y entrega manual del Worker
+El usuario pidió expresamente cambiar los archivos originales, conservando su flujo,
+y recibir un único Worker completo para copiar/pegar y desplegar él en Cloudflare.
+- Main actualizado: bcbc0c209800013376c09df6a6b7f1fb4092b0d5.
+- Respaldo creado: respaldo-antes-v38-04oct, commit anterior 4b3f1b5cd4ee00d91c6f750484c2e562a4c933fd.
+- Nueve HTML en plataforma/ con nombres originales. Actividades ya coincidía con la candidata, por eso sólo ocho muestran diff. Carcasa usa las rutas originales.
+- Main contiene worker/WORKER_COMPLETO_V38.js, artefacto ESM único de 102 módulos, sin imports externos. esbuild 0.25.10, ES2022. Entry original versión 35 incluye correcciones V36/V37.
+- Artefacto final comprobado con los 43 casos públicos KV de la prueba existente; nueve HTML/15 scripts y destinos relativos válidos.
+- Registro operativo de main: actualizacion-v38/CONTINUIDAD.md y manifest.json con hashes.
+- El asistente no desplegó Cloudflare. Se entregará el archivo al usuario para ese paso.
+- No asumir que actualizar main acredita publicación web: comprobar estado del alojamiento y despliegue del Worker. Seed y correo real siguen pendientes.
+- Continuar desde este punto y dejar de pedir un proyecto de pruebas separado como requisito de preparación del código: el usuario eligió los archivos originales.
+
+Aclaración de publicación: el worktree real de main no contiene .github/workflows.
+El workflow Firebase visto antes pertenecía a la rama de reconstrucción.
+No afirmar publicación automática de estos HTML: están actualizados en GitHub;
+la activación web todavía no está comprobada.
