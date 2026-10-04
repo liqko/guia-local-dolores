@@ -22,7 +22,9 @@ relativos existentes. No sustituye las pruebas reales de configuración y correo
 La evidencia previa de correcciones y navegador está en la rama de reconstrucción.
 
 El usuario despliega el Worker manualmente. No se realizó ese despliegue desde aquí.
-El workflow de main publica los HTML mediante Firebase Hosting.
+En main no hay actualmente .github/workflows: el workflow de Firebase existe
+sólo en la rama de reconstrucción. Cambiar main no acredita publicación web.
+Verificar el alojamiento real antes de afirmar que los HTML ya están activos.
 Configuración necesaria en el Worker: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL,
 FIREBASE_PRIVATE_KEY, SERVER_SECRET, SUSCRIPTORES_RECOVERY_URL y GLD_CACHE_KV.
 No se incluyeron secretos en el código ni manifiesto.
