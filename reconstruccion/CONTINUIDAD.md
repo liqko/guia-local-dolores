@@ -5,7 +5,8 @@ Actualizado: 4 de octubre de 2026, Argentina. Este registro debe leerse antes de
 - Rama: reconstruccion-total-03oct. No modificar main ni desplegar producción.
 - Base histórica: 9e549f3eb397dffe2097f2ff52941792431f1946 (V35).
 - Avance V36 publicado: 16ec4170e40346e0eac9c77051fce1532f95d4ba.
-- Avance actual V37: módulos compartidos y Gran Hermano corregidos; consultar git log para el commit de este checkpoint.
+- Código V37 publicado: 77d3a01f369bda3138dc1d9df09a424894f9c5fc.
+- CI de ese código aprobado: https://github.com/liqko/guia-local-dolores/actions/runs/37210400241 (incluye aislamiento y tres pruebas de navegador).
 - Worker vigente: worker/app-main-v35.js; público V12, panel V15, administración V11.
 - La reconstrucción NO está cerrada: las pruebas anteriores no acreditan aislamiento de todas las operaciones.
 - Tres planos coordinados: usuario final, anunciante y administrador Gran Hermano.
@@ -109,10 +110,12 @@ suscriptores, Farmacias, HTML e imports siguen aprobadas.
 Las pruebas de navegador usan rutas reales con datos/servicios aislados; no certifican producción ni correo real.
 
 ## Próxima acción concreta
-Confirmar CI del checkpoint V37. Si falla, corregir esa prueba/código y repetir sólo lo afectado.
-Si aprueba, preparar pruebas reales controladas con configuración y seed, sin desplegar producción.
+CI del código V37 ya terminó SUCCESS, incluidos todos sus pasos.
+Preparar pruebas reales controladas con configuración y seed, sin desplegar producción.
 No volver a repetir el recorrido desde cero ni agregar pendientes históricos.
 La corrección central tiene evidencia automática; no presentarla como garantía de factura/correo/configuración real.
+No falta repetir el inventario/corrección común desde cero. Las pruebas reales
+podrán descubrir correcciones adicionales; registrarlas por separado con su evidencia.
 Aplicar aislamiento de guardados en los seis módulos pendientes con pruebas de operaciones.
 No usar una instantánea KV potencialmente obsoleta como sustituto de validación autoritativa de propiedad o borrado.
 
