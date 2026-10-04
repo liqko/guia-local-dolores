@@ -11,10 +11,11 @@ const browser=await chromium.launch({headless:true,executablePath:process.env.GL
 const f=panelFixture(),errors=[],requests=[];
 f.seed('suscriptores','SUB',{suscriptor_id:'SUB',nombre:'Persona',mail:'persona@prueba.test',clave:'secreto1',activo:true,email_verificado:true});
 f.seed('suscriptor_anunciante','REL',{suscriptor_id:'SUB',anunciante_id:'ADV',rol:'PROPIETARIO',activo:true,permisos:'PROMOS;EVENTOS;EVENTOS_FREE;ACTIVIDADES;PUBLICIDAD;EFEMERIDES;TURNOS_FARMA'});
+f.seed('anunciantes','ADV',{nombre:'Anunciante',categoria_ids:['CAT']});
 const admin=await f.db.get('anunciantes_administracion','ADV');
 f.seed('anunciantes_administracion','ADV',{...admin,nivel:'5',funcionalidades:[...admin.funcionalidades,'TURNOS_FARMA'],turnos_farma:'DOL',farmacias_ciudades:['DOL']});
 f.seed('anunciantes_sedes','SED',{sede_id:'SED',anunciante_id:'ADV',nombre_sede:'Principal',ciudad_id:'DOL',direccion:'Centro',img1:''});
-f.cache.put('catalogs:commerce:v1',{segmentos:[],categorias:[],acciones:[],nodos:[],actividades_clave:[]});
+f.cache.put('catalogs:commerce:v1',{segmentos:[],categorias:[{categoria_id:'CAT',nombre:'Gastronomía'}],acciones:[],nodos:[],actividades_clave:[]});
 f.cache.put('territorio:public:v1',{ciudades:[{ciudad_id:'DOL',ciudad_visible:'Dolores',provincia_id:'BA',provincia_visible:'Buenos Aires'},{ciudad_id:'CAS',ciudad_visible:'Castelli',provincia_id:'BA',provincia_visible:'Buenos Aires'}]});
 await syncGuideAdvertiserV2({...f,advertiserId:'ADV'});
 try{
@@ -36,6 +37,7 @@ try{
  await page.locator('#tab-modificar-datos').waitFor({state:'visible'});
  await page.click('#tab-modificar-datos');
  await page.locator('#campos-datos-comercio [name="descripcion"]').waitFor({state:'visible'});
+ assert.equal(await page.locator('[name="categoria_id_item"][value="CAT"]').isChecked(),true,'Categoría guardada no aparece seleccionada');
  const before=f.stats.writes,requestStart=requests.length;
  await page.fill('#campos-datos-comercio [name="descripcion"]','Descripción guardada en navegador');
  await page.fill('#campos-datos-comercio [name="img1"]','https://prueba.test/imagen.jpg');

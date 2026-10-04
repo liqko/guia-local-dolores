@@ -125,6 +125,7 @@ Correcciones:
   el ID de cada horario. Cambiar de lugar limpia las referencias anteriores.
 - Publicidad actualiza sólo las imágenes modificadas; conserva imágenes y
   segmentaciones intactas. Un cambio parcial de segmentación conserva la otra dimensión.
+- El formulario reconoce `categoria_ids` y muestra las categorías ya guardadas.
 - El panel reconoce los nombres visibles del catálogo territorial y vuelve al
   ingreso después de un cambio de contraseña que revoca su sesión.
 
