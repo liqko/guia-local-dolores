@@ -37,3 +37,16 @@ automáticamente ni repetirla para cada cambio. Correo real todavía no probado.
 
 No desarrollar pendientes históricos ni rehacer auditorías aprobadas. Registrar
 fallos reales y correcciones puntuales desde este estado.
+
+## Corrección V39 — errores del editor de Cloudflare
+La captura mostró nueve diagnósticos TypeScript en el JavaScript empaquetado.
+Reproducidos exactamente con TypeScript 5.9.3 checkJs/ES2022/DOM sobre V38.
+Se declaran opcionales los parámetros previous, programacion y matchKey, y se
+explicitan los campos de los valores de configuración por defecto. No se ocultan
+errores con ts-nocheck ni se modifican los campos enviados a Firestore.
+Worker actualizado: worker/WORKER_COMPLETO_V39.js. Compilador: cero errores.
+Pasaron 75 casos de aislamiento, 15 mutaciones y ocho flujos existentes.
+La captura también muestra Falta binding GLD_CACHE_KV: requiere vincular el
+namespace KV con ese nombre en Cloudflare. Corregir el JS no crea esa vinculación.
+Siguiente paso: entregar V39, usuario reemplaza código y revisa binding, después
+comprobar arranque y seed/publicación/correo real.
