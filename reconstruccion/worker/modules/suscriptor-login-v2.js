@@ -2,6 +2,7 @@
  * SUSCRIPTOR LOGIN V2
  * Login con verificación de correo + sesión HMAC autosuficiente.
  */
+import {subscriberSessionState} from "../core/subscriber-session-state.js";
 const text=v=>String(v??"").trim();
 const norm=v=>text(v).toLowerCase();
 const truthy=v=>v===true||v===1||["true","1","si","sí","yes","x","activo","activa"].includes(norm(v));
@@ -59,6 +60,8 @@ export async function subscriberLoginV2({env,db,body}){
   }
 
   const sid=text(sus.suscriptor_id||sus.id);
+  const state=await subscriberSessionState(env,sid);
+  if(state.deleted)return{success:false,message:"Suscriptor no activo"};
   const relations=(await db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100))
     .filter(r=>text(r.anunciante_id)&&truthy(r.activo));
 
@@ -80,6 +83,7 @@ export async function subscriberLoginV2({env,db,body}){
 
   const token=await issue(env,{
     sid,
+    sv:Number(state.version||0),
     auth:enriched.map(x=>({
       anunciante_id:x.anunciante_id,
       anunciante_nombre:x.anunciante_nombre,

@@ -1,4 +1,4 @@
-# Reconstrucción total — V33 (continuación de V32)
+# Reconstrucción total — V34 (continuación de V33)
 
 **NO DESPLEGAR TODAVÍA.** Rama: `reconstruccion-total-03oct`. No modificar `main`.
 
@@ -6,14 +6,14 @@
 
 V31: commit `203de30190ff69d8ced0bff67942e89d1541d160`.
 V32: commit `c5a231281196ebd0bccbc8f14880ee212a73d96e`.
-El Worker vigente es `worker/app-main-v33.js`, con rutas públicas V12,
+El Worker vigente es `worker/app-main-v34.js`, con rutas públicas V12,
 panel V15 y administración V11. V33 corrige los módulos compartidos de ese grafo.
 
 ## Interfaces vigentes para revisión
 
 - Carcasa: `plataforma/carcasa-territorio-v3.html`.
 - Guía central: `plataforma/anunciantes-publico-v4.html`.
-- Suscriptores: `plataforma/suscriptores-v2.html`.
+- Suscriptores: `plataforma/suscriptores-v3.html`.
 - Panel anunciante: `plataforma/login-modular-v11.html`.
 - Gran Hermano: `plataforma/granhermano-v2.html`.
 - Promos/Eventos/Actividades: `plataforma/promos-public-v1.html`,
@@ -73,13 +73,39 @@ La prueba de intento de sobrescritura de Promo también llama directamente al m�
 El workflow V33 corre las auditorías anteriores, la integración de Carcasa,
 Farmacias, estos 15 circuitos y los 98 archivos del grafo efectivo del Worker.
 
+## Correcciones y pruebas V34
+
+- Las rutas de Suscriptores preservan el cuerpo de la petición al pasar entre módulos:
+  favoritos, sesión y cambio de contraseña ya alcanzan su acción correcta.
+- El puente confirma los códigos de correo y el Worker sincroniza verificación o
+  contraseña mediante una actualización puntual. Código incorrecto no escribe.
+  Se envía el secreto servidor según el contrato histórico y hay timeout de 15 segundos.
+- Recuperación, cambio de contraseña y baja revocan sesiones mediante estado en KV;
+  comprobar una sesión revocada no agrega lecturas Firestore.
+- Suscriptores V3 reconoce los nombres visibles del catálogo territorial y abre
+  el formulario de verificación cuando una cuenta pendiente intenta ingresar.
+- La Guía móvil incluye padding y borde dentro del ancho del buscador y paginador;
+  evita que queden recortados dentro del iframe.
+- Eventos inicializa la ciudad antes de construir la URL de publicidad. El orden
+  anterior detenía el JavaScript y dejaba Carcasa bloqueada en “Cargando Eventos”.
+
+`TEST_SUSCRIPTORES_V34.mjs` prueba ocho circuitos con rutas reales y datos aislados:
+registro/login, comercios autorizados, favoritos, ciudad/perfil, verificación,
+recuperación, cambio de clave, eliminación y fallos del puente. Comprueba la revocación tras recuperación.
+`TEST_VISUAL_V34.mjs` ejecuta Chromium: registro, código, login, ciudad,
+recuperación, cuenta pendiente y navegación Guía/Promos/Eventos/Actividades en
+Carcasa. Comprueba errores JavaScript y desbordes horizontales en escritorio/móvil.
+Las capturas se conservan como artefacto del workflow V34.
+
+La prueba de navegador intercepta peticiones y utiliza KV/Firestore y correo
+simulados. **No certifica la entrega de correo real**, credenciales ni despliegue.
+Las pantallas se revisaron con datos de prueba; no se tocó producción.
+
 ## Próximo trabajo
 
-1. Extender la prueba integral a Commerce/sedes, Suscriptores, correo y
-   solicitudes de anunciantes; revisar programación de eventos entre ciudades.
-2. Revisar de punta a punta permisos, cuotas y correo de verificación/recuperación.
-3. Prueba visual completa de carga inicial, cambio de módulos y reintento.
-4. Preparar configuración y seed KV controlado para un entorno de prueba.
+1. Extender la integración a Commerce/sedes y solicitudes de anunciantes;
+   revisar programación de eventos entre ciudades.
+2. Preparar configuración y seed KV controlado para un entorno de prueba.
+3. Probar allí la entrega real de verificación/recuperación y los datos completos.
 
-Estas pruebas locales no certifican el despliegue, credenciales, puente de correo
-ni presentación visual en el navegador. Mantener sin desplegar hasta cerrar esos puntos.
+Mantener sin desplegar hasta cerrar esos puntos.

@@ -12,6 +12,8 @@
  * se hará como tarea de seguridad separada.
  */
 
+import {subscriberSessionState} from "../core/subscriber-session-state.js";
+
 const C = {
   suscriptores:"suscriptores",
   relaciones:"suscriptor_anunciante",
@@ -85,6 +87,8 @@ export async function verifySubscriberSession(env,request){
   if(!p||p.typ!=="GLD_SUBSCRIBER"||!p.sid||!p.exp||Date.now()>Number(p.exp)){
     return{ok:false,message:"Sesión inválida o vencida"};
   }
+  const state=await subscriberSessionState(env,p.sid);
+  if(state.deleted||Number(p.sv||0)!==Number(state.version||0))return{ok:false,message:"Sesión cerrada. Volvé a ingresar."};
   return{ok:true,...p};
 }
 

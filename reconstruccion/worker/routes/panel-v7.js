@@ -7,7 +7,7 @@ import {
 } from "../modules/suscriptor-cuenta-v2.js";
 
 const text=v=>String(v??"").trim();
-async function bodyOf(request){try{return await request.json()}catch(_){return{}}}
+async function bodyOf(request){try{return await request.clone().json()}catch(_){return{}}}
 
 export async function routePanelV7(ctx){
   const {path,request,url,env,db,cache}=ctx;

@@ -3,7 +3,7 @@ import {routePanelV5} from "./panel-v5.js";
 import {listFavoritesV2,addFavoriteV2,removeFavoriteV2} from "../modules/suscriptor-favoritos-v2.js";
 
 const text=v=>String(v??"").trim();
-async function bodyOf(request){try{return await request.json()}catch(_){return{}}}
+async function bodyOf(request){try{return await request.clone().json()}catch(_){return{}}}
 
 export async function routePanelV6(ctx){
   const {path,request,url,env,db}=ctx;

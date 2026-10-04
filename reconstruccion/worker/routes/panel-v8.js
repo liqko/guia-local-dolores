@@ -12,7 +12,7 @@ import {
 import {upsertSubscriberIndexV2,removeSubscriberIndexV2} from "../core/subscriber-index-v2.js";
 
 const text=v=>String(v??"").trim();
-async function bodyOf(request){try{return await request.json()}catch(_){return{}}}
+async function bodyOf(request){try{return await request.clone().json()}catch(_){return{}}}
 
 export async function routePanelV8(ctx){
   const {path,request,url,env,db,cache}=ctx;
@@ -58,7 +58,7 @@ export async function routePanelV8(ctx){
        action==="restablecer_clave"||
        action==="solicitar_verificacion"||
        action==="confirmar_verificacion"){
-      return json(await subscriberMailBridgeV2({env,body}));
+      return json(await subscriberMailBridgeV2({env,db,cache,body}));
     }
 
     if(action==="actualizar_perfil"){

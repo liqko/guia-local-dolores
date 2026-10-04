@@ -1,4 +1,5 @@
 import {verifySubscriberSession} from "./suscriptores.js";
+import {revokeSubscriberSessions} from "../core/subscriber-session-state.js";
 
 const text=v=>String(v??"").trim();
 
@@ -29,5 +30,6 @@ export async function deleteSubscriberAccountSecureV2({env,request,db,body}){
   }
 
   await db.delete("suscriptores",sid,{mustExist:true});
+  await revokeSubscriberSessions(env,sid,{deleted:true});
   return{success:true,deleted:true,suscriptor_id:sid};
 }

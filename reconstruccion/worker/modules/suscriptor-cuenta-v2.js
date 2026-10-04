@@ -3,9 +3,10 @@
  * Perfil y preferencias con sesión firmada.
  * Registro/login conservan clave en texto sólo por compatibilidad con los datos existentes.
  * Recuperación de clave usa un único puente externo de correo configurado en
- * SUSCRIPTORES_RECOVERY_URL; ese puente actualiza Firestore directamente.
+ * SUSCRIPTORES_RECOVERY_URL; el Worker sincroniza sólo los campos confirmados.
  */
 import {verifySubscriberSession} from "./suscriptores.js";
+import {revokeSubscriberSessions} from "../core/subscriber-session-state.js";
 
 const text=v=>String(v??"").trim();
 const norm=v=>text(v).toLowerCase();
@@ -97,6 +98,7 @@ export async function changeSubscriberPasswordV2({env,request,db,body}){
   const actual=text(body&&body.clave_actual||body&&body.actual);
   const nueva=text(body&&body.clave_nueva||body&&body.nueva_clave||body&&body.clave);
   if(!actual||!nueva)throw new Error("Faltan clave actual o nueva clave.");
+  if(nueva.length<6)throw new Error("La contraseña debe tener al menos 6 caracteres.");
 
   const doc=await db.get("suscriptores",text(s.sid));
   if(!doc)throw new Error("Suscriptor no encontrado.");
@@ -106,8 +108,8 @@ export async function changeSubscriberPasswordV2({env,request,db,body}){
     clave:nueva,
     actualizado_en:new Date().toISOString()
   },{mustExist:true});
-
-  return{success:true,message:"Clave actualizada"};
+  await revokeSubscriberSessions(env,s.sid);
+  return{success:true,message:"Clave actualizada. Volvé a ingresar."};
 }
 
 export async function deleteSubscriberAccountV2({env,request,db}){
