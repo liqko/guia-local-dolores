@@ -2,6 +2,7 @@
  * EVENTOS READ MODEL V2
  * Incluye programación dentro del paquete público del evento.
  */
+import {getPreparedRelationsV1,putPreparedRelationsV1} from "./prepared-relations-v1.js";
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
 export const eventsCityKey=cityId=>"events:city:v2:"+text(cityId);
@@ -45,7 +46,8 @@ function cityEvent(event,programacion,city){
 export async function syncEventV2({db,cache,current=null,next=null,previousProgramacion=[],programacion:provided}){
   const id=text(next?.evento_id||current?.evento_id||next?.id||current?.id);
   const previous=await cache.get(coverageKey(id));
-  const programacion=provided??(next?await db.queryEqual('evento_programacion','evento_id',id,500):[]);
+  const programacion=provided??(next?await getPreparedRelationsV1({cache,type:"event",id,current:current||next,
+    load:()=>db.queryEqual('evento_programacion','evento_id',id,500)}):[]);
   const nextCities=eventCities(next,programacion);
   const cities=[...new Set([...(previous?.ciudades||[]),...eventCities(current,previousProgramacion),...nextCities])];
   for(const cityId of cities){
@@ -56,6 +58,7 @@ export async function syncEventV2({db,cache,current=null,next=null,previousProgr
     await cache.put(key,{version:2,ciudad_id:cityId,updated_at:new Date().toISOString(),events:sort(rows)});
   }
   await cache.put(coverageKey(id),{ciudades:nextCities});
+  await putPreparedRelationsV1({cache,type:"event",id,next,data:programacion});
   return{success:true,ciudades_actualizadas:cities};
 }
 export async function getEventsCityV2({cache,cityId}){
@@ -82,6 +85,7 @@ export async function rebuildEventsAllV2({db,cache}){
     const previous=await cache.get(coverageKey(id));
     for(const city of previous?.ciudades||[])if(!byCity.has(city))byCity.set(city,[]);
     await cache.put(coverageKey(id),{ciudades:cities});
+    await putPreparedRelationsV1({cache,type:"event",id,next:e,data:programacion});
     if(!published(e))continue;
     for(const city of cities){
       if(!byCity.has(city))byCity.set(city,[]);

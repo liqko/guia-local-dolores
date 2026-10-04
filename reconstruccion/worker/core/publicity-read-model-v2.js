@@ -1,3 +1,4 @@
+import {putPreparedRelationsV1} from "./prepared-relations-v1.js";
 const text=v=>String(v??"").trim();
 export const publicityCityKeyV2=cityId=>"publicity:city:v2:"+text(cityId);
 
@@ -42,6 +43,8 @@ export async function syncPublicityPreparedV2({
     });
   }
 
+  await putPreparedRelationsV1({cache,type:"publicity-media",id,next,data:media});
+  await putPreparedRelationsV1({cache,type:"publicity-seg",id,next,data:segmentacion});
   return{success:true,ciudades_actualizadas:targets};
 }
 
@@ -73,6 +76,9 @@ export async function rebuildPublicityAllV2({db,cache}){
 
   const byCity=new Map();
   for(const d of docs){
+    const preparedId=text(d.publicidad_id||d.id);
+    await putPreparedRelationsV1({cache,type:"publicity-media",id:preparedId,next:d,data:mediaBy.get(preparedId)||[]});
+    await putPreparedRelationsV1({cache,type:"publicity-seg",id:preparedId,next:d,data:segBy.get(preparedId)||[]});
     if(!isActive(d))continue;
     const id=text(d.publicidad_id||d.id);
     for(const s of (segBy.get(id)||[])){

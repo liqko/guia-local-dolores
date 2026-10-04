@@ -1,3 +1,4 @@
+import {putPreparedRelationsV1} from "./prepared-relations-v1.js";
 const text=v=>String(v??"").trim();
 export const farmCityKeyV2=cityId=>"farmacias:city:v2:"+text(cityId);
 
@@ -39,6 +40,7 @@ export async function syncFarmCyclePreparedV2({
     });
   }
 
+  await putPreparedRelationsV1({cache,type:"farm",id,next,data:{participantes,sedes}});
   return{success:true,ciudades_actualizadas:targets};
 }
 
@@ -67,6 +69,10 @@ export async function rebuildFarmAllV2({db,cache}){
   const byCity=new Map();
 
   for(const c of cycles){
+    const preparedId=text(c.ciclo_id||c.id),preparedParts=partBy.get(preparedId)||[];
+    await putPreparedRelationsV1({cache,type:"farm",id:preparedId,next:c,data:{
+      participantes:preparedParts,sedes:preparedParts.map(p=>sedeMap.get(text(p.sede_id))).filter(Boolean)
+    }});
     if(c.activo===false)continue;
     const city=text(c.ciudad_id);
     if(!city)continue;

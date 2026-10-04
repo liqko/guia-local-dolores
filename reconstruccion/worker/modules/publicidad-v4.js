@@ -1,5 +1,7 @@
 import {patchChildRowsV1} from '../core/child-rows-patch-v1.js';
 import {syncPublicityPreparedV2} from "../core/publicity-read-model-v2.js";
+import {changedFieldsV1} from "../core/changed-fields-v1.js";
+import {getPreparedRelationsV1} from "../core/prepared-relations-v1.js";
 
 const text=v=>String(v??"").trim();
 
@@ -25,7 +27,9 @@ export async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
     if(max<=0||own.length>=max)throw new Error("publicidades_maximo_guardadas");
   }
 
-  const previousSeg=current?await db.queryEqual("publicidad_segmentacion","publicidad_id",id,500):[];
+  const hasSeg=Array.isArray(data.ciudades)||Array.isArray(data.categorias);
+  const previousSeg=current?(hasSeg?await db.queryEqual("publicidad_segmentacion","publicidad_id",id,500):
+    await getPreparedRelationsV1({cache,type:"publicity-seg",id,current,load:()=>db.queryEqual("publicidad_segmentacion","publicidad_id",id,500)})):[];
   const previousCities=[...new Set(previousSeg.map(x=>text(x.ciudad_id)).filter(Boolean))];
   const now=new Date().toISOString();
 
@@ -48,9 +52,8 @@ export async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
   };
   if(!doc.titulo)throw new Error("Falta título de publicidad.");
 
-  const saved=await db.patch("publicidades",id,doc,{mustExist:!!current});
-
-  let media=current?await db.queryEqual("publicidad_media","publicidad_id",id,500):[];
+  let media=current?(Array.isArray(data.media)?await db.queryEqual("publicidad_media","publicidad_id",id,500):
+    await getPreparedRelationsV1({cache,type:"publicity-media",id,current,load:()=>db.queryEqual("publicidad_media","publicidad_id",id,500)})):[];
   if(Array.isArray(data.media)){
     media=await patchChildRowsV1({db,collection:'publicidad_media',idField:'media_id',prefix:'MED',previous:media,
       desired:data.media.filter(m=>text(m?.url)).map((m,i)=>({publicidad_id:id,tipo_media:text(data.formato||doc.formato).toUpperCase(),url:text(m.url),poster:text(m.poster),orden:i+1,activo:true}))});
@@ -67,6 +70,9 @@ export async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
     segmentacion=await patchChildRowsV1({db,collection:'publicidad_segmentacion',idField:'segmentacion_id',prefix:'SEG',previous:previousSeg,desired,
       matchKey:r=>[r.ciudad_id,r.ubicacion_id,r.categoria_id].join('|')});
   }
+  const fields=["nombre_interno","titulo","formato","cta_texto","cta_tipo","cta_destino"].filter(k=>Object.prototype.hasOwnProperty.call(data,k));
+  const patch=changedFieldsV1(current,doc,{touch:!!media.changed||!!segmentacion.changed,fields:current?fields:null});
+  const saved=Object.keys(patch).length?await db.patch("publicidades",id,patch,{mustExist:!!current}):current;
 
   await syncPublicityPreparedV2({
     cache,
@@ -123,8 +129,8 @@ export async function publicityActiveChangeV4({db,cache,advertiserId,ids,configF
     if(is===should)continue;
 
     const [seg,media]=await Promise.all([
-      db.queryEqual("publicidad_segmentacion","publicidad_id",id,500),
-      db.queryEqual("publicidad_media","publicidad_id",id,500)
+      getPreparedRelationsV1({cache,type:"publicity-seg",id,current:p,load:()=>db.queryEqual("publicidad_segmentacion","publicidad_id",id,500)}),
+      getPreparedRelationsV1({cache,type:"publicity-media",id,current:p,load:()=>db.queryEqual("publicidad_media","publicidad_id",id,500)})
     ]);
     const cities=[...new Set(seg.map(x=>text(x.ciudad_id)).filter(Boolean))];
     const saved=await db.patch("publicidades",id,{estado:should?"ACTIVA":"INACTIVA",actualizado:now},{mustExist:true});

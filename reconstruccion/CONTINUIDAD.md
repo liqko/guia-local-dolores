@@ -3,7 +3,9 @@ Actualizado: 4 de octubre de 2026, Argentina. Este registro debe leerse antes de
 
 ## Situación y reglas
 - Rama: reconstruccion-total-03oct. No modificar main ni desplegar producción.
-- Base de código: 9e549f3eb397dffe2097f2ff52941792431f1946 (V35).
+- Base histórica: 9e549f3eb397dffe2097f2ff52941792431f1946 (V35).
+- Avance V36 publicado: 16ec4170e40346e0eac9c77051fce1532f95d4ba.
+- Avance actual V37: módulos compartidos y Gran Hermano corregidos; consultar git log para el commit de este checkpoint.
 - Worker vigente: worker/app-main-v35.js; público V12, panel V15, administración V11.
 - La reconstrucción NO está cerrada: las pruebas anteriores no acreditan aislamiento de todas las operaciones.
 - Tres planos coordinados: usuario final, anunciante y administrador Gran Hermano.
@@ -32,16 +34,16 @@ No eliminar controles necesarios de propiedad, permisos, ciudad o cupos para red
 Cada bloque se revisa en los tres planos donde existe. No declarar cerrado un bloque sólo por corregir una imagen.
 | Orden | Bloque | Estado |
 | --- | --- | --- |
-| 1 | Carcasa: ciudades, navegación, cargas y caché | Pruebas parciales aprobadas; inventario y cierre de aislamiento pendientes |
-| 2 | Anunciantes: listado, tarjetas y ficha pública | Pruebas parciales aprobadas; cierre pendiente |
-| 3 | Modificar datos y sedes | Pruebas parciales aprobadas; cerrar inventario anunciante/administrador |
-| 4 | Promociones | Corregir guardado parcial y consultas de contexto innecesarias |
-| 5 | Eventos | Corregir guardado parcial y consultas de programación en ediciones ajenas |
-| 6 | Actividades | Corregir guardado parcial y consultas de horarios en ediciones ajenas |
-| 7 | Farmacias | Corregir guardado parcial y consultas/escrituras de participantes intactos |
-| 8 | Efemérides | Corregir guardado parcial y comprobar rutas administrativas compartidas |
-| 9 | Publicidad existente | Corregir guardado parcial y consultas de media/segmentación en ediciones ajenas |
-| Compartido | Suscriptores y correo | Pruebas simuladas aprobadas; inventario de aislamiento y correo real pendientes |
+| 1 | Carcasa: ciudades, navegación, cargas y caché | Consultas públicas y navegación comprobadas V36/V37 |
+| 2 | Anunciantes: listado, tarjetas y ficha pública | KV, ciudad y reflejo de ediciones comprobados |
+| 3 | Modificar datos y sedes | Panel + administración corregidos y probados; última sede conservada |
+| 4 | Promociones | Guardado diferencial y aislamiento comprobados V36 |
+| 5 | Eventos | Guardado/programación/moderación corregidos y probados V37 |
+| 6 | Actividades | Guardado/horarios/moderación corregidos y probados V37 |
+| 7 | Farmacias | Ciclo/participantes corregidos y probados V37 |
+| 8 | Efemérides | Guardado diferencial y ciclo de vida probados V37 |
+| 9 | Publicidad existente | Guardado/media/segmentación/selección activa corregidos y probados V37 |
+| Compartido | Suscriptores y correo | Aislamiento probado V37; correo real pendiente |
 
 ## Cómo cerrar cada bloque
 - Enumerar acciones efectivamente alcanzables desde HTML y rutas vigentes; distinguir alias de acciones distintas.
@@ -54,7 +56,7 @@ Cada bloque se revisa en los tres planos donde existe. No declarar cerrado un bl
 - No prometer cero Firestore en toda mutación: algunas lecturas de autorización y una escritura del dato cambiado son necesarias.
 - No pasar a nuevas funcionalidades ni repetir auditorías globales sin una razón.
 
-## Estado al guardar este registro
+## Punto de partida del registro (antes de V36/V37)
 Se repitieron el 4/10:
 - TEST_FLUJO_EXISTENTE_V35: 8 circuitos aprobados.
 - TEST_CARCASA_V32: aprobado, cero lecturas Firestore/cero escrituras en sus casos.
@@ -75,8 +77,42 @@ No se ha contado todavía el total de acciones existentes. No inventar un númer
 - TEST_MUTACIONES_V33 (15 circuitos) y TEST_FLUJO_EXISTENTE_V35 (8) siguen aprobados.
 - No declarar toda administración cerrada: configuración comercial/búsqueda/ficha y otros módulos necesitan cobertura restante.
 
+## Avance V37 — 4/10
+- Eventos, Actividades, Publicidad, Farmacias y Efemérides usan patch diferencial. No rellenan campos históricos ausentes ajenos a la edición.
+- Las relaciones intactas para publicación tienen copia preparada en KV asociada al timestamp de la versión del padre.
+- Si esa copia falta/no coincide, se consulta sólo la relación del padre indicado; no se inventa una lista vacía ni se hace un barrido.
+- Editar/eliminar relaciones usa filas autoritativas de Firestore. La copia KV no sustituye propiedad, permisos ni comprobaciones de cupo.
+- Seed explícito prepara también contenido pendiente, pausado/inactivo. Se probó la preparación y edición posterior sin consultas de relaciones.
+- Cambiar horas o imágenes modifica sólo el campo de la fila cambiada. Lotes intactos no reescriben las filas ni el padre.
+- Eventos deja de consultar anunciante/administración al editar/borrar/pausar; el cupo se carga al reanudar realmente.
+- Repetir una edición intacta no retira un evento aprobado.
+- Moderación de Eventos/Actividades comparte la copia preparada y actualiza su versión; no relee programación/horarios intactos si está vigente.
+- Farmacias no reescribe participantes intactos, valida duplicados/simultaneidad y no crea accidentalmente un ID de edición inexistente.
+- Gran Hermano tenía acciones de búsqueda/ficha/catálogo/guardado apuntando a /superadmin?action=... sin ruta vigente. Su adaptador ahora usa las rutas reales.
+- Guardar la ficha administrativa compara con lo mostrado al abrir y separa únicamente diferencias comerciales, de perfil y de relaciones. Guardar sin cambios no llama al servidor.
+- Se conserva lo implementado; no se desarrollaron bajas de anunciante, altas pendientes ni retoques históricos nuevos.
+- Catálogos administrativos envían/escriben sólo diferencias; búsquedas/dashboard leen KV.
+- Perfil vacío de suscriptor no escribe un timestamp inútil.
+
+Pruebas nuevas aprobadas localmente:
+1. TEST_AISLAMIENTO_PUBLICO_V36: 43 casos.
+2. TEST_AISLAMIENTO_COMMERCE_V36: 6 circuitos.
+3. TEST_AISLAMIENTO_PROMOS_V36: 47 casos.
+4. TEST_AISLAMIENTO_MODULOS_V37: 75 casos (22 campos generales, históricos incompletos, relaciones, moderación y ciclo de vida).
+5. TEST_AISLAMIENTO_SUSCRIPTORES_V37: 24 casos.
+6. TEST_AISLAMIENTO_ADMIN_V37: 24 casos.
+Total: 219 comprobaciones de aislamiento; NO son 219 acciones diferentes.
+Además: TEST_FIRESTORE_PATCH_V37 (máscara REST exacta), TEST_PREPARACION_KV_V37
+(seed y relaciones de cuatro módulos), y pruebas Chromium pública/panel/admin.
+Las pruebas anteriores de 15 mutaciones, 8 flujos existentes, 8 circuitos de
+suscriptores, Farmacias, HTML e imports siguen aprobadas.
+Las pruebas de navegador usan rutas reales con datos/servicios aislados; no certifican producción ni correo real.
+
 ## Próxima acción concreta
-Seguir por Eventos: inventario de panel/Gran Hermano, patch diferencial y aislamiento de programación.
+Confirmar CI del checkpoint V37. Si falla, corregir esa prueba/código y repetir sólo lo afectado.
+Si aprueba, preparar pruebas reales controladas con configuración y seed, sin desplegar producción.
+No volver a repetir el recorrido desde cero ni agregar pendientes históricos.
+La corrección central tiene evidencia automática; no presentarla como garantía de factura/correo/configuración real.
 Aplicar aislamiento de guardados en los seis módulos pendientes con pruebas de operaciones.
 No usar una instantánea KV potencialmente obsoleta como sustituto de validación autoritativa de propiedad o borrado.
 

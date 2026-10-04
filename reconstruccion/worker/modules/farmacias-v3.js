@@ -1,4 +1,6 @@
 import {syncFarmCyclePreparedV2} from "../core/farmacias-read-model-v2.js";
+import {changedFieldsV1,sameValueV1} from "../core/changed-fields-v1.js";
+import {getPreparedRelationsV1} from "../core/prepared-relations-v1.js";
 
 const text=v=>String(v??"").trim();
 
@@ -6,6 +8,7 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
   const payload=body&&body.payload&&typeof body.payload==="object"?body.payload:body||{};
   let id=text(payload.ciclo_id);
   const current=id?await db.get("farmacias_ciclos",id):null;
+  if(id&&!current)throw new Error("Ciclo no encontrado.");
 
   if(current&&text(current.anunciante_id)&&text(current.anunciante_id)!==text(advertiserId)){
     throw new Error("El ciclo no pertenece al anunciante.");
@@ -23,8 +26,18 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
   if(!id)id="FAR-"+crypto.randomUUID();
 
   const previousCity=text(current&&current.ciudad_id);
-  let participantes=current?await db.queryEqual("farmacias_ciclo_sedes","ciclo_id",id,500):[];
-  let sedes=[];
+  const hasParts=Array.isArray(payload.participantes);
+  const load=async()=>{
+    const participantes=await db.queryEqual("farmacias_ciclo_sedes","ciclo_id",id,500);
+    const sedes=[];
+    for(const sid of [...new Set(participantes.map(p=>text(p.sede_id)).filter(Boolean))]){
+      const sede=await db.get("anunciantes_sedes",sid);if(sede)sedes.push(sede);
+    }
+    return{participantes,sedes};
+  };
+  const prepared=current&&!hasParts?await getPreparedRelationsV1({cache,type:"farm",id,current,load}):null;
+  let participantes=current?(hasParts?await db.queryEqual("farmacias_ciclo_sedes","ciclo_id",id,500):prepared.participantes):[];
+  let sedes=prepared?.sedes||[],participantsChanged=false;
 
   if(Array.isArray(payload.participantes)){
     const nuevos=payload.participantes.map((p,i)=>({
@@ -36,6 +49,7 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
     })).filter(p=>p.sede_id);
 
     if(!nuevos.length)throw new Error("Seleccioná al menos una farmacia.");
+    if(new Set(nuevos.map(p=>p.sede_id)).size!==nuevos.length)throw new Error("Farmacia repetida en el ciclo.");
     if(simult>nuevos.length)throw new Error("La cantidad simultánea supera las farmacias seleccionadas.");
 
     sedes=[];
@@ -51,23 +65,30 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
 
     for(const r of existentes){
       const rid=text(r.id||(id+"__"+text(r.sede_id)));
-      if(rid&&!keep.has(rid))await db.delete("farmacias_ciclo_sedes",rid);
+      if(rid&&!keep.has(rid)){await db.delete("farmacias_ciclo_sedes",rid);participantsChanged=true;}
     }
 
     participantes=[];
     for(const p of nuevos){
-      const saved=await db.patch("farmacias_ciclo_sedes",id+"__"+p.sede_id,p);
+      const previous=existentes.find(r=>text(r.sede_id)===p.sede_id);
+      const patch=changedFieldsV1(previous,p);
+      const saved=Object.keys(patch).length?await db.patch("farmacias_ciclo_sedes",id+"__"+p.sede_id,patch,{mustExist:!!previous}):previous;
+      if(Object.keys(patch).length)participantsChanged=true;
       participantes.push(saved);
     }
   }else{
-    const sedeIds=[...new Set(participantes.map(p=>text(p.sede_id)).filter(Boolean))];
-    for(const sid of sedeIds){
-      const sede=await db.get("anunciantes_sedes",sid);
-      if(sede)sedes.push(sede);
+    if(!sameValueV1(current?.ciudad_id,city)){
+      sedes=[];
+      for(const sid of [...new Set(participantes.map(p=>text(p.sede_id)).filter(Boolean))]){
+        const sede=await db.get("anunciantes_sedes",sid);
+        if(!sede||text(sede.ciudad_id)!==city)throw new Error("Todas las farmacias deben pertenecer a la ciudad del ciclo.");
+        sedes.push(sede);
+      }
     }
+    if(simult>participantes.length)throw new Error("La cantidad simultánea supera las farmacias seleccionadas.");
   }
 
-  const saved=await db.patch("farmacias_ciclos",id,{
+  const doc={
     ciclo_id:id,
     anunciante_id:advertiserId,
     ciudad_id:city,
@@ -78,7 +99,10 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
     activo:merged.activo===undefined?true:!!merged.activo,
     observaciones:text(merged.observaciones),
     actualizado:new Date().toISOString()
-  },{mustExist:!!current});
+  };
+  const fields=Object.keys(payload).filter(k=>!["id","ciclo_id","anunciante_id","participantes"].includes(k));
+  const patch=changedFieldsV1(current,doc,{touch:participantsChanged,fields:current?fields:null});
+  const saved=Object.keys(patch).length?await db.patch("farmacias_ciclos",id,patch,{mustExist:!!current}):current;
 
   await syncFarmCyclePreparedV2({
     cache,

@@ -1,4 +1,6 @@
 import {syncEventV2,getEventsCityV2} from "../core/events-read-model-v2.js";
+import {changedFieldsV1,sameValueV1} from "../core/changed-fields-v1.js";
+import {getPreparedRelationsV1} from "../core/prepared-relations-v1.js";
 
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
@@ -35,11 +37,12 @@ async function validateLocation({db,cache,advertiserId,row,fallbackCity=""}){
   if(!direccion)throw new Error("El lugar necesita dirección física.");
   return city;
 }
-async function validateEvent({db,cache,advertiserId,data}){
+async function validateEvent({db,cache,advertiserId,data,validateLocations=true,previousProgramacion=[]}){
   if(!text(data.nombre_evento))throw new Error("Falta nombre del evento.");
   if(!text(data.categoria||data.categoria_id))throw new Error("Falta categoría.");
   if(!text(data.ciudad_id))throw new Error("Falta ciudad.");
   if(!text(data.fecha_desde))throw new Error("Falta fecha del evento.");
+  if(!validateLocations)return;
   const programacion=Array.isArray(data.programacion)?data.programacion:[];
   const programIds=programacion.map(p=>text(p?.evento_programacion_id||p?.id)).filter(Boolean);
   if(new Set(programIds).size!==programIds.length)throw new Error('Instancia repetida en la programación.');
@@ -47,6 +50,9 @@ async function validateEvent({db,cache,advertiserId,data}){
     for(let i=0;i<programacion.length;i++){
       const row=programacion[i]||{};
       if(!text(row.fecha))throw new Error("Falta fecha en la instancia "+(i+1)+".");
+      const previous=previousProgramacion.find(p=>text(p.evento_programacion_id||p.id)===text(row.evento_programacion_id||row.id));
+      const placeKeys=["ciudad_id","tipo_lugar","sede_id","lugar_id","lugar_texto","lugar","direccion","maps","url_virtual","link_virtual","enlace_virtual","web"];
+      if(previous&&placeKeys.every(k=>text(previous[k])===text(row[k])))continue;
       await validateLocation({db,cache,advertiserId,row,fallbackCity:data.ciudad_id});
     }
   }else{
@@ -57,7 +63,7 @@ async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,f
   const old=previous??await db.queryEqual("evento_programacion","evento_id",eventId,500);
   const byId=new Map(old.map(p=>[text(p.evento_programacion_id||p.id),p]));
   const kept=new Set(),saved=[];
-  let orden=0;
+  let orden=0,changed=false;
   for(const raw of (Array.isArray(programacion)?programacion:[])){
     const city=text(raw.ciudad_id||fallbackCity);
     const requested=text(raw.evento_programacion_id||raw.id);
@@ -72,9 +78,11 @@ async function replaceProgramacion({db,cache,advertiserId,eventId,programacion,f
       fecha:text(raw.fecha),hora_desde:text(raw.hora_desde),hora_hasta:text(raw.hora_hasta),
       activo:raw.activo===false?false:true,orden:Number(raw.orden||orden)};
     if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){saved.push(current);continue;}
-    saved.push(await db.patch('evento_programacion',pid,{...patch,actualizado:new Date().toISOString()},{mustExist:!!current}));
+    saved.push(await db.patch('evento_programacion',pid,changedFieldsV1(current,{...patch,actualizado:new Date().toISOString()}),{mustExist:!!current}));
+    changed=true;
   }
-  for(const [pid]of byId)if(!kept.has(pid))await db.delete('evento_programacion',pid);
+  for(const [pid]of byId)if(!kept.has(pid)){await db.delete('evento_programacion',pid);changed=true;}
+  Object.defineProperty(saved,"changed",{value:changed});
   return saved;
 }
 async function quota({db,advertiserId,max,free=false,exclude=""}){
@@ -141,16 +149,31 @@ export async function updateEventV3({db,cache,advertiserId,payload,level="VIP"})
 
   const next={...current};
   for(const[k,v]of Object.entries(data))if(!["evento_id","programacion"].includes(k))next[k]=v;
+  const hasDataChanges=Object.keys(changedFieldsV1(current,next)).length>0;
   next.evento_id=eventId;next.anunciante_id=advertiserId;next.id_anunciante=advertiserId;next.nivel=level;
   next.estado_moderacion="PENDIENTE";next.estado="PENDIENTE";next.actualizado=new Date().toISOString();
-  const previousProgramacion=await db.queryEqual('evento_programacion','evento_id',eventId,500);
+  const hasProgramacion=Object.prototype.hasOwnProperty.call(data,"programacion");
+  const locationChanged=["ciudad_id","sede_id","lugar_id","tipo_lugar","lugar_texto","lugar","direccion","maps","url_virtual","link_virtual","enlace_virtual","web"].some(k=>
+    Object.prototype.hasOwnProperty.call(data,k)&&!sameValueV1(data[k],current[k]));
+  const previousProgramacion=hasProgramacion?await db.queryEqual('evento_programacion','evento_id',eventId,500):
+    await getPreparedRelationsV1({cache,type:"event",id:eventId,current,load:()=>db.queryEqual('evento_programacion','evento_id',eventId,500)});
   const validation={...next,programacion:Object.prototype.hasOwnProperty.call(data,'programacion')?data.programacion:previousProgramacion};
-  await validateEvent({db,cache,advertiserId,data:validation});
-  const saved=await db.patch("eventos",eventId,next,{mustExist:true});
+  await validateEvent({db,cache,advertiserId,data:validation,validateLocations:hasProgramacion||locationChanged,previousProgramacion});
+  if(!hasDataChanges&&!hasProgramacion)return{
+    success:true,updated:false,evento_id:eventId,estado_moderacion:current.estado_moderacion,
+    evento:{...current,programacion:previousProgramacion}
+  };
   let programacion=validation.programacion;
   if(Object.prototype.hasOwnProperty.call(data,"programacion")){
     programacion=await replaceProgramacion({db,cache,advertiserId,eventId,programacion:data.programacion,fallbackCity:next.ciudad_id,previous:previousProgramacion});
   }
+  if(!hasDataChanges&&!programacion.changed)return{
+    success:true,updated:false,evento_id:eventId,estado_moderacion:current.estado_moderacion,
+    evento:{...current,programacion}
+  };
+  const fields=[...Object.keys(data).filter(k=>!["evento_id","anunciante_id","id_anunciante","nivel","programacion","id"].includes(k)),"estado_moderacion","estado"];
+  const patch=changedFieldsV1(current,next,{touch:!!programacion.changed,fields});
+  const saved=Object.keys(patch).length?await db.patch("eventos",eventId,patch,{mustExist:true}):current;
   await syncEventV2({db,cache,current,next:saved,previousProgramacion,programacion});
   return{
     success:true,
@@ -167,10 +190,12 @@ export async function pauseEventV3({db,cache,advertiserId,payload,max,level="VIP
   if(!current||text(current.anunciante_id||current.id_anunciante)!==text(advertiserId)||!wanted)throw new Error("El evento no pertenece al anunciante.");
   const pause=bool(payload&&((payload.pause!==undefined)?payload.pause:payload.pausado));
   if(!pause&&bool(current.pausado)){
-    const q=await quota({db,advertiserId,max,free:level==="FREE",exclude:eventId});
+    const q=await quota({db,advertiserId,max:typeof max==="function"?await max():max,free:level==="FREE",exclude:eventId});
     if(q.active>=q.max)throw new Error("Alcanzaste el máximo de eventos activos.");
   }
-  const saved=await db.patch("eventos",eventId,{pausado:pause,actualizado:new Date().toISOString()},{mustExist:true});
+  const patch=changedFieldsV1(current,{pausado:pause,actualizado:new Date().toISOString()});
+  if(!Object.keys(patch).length)return{success:true,updated:false,evento_id:eventId,evento:current};
+  const saved=await db.patch("eventos",eventId,patch,{mustExist:true});
   await syncEventV2({db,cache,current,next:saved});
   return{success:true,evento_id:eventId,evento:saved};
 }

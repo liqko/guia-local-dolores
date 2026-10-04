@@ -17,7 +17,7 @@ export function panelFixture(){
   const cache={async get(k){return clone(kv.get(k)||null)},async put(k,v){kv.set(k,clone(v))}};
   const env={SERVER_SECRET:'solo-pruebas',GLD_CACHE_KV:{async get(k){return kv.has(k)?JSON.stringify(kv.get(k)):null},async put(k,v){kv.set(k,JSON.parse(v))}}};
   const sign=p=>{const b=Buffer.from(JSON.stringify({...p,exp:Date.now()+60000})).toString('base64url');return b+'.'+createHmac('sha256',env.SERVER_SECRET).update(b).digest('base64url')};
-  const subscriber=sign({sid:'SUB',typ:'GLD_SUBSCRIBER',auth:[{anunciante_id:'ADV',rol:'PROPIETARIO',permisos:'PROMOS;EVENTOS;EVENTOS_FREE;ACTIVIDADES;PUBLICIDAD;EFEMERIDES'}]});
+  const subscriber=sign({sid:'SUB',typ:'GLD_SUBSCRIBER',auth:[{anunciante_id:'ADV',rol:'PROPIETARIO',permisos:'PROMOS;EVENTOS;EVENTOS_FREE;ACTIVIDADES;PUBLICIDAD;EFEMERIDES;TURNOS_FARMA'}]});
   const admin=sign({sid:'ADM',rol:'SUPERADMIN_PRINCIPAL'});
   function seed(c,id,data){collection(c).set(id,{id,...clone(data)})}
   seed('anunciantes','ADV',{nombre:'Anunciante'});

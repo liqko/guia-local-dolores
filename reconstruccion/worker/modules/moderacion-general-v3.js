@@ -2,6 +2,7 @@ import {resolveEventModerationV2} from "./moderacion-eventos-v2.js";
 import {syncActivityPreparedV2} from "../core/activities-read-model-v2.js";
 import {syncGuideAdvertiserV2} from "../core/guide-read-model-v2.js";
 import {syncAdvertiserIndexV2} from "../core/admin-indexes-v2.js";
+import {getPreparedRelationsV1} from "../core/prepared-relations-v1.js";
 
 const text=v=>String(v??"").trim();
 
@@ -94,7 +95,8 @@ export async function resolvePendingV3({db,cache,auth,tipo,id,decision,nivel=""}
     const current=await db.get("actividades",itemId);
     if(!current)throw new Error("Actividad no encontrada.");
 
-    const horarios=await db.queryEqual("actividad_horarios","actividad_id",itemId,500);
+    const horarios=await getPreparedRelationsV1({cache,type:"activity",id:itemId,current,
+      load:()=>db.queryEqual("actividad_horarios","actividad_id",itemId,500)});
     const previousCities=[...new Set(horarios.map(h=>text(h.ciudad_id)).filter(Boolean))];
     const saved=await db.patch("actividades",itemId,{
       aprobado:dec==="APROBAR",

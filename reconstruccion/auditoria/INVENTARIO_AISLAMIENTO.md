@@ -62,8 +62,32 @@ pausa/reactivación/cupo, ciudad incompatible con sede, traslado y baja.
 No se encontró acción de edición o moderación de Promos en Gran Hermano vigente;
 no se desarrolla una nueva. Alta/listado y rechazos siguen en TEST_MUTACIONES_V33.
 
-## Bloques siguientes
+## Mutaciones de los módulos — avance V37
 
-Eventos -> Actividades -> Farmacias -> Efemérides -> Publicidad -> Suscriptores.
-Inventariar operaciones de anunciante y administración en conjunto. Todavía no
-está acreditado el aislamiento de guardados en estos bloques.
+| Bloque | Acciones implementadas revisadas | Límite del acceso |
+| --- | --- | --- |
+| Eventos VIP/FREE | Carga/listado, comprobar similares FREE, alta, datos/imágenes, programación, pausa/reactivación, duplicación, baja, aprobación/rechazo | Edición general lee el evento; relaciones intactas en KV. Cupo sólo alta/duplicación/reactivación. Cambiar/borrar programación consulta las instancias de ese evento |
+| Actividades | Carga, alta, datos/imágenes, horarios/lugares/ciudades, pausa/reactivación/renovación, baja, aprobación/rechazo | Administración para habilitación/cupo y actividad propia. Horarios intactos KV; editar/borrar sólo horarios de esa actividad |
+| Farmacias | Carga, alta/edición ciclo, fecha/hora/duración/simultaneidad, participantes/orden, activar/desactivar | Permiso territorial y ciclo propio. Relación intacta KV; editar participantes consulta ese ciclo y sedes implicadas |
+| Efemérides | Carga, alta/edición fija/móvil, fecha, territorio, nombre/imagen/descripción, activar/desactivar, baja | Administración para permiso y efeméride indicada; no consulta módulos ajenos |
+| Publicidad existente | Carga, alta/edición datos/CTA/formato, imágenes/media, segmentación, selección activa, baja | Administración/cupo y pieza propia; consulta media o segmentación sólo cuando se modifica/baja, con fallback acotado si falta KV |
+| Suscriptores/correo | Registro/login, sesión/autorizados, perfil/ciudad/clave, favoritos (5 tipos), verificación/recuperación y baja | Patch sólo cuenta/favorito indicado; sesión/autorizados y solicitar códigos no acceden a DB. Confirmar código consulta cuenta por mail; baja consulta relaciones propias |
+| Administración existente | Dashboard, búsquedas/fichas, perfil/comercial/relaciones, 10 catálogos, moderación de eventos/actividades, alta de ciudad | Búsqueda/dashboard/catálogos KV; ficha sólo el anunciante/suscriptor abierto y sus relaciones. Guardado por diferencias; moderación usa los mismos read models |
+
+No se hace un nuevo módulo administrativo de Promos, Farmacias, Efemérides o
+Publicidad donde esa pantalla no existe. País/Provincia/altas/baja de anunciante
+que siguen sin estar implementados conservan su condición histórica.
+
+## Evidencia y límites V37
+
+- TEST_AISLAMIENTO_MODULOS_V37: 75 casos, colecciones/campos exactos; 22 campos generales, históricos incompletos, horas/imágenes, lotes intactos y ciclos de vida.
+- TEST_AISLAMIENTO_SUSCRIPTORES_V37: 24 casos.
+- TEST_AISLAMIENTO_ADMIN_V37: 24 casos; 10 catálogos + búsquedas/dashboard.
+- TEST_ADMIN_VISUAL_V37: Chromium, rutas reales, ficha/catálogos, edición comercial/perfil/relaciones, retiro de llamadas legacy y no-op.
+- TEST_PREPARACION_KV_V37: seed explícito prepara relaciones incluso para pendientes/inactivos; posteriores ediciones de cuatro módulos no consultan relaciones.
+- TEST_FIRESTORE_PATCH_V37: transporte real con red simulada, un PATCH y updateMask exacto sin lectura implícita.
+- Si la proyección privada falta o tiene otra revisión, la edición puede consultar sus relaciones propias para publicar correctamente. El seed previo evita ese arranque frío.
+- KV tiene consumo propio; reducir Firestore no significa que todo servicio sea gratuito.
+- Un PATCH de un documento cuenta como una escritura de documento, aunque incluya varios campos. Se comprueban ambas cosas: número de documentos y campos enviados.
+- Las bajas/duplicaciones/moderaciones tienen accesos necesarios distintos de cambiar un nombre.
+- Pendiente externo: credenciales reales, carga inicial real de KV, entrega de correo y recorridos con datos reales. No se desplegó producción.

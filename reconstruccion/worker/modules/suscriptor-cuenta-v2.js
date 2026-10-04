@@ -71,6 +71,7 @@ export async function updateSubscriberProfileV2({env,request,db,body}){
   for(const key of allowed){
     if(Object.prototype.hasOwnProperty.call(body||{},key))patch[key]=text(body[key]);
   }
+  if(Object.keys(patch).length===1)return{success:true,updated:false};
   const saved=await db.patch("suscriptores",text(s.sid),patch,{mustExist:true});
   return{success:true,suscriptor:publicProfile(saved)};
 }

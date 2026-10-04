@@ -70,8 +70,6 @@ export async function routePanelV4(ctx){
     const auth=await requirePanel(env,request,aid,moduleName,!readActions.includes(action));
     if(auth.response)return auth.response;
 
-    const admin=await db.get("anunciantes_administracion",aid);
-
     if(["getpaneldata","paneldata","bootstrap","geteventospanel"].includes(action)){
       return json(await eventsPanelDataV2({db,cache,advertiserId:aid,featureEnabled,cupo}));
     }
@@ -88,17 +86,19 @@ export async function routePanelV4(ctx){
       return json({success:true,duplicados:await checkFreeDuplicatesV2({db,payload})});
     }
 
-    const advertiser=await db.get("anunciantes",aid);
+    const creates=["createvipevent","createfreeevent","duplicatevipevent","duplicate"].includes(action);
+    const admin=creates?await db.get("anunciantes_administracion",aid):null;
+    const advertiser=creates?await db.get("anunciantes",aid):null;
 
     if(action==="createvipevent")return json(await createEventV3({db,cache,advertiserId:aid,payload,max:cupo(admin,"EVENTOS"),advertiser,level:"VIP"}));
     if(action==="updatevipevent")return json(await updateEventV3({db,cache,advertiserId:aid,payload,level:"VIP"}));
-    if(action==="pausevipevent")return json(await pauseEventV3({db,cache,advertiserId:aid,payload,max:cupo(admin,"EVENTOS"),level:"VIP"}));
+    if(action==="pausevipevent")return json(await pauseEventV3({db,cache,advertiserId:aid,payload,max:async()=>cupo(await db.get("anunciantes_administracion",aid),"EVENTOS"),level:"VIP"}));
     if(action==="deletevipevent")return json(await deleteEventV3({db,cache,advertiserId:aid,payload,level:"VIP"}));
     if(action==="duplicatevipevent"||action==="duplicate")return json(await duplicateVipV3({db,cache,advertiserId:aid,payload,max:cupo(admin,"EVENTOS"),advertiser}));
 
     if(action==="createfreeevent")return json(await createEventV3({db,cache,advertiserId:aid,payload,max:cupo(admin,"EVENTOS_FREE"),advertiser,level:"FREE"}));
     if(action==="updatefreeevent")return json(await updateEventV3({db,cache,advertiserId:aid,payload,level:"FREE"}));
-    if(action==="pausefreeevent")return json(await pauseEventV3({db,cache,advertiserId:aid,payload,max:cupo(admin,"EVENTOS_FREE"),level:"FREE"}));
+    if(action==="pausefreeevent")return json(await pauseEventV3({db,cache,advertiserId:aid,payload,max:async()=>cupo(await db.get("anunciantes_administracion",aid),"EVENTOS_FREE"),level:"FREE"}));
     if(action==="deletefreeevent")return json(await deleteEventV3({db,cache,advertiserId:aid,payload,level:"FREE"}));
 
     return null;

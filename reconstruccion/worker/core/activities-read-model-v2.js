@@ -1,3 +1,4 @@
+import {putPreparedRelationsV1} from "./prepared-relations-v1.js";
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
 export const activityCityKeyV2=cityId=>"activities:city:v2:"+text(cityId);
@@ -31,6 +32,7 @@ export async function syncActivityPreparedV2({cache,activityId,current=null,next
 
     await cache.put(key,{version:2,ciudad_id:cityId,updated_at:new Date().toISOString(),actividades:sort(rows)});
   }
+  await putPreparedRelationsV1({cache,type:"activity",id,next,data:horarios});
   return{success:true,ciudades_actualizadas:targets};
 }
 
@@ -56,6 +58,7 @@ export async function rebuildActivitiesAllV2({db,cache}){
 
   const byCity=new Map();
   for(const a of activities){
+    await putPreparedRelationsV1({cache,type:"activity",id:text(a.actividad_id||a.id),next:a,data:byAct.get(text(a.actividad_id||a.id))||[]});
     if(!isPublic(a))continue;
     const id=text(a.actividad_id||a.id),groups=new Map();
 

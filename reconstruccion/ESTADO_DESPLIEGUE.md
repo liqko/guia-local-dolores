@@ -137,11 +137,13 @@ Se conservan las 15 pruebas de mutaciones, Farmacias, Suscriptores y navegador
 público. Las lecturas públicas se comprueban sin acceso Firestore; las mutaciones
 se comprueban con contadores de documentos de prueba. Esto no mide la factura real.
 
-## Estado corregido el 4/10: cierre de aislamiento pendiente
+## Estado corregido el 4/10: corrección V37 y pruebas controladas pendientes
 
-La conclusión anterior de que el alcance estaba cerrado fue prematura. Falta
-comprobar y corregir por acción los campos escritos y las consultas relacionadas,
-en coordinación entre usuario final, anunciante y administración existente.
+La conclusión anterior de que el alcance estaba cerrado fue prematura. Después
+se corrigieron los patches y consultas relacionados en los módulos existentes,
+incluyendo sus rutas de anunciante y administración. V36/V37 incorporan 219
+comprobaciones de aislamiento, más pruebas de transporte Firestore, seed KV y
+navegador público/anunciante/administrador. No equivalen a pruebas de producción.
 El registro vigente y el recorrido de cierre están en [CONTINUIDAD.md](CONTINUIDAD.md).
 Sigue sin desplegar a producción.
 Hay que validar credenciales, carga inicial KV, llegada real del correo y los

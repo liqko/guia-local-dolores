@@ -4,6 +4,7 @@
  * Guardado: 1 PATCH Firestore + parche de KV admin + parche del catálogo activo del módulo.
  */
 import {catalogKeys} from "../core/catalogs.js";
+import {changedFieldsV1} from "../core/changed-fields-v1.js";
 
 const ADMIN_KEY="admin:catalogs:v2";
 const text=v=>String(v??"").trim();
@@ -67,9 +68,11 @@ export async function saveAdminCatalogV2({db,cache,tipo,item,cityId=""}){
   const payload={...item,[def.idField]:id,actualizado_en:new Date().toISOString()};
   if(t==="nodos"&&cityId&&!text(payload.ciudad_id))payload.ciudad_id=text(cityId);
 
-  const saved=await db.patch(def.collection,id,payload);
-
   const admin=(await cache.get(ADMIN_KEY))||{version:2};
+  const current=(admin[t]||[]).find(x=>text(x[def.idField]||x.id)===id);
+  const patch=changedFieldsV1(current,payload);
+  if(!Object.keys(patch).length)return{success:true,updated:false,tipo:t,item:current,firestore_writes:0,firestore_reads:0};
+  const saved=await db.patch(def.collection,id,patch,{mustExist:!!current});
   const adminRows=upsert(Array.isArray(admin[t])?admin[t]:[],def.idField,saved);
   await cache.put(ADMIN_KEY,{
     ...admin,

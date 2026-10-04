@@ -1,5 +1,7 @@
 import {patchChildRowsV1} from '../core/child-rows-patch-v1.js';
 import {syncActivityPreparedV2} from "../core/activities-read-model-v2.js";
+import {changedFieldsV1} from "../core/changed-fields-v1.js";
+import {getPreparedRelationsV1} from "../core/prepared-relations-v1.js";
 
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
@@ -82,12 +84,18 @@ export async function activitySaveV3({db,cache,advertiserId,body}){
     activityId=id("ACT");
   }
 
+  const oldSchedules=current?(Array.isArray(payload.horarios)?await db.queryEqual("actividad_horarios","actividad_id",activityId,500):
+    await getPreparedRelationsV1({cache,type:"activity",id:activityId,current,load:()=>db.queryEqual("actividad_horarios","actividad_id",activityId,500)})):[];
   const horarios=Array.isArray(payload.horarios)?payload.horarios:[];
   const scheduleIds=horarios.map(h=>text(h?.actividad_horario_id||h?.id)).filter(Boolean);
   if(new Set(scheduleIds).size!==scheduleIds.length)throw new Error('Horario repetido en la operación.');
-  for(const h of horarios)await validateHorario({db,cache,advertiserId,h});
-
-  const oldSchedules=current?await db.queryEqual("actividad_horarios","actividad_id",activityId,500):[];
+  for(const [i,h]of horarios.entries()){
+    const requested=text(h.actividad_horario_id||h.id);
+    const previous=requested?oldSchedules.find(p=>text(p.actividad_horario_id||p.id)===requested):oldSchedules[i];
+    const placeKeys=["ciudad_id","tipo_lugar","sede_id","lugar_id","lugar_texto","direccion","maps","url_virtual","link_virtual","enlace_virtual","web"];
+    if(previous&&placeKeys.every(k=>text(previous[k])===text(h[k])))continue;
+    await validateHorario({db,cache,advertiserId,h});
+  }
   const previousCities=[...new Set(oldSchedules.map(h=>text(h.ciudad_id)).filter(Boolean))];
   const hoy=today(),now=new Date().toISOString();
 
@@ -109,13 +117,15 @@ export async function activitySaveV3({db,cache,advertiserId,body}){
   if(!text(doc.nombre))throw new Error("Falta nombre de la actividad.");
   if(!text(doc.categoria))throw new Error("Falta categoría.");
 
-  const saved=await db.patch("actividades",activityId,doc,{mustExist:!!current});
   let savedHorarios=oldSchedules;
 
   if(Array.isArray(payload.horarios)){
     savedHorarios=await patchChildRowsV1({db,collection:'actividad_horarios',idField:'actividad_horario_id',prefix:'AH',previous:oldSchedules,
       desired:horarios.map(h=>({...h,actividad_id:activityId,ciudad_id:text(h.ciudad_id),sede_id:text(h.sede_id),lugar_id:text(h.lugar_id),lugar_texto:text(h.lugar_texto),direccion:text(h.direccion),maps:text(h.maps),activo:h.activo===undefined?true:bool(h.activo)}))});
   }
+  const fields=Object.keys(payload).filter(k=>!["id","actividad_id","anunciante_id","horarios","aprobado","activo","estado","vigente_desde","vigente_hasta","creado"].includes(k));
+  const patch=changedFieldsV1(current,doc,{touch:!!savedHorarios.changed,fields:current?fields:null});
+  const saved=Object.keys(patch).length?await db.patch("actividades",activityId,patch,{mustExist:!!current}):current;
 
   await syncActivityPreparedV2({
     cache,
@@ -149,7 +159,8 @@ export async function activityActionV3({db,cache,advertiserId,action,activityId}
     if(max<=0||active>=max)throw new Error("actividades_cupo_activo_completo");
   }
 
-  const hs=await db.queryEqual("actividad_horarios","actividad_id",activityId,500);
+  const hs=action==="eliminar"?await db.queryEqual("actividad_horarios","actividad_id",activityId,500):
+    await getPreparedRelationsV1({cache,type:"activity",id:activityId,current,load:()=>db.queryEqual("actividad_horarios","actividad_id",activityId,500)});
   const cities=[...new Set(hs.map(h=>text(h.ciudad_id)).filter(Boolean))];
 
   if(action==="eliminar"){
@@ -173,7 +184,9 @@ export async function activityActionV3({db,cache,advertiserId,action,activityId}
     }
   }
 
-  const saved=await db.patch("actividades",activityId,patch,{mustExist:true});
+  const delta=changedFieldsV1(current,patch);
+  if(!Object.keys(delta).length)return{success:true,updated:false,actividad_id:activityId,actividad:{...current,horarios:hs}};
+  const saved=await db.patch("actividades",activityId,delta,{mustExist:true});
   await syncActivityPreparedV2({
     cache,
     activityId,

@@ -1,4 +1,5 @@
 import {syncEfemeridePreparedV2} from "../core/efemerides-read-model-v2.js";
+import {changedFieldsV1} from "../core/changed-fields-v1.js";
 
 const text=v=>String(v??"").trim();
 const bool=v=>v===true||v===1||["true","1","si","sí","x"].includes(text(v).toLowerCase());
@@ -85,7 +86,10 @@ export async function efemSaveV3({db,cache,advertiserId,body,permisos}){
     if(existing.creado_por)data.creado_por=existing.creado_por;
   }
 
-  const saved=await db.patch("efemerides_bis",id,data,{mustExist:!!existing});
+  const fields=Object.keys(payload).filter(k=>!["id","efemeride_id","creado_en","creado_por"].includes(k));
+  if(Object.prototype.hasOwnProperty.call(payload,"fecha"))fields.push("mes","dia");
+  const patch=changedFieldsV1(existing,data,{fields:existing?fields:null});
+  const saved=Object.keys(patch).length?await db.patch("efemerides_bis",id,patch,{mustExist:!!existing}):existing;
   await syncEfemeridePreparedV2({cache,efemerideId:id,previous:existing,next:saved});
   return{success:true,efemeride:saved};
 }
@@ -95,10 +99,12 @@ export async function efemToggleV3({db,cache,id,activo,permisos}){
   if(!existing)throw new Error("Efeméride no encontrada");
   if(!canSee(existing,permisos))throw new Error("No autorizado");
 
-  const saved=await db.patch("efemerides_bis",id,{
+  const patch=changedFieldsV1(existing,{
     activo:!!activo,
     actualizado_en:new Date().toISOString()
-  },{mustExist:true});
+  });
+  if(!Object.keys(patch).length)return{success:true,updated:false,efemeride:existing};
+  const saved=await db.patch("efemerides_bis",id,patch,{mustExist:true});
 
   await syncEfemeridePreparedV2({cache,efemerideId:id,previous:existing,next:saved});
   return{success:true,efemeride:saved};

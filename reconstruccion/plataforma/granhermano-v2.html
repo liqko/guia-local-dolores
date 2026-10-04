@@ -121,24 +121,81 @@ function esc(v){
 }
 
 async function api(action,data={},method='GET'){
-  let url=API+'?action='+encodeURIComponent(action);
+  if(action==='actualizar_anunciante_comercial')return ghSaveAdvertiserDelta_(data);
+  if(action==='guardar_catalogo'){
+    const item=data.item||{},idField=(GH_CATALOGOS.find(d=>d.tipo===data.tipo)||{idField:'nodo_id'}).idField;
+    const previous=(GH_CATALOG_CACHE[data.tipo]||[]).find(x=>String(x[idField]||x.id||'')===String(item[idField]||''));
+    if(previous){
+      const patch={};
+      for(const [k,v]of Object.entries(item))if(k===idField||ghDifferent_(previous[k],v))patch[k]=v;
+      if(Object.keys(patch).every(k=>k===idField))return{success:true,updated:false,item:previous};
+      data={...data,item:patch};
+    }
+  }
+  const routes={
+    buscar_suscriptores:'/subscribers/search',buscar_anunciantes:'/advertisers/search',
+    detalle_suscriptor:'/subscribers/'+encodeURIComponent(data.suscriptor_id||''),
+    detalle_anunciante:'/advertisers/'+encodeURIComponent(data.anunciante_id||''),
+    listar_catalogo:'/catalogs/'+encodeURIComponent(data.tipo||''),
+    guardar_catalogo:'/catalogs/'+encodeURIComponent(data.tipo||'')
+  };
+  if(!routes[action])throw new Error('Acción administrativa no conectada: '+action);
+  return ghAdminRequest_(routes[action],data,method);
+}
+
+async function ghAdminRequest_(path,data={},method='GET'){
+  let url=API+path;
   const opts={method,headers:{}};
 
   if(TOKEN) opts.headers.Authorization='Bearer '+TOKEN;
 
   if(method==='POST'){
     opts.headers['Content-Type']='application/json';
-    opts.body=JSON.stringify({action,...data});
+    opts.body=JSON.stringify(data);
   }else{
     Object.entries(data).forEach(([k,v])=>{
-      url+='&'+encodeURIComponent(k)+'='+encodeURIComponent(v??'');
+      url+=(url.includes('?')?'&':'?')+encodeURIComponent(k)+'='+encodeURIComponent(v??'');
     });
   }
 
   const r=await fetch(url,opts);
   const j=await r.json();
-  if(!j.success) throw new Error(j.message||j.error||'Error');
+  if(!r.ok||!j.success) throw new Error(j.message||j.error||'Error');
   return j;
+}
+
+let GH_EDIT_BASE=null;
+function ghComparable_(v){
+  if(Array.isArray(v))return v.every(x=>typeof x!=='object')?[...v].sort():v.map(ghComparable_);
+  if(v&&typeof v==='object')return Object.fromEntries(Object.keys(v).sort().map(k=>[k,ghComparable_(v[k])]));
+  return v;
+}
+function ghDifferent_(a,b){return JSON.stringify(ghComparable_(a))!==JSON.stringify(ghComparable_(b));}
+async function ghSaveAdvertiserDelta_(data){
+  if(!GH_EDIT_BASE||GH_EDIT_BASE.anunciante_id!==data.anunciante_id)throw new Error('Volvé a abrir la ficha antes de guardar.');
+  const id=encodeURIComponent(data.anunciante_id),base=GH_EDIT_BASE;
+  let changed=false;
+  for(const [route,fields]of [
+    ['commercial',['nivel','subnivel','aprobado','verificado','gold','funcionalidades']],
+    ['profile',['segmento_id','categoria_ids','pet','eco','gayfriendly']]
+  ]){
+    const patch={};
+    for(const k of fields)if(ghDifferent_(base[k],data[k]))patch[k]=data[k];
+    if(!Object.keys(patch).length)continue;
+    await ghAdminRequest_('/advertisers/'+id+'/'+route,{payload:patch},'POST');
+    Object.assign(base,patch);changed=true;
+  }
+  const old=new Map((base.sedes||[]).map(s=>[s.sede_id,s])),sedes=[];
+  for(const row of data.sedes||[]){
+    const previous=old.get(row.sede_id)||{},patch={sede_id:row.sede_id};
+    for(const k of ['actividad_ids','accion_ids','nodo_ids'])if(ghDifferent_(previous[k],row[k]))patch[k]=row[k];
+    if(Object.keys(patch).length>1)sedes.push(patch);
+  }
+  if(sedes.length){
+    await ghAdminRequest_('/advertisers/'+id+'/sedes/relations',{sedes},'POST');
+    base.sedes=structuredClone(data.sedes);changed=true;
+  }
+  return{success:true,updated:changed};
 }
 
 async function login(){
@@ -492,18 +549,24 @@ async function detalleAnu(id){
     const actCat=actJ.results||[], accCat=accJ.results||[], nodoCat=nodoJ.results||[];
     const sedes=(j.sedes||[]).map(s=>{const sid=String(s.sede_id||s.id||'');const acts=new Set((s.actividad_ids||[]).map(String)),accs=new Set((s.accion_ids||[]).map(String));const nodos=new Set((s.nodo_ids||[]).map(String));const act=actCat.filter(x=>x.activo!==false).map(x=>{const v=String(x.actividad_id||x.id||'');return '<label><input type="checkbox" data-sede="'+esc(sid)+'" data-rel-act="'+esc(v)+'" '+(acts.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');const ac=accCat.filter(x=>x.activo!==false).map(x=>{const v=String(x.accion_id||x.id||'');return '<label><input type="checkbox" data-sede="'+esc(sid)+'" data-rel-acc="'+esc(v)+'" '+(accs.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');const nod=nodoCat.filter(x=>x.activo!==false&&(!s.ciudad_id||String(x.ciudad_id||'')===String(s.ciudad_id))).map(x=>{const v=String(x.nodo_id||x.id||'');return '<label><input type="checkbox" data-sede="'+esc(sid)+'" data-rel-nodo="'+esc(v)+'" '+(nodos.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');return '<details><summary><b>Sede: '+esc(s.nombre_sede||s.nombre||s.direccion||sid)+'</b></summary><details><summary>Actividades clave</summary><div class="checks">'+(act||'<span class="muted">Sin actividades.</span>')+'</div></details><details><summary>Acciones</summary><div class="checks">'+(ac||'<span class="muted">Sin acciones.</span>')+'</div></details><details><summary>Nodos / zonas / barrios</summary><div class="checks">'+(nod||'<span class="muted">Sin nodos para esta ciudad.</span>')+'</div></details></details>';}).join('');
     box.innerHTML='<h3>'+esc(nombre)+'</h3><div class="muted" style="margin-bottom:12px">ID: '+esc(id)+'</div><div class="card"><h3>Estado</h3><div class="checks"><label><input id="anuAprobado" type="checkbox" '+(adm.aprobado===true?'checked':'')+'> Publicado / aprobado</label></div><div class="muted">Pausa, bloqueo y baja se incorporarán cuando estén conectados al comportamiento público real; no se muestran controles falsos.</div></div><div class="card"><h3>Clasificación comercial</h3><div class="formgrid"><div><label>Segmento</label><select id="anuSegmento">'+segOpts+'</select></div><div><label>Nivel</label><select id="anuNivel">'+nivelOpts+'</select></div><div><label>Subnivel</label><input id="anuSubnivel" value="'+esc(adm.subnivel||'')+'"></div></div><details><summary><b>Categorías</b></summary><div class="checks">'+(cats||'<span class="muted">Sin categorías cargadas.</span>')+'</div></details></div><div class="card"><h3>Distinciones / etiquetas</h3><div class="checks"><label><input id="anuVerificado" type="checkbox" '+(adm.verificado===true?'checked':'')+'> Verificado</label><label><input id="anuGold" type="checkbox" '+(adm.gold===true?'checked':'')+'> Gold</label><label><input id="anuPet" type="checkbox" '+(a.pet===true?'checked':'')+'> Pet friendly</label><label><input id="anuEco" type="checkbox" '+(a.eco===true?'checked':'')+'> Eco friendly</label><label><input id="anuGay" type="checkbox" '+(a.gayfriendly===true?'checked':'')+'> Gay friendly</label></div></div><div class="card"><details><summary><b>Funcionalidades</b></summary><div class="checks">'+(funcs||'<span class="muted">Sin funcionalidades cargadas.</span>')+'</div></details></div><div class="card"><h3>Sedes y relaciones</h3>'+(sedes||'<div class="muted">Sin sedes cargadas.</div>')+'</div><button id="btnGuardarAnu" onclick="guardarAnuncianteComercial()">Guardar cambios</button><span id="anuGuardarMsg" style="margin-left:10px"></span>';
+    GH_EDIT_BASE=ghAdvertiserFormPayload_();
     informarAltura();
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 
 function volverAnunciantes(){document.getElementById('anuFicha').classList.add('hidden');document.getElementById('anuListado').classList.remove('hidden');ANUNCIANTE_ACTUAL='';informarAltura();}
 
+function ghAdvertiserFormPayload_(){
+  const categoria_ids=[...document.querySelectorAll('[data-anu-cat]:checked')].map(x=>x.getAttribute('data-anu-cat'));const funcionalidades=[...document.querySelectorAll('[data-anu-fun]:checked')].map(x=>x.getAttribute('data-anu-fun'));
+    const sedes=[...new Set([...document.querySelectorAll('[data-sede]')].map(x=>x.getAttribute('data-sede')))].map(sede_id=>({sede_id,actividad_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-act]:checked')].map(x=>x.getAttribute('data-rel-act')),accion_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-acc]:checked')].map(x=>x.getAttribute('data-rel-acc')),nodo_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-nodo]:checked')].map(x=>x.getAttribute('data-rel-nodo'))}));
+  return {anunciante_id:ANUNCIANTE_ACTUAL,nivel:document.getElementById('anuNivel').value,subnivel:document.getElementById('anuSubnivel').value.trim(),segmento_id:document.getElementById('anuSegmento').value,categoria_ids,aprobado:document.getElementById('anuAprobado').checked,verificado:document.getElementById('anuVerificado').checked,gold:document.getElementById('anuGold').checked,pet:document.getElementById('anuPet').checked,eco:document.getElementById('anuEco').checked,gayfriendly:document.getElementById('anuGay').checked,funcionalidades,sedes,ciudad_ids:ANUNCIANTE_CIUDADES};
+}
+
 async function guardarAnuncianteComercial(){
   if(!ANUNCIANTE_ACTUAL)return;const msg=document.getElementById('anuGuardarMsg');msg.className='muted';msg.textContent='Guardando...';
-  try{const categoria_ids=[...document.querySelectorAll('[data-anu-cat]:checked')].map(x=>x.getAttribute('data-anu-cat'));const funcionalidades=[...document.querySelectorAll('[data-anu-fun]:checked')].map(x=>x.getAttribute('data-anu-fun'));
-    const sedes=[...new Set([...document.querySelectorAll('[data-sede]')].map(x=>x.getAttribute('data-sede')))].map(sede_id=>({sede_id,actividad_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-act]:checked')].map(x=>x.getAttribute('data-rel-act')),accion_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-acc]:checked')].map(x=>x.getAttribute('data-rel-acc')),nodo_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-nodo]:checked')].map(x=>x.getAttribute('data-rel-nodo'))}));
-    await api('actualizar_anunciante_comercial',{anunciante_id:ANUNCIANTE_ACTUAL,nivel:document.getElementById('anuNivel').value,subnivel:document.getElementById('anuSubnivel').value.trim(),segmento_id:document.getElementById('anuSegmento').value,categoria_ids,aprobado:document.getElementById('anuAprobado').checked,verificado:document.getElementById('anuVerificado').checked,gold:document.getElementById('anuGold').checked,pet:document.getElementById('anuPet').checked,eco:document.getElementById('anuEco').checked,gayfriendly:document.getElementById('anuGay').checked,funcionalidades,sedes,ciudad_ids:ANUNCIANTE_CIUDADES},'POST');
-    msg.className='success';msg.textContent='Guardado';
+  try{
+    const result=await api('actualizar_anunciante_comercial',ghAdvertiserFormPayload_(),'POST');
+    msg.className='success';msg.textContent=result.updated?'Guardado':'Sin cambios';
   }catch(e){msg.className='error';msg.textContent=e.message;}
 }
 
