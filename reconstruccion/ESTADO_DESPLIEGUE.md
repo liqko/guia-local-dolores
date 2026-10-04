@@ -137,10 +137,13 @@ Se conservan las 15 pruebas de mutaciones, Farmacias, Suscriptores y navegador
 público. Las lecturas públicas se comprueban sin acceso Firestore; las mutaciones
 se comprueban con contadores de documentos de prueba. Esto no mide la factura real.
 
-## Paso siguiente: pruebas en entorno real controlado
+## Estado corregido el 4/10: cierre de aislamiento pendiente
 
-El código de este alcance queda preparado para comenzar pruebas con configuración,
-KV inicializado y datos reales de prueba. Sigue sin desplegar a producción.
+La conclusión anterior de que el alcance estaba cerrado fue prematura. Falta
+comprobar y corregir por acción los campos escritos y las consultas relacionadas,
+en coordinación entre usuario final, anunciante y administración existente.
+El registro vigente y el recorrido de cierre están en [CONTINUIDAD.md](CONTINUIDAD.md).
+Sigue sin desplegar a producción.
 Hay que validar credenciales, carga inicial KV, llegada real del correo y los
 recorridos con datos completos. Las pruebas actuales usan DB/KV aislados y correo
 simulado. No certifican que la aplicación desplegada ya funcione.
