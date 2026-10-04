@@ -152,3 +152,10 @@ simulado. No certifican que la aplicación desplegada ya funcione.
 
 Los pendientes históricos siguen pendientes; por ejemplo, la eliminación definitiva
 del anunciante conserva el aviso de acción no conectada que ya tenía el panel.
+
+## Preparación V38
+
+El generador y recorrido están en pruebas/preparar-entorno.mjs y
+pruebas/RECORRIDO_REAL.md. Su prueba local y el control de proyecto/configuración
+están aprobados. No hay entorno real desplegado ni datos/correo reales probados.
+Los destinos de pruebas y el proyecto separado deben configurarse antes de ejecutar.

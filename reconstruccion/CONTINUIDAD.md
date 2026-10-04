@@ -8,7 +8,7 @@ Actualizado: 4 de octubre de 2026, Argentina. Este registro debe leerse antes de
 - Código V37 publicado: 77d3a01f369bda3138dc1d9df09a424894f9c5fc.
 - CI de ese código aprobado: https://github.com/liqko/guia-local-dolores/actions/runs/37210400241 (incluye aislamiento y tres pruebas de navegador).
 - Worker vigente: worker/app-main-v35.js; público V12, panel V15, administración V11.
-- La reconstrucción NO está cerrada: las pruebas anteriores no acreditan aislamiento de todas las operaciones.
+- V37 es candidata con aislamiento comprobado en los casos registrados. Falta validación del entorno real; no declarar producción aprobada.
 - Tres planos coordinados: usuario final, anunciante y administrador Gran Hermano.
 - Revisar las acciones administrativas existentes que afectan los mismos datos y su publicación en KV. No confundir esto con desarrollar retoques pendientes de Gran Hermano.
 - No implementar los 61 pendientes históricos, altas incompletas ni nuevas funciones.
@@ -23,8 +23,8 @@ Actualizado: 4 de octubre de 2026, Argentina. Este registro debe leerse antes de
 | V34 / cb14362 | Suscriptores, revocación de sesiones, puente correo, errores visuales | TEST_SUSCRIPTORES_V34 y TEST_VISUAL_V34; entrega real de correo pendiente |
 | V35 / 5d2624c + 9e549f3 | Sedes sin borrado de anunciante, eventos por ciudad, conservación de filas, cambios de imágenes, categorías | TEST_FLUJO_EXISTENTE_V35: 8 circuitos; TEST_PANEL_VISUAL_V35: navegador simulado; AUDITAR_HTML_V35: 9 HTML sin Firebase directo |
 
-## Hallazgo que impide declarar el cierre
-El frontend ya prepara cambios parciales, pero varios guardados del backend todavía:
+## Hallazgo histórico corregido en V36/V37
+Antes de V36/V37, el frontend preparaba cambios parciales pero varios guardados del backend:
 1. Combinan datos previos y nuevos y envían campos intactos a db.patch.
 2. Consultan programación, horarios, media, segmentación o participantes aunque se cambie sólo un dato general.
 core/db.js genera updateMask con todos los campos recibidos. Reescribir campos intactos no equivale a múltiples escrituras facturadas, pero viola el aislamiento exigido.
@@ -116,11 +116,20 @@ No volver a repetir el recorrido desde cero ni agregar pendientes históricos.
 La corrección central tiene evidencia automática; no presentarla como garantía de factura/correo/configuración real.
 No falta repetir el inventario/corrección común desde cero. Las pruebas reales
 podrán descubrir correcciones adicionales; registrarlas por separado con su evidencia.
-Aplicar aislamiento de guardados en los seis módulos pendientes con pruebas de operaciones.
 No usar una instantánea KV potencialmente obsoleta como sustituto de validación autoritativa de propiedad o borrado.
 
 ## Pruebas reales y continuidad
-- Las pruebas técnicas ya existen; la candidatura para pruebas reales queda pendiente del cierre anterior.
+- Las pruebas técnicas ya existen y V37 es candidata para pruebas reales controladas.
 - Correo real, credenciales, seed KV y datos reales de prueba requieren entorno controlado. No se probaron en producción.
 - Si se corta el chat: recuperar esta rama, leer este archivo y ESTADO_DESPLIEGUE.md, comprobar git log/status y seguir desde el próximo bloque sin rehacer lo aprobado.
 - Capturas de /tmp son intermediarios; las evidencias duraderas de navegador están en los artefactos del workflow.
+
+## Avance V38 — preparación de pruebas controladas, 4/10
+- Confirmada la última ejecución ecb8376: los cuatro workflows terminaron SUCCESS, incluido V35 run 37210512033. No estaba colgada.
+- pruebas/preparar-entorno.mjs genera nueve HTML y copia el grafo vigente del Worker a una carpeta nueva. Reemplaza API y navegación por destinos de prueba separados; preserva originales.
+- Entry exclusivo app-controlled-test.js rechaza configuración incompleta/proyecto distinto antes de DB/KV y marca respuestas válidas con X-GLD-Controlled-Test: V38. No modifica el entry original.
+- Manifiesto registra hashes originales/generados, proyecto, destinos y variables necesarias sin secretos.
+- TEST_ENTORNO_CONTROLADO_V38 aprobado: nueve pantallas con scripts válidos, navegación, rechazo de origen habitual/sobrescritura, protección de proyecto y conservación del Worker. Incluido en workflow V35.
+- Recorrido concreto: pruebas/RECORRIDO_REAL.md. Cubre seed explícito, tres planos, última sede, moderación, correo real, móvil/escritorio y evidencia de consumos.
+- No hubo despliegue, seed ni envío de correo real. Faltan destinos/proyecto/KV/puente y credenciales de prueba configurados en un entorno separado. No hay evidencia de acceso disponible a Cloudflare en esta sesión.
+- Siguiente paso: recibir o localizar configuración del entorno de pruebas, generar paquete con esos valores, verificarlo y ejecutar el recorrido. No rehacer V37 ni ampliar pendientes históricos.
