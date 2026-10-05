@@ -121,3 +121,14 @@ Prueba del resumen y cero operaciones adicionales aprobada; sintaxis del bundle 
 Despliegue V42 manual pendiente; causa histórica de 1900 no demostrada.
 Worker antiguo tenía carga completa territorial con caché vacía; es una hipótesis,
 no prueba de la versión activa entonces. Inicio corregido y hosting SUCCESS run37387184457.
+
+## 5/10 21:00 Argentina — carga inicial KV desde GH
+Usuario confirma Worker V42 desplegado. Se agrega botón manual Cargar datos iniciales
+en Inicio de GH, POST /superadmin/rebuild-all-cache mediante helper Bearer existente.
+No se ejecuta al entrar, no recarga pendientes/colecciones luego, bloquea doble clic
+mientras ejecuta y al completar. Error ambiguo queda bloqueado para evitar reintento
+accidental; usuario debe aportar registro antes de repetir. Backend conserva roles.
+Explicación visible: lee Firestore explícitamente y copia KV sin modificar/eliminar
+originales. TEST_CARGA_INICIAL_KV valida script completo y flujo éxito/error sin carga automática.
+No se ejecutó seed desde herramientas; siguiente acción usuario pulsa UNA VEZ botón
+y reporta mensaje final; observación V42 identificará esa carga y sus documentos.
