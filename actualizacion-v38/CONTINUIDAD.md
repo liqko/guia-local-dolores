@@ -97,3 +97,18 @@ TEST_OBSERVACION_V41 y login V40 aprobados; 43 casos públicos KV frío/poblado 
 Siguiente: usuario pega Worker V41, activa vista de registros Cloudflare y reproduce
 un acceso; comparar operaciones observadas con aumento Firebase. Catálogo KV todavía
 no inicializado. No afirmar origen de 1900 ni problema de consumo resuelto.
+
+## 5/10 20:10 Argentina — medición real y corrección de inicio
+Registro aportado por usuario de V41 /superadmin/moderation/pending:
+queryEqual eventos 2 llamadas; actividades 1; solicitudes_anunciante 1.
+Todas devolvieron cero documentos y cero fallos. Esto no identifica el origen
+histórico de 1900 lecturas; documentos devueltos no equivale a facturación exacta.
+Se mantiene íntegra la carga automática de pendientes. No se agregó caché obsoleta
+sin resolver invalidación de todos los productores.
+Inicio.html quedó fuera de la migración de nueve HTML y usaba commerce?action=ubicaciones.
+Corregido en el mismo archivo original a territory/public (KV), sesión v2 y campos
+provincia_visible/pais_visible. Una solicitud inicial, búsquedas locales, sin fallback
+Firestore ni reintentos. TEST_INICIO_KV aprobado con éxito/error de catálogo.
+KV sigue sin inicializar: esta corrección por sí sola no carga ciudades hasta seed.
+Próximo: detalles de logs dashboard y commerce del mismo acceso, luego inicialización
+explícita KV. No repetir barridos de auditoría ni afirmar causa de 1900 identificada.
