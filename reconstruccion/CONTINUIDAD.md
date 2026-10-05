@@ -161,6 +161,14 @@ la activación web todavía no está comprobada.
 - Error de arranque separado observado: Falta binding GLD_CACHE_KV. El usuario debe vincular KV con ese nombre; el código no puede crear bindings.
 - Luego confirmar despliegue manual V39 y avanzar pruebas reales; correo/seed aún pendientes.
 # Incidencia real 5/10 — login GH V40
+V41 añade observación DB en memoria por solicitud/colección, documentos devueltos
+y errores, sin parámetros/correos/claves/cuerpos ni llamadas adicionales. Raíz V41.
+Usuario exige mantener carga automática de pendientes; intento local de quitarla
+se revirtió sin publicar. GH sigue idéntico al publicado; no seed ejecutado.
+Captura confirma 1.9K lecturas desde cero; causa pendiente. No equivaler documentos
+devueltos con lecturas facturadas exactas. Logs sólo cubren este Worker.
+Pruebas observación V41, login V40 y público 43 casos aprobadas. Usuario debe pegar
+V41 y observar registros Cloudflare al acceder para identificar consultas reales.
 Hosting original Firebase ya actualizado: run 37334028552 SUCCESS.
 KV GLD_CACHE_KV vinculado; catálogo no inicializado todavía.
 Login GH reconstruido consultaba clave en superadmins. Worker histórico prueba
