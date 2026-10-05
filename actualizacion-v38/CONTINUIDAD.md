@@ -75,3 +75,25 @@ Prueba TEST_LOGIN_ADMIN_V40 aprobada y aislamiento admin 24 casos aprobado.
 Prueba visual no pudo arrancar: Chromium ausente en este workspace.
 Artefacto worker/WORKER_COMPLETO_V40.js empaquetado con esbuild 0.25.10, sintaxis OK.
 Usuario debe pegar V40 completo y desplegarlo. KV inicial todavía pendiente.
+
+Usuario confirmó ingreso exitoso con V40 el 5/10 13:26 Argentina.
+Se preparó localmente un botón de carga inicial y una supresión de carga automática
+pendientes, pero no se publicaron. Usuario exige conservar pendientes automáticos;
+se restableció el HTML publicado íntegro. NO afirmar que se quitó la funcionalidad.
+
+## V41 — observación de consultas, sin cambiar funciones
+Usuario confirma desde cero hasta 1.9K lecturas diarias, retraso 10–15 minutos.
+Captura 5/10 muestra 1.9K lecturas, cero escrituras/eliminaciones. Origen aún no
+identificado; no hubo carga inicial KV ejecutada por este agente ni publicada UI de seed.
+Carcasa Firebase descargada coincide byte por byte con main actualizada.
+Worker V41 registra por solicitud método/ruta, operaciones DB por colección,
+invocaciones/documentos devueltos/errores. Sin IDs de documento, valores de filtros,
+correos, claves, cuerpos ni tokens. No crea escrituras ni lecturas para instrumentar.
+X-GLD-Request-Id permite correlacionar respuesta con registro de Cloudflare.
+Estas cifras son operaciones observadas, NO medición exacta de facturación Firebase:
+no incluyen mínimos de consultas vacías, indexación ni clientes externos al Worker.
+Login V40 conservado; carga automática de pendientes conservada. Raíz informa V41.
+TEST_OBSERVACION_V41 y login V40 aprobados; 43 casos públicos KV frío/poblado sin DB.
+Siguiente: usuario pega Worker V41, activa vista de registros Cloudflare y reproduce
+un acceso; comparar operaciones observadas con aumento Firebase. Catálogo KV todavía
+no inicializado. No afirmar origen de 1900 ni problema de consumo resuelto.
