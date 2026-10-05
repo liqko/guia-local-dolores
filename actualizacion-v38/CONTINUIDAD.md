@@ -62,3 +62,16 @@ Se restaura el workflow histórico firebase-hosting-merge.yml en main, que publi
 en anunciantes-guialocal usando el secreto existente, sin valores secretos nuevos.
 Verificar resultado del workflow y HTML remoto antes de afirmar publicación.
 Después login administrativo y carga inicial explícita de KV; todavía no ejecutada.
+
+Publicación Firebase run 37334028552 terminó SUCCESS; HTML remoto confirmó
+/superadmin/session/login. Usuario después recibió Mail o clave incorrectos.
+Comparación con WORKER_GRAN_HERMANO_30SEP_CORREGIDO_LECTURAS.txt demostró error:
+credenciales históricas en suscriptores; superadmins contiene permisos, no clave.
+V40 restaura consulta acotada suscriptores.mail y compara clave allí; luego permiso
+superadmins por documento sid, con fallback queryEqual suscriptor_id limit 5.
+Rechaza suscriptor inactivo, permiso ausente/inactivo y roles no habilitados.
+No escribe, elimina ni barre colecciones. Token firmado conserva sid del suscriptor.
+Prueba TEST_LOGIN_ADMIN_V40 aprobada y aislamiento admin 24 casos aprobado.
+Prueba visual no pudo arrancar: Chromium ausente en este workspace.
+Artefacto worker/WORKER_COMPLETO_V40.js empaquetado con esbuild 0.25.10, sintaxis OK.
+Usuario debe pegar V40 completo y desplegarlo. KV inicial todavía pendiente.
