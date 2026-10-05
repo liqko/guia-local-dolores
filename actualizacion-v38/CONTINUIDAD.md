@@ -50,3 +50,15 @@ La captura también muestra Falta binding GLD_CACHE_KV: requiere vincular el
 namespace KV con ese nombre en Cloudflare. Corregir el JS no crea esa vinculación.
 Siguiente paso: entregar V39, usuario reemplaza código y revisa binding, después
 comprobar arranque y seed/publicación/correo real.
+
+## Incidencias reales — 5/10/2026
+KV GLD_CACHE_KV creado y vinculado por el usuario al Worker login. Raíz responde
+success:true. Namespace ID a3f3f31d7a3b44a9973767bfb033b5b7.
+Hosting real del embed: https://anunciantes-guialocal.web.app/plataforma/granhermano.html.
+Descarga del HTML publicado confirmó versión anterior: login mediante api('login'),
+incompatible con /superadmin/session/login. No es evidencia de contraseña inválida.
+GET /territory/public devuelve 503: Catálogo territorial no inicializado.
+Se restaura el workflow histórico firebase-hosting-merge.yml en main, que publica
+en anunciantes-guialocal usando el secreto existente, sin valores secretos nuevos.
+Verificar resultado del workflow y HTML remoto antes de afirmar publicación.
+Después login administrativo y carga inicial explícita de KV; todavía no ejecutada.
