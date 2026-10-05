@@ -160,3 +160,12 @@ la activación web todavía no está comprobada.
 - Main recibe worker/WORKER_COMPLETO_V39.js. V38 se conserva como histórico.
 - Error de arranque separado observado: Falta binding GLD_CACHE_KV. El usuario debe vincular KV con ese nombre; el código no puede crear bindings.
 - Luego confirmar despliegue manual V39 y avanzar pruebas reales; correo/seed aún pendientes.
+# Incidencia real 5/10 — login GH V40
+Hosting original Firebase ya actualizado: run 37334028552 SUCCESS.
+KV GLD_CACHE_KV vinculado; catálogo no inicializado todavía.
+Login GH reconstruido consultaba clave en superadmins. Worker histórico prueba
+que clave reside en suscriptores y superadmins sólo tiene permisos por suscriptor_id.
+Corrección superadmin-session-v2.js usa consulta indexada de suscriptor + permiso
+por sid (fallback queryEqual limitado a 5), sin barridos ni mutaciones.
+TEST_LOGIN_ADMIN_V40 y aislamiento admin 24 casos aprobados. Visual no arrancó
+por falta de Chromium. Worker completo V40 en main para despliegue manual del usuario.

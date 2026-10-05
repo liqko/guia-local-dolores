@@ -1,6 +1,6 @@
 /**
  * SESION GRAN HERMANO V2
- * Login por consulta indexada de mail; sesión HMAC sin lectura Firestore posterior.
+ * Credenciales del suscriptor y permiso administrativo por ID; sin barridos.
  * Mantiene compatibilidad con clave en texto existente.
  */
 const text=v=>String(v??"").trim();
@@ -41,15 +41,26 @@ export async function superadminLoginV2({env,db,body}){
 
   if(!mail||!clave)return{success:false,message:"Falta mail o clave"};
 
-  let rows=await db.queryEqual("superadmins","mail",mail,5);
+  let rows=await db.queryEqual("suscriptores","mail",mail,5);
   if(!rows.length&&original&&original!==mail){
-    rows=await db.queryEqual("superadmins","mail",original,5);
+    rows=await db.queryEqual("suscriptores","mail",original,5);
   }
 
-  const admin=rows.find(a=>norm(a.mail)===mail);
-  if(!admin||text(admin.clave)!==clave){
+  const sus=rows.find(a=>norm(a.mail)===mail);
+  if(!sus||text(sus.clave)!==clave){
     return{success:false,message:"Mail o clave incorrectos"};
   }
+  if(sus.activo!==""&&sus.activo!==null&&sus.activo!==undefined&&!truthy(sus.activo)){
+    return{success:false,message:"Suscriptor no activo"};
+  }
+  const sid=text(sus.suscriptor_id||sus.id);
+  if(!sid)return{success:false,message:"Suscriptor sin ID válido"};
+  let admin=await db.get("superadmins",sid);
+  if(!admin){
+    const permisos=await db.queryEqual("superadmins","suscriptor_id",sid,5);
+    admin=permisos.find(a=>text(a.suscriptor_id)===sid);
+  }
+  if(!admin)return{success:false,message:"Esta cuenta no tiene acceso a este panel"};
   if(!truthy(admin.activo)){
     return{success:false,message:"Administrador no activo"};
   }
@@ -59,20 +70,21 @@ export async function superadminLoginV2({env,db,body}){
     return{success:false,message:"Esta cuenta no está habilitada para Gran Hermano"};
   }
 
-  const sid=text(admin.id||admin.superadmin_id);
-  if(!sid)return{success:false,message:"Administrador sin ID válido"};
-
-  const token=await issue(env,{sid,rol:role,nombre:text(admin.nombre),mail:text(admin.mail)});
+  const nombre=text(sus.nombre||admin.nombre);
+  const token=await issue(env,{sid,rol:role,nombre,mail:text(sus.mail)});
 
   return{
     success:true,
     token,
     admin:{
       id:sid,
-      nombre:text(admin.nombre),
-      mail:text(admin.mail),
+      suscriptor_id:sid,
+      nombre,
+      mail:text(sus.mail),
       rol:role,
-      activo:true
+      activo:true,
+      ciudades:Array.isArray(admin.ciudades)?admin.ciudades:[],
+      permisos:admin.permisos&&typeof admin.permisos==="object"?admin.permisos:{}
     },
     expires_in_seconds:8*60*60
   };
