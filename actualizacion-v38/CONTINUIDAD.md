@@ -112,3 +112,12 @@ Firestore ni reintentos. TEST_INICIO_KV aprobado con éxito/error de catálogo.
 KV sigue sin inicializar: esta corrección por sí sola no carga ciudades hasta seed.
 Próximo: detalles de logs dashboard y commerce del mismo acceso, luego inicialización
 explícita KV. No repetir barridos de auditoría ni afirmar causa de 1900 identificada.
+
+## V42 — registro visible por acción, 5/10 20:22 Argentina
+Worker completo V42 añade resumen message en tabla Cloudflare con ruta, estado,
+consultas, documentos devueltos, escrituras, eliminaciones y fallos; fecha UTC/versión/ID
+más detalle por colección. No agrega operaciones DB/KV ni registra claves/cuerpos.
+Prueba del resumen y cero operaciones adicionales aprobada; sintaxis del bundle aprobada.
+Despliegue V42 manual pendiente; causa histórica de 1900 no demostrada.
+Worker antiguo tenía carga completa territorial con caché vacía; es una hipótesis,
+no prueba de la versión activa entonces. Inicio corregido y hosting SUCCESS run37387184457.
