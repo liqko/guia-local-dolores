@@ -177,3 +177,18 @@ Corrección superadmin-session-v2.js usa consulta indexada de suscriptor + permi
 por sid (fallback queryEqual limitado a 5), sin barridos ni mutaciones.
 TEST_LOGIN_ADMIN_V40 y aislamiento admin 24 casos aprobados. Visual no arrancó
 por falta de Chromium. Worker completo V40 en main para despliegue manual del usuario.
+
+## V42 — 5/10 20:22 Argentina, diagnóstico visible por acción
+Usuario exige poder atribuir cualquier nuevo pico sin rastreo manual ambiguo.
+Log de cada solicitud ahora incluye message visible en tabla Cloudflare, inicio UTC,
+versión, estado HTTP y totales de llamadas de lectura/documentos devueltos/patch/delete/fallos.
+Conserva desglose por colección y request_id. No registra cuerpos ni secretos ni
+agrega operaciones Firestore/KV. No confundir conteos con factura exacta.
+TEST_OBSERVACION_V41 ampliado valida resumen/errores/estados HTTP/cero llamadas extra.
+Worker completo V42 generado y sintaxis aprobada; despliegue manual del usuario pendiente.
+Causa histórica de 1900 sigue NO demostrada. Worker histórico 30SEP tenía fallback
+loadPublicLocations_ que barría países/provincias/ciudades cuando caché estaba vacía;
+no demuestra que esa versión estaba activa en el instante del salto. Pendientes
+histórico también barría colecciones, V41 usa cuatro consultas vacías observadas.
+Inicio original corregido main 6b4c85d, hosting run37387184457 SUCCESS.
+No seed todavía. Próximo iniciar KV explícitamente y comprobar pruebas reales.

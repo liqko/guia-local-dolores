@@ -4,7 +4,7 @@ import {cors,json} from "./core/http.js";
 import {routePublicV12} from "./routes/public-v12.js";
 import {routePanelV15} from "./routes/panel-v15.js";
 import {routeAdminV11} from "./routes/admin-v11.js";
-import {observeDbV41,observationPathV41} from "./core/db-observation-v41.js";
+import {observeDbV41,observationPathV41,finishObservationV42} from "./core/db-observation-v41.js";
 
 const clean=p=>{
   p=String(p||"/").replace(/\/+/g,"/");
@@ -13,8 +13,9 @@ const clean=p=>{
 
 export default{
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'41',request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'42',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     const traced=response=>{
+      report.status=response.status;
       const headers=new Headers(response.headers);
       headers.set('X-GLD-Request-Id',report.request_id);
       return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
@@ -23,9 +24,11 @@ export default{
       if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors()});
       const url=new URL(request.url),path=clean(url.pathname);
       const db=observeDbV41(createDb(env),report),cache=createCache(env);
+      const legacyAction=url.searchParams.get('action');
+      if(['ubicaciones','locations','bootstrap','publicas','turnos','publicas','efemerides','login'].includes(legacyAction))report.action=legacyAction;
       const ctx={path,request,url,env,db,cache};
 
-      if(path==="/")return traced(json({success:true,app:"Guía Local reconstrucción modular",version:"41"}));
+      if(path==="/")return traced(json({success:true,app:"Guía Local reconstrucción modular",version:"42"}));
 
       const pub=await routePublicV12(ctx);if(pub)return traced(pub);
       const panel=await routePanelV15(ctx);if(panel)return traced(panel);
@@ -35,7 +38,7 @@ export default{
     }catch(err){
       return traced(json({success:false,message:String(err&&err.message?err.message:err)},500));
     }finally{
-      if(request.method!=="OPTIONS")console.log(JSON.stringify(report));
+      if(request.method!=="OPTIONS")console.log(JSON.stringify(finishObservationV42(report)));
     }
   }
 };
