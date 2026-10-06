@@ -190,3 +190,12 @@ por sólo cuatro endpoints públicos observados.
 - Mantener una única sesión HMAC (8 h). Autorizaciones en sesión ya permiten consulta sin Firestore; persistencia compartida requiere mismo origen y almacenamiento permitido. No afirmar funcionamiento real del iframe/Jimdo hasta prueba.
 - El índice KV administrativo de suscriptores NO contiene credenciales ni relaciones completas; no equivale a caché del login. Primera autenticación sigue leyendo suscriptor y relaciones Firestore. Cache privado incremental de relaciones aún no implementado; no prometer cero lecturas de autenticación.
 - V43 sigue preparado, despliegue manual no confirmado. Esta corrección de panel funciona con V42/V43 y no requiere seed. Propuesta anterior de separar logins se corrige: diferenciar cargas por plano conservando sesión común.
+
+
+## 2026-10-06 — V44: barrera pública y comprobación visible
+- Cronología confirmada por Diego: 0 → 644 exclusivamente al entrar y elegir ciudad; luego tarjetas → login de usuario → actividades produjo otras 25, total 669. No atribuir las 644 a las acciones posteriores. Causa histórica todavía sin prueba.
+- Worker completo V44 preparado, pendiente de instalación manual. Conserva V43 (reducción de consultas en login y acción segura) y añade contadores en cabeceras CORS: versión, request_id, consultas, documentos devueltos, escrituras, eliminaciones y fuente. No equivalen a lecturas facturadas.
+- Router público recibe barrera sin cliente Firestore: bloquea get/queryEqual/listCollection/patch/delete antes de ejecutarlos. Panel y administración conservan su cliente observado. No reconstruye KV ni hace seed.
+- Los diez HTML originales cargan consumo-v44.js antes de sus llamadas. Registro local acotado a 80 respuestas del Worker; no almacena cuerpos, claves, correo, ciudad ni tokens. Inicio, carcasa, suscriptores, anunciante y Gran Hermano muestran “Ver comprobación de consultas”. Sin contadores aparece “Sin medición”, nunca cero supuesto.
+- Verificación local: 43 casos públicos, 24 casos suscriptores, observación/barrera, sesión compartida, login y recorder. Bundle V44 probado en cuatro rutas iniciales sin red Firestore. Prueba real y comparación con Firebase pendientes de instalar V44.
+- Caché privada V44 anterior sigue retirada en scratch; no forma parte de esta V44. Próximo bloque: medir llamadas reales login/favoritos/actividades y corregir caché privada con coherencia de permisos y mutaciones.
