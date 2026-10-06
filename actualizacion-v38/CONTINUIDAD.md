@@ -162,3 +162,11 @@ Diagnóstico GLD funciona por Worker; no cubre toda la facturación Firebase. PO
 fue ayer21:04Argentina, no tiene por qué estar en últimas12h de hoy.
 644 lecturas hoy y5000ayer siguen sin origen identificado. No prometer cero facturado
 por sólo cuatro endpoints públicos observados.
+
+
+## 6 octubre: tarjetas generales sin imágenes (corrección frontend)
+- El usuario informa que faltan imágenes en todas las tarjetas. Se comprobó una incompatibilidad común: buildGuideCardBaseV2 conserva img1..img10 y contactos en sedes, mientras renderGaleria y redes de la tarjeta general leen esos campos en la raíz.
+- Corregidos carcasa.html y anunciantes.html: hidratarItem recupera campos vacíos desde la primera sede de la misma ciudad. Conserva campos propios y tarjetas individuales de sede; no agrega peticiones ni requiere reconstruir KV. Categorías por arrays también adaptadas en carcasa.
+- Prueba TEST_GUIA_SEDES_KV.mjs: imágenes en galería general y sede específica, contactos, categorías, conservación de datos propios y anunciante sin sede, sin red. Sintaxis de scripts validada. Prueba previa de categorías y aislamiento público V36 (43 casos) aprobados. Verificación local adicional con buildGuideCardBaseV2 confirmó selección de sedes sólo de la ciudad solicitada.
+- NO se afirma resuelto todo el faltante visual en producción: queda verificar datos reales después del despliegue.
+- 644 lecturas de hoy siguen sin causa probada. Registro V42 sólo observa llamadas realizadas mediante createDb dentro de este Worker; no cubre otros clientes ni atribuye toda la facturación Firestore. No atribuir al seed de ayer, a Firebase console ni al usuario sin evidencia. Revisión estática del flujo público no encontró SDK Firestore directo en inicio/carcasa/guía/promos/eventos/actividades/farmacias; esto no prueba qué originó las 644.
