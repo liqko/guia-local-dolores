@@ -24,6 +24,17 @@ export function observationPathV41(path){
     .replace(/(\/subscribers\/)[^/]+/g,'$1:id');
 }
 
+// El router público recibe esta barrera, nunca el cliente real de Firestore.
+// Si un cambio introduce una consulta accidental, falla antes de ejecutarla.
+export function publicDbGuardV44(report){
+  return Object.fromEntries(['get','queryEqual','listCollection','patch','delete'].map(operation=>[
+    operation, async()=>{
+      report.public_blocked=(report.public_blocked||0)+1;
+      throw new Error('Acceso a Firestore bloqueado en una ruta pública: '+operation);
+    }
+  ]));
+}
+
 // Sólo etiquetas conocidas; nunca incorporar correo, contraseña ni texto arbitrario.
 export async function observationActionV43(request,url){
   let action=url.searchParams.get('action')||'';
