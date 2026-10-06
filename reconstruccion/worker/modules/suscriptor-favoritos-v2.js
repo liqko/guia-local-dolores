@@ -28,7 +28,7 @@ export async function listFavoritesV2({env,request,db,type=""}){
   const wanted=typeOf(type);
   if(type&&!wanted)throw new Error("Tipo de favorito inválido.");
 
-  const rows=await db.queryEqual("suscriptor_favoritos","suscriptor_id",text(s.sid),500);
+  const rows=await (db.subscriberFavorites?db.subscriberFavorites(text(s.sid)):db.queryEqual("suscriptor_favoritos","suscriptor_id",text(s.sid),500));
   const favoritos=rows
     .filter(x=>x.activo===undefined||x.activo===true)
     .filter(x=>!wanted||text(x.tipo).toUpperCase()===wanted);

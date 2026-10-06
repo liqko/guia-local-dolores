@@ -218,3 +218,12 @@ No seed todavía. Próximo iniciar KV explícitamente y comprobar pruebas reales
 
 ### Alerta CI V35 del06/10
 El despliegue Hosting V45 fue SUCCESS (37520706868). Falló prueba del paquete aislado por expectativa fija35 frente a versión45, sin fallo de despliegue. Corregida para comparar versión con Worker vigente y añadidas pruebas login-cache V45/observación al workflow. Worker completo entregado no cambia. Pendiente verificar nueva ejecución CI.
+
+
+## 06 octubre — V46 caché privada persistente y favoritos
+- Login real V45 confirmado por usuario: primer ingreso10consultas/17documentos; segundo1/1. V46 elimina caducidad1hora de vínculos/complementos y migra entradas V45 aún vigentes sin releer Firestore. Cuenta/contraseña siguen comprobándose frescas; sesión conserva vencimiento8h.
+- Favoritos autenticados: primer listado carga sólo los favoritos del sid del token; lista base privada persistente. Lecturas siguientes0Firestore. Tipos/filtros/relaciones activas se conservan. Cada mutación guarda delta por favorito; no sustituye toda la lista y conserva cambios concurrentes de IDs diferentes.
+- Alta1PATCH sin lecturasFirestore; baja1GET pertenencia+1DELETE. DeltasKV y marcador por suscriptor se juntan en respuesta antes de completar petición. Navegación sin cambios usa KVget, no KVlist repetido. Tras cambios se fusiona índice sólo del suscriptor; revalidaciónKV durante propagación, sin consultasFirestore. No prometer visibilidad instantánea entre ubicaciones por consistencia eventualKV.
+- Baja de cuenta elimina también proyecciónKV de favoritos. Caché no guarda contraseñas. Modificaciones externas directas aFirestore necesitan invalidación/republicación explícita; V46 coordina las mutaciones hechas a través de este Worker.
+- Pruebas unidad:11favoritos frío1/11,repetido0/0; duración2h sin recarga, migración45→46, altas/bajas, filtros, sid ajeno rechazado, cambios concurrentes, limpieza de cuenta. Bundle completo REST simulado confirma login10/17→1/1 y favoritos1/11→0/0.43casos públicos/24suscriptores/paquete aislado pasan. Worker completo worker/WORKER_COMPLETO_V46.js listo para copia manual.
+- Pendiente despliegue manual y prueba real de favoritos repetidos. No cerrar644iniciales/25históricas sin atribución. Eventos/Actividades después de esta prueba; Hosting transfer4.1MB/storage124.2MB última captura. Contador708 antes de impacto nuevas llamadas, pendiente reconciliar.

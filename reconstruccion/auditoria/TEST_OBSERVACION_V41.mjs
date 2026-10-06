@@ -36,14 +36,14 @@ try{
  for(const path of ['/', '/territory/public','/guide?ciudad_id=test','/promos?ciudad_id=test']){
    const res=await worker.fetch(new Request('https://test.local'+path),env);
    assert.ok(res.headers.get('X-GLD-Request-Id'));
-   assert.equal(res.headers.get('X-GLD-Worker-Version'),'45');
+   assert.equal(res.headers.get('X-GLD-Worker-Version'),'46');
    for(const name of ['Read-Calls','Documents-Returned','Write-Calls','Delete-Calls','Public-Blocked'])assert.equal(res.headers.get('X-GLD-'+name),'0');
    assert.match(res.headers.get('Access-Control-Expose-Headers'),/X-GLD-Read-Calls/);
    if(path!=='/')assert.equal(res.headers.get('X-GLD-Source'),'public-kv');
  }
  assert.equal(logs.length,4);
  assert.ok(logs.every(x=>Object.keys(x.operations).length===0));
- assert.ok(logs.every(x=>x.worker_version==='45' && x.started_at && x.message.includes('consultas 0, documentos 0')));
+ assert.ok(logs.every(x=>x.worker_version==='46' && x.started_at && x.message.includes('consultas 0, documentos 0')));
  assert.equal(logs[0].status,200);
  assert.equal(logs[1].status,503);
 }finally{console.log=oldLog;globalThis.fetch=oldFetch;}
