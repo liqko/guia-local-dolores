@@ -19,7 +19,7 @@
     view.appendChild(intro);
     const table=document.createElement('table');table.style.cssText='border-collapse:collapse;font:12px sans-serif;min-width:760px';
     const fields=['hora','pagina','ruta','accion','estado','version','consultas','documentos','escrituras','eliminaciones','origen'];
-    const labels=['Hora local','Pantalla','Llamada','Acción','HTTP','Worker','Consultas','Documentos','Escrituras','Eliminaciones','Fuente'];
+    const labels=['Hora Argentina','Pantalla','Llamada','Acción','HTTP','Worker','Consultas','Documentos','Escrituras','Eliminaciones','Fuente'];
     const head=document.createElement('tr');labels.forEach(label=>{const th=document.createElement('th');th.textContent=label;th.style.cssText='padding:6px;border:1px solid #ccc';head.appendChild(th)});table.appendChild(head);
     rows.forEach(row=>{const tr=document.createElement('tr');fields.forEach(field=>{const td=document.createElement('td');td.textContent=row[field]==null?'Sin medición':String(row[field]);td.style.cssText='padding:6px;border:1px solid #ccc';tr.appendChild(td)});table.appendChild(tr)});
     view.appendChild(table);
@@ -40,7 +40,7 @@
     let action=url.searchParams.get('action')||'';
     try{if(options&&typeof options.body==='string'){const body=JSON.parse(options.body);action=body.action||body.accion||action}}catch(_){}
     action=allowed.has(String(action).toLowerCase())?String(action).toLowerCase():'';
-    const row={hora:new Date().toLocaleTimeString('es-AR'),pagina:location.pathname,ruta:url.pathname.replace(/(\/advertisers\/)[^/]+/g,'$1:id').replace(/(\/subscribers\/)[^/]+/g,'$1:id'),accion:action,metodo:String(options&&options.method||input&&input.method||'GET').toUpperCase()};
+    const row={fecha:new Date().toISOString(),hora:new Date().toLocaleTimeString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}),pagina:location.pathname,ruta:url.pathname.replace(/(\/advertisers\/)[^/]+/g,'$1:id').replace(/(\/subscribers\/)[^/]+/g,'$1:id'),accion:action,metodo:String(options&&options.method||input&&input.method||'GET').toUpperCase()};
     try{
       const response=await originalFetch(input,options);
       try{save({...row,estado:response.status,version:response.headers.get('X-GLD-Worker-Version'),request_id:response.headers.get('X-GLD-Request-Id'),consultas:numberHeader(response,'X-GLD-Read-Calls'),documentos:numberHeader(response,'X-GLD-Documents-Returned'),escrituras:numberHeader(response,'X-GLD-Write-Calls'),eliminaciones:numberHeader(response,'X-GLD-Delete-Calls'),origen:response.headers.get('X-GLD-Source'),bloqueadas:numberHeader(response,'X-GLD-Public-Blocked')})}catch(_){}
