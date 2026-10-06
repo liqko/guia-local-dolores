@@ -34,7 +34,7 @@ try{
  }
  assert.equal(logs.length,4);
  assert.ok(logs.every(x=>Object.keys(x.operations).length===0));
- assert.ok(logs.every(x=>x.worker_version==='42' && x.started_at && x.message.includes('consultas 0, documentos 0')));
+ assert.ok(logs.every(x=>x.worker_version==='43' && x.started_at && x.message.includes('consultas 0, documentos 0')));
  assert.equal(logs[0].status,200);
  assert.equal(logs[1].status,503);
 }finally{console.log=oldLog;globalThis.fetch=oldFetch;}

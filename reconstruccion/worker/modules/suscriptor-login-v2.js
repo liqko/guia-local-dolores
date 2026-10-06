@@ -68,8 +68,8 @@ export async function subscriberLoginV2({env,db,body}){
   const enriched=await Promise.all(relations.map(async rel=>{
     const aid=text(rel.anunciante_id);
     const [advertiser,admin]=await Promise.all([
-      db.get("anunciantes",aid),
-      db.get("anunciantes_administracion",aid)
+      text(rel.anunciante_nombre)?null:db.get("anunciantes",aid),
+      text(rel.permisos)?null:db.get("anunciantes_administracion",aid)
     ]);
     return {
       suscriptor_id:sid,

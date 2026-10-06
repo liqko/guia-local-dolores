@@ -192,3 +192,14 @@ no demuestra que esa versión estaba activa en el instante del salto. Pendientes
 histórico también barría colecciones, V41 usa cuatro consultas vacías observadas.
 Inicio original corregido main 6b4c85d, hosting run37387184457 SUCCESS.
 No seed todavía. Próximo iniciar KV explícitamente y comprobar pruebas reales.
+
+
+## 6 octubre: consumo del login, V43 preparado
+- Usuario informa contador 669 tras tarjetas, Actividades y login. Diferencia respecto de 644: 25, no 5. No atribuir el delta a una operación sin log completo.
+- Hallazgo en subscriberLoginV2: leía anunciantes y anunciantes_administracion para cada relación activa aun cuando la relación ya contenía nombre/permisos. Corrección: sólo consultar el documento necesario cuando falta ese dato; conserva los fallbacks y permisos.
+- Medición de código con DB instrumentada: sin relaciones, 2 consultas/1 documento devuelto; 8 relaciones completas, 2 consultas/9 documentos (antes 18/25); una relación sin nombre ni permisos, 4 consultas/4 documentos. Estos casos no son pruebas del consumo real de la cuenta del usuario ni lecturas facturadas exactas.
+- V43 identifica action de POST /suscriptores y acciones seguras GET: login/session/favoritos/autorizados, sin registrar correo/clave ni agregar I/O. Validar sesión/listar autorizados siguen sin Firestore; favoritos sí consulta suscriptor_favoritos (límite 500). Login consulta suscriptores por correo (límite 5) y relaciones de ese suscriptor (límite 100). No son barridos globales.
+- Tests LOGIN_CONSUMO_V43, observación, aislamiento suscriptores (24), circuitos suscriptores (8), aislamiento público (43) y sintaxis bundle aprobados.
+- Entregar WORKER_COMPLETO_V43.js completo para despliegue MANUAL del usuario. No está desplegado por publicar GitHub. V42 sigue instalado hasta confirmación.
+- Registro maestro único recuperado: Guia_Local_Checklist_Maestro.xlsx, Library ID libfile_3c33f82390bc8191a7c62f6966bc5415. Conserva 61 históricos y 3 asuntos de consumo; no crear listados paralelos. Ruta: consumo/trazabilidad → usuario → anunciante → administrador → prueba integrada.
+- Incidentes 644 y delta 25 siguen abiertos; no afirmar resueltos por esta reducción de lecturas evitables.

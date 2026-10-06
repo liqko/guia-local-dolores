@@ -24,6 +24,20 @@ export function observationPathV41(path){
     .replace(/(\/subscribers\/)[^/]+/g,'$1:id');
 }
 
+// Sólo etiquetas conocidas; nunca incorporar correo, contraseña ni texto arbitrario.
+export async function observationActionV43(request,url){
+  let action=url.searchParams.get('action')||'';
+  if(url.pathname==='/suscriptores'&&request.method==='POST'){
+    try{const body=await request.clone().json();action=body.action||body.accion||action;}catch(_){}
+  }
+  const allowed=new Set(['ubicaciones','locations','bootstrap','publicas','turnos','efemerides','login',
+    'session','favoritos','anunciantes_autorizados','perfil','suscriptor','crear','actualizar_perfil',
+    'actualizar_ciudad','cambiar_clave','eliminar_cuenta','agregar_favorito','quitar_favorito',
+    'solicitar_recuperacion','restablecer_clave','solicitar_verificacion','confirmar_verificacion']);
+  const value=String(action).trim().toLowerCase();
+  return allowed.has(value)?value:'';
+}
+
 /** Resumen visible en Cloudflare; no es un contador de lecturas facturadas. */
 export function finishObservationV42(report){
   const totals={read_calls:0,documents_returned:0,write_calls:0,delete_calls:0,failures:0};
