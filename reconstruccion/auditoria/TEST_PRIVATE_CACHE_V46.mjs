@@ -23,6 +23,8 @@ req=request();await removeFavoriteV2({env,request:auth,db:req.db,body:{tipo:'EVE
 const a=request(),b=request();await Promise.all([addFavoriteV2({env,request:auth,db:a.db,body:{tipo:'PROMO',referencia_id:'P'}}),addFavoriteV2({env,request:auth,db:b.db,body:{tipo:'ACTIVIDAD',referencia_id:'A'}})]);await Promise.all([a.db.flushLoginCache(),b.db.flushLoginCache()]);out=await list();assert.equal(out.read_calls,0);assert.equal(out.favoritos.length,13);
 // Una vez propagados los cambios, navegar no vuelve a listar el índice KV.
 Date.now=()=>originalNow()+120000;try{await list();const before=lists;await list();assert.equal(lists,before)}finally{Date.now=originalNow}
+const originalPut=env.GLD_CACHE_KV.put;env.GLD_CACHE_KV.put=async(k,v,o)=>{if(k.endsWith(':changes'))throw Error('Fallo KV simulado');return originalPut(k,v,o)};
+const failed=request();await addFavoriteV2({env,request:auth,db:failed.db,body:{tipo:'EVENTO',referencia_id:'FAIL'}});await assert.rejects(failed.db.flushLoginCache(),/Fallo KV/);env.GLD_CACHE_KV.put=originalPut;out=await list();assert.ok(out.favoritos.some(r=>r.referencia_id==='FAIL'));
 const outsider=request();assert.deepEqual(await outsider.db.subscriberFavorites('OTRO'),[]);assert.equal(outsider.totals().documents_returned,0);
 await assert.rejects(listFavoritesV2({env,request:new Request('https://test.invalid'),db:request().db}),/Sesión/);
 const loginKey='login:relations:v45:S:initial';values.set(loginKey,JSON.stringify({version:45,expires_at:Date.now()+3600000,data:[]}));
