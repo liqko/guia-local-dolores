@@ -227,3 +227,13 @@ por sólo cuatro endpoints públicos observados.
 - Baja de cuenta elimina también proyecciónKV de favoritos. Caché no guarda contraseñas. Modificaciones externas directas aFirestore necesitan invalidación/republicación explícita; V46 coordina las mutaciones hechas a través de este Worker.
 - Pruebas unidad:11favoritos frío1/11,repetido0/0; duración2h sin recarga, migración45→46, altas/bajas, filtros, sid ajeno rechazado, cambios concurrentes, limpieza de cuenta. Bundle completo REST simulado confirma login10/17→1/1 y favoritos1/11→0/0.43casos públicos/24suscriptores/paquete aislado pasan. Worker completo worker/WORKER_COMPLETO_V46.js listo para copia manual.
 - Pendiente despliegue manual y prueba real de favoritos repetidos. No cerrar644iniciales/25históricas sin atribución. Eventos/Actividades después de esta prueba; Hosting transfer4.1MB/storage124.2MB última captura. Contador708 antes de impacto nuevas llamadas, pendiente reconciliar.
+
+
+## 06/10/2026 20:12 — Panel anunciante, permisos V47
+- Usuario confirmó registro visible y cuatro comprobaciones session V46 con 0/0/0/0. Handoff usuario → anunciante sin contraseña confirmado.
+- Aperturas comercio: 20:05:39 y 20:07:07, 20:08:00, 20:08:01 /commerce V46 1 consulta/1 documento cada una. Usuario volvió al primero tras visitar otro. No atribuir estos datos a carga pública ni a las 644 históricas.
+- Causa de código encontrada: seleccionarAnunciante_ llama /commerce?action=permisos_panel y lee anunciantes_administracion cada vez. Datos de administración fuera del caché privado V46.
+- V47 agrega panelAdministration por anunciante en KV persistente, autenticación previa preservada. Patch/delete de anunciantes_administracion invalidan sólo su clave. Sin vencimiento horario. KV tiene propagación eventual; escrituras directas externas no pasan por invalidación del Worker.
+- Pruebas bundle: primera permisos 1/1, repetida 0/0, sin sesión 401 sin lectura. Pruebas caché: distintas solicitudes reutilizan; cambios y eliminación invalidan.
+- Worker completo V47 TXT entregado; despliegue MANUAL pendiente. Primera carga de administración en nueva clave puede ser 1/1, repetidas deben ser 0/0. Esto NO certifica carga/edición de todos los módulos.
+- Próximo paso: desplegar V47 y abrir primero el mismo anunciante dos veces. Luego continuar Modificar datos/Promos/Eventos/Actividades y administrador, sin rehacer el inventario existente.
