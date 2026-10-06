@@ -214,3 +214,7 @@ No seed todavía. Próximo iniciar KV explícitamente y comprobar pruebas reales
 - Primera carga y caducidad aún requieren lecturas de los datos faltantes. Cero lecturas en el login no se promete: se mantiene autenticación contra cuenta actual.
 - Worker completo: worker/WORKER_COMPLETO_V45.js. Pendiente copia/despliegue manual y prueba del login real repetido. No afirmar producción verificada antes.
 - Favoritos: HTML corregido para carga única; caché privada de favoritos todavía pendiente. Publicidad sin medición en registro anterior pendiente comprobar. Eventos/Actividades se prueban después del login, sin mezclar consumos.
+
+
+### Alerta CI V35 del06/10
+El despliegue Hosting V45 fue SUCCESS (37520706868). Falló prueba del paquete aislado por expectativa fija35 frente a versión45, sin fallo de despliegue. Corregida para comparar versión con Worker vigente y añadidas pruebas login-cache V45/observación al workflow. Worker completo entregado no cambia. Pendiente verificar nueva ejecución CI.
