@@ -181,3 +181,12 @@ por sólo cuatro endpoints públicos observados.
 - Entregar WORKER_COMPLETO_V43.js completo para despliegue MANUAL del usuario. No está desplegado por publicar GitHub. V42 sigue instalado hasta confirmación.
 - Registro maestro único recuperado: Guia_Local_Checklist_Maestro.xlsx, Library ID libfile_3c33f82390bc8191a7c62f6966bc5415. Conserva 61 históricos y 3 asuntos de consumo; no crear listados paralelos. Ruta: consumo/trazabilidad → usuario → anunciante → administrador → prueba integrada.
 - Incidentes 644 y delta 25 siguen abiertos; no afirmar resueltos por esta reducción de lecturas evitables.
+
+
+## 6 octubre: sesión compartida usuario → panel anunciante
+- Usuario aclara que su cuenta sí administra comercios. Debe reutilizar su sesión, no volver a pedir contraseña sólo por cambiar de plano.
+- Fallo comprobado en login.html: obtenerAutorizaciones_ validaba POST session (0 Firestore) pero ignoraba data.autorizaciones y leía sólo localStorage. Login público suscriptores.html no guarda esa copia; resultado podía ser selector vacío/no autorizado y limpieza de sesión.
+- Corregido panel original: usar autorizaciones verificadas devueltas por el servidor, actualizar copia local y eliminar validación POST session duplicada al restaurar. Prueba sin copia local/permiso obsoleto/sesión vencida y sintaxis aprobadas.
+- Mantener una única sesión HMAC (8 h). Autorizaciones en sesión ya permiten consulta sin Firestore; persistencia compartida requiere mismo origen y almacenamiento permitido. No afirmar funcionamiento real del iframe/Jimdo hasta prueba.
+- El índice KV administrativo de suscriptores NO contiene credenciales ni relaciones completas; no equivale a caché del login. Primera autenticación sigue leyendo suscriptor y relaciones Firestore. Cache privado incremental de relaciones aún no implementado; no prometer cero lecturas de autenticación.
+- V43 sigue preparado, despliegue manual no confirmado. Esta corrección de panel funciona con V42/V43 y no requiere seed. Propuesta anterior de separar logins se corrige: diferenciar cargas por plano conservando sesión común.

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+const html=readFileSync(new URL('../../plataforma/login.html',import.meta.url),'utf8');
+const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(x=>x[1]);scripts.forEach(s=>new vm.Script(s));
+const script=scripts.find(s=>s.includes('async function obtenerAutorizaciones_'));
+const source=script.slice(script.indexOf('async function obtenerAutorizaciones_'),script.indexOf('function renderSeleccionAnunciante_'));
+let calls=0,response={success:true,autorizaciones:[{anunciante_id:'A',anunciante_nombre:'Comercio',rol:'PROPIETARIO',permisos:'EVENTOS'}]};
+const saved=new Map();
+const c={sesionSuscriptor:{suscriptor_id:'S'},gldSubscriberToken:'TOKEN',autorizacionesAnunciante:[],SUSCRIPTOR_AUTHS_KEY:'auth',localStorage:{getItem:k=>saved.get(k)||null,setItem:(k,v)=>saved.set(k,v)},apiSuscriptores_:async payload=>{assert.equal(payload.action,'session');calls++;return response;}};
+vm.createContext(c);vm.runInContext(source,c);
+let result=await c.obtenerAutorizaciones_();assert.equal(result[0].anunciante_id,'A');assert.equal(calls,1);assert.equal(JSON.parse(saved.get('auth'))[0].rol,'PROPIETARIO');
+saved.set('auth',JSON.stringify([{anunciante_id:'OBSOLETO'}]));response={success:true,autorizaciones:[]};
+result=await c.obtenerAutorizaciones_();assert.equal(result.length,0);assert.equal(saved.get('auth'),'[]');
+response={success:false,message:'Sesión vencida'};await assert.rejects(c.obtenerAutorizaciones_(),/Sesión vencida/);
+const restore=script.slice(script.indexOf('async function restaurarSesionSuscriptor_'),script.indexOf('async function restaurarSesionSuscriptor_')+1800);
+assert.doesNotMatch(restore,/const check=await apiSuscriptores_\(\{action:'session'\}\)/);
+console.log('Panel: recupera autorizaciones verificadas de sesión pública aun sin copia local, reemplaza permisos obsoletos, rechaza sesión vencida y elimina validación inicial duplicada.');
