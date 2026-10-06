@@ -1,0 +1,15 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+const html=readFileSync(new URL('../../plataforma/anunciantes.html',import.meta.url),'utf8');
+const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];new vm.Script(script);
+const source=script.slice(script.indexOf('function hidratarItem(item)'),script.indexOf('const anunciantesData = data.map(hidratarItem);'));
+const context={limpiarCampos:item=>({...item}),metaPorIdGlobal:{},relacionesSedesGlobales:{},catalogosGlobales:{},relKey:v=>v,fetch(){throw Error('No puede consultar red')}};
+vm.createContext(context);vm.runInContext(source,context);
+const original={id:'A',categoria_ids:['C1','C2'],categorias:['Comercios','Servicios'],sedes:[]};
+const result=context.hidratarItem(original);
+assert.equal(result.categoria_id,'C1;C2');assert.equal(result.categoria,'Comercios;Servicios');assert.equal(original.categoria_id,undefined);
+const legacy=context.hidratarItem({categoria_id:'C9',categoria:'Anterior',categoria_ids:['C1'],categorias:['Nuevo']});
+assert.equal(legacy.categoria_id,'C9');assert.equal(legacy.categoria,'Anterior');
+assert.equal(context.hidratarItem({}).categoria_id,undefined);
+console.log('Guía: categorías KV compatibles con campos usados por ficha/filtros, formato anterior conservado, sin red.');

@@ -150,3 +150,15 @@ Intento lectura remota GoogleCloud browser devolvió Site Unavailable; HTTP púb
 Worker desde herramientas respondió403. Sin acceso directo a métricas/logsCloud.
 Siguiente investigar consumo restante del ingreso sin trasladar al usuario búsquedas
 indefinidas ni afirmar que 644 sea carga de ciudades/seed. Datos reales KV sólo cuatrociudades.
+
+## 6/10 13:00 Argentina — información de tarjetas
+Usuario confirma navegó: tarjetas aparecen pero falta información (campos exactos aún
+no especificados). No tratar navegación como prueba aislada sólo de ciudades.
+Hallazgo reproducido: modelo KV da categoria_ids/categorias, HTML usa categoria_id/categoria
+para clasificación/filtros. hidratarItem adapta listas a campos antiguos conservando
+valores legacy existentes; cero llamadas adicionales. TEST_GUIA_CATEGORIAS_KV aprobado.
+No afirmar ficha completa corregida sin conocer qué datos extra faltan al usuario.
+Diagnóstico GLD funciona por Worker; no cubre toda la facturación Firebase. POST de seed
+fue ayer21:04Argentina, no tiene por qué estar en últimas12h de hoy.
+644 lecturas hoy y5000ayer siguen sin origen identificado. No prometer cero facturado
+por sólo cuatro endpoints públicos observados.
