@@ -237,3 +237,13 @@ por sólo cuatro endpoints públicos observados.
 - Pruebas bundle: primera permisos 1/1, repetida 0/0, sin sesión 401 sin lectura. Pruebas caché: distintas solicitudes reutilizan; cambios y eliminación invalidan.
 - Worker completo V47 TXT entregado; despliegue MANUAL pendiente. Primera carga de administración en nueva clave puede ser 1/1, repetidas deben ser 0/0. Esto NO certifica carga/edición de todos los módulos.
 - Próximo paso: desplegar V47 y abrir primero el mismo anunciante dos veces. Luego continuar Modificar datos/Promos/Eventos/Actividades y administrador, sin rehacer el inventario existente.
+
+
+## 06/10/2026 20:46 — Cierre de pruebas y revisión de cargas
+- V47 real confirmado: /commerce 20:22:42 1 consulta/1 documento, repetido20:23:20 0/0; sin escrituras/eliminaciones. PanelAdministration caché compartido validado en recorrido real.
+- Modificar datos20:34:25 /commerce3/3; ciudades /territory/public0/0 con cabeceraV46 almacenada. Al volver de Farmacias/Publicidad no apareció llamada nueva de Modificar datos: reutilización local de ficha comprobada en ese recorrido, no caché compartido de ficha completa.
+- Farmacias20:42:26 2consultas/2docs y Publicidad20:42:49 5consultas/9docs; ambas0write/0delete. Cargas privadas aún NO certificadas como resueltas desdeKV.
+- Revisión autónoma realizada: loadFarmaciasUI POST getPanelData; loadPublicidadUI GET getpaneldata. publicidadPanelDataV2 lee admin, consulta publicidades propias, por cada publicidad consulta media y segmentación, y lee publicidad_cambios del día. Catálogos publicidad síKV. Fórmula del código3+2N llamadas; 5 compatible con1publicidad, inferencia no desglose observado de esta solicitud.
+- FarmaciasPanelDataV3 y allowedFarmCities leen administración, sedes/ciclos y participantes por ciclo. No atribuir todavía el total real2/2 a colecciones concretas: hay que verificar la cadena efectiva de routers y su log por request; el camino estático V4 incluye más operaciones que el total reportado.
+- Pendiente concreto siguiente: resolver las cargas privadas de Farmacias/Publicidad con caché e invalidación por cambios, sin quitar funcionalidades, y probar rutas reales del bundle. No hacer otro inventario ni pedir al usuario comprobar cada campo.
+- Usuario termina pruebas por hoy. No afirmar que tareas siguen ejecutándose después de responder. Próxima sesión retoma este bloque.
