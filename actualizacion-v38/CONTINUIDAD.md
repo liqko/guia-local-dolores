@@ -199,3 +199,11 @@ por sólo cuatro endpoints públicos observados.
 - Los diez HTML originales cargan consumo-v44.js antes de sus llamadas. Registro local acotado a 80 respuestas del Worker; no almacena cuerpos, claves, correo, ciudad ni tokens. Inicio, carcasa, suscriptores, anunciante y Gran Hermano muestran “Ver comprobación de consultas”. Sin contadores aparece “Sin medición”, nunca cero supuesto.
 - Verificación local: 43 casos públicos, 24 casos suscriptores, observación/barrera, sesión compartida, login y recorder. Bundle V44 probado en cuatro rutas iniciales sin red Firestore. Prueba real y comparación con Firebase pendientes de instalar V44.
 - Caché privada V44 anterior sigue retirada en scratch; no forma parte de esta V44. Próximo bloque: medir llamadas reales login/favoritos/actividades y corregir caché privada con coherencia de permisos y mutaciones.
+
+
+## 2026-10-06 — Duplicación real de favoritos en Suscriptores
+- Usuario confirmó V44 desplegado. Base antes de prueba: 669 lecturas, 0 escrituras, 0 eliminaciones; descargas 3,9 MB y almacenamiento 124,2 (unidad sin confirmar).
+- Registro suministrado: pantalla /plataforma/suscriptores; territorio público 0 consultas y dos GET favoritos con request_id distintos, una consulta/11 documentos devueltos cada uno. Usuario aclara que sólo cerró sesión para volver a plataforma. No atribuir este registro a selección de ciudad ni usarlo para explicar 644 iniciales/25 históricas.
+- Causa identificada: renderSession al inicio llamaba renderMiGuia; loadCities.then volvía a llamarla. Ahora renderSession(false) muestra cuenta sin favoritos, y tras ciudades hay una sola carga. Si sesión se cerró antes, no carga favoritos.
+- saveCity también duplicaba renderMiGuia tras saveSession, que ya actualiza la vista: eliminada llamada redundante.
+- Test ejecuta arranque con promesa de ciudades controlada: una consulta de favoritos, cero al cerrar sesión antes de resolución, actualización explícita conservada; sintaxis válida. Persistencia privada de favoritos en KV todavía pendiente. Esto elimina duplicación, no la consulta única restante.
