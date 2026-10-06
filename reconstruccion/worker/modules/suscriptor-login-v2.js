@@ -62,14 +62,14 @@ export async function subscriberLoginV2({env,db,body}){
   const sid=text(sus.suscriptor_id||sus.id);
   const state=await subscriberSessionState(env,sid);
   if(state.deleted)return{success:false,message:"Suscriptor no activo"};
-  const relations=(await db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100))
+  const relations=(await (db.loginRelations?db.loginRelations(sid):db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100)))
     .filter(r=>text(r.anunciante_id)&&truthy(r.activo));
 
   const enriched=await Promise.all(relations.map(async rel=>{
     const aid=text(rel.anunciante_id);
     const [advertiser,admin]=await Promise.all([
-      text(rel.anunciante_nombre)?null:db.get("anunciantes",aid),
-      text(rel.permisos)?null:db.get("anunciantes_administracion",aid)
+      text(rel.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes",aid):db.get("anunciantes",aid)),
+      text(rel.permisos)?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes_administracion",aid):db.get("anunciantes_administracion",aid))
     ]);
     return {
       suscriptor_id:sid,

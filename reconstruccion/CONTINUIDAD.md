@@ -203,3 +203,14 @@ No seed todavía. Próximo iniciar KV explícitamente y comprobar pruebas reales
 - Entregar WORKER_COMPLETO_V43.js completo para despliegue MANUAL del usuario. No está desplegado por publicar GitHub. V42 sigue instalado hasta confirmación.
 - Registro maestro único recuperado: Guia_Local_Checklist_Maestro.xlsx, Library ID libfile_3c33f82390bc8191a7c62f6966bc5415. Conserva 61 históricos y 3 asuntos de consumo; no crear listados paralelos. Ruta: consumo/trazabilidad → usuario → anunciante → administrador → prueba integrada.
 - Incidentes 644 y delta 25 siguen abiertos; no afirmar resueltos por esta reducción de lecturas evitables.
+
+
+## 6 octubre — V45: corrección del login de suscriptor
+- Evidencia real separada: 691 → 708 tras login común, Worker44 indicó 10 consultas /17 documentos; 0 escrituras y eliminaciones. Los644 iniciales y25 posteriores siguen sin atribución histórica demostrada.
+- V45 guarda en KV durante1hora solamente vínculos del login y complementos mínimos de comercios. La contraseña y el estado de cuenta se verifican frescos en Firestore. No se cachean credenciales.
+- Mutaciones invalidan solamente la relación del suscriptor o el complemento del anunciante afectado. Revisión por entidad evita que una carga antigua repueble una caché invalidada. Si falta propietario de un vínculo se lee ese documento específico, sin barrido.
+- KV tiene consistencia eventual; los cambios pueden tardar en propagarse entre ubicaciones. Esta corrección no convierte las sesiones HMAC existentes en revocación instantánea de permisos.
+- Pruebas: simulación equivalente10/17 en frío y1/1 repetido; contraseña incorrecta/nueva, permisos, bajas, caducidad, carga antigua tras mutación, lecturas frescas del panel. Bundle completo probado con REST simulado y headers reales.43casos públicos y24suscriptores aprobados.
+- Primera carga y caducidad aún requieren lecturas de los datos faltantes. Cero lecturas en el login no se promete: se mantiene autenticación contra cuenta actual.
+- Worker completo: worker/WORKER_COMPLETO_V45.js. Pendiente copia/despliegue manual y prueba del login real repetido. No afirmar producción verificada antes.
+- Favoritos: HTML corregido para carga única; caché privada de favoritos todavía pendiente. Publicidad sin medición en registro anterior pendiente comprobar. Eventos/Actividades se prueban después del login, sin mezclar consumos.
