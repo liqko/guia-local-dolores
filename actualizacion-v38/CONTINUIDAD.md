@@ -132,3 +132,21 @@ Explicación visible: lee Firestore explícitamente y copia KV sin modificar/eli
 originales. TEST_CARGA_INICIAL_KV valida script completo y flujo éxito/error sin carga automática.
 No se ejecutó seed desde herramientas; siguiente acción usuario pulsa UNA VEZ botón
 y reporta mensaje final; observación V42 identificará esa carga y sus documentos.
+
+## Evidencia real 6/10 12:55 Argentina
+Usuario aporta /territory/public success:true updated_at=2026-10-06T00:04:33.391Z,
+cuatro ciudades; equivale al 5/10 21:04:33 Argentina. Carga KV fue AYER.
+No atribuir las 644 lecturas del período actual (6/10 04:00 Argentina en adelante)
+a esa carga. Hipótesis previa de retraso del seed hoy queda descartada para ese período.
+Hoy usuario confirma 644 lecturas; ayer informa final 5000. Causas NO identificadas.
+Captura Cloudflare 6/10 11:14 muestra GLD GET promos/events-new/actividades/publicidad:
+HTTP200 consultas0 documentos0. Sólo certifica esas cuatro solicitudes, no todo el ingreso.
+No existe POST rebuild-all-cache en últimas12h según búsqueda usuario: coherente con
+seed AYER, no exigir seguir buscando en ese intervalo ni repetir seed.
+URLs históricas ciudad_id completas DOL (BUE - ARG) son reales y no deben acortarse.
+Ciudad pública ya contiene provincia_visible BUENOS AIRES, pais_id ARG: falta ajuste
+visual bandera/provincia en inicio. Copia territorial no modifica nombres/códigos originales.
+Intento lectura remota GoogleCloud browser devolvió Site Unavailable; HTTP público
+Worker desde herramientas respondió403. Sin acceso directo a métricas/logsCloud.
+Siguiente investigar consumo restante del ingreso sin trasladar al usuario búsquedas
+indefinidas ni afirmar que 644 sea carga de ciudades/seed. Datos reales KV sólo cuatrociudades.
