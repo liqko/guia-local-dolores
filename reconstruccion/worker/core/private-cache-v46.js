@@ -58,7 +58,7 @@ export function withPrivateCacheV46(db,env){
       updatedSubscribers.add(change.sid);
       favoriteChanges.delete(key);
     }
-    for(const sid of updatedSubscribers)if(kv&&kv.put)await putRequired(favoriteKey(sid)+':changes',JSON.stringify({revision:crypto.randomUUID(),updated_at:Date.now()}));
+    for(const sid of updatedSubscribers)if(kv&&kv.put){try{await putRequired(favoriteKey(sid)+':changes',JSON.stringify({revision:crypto.randomUUID(),updated_at:Date.now()}));}catch(error){await invalidate(favoriteKey(sid));throw error;}}
     for(const key of dirty){
       if(kv&&kv.put)await putRequired(key+':revision',crypto.randomUUID());
       dirty.delete(key);
