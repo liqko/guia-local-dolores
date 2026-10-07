@@ -299,3 +299,10 @@ por sólo cuatro endpoints públicos observados.
 - Pendiente inmediato: usuario despliegue Worker V50 TXT y abra Farmacias → Dolores; comprobar lista real y controles. No dar por cerrada funcionalidad visual antes de verificar.
 - Auditoría adicional: Efemérides aún usa indicadores legacy booleanos en efemPermisos pese a permisos/config nuevos presentes (EF LOCAL / EF GENERAL / EF PROVINCIAL y funcionalidades_config). Hallazgo pendiente de corregir, no mezclado con V50.
 - Incidente 644 lecturas históricas sigue sin atribución exacta; auditoría de Google sí identifica consultas del visor Datos de Firebase por cuenta del usuario. No atribuir a la plataforma sin evidencia.
+
+
+## 2026-10-07 — V51: nombres en farmacias públicas (18:43 ART)
+- Captura real carcasa: turnos y direcciones correctos, nombre genérico Farmacia. Ciclos preparados conservan sede sin nombre_sede/nombre_ref; plantilla usa fallback genérico.
+- V51 completa nombres por sede_id desde guide:city:v1:<ciudad> en KV; respeta nombre propio de sede, usa nombre del anunciante cuando sede está vacío/genérico. No cambia orden, fechas, horarios, participantes o direcciones; cero Firestore público.
+- Carcasa: trim de cada alternativa de nombre y compatibilidad nombre; cache local de turnos sin nombre/genérico ya no se reutiliza 24h. Esto genera nueva llamada pública KV, no Firestore.
+- Prueba full Worker V51 PASS: /farmacias turnos devuelve Farmacia Test desde guía con sede sin nombre y conserva ID/hora, 0 reads; regresiones del panel y mutaciones PASS. Pendiente despliegue manual y verificación visual real; no afirmar que ya fue desplegado por el usuario.

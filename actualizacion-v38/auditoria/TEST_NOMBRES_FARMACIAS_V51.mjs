@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const s=await fs.readFile(new URL('../fuentes/farmacias-public-v51.js',import.meta.url),'utf8');
+const func=s.slice(s.indexOf('export async function farmTurnosPublicV3')).replace('export async function','async function');
+let rows=[{sede_id:'S',nombre_sede:'',nombre_ref:'',direccion:'Mitre y 25 de Mayo',hora_desde:'08:00'}];
+const run=Function('text','fmtDate','getFarmCityV2','turnosForCycle',func+';return farmTurnosPublicV3;')(v=>String(v??'').trim(),()=> '2026-10-07',async()=>({ciclos:[{activo:true}]}),()=>structuredClone(rows));
+const cache={async get(k){assert.equal(k,'guide:city:v1:D');return {anunciantes:[{id:'A',nombre:'Farmacia Uno',ciudad_id:'D',sedes:[{sede_id:'S',nombre_sede:''}]}]}}};
+let out=await run({cache,cityId:'D'});assert.equal(out.turnos[0].nombre_sede,'Farmacia Uno');assert.equal(out.turnos[0].direccion,rows[0].direccion);assert.equal(out.turnos[0].hora_desde,'08:00');
+rows[0].nombre_sede='Sucursal Centro';out=await run({cache,cityId:'D'});assert.equal(out.turnos[0].nombre_sede,'Sucursal Centro');
+rows[0].nombre_sede='Farmacia';out=await run({cache,cityId:'D'});assert.equal(out.turnos[0].nombre_sede,'Farmacia Uno');
+rows[0].sede_id='UNKNOWN';out=await run({cache,cityId:'D'});assert.equal(out.turnos[0].nombre_sede,'Farmacia');
+console.log('PASS: nombre desde guía, conserva sucursal explícita/dirección/horarios, corrige genérico, no cruza sedes ni llama Firestore.');
