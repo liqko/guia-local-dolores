@@ -68,5 +68,30 @@ try{
  publicity=await read(request('/publicidad?action=getpaneldata&advertiserId=A'));assert.equal(publicity.reads,0);assert.equal(publicity.body.cambios_activos.usados,2);
  const deletion=await read(request('/publicidad',{action:'eliminar',advertiserId:'A',publicidad_id:'P'}));assert.equal(deletion.body.success,true,JSON.stringify(deletion.body));
  publicity=await read(request('/publicidad?action=getpaneldata&advertiserId=A'));assert.equal(publicity.reads,0);assert.equal(publicity.body.publicidades.length,1);assert.equal(publicity.body.publicidades[0].publicidad_id,create.body.publicidad_id);
- console.log('Bundle V48 PASS: Publicidad fría5/repetida0; Farmacias fría3/repetida0 con administración preparada; conserva contenido y permisos; público0Firestore.');
+ // Alternar módulos después de mutaciones no invalida listas ajenas.
+ pharma=await read(request('/farmacias',{action:'getPanelData',advertiserId:'A'}));
+ assert.equal(pharma.reads,0);assert.equal(pharma.calls.length,0);
+ const cycleBefore=structuredClone(rows.get('farmacias_ciclos/C'));
+ const participantBefore=structuredClone(rows.get('farmacias_ciclo_sedes/F'));
+ const adsBefore=[...rows.entries()].filter(([key])=>key.startsWith('publicidad')).map(([key,row])=>[key,structuredClone(row)]);
+ for(const activo of [false,true]){
+  const toggle=await read(request('/farmacias',{action:'guardar_ciclo',advertiserId:'A',payload:{ciclo_id:'C',activo}}));
+  assert.equal(toggle.body.success,true,JSON.stringify(toggle.body));
+  assert.deepEqual(toggle.calls.filter(x=>x.op==='PATCH').map(x=>[x.c,x.id]),[['farmacias_ciclos','C']]);
+  assert.equal(toggle.calls.some(x=>x.c.startsWith('publicidad')||x.c==='publicidades'),false);
+  const cycle=rows.get('farmacias_ciclos/C');
+  assert.equal(cycle.activo,activo);
+  for(const field of ['hora_inicio','fecha_inicio','ciudad_id','observaciones','duracion_horas'])assert.deepEqual(cycle[field],cycleBefore[field]);
+  assert.deepEqual(rows.get('farmacias_ciclo_sedes/F'),participantBefore);
+  pharma=await read(request('/farmacias',{action:'getPanelData',advertiserId:'A'}));
+  assert.equal(pharma.reads,0);assert.equal(pharma.body.ciclos.find(x=>x.ciclo_id==='C').activo,activo);
+  publicity=await read(request('/publicidad?action=getpaneldata&advertiserId=A'));
+  assert.equal(publicity.reads,0);assert.equal(publicity.calls.length,0);
+ }
+ assert.deepEqual([...rows.entries()].filter(([key])=>key.startsWith('publicidad')),adsBefore);
+ const farmMissing=await read(request('/farmacias',{action:'getPanelData',advertiserId:'A'},false));
+ assert.equal(farmMissing.r.status,401);assert.equal(farmMissing.calls.length,0);
+ const farmDenied=await read(request('/farmacias',{action:'getPanelData',advertiserId:'B'}));
+ assert.equal(farmDenied.r.status,403);assert.equal(farmDenied.calls.length,0);
+ console.log('Bundle V48 PASS: cargas repetidas0; alternancia entre módulos0; pausar/reactivar sólo ciclo propio; conserva horarios, participantes y publicidad; permisos401/403 sin Firestore.');
 }finally{globalThis.fetch=original;}
