@@ -20,7 +20,7 @@ assert.equal(JSON.parse(storage.get('gld_consumo_v44'))[2].estado,'Error de red'
 next=new Response('{}');await window.fetch('https://other.example/test');assert.equal(JSON.parse(storage.get('gld_consumo_v44')).length,3);
 for(const name of ['inicio','carcasa','anunciantes','suscriptores','login','granhermano','promos','eventos','actividades','farma_turnos']){
  const html=fs.readFileSync(new URL('../../plataforma/'+name+'.html',import.meta.url),'utf8');
- assert.match(html,/<script src="\/plataforma\/consumo-v44\.js(?:\?v=49\.1)?"/);assert.equal(html.match(/consumo-v44\.js/g).length,1);
+ assert.match(html,/<script src="\/plataforma\/consumo-v44\.js(?:\?v=49\.[12])?"/);assert.equal(html.match(/consumo-v44\.js/g).length,1);
 }
 next=new Response(JSON.stringify({success:false,message:'private@example.test'}),{status:200,headers:{'X-GLD-Read-Calls':'0'}});
 const refused=await window.fetch('https://login.liqkoargentina.workers.dev/farmacias');
@@ -33,3 +33,10 @@ rows=JSON.parse(storage.get('gld_consumo_v44'));assert.equal(rows.at(-1).resulta
 window.gldConsumoVistaV49('not-a-module',true);assert.equal(JSON.parse(storage.get('gld_consumo_v44')).length,5);
 assert.doesNotMatch(storage.get('gld_consumo_v44'),/private@example|secret/);
 console.log('Consumo: preserva respuestas, distingue rechazo200 con0consultas de respuesta aceptada y vista cargada, no guarda mensajes personales ni hace llamadas adicionales.');
+// En el anunciante el iframe mide .container: el registro debe quedar dentro.
+function element(){return {style:{},children:[],appendChild(x){this.children.push(x)},addEventListener(){},setAttribute(){}}}
+const body=element(),container=element();let extraCalls=0;
+const panelWindow={fetch:async()=>{extraCalls++;return new Response('{}')},addEventListener(){}};panelWindow.parent=panelWindow;
+vm.runInNewContext(source,{window:panelWindow,document:{body,currentScript:{hasAttribute:()=>true,getAttribute:()=>'.container'},readyState:'complete',querySelector:selector=>{assert.equal(selector,'.container');return container},createElement:element},sessionStorage:{getItem:()=>null,setItem(){}},location:{href:'https://test.local/plataforma/login.html',origin:'https://test.local',pathname:'/plataforma/login.html'},URL,Date,Set,JSON,Number,String});
+assert.equal(body.children.length,0);assert.equal(container.children.length,1);assert.equal(container.children[0].open,true);assert.equal(extraCalls,0);
+console.log('Registro dentro del contenedor medido por iframe, visible y sin consultas nuevas.');

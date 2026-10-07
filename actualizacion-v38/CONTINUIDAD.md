@@ -314,3 +314,9 @@ por sólo cuatro endpoints públicos observados.
 - getFarmCityV2 normaliza paquete legacy existente sólo en KV, conserva ciclos/participantes/fechas/horarios/direcciones, y guarda revisión SHA256 de nombres de las sedes usadas. Segunda visita no reescribe; cambio de nombre ajeno al ciclo no reescribe; cambio de nombre de farmacia refresca únicamente paquete territorial KV. Sin Firestore, sin regenerar ciclo.
 - Función pública vuelve a calcular sobre paquete preparado completo (se retira join duplicado de V51). Carcasa corregida en V51 sigue vigente.
 - Prueba de ciclo existente, guardado, rebuild, renombrado puntual y segunda visita PASS; integración full Worker V52 PASS con rutas públicas 0 Firestore y regresión de mutaciones/autorización. Pendiente despliegue manual de V52 y verificación visual real. No pedir al usuario borrar/rearmar ciclos ni ejecutar seed global.
+
+
+## 2026-10-07 — Registro de consultas visible dentro del iframe anunciante (18:54 ART)
+- Usuario no ve registro. HTML login ya indica data-gld-consumo-container=.container, pero consumo-v44.js ignoraba atributo y montaba al final de body. Iframe calcula altura de .container, dejando diagnóstico fuera del área visible.
+- Recorder ahora respeta host indicado; se monta dentro de .container, abierto con scroll máximo 400px. HTML login usa cachebuster49.2. No modifica Worker ni ejecuta llamadas nuevas.
+- TEST_CONSUMO_V44 PASS con prueba DOM de host: contenedor recibe diagnóstico, body no; queda abierto; 0 llamadas nuevas. Privacidad, respuestas intactas y contadores siguen PASS.

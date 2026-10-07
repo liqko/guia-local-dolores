@@ -63,7 +63,11 @@
     if(!showPanel||!document.body)return;
     const details=document.createElement('details');details.style.cssText='margin:16px 8px;padding:10px;background:#fff;color:#111;border:1px solid #aaa;border-radius:6px;font:14px sans-serif;position:relative;z-index:2';
     const summary=document.createElement('summary');summary.textContent='Ver comprobación de consultas';summary.style.cursor='pointer';details.appendChild(summary);
-    view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);document.body.appendChild(details);details.addEventListener('toggle',render);render();
+    view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);
+    const selector=script&&script.getAttribute('data-gld-consumo-container');
+    const host=(selector&&document.querySelector(selector))||document.body;
+    if(selector){details.open=true;view.style.maxHeight='400px';view.style.overflowY='auto';}
+    host.appendChild(details);details.addEventListener('toggle',render);render();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
 })();
