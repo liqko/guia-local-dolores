@@ -258,3 +258,10 @@ por sólo cuatro endpoints públicos observados.
 - Tests pasan: caché48, privado46, Farmacias30, aislamiento módulos37(75casos), observación41, paquete38 e imports105archivos. Prueba de caché incluye tombstones/cambio propietario/concurrencia de IDs distintos. KV sigue con consistencia eventual; cambios externos directos a Firestore requieren invalidación explícita.
 - Worker completo: worker/WORKER_COMPLETO_V48.js y TXT descargable. Despliegue Cloudflare MANUAL PENDIENTE. No afirmar producción comprobada. HTML no requiere cambios para usar estas rutas.
 - Próximo paso concreto: instalar V48 y comprobar carga y repetición de Farmacias/Publicidad del mismo anunciante. Después continuar panel anunciante y administración con inventario existente, sin solicitar comprobar cada campo. Las644 iniciales/25históricas siguen SIN atribución. No cerrar esos pendientes ni certificar todos los módulos.
+
+
+## 07/10/2026 13:43 Argentina — 644 lecturas antes de abrir plataforma
+- Usuario informa hoy: temprano0 lecturas, luego644 ANTES de abrir/navegar plataforma y antes de desplegar nuevo Worker según su descripción. No atribuir a selección de ciudad ni a tarjetas/login. Repite644 del día anterior. Baseline actual0escrituras/644lecturas/0eliminaciones; descargas5MB, almacenamiento139.8MB (unidades reportadas por usuario).
+- Revisión código completo V47/V48: sin scheduled, cron, setInterval o waitUntil. createDb crea funciones y no consulta al construirse. Rebuild integral exige POST /superadmin/rebuild-all-cache y autorización; no se invoca en arranque.
+- Prueba ejecutada sin acceso real a Google: importación de ambos bundles0 red; GET raíz200, OPTIONS204, ruta inexistente404, dashboard sin sesión401, rebuild sin sesión401, todos0 red/Firestore. No prueba quién ejecutó operaciones reales en producción.
+- Hipótesis de rebuild/otra petición al Worker/otro cliente siguen NO CONFIRMADAS. Necesario correlacionar logs Cloudflare del intervalo de aumento. No añadir código ni bloquear funcionalidad basándose sólo en644; conservar funcionalidades. Pausar navegación de prueba hasta resolver atribución o conseguir evidencia.
