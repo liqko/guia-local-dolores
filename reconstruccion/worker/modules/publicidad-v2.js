@@ -44,7 +44,7 @@ export async function publicitySaveV2({db,cache,advertiserId,body,config={priori
     actualizado:now
   };
   if(!doc.titulo)throw new Error("Falta título de publicidad.");
-  await db.patch("publicidades",id,doc,{mustExist:!!current});
+  await db.patch("publicidades",id,doc,{mustExist:!!current,newDocument:!current});
 
   if(Array.isArray(data.media)){
     const old=await db.queryEqual("publicidad_media","publicidad_id",id);
@@ -65,7 +65,7 @@ export async function publicitySaveV2({db,cache,advertiserId,body,config={priori
         orden,
         activo:true,
         actualizado:now
-      });
+      },{newDocument:true});
     }
   }
 
@@ -96,7 +96,7 @@ export async function publicitySaveV2({db,cache,advertiserId,body,config={priori
           activo:true,
           creado:now,
           actualizado:now
-        });
+        },{newDocument:true});
       }
     }
   }

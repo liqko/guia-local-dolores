@@ -51,6 +51,10 @@ export async function publicitySaveV4({db,cache,advertiserId,body,config={guarda
     actualizado:now
   };
   if(!doc.titulo)throw new Error("Falta título de publicidad.");
+  if(!current&&db.prepareNewPanelList)await Promise.all([
+    db.prepareNewPanelList('publicidad_media','publicidad_id',id),
+    db.prepareNewPanelList('publicidad_segmentacion','publicidad_id',id)
+  ]);
 
   let media=current?(Array.isArray(data.media)?await db.queryEqual("publicidad_media","publicidad_id",id,500):
     await getPreparedRelationsV1({cache,type:"publicity-media",id,current,load:()=>db.queryEqual("publicidad_media","publicidad_id",id,500)})):[];
@@ -72,7 +76,7 @@ export async function publicitySaveV4({db,cache,advertiserId,body,config={guarda
   }
   const fields=["nombre_interno","titulo","formato","cta_texto","cta_tipo","cta_destino"].filter(k=>Object.prototype.hasOwnProperty.call(data,k));
   const patch=changedFieldsV1(current,doc,{touch:!!media.changed||!!segmentacion.changed,fields:current?fields:null});
-  const saved=Object.keys(patch).length?await db.patch("publicidades",id,patch,{mustExist:!!current}):current;
+  const saved=Object.keys(patch).length?await db.patch("publicidades",id,patch,{mustExist:!!current,newDocument:!current}):current;
 
   await syncPublicityPreparedV2({
     cache,

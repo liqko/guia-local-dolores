@@ -79,7 +79,7 @@ export async function routePanelV3({path,request,url,env,db,cache}){
     if(!aid)return json({success:false,message:"Falta advertiserId"},400);
     const auth=await requirePanel(env,request,aid,"modificar_datos");if(auth.response)return auth.response;
     if(action==="permisos_panel"){
-      const admin=await db.get("anunciantes_administracion",aid);
+      const admin=await (db.panelAdministration?db.panelAdministration(aid):db.get("anunciantes_administracion",aid));
       return json({success:!!admin,id:aid,administracion:admin||{}},admin?200:404);
     }
     if(action==="anunciante")return json(await commercePanelData({db,advertiserId:aid,catalogs:await getCommerceCatalogs(cache)}));

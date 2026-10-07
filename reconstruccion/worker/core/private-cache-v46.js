@@ -2,6 +2,7 @@
 const text=v=>String(v??'').trim();
 const relationKey=sid=>'login:relations:v45:'+text(sid);
 const recordKey=(collection,id)=>'login:record:v45:'+collection+':'+text(id);
+const panelAdminKey=id=>'panel:administration:v47:'+text(id);
 const favoriteKey=sid=>'subscriber:favorites:v46:'+text(sid);
 const advertiserCollections=new Set(['anunciantes','anunciantes_administracion']);
 
@@ -107,6 +108,7 @@ export function withPrivateCacheV46(db,env){
     async queryEqual(...args){return remember(args[0],await db.queryEqual(...args));},
     async patch(collection,id,patch,options={}){
       if(advertiserCollections.has(collection))await invalidate(recordKey(collection,id));
+      if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       let affected=[];
       if(collection==='suscriptor_anunciante'){
         affected=[...await relationOwners(id,patch,options)];
@@ -121,6 +123,7 @@ export function withPrivateCacheV46(db,env){
     },
     async delete(collection,id,options={}){
       if(advertiserCollections.has(collection))await invalidate(recordKey(collection,id));
+      if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       if(collection==='suscriptor_anunciante')for(const sid of await relationOwners(id,null,options))await invalidate(relationKey(sid));
       let favKey;
       if(collection==='suscriptor_favoritos'){let sid=owners.get(collection+'/'+text(id))||text(options.subscriberId);if(!sid){const previous=await db.get(collection,id);if(previous){remember(collection,[previous]);sid=text(previous.suscriptor_id);}}if(sid)favKey=await prepareFavorite(sid,id);}
@@ -143,6 +146,12 @@ export function withPrivateCacheV46(db,env){
       // Almacenar solamente los campos que usa el login.
       await save(key,rows.map(r=>({id:text(r.id||r.suscriptor_anunciante_id),suscriptor_id:text(r.suscriptor_id),anunciante_id:text(r.anunciante_id),anunciante_nombre:text(r.anunciante_nombre),rol:text(r.rol),permisos:text(r.permisos),activo:r.activo})),rev);
       return rows;
+    },
+    async panelAdministration(id){
+      const key=panelAdminKey(id),{packet:hit,rev}=await read(key);
+      if(hit&&!dirty.has(key))return hit.data;
+      const row=await db.get('anunciantes_administracion',id);
+      await save(key,row,rev);return row;
     },
     async loginAdvertiser(collection,id){
       if(!advertiserCollections.has(collection))throw Error('Colección no admitida para caché del login.');

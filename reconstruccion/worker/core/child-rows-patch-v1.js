@@ -2,6 +2,7 @@ import {changedFieldsV1} from "./changed-fields-v1.js";
 const text=v=>String(v??'').trim();
 // Sólo reutiliza IDs que pertenecen al padre consultado; conserva filas sin cambios.
 export async function patchChildRowsV1({db,collection,idField,prefix,previous=[],desired=[],matchKey=undefined}){
+  if(db.rememberPanelRows)db.rememberPanelRows(collection,previous);
   const byId=new Map(previous.map(r=>[text(r[idField]||r.id),r]));
   const used=new Set(),prepared=[];
   for(let i=0;i<desired.length;i++){
@@ -19,7 +20,7 @@ export async function patchChildRowsV1({db,collection,idField,prefix,previous=[]
   const saved=[];let changed=false;
   for(const {id,current,patch}of prepared){
     if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){saved.push(current);continue;}
-    saved.push(await db.patch(collection,id,changedFieldsV1(current,{...patch,actualizado:new Date().toISOString()}),{mustExist:!!current}));
+    saved.push(await db.patch(collection,id,changedFieldsV1(current,{...patch,actualizado:new Date().toISOString()}),{mustExist:!!current,newDocument:!current}));
     changed=true;
   }
   for(const [id]of byId)if(!used.has(id)){await db.delete(collection,id);changed=true;}

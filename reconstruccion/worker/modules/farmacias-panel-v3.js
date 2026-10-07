@@ -5,6 +5,7 @@
 const text=v=>String(v??"").trim();
 
 export async function farmaciasPanelDataV3({db,cache,advertiserId,featureAllowed,allowedCityIds=[]}){
+  if(db.panelReadDb)db=db.panelReadDb();
   const admin=await db.get("anunciantes_administracion",advertiserId);
   if(!admin||!featureAllowed(admin))return{success:false,message:"Farmacias de turno no habilitado."};
 

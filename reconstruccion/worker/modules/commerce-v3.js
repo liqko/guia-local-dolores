@@ -75,7 +75,7 @@ export async function commerceSetSedesV3({db,cache,advertiserId,body}){
       if(JSON.stringify(current[k])===JSON.stringify(patch[k]))delete patch[k];
     }
     patch.actualizado_en=new Date().toISOString();
-    const doc=await db.patch('anunciantes_sedes',id,patch,{mustExist:!!existingId});
+    const doc=await db.patch('anunciantes_sedes',id,patch,{mustExist:!!existingId,newDocument:!existingId});
     saved.push(doc);changed.push(doc);
   }
   return{success:true,updated:!!changed.length,id:advertiserId,sedes:saved,changed_sedes:changed};

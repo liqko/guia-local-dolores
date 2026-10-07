@@ -5,6 +5,7 @@
 const text=v=>String(v??"").trim();
 
 export async function publicidadPanelDataV2({db,cache,advertiserId,featureEnabled,configFromAdmin}){
+  if(db.panelReadDb)db=db.panelReadDb();
   const [admin,docs,catalogs]=await Promise.all([
     db.get("anunciantes_administracion",advertiserId),
     db.queryEqual("publicidades","anunciante_id",advertiserId,500),

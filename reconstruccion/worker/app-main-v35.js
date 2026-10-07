@@ -1,3 +1,4 @@
+import {withPanelCacheV48} from "./core/panel-cache-v48.js";
 import {withPrivateCacheV46} from "./core/private-cache-v46.js";
 import {createDb} from "./core/db.js";
 import {createCache} from "./core/cache.js";
@@ -14,7 +15,7 @@ const clean=p=>{
 
 export default{
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'46',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'48',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     let db,cacheFlushed=false;
     const traced=async response=>{
       if(db&&db.flushLoginCache&&!cacheFlushed){cacheFlushed=true;await db.flushLoginCache();}
@@ -34,13 +35,13 @@ export default{
     try{
       if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors()});
       const url=new URL(request.url),path=clean(url.pathname);
-      db=withPrivateCacheV46(observeDbV41(createDb(env),report),env);
+      db=withPanelCacheV48(withPrivateCacheV46(observeDbV41(createDb(env),report),env),env);
       const cache=createCache(env);
       const action=await observationActionV43(request,url);
       if(action)report.action=action;
       const ctx={path,request,url,env,db,cache};
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"46"}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"48"}));
 
       const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){report.source='public-kv';return await traced(pub);}
       const panel=await routePanelV15(ctx);if(panel)return await traced(panel);

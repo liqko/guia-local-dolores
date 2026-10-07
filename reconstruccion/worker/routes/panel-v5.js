@@ -30,7 +30,7 @@ export async function routePanelV5(ctx){
     const auth=await requirePanel(env,request,aid,false);if(auth.response)return auth.response;
 
     if(action==="permisos_panel"){
-      const admin=await db.get("anunciantes_administracion",aid);
+      const admin=await (db.panelAdministration?db.panelAdministration(aid):db.get("anunciantes_administracion",aid));
       return json({success:!!admin,id:aid,administracion:admin||{}},admin?200:404);
     }
     if(action==="anunciante"){

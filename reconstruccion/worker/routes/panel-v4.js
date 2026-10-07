@@ -40,6 +40,7 @@ async function requirePanel(env,request,aid,moduleName,write=false){
   return{session:s};
 }
 async function allowedFarmCities({db,cache,aid}){
+  if(db.panelReadDb)db=db.panelReadDb();
   const admin=await db.get("anunciantes_administracion",aid);
   const territory=(await cache.get("territorio:public:v1"))||{};
   const cfgRoot=admin&&admin.funcionalidades_config&&typeof admin.funcionalidades_config==="object"

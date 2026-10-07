@@ -72,7 +72,7 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
     for(const p of nuevos){
       const previous=existentes.find(r=>text(r.sede_id)===p.sede_id);
       const patch=changedFieldsV1(previous,p);
-      const saved=Object.keys(patch).length?await db.patch("farmacias_ciclo_sedes",id+"__"+p.sede_id,patch,{mustExist:!!previous}):previous;
+      const saved=Object.keys(patch).length?await db.patch("farmacias_ciclo_sedes",id+"__"+p.sede_id,patch,{mustExist:!!previous,newDocument:!previous}):previous;
       if(Object.keys(patch).length)participantsChanged=true;
       participantes.push(saved);
     }
@@ -101,8 +101,9 @@ export async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds
     actualizado:new Date().toISOString()
   };
   const fields=Object.keys(payload).filter(k=>!["id","ciclo_id","anunciante_id","participantes"].includes(k));
+  if(!current&&db.prepareNewPanelList)await db.prepareNewPanelList('farmacias_ciclo_sedes','ciclo_id',id);
   const patch=changedFieldsV1(current,doc,{touch:participantsChanged,fields:current?fields:null});
-  const saved=Object.keys(patch).length?await db.patch("farmacias_ciclos",id,patch,{mustExist:!!current}):current;
+  const saved=Object.keys(patch).length?await db.patch("farmacias_ciclos",id,patch,{mustExist:!!current,newDocument:!current}):current;
 
   await syncFarmCyclePreparedV2({
     cache,
