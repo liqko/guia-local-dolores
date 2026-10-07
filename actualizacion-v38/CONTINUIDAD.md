@@ -306,3 +306,11 @@ por sólo cuatro endpoints públicos observados.
 - V51 completa nombres por sede_id desde guide:city:v1:<ciudad> en KV; respeta nombre propio de sede, usa nombre del anunciante cuando sede está vacío/genérico. No cambia orden, fechas, horarios, participantes o direcciones; cero Firestore público.
 - Carcasa: trim de cada alternativa de nombre y compatibilidad nombre; cache local de turnos sin nombre/genérico ya no se reutiliza 24h. Esto genera nueva llamada pública KV, no Firestore.
 - Prueba full Worker V51 PASS: /farmacias turnos devuelve Farmacia Test desde guía con sede sin nombre y conserva ID/hora, 0 reads; regresiones del panel y mutaciones PASS. Pendiente despliegue manual y verificación visual real; no afirmar que ya fue desplegado por el usuario.
+
+
+## 2026-10-07 — V52: cerrar origen y ciclo existente, sin recreación
+- Usuario confirma ciclo ya cargado; exige solución en origen, no fallback de texto. V51 sólo completaba la respuesta pública. V52 prepara y conserva nombres en el paquete KV y relaciones preparadas al guardar y rebuild.
+- Rebuild integral espera guía preparada antes de Farmacias (dependencia explícita), sin volver a consultar anunciantes ni sumar scans Firestore.
+- getFarmCityV2 normaliza paquete legacy existente sólo en KV, conserva ciclos/participantes/fechas/horarios/direcciones, y guarda revisión SHA256 de nombres de las sedes usadas. Segunda visita no reescribe; cambio de nombre ajeno al ciclo no reescribe; cambio de nombre de farmacia refresca únicamente paquete territorial KV. Sin Firestore, sin regenerar ciclo.
+- Función pública vuelve a calcular sobre paquete preparado completo (se retira join duplicado de V51). Carcasa corregida en V51 sigue vigente.
+- Prueba de ciclo existente, guardado, rebuild, renombrado puntual y segunda visita PASS; integración full Worker V52 PASS con rutas públicas 0 Firestore y regresión de mutaciones/autorización. Pendiente despliegue manual de V52 y verificación visual real. No pedir al usuario borrar/rearmar ciclos ni ejecutar seed global.

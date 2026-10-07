@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+const raw=await fs.readFile(new URL('../fuentes/farmacias-read-model-v52.js',import.meta.url),'utf8');
+const s=raw.replace(/^import .*$/mg,'').replace(/export /g,'');
+const putPreparedRelationsV1=async({cache,id,next,data})=>cache.put('prepared:'+id,{next,data});
+const {getFarmCityV2,syncFarmCyclePreparedV2,rebuildFarmAllV2}=Function('putPreparedRelationsV1',s+';return {getFarmCityV2,syncFarmCyclePreparedV2,rebuildFarmAllV2};')(putPreparedRelationsV1);
+const values=new Map();let writes=0;
+const cache={async get(k){return structuredClone(values.get(k)||null)},async put(k,v){writes++;values.set(k,structuredClone(v))}};
+const sede={sede_id:'S',anunciante_id:'F',ciudad_id:'D',nombre_sede:'',direccion:'Mitre y 25 de Mayo',telefono:'123'};
+const part={ciclo_id:'C',sede_id:'S',orden:1};
+const cycle={ciclo_id:'C',anunciante_id:'ADMIN',ciudad_id:'D',fecha_inicio:'2026-10-07',hora_inicio:'08:00',duracion_horas:24,farmacias_por_turno:1,activo:true};
+const guide={anunciantes:[{id:'F',nombre:'Farmacia Uno',ciudad_id:'D',sedes:[sede]}]};
+values.set('guide:city:v1:D',guide);
+values.set('farmacias:city:v2:D',{version:2,ciudad_id:'D',ciclos:[{...cycle,sedes:[sede],participantes:[part]}]});
+let out=await getFarmCityV2({cache,cityId:'D'});
+assert.equal(out.ciclos[0].sedes[0].nombre_ref,'Farmacia Uno');assert.deepEqual(out.ciclos[0].participantes,[part]);assert.equal(out.ciclos[0].hora_inicio,'08:00');assert.equal(out.ciclos[0].sedes[0].direccion,sede.direccion);assert.equal(writes,1);
+assert.equal(values.get('farmacias:city:v2:D').ciclos[0].sedes[0].nombre_ref,'Farmacia Uno');
+await getFarmCityV2({cache,cityId:'D'});assert.equal(writes,1);
+guide.anunciantes.push({id:'ACP',nombre:'ACP CONTENIDOS',ciudad_id:'D',sedes:[{sede_id:'ACP',ciudad_id:'D'}]});values.set('guide:city:v1:D',guide);
+await getFarmCityV2({cache,cityId:'D'});assert.equal(writes,1); // Nombre ajeno al ciclo no reescribe turnos.
+// Migración de KV una sola vez, no recrea ciclo ni toca Firestore.
+guide.anunciantes[0].nombre='Farmacia Renombrada';values.set('guide:city:v1:D',guide);
+out=await getFarmCityV2({cache,cityId:'D'});assert.equal(out.ciclos[0].sedes[0].nombre_ref,'Farmacia Renombrada');assert.equal(writes,2);
+await getFarmCityV2({cache,cityId:'D'});assert.equal(writes,2);
+const next={...cycle,ciclo_id:'C2'};
+await syncFarmCyclePreparedV2({cache,cycleId:'C2',next,participantes:[{...part,ciclo_id:'C2'}],sedes:[sede]});
+assert.equal(values.get('prepared:C2').data.sedes[0].nombre_ref,'Farmacia Renombrada');
+assert.equal(values.get('farmacias:city:v2:D').ciclos.length,2);
+assert.ok(values.get('farmacias:city:v2:D').ciclos.every(c=>c.sedes[0].nombre_ref==='Farmacia Renombrada'));
+const before=writes;await getFarmCityV2({cache,cityId:'D'});assert.equal(writes,before);
+const listed=[];const db={async listCollection(c){listed.push(c);return structuredClone(c==='farmacias_ciclos'?[cycle]:c==='farmacias_ciclo_sedes'?[part]:[sede])}};
+await rebuildFarmAllV2({db,cache});assert.equal(listed.length,3);assert.equal(values.get('prepared:C').data.sedes[0].nombre_ref,'Farmacia Renombrada');assert.equal(values.get('farmacias:city:v2:D').ciclos[0].sedes[0].nombre_ref,'Farmacia Renombrada');
+const seeded=writes;await getFarmCityV2({cache,cityId:'D'});assert.equal(writes,seeded);
+console.log('PASS V52: ciclo existente normalizado sólo KV; segunda visita no reescribe; renombrado coherente; guardado y rebuild preparan nombres; fechas/participantes/dirección intactos; sin Firestore adicional.');
