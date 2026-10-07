@@ -20,6 +20,16 @@ assert.equal(JSON.parse(storage.get('gld_consumo_v44'))[2].estado,'Error de red'
 next=new Response('{}');await window.fetch('https://other.example/test');assert.equal(JSON.parse(storage.get('gld_consumo_v44')).length,3);
 for(const name of ['inicio','carcasa','anunciantes','suscriptores','login','granhermano','promos','eventos','actividades','farma_turnos']){
  const html=fs.readFileSync(new URL('../../plataforma/'+name+'.html',import.meta.url),'utf8');
- assert.match(html,/<script src="\/plataforma\/consumo-v44\.js"/);assert.equal(html.match(/consumo-v44\.js/g).length,1);
+ assert.match(html,/<script src="\/plataforma\/consumo-v44\.js(?:\?v=49\.1)?"/);assert.equal(html.match(/consumo-v44\.js/g).length,1);
 }
-console.log('Consumo V44: preserva respuestas/cuerpos/errores, detecta falta de medición, no registra claves/correo/ciudad y cubre diez HTML.');
+next=new Response(JSON.stringify({success:false,message:'private@example.test'}),{status:200,headers:{'X-GLD-Read-Calls':'0'}});
+const refused=await window.fetch('https://login.liqkoargentina.workers.dev/farmacias');
+assert.equal((await refused.json()).success,false);
+rows=JSON.parse(storage.get('gld_consumo_v44'));assert.equal(rows.at(-1).consultas,0);assert.equal(rows.at(-1).resultado,'Rechazada');
+window.gldConsumoVistaV49('turnos_farma',false);rows=JSON.parse(storage.get('gld_consumo_v44'));assert.equal(rows.at(-1).vista,'Error');
+next=new Response(JSON.stringify({success:true}),{headers:{'X-GLD-Read-Calls':'0'}});
+await window.fetch('https://login.liqkoargentina.workers.dev/farmacias');window.gldConsumoVistaV49('turnos_farma',true);
+rows=JSON.parse(storage.get('gld_consumo_v44'));assert.equal(rows.at(-1).resultado,'Aceptada');assert.equal(rows.at(-1).vista,'Lista');assert.equal(rows[1].resultado,'Sin comprobar');
+window.gldConsumoVistaV49('not-a-module',true);assert.equal(JSON.parse(storage.get('gld_consumo_v44')).length,5);
+assert.doesNotMatch(storage.get('gld_consumo_v44'),/private@example|secret/);
+console.log('Consumo: preserva respuestas, distingue rechazo200 con0consultas de respuesta aceptada y vista cargada, no guarda mensajes personales ni hace llamadas adicionales.');
