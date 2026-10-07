@@ -318,5 +318,5 @@ por sólo cuatro endpoints públicos observados.
 
 ## 2026-10-07 — Registro de consultas visible dentro del iframe anunciante (18:54 ART)
 - Usuario no ve registro. HTML login ya indica data-gld-consumo-container=.container, pero consumo-v44.js ignoraba atributo y montaba al final de body. Iframe calcula altura de .container, dejando diagnóstico fuera del área visible.
-- Recorder ahora respeta host indicado; se monta dentro de .container, abierto con scroll máximo 400px. HTML login usa cachebuster49.2. No modifica Worker ni ejecuta llamadas nuevas.
+- Recorder ahora respeta host indicado; se monta dentro de .container, abierto con altura según contenido, sin límite fijo. HTML login usa cachebuster49.2. No modifica Worker ni ejecuta llamadas nuevas.
 - TEST_CONSUMO_V44 PASS con prueba DOM de host: contenedor recibe diagnóstico, body no; queda abierto; 0 llamadas nuevas. Privacidad, respuestas intactas y contadores siguen PASS.

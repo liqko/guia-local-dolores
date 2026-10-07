@@ -66,7 +66,7 @@
     view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);
     const selector=script&&script.getAttribute('data-gld-consumo-container');
     const host=(selector&&document.querySelector(selector))||document.body;
-    if(selector){details.open=true;view.style.maxHeight='400px';view.style.overflowY='auto';}
+    if(selector)details.open=true;
     host.appendChild(details);details.addEventListener('toggle',render);render();
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
