@@ -353,3 +353,9 @@ por sólo cuatro endpoints públicos observados.
 - Tras recargar página, segunda vuelta17:26: session, commerce acceso, Promos, Eventos (dos cargas), Farmacias, Efemérides, Actividades, Publicidad y Modificar datos: todas0consultas/0documentos/0escrituras; filas completas0eliminaciones. Todas HTTP200 Aceptada; módulos Vista Lista. V55.
 - Confirmado en navegación real: caché del panel persiste entre recargas. No afirmar verificación de guardar/editar/eliminar real: sólo pruebas locales existentes de mutaciones; próximo bloque pruebas reales de cambio puntual y actualización de vistas, comenzando Modificar datos con campo reversible.
 - Contador Firebase total posterior aún no informado; no deducir facturación exacta sumando documentos/consultas. Carga inicial Efemérides474 provino catálogo administrativo incluyendo desactivadas, distinto del público. Repetición constatada0; cache compartido por ámbito y sin TTL diario, sujeto a modificaciones/borradoKV.
+
+
+## 2026-10-08 — contadores de caracteres panel
+- Usuario solicitó límites efectivos y contador por recortes en tarjetas. Código original: descripcion/tags/adicionales limitados por niveles; otros maxlength explícitos (Promos300, alta descripcion500, publicidad título100/nombre80/CTA35). No inventar máximos en campos sin regla.
+- Añadido plataforma/contadores-caracteres.js y referencia original login.html: contador dinámico n/max en campos maxlength, aviso al alcanzar/exceder, conserva textos antiguos sin truncarlos, valida exceso en submit visible, permite browser maxlength limitar escritura/pegado. Sin polling ni red/Firestore. MutationObserver adapta formularios dinámicos y respeta altura .container existente.
+- Sintaxis JS comprobada. Pendiente verificar visual en navegador tras Hosting; no se modificaron límites por nivel ni truncado de tarjetas. Worker55 no requiere cambio por este ajuste.
