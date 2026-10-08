@@ -359,3 +359,10 @@ por sólo cuatro endpoints públicos observados.
 - Usuario solicitó límites efectivos y contador por recortes en tarjetas. Código original: descripcion/tags/adicionales limitados por niveles; otros maxlength explícitos (Promos300, alta descripcion500, publicidad título100/nombre80/CTA35). No inventar máximos en campos sin regla.
 - Añadido plataforma/contadores-caracteres.js y referencia original login.html: contador dinámico n/max en campos maxlength, aviso al alcanzar/exceder, conserva textos antiguos sin truncarlos, valida exceso en submit visible, permite browser maxlength limitar escritura/pegado. Sin polling ni red/Firestore. MutationObserver adapta formularios dinámicos y respeta altura .container existente.
 - Sintaxis JS comprobada. Pendiente verificar visual en navegador tras Hosting; no se modificaron límites por nivel ni truncado de tarjetas. Worker55 no requiere cambio por este ajuste.
+
+
+### 2026-10-08 — Espacio para editar descripciones
+- Ampliados los cuadros de descripción del panel original: Modificar datos, alta, Eventos, Eventos Free, Efemérides y Actividades.
+- Altura mínima 160 px, interlineado 1.5 y redimensionamiento vertical manual. Se conserva el ancho disponible y el ajuste dinámico del iframe.
+- Cambio únicamente visual; conserva límites y contadores, sin nuevas llamadas al Worker.
+- Publicación y verificación visual pendientes al crear este commit.
