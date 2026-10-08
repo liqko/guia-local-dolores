@@ -1243,7 +1243,7 @@
               </div>
               <div class="full">
                 <label>Descripción</label>
-                <textarea id="evf-descripcion" rows="3" placeholder="Descripción breve"></textarea>
+                <textarea id="evf-descripcion" rows="6" maxlength="200" placeholder="Descripción breve (hasta 200 caracteres)"></textarea>
               </div>
               <div class="full">
                 <label>Instagram</label>
@@ -2762,6 +2762,22 @@ async function loadEventPlacesForCity(ciudadId, preferredKey=''){
   refreshEventPlacesByCity(preferredKey);
 }
 
+function eventFormCatalogs_(data,territorio){
+  const advertiser=data && data.advertiser || {};
+  const categorias=[...new Set((Array.isArray(data && data.categorias)?data.categorias:[])
+    .filter(x=>x && (typeof x!=='object' || (x.activo!==false && x.activa!==false)))
+    .map(x=>String(typeof x==='object' ? (x.nombre||x.categoria||x.categoria_visible||x.nombre_visible||'') : x).trim())
+    .filter(Boolean))];
+  const lugares=(Array.isArray(data && data.lugares)?data.lugares:[]).map(x=>{
+    const sedeId=String(x.sede_id||'').trim();
+    const tipo=String(x.tipo||(sedeId?'sede':'lugar')).trim().toLowerCase();
+    const own=sedeId && String(x.anunciante_id||'')===String(advertiser.id||sesion?.id||'');
+    const nombre=String(x.nombre_visible||x.nombre||x.lugar||x.nombre_sede||x.nombre_ref||x.anunciante_nombre||(own?advertiser.nombre:'')||'').trim();
+    return {...x,tipo,sede_id:sedeId,lugar_id:String(x.lugar_id||(!sedeId?x.id:'')||'').trim(),nombre_visible:nombre};
+  }).filter(x=>x.nombre_visible && x.activo!==false && x.activa!==false);
+  return {...data,categorias,lugares,ciudades:Array.isArray(territorio && territorio.ciudades)?territorio.ciudades:[]};
+}
+
 async function loadEventosPanelData(){
   const st=document.getElementById('eventos-status');
   const list=document.getElementById('eventos-list');
@@ -2780,11 +2796,12 @@ async function loadEventosPanelData(){
     const data=res.json;
     const territorio=await gldTerritoryPublic_();
 
-    evLists.categorias=Array.isArray(data.categorias) ? data.categorias : [];
-    evLists.ciudades=territorio.ciudades;
+    const catalog=eventFormCatalogs_(data,territorio);
+    evLists.categorias=catalog.categorias;
+    evLists.ciudades=catalog.ciudades;
     evLists.partners=Array.isArray(data.partners) ? data.partners : [];
 
-    evLists.lugaresTodos=(Array.isArray(data.lugares) ? data.lugares : []).map(o=>{
+    evLists.lugaresTodos=catalog.lugares.map(o=>{
       const tipo=String(o.tipo || '').trim();
       const sedeId=String(o.sede_id || '').trim();
       const lugarId=String(o.lugar_id || '').trim();
@@ -7313,7 +7330,7 @@ async function loadEventosFreePanelData(){
   if(list) list.innerHTML='<div class="small-muted">Cargando eventos free...</div>';
 
   try{
-    const res=await events_post({action:'getPanelData'});
+    const res=await events_post({action:'getFreeEventsPanelData'});
     if(res.status!==200 || !res.json || res.json.success!==true){
       throw new Error((res.json&&(res.json.error||res.json.message))||'No se pudieron cargar Eventos Free.');
     }
@@ -7329,9 +7346,10 @@ async function loadEventosFreePanelData(){
     }
 
     const territorio=await gldTerritoryPublic_();
-    evLists.categorias=Array.isArray(data.categorias)?data.categorias:evLists.categorias;
-    evLists.ciudades=territorio.ciudades;
-    fillFreeEventCatalogs_(data);
+    const catalog=eventFormCatalogs_(data,territorio);
+    evLists.categorias=catalog.categorias;
+    evLists.ciudades=catalog.ciudades;
+    fillFreeEventCatalogs_(catalog);
 
     const events=Array.isArray(data.eventos_free)?data.eventos_free:[];
     window.__lastFreeEvents=events;
@@ -8095,6 +8113,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   document.getElementById('evf-guardar')?.addEventListener('click',async()=>{
     if(!sesion || !sesion.id) return;
     const payload=buildFreeEventPayload_();
+    if(String(document.getElementById('evf-descripcion')?.value||'').length>200){ setMsg('eventos-free-msg','err','La descripción admite hasta 200 caracteres.'); return; }
     if(!payload.nombre_evento){ setMsg('eventos-free-msg','err','Falta Nombre del evento.'); return; }
     if(!payload.categoria){ setMsg('eventos-free-msg','err','Seleccioná al menos una categoría.'); return; }
     if(document.getElementById('evf-compartido-mostrar')?.checked && !payload.organizador){
@@ -9092,3 +9111,4 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 <script src="/plataforma/contadores-caracteres.js?v=1"></script>
 </body>
 </html>
+

@@ -383,3 +383,12 @@ por sólo cuatro endpoints públicos observados.
 - Pruebas completas del bundle: regresiones V55 aprobadas. GH local: pendientes, aprobar evento/actividad, rechazar evento, aprobar reclamo; sincronización pública KV cero y listas actualizadas; sesión requerida y documento faltante sin escritura. Aprobación evento/actividad con relaciones preparadas: 1 lectura del documento + 1 escritura.
 - HTML probado con DOM simulado: entrada dibuja las tres listas y botones; fallo de carga visible y recuperación sin cerrar sesión. Sintaxis aprobada. No equivale a prueba visual en navegador.
 - Worker completo TXT56 entregable para instalación manual; no repetir carga inicial/seed. Pendiente despliegue del usuario y aprobación real. Gran Hermano completo (publicidad, editor, roles locales, otros pendientes) NO certificado terminado.
+
+
+## 2026-10-08 — Eventos Free V57
+- Prueba real usuario GH V56: login 2 consultas/2 documentos; dashboard0; pendientes primera4/0, actualización siguiente0/0. Aprobación real todavía pendiente: falta crear el evento de prueba.
+- Eventos Free: ciudades obtenidas de KV territorial no se pasaban al formulario; categorías con objetos se trataban como texto; sedes sin nombre se descartaban. Adaptador común convierte categorías a nombres, combina ciudades y normaliza lugares/sedes propias. Sin nuevas consultas a Firestore.
+- Entrada getFreeEventsPanelData separada para usar permisos Free.
+- Descripción Free máximo200: maxlength + contador existente + validación cliente y servidor al crear/editar. No se trunca texto histórico silenciosamente; VIP conserva sus límites.
+- Pruebas locales V57: catálogo/formulario PASS; límites200/201 crear/editar y VIP PASS; regresiones panel y GH PASS. No equivale a comprobación visual publicada ni aprobación real.
+- Entrega Worker completoV57 TXT; Diego debe reemplazar/desplegar login y recargar panel. Después verificar selectores Free, crear evento y aprobar desde GH. No pasar a otros módulos antes de cerrar este recorrido.
