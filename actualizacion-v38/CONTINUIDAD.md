@@ -346,3 +346,10 @@ por sólo cuatro endpoints públicos observados.
 - Declarar altas generadas newDocument evita GET inútil al ID nuevo en creación de eventos/programación/actividades/efemérides. Validaciones y edición/baja siguen verificando documentos existentes.
 - TEST_WORKER_PANEL_V55 PASS con REST mock: cargas repetidas nuevas solicitudes 0; VIP/FREE con programación conservada; pausa/baja y separación anunciante ajeno; Actividades horarios preservados y pausa/baja visibles sin volver a consultar; Efemérides 3 ámbitos, repetición0, desactivar, cambiar ámbito, eliminar actualizan caché; regresión commerce/promos/farmacias/publicidad PASS. Sintaxis PASS.
 - Entregable WORKER_COMPLETO_V55.txt. Pendiente despliegue y validación real. Si aún faltan listas privadas, primera carga puede requerir lecturas acotadas; las recargas deben reutilizarlas. No atribuir exactas 7 al registro agregado sin operaciones individuales.
+
+
+## 2026-10-08 17:27 ART — comprobación real panel V55
+- Usuario compartió primera vuelta 17:23: Eventos4consultas/3documentos y repetición0; Efemérides3/474; Actividades3/6; Publicidad1/0. Session, entrada comercio, Promos, Modificar datos y Farmacias0.
+- Tras recargar página, segunda vuelta17:26: session, commerce acceso, Promos, Eventos (dos cargas), Farmacias, Efemérides, Actividades, Publicidad y Modificar datos: todas0consultas/0documentos/0escrituras; filas completas0eliminaciones. Todas HTTP200 Aceptada; módulos Vista Lista. V55.
+- Confirmado en navegación real: caché del panel persiste entre recargas. No afirmar verificación de guardar/editar/eliminar real: sólo pruebas locales existentes de mutaciones; próximo bloque pruebas reales de cambio puntual y actualización de vistas, comenzando Modificar datos con campo reversible.
+- Contador Firebase total posterior aún no informado; no deducir facturación exacta sumando documentos/consultas. Carga inicial Efemérides474 provino catálogo administrativo incluyendo desactivadas, distinto del público. Repetición constatada0; cache compartido por ámbito y sin TTL diario, sujeto a modificaciones/borradoKV.
