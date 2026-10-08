@@ -366,3 +366,10 @@ por sólo cuatro endpoints públicos observados.
 - Altura mínima 160 px, interlineado 1.5 y redimensionamiento vertical manual. Se conserva el ancho disponible y el ajuste dinámico del iframe.
 - Cambio únicamente visual; conserva límites y contadores, sin nuevas llamadas al Worker.
 - Publicación y verificación visual pendientes al crear este commit.
+
+
+### 2026-10-08 — Aviso de guardado claro en todas las pestañas
+- Aviso compartido: Guardando… durante altas/ediciones y Cambios guardados al confirmar éxito; sin título Listo ni explicación duplicada.
+- Corregido el error que convertía mensajes de progreso emitidos con setMsg(ok) en resultados finales antes de recibir la respuesta.
+- Se conservan mensajes de error y de resultado no confirmado; nunca se presentan como guardados.
+- Verificación local del aviso: progreso, éxito, error, resultado no confirmado y otras acciones aprobada. Publicación/visual pendiente.
