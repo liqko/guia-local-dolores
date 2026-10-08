@@ -329,3 +329,11 @@ por sólo cuatro endpoints públicos observados.
 - V53 conecta sólo la carga a panelReadDb, reutiliza caché administración y sedes, agrega caché ficha completa por ID con actualización/baja mediante mutaciones. No cambia comprobaciones de autenticación ni lecturas necesarias al guardar.
 - Pruebas locales: sintaxis, TEST_COMMERCE_CACHE_V53 y TEST_WORKER_PANEL_V53 PASS. Solicitudes independientes repetidas cero, datos completos, modificación puntual preserva otros campos, baja sin respuesta obsoleta. Regresión farmacias/publicidad/autorización PASS.
 - Entregable manual: WORKER_COMPLETO_V53.txt. Pendiente despliegue usuario y medición real. Una caché ausente puede requerir carga inicial; no afirmar cero en primera carga ni que las 3 observadas eran modificación.
+
+
+## 2026-10-08 — V54 Promos panel
+- Prueba real V53 14:48 ART: session/access commerce cero; Promos getPanelData 4 consultas/4 documentos; Modificar datos luego 1/1 (primera ficha completa cacheada V53). No asumir todos los módulos terminados.
+- Causa: promosPanelDataV2 omitía panelReadDb y consultaba administración, ficha, sedes y promos directamente. getPromos también omitía caché. Límites implícitos impedían reutilizar listas v48.
+- V54 usa caché de panel para ambas cargas Promos, lista por anunciante con límite explícito 500, reutiliza ficha/administración/sedes. Mutaciones mantienen deltas por promo ID; alta declara newDocument para no leer un ID recién generado. No se cachean ni cambian las validaciones autorizantes de las mutaciones.
+- TEST_WORKER_PANEL_V54 PASS (mock REST, no navegador): carga repetida cero; getPromos comparte listado; edición de texto sólo PATCH promos, sin query; preserva imagen/otros; pausa/alta/baja reflejadas en caché; ajeno 403 cero; regresión commerce/farmacias/publicidad PASS. Sintaxis PASS.
+- WORKER_COMPLETO_V54.txt entregable manual. Pendiente desplegar y prueba real. Lista nunca preparada puede requerir lectura inicial, no se prometió cero universal.
