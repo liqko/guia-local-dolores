@@ -320,3 +320,12 @@ por sólo cuatro endpoints públicos observados.
 - Usuario no ve registro. HTML login ya indica data-gld-consumo-container=.container, pero consumo-v44.js ignoraba atributo y montaba al final de body. Iframe calcula altura de .container, dejando diagnóstico fuera del área visible.
 - Recorder ahora respeta host indicado; se monta dentro de .container, abierto con altura según contenido, sin límite fijo. HTML login usa cachebuster49.2. No modifica Worker ni ejecuta llamadas nuevas.
 - TEST_CONSUMO_V44 PASS con prueba DOM de host: contenedor recibe diagnóstico, body no; queda abierto; 0 llamadas nuevas. Privacidad, respuestas intactas y contadores siguen PASS.
+
+
+## 2026-10-08 — prueba real V52 y corrección V53
+- Baseline confirmado por usuario: Firestore 0 lecturas/escrituras/eliminaciones. Entrada pública Dolores, farmacias con nombres visibles: cero operaciones. Login suscriptor: 1 consulta/1 documento, Firebase confirma 1 lectura. Promos/eventos/actividades/publicidad públicas: KV cero; luego de espera Firebase sigue en 1.
+- Sesión panel anunciantes y acceso ACP CONTENIDOS: cero operaciones. Modificar datos: 3 consultas/3 documentos, sin mutaciones.
+- Causa comprobada en código: commercePanelDataV3 omitía panelReadDb; datos, administración y sedes iban directamente a Firestore aunque existieran cachés privadas. La ficha completa del anunciante tampoco tenía caché de panel (login guarda sólo resumen).
+- V53 conecta sólo la carga a panelReadDb, reutiliza caché administración y sedes, agrega caché ficha completa por ID con actualización/baja mediante mutaciones. No cambia comprobaciones de autenticación ni lecturas necesarias al guardar.
+- Pruebas locales: sintaxis, TEST_COMMERCE_CACHE_V53 y TEST_WORKER_PANEL_V53 PASS. Solicitudes independientes repetidas cero, datos completos, modificación puntual preserva otros campos, baja sin respuesta obsoleta. Regresión farmacias/publicidad/autorización PASS.
+- Entregable manual: WORKER_COMPLETO_V53.txt. Pendiente despliegue usuario y medición real. Una caché ausente puede requerir carga inicial; no afirmar cero en primera carga ni que las 3 observadas eran modificación.
