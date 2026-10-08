@@ -373,3 +373,13 @@ por sólo cuatro endpoints públicos observados.
 - Corregido el error que convertía mensajes de progreso emitidos con setMsg(ok) en resultados finales antes de recibir la respuesta.
 - Se conservan mensajes de error y de resultado no confirmado; nunca se presentan como guardados.
 - Verificación local del aviso: progreso, éxito, error, resultado no confirmado y otras acciones aprobada. Publicación/visual pendiente.
+
+
+### 2026-10-08 — Gran Hermano: pendientes y aprobación V56
+- Hoja maestra reemplazada en su misma identidad, versión 9. Se dejan pendientes prueba de varios campos y alta nueva; descripción real V55: 0 consultas, 1 escritura.
+- GH: pendientes se obtenían pero abrirApp sólo dibujaba la portada; Actividades no renderizaba al cambiar de pestaña. Corregido render común de eventos, actividades y anunciantes, botones actualizar y error visible sin mostrar falsos vacíos. Se agrega el contenedor de pendientes faltante de la portada.
+- Evita doble envío mientras resuelve una aprobación. Conserva nivel obligatorio en altas y ajuste dinámico de altura.
+- Worker V56: pendientes leen listas compartidas KV por estado/aprobado. Cambios por documento actualizan las mismas listas; conserva caches anteriores por anunciante. Primer llenado cuatro consultas acotadas, repetición cero.
+- Pruebas completas del bundle: regresiones V55 aprobadas. GH local: pendientes, aprobar evento/actividad, rechazar evento, aprobar reclamo; sincronización pública KV cero y listas actualizadas; sesión requerida y documento faltante sin escritura. Aprobación evento/actividad con relaciones preparadas: 1 lectura del documento + 1 escritura.
+- HTML probado con DOM simulado: entrada dibuja las tres listas y botones; fallo de carga visible y recuperación sin cerrar sesión. Sintaxis aprobada. No equivale a prueba visual en navegador.
+- Worker completo TXT56 entregable para instalación manual; no repetir carga inicial/seed. Pendiente despliegue del usuario y aprobación real. Gran Hermano completo (publicidad, editor, roles locales, otros pendientes) NO certificado terminado.

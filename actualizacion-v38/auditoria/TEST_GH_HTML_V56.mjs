@@ -1,0 +1,21 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../../plataforma/granhermano.html',import.meta.url),'utf8').split('<script>').at(-1).split('</script>')[0].split("document.getElementById('ghTabs').addEventListener")[0];
+const elements=new Map();
+const document={getElementById(id){if(!elements.has(id))elements.set(id,{innerHTML:'',textContent:'',value:'',style:{},classList:{add(){},remove(){},toggle(){}}});return elements.get(id)},querySelectorAll(){return []}};
+let fail=false;const calls=[];
+const pending={success:true,eventos:[{id:'E',tipo:'EVENTO',nombre:'Evento de prueba',ciudad_id:'D',nivel:'FREE'}],actividades:[{id:'A',tipo:'ACTIVIDAD',nombre:'Actividad de prueba',ciudad_id:'D'}],anunciantes:[{id:'R',modo:'RECLAMAR',nombre:'Anunciante de prueba',tipo:'ANUNCIANTE'}],cantidades:{eventos:1,actividades:1,anunciantes:1}};
+const context=vm.createContext({document,informarAltura(){},localStorage:{getItem(){return 'token'},setItem(){},removeItem(){}},window:{scrollTo(){},parent:{postMessage(){}}},structuredClone,URL,CSS:{escape:s=>s},console,fetch:async u=>{calls.push(u);return {ok:true,json:async()=>String(u).endsWith('/dashboard')?{success:true,resumen:{suscriptores:1,anunciantes:1}}:fail?{success:false,message:'Error real'}:pending}}});
+vm.runInContext(source,context);
+await vm.runInContext('abrirApp()',context);
+assert.match(document.getElementById('eventosFreeList').innerHTML,/Evento de prueba/);
+assert.match(document.getElementById('actividadesAdminList').innerHTML,/Actividad de prueba/);
+assert.match(document.getElementById('anunciantesPendientes').innerHTML,/Anunciante de prueba/);
+assert.match(document.getElementById('actividadesAdminList').innerHTML,/APROBAR/);
+assert.equal(calls.length,2);
+fail=true;await vm.runInContext('cargarPendientes()',context);
+assert.match(document.getElementById('actividadesAdminList').innerHTML,/Error real/);
+assert.equal(document.getElementById('stAct').textContent,'Sin comprobar');
+fail=false;await vm.runInContext('cargarPendientes()',context);
+assert.match(document.getElementById('actividadesAdminList').innerHTML,/Actividad de prueba/);
+console.log('PASS GH HTML: inicio dibuja las tres listas y botones; error visible, recuperación sin cerrar sesión.');
+
