@@ -71,7 +71,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
     <section id="view-eventos" class="view"><div class="card"><h2>Eventos</h2><div class="muted">Administración unificada de Eventos VIP y Eventos Free.</div><div class="filters"><input id="evQ" placeholder="Buscar evento, organizador, lugar..."><select id="evCiudad"><option value="">Todas las ciudades</option></select><select id="evEstado"><option value="">Todos</option><option value="PENDIENTE">Pendientes</option><option value="PUBLICADO">Publicados</option></select><button id="btnEvtRefresh">Actualizar</button></div></div><div class="card"><h3>Eventos VIP</h3><div id="eventosList"></div></div><div class="card"><h3>Eventos Free</h3><div id="eventosFreeList"></div></div></section>
     <section id="view-actividades" class="view"><div class="card"><h2>Actividades</h2><div class="muted">Administración de actividades pendientes y publicadas.</div><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="actividadesAdminList"></div></div></section>
 
-    <section id="view-anunciantes" class="view"><div class="card"><h2>Altas y reclamos pendientes</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="anunciantesPendientes"></div></div><div id="anuListado" class="card"><h2>Anunciantes y permisos</h2><div class="section-intro">Elegí un anunciante para habilitar sus funciones y establecer los cupos de cada módulo.</div><div class="toolbar"><input id="qAnu" placeholder="Buscar por nombre o ID..."><select id="anuCiudad"><option value="">Todas las ciudades</option></select><button id="btnBuscarAnu">Buscar</button></div><div id="resAnu" class="muted">Cargando anunciantes...</div></div><div id="anuFicha" class="card hidden"><button class="sec back" onclick="volverAnunciantes()">← Volver a anunciantes</button><div id="detalle"></div></div></section>
+    <section id="view-anunciantes" class="view"><div class="card"><h2>Altas y reclamos pendientes</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="anunciantesPendientes"></div></div><div id="anuListado" class="card"><h2>Anunciantes y permisos</h2><div class="section-intro">Elegí un anunciante para habilitar sus funciones y establecer los cupos de cada módulo.</div><div class="toolbar"><input id="qAnu" placeholder="Buscar por nombre o ID..."><select id="anuCiudad"><option value="">Todas las ciudades</option></select><button id="btnBuscarAnu">Buscar</button></div><div id="resAnu" class="muted">Escribí un nombre o ID para buscar.</div></div><div id="anuFicha" class="card hidden"><button class="sec back" onclick="volverAnunciantes()">← Volver a anunciantes</button><div id="detalle"></div></div></section>
     <section id="view-suscriptores" class="view"><div id="susListado" class="card"><h2>Suscriptores</h2><div class="toolbar"><input id="qSus" placeholder="Buscar por nombre, mail o ID..."><select id="susTipo"><option value="">Todos</option><option value="RESIDENTE">Residentes</option><option value="NO_RESIDENTE">No residentes / visitantes</option></select><button id="btnBuscarSus">Actualizar listado</button></div><div id="resSus" class="muted">Cargando suscriptores...</div></div><div id="susFicha" class="card hidden"><button class="sec back" onclick="volverSuscriptores()">← Volver a suscriptores</button><div id="detalleSuscriptor"></div></div></section>
     <section id="view-configuracion" class="view">
       <div class="card">
@@ -539,12 +539,25 @@ async function buscarSus(){
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 
+let GH_ANU_SEARCH_SEQ=0;
+let GH_ANU_SEARCH_TIMER;
+function ghProgramarBusquedaAnu(){
+  clearTimeout(GH_ANU_SEARCH_TIMER);
+  GH_ANU_SEARCH_SEQ++;
+  document.getElementById('resAnu').textContent=document.getElementById('qAnu').value.trim()?'Buscando...':'Escribí un nombre o ID para buscar.';
+  GH_ANU_SEARCH_TIMER=setTimeout(buscarAnu,250);
+}
 async function buscarAnu(){
+  clearTimeout(GH_ANU_SEARCH_TIMER);
+  const seq=++GH_ANU_SEARCH_SEQ;
+  const q=document.getElementById('qAnu').value.trim();
   const box=document.getElementById('resAnu');
+  if(!q){box.textContent='Escribí un nombre o ID para buscar.';return;}
   box.innerHTML='Buscando...';
   try{
     const ciudad=String((document.getElementById('anuCiudad')||{}).value||'');
-    const j=await api('buscar_anunciantes',{q:document.getElementById('qAnu').value,ciudad_id:ciudad});
+    const j=await api('buscar_anunciantes',{q,ciudad_id:ciudad});
+    if(seq!==GH_ANU_SEARCH_SEQ)return;
     const lista=(j.results||[]);
     box.innerHTML=lista.map(a=>`
       <div class="result" data-aid="${esc(a.id)}">
@@ -556,7 +569,7 @@ async function buscarAnu(){
     box.querySelectorAll('[data-aid]').forEach(el=>{
       el.onclick=()=>detalleAnu(el.dataset.aid);
     });
-  }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+  }catch(e){if(seq!==GH_ANU_SEARCH_SEQ)return;box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 
 async function detalleSus(id){
@@ -754,6 +767,7 @@ document.getElementById('ciuSelect').addEventListener('change',async function(){
 document.getElementById('btnLogin').onclick=login;
 document.getElementById('btnBuscarSus').onclick=buscarSus;
 document.getElementById('btnBuscarAnu').onclick=buscarAnu;
+document.getElementById('qAnu').addEventListener('input',ghProgramarBusquedaAnu);
 document.getElementById('qAnu').addEventListener('keydown',e=>{if(e.key==='Enter')buscarAnu();});
 document.getElementById('anuCiudad').addEventListener('change',buscarAnu);
 document.getElementById('btnSalir').onclick=()=>{
