@@ -10,5 +10,16 @@ assert.equal(prepared.ciudades[0].ciudad_visible,'Dolores');assert.equal(prepare
 assert.match(html,/id="evf-descripcion"[^>]*maxlength="200"/);
 const free=html.slice(html.indexOf('async function loadEventosFreePanelData(){'),html.indexOf('function cancelEventEdit()'));
 assert.match(free,/getFreeEventsPanelData/);assert.match(free,/fillFreeEventCatalogs_\(catalog\)/);
-console.log('PASS: categorías por nombre, ciudades territoriales, lugares y sedes normalizados; Free límite200 y entrada común.');
+ctx.data={categorias:JSON.parse(fs.readFileSync(new URL('./EVENTOS_CATEGORIAS_REAL_V57.json',import.meta.url),'utf8')),lugares:[]};
+const real=vm.runInContext('eventFormCatalogs_(data,territorio)',ctx);
+assert.deepEqual(Array.from(real.categorias),['Arte - Cultura','Campaña/Actividad Solidaria','Capacitación - Taller - Curso','Cine - Teatro','Deportes','Esparcimiento Nocturno','Feria','Institucional','Juegos - Recreación']);
+const selects={};
+ctx.document={getElementById(id){return selects[id]??(selects[id]={value:'',options:[],appendChild(opt){this.options.push(opt)},set innerHTML(v){this.options=[]}})},createElement(){return {value:'',textContent:''}}};
+vm.runInContext(html.slice(html.indexOf('function fillSelectOptions('),html.indexOf('function fillUniqueLugaresSelect(')),ctx);
+ctx.cats=real.categorias;
+for(const id of ['ev-categoria','evf-categoria']){
+ vm.runInContext(`fillSelectOptions('${id}',cats,'Seleccioná')`,ctx);
+ assert.deepEqual(selects[id].options.slice(1).map(x=>x.textContent),Array.from(real.categorias));
+}
+console.log('PASS: 9 categorías reales por titulo en selectores Free y VIP; categorías por nombre, ciudades territoriales, lugares y sedes normalizados; Free límite200 y entrada común.');
 

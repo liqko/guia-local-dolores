@@ -392,3 +392,10 @@ por sólo cuatro endpoints públicos observados.
 - Descripción Free máximo200: maxlength + contador existente + validación cliente y servidor al crear/editar. No se trunca texto histórico silenciosamente; VIP conserva sus límites.
 - Pruebas locales V57: catálogo/formulario PASS; límites200/201 crear/editar y VIP PASS; regresiones panel y GH PASS. No equivale a comprobación visual publicada ni aprobación real.
 - Entrega Worker completoV57 TXT; Diego debe reemplazar/desplegar login y recargar panel. Después verificar selectores Free, crear evento y aprobar desde GH. No pasar a otros módulos antes de cerrar este recorrido.
+
+
+## 2026-10-08 — corrección comprobada de categorías Eventos Free/VIP
+- Respuesta real aportada por Diego: 9 categorías activas de eventos con nombre en titulo (no nombre). KV/Worker sí las entregaba; adaptador V57 del HTML ignoraba titulo y devolvía lista vacía. Confirmación concreta, no fallo de KV.
+- Corregido adaptador común eventFormCatalogs_ para usar titulo y mantener nombres históricos; aplica Free y VIP. No cambió Worker ni agregué consultas o reconstrucción de caché.
+- Fixture con las 9 categorías reales y prueba de ambos selectores: PASS; sintaxis de todos los scripts originales: PASS. Campo descripciónFree conserva200.
+- Pendiente comprobar en pantalla publicada: recargar panel, seleccionar categoría y crear evento; luego aprobar desde GH. El Worker entregado sigue siendo V57, no hay que desplegar otra versión por este cambio.
