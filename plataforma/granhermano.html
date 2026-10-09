@@ -42,6 +42,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 #anuFicha .classification-stack{display:grid;grid-template-columns:1fr;gap:12px}#anuFicha .checks{display:flex;flex-direction:column;align-items:flex-start;gap:10px}#anuFicha .checks label[hidden]{display:none}#anuFicha details>summary{cursor:pointer;font-weight:600;padding:8px 0}#anuFicha details.card>summary{font-size:20px}#anuFicha h3{font-size:17px;margin:20px 0 10px}#anuFicha .sede-editor{border-top:1px solid #dce6eb;margin-top:12px;padding-top:12px}#anuFicha .sede-editor .kv{grid-template-columns:130px 1fr}#anuFicha .kv span{min-width:0;overflow-wrap:anywhere}#anuFicha input[readonly]{background:#edf2f5;color:#506774}@media(max-width:600px){#anuFicha .quota-settings{grid-template-columns:1fr}#anuFicha .kv{grid-template-columns:1fr!important;gap:4px}#anuFicha .quota-usage{grid-template-columns:repeat(2,1fr)}}
 </style>
 <script src="/plataforma/clasificacion.js?v=1"></script>
+<script src="/plataforma/cupos.js?v=64"></script>
 </head>
 <body>
 <div class="wrap">
@@ -588,7 +589,7 @@ const GH_FUNCTION_DEFS=[
  {id:'EVENTOS',name:'Eventos VIP',aliases:['EVENTOS_VIP','EVENTOS VIP'],quota:true},
  {id:'EVENTOS_FREE',name:'Eventos Free',aliases:['EV_FREE','EVFREE','EVENTOS FREE'],quota:true},
  {id:'ACTIVIDADES',name:'Actividades',quota:true},
- {id:'PUBLICIDAD',name:'Publicidad',aliases:['PUBLI'],fields:[['activas_max','Máximo de piezas activas'],['guardadas_max','Máximo de piezas guardadas'],['cambios_activos_por_dia_max','Cambios de selección por día']]},
+ {id:'PUBLICIDAD',name:'Publicidad',aliases:['PUBLI'],fields:[['activas_max','Máximo de piezas activas'],['cambios_activos_por_dia_max','Cambios de selección por día']]},
  {id:'TURNOS_FARMA',name:'Farmacias de turno',aliases:['FARMACIAS','TURNOS FARMA'],territory:'ciudades',all:'todas_ciudades'},
  {id:'EFEMERIDES_GRL',name:'Efemérides generales',aliases:['EF GENERAL','EFEMERIDES_GENERAL']},
  {id:'EFEMERIDES_PROVINCIAL',name:'Efemérides provinciales',aliases:['EF PROVINCIAL'],territory:'provincias',all:'todas_provincias'},
@@ -614,11 +615,11 @@ function ghFunctionEditor_(adm,catalog,usage){
   let inputs='';
   if(d.quota||d.id==='PUBLICIDAD'){
    const n=d.quota?ghFunctionNumber_(cfg.cantidad,cfg.cupo,cfg.max,cfg.maximo,adm[d.id.toLowerCase()+'_cant']):ghFunctionNumber_(cfg.activas_max,cfg.activas,cfg.max_activas,adm.publicidad_activas_max);
-   const saved=n*2;
+   const saved=GLD_CUPOS.guardado(n);
    const field=d.quota?'cantidad':'activas_max';
    const u=GH_FUNCTION_USAGE[d.id],available=u?.disponible===true;
    const val=k=>available?esc(u[k]??0):'—';
-   inputs='<div class="quota-settings"><label>Cupo asignado<input type="number" min="0" step="1" data-gh-limit="'+d.id+'" data-gh-field="'+field+'" value="'+n+'"></label><label>Cupo de guardado (automático: el doble)<input type="number" min="0" step="1" readonly data-gh-limit="'+d.id+'" data-gh-field="guardadas_max" value="'+saved+'"></label></div>';
+   inputs='<div class="quota-settings"><label>Cupo asignado<input type="number" min="0" step="1" data-gh-limit="'+d.id+'" data-gh-field="'+field+'" value="'+n+'"></label><label>Cupo de guardado (automático: el doble)<input type="number" min="0" step="1" readonly data-gh-storage="'+d.id+'" value="'+saved+'"></label></div>';
    inputs+='<div class="quota-usage" data-gh-usage="'+d.id+'"><span>Activos<b>'+val('activas')+'</b></span><span>Pausados<b>'+val('pausadas')+'</b></span><span>Guardados<b>'+val('guardadas')+'</b></span><span>Disponibles<b data-gh-free-active>'+ (available?Math.max(0,n-u.activas):'—')+'</b></span><span>Disponibles para guardar<b data-gh-free-saved>'+ (available?Math.max(0,saved-u.guardadas):'—')+'</b></span><span>Pendientes<b>'+val('pendientes')+'</b></span></div>';
    if(!available)inputs+='<p class="muted">Uso sin datos en la copia del panel. No se consultó Firestore para completar estos contadores.</p>';
    if(d.id==='PUBLICIDAD')inputs+='<details><summary>Cambios diarios de publicidades activas</summary><label>Límite diario<input type="number" min="0" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="cambios_activos_por_dia_max" value="'+ghFunctionNumber_(cfg.cambios_activos_por_dia_max,cfg.cambios_diarios,adm.publicidad_cambios_diarios)+'"></label></details>';
@@ -630,6 +631,7 @@ function ghFunctionEditor_(adm,catalog,usage){
 }
 function ghFunctionPayload_(){
  const root=structuredClone(GH_FUNCTION_CONFIG);
+ for(const d of GH_FUNCTION_DEFS)if(d.quota||d.id==='PUBLICIDAD')for(const key of [d.id,...d.aliases||[]])if(root[key]){delete root[key].guardadas_max;delete root[key].max_guardadas;delete root[key].guardadas;}
  for(const d of GH_FUNCTION_DEFS){let cfg={...(root[d.id]||(d.id==='TURNOS_FARMA'?root.FARMACIAS:undefined)||{})},changed=false;
   for(const input of document.querySelectorAll('[data-gh-limit="'+d.id+'"]')){const n=Number(input.value);if(input.value.trim()===''||!Number.isSafeInteger(n)||n<0)throw Error('Indicá un número entero mayor o igual a cero en '+d.name+'.');cfg[input.dataset.ghField]=n;changed=true;}
   if(d.territory){const all=document.querySelector('[data-gh-all="'+d.id+'"]'),sel=document.querySelector('[data-gh-territory="'+d.id+'"]');cfg[d.all]=!!all?.checked;cfg[d.territory]=sel?[...sel.selectedOptions].map(o=>o.value):[];changed=true;}
@@ -804,9 +806,9 @@ document.getElementById('ciuSelect').addEventListener('change',async function(){
 });
 
 document.getElementById('detalle').addEventListener('input',e=>{
- const id=e.target.dataset.ghLimit;if(!id||e.target.dataset.ghField==='guardadas_max')return;
+ const id=e.target.dataset.ghLimit;if(!id)return;
  const card=e.target.closest('.function-card'),limits=card.querySelectorAll('.quota-settings input');if(limits.length!==2)return;
- limits[1].value=Math.max(0,Number(limits[0].value)||0)*2;
+ limits[1].value=GLD_CUPOS.guardado(limits[0].value);
  const u=GH_FUNCTION_USAGE[id];if(!u?.disponible)return;
  card.querySelector('[data-gh-free-active]').textContent=Math.max(0,Number(limits[0].value||0)-u.activas);
  card.querySelector('[data-gh-free-saved]').textContent=Math.max(0,Number(limits[1].value||0)-u.guardadas);
