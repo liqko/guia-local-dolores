@@ -2460,7 +2460,6 @@ async function replaceProgramacion({ db, cache, advertiserId, eventId, programac
 }
 async function quota2({ db, advertiserId, max, free = false, exclude = "" }) {
   const own = await db.queryEqual("eventos", "anunciante_id", advertiserId, 500);
-  const admin=await (db.panelReadDb?db.panelReadDb():db).get("anunciantes_administracion",advertiserId);
   const rows = own.filter((e) => free ? isFree(e) : isVip(e));
   return {
     total: rows.length,
