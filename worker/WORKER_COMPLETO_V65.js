@@ -5008,7 +5008,7 @@ async function commercePanelDataV3({db,advertiserId,catalogs}){
   ]);
   if(!datos)return{success:false,error:"anunciante_no_encontrado"};
   return{success:true,advertiser:{
-    id:advertiserId,datos,administracion:administracion||{},sedes,
+    id:advertiserId,datos,administracion:administracion||{},sedes,redes_web_comunes_disponible:true,
     segmentos:catalogs.segmentos||[],categorias:catalogs.categorias||[],
     actividades_clave:catalogs.actividades_clave||[],acciones:catalogs.acciones||[],
     nodos:catalogs.nodos||[],funcionalidades:catalogs.funcionalidades||[],
