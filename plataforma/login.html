@@ -714,7 +714,8 @@
       padding:12px;
       resize:vertical;
     }
-  </style>
+  [hidden]{display:none!important}.commerce-common-networks{padding:16px;border:1px solid #dce6eb;border-radius:12px;margin:16px 0}.common-network-fields{display:grid;grid-template-columns:1fr;gap:10px}
+</style>
 <script src="/plataforma/clasificacion.js?v=1"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
 </head>
@@ -1832,9 +1833,9 @@ const COMMERCE_DATA_FIELDS = [
 ];
 
 const COMMERCE_SEDE_FIELDS = [
-  "nombre_sede","direccion",
-  "lat","lng","maps","telefono","whatsapp","mail",
-  "instagram","facebook","youtube","tiktok","linkedin","x",
+  "instagram","facebook","youtube","tiktok","linkedin","x","web",
+  "nombre_sede","direccion","lat","lng","maps",
+  "telefono","whatsapp","mail",
   "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
   "estado"
 ];
@@ -2963,6 +2964,20 @@ function mediaRuleMarkup_(kind){
   return msg ? `<div class="media-rule-note"><strong>Formato:</strong> ${htmlEscape(msg)}</div>` : '';
 }
 
+
+function commerceSharedNetworksMarkup_(datos,sedes){
+ const first=(sedes||[])[0]||{},common=datos.redes_web_comunes||{};
+ const labels={instagram:'Instagram',facebook:'Facebook',youtube:'YouTube',tiktok:'TikTok',linkedin:'LinkedIn',x:'X',web:'Web'};
+ return '<details class="commerce-common-networks" open><summary><b>Redes y web compartidas</b></summary><label><input type="checkbox" name="redes_comunes_habilitado" '+(common.habilitado===true?'checked':'')+' style="width:auto"> Usar las mismas redes y web para todas las sedes</label><p class="small-muted">Se guardan una sola vez. Al desactivar esta opción, cada sede vuelve a usar sus datos independientes.</p><div class="common-network-fields" '+(common.habilitado===true?'':'hidden')+'>'+Object.keys(labels).map(k=>'<label>'+labels[k]+'<input name="red_comun_'+k+'" value="'+htmlEscape(common[k]??first[k]??(k==='web'?datos.link:'')??'')+'"></label>').join('')+'</div></details>';
+}
+function commerceRefreshCommonNetworks_(){
+ const form=document.getElementById('form-datos-comercio');if(!form)return;
+ const enabled=!!form.querySelector('[name="redes_comunes_habilitado"]')?.checked;
+ const box=form.querySelector('.common-network-fields');if(box)box.hidden=!enabled;
+ for(const input of form.querySelectorAll('.commerce-sede-card input'))if(['instagram','facebook','youtube','tiktok','linkedin','x','web'].includes(input.name)){input.disabled=enabled;input.closest('.data-field-card').hidden=enabled;}
+}
+document.addEventListener('change',e=>{if(e.target.name==='redes_comunes_habilitado')commerceRefreshCommonNetworks_();});
+
 function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -3021,6 +3036,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   };
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
+    if(fieldName==='link')return;
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
     const upperName = fieldName.toUpperCase();
@@ -3066,15 +3082,17 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   html += '</div>';
   html += `<input type="hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
 
+  html += '<input type="hidden" name="link" value="'+htmlEscape(values.link||'')+'">';
+  html += commerceSharedNetworksMarkup_(values,sedes);
   html += `<div class="commerce-sedes-wrap">
     <h3>Sedes</h3>`;
   const sedeList = Array.isArray(sedes) ? sedes : [];
 
   sedeList.forEach((sede, index)=>{
     const rel = sede.relaciones || {};
-    const actSel = new Set((rel.actividades||[]).map(x=>String(x.actividad_id||'').trim()));
-    const accSel = new Set((rel.acciones||[]).map(x=>String(x.accion_id||'').trim()));
-    const nodoSel = new Set((rel.nodos||[]).map(x=>String(x.nodo_id||'').trim()));
+    const actSel = new Set((rel.actividades||(sede.actividad_ids||[]).map(actividad_id=>({actividad_id}))).map(x=>String(x.actividad_id||'').trim()));
+    const accSel = new Set((rel.acciones||(sede.accion_ids||[]).map(accion_id=>({accion_id}))).map(x=>String(x.accion_id||'').trim()));
+    const nodoSel = new Set((rel.nodos||(sede.nodo_ids||[]).map(nodo_id=>({nodo_id}))).map(x=>String(x.nodo_id||'').trim()));
     const ciudadActual = String(sede.ciudad_id||'').trim();
 
     html += `<details class="commerce-sede-card" data-sede-index="${index}" ${index===0 ? 'open' : ''}>
@@ -3090,7 +3108,9 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
         <input type="hidden" name="sede_id" value="${htmlEscape(sede.sede_id || '')}">
         <div class="commerce-sede-grid">
 
-      <div class="sede-section">
+`;
+
+    const ciudadMarkup=`      <div class="sede-section">
         <div class="sede-section-title">Ubicación</div>
       </div>
       <div class="data-field-card" style="grid-column:1/-1">
@@ -3111,9 +3131,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
           }).join('')}
         </select>
       </div>`;
-
-    let contactoTituloPuesto=false;
-    let imagenesTituloPuesto=false;
+    let previousGroup='';
     COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
       const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
       const isImage = /^img\d+$/.test(fieldName);
@@ -3121,14 +3139,8 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
       const imagenesHabilitadas = reglaNivel.imagenes_habilitadas===undefined ? true : reglaNivel.imagenes_habilitadas===true;
       const imagenesMax = imagenesHabilitadas ? Math.min(5,Math.max(0,Number(reglaNivel.imagenes_max??((nivelActual==='1'||nivelActual==='2')?3:5)))) : 0;
       if(isImage && (imageNumber>5 || imageNumber>imagenesMax)) return;
-      if(!contactoTituloPuesto && ['telefono','whatsapp','mail','instagram','facebook','youtube','tiktok','linkedin','x'].includes(fieldName)){
-        html += `<div class="sede-section"><div class="sede-section-title">Contacto y redes</div></div>`;
-        contactoTituloPuesto=true;
-      }
-      if(isImage && !imagenesTituloPuesto){
-        html += `<div class="sede-section"><div class="sede-section-title">Imágenes</div></div>`;
-        imagenesTituloPuesto=true;
-      }
+      const group=['instagram','facebook','youtube','tiktok','linkedin','x','web'].includes(fieldName)?'Redes y web':['nombre_sede','direccion','lat','lng','maps'].includes(fieldName)?'Ubicación':['telefono','whatsapp','mail'].includes(fieldName)?'Teléfonos y contacto':isImage?'Imágenes':'Estado';
+      if(group!==previousGroup){html+=group==='Ubicación'?ciudadMarkup:'<div class="sede-section"><div class="sede-section-title">'+group+'</div></div>';previousGroup=group;}
       html += `<div class="data-field-card${isImage ? ' image-field' : ''}">
         <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
         ${isImage && value ? `<img src="${htmlEscape(value)}" alt="${htmlEscape(fieldName.toUpperCase())}" style="width:120px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #ddd;background:#fff;display:block;margin-bottom:6px">` : ''}
@@ -5630,6 +5642,7 @@ function buildCommerceSavePayload(){
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     payload[fieldName] = String(form?.querySelector(`[name="${fieldName}"]`)?.value || '').trim();
   });
+  payload.redes_web_comunes={habilitado:!!form?.querySelector('[name="redes_comunes_habilitado"]')?.checked,...Object.fromEntries(['instagram','facebook','youtube','tiktok','linkedin','x','web'].map(k=>[k,String(form?.querySelector('[name="red_comun_'+k+'"]')?.value||'').trim()]))};
   payload.segmento_id = String(form?.querySelector('[name="segmento_id"]')?.value || '').trim();
   payload.categoria_id = Array.from(form?.querySelectorAll('[name="categoria_id_item"]:checked') || [])
     .map(el=>String(el.value||'').trim()).filter(Boolean).join(';');
@@ -8412,6 +8425,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       }
 
       if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
+      commerceRefreshCommonNetworks_();
       commerceBeginEditSession_();
       return true;
     }catch(err){
