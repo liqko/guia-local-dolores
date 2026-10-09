@@ -399,3 +399,10 @@ por sólo cuatro endpoints públicos observados.
 - Corregido adaptador común eventFormCatalogs_ para usar titulo y mantener nombres históricos; aplica Free y VIP. No cambió Worker ni agregué consultas o reconstrucción de caché.
 - Fixture con las 9 categorías reales y prueba de ambos selectores: PASS; sintaxis de todos los scripts originales: PASS. Campo descripciónFree conserva200.
 - Pendiente comprobar en pantalla publicada: recargar panel, seleccionar categoría y crear evento; luego aprobar desde GH. El Worker entregado sigue siendo V57, no hay que desplegar otra versión por este cambio.
+
+
+## 2026-10-08 — Eventos Free: conservar dirección del lugar
+- Reporte usuario al guardar: “El lugar necesita dirección física”. La respuesta real trae direccion/maps/lugar_id; normalizeFreePlaces_ los descartaba y buildFreeEventPayload_ mandaba sólo nombre. Worker interpretaba lugar libre sin dirección.
+- HTML original conserva tipo/IDs/dirección/maps; selector usa identidad de lugar/sede, muestra nombre y dirección, completa campo Dirección del lugar. Payload envía lugar legible, lugar_id o sede_id y dirección/maps.
+- Otro lugar permite dirección manual; cambiar ciudad/lugar limpia dirección e IDs previos; edición reconoce ID guardado y preserva dirección libre. No se modifica Worker ni agrega ninguna consulta para completar dirección.
+- Pruebas locales: lugar catálogo, sede, otro lugar y cambio ciudad PASS; categorías reales9 PASS; sintaxis scripts PASS. Pendiente prueba real guardar/crear→GH aprobar; no se declara recorrido completo.

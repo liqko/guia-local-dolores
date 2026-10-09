@@ -1,0 +1,16 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const html=fs.readFileSync(new URL('../../plataforma/login.html',import.meta.url),'utf8');
+const nodes={'evf-lugar':{value:'lugar:L1'},'evf-ciudad':{value:'D'},'evf-direccion':{value:'',readOnly:false},'evf-lugar-otro':{value:'Casa de prueba'}};
+const ctx=vm.createContext({document:{getElementById(id){return nodes[id]??{value:''}}},sesionSuscriptor:{},EVENT_FREE_OTHER_PLACE:'OTRO',freePublisherPayload_:()=>({organizador:'',logo_organizador:''}),selectedCategoryValues_:()=>['Arte - Cultura']});
+vm.runInContext(html.slice(html.indexOf('function normalizeFreePlaces_('),html.indexOf('function selectedCategoryValues_(')),ctx);
+vm.runInContext(html.slice(html.indexOf('function selectedFreePlace_('),html.indexOf('function refreshFreeEventPlaces_(')),ctx);
+vm.runInContext(html.slice(html.indexOf('function buildFreeEventPayload_('),html.indexOf('function freeEventRefreshLocal_(')),ctx);
+ctx.catalog=[{tipo:'LUGAR_PUBLICO',lugar_id:'L1',nombre:'PARQUE LIBRES DEL SUR',ciudad_id:'D',direccion:'Lamadrid y B. Robecco',maps:'https://maps.example/L1'},{tipo:'sede',sede_id:'S1',nombre:'Sede propia',ciudad_id:'D',direccion:'Salta 560',maps:'https://maps.example/S1'},{tipo:'LUGAR_PUBLICO',lugar_id:'L2',nombre:'PARQUE LIBRES DEL SUR',ciudad_id:'X',direccion:'Otra dirección'}];
+vm.runInContext('var evFreePlacesAll=normalizeFreePlaces_(catalog);syncFreePlaceAddress_()',ctx);
+assert.equal(nodes['evf-direccion'].value,'Lamadrid y B. Robecco');assert.equal(nodes['evf-direccion'].readOnly,true);
+let payload=vm.runInContext('buildFreeEventPayload_()',ctx);assert.equal(payload.lugar_id,'L1');assert.equal(payload.lugar,'PARQUE LIBRES DEL SUR');assert.equal(payload.direccion,'Lamadrid y B. Robecco');assert.equal(payload.maps,'https://maps.example/L1');assert.equal(payload.sede_id,'');
+nodes['evf-lugar'].value='sede:S1';vm.runInContext('syncFreePlaceAddress_()',ctx);payload=vm.runInContext('buildFreeEventPayload_()',ctx);assert.equal(payload.sede_id,'S1');assert.equal(payload.lugar_id,'');assert.equal(payload.direccion,'Salta 560');
+nodes['evf-lugar'].value='OTRO';vm.runInContext('syncFreePlaceAddress_()',ctx);assert.equal(nodes['evf-direccion'].value,'');assert.equal(nodes['evf-direccion'].readOnly,false);nodes['evf-direccion'].value='Mitre 100';payload=vm.runInContext('buildFreeEventPayload_()',ctx);assert.equal(payload.lugar_id,'');assert.equal(payload.sede_id,'');assert.equal(payload.maps,'');assert.equal(payload.direccion,'Mitre 100');assert.equal(payload.lugar,'Casa de prueba');
+nodes['evf-lugar'].value='lugar:L1';nodes['evf-ciudad'].value='X';vm.runInContext('syncFreePlaceAddress_()',ctx);assert.equal(nodes['evf-direccion'].value,'');payload=vm.runInContext('buildFreeEventPayload_()',ctx);assert.equal(payload.lugar_id,'');
+assert.match(html,/opt.value=o.key;/);assert.match(html,/evf-lugar'\)\?\.addEventListener\('change',\(\)=>\{syncFreePlaceAddress_\(\)/);
+console.log('PASS: dirección e identidad catálogo/sede en payload; otro lugar editable sin IDs viejos; cambio de ciudad limpia selección; catálogo sin nuevas llamadas.');

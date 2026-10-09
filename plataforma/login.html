@@ -1225,6 +1225,10 @@
                   <input id="evf-lugar-otro" type="text" placeholder="Escribí el lugar">
                 </div>
               </div>
+              <div class="full">
+                <label for="evf-direccion">Dirección del lugar</label>
+                <input id="evf-direccion" type="text" placeholder="Seleccioná un lugar o escribí la dirección de otro lugar">
+              </div>
               <div>
                 <label>Fecha desde <span class="req">*</span></label>
                 <input id="evf-fecha-desde" type="date">
@@ -6963,7 +6967,12 @@ function normalizeFreePlaces_(raw){
     return {
       key:tipo==='sede' ? ('sede:'+sedeId) : ('lugar:'+lugarId),
       ciudad_id:String(o.ciudad_id||'').trim(),
-      nombre
+      nombre,
+      tipo_lugar:sedeId ? 'SEDE' : String(o.tipo||'LUGAR').toUpperCase(),
+      sede_id:sedeId,
+      lugar_id:sedeId ? '' : lugarId,
+      direccion:String(o.direccion||'').trim(),
+      maps:String(o.maps||o.llegar||'').trim()
     };
   }).filter(o=>o.nombre);
 }
@@ -7053,7 +7062,19 @@ function toggleFreeOtherFields_(){
   if(lugarWrap) lugarWrap.classList.toggle('open',!!lugar && lugar.value===EVENT_FREE_OTHER_PLACE);
 }
 
-function refreshFreeEventPlaces_(preferredName=''){
+function selectedFreePlace_(){
+  const key=String(document.getElementById('evf-lugar')?.value||'').trim();
+  const city=String(document.getElementById('evf-ciudad')?.value||'').trim();
+  return evFreePlacesAll.find(o=>o.key===key && o.ciudad_id===city) || null;
+}
+function syncFreePlaceAddress_(){
+  const field=document.getElementById('evf-direccion');
+  if(!field) return;
+  const place=selectedFreePlace_();
+  field.value=place ? place.direccion : '';
+  field.readOnly=!!place && !!place.direccion;
+}
+function refreshFreeEventPlaces_(preferredName='',preferredKey=''){
   const sel=document.getElementById('evf-lugar');
   const city=document.getElementById('evf-ciudad');
   if(!sel) return;
@@ -7069,12 +7090,12 @@ function refreshFreeEventPlaces_(preferredName=''){
     evFreePlacesAll
       .filter(o=>String(o.ciudad_id||'').trim()===ciudadId)
       .forEach(o=>{
-        const key=gldNormalizeSelectSearch_(o.nombre);
+        const key=o.key;
         if(!key || seen.has(key)) return;
         seen.add(key);
         const opt=document.createElement('option');
-        opt.value=o.nombre;
-        opt.textContent=o.nombre;
+        opt.value=o.key;
+        opt.textContent=o.nombre+(o.direccion ? ' — '+o.direccion : '');
         sel.appendChild(opt);
       });
 
@@ -7085,7 +7106,8 @@ function refreshFreeEventPlaces_(preferredName=''){
   }
 
   if(currentName){
-    const exact=Array.from(sel.options).find(o=>gldNormalizeSelectSearch_(o.textContent)===gldNormalizeSelectSearch_(currentName));
+    const match=evFreePlacesAll.find(o=>o.ciudad_id===ciudadId && (preferredKey ? o.key===preferredKey : gldNormalizeSelectSearch_(o.nombre)===gldNormalizeSelectSearch_(currentName)));
+    const exact=match && Array.from(sel.options).find(o=>o.value===match.key);
     if(exact){
       sel.value=exact.value;
       const otherInput=document.getElementById('evf-lugar-otro');
@@ -7096,6 +7118,7 @@ function refreshFreeEventPlaces_(preferredName=''){
       if(otherInput) otherInput.value=currentName;
     }
   }
+  syncFreePlaceAddress_();
   toggleFreeOtherFields_();
   gldRefreshSearchableSelect_(sel);
 }
@@ -7132,7 +7155,7 @@ function freeEventCityLabel_(id){
 }
 
 function clearFreeEventForm_(){
-  ['evf-nombre','evf-fecha-desde','evf-fecha-hasta','evf-hora','evf-hora2','evf-descripcion','evf-instagram','evf-categoria-otra','evf-lugar-otro']
+  ['evf-nombre','evf-fecha-desde','evf-fecha-hasta','evf-hora','evf-hora2','evf-descripcion','evf-instagram','evf-categoria-otra','evf-lugar-otro','evf-direccion']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   ['evf-categoria','evf-ciudad','evf-lugar'].forEach(id=>{
     const el=document.getElementById(id);
@@ -7177,13 +7200,19 @@ function confirmarEventoFreeSimilar_(duplicados){
 function buildFreeEventPayload_(){
   const lugarSel=String(document.getElementById('evf-lugar')?.value||'').trim();
   const publisher=freePublisherPayload_();
+  const place=selectedFreePlace_();
   return {
     nombre_evento:String(document.getElementById('evf-nombre')?.value||'').trim(),
     categoria:selectedCategoryValues_('evf-categoria','evf-categoria-otra').join(', '),
     ciudad_id:String(document.getElementById('evf-ciudad')?.value||'').trim(),
     lugar:lugarSel===EVENT_FREE_OTHER_PLACE
       ? String(document.getElementById('evf-lugar-otro')?.value||'').trim()
-      : lugarSel,
+      : String(place?.nombre||'').trim(),
+    tipo_lugar:place ? place.tipo_lugar : 'OTRO',
+    sede_id:place?.sede_id||'',
+    lugar_id:place?.lugar_id||'',
+    direccion:place?.direccion||String(document.getElementById('evf-direccion')?.value||'').trim(),
+    maps:place?.maps||'',
     fecha_desde:String(document.getElementById('evf-fecha-desde')?.value||'').trim(),
     fecha_hasta:String(document.getElementById('evf-fecha-hasta')?.value||'').trim(),
     hora:String(document.getElementById('evf-hora')?.value||'').trim(),
@@ -7259,7 +7288,9 @@ function renderFreeEvents_(events){
         document.getElementById('evf-nombre').value=found.nombre_evento||'';
         setCategoryValues_('evf-categoria','evf-categoria-otra',found.categoria||'');
         document.getElementById('evf-ciudad').value=found.ciudad_id||'';
-        refreshFreeEventPlaces_(found.lugar||'');
+        refreshFreeEventPlaces_(found.lugar||'',found.sede_id ? 'sede:'+found.sede_id : (found.lugar_id ? 'lugar:'+found.lugar_id : ''));
+        const address=document.getElementById('evf-direccion');
+        if(address && !address.readOnly) address.value=String(found.direccion||'');
         toggleFreeOtherFields_();
         document.getElementById('evf-fecha-desde').value=toDateInputValue(found.fecha_desde||found.fecha);
         document.getElementById('evf-fecha-hasta').value=toDateInputValue(found.fecha_hasta);
@@ -8089,7 +8120,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     refreshFreeEventPlaces_('');
   });
   document.getElementById('evf-categoria')?.addEventListener('change',toggleFreeOtherFields_);
-  document.getElementById('evf-lugar')?.addEventListener('change',toggleFreeOtherFields_);
+  document.getElementById('evf-lugar')?.addEventListener('change',()=>{syncFreePlaceAddress_();toggleFreeOtherFields_();});
 
   document.getElementById('ev-categoria')?.addEventListener('change',toggleVipOtherCategory_);
   document.getElementById('evf-compartido-mostrar')?.addEventListener('change',updateFreePublisherUI_);
