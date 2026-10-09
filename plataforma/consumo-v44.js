@@ -5,14 +5,15 @@
   window.__gldConsumoV44=true;
   const script=document.currentScript;
   const showPanel=script&&script.hasAttribute('data-gld-consumo-panel');
-  const key='gld_consumo_v44';
+  const key='gld_consumo_admin_v68';
   const origin='https://login.liqkoargentina.workers.dev';
   const allowed=new Set(['login','session','favoritos','anunciantes_autorizados','publicas','turnos','efemerides','perfil','crear','actualizar_perfil','actualizar_ciudad','cambiar_clave','eliminar_cuenta','agregar_favorito','quitar_favorito']);
-  let memory=[],view=null;
+  let memory=[],view=null,container=null,adminExpires=0;
+  const authorized=()=>adminExpires>Date.now();
   const originalFetch=window.fetch.bind(window);
   function read(){try{const x=JSON.parse(sessionStorage.getItem(key)||'[]');return Array.isArray(x)?x:memory}catch(_){return memory}}
   function render(){
-    if(!view)return;
+    if(!view||!authorized())return;
     const rows=read();view.textContent='';
     const intro=document.createElement('p');
     intro.textContent='Registro de las últimas llamadas de esta sesión. Consultas y documentos devueltos no son el contador de lecturas facturadas de Firebase. “Sin medición” no significa cero. Respuesta indica si el servicio aceptó la operación; Vista indica si el panel terminó de cargar. Los registros anteriores quedan sin comprobar.';
@@ -27,6 +28,7 @@
     if(!rows.length){const p=document.createElement('p');p.textContent='Todavía no se registraron llamadas.';view.appendChild(p)}
   }
   function save(row){
+    if(!authorized())return;
     memory=read().concat(row).slice(-80);
     try{sessionStorage.setItem(key,JSON.stringify(memory))}catch(_){}
     try{render()}catch(_){}
@@ -48,6 +50,7 @@
   function operationsText(items){return items===null?'Sin medición':items.map(x=>x.operation+' · '+x.collection+(x.field?' por '+x.field:'')+': '+x.calls+' operación(es), '+x.documents_returned+' documento(s)').join('; ')||'Sin operaciones en Firestore'}
   function cacheText(items){const labels={hit:'Encontrada',miss:'No encontrada: consulta a Firestore',not_supported:'Consulta sin caché compatible'};return items===null?'Sin medición':items.map(x=>x.collection+(x.field?' por '+x.field:'')+': '+(labels[x.result]||x.result)).join('; ')||'Sin comprobaciones registradas'}
   window.fetch=async function(input,options){
+    if(!authorized())return originalFetch(input,options);
     let url;try{url=new URL(typeof input==='string'||input instanceof URL?String(input):input.url,location.href)}catch(_){return originalFetch(input,options)}
     if(url.origin!==origin)return originalFetch(input,options);
     let action=url.searchParams.get('action')||'';
@@ -64,8 +67,8 @@
     }catch(error){try{save({...row,estado:'Error de red',version:null,consultas:null,documentos:null,escrituras:null,eliminaciones:null})}catch(_){}throw error}
   };
   function mount(){
-    if(!showPanel||!document.body)return;
-    const details=document.createElement('details');details.style.cssText='margin:16px 8px;padding:10px;background:#fff;color:#111;border:1px solid #aaa;border-radius:6px;font:14px sans-serif;position:relative;z-index:2';
+    if(!showPanel||!document.body||!authorized()||container)return;
+    const details=document.createElement('details');container=details;details.style.cssText='margin:16px 8px;padding:10px;background:#fff;color:#111;border:1px solid #aaa;border-radius:6px;font:14px sans-serif;position:relative;z-index:2';
     const summary=document.createElement('summary');summary.textContent='Ver comprobación de consultas';summary.style.cursor='pointer';details.appendChild(summary);
     view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);
     const selector=script&&script.getAttribute('data-gld-consumo-container');
@@ -73,6 +76,11 @@
     if(selector)details.open=true;
     host.appendChild(details);details.addEventListener('toggle',render);render();
   }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',mount,{once:true});else mount();
+  window.gldConsumoAdminV68=function(token){
+    adminExpires=0;
+    try{const payload=JSON.parse(atob(String(token).split('.')[0].replace(/-/g,'+').replace(/_/g,'/')));if(payload.rol==='SUPERADMIN_PRINCIPAL'&&Number(payload.exp)>Date.now())adminExpires=Number(payload.exp)}catch(_){}
+    if(authorized())mount();else{container?.remove();container=null;view=null;memory=[];try{sessionStorage.removeItem(key)}catch(_){}}
+  };
+
 })();
 
