@@ -1502,7 +1502,7 @@
           <h3>Actividades</h3>
           <div class="info-banner" style="margin-bottom:10px">
             <strong>Las actividades deben renovarse cada 30 días.</strong>
-            Podés mantener guardadas hasta el doble de tu cupo, pero sólo puede estar activa/publicada la cantidad que tenés asignada.
+            Los cupos asignados indican cuántas publicaciones podés mantener activas y cuántas podés guardar en total.
           </div>
           <div id="actividades-status" class="small-muted">Cargando actividades...</div>
 
@@ -2841,6 +2841,7 @@ async function loadEventosPanelData(){
 
     if(data.eventos_cant!==undefined && data.eventos_cant!==null && data.eventos_cant!==''){
       sesion.eventos_cant=Number(data.eventos_cant);
+      sesion.eventos_guardadas_max=data.eventos_guardadas_max;
       localStorage.setItem('eventos_cant',String(sesion.eventos_cant));
     }
 
@@ -2848,7 +2849,7 @@ async function loadEventosPanelData(){
     window.__lastEvents=events;
     renderEventsList(events);
 
-    const cupo=calcularCupoPublicacion(events,sesion.eventos_cant);
+    const cupo=calcularCupoPublicacion(events,sesion.eventos_cant,sesion.eventos_guardadas_max);
     if(st) st.innerHTML=textoCupoPublicacion(cupo);
 
     const btnCreate=document.getElementById('ev-create');
@@ -3521,7 +3522,7 @@ function actividadesRefreshLocal_(rows){
     max,
     activas,
     total:actividadesState.actividades.length,
-    totalMax:max>0?max*2:0
+    totalMax:actividadesState.cupo?.totalMax??(max>0?max*2:0)
   };
   actividadesRenderLista_();
 }
@@ -3549,9 +3550,9 @@ function actividadesRenderLista_(){
     const max=Math.max(0,Number(cupo.max||0));
     const activas=Math.max(0,Number(cupo.activas||0));
     const total=Math.max(0,Number(cupo.total||0));
-    const totalMax=Math.max(0,Number(cupo.totalMax||max*2));
+    const totalMax=Math.max(0,Number(cupo.totalMax??max*2));
     st.textContent=max>0
-      ? `Permitidas activas: ${max} | Activas: ${activas}/${max} | Guardadas: ${total}/${totalMax} | Disponibles activas: ${Math.max(0,max-activas)}`
+      ? `Cupo asignado: ${max} | Activas: ${activas} | Disponibles: ${Math.max(0,max-activas)} | Pausadas: ${actividadesState.actividades.filter(a=>a.activo===false||String(a.estado||'').toUpperCase()==='PAUSADA').length} | Cupo de guardado: ${totalMax} | Guardadas: ${total} | Disponibles para guardar: ${Math.max(0,totalMax-total)}`
       : 'Sin cupo configurado.';
   }
 
@@ -3602,7 +3603,7 @@ function actividadesRenderLista_(){
         const max=Math.max(0,Number(cp.max||0));
         const activas=Math.max(0,Number(cp.activas||0));
         const total=Math.max(0,Number(cp.total||0));
-        const totalMax=Math.max(0,Number(cp.totalMax||max*2));
+        const totalMax=Math.max(0,Number(cp.totalMax??max*2));
 
         if(total>=totalMax){
           setMsg('actividades-msg','err','Alcanzaste el máximo de actividades guardadas. Eliminá alguna para duplicar otra.');
@@ -3748,7 +3749,7 @@ async function loadActividadesUI(force=false){
       const max=Math.max(0,Number(cp.max||0));
       const activas=Math.max(0,Number(cp.activas||0));
       const total=Math.max(0,Number(cp.total||0));
-      const totalMax=Math.max(0,Number(cp.totalMax||max*2));
+      const totalMax=Math.max(0,Number(cp.totalMax??max*2));
       const puedeCrear=max>0 && activas<max && total<totalMax;
       btnGuardar.disabled=!puedeCrear;
     }
@@ -3838,7 +3839,7 @@ function initActividadesUI_(){
             const err=String(res.json&&(res.json.error||res.json.message)||'');
             const mensaje=
               err==='actividades_maximo_guardadas'
-                ? 'Alcanzaste el máximo de actividades guardadas. Podés guardar hasta el doble de tu cupo activo.'
+                ? 'Alcanzaste el cupo de guardado asignado a tus actividades.'
               : err==='actividades_cupo_activo_completo'
                 ? 'Alcanzaste el máximo de actividades activas. Pausá una antes de publicar otra.'
               : err==='actividades_sin_cupo'
@@ -4363,8 +4364,8 @@ function pubUiLista_(){
 
   if(st){
     st.textContent=
-      `Piezas activas: ${Number(cp.activas||0)}/${Number(cp.activas_max||0)} · `+
-      `Piezas guardadas: ${Number(cp.guardadas||0)}/${Number(cp.guardadas_max||0)}`;
+      `Cupo asignado: ${Number(cp.activas_max||0)} · Activas: ${Number(cp.activas||0)} · Disponibles: ${Math.max(0,Number(cp.activas_max||0)-Number(cp.activas||0))} · Pausadas: ${rows.filter(r=>String(r.estado||'').toUpperCase()==='PAUSADA').length} · `+
+      `Cupo de guardado: ${Number(cp.guardadas_max||0)} · Guardadas: ${Number(cp.guardadas||0)} · Disponibles para guardar: ${Math.max(0,Number(cp.guardadas_max||0)-Number(cp.guardadas||0))}`;
   }
 
   if(!rows.length){
@@ -5775,15 +5776,16 @@ function publicacionPausada(item){
   return v==='true' || v==='1' || v==='si' || v==='sí' || v==='x';
 }
 
-function calcularCupoPublicacion(items, permitido){
+function calcularCupoPublicacion(items, permitido,guardadasMax){
   const max=Math.max(0,parseInt(permitido||0,10)||0);
   const rows=Array.isArray(items)?items:[];
   const activas=rows.filter(x=>!publicacionPausada(x)).length;
-  const totalMax=max*2;
+  const totalMax=guardadasMax===undefined||guardadasMax===null?max*2:Math.max(0,Number(guardadasMax)||0);
   return {
     max,
     activas,
     total:rows.length,
+    pausadas:rows.filter(publicacionPausada).length,
     totalMax,
     puedeCrear:max>0 && activas<max && rows.length<totalMax,
     puedeActivar:max>0 && activas<max
@@ -5791,7 +5793,7 @@ function calcularCupoPublicacion(items, permitido){
 }
 
 function textoCupoPublicacion(cupo){
-  return `Permitidos activos: ${cupo.max} | Activos: ${cupo.activas}/${cupo.max} | Guardados: ${cupo.total}/${cupo.totalMax} | Disponibles activos: ${Math.max(0,cupo.max-cupo.activas)}`;
+  return `Cupo asignado: ${cupo.max} | Activas: ${cupo.activas} | Disponibles: ${Math.max(0,cupo.max-cupo.activas)} | Pausadas: ${cupo.pausadas} | Cupo de guardado: ${cupo.totalMax} | Guardadas: ${cupo.total} | Disponibles para guardar: ${Math.max(0,cupo.totalMax-cupo.total)}`;
 }
 
 
@@ -6029,7 +6031,7 @@ function bindPromosListActions(){
       if(action === 'pause'){
         const isPaused = btn.getAttribute('data-paused') === 'true';
         if(isPaused){
-          const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+          const cupo = calcularCupoPublicacion(window.__lastPromos || [],sesion.promos_cant,sesion.promos_guardadas_max);
           if(!cupo.puedeActivar){
             promoShowError_('Ya tenés el máximo de promos activas. Pausá otra antes de reactivar esta.');
             return;
@@ -6109,7 +6111,7 @@ function bindPromosListActions(){
       }
 
       if(action === 'duplicate'){
-        const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+        const cupo = calcularCupoPublicacion(window.__lastPromos || [],sesion.promos_cant,sesion.promos_guardadas_max);
         if(!cupo.puedeCrear){
           promoShowError_(cupo.total >= cupo.totalMax
             ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
@@ -6153,7 +6155,7 @@ function promoRefreshLocal_(nextPromos){
   window.__lastPromos=rows;
   promoState.promos=rows;
   renderPromosList(rows);
-  const cupo=calcularCupoPublicacion(rows,sesion.promos_cant);
+  const cupo=calcularCupoPublicacion(rows,sesion.promos_cant,sesion.promos_guardadas_max);
   const st=document.getElementById('promos-status');
   if(st) st.innerHTML=textoCupoPublicacion(cupo);
   const btnCreate=document.getElementById('promo-create');
@@ -6209,6 +6211,7 @@ async function loadPromosPanelData(){
 
     // Fuente operativa de Promos:
     // autorización + cupo provienen del módulo Promos / aux_permisos.
+    sesion.promos_guardadas_max=data.promos_guardadas_max;
     const promosCantLocal=Number(data.promos_cant||0);
     sesion.promos_cant=Number.isFinite(promosCantLocal) ? promosCantLocal : 0;
     localStorage.setItem('promos_cant',String(sesion.promos_cant));
@@ -6228,7 +6231,7 @@ async function loadPromosPanelData(){
     window.__lastPromos=promoState.promos;
     renderPromosList(promoState.promos);
 
-    const cupo=calcularCupoPublicacion(promoState.promos,sesion.promos_cant);
+    const cupo=calcularCupoPublicacion(promoState.promos,sesion.promos_cant,sesion.promos_guardadas_max);
     if(st) st.innerHTML=textoCupoPublicacion(cupo);
 
     const btnCreate=document.getElementById('promo-create');
@@ -6275,7 +6278,7 @@ async function loadPromosUI(){
 
     renderPromosList(promos);
 
-    const cupo = calcularCupoPublicacion(promos, sesion.promos_cant);
+    const cupo = calcularCupoPublicacion(promos,sesion.promos_cant,sesion.promos_guardadas_max);
     st.innerHTML = textoCupoPublicacion(cupo);
 
     const btnCreate = document.getElementById('promo-create');
@@ -6689,7 +6692,7 @@ function bindEventsListActions(){
       if(action === 'pause'){
         const isPaused = btn.getAttribute('data-paused') === 'true';
         if(isPaused){
-          const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+          const cupo = calcularCupoPublicacion(window.__lastEvents || [],sesion.eventos_cant,sesion.eventos_guardadas_max);
           if(!cupo.puedeActivar){
             alert('Ya tenés el máximo de eventos activos. Pausá otro antes de reactivar este.');
             return;
@@ -6816,7 +6819,7 @@ function bindEventsListActions(){
       }
 
       if(action === 'duplicate'){
-        const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+        const cupo = calcularCupoPublicacion(window.__lastEvents || [],sesion.eventos_cant,sesion.eventos_guardadas_max);
         if(!cupo.puedeCrear){
           alert(cupo.total >= cupo.totalMax
             ? 'Alcanzaste el máximo de eventos guardados. Podés borrar alguno anterior.'
@@ -6890,7 +6893,7 @@ function eventRefreshLocal_(rows){
   const events=Array.isArray(rows)?rows:[];
   window.__lastEvents=events;
   renderEventsList(events);
-  const cupo=calcularCupoPublicacion(events,sesion.eventos_cant);
+  const cupo=calcularCupoPublicacion(events,sesion.eventos_cant,sesion.eventos_guardadas_max);
   const st=document.getElementById('eventos-status');
   if(st) st.innerHTML=textoCupoPublicacion(cupo);
   const btnCreate=document.getElementById('ev-create');
@@ -6940,7 +6943,7 @@ async function loadEventsUI(){
     renderEventsList(events);
 
     // La versión anterior usaba "cupo" sin haberlo definido.
-    const cupo = calcularCupoPublicacion(events, sesion.eventos_cant);
+    const cupo = calcularCupoPublicacion(events,sesion.eventos_cant,sesion.eventos_guardadas_max);
     st.innerHTML = textoCupoPublicacion(cupo);
 
     const btnCreate = document.getElementById('ev-create');
@@ -7228,7 +7231,7 @@ function buildFreeEventPayload_(){
 }
 
 function freeEventQuotaUI_(){
- const rows=window.__lastFreeEvents||[],q=calcularCupoPublicacion(rows,sesion?.eventos_free_cant);
+ const rows=window.__lastFreeEvents||[],q=calcularCupoPublicacion(rows,sesion?.eventos_free_cant,sesion?.eventos_free_guardadas_max);
  const status=document.getElementById('eventos-free-status');
  if(status)status.textContent=textoCupoPublicacion(q)+(q.max===0?' · Cupo pendiente de configurar en Gran Hermano.':'');
  const button=document.getElementById('evf-guardar'),editing=!!editingFreeEventId;
@@ -7377,6 +7380,7 @@ async function loadEventosFreePanelData(){
       throw new Error((res.json&&(res.json.error||res.json.message))||'No se pudieron cargar Eventos Free.');
     }
     const data=res.json;
+    sesion.eventos_free_guardadas_max=data.eventos_free_guardadas_max;
     sesion.eventos_free_cant=Math.max(0,Number(data.eventos_free_cant||0));
     const adv=data.advertiser && typeof data.advertiser==='object' ? data.advertiser : {};
     evFreePublisherAdvertiser={
@@ -8007,7 +8011,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           }
         });
       } else {
-        const cupo = calcularCupoPublicacion(window.__lastPromos || [], sesion.promos_cant);
+        const cupo = calcularCupoPublicacion(window.__lastPromos || [],sesion.promos_cant,sesion.promos_guardadas_max);
         if(!cupo.puedeCrear){
           promoShowError_(cupo.total >= cupo.totalMax
             ? 'Alcanzaste el máximo de promos guardadas. Podés borrar alguna promo anterior.'
@@ -8267,7 +8271,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           }
         });
       } else {
-        const cupo = calcularCupoPublicacion(window.__lastEvents || [], sesion.eventos_cant);
+        const cupo = calcularCupoPublicacion(window.__lastEvents || [],sesion.eventos_cant,sesion.eventos_guardadas_max);
         if(!cupo.puedeCrear){
           alert(cupo.total >= cupo.totalMax
             ? 'Alcanzaste el máximo de eventos guardados. Podés borrar alguno anterior.'
@@ -9156,4 +9160,3 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 <script src="/plataforma/contadores-caracteres.js?v=1"></script>
 </body>
 </html>
-
