@@ -69,7 +69,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <button class="tab" data-view="configuracion">Configuración de plataforma</button>
     </div></div>
     <section id="view-inicio" class="view active">
-      <div class="card"><h2>Pendientes de revisión</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="pendientes" role="status" aria-live="polite"></div></div>
+      <div class="card"><h2>Publicaciones recientes</h2><p>Ya publicadas. Aparecen durante diez días para que puedas revisarlas; salir de esta lista no modifica la publicación.</p><button onclick="ghPublicacionesV77()">Ver publicaciones recientes</button><div id="ghRecientesV77"></div></div><div class="card"><h2>Anuncios y publicidades detenidos por moderación</h2><button onclick="ghBloqueosV77()">Ver pendientes de aprobación</button><div id="ghBloqueosV77"></div></div><div class="card"><h2>Eventos y actividades pendientes de aprobación</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="pendientes" role="status" aria-live="polite"></div></div>
 
       <div class="card" id="ghSoporteCard"><h2>Solicitudes de acceso y soporte</h2><div class="toolbar"><select id="ghSoporteEstado"><option value="ABIERTAS">Pendientes y en atención</option><option value="PENDIENTE">Pendientes</option><option value="EN_ATENCION">En atención</option><option value="CERRADA">Cerradas</option></select><button type="button" onclick="ghCargarSoporteV73()">Actualizar solicitudes</button></div><div id="ghSoporteResumen"></div><div id="ghSoporteLista" role="status"></div></div>
       <div class="card"><h2>Prioridades de hoy</h2><div class="grid"><div class="stat urgent clickable" onclick="ghGoView('eventos')"><span>Eventos pendientes</span><b id="stEvt">-</b></div><div class="stat urgent clickable" onclick="ghGoView('actividades')"><span>Actividades pendientes</span><b id="stAct">-</b></div><div class="stat urgent clickable" onclick="ghGoView('anunciantes')"><span>Altas / reclamos</span><b id="stAnuPend">-</b></div></div></div>
@@ -112,7 +112,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <div class="cfgpane hidden" data-cfgpane="cat_eventos"><div class="card"><h3>Categorías de eventos</h3><div id="cfgCategoriasEventos"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="cat_actividades"><div class="card"><h3>Categorías de actividades</h3><div id="cfgCategoriasActividades"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="adult_review"><div class="card"><h2>Contenido para mayores de 18 años</h2><p>La clasificación +18 restringe el acceso por edad. Su revisión no reemplaza la moderación de publicaciones.</p><button onclick="ghAdultReviewLoad()">Actualizar pendientes +18</button><div id="ghAdultReview"></div></div></div>
-      <div class="cfgpane hidden" data-cfgpane="adultos"><div class="card"><h3>Moderación de publicaciones</h3><div class="muted">Reglas existentes de moderación. Los términos de riesgo alto envían el contenido a revisión.</div><div id="cfgModeracion18"></div></div></div>
+      <div class="cfgpane hidden" data-cfgpane="adultos"><div class="card"><h3>Moderación de publicaciones</h3><div class="muted">Cada término activo detiene la publicación para revisión. Se comparan palabras o frases completas, sin distinguir mayúsculas ni acentos. Estas reglas son independientes de +18.</div><div id="cfgModeracion18"></div></div></div>
     </section>
   </div>
 </div>
@@ -971,7 +971,18 @@ window.addEventListener('resize',informarAltura);
 if(TOKEN) abrirApp();
 informarAltura();
 </script>
-<script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script></body>
+<script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script><script>
+async function ghPublicacionesV77(offset=0){
+ const box=document.getElementById('ghRecientesV77');box.textContent='Cargando...';
+ try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/recent?offset='+offset,{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);box.innerHTML=(j.results||[]).map(x=>'<div class="item"><b>'+esc(x.tipo)+' · '+esc(x.nombre)+'</b><p>'+esc(x.fecha)+' · '+esc(x.ciudades.join(', '))+' · ID '+esc(x.id)+'</p><details><summary>Ver publicación</summary><pre>'+esc(JSON.stringify(x.publicacion,null,2))+'</pre></details><button onclick="ghRetirarPublicacionV77(\''+esc(x.collection)+'\',\''+esc(x.id)+'\')">Retirar publicación</button></div>').join('')||'<p>No hay publicaciones recientes en esta página.</p>';if(j.next_offset!==null)box.insertAdjacentHTML('beforeend','<button onclick="ghPublicacionesV77('+j.next_offset+')">Ver siguientes</button>');}catch(e){box.textContent=e.message;}
+}
+async function ghRetirarPublicacionV77(collection,id){if(!confirm('¿Retirar esta publicación de la vista pública?'))return;try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/recent',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({collection,id,action:'retirar'})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);alert('Publicación retirada.');}catch(e){alert(e.message);}}
+async function ghBloqueosV77(){const box=document.getElementById('ghBloqueosV77');box.textContent='Cargando...';try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/blocked',{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);box.innerHTML=(j.results||[]).map(x=>'<details class="item"><summary>'+esc(x.tipo)+' · '+esc(x.nombre||x.titulo||x.id)+'</summary><pre>'+esc(JSON.stringify(x,null,2))+'</pre><button onclick="ghResolverBloqueoV77(\''+esc(x.tipo)+'\',\''+esc(x.id)+'\',\'APROBAR\')">Aprobar publicación</button><button onclick="ghResolverBloqueoV77(\''+esc(x.tipo)+'\',\''+esc(x.id)+'\',\'RECHAZAR\')">Rechazar</button></details>').join('')||'<p>No hay anuncios o publicidades detenidos por moderación.</p>';}catch(e){box.textContent=e.message;}}
+async function ghResolverBloqueoV77(tipo,id,decision){try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/blocked',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({tipo,id,decision})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);await ghBloqueosV77();}catch(e){alert(e.message);}}
+</script>
+
+</body>
 </html>
+
 
 
