@@ -71,6 +71,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
     <section id="view-inicio" class="view active">
       <div class="card"><h2>Pendientes de revisión</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="pendientes" role="status" aria-live="polite"></div></div>
 
+      <div class="card" id="ghSoporteCard"><h2>Solicitudes de acceso y soporte</h2><div class="toolbar"><select id="ghSoporteEstado"><option value="ABIERTAS">Pendientes y en atención</option><option value="PENDIENTE">Pendientes</option><option value="EN_ATENCION">En atención</option><option value="CERRADA">Cerradas</option></select><button type="button" onclick="ghCargarSoporteV73()">Actualizar solicitudes</button></div><div id="ghSoporteResumen"></div><div id="ghSoporteLista" role="status"></div></div>
       <div class="card"><h2>Prioridades de hoy</h2><div class="grid"><div class="stat urgent clickable" onclick="ghGoView('eventos')"><span>Eventos pendientes</span><b id="stEvt">-</b></div><div class="stat urgent clickable" onclick="ghGoView('actividades')"><span>Actividades pendientes</span><b id="stAct">-</b></div><div class="stat urgent clickable" onclick="ghGoView('anunciantes')"><span>Altas / reclamos</span><b id="stAnuPend">-</b></div></div></div>
       <div class="card"><h2>Resumen de la plataforma</h2><div class="grid"><div class="stat clickable" onclick="ghGoView('ciudades')"><span>Ciudades habilitadas</span><b id="stCiu">-</b></div><div class="stat clickable" onclick="ghGoView('anunciantes')"><span>Anunciantes</span><b id="stAnu">-</b></div><div class="stat clickable" onclick="ghGoView('suscriptores')"><span>Suscriptores</span><b id="stSus">-</b></div><div class="stat clickable" onclick="ghGoView('eventos')"><span>Eventos VIP publicados</span><b id="stEvtPub">-</b></div><div class="stat clickable" onclick="ghGoView('eventos')"><span>Eventos Free publicados</span><b id="stEvtFreePub">-</b></div><div class="stat clickable" onclick="ghGoView('actividades')"><span>Actividades publicadas</span><b id="stActPub">-</b></div><div class="stat clickable" onclick="ghGoView('anunciantes')"><span>Publicidad</span><b id="stPub">-</b></div></div></div>
     </section>
@@ -259,6 +260,30 @@ async function ghGuardarModerador(){
  }catch(e){msg.textContent=e.message;}finally{button.disabled=false;informarAltura();}
 }
 
+
+let GH_SUPPORT_ROWS=[];
+async function ghCargarSoporteV73(){
+ const card=document.getElementById('ghSoporteCard'),box=document.getElementById('ghSoporteLista');
+ const local=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';card.style.display=local?'none':'';if(local)return;
+ box.textContent='Cargando solicitudes...';
+ try{const result=await ghAdminRequest_('/support/requests',{estado:document.getElementById('ghSoporteEstado').value});GH_SUPPORT_ROWS=result.results||[];
+ document.getElementById('ghSoporteResumen').textContent=result.cantidades.recuperacion+' de acceso · '+result.cantidades.soporte+' de soporte';
+ box.replaceChildren();if(!GH_SUPPORT_ROWS.length)box.textContent='No hay solicitudes en este estado.';
+ for(const row of GH_SUPPORT_ROWS){const id=row.solicitud_id||row.id,article=document.createElement('article');article.className='card';
+ article.innerHTML='<h3>'+esc(row.tipo==='RECUPERACION'?'Ayuda de acceso':'Soporte')+' · '+esc(row.estado)+'</h3><p>'+esc(row.nombre||'')+' · '+esc(row.mail)+'</p><p style="white-space:pre-wrap">'+esc(row.detalle)+'</p><p class="muted">'+esc(id)+' · '+esc(row.creado_en)+(row.anunciante_id?' · Anunciante '+esc(row.anunciante_id):'')+'</p>';
+ if(row.whatsapp){const link=document.createElement('a');link.href='https://wa.me/'+String(row.whatsapp).replace(/[^0-9]/g,'')+'?text='+encodeURIComponent('Guía Local · Solicitud '+id);link.target='_blank';link.rel='noopener';link.textContent='Contactar por WhatsApp';article.appendChild(link);}
+ const nota=document.createElement('textarea');nota.rows=2;nota.maxLength=2000;nota.placeholder='Detalle de la atención o resolución';nota.value=row.nota||'';nota.disabled=row.estado==='CERRADA';article.appendChild(nota);
+ if(row.estado!=='CERRADA')for(const [estado,label]of [['EN_ATENCION','Marcar en atención'],['CERRADA','Cerrar solicitud']]){const b=document.createElement('button');b.type='button';b.textContent=label;b.onclick=()=>ghResolverSoporteV73(id,estado,nota.value,b);article.appendChild(b);}
+ box.appendChild(article);
+ }
+ }catch(e){box.textContent=e.message;}
+ informarAltura();
+}
+async function ghResolverSoporteV73(id,estado,nota,button){
+ button.disabled=true;
+ try{await ghAdminRequest_('/support/resolve',{solicitud_id:id,estado,nota},'POST');await ghCargarSoporteV73();}catch(e){document.getElementById('ghSoporteResumen').textContent=e.message;button.disabled=false;}
+}
+
 async function login(){
   const msg=document.getElementById('loginMsg');
   const btn=document.getElementById('btnLogin');
@@ -309,6 +334,7 @@ async function abrirApp(){
     GH_CITY_STATS={};
 
     await cargarPendientes();
+    await ghCargarSoporteV73();
     ghRenderTodo();
     ghGoView('inicio');
   }catch(e){
@@ -937,4 +963,5 @@ informarAltura();
 </script>
 <script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script></body>
 </html>
+
 

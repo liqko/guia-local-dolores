@@ -854,6 +854,7 @@
       <div id="dashboard-anunciante-id" class="record-id" style="margin-bottom:10px"></div>
 
       <div class="dashboard-top-actions">
+        <details><summary>Registrar una solicitud de soporte</summary><label for="soporte-mail">Correo de contacto</label><input id="soporte-mail" type="email"><label for="soporte-whatsapp">WhatsApp de contacto</label><input id="soporte-whatsapp" type="tel"><label for="soporte-detalle">¿Qué necesitás resolver?</label><textarea id="soporte-detalle" rows="3" maxlength="2000"></textarea><button id="btnEnviarSoporte" type="button" onclick="enviarSoporteV73_()">Enviar solicitud</button><div id="soporte-msg" role="status"></div></details>
         <a id="link-support_dashboard" href="#" target="_blank" class="btn-whatsapp" aria-label="Contactar soporte por WhatsApp">💬 WhatsApp Soporte</a>
         <button id="btn-cambiar-anunciante" class="secondary" type="button" style="margin-bottom:0;display:none">Cambiar anunciante</button>
         <button id="btn-cambiar-contrasena-dashboard" class="secondary" type="button" style="margin-bottom:0">Cambiar contraseña</button>
@@ -1903,14 +1904,24 @@ function solicitarAccesoAnunciante_(desdeCuenta=false){
   openWhatsApp(lineas.join('\n'));
 }
 
-function solicitarAyudaContrasena_(){
-  const ctx=whatsappContextoCuenta_();
-  openWhatsApp([
-    'GLD_SOLICITUD: AYUDA_CONTRASENA',
-    'Necesito ayuda con el acceso o la contraseña de mi cuenta.',
-    ctx.nombre ? 'Persona: '+ctx.nombre : '',
-    ctx.mail ? 'Mail: '+ctx.mail : ''
-  ].filter(Boolean).join('\n'));
+async function registrarSolicitudSoporteV73_(tipo,detalle){
+ const mail=tipo==='RECUPERACION'?String(document.getElementById('recuperar-mail')?.value||'').trim():String(document.getElementById('soporte-mail')?.value||sesionSuscriptor?.mail||'').trim();
+ const r=await fetch(WORKER_ORIGIN+'/support/requests',{method:'POST',headers:gldAuthHeaders_({'Content-Type':'application/json'}),body:JSON.stringify({tipo,mail,detalle,nombre:sesionSuscriptor?.nombre||'',whatsapp:tipo==='SOPORTE'?document.getElementById('soporte-whatsapp')?.value||'':'',anunciante_id:tipo==='SOPORTE'?sesion?.id||'':''})});
+ const result=await r.json();if(!r.ok||!result.success)throw new Error(result.message||'No se pudo registrar la solicitud.');return result;
+}
+async function solicitarAyudaContrasena_(){
+ const mail=String(document.getElementById('recuperar-mail')?.value||'').trim(),msg=document.getElementById('recuperar-msg'),button=document.getElementById('btnAyudaContrasenaWhatsapp');
+ if(!mail){msg.textContent='Ingresá el correo de la cuenta para solicitar ayuda.';return;}
+ button.disabled=true;msg.textContent='Registrando pedido de ayuda...';
+ const texto='GLD_SOLICITUD: AYUDA_CONTRASENA\nNecesito ayuda con el acceso o la contraseña de mi cuenta.\nMail: '+mail;
+ try{const result=await registrarSolicitudSoporteV73_('RECUPERACION','Necesito ayuda con el acceso o la recuperación de contraseña.');msg.textContent='Solicitud '+result.solicitud_id+' registrada. ';const link=document.createElement('a');link.href='https://wa.me/'+SUPPORT_NUMBER+'?text='+encodeURIComponent(texto+'\nSolicitud: '+result.solicitud_id);link.target='_blank';link.rel='noopener';link.textContent='Continuar por WhatsApp';msg.appendChild(link);}
+ catch(e){msg.textContent=e.message+' ';const link=document.createElement('a');link.href='https://wa.me/'+SUPPORT_NUMBER+'?text='+encodeURIComponent(texto);link.target='_blank';link.rel='noopener';link.textContent='Contactar por WhatsApp';msg.appendChild(link);}
+ finally{button.disabled=false;}
+}
+async function enviarSoporteV73_(){
+ const msg=document.getElementById('soporte-msg'),button=document.getElementById('btnEnviarSoporte');button.disabled=true;msg.textContent='Registrando...';
+ try{const result=await registrarSolicitudSoporteV73_('SOPORTE',String(document.getElementById('soporte-detalle').value||'').trim());msg.textContent='Solicitud '+result.solicitud_id+' registrada. Queda pendiente de atención.';}
+ catch(e){msg.textContent=e.message;}finally{button.disabled=false;}
 }
 
 function abrirSolicitudAnunciante_(modo){
@@ -8442,6 +8453,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         (typeof window.gldRelacionPuedeEliminarAnunciante==='function' &&
          window.gldRelacionPuedeEliminarAnunciante()) ? '' : 'none';
     }
+    document.getElementById('soporte-mail').value=sesionSuscriptor?.mail||'';
     document.getElementById('link-support_dashboard').href =
       `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('GLD_SOLICITUD: SOPORTE_PANEL\nNecesito ayuda con mi panel de anunciante.\nPersona: ' + nombrePersona + '\nAnunciante: ' + sesion.nombre + '\nAnunciante ID: ' + sesion.id)}`;
 
@@ -9278,4 +9290,5 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 <script src="/plataforma/contenido-adulto.js?v=70" data-adult-editor></script>
 </body>
 </html>
+
 
