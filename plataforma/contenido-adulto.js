@@ -2,7 +2,7 @@
  const origin='https://login.liqkoargentina.workers.dev',key='gld_adult_access_v67',nativeFetch=window.fetch.bind(window);
  const editor=!!document.querySelector('script[data-adult-editor]');
  if(editor){
-  nativeFetch(origin+'/').then(r=>r.json()).then(j=>{window.GLD_ADULT_SUPPORTED=Number(j.version)>=67;const enable=()=>document.querySelectorAll('[data-adult-selector]').forEach(x=>{x.disabled=!window.GLD_ADULT_SUPPORTED;x.title=x.disabled?'Requiere Worker V67':'';});enable();new MutationObserver(enable).observe(document.body,{childList:true,subtree:true});}).catch(()=>{});return;
+  nativeFetch(origin+'/').then(r=>r.json()).then(j=>{window.GLD_ADULT_SUPPORTED=Number(j.version)>=67;window.GLD_EVENT_VIRTUAL_SUPPORTED=Number(j.version)>=70;const enable=()=>{document.querySelectorAll('[data-adult-selector]').forEach(x=>{x.disabled=!window.GLD_ADULT_SUPPORTED;x.title=x.disabled?'Requiere Worker V67':'';});document.querySelectorAll('[data-event-selector],[data-event-virtual-option]').forEach(x=>{x.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;x.title=x.disabled?'Requiere Worker V70':'';});};enable();new MutationObserver(enable).observe(document.body,{childList:true,subtree:true});}).catch(()=>{});return;
  }
  window.GLD_ADULT={open(){show();banner.querySelector('button').click();},card(){return '<article class="card adult-locked"><strong>+18</strong><p>Esta publicación está restringida a mayores de 18 años.</p><button type="button" onclick="window.GLD_ADULT.open()">Iniciar sesión / Visualizar contenido</button></article>';}};
  let banner;

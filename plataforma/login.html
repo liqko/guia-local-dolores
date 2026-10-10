@@ -2629,6 +2629,7 @@ function fillEventCitySelect(){
     sel.appendChild(opt);
   });
 
+  virtualCityOption_(sel);
   if(current && Array.from(sel.options).some(o=>o.value===current)){
     sel.value = current;
   }
@@ -2659,7 +2660,7 @@ function refreshEventPlacesByCity(preferredKey){
   if(!sel) return;
 
   const current = String(preferredKey || sel.value || '').trim();
-  sel.innerHTML = '<option value="">Seleccioná un lugar</option>';
+  sel.innerHTML = '<option value="">Seleccioná un lugar</option><option data-event-virtual-option value="__VIRTUAL__">Virtual</option>';
 
   (evLists.lugares || []).forEach(o=>{
     const opt = document.createElement('option');
@@ -2674,6 +2675,7 @@ function refreshEventPlacesByCity(preferredKey){
 }
 
 function selectedEventPlace(){
+  if(eventModeValue_('ev')==='VIRTUAL')return eventVirtualPlace_();
   const key = evGet('ev-lugar');
   return (evLists.lugares || []).find(o=>String(o.key || '') === key) || null;
 }
@@ -2766,6 +2768,7 @@ async function loadEventPlacesForCity(ciudadId, preferredKey=''){
   );
 
   refreshEventPlacesByCity(preferredKey);
+  if(eventModeValue_('ev')==='VIRTUAL'){document.getElementById('ev-lugar').value=EVENT_VIRTUAL_PLACE;}
 }
 
 function eventFormCatalogs_(data,territorio){
@@ -6317,10 +6320,73 @@ async function loadPromosUI(){
 }
 
 /* ====================== Events UI ====================== */
+
+const EVENT_VIRTUAL_CITY='VIRTUAL',EVENT_VIRTUAL_PLACE='__VIRTUAL__';
+function eventModeValue_(prefix){return evGet(prefix+'-modalidad')||'PRESENCIAL';}
+function eventModeFromRow_(row){return row.modalidad||(/VIRTUAL|ONLINE/i.test(row.tipo_lugar||'')?'VIRTUAL':'PRESENCIAL');}
+function virtualCityOption_(select){
+  if(select&&!Array.from(select.options).some(o=>o.value===EVENT_VIRTUAL_CITY)){const option=new Option('Virtual · sin ciudad física',EVENT_VIRTUAL_CITY);option.setAttribute('data-event-virtual-option','');option.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;select.add(option);}
+}
+function eventVirtualPlace_(){return {key:EVENT_VIRTUAL_PLACE,nombre:'Virtual',nombre_visible:'Virtual',lugar:'Virtual',tipo:'VIRTUAL',tipo_lugar:'VIRTUAL',sede_id:'',lugar_id:'',direccion:'',maps:'',llegar:''};}
+function eventModeSync_(prefix){
+  const mode=eventModeValue_(prefix),virtual=mode==='VIRTUAL',online=mode!=='PRESENCIAL';
+  const city=document.getElementById(prefix+'-ciudad'),place=document.getElementById(prefix+'-lugar');
+  virtualCityOption_(city);
+  if(!virtual&&city?.value===EVENT_VIRTUAL_CITY)city.value='';
+  const onlineWrap=document.getElementById(prefix+'-virtual-wrap');if(onlineWrap)onlineWrap.hidden=!online;
+  if(virtual){
+    if(!city.value)city.value=EVENT_VIRTUAL_CITY;
+    if(!Array.from(place.options).some(o=>o.value===EVENT_VIRTUAL_PLACE))place.add(new Option('Virtual',EVENT_VIRTUAL_PLACE));
+    place.value=EVENT_VIRTUAL_PLACE;
+  }else if(place?.value===EVENT_VIRTUAL_PLACE){
+    place.value='';
+    if(prefix==='ev')loadEventPlacesForCity(city.value,'');else refreshFreeEventPlaces_('');
+  }
+  for(const id of prefix==='ev'?['ev-direccion-wrapper','ev-llegar']:['evf-direccion','evf-lugar-otro-wrap']){
+    const el=document.getElementById(id);if(el){const box=id.endsWith('-wrap')?el:el.closest('.full');if(box)box.hidden=virtual;}
+  }
+  if(virtual){if(prefix==='ev'){document.getElementById('ev-sede_id').value='';document.getElementById('ev-lugar_id').value='';}else toggleFreeOtherFields_();}
+  gldRefreshAllSearchableSelects_();
+}
+function eventModeFields_(prefix){
+  const mode=eventModeValue_(prefix),virtual=mode==='VIRTUAL';
+  return {modalidad:mode,...(prefix==='ev'?{url_virtual:mode==='PRESENCIAL'?'':evGet(prefix+'-url-virtual')}:{ }),...(virtual?{tipo_lugar:'VIRTUAL',lugar:'Virtual',lugar_texto:'Virtual',sede_id:'',lugar_id:'',direccion:'',maps:'',llegar:''}:{})};
+}
+function eventModeError_(payload,free=false){
+  if(payload.modalidad==='PRESENCIAL')return '';
+  if(!free&&(!payload.url_virtual||!isHttpUrl(payload.url_virtual)))return 'Completá un enlace virtual válido (https://...).';
+  if(payload.modalidad==='MIXTO'&&payload.ciudad_id===EVENT_VIRTUAL_CITY)return 'El evento mixto necesita una ciudad y un lugar físico.';
+  return '';
+}
+function eventModeLoad_(prefix,row={}){
+  document.getElementById(prefix+'-modalidad').value=eventModeFromRow_(row);
+  const link=document.getElementById(prefix+'-url-virtual');if(link)link.value=row.url_virtual||row.link_virtual||row.enlace_virtual||'';
+  virtualCityOption_(document.getElementById(prefix+'-ciudad'));
+  eventModeSync_(prefix);
+}
+function mountEventModeFields_(){
+  for(const prefix of ['ev','evf']){
+    const city=document.getElementById(prefix+'-ciudad');if(!city)continue;
+    const box=document.createElement('div');
+    box.innerHTML='<label>Modalidad del evento</label><select data-event-selector disabled id="'+prefix+'-modalidad"><option value="PRESENCIAL">Presencial</option><option value="VIRTUAL">Virtual</option><option value="MIXTO">Mixto · presencial y virtual</option></select>';
+    city.parentElement.before(box);
+    if(prefix==='ev'){
+    const link=document.createElement('div');link.className='full';link.id=prefix+'-virtual-wrap';link.hidden=true;
+    link.innerHTML='<label>Enlace de inscripción o acceso virtual</label><input id="'+prefix+'-url-virtual" type="url" placeholder="https://..."><div class="events-small">Virtual no exige domicilio. Mixto conserva la ciudad y el lugar físico, además del enlace. “Virtual · sin ciudad física” se muestra en las agendas de todas las ciudades.</div>';
+    box.after(link);
+    }
+    box.querySelector('select').addEventListener('change',()=>eventModeSync_(prefix));
+    city.addEventListener('change',()=>{if(city.value===EVENT_VIRTUAL_CITY)box.querySelector('select').value='VIRTUAL';eventModeSync_(prefix);});
+    document.getElementById(prefix+'-lugar').addEventListener('change',()=>{if(evGet(prefix+'-lugar')===EVENT_VIRTUAL_PLACE)box.querySelector('select').value='VIRTUAL';eventModeSync_(prefix);});
+    virtualCityOption_(city);
+  }
+}
+mountEventModeFields_();
+
 function evGet(id){ return String(document.getElementById(id)?.value || '').trim(); }
 
 function eventProgramacionCiudadOptions_(selected=''){
-  let html='<option value="">Usar ciudad general</option>';
+  let html='<option value="">Usar ciudad general</option><option data-event-virtual-option value="VIRTUAL"'+(selected==='VIRTUAL'?' selected':'')+'>Virtual · sin ciudad física</option>';
   (evLists.ciudades||[]).forEach(c=>{
     const id=String(c.ciudad_id||'').trim();
     const label=String(c.ciudad_visible||id).trim();
@@ -6338,7 +6404,7 @@ function eventProgramacionLugares_(ciudadId){
   return (evLists.lugaresTodos||[]).filter(o=>!id||String(o.ciudad_id||'').trim()===id);
 }
 function eventProgramacionLugarOptions_(ciudadId,selected=''){
-  let html='<option value="">Usar lugar general</option>';
+  let html='<option value="">Usar lugar general</option><option data-event-virtual-option value="__VIRTUAL__"'+(selected===EVENT_VIRTUAL_PLACE?' selected':'')+'>Virtual</option>';
   eventProgramacionLugares_(ciudadId).forEach(o=>{
     const key=eventProgramacionLugarKey_(o);
     if(!key) return;
@@ -6348,9 +6414,11 @@ function eventProgramacionLugarOptions_(ciudadId,selected=''){
   return html;
 }
 function eventProgramacionLugarByKey_(key){
+  if(key===EVENT_VIRTUAL_PLACE)return eventVirtualPlace_();
   return (evLists.lugaresTodos||[]).find(o=>eventProgramacionLugarKey_(o)===String(key||''))||null;
 }
 function eventProgramacionKeyFromRow_(row){
+  if(eventModeFromRow_(row)==='VIRTUAL')return EVENT_VIRTUAL_PLACE;
   if(row&&row.sede_id) return 'sede:'+String(row.sede_id);
   if(row&&row.lugar_id) return 'lugar:'+String(row.lugar_id);
   return '';
@@ -6362,6 +6430,7 @@ function eventProgramacionNormalize_(row={}){
     hora_desde:toTimeInputValue(row.hora_desde||row.hora||''),
     hora_hasta:toTimeInputValue(row.hora_hasta||row.hora2||''),
     ciudad_id:String(row.ciudad_id||'').trim(),
+    modalidad:eventModeFromRow_(row),url_virtual:String(row.url_virtual||row.link_virtual||row.enlace_virtual||'').trim(),
     tipo_lugar:String(row.tipo_lugar||'').trim(),
     sede_id:String(row.sede_id||'').trim(),
     lugar_id:String(row.lugar_id||'').trim(),
@@ -6378,6 +6447,7 @@ function eventProgramacionNormalize_(row={}){
 function eventProgramacionGeneralPlace_(){
   const p=selectedEventPlace();
   return {
+    modalidad:eventModeValue_('ev'),url_virtual:evGet('ev-url-virtual'),tipo_lugar:p?.tipo||'',
     ciudad_id:evGet('ev-ciudad'),
     sede_id:p?String(p.sede_id||'').trim():'',
     lugar_id:p?String(p.lugar_id||'').trim():'',
@@ -6406,6 +6476,7 @@ function eventProgramacionCard_(row,index){
       <div><label>Hora hasta</label><input class="evp-hora-hasta" type="time" value="${htmlEscape(data.hora_hasta)}"></div>
       <div><label>Ciudad</label><select class="evp-ciudad">${eventProgramacionCiudadOptions_(data.ciudad_id)}</select></div>
       <div><label>Lugar / sede</label><select class="evp-lugar">${eventProgramacionLugarOptions_(data.ciudad_id,selectedKey)}</select></div>
+      <div class="full"><label>Inscripción o acceso virtual del tramo (opcional si usa el general)</label><input type="url" class="evp-url-virtual" value="${htmlEscape(data.url_virtual)}" placeholder="https://..."></div>
       <div class="full evp-address">${htmlEscape(data.direccion||'')}</div>
       <div class="full"><label>Detalle</label><input class="evp-detalle" type="text" value="${htmlEscape(data.detalle)}" placeholder="Información específica de este tramo"></div>
       <div class="full"><label>Observaciones</label><input class="evp-observaciones" type="text" value="${htmlEscape(data.observaciones)}"></div>
@@ -6415,6 +6486,7 @@ function eventProgramacionCard_(row,index){
   const address=card.querySelector('.evp-address');
   city.addEventListener('change',()=>{
     place.innerHTML=eventProgramacionLugarOptions_(city.value,'');
+    if(city.value===EVENT_VIRTUAL_CITY)place.value=EVENT_VIRTUAL_PLACE;
     address.textContent='';
   });
   place.addEventListener('change',()=>{
@@ -6460,7 +6532,9 @@ function readEventProgramacionFromUI_(){
       hora_desde:String(card.querySelector('.evp-hora-desde')?.value||'').trim(),
       hora_hasta:String(card.querySelector('.evp-hora-hasta')?.value||'').trim(),
       ciudad_id:city||general.ciudad_id,
-      tipo_lugar:place?String(place.tipo||'').trim():'',
+      modalidad:place?.tipo==='VIRTUAL'?'VIRTUAL':(place?(general.modalidad==='MIXTO'?'MIXTO':'PRESENCIAL'):general.modalidad),
+      url_virtual:String(card.querySelector('.evp-url-virtual')?.value||general.url_virtual||'').trim(),
+      tipo_lugar:place?String(place.tipo||'').trim():general.tipo_lugar,
       sede_id:place?String(place.sede_id||'').trim():general.sede_id,
       lugar_id:place?String(place.lugar_id||'').trim():general.lugar_id,
       lugar_texto:place?String(place.nombre_visible||place.lugar||'').trim():general.lugar_texto,
@@ -6523,6 +6597,7 @@ function clearEventForm(){
     if(el.tagName==='SELECT' && el.multiple) Array.from(el.options).forEach(o=>o.selected=false);
     else el.value='';
   });
+  eventModeLoad_('ev');
   const evCatOther=document.getElementById('ev-categoria-otra'); if(evCatOther) evCatOther.value='';
   toggleVipOtherCategory_();
 
@@ -6563,6 +6638,7 @@ function buildEventPayloadFromForm(){
   const place = selectedEventPlace();
 
   const payload = {
+    tipo_lugar:place?.sede_id?'SEDE':String(place?.tipo||'LUGAR').toUpperCase(),
     contenido_adulto:document.getElementById('ev-adulto')?.value==='true',
     nombre_evento: evGet('ev-nombre_evento'),
     categoria: selectedCategoryValues_('ev-categoria','ev-categoria-otra').join(', '),
@@ -6588,6 +6664,7 @@ function buildEventPayloadFromForm(){
     programacion: readEventProgramacionFromUI_()
   };
 
+  Object.assign(payload,eventModeFields_('ev'));
   const programacionError = validateEventProgramacion_(payload.programacion);
   if(programacionError) payload.__programacion_error = programacionError;
 
@@ -6787,7 +6864,9 @@ function bindEventsListActions(){
         document.getElementById('ev-nombre_evento').value = found.nombre_evento || '';
         setCategoryValues_('ev-categoria','ev-categoria-otra',found.categoria||'');
         toggleVipOtherCategory_();
+        eventModeLoad_('ev',found);
         await setEventPlaceSelection(found);
+        eventModeSync_('ev');
 
         const dirEl = document.getElementById('ev-direccion');
         if(dirEl) dirEl.value = found.direccion || '';
@@ -7091,6 +7170,7 @@ function toggleFreeOtherFields_(){
 }
 
 function selectedFreePlace_(){
+  if(eventModeValue_('evf')==='VIRTUAL')return eventVirtualPlace_();
   const key=String(document.getElementById('evf-lugar')?.value||'').trim();
   const city=String(document.getElementById('evf-ciudad')?.value||'').trim();
   return evFreePlacesAll.find(o=>o.key===key && o.ciudad_id===city) || null;
@@ -7113,6 +7193,7 @@ function refreshFreeEventPlaces_(preferredName='',preferredKey=''){
     ? '<option value="">Seleccioná un lugar</option>'
     : '<option value="">Primero seleccioná una ciudad</option>';
 
+  sel.add(new Option('Virtual',EVENT_VIRTUAL_PLACE));
   const seen=new Set();
   if(ciudadId){
     evFreePlacesAll
@@ -7168,6 +7249,7 @@ function fillFreeEventCatalogs_(data){
         const label=String(c.ciudad_visible||c.nombre||id).trim();
         return id ? `<option value="${htmlEscape(id)}">${htmlEscape(label)}</option>` : '';
       }).join('');
+    virtualCityOption_(citySel);
     if(current && Array.from(citySel.options).some(o=>o.value===current)) citySel.value=current;
   }
 
@@ -7177,12 +7259,14 @@ function fillFreeEventCatalogs_(data){
 }
 
 function freeEventCityLabel_(id){
+  if(id===EVENT_VIRTUAL_CITY)return 'Virtual';
   const wanted=String(id||'').trim();
   const found=(evLists.ciudades||[]).find(c=>String(c.ciudad_id||'').trim()===wanted);
   return found ? String(found.ciudad_visible||wanted) : wanted;
 }
 
 function clearFreeEventForm_(){
+  eventModeLoad_('evf');
  document.getElementById('evf-adulto').value='false';
   ['evf-nombre','evf-fecha-desde','evf-fecha-hasta','evf-hora','evf-hora2','evf-descripcion','evf-instagram','evf-categoria-otra','evf-lugar-otro','evf-direccion']
     .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
@@ -7252,7 +7336,8 @@ function buildFreeEventPayload_(){
     suscriptor_id:String(sesionSuscriptor?.suscriptor_id||'').trim(),
     organizador:publisher.organizador,
     logo_organizador:publisher.logo_organizador,
-    acepta_responsabilidad:!!document.getElementById('evf-responsabilidad')?.checked
+    acepta_responsabilidad:!!document.getElementById('evf-responsabilidad')?.checked,
+    ...eventModeFields_('evf')
   };
 }
 
@@ -7327,11 +7412,12 @@ function renderFreeEvents_(events){
         document.getElementById('evf-adulto').value=found.contenido_adulto===true?'true':'false';
         document.getElementById('evf-nombre').value=found.nombre_evento||'';
         setCategoryValues_('evf-categoria','evf-categoria-otra',found.categoria||'');
+        eventModeLoad_('evf',found);
         document.getElementById('evf-ciudad').value=found.ciudad_id||'';
         refreshFreeEventPlaces_(found.lugar||'',found.sede_id ? 'sede:'+found.sede_id : (found.lugar_id ? 'lugar:'+found.lugar_id : ''));
         const address=document.getElementById('evf-direccion');
         if(address && !address.readOnly) address.value=String(found.direccion||'');
-        toggleFreeOtherFields_();
+        toggleFreeOtherFields_();eventModeSync_('evf');
         document.getElementById('evf-fecha-desde').value=toDateInputValue(found.fecha_desde||found.fecha);
         document.getElementById('evf-fecha-hasta').value=toDateInputValue(found.fecha_hasta);
         document.getElementById('evf-hora').value=toTimeInputValue(found.hora);
@@ -8188,6 +8274,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     if(!sesion || !sesion.id) return;
     if(!editingFreeEventId&&!freeEventQuotaUI_().puedeCrear){setMsg('eventos-free-msg','err','No hay cupo disponible. Configuralo en Gran Hermano antes de crear un evento.');return;}
     const payload=buildFreeEventPayload_();
+    const modeError=eventModeError_(payload,true);if(modeError){setMsg('eventos-free-msg','err',modeError);return;}
     if(String(document.getElementById('evf-descripcion')?.value||'').length>200){ setMsg('eventos-free-msg','err','La descripción admite hasta 200 caracteres.'); return; }
     if(!payload.nombre_evento){ setMsg('eventos-free-msg','err','Falta Nombre del evento.'); return; }
     if(!payload.categoria){ setMsg('eventos-free-msg','err','Seleccioná al menos una categoría.'); return; }
@@ -8245,6 +8332,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
     try{
       const payload = buildEventPayloadFromForm();
+      const modeError=eventModeError_(payload);if(modeError){setMsg('eventos-msg','err',modeError);return;}
     if(payload.__partner_error){
       setMsg('eventos-msg', 'err', payload.__partner_error);
       return;
@@ -9186,6 +9274,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 </script>
 
 <script src="/plataforma/contadores-caracteres.js?v=1"></script>
-<script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script>
+<script src="/plataforma/contenido-adulto.js?v=70" data-adult-editor></script>
 </body>
 </html>
+
