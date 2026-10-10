@@ -7423,6 +7423,13 @@ async function resolvePendingV3({ db, cache, auth, tipo, id: id4, decision, nive
     if (text82(req.estado).toUpperCase() !== "PENDIENTE") throw new Error("La solicitud ya fue resuelta.");
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const sid = text82(req.suscriptor_id), modo = text82(req.modo).toUpperCase();
+    if(auth.rol==="ADMIN_LOCAL" && modo==="RECLAMAR"){
+      const index=await cache.get(ADMIN_ADVERTISERS_KEY)||{};
+      const advertiser=(index.results||[]).find(a=>String(a.id||a.anunciante_id||"")===String(req.anunciante_id||""));
+      const cities=adminCityIdsV71(advertiser?.ciudad_ids);
+      if(!cities.length){const error=new Error("La ciudad del anunciante no está comprobada. Este reclamo requiere un superadministrador.");error.status=403;throw error;}
+      for(const ciudad_id of cities)assertAdminCityV71(auth,{ciudad_id});
+    }
     if (dec === "RECHAZAR") {
       const savedReq2 = await db.patch("solicitudes_anunciante", itemId, {
         estado: "RECHAZADA",

@@ -57,5 +57,9 @@ token=principal;saved=await read(request('/superadmin/moderators',{suscriptor_id
 token=login.body.token;denied=await read(request('/superadmin/moderation/pending'));assert.equal(denied.r.status,401);
 token=principal;denied=await read(request('/superadmin/moderators',{suscriptor_id:'MASTER',activo:true,ciudades:['D'],permisos:{moderacion:{EVENTO:true}}}));assert.equal(denied.r.status,400);
 denied=await read(request('/superadmin/moderators',{suscriptor_id:'LOCAL',activo:true,ciudades:['INVENTADA'],permisos:{moderacion:{EVENTO:true}}}));assert.equal(denied.r.status,400);
-globalThis.fetch=original;console.log('V72: alta, login, permisos por módulo, aprobación, cambio, revocación y rol principal preservado comprobados.');
+seed('solicitudes_anunciante','FOREIGNCLAIM',{solicitud_id:'FOREIGNCLAIM',ciudad_id:'D',anunciante_id:'FOREIGN',suscriptor_id:'S',modo:'RECLAMAR',estado:'PENDIENTE'});
+values.set('admin:index:advertisers:v2',JSON.stringify({results:[{id:'FOREIGN',ciudad_ids:['X']}]}));
+token=sign({sid:'ANOTHER',rol:'ADMIN_LOCAL',ciudades:['D'],permisos:{moderacion:{ANUNCIANTE:true}}});
+denied=await read(request('/superadmin/moderation/resolve',{tipo:'ANUNCIANTE',id:'FOREIGNCLAIM',decision:'APROBAR'}));assert.equal(denied.r.status,403);assert.equal(denied.calls.some(c=>c.op==='PATCH'),false);
+globalThis.fetch=original;console.log('V72: alta, login, permisos por módulo, aprobación, cambio, revocación, reclamo ajeno bloqueado y rol principal preservado comprobados.');
 
