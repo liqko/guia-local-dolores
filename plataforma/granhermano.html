@@ -64,6 +64,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <button class="tab" data-view="actividades">Actividades</button>
       
       <button class="tab" data-view="anunciantes">Anunciantes</button>
+      <button class="tab" id="tabModeradores" data-view="moderadores" hidden>Moderadores</button>
       <button class="tab" data-view="suscriptores">Suscriptores</button>
       <button class="tab" data-view="configuracion">Configuración de plataforma</button>
     </div></div>
@@ -78,6 +79,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 
     <section id="view-anunciantes" class="view"><div class="card"><h2>Altas y reclamos pendientes</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="anunciantesPendientes"></div></div><div id="anuListado" class="card"><h2>Anunciantes y permisos</h2><div class="section-intro">Elegí un anunciante para habilitar sus funciones y establecer los cupos de cada módulo.</div><div class="toolbar"><input id="qAnu" placeholder="Buscar por nombre o ID..."><select id="anuCiudad"><option value="">Todas las ciudades</option></select><button id="btnBuscarAnu">Buscar</button></div><div id="resAnu" class="muted">Escribí un nombre o ID para buscar.</div></div><div id="anuFicha" class="card hidden"><button class="sec back" onclick="volverAnunciantes()">← Volver a anunciantes</button><div id="detalle"></div></div></section>
     <section id="view-suscriptores" class="view"><div id="susListado" class="card"><h2>Suscriptores</h2><div class="toolbar"><input id="qSus" placeholder="Buscar por nombre, mail o ID..."><select id="susTipo"><option value="">Todos</option><option value="RESIDENTE">Residentes</option><option value="NO_RESIDENTE">No residentes / visitantes</option></select><button id="btnBuscarSus">Actualizar listado</button></div><div id="resSus" class="muted">Cargando suscriptores...</div></div><div id="susFicha" class="card hidden"><button class="sec back" onclick="volverSuscriptores()">← Volver a suscriptores</button><div id="detalleSuscriptor"></div></div></section>
+    <section id="view-moderadores" class="view"><div class="card"><h2>Moderadores</h2><p>Elegí una cuenta de suscriptor y asignale qué publicaciones puede moderar y en qué ciudades.</p><div class="toolbar"><input id="modBusqueda" placeholder="Nombre, correo o ID del suscriptor"><button type="button" onclick="ghBuscarModeradores()">Buscar suscriptor</button></div><div id="modResultados"></div><div id="modEditor" hidden></div><div id="modMensaje" role="status"></div></div></section>
     <section id="view-configuracion" class="view">
       <div class="card">
         <h2>Configuración de plataforma</h2>
@@ -216,6 +218,47 @@ async function ghSaveAdvertiserDelta_(data){
   return{success:true,updated:changed};
 }
 
+
+let GH_ADMIN_ACCESS={},GH_MOD_SELECTED='',GH_MOD_CITIES=[];
+function ghAccessV72(){
+ try{const value=TOKEN.split('.')[0].replace(/-/g,'+').replace(/_/g,'/');return JSON.parse(decodeURIComponent(escape(atob(value))));}catch(e){return {};}
+}
+function ghApplyAccessV72(){
+ GH_ADMIN_ACCESS=ghAccessV72();const local=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';
+ const perms=GH_ADMIN_ACCESS.permisos?.moderacion;
+ const allowed={inicio:true,eventos:!local||!perms||perms.EVENTO,actividades:!local||!perms||perms.ACTIVIDAD,anunciantes:!local||!perms||perms.ANUNCIANTE,suscriptores:!local,configuracion:!local,moderadores:GH_ADMIN_ACCESS.rol==='SUPERADMIN_PRINCIPAL'};
+ document.querySelectorAll('#ghTabs .tab').forEach(b=>{b.hidden=!allowed[b.dataset.view];b.style.display=allowed[b.dataset.view]?'':'none';});
+ document.getElementById('anuListado').style.display=local?'none':'';
+ if(local)document.getElementById('anuFicha').classList.add('hidden');
+}
+async function ghBuscarModeradores(){
+ const box=document.getElementById('modResultados'),q=document.getElementById('modBusqueda').value.trim();
+ if(!q){box.textContent='Escribí un nombre, correo o ID.';return;}
+ box.textContent='Buscando...';
+ try{const data=await api('buscar_suscriptores',{q,limit:30});const rows=data.results||data.suscriptores||[];
+ box.replaceChildren();if(!rows.length){box.textContent='No se encontraron suscriptores.';return;}
+ for(const row of rows){const b=document.createElement('button');b.type='button';b.className='sec';b.textContent=(row.nombre||row.suscriptor_id||row.id)+' · '+(row.mail||'');b.onclick=()=>ghEditarModerador(row);box.appendChild(b);}
+ }catch(e){box.textContent=e.message;}
+ informarAltura();
+}
+async function ghEditarModerador(row){
+ const box=document.getElementById('modEditor');box.hidden=false;box.textContent='Cargando permisos y ciudades...';
+ GH_MOD_SELECTED=String(row.suscriptor_id||row.id||'');
+ try{const [data,territory]=await Promise.all([ghAdminRequest_('/moderators',{suscriptor_id:GH_MOD_SELECTED}),ghFetchJson(TERRITORY_API_ORIGIN+'/territory/public')]);
+ const m=data.moderador;GH_MOD_CITIES=territory.ciudades||[];
+ if(m&&m.rol!=='ADMIN_LOCAL'){box.textContent='Esta cuenta tiene un rol superior. No se modifica desde Moderadores.';return;}
+ const assigned=new Set(m?.ciudades||[]),perms=m?.permisos?.moderacion||{};
+ box.innerHTML='<h3>'+esc(row.nombre||GH_MOD_SELECTED)+'</h3><p>'+esc(row.mail||'')+'</p><label><input type="checkbox" id="modActivo" '+(m?.activo===true?'checked':'')+'> Moderador habilitado</label><h3>Ciudades asignadas</h3><div id="modCiudades">'+GH_MOD_CITIES.map(c=>'<label style="display:block"><input type="checkbox" data-mod-city="'+esc(c.ciudad_id||c.id)+'" '+(assigned.has(String(c.ciudad_id||c.id))?'checked':'')+'> '+esc(c.ciudad_visible||c.nombre||c.ciudad_id)+'</label>').join('')+'</div><h3>Puede aprobar y rechazar</h3>'+[['EVENTO','Eventos Free y VIP'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Altas y reclamos de anunciantes']].map(([k,label])=>'<label style="display:block"><input type="checkbox" data-mod-perm="'+k+'" '+(perms[k]===true?'checked':'')+'> '+label+'</label>').join('')+'<p>Los cambios de permisos o la deshabilitación invalidan la sesión anterior.</p><button type="button" id="modGuardar" onclick="ghGuardarModerador()">Guardar permisos</button>';
+ }catch(e){box.textContent=e.message;}
+ informarAltura();
+}
+async function ghGuardarModerador(){
+ const button=document.getElementById('modGuardar'),msg=document.getElementById('modMensaje');button.disabled=true;msg.textContent='Guardando...';
+ try{const ciudades=[...document.querySelectorAll('[data-mod-city]:checked')].map(c=>c.dataset.modCity),moderacion=Object.fromEntries([...document.querySelectorAll('[data-mod-perm]')].map(c=>[c.dataset.modPerm,c.checked]));
+ const result=await ghAdminRequest_('/moderators',{suscriptor_id:GH_MOD_SELECTED,activo:document.getElementById('modActivo').checked,ciudades,permisos:{moderacion}},'POST');msg.textContent=result.message;
+ }catch(e){msg.textContent=e.message;}finally{button.disabled=false;informarAltura();}
+}
+
 async function login(){
   const msg=document.getElementById('loginMsg');
   const btn=document.getElementById('btnLogin');
@@ -253,6 +296,7 @@ async function abrirApp(){
     const j=await r.json();
     if(!r.ok||!j.success) throw new Error(j.message||'Sesión inválida.');
 
+    ghApplyAccessV72();
     window.gldConsumoAdminV68?.(TOKEN);
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
@@ -469,7 +513,7 @@ function ghGoView(name){
     ghCargarCiudades();
     if(!(GH_CATALOG_CACHE.niveles_anunciante||[]).length) ghCargarCatalogo(GH_CATALOGOS.find(x=>x.tipo==='niveles_anunciante')).then(ghRenderAnunciantesPendientes);
     const box=document.getElementById('resAnu');
-    buscarAnu();
+    if(GH_ADMIN_ACCESS.rol!=='ADMIN_LOCAL')buscarAnu();
   }
   if(name==='suscriptores'){
     const box=document.getElementById('resSus');
@@ -893,3 +937,4 @@ informarAltura();
 </script>
 <script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script></body>
 </html>
+
