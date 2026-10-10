@@ -19,6 +19,10 @@
     input{border:1px solid #b8c3c8;background:#fff;padding:10px 12px}
     input:focus{outline:3px solid rgba(0,102,153,.13);border-color:#006699}
     .resultados{position:absolute;z-index:20;top:calc(100% + 4px);left:0;right:0;max-height:260px;overflow:auto;background:#fff;border:1px solid #b8c3c8;border-radius:10px;box-shadow:0 10px 25px rgba(0,0,0,.16);padding:5px}
+    .bandera{display:inline-block;width:26px;height:18px;object-fit:cover;vertical-align:middle;margin-right:8px;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.15)}
+    .bandera[hidden]{display:none}
+    .seleccion-bandera{position:absolute;left:12px;top:15px;margin:0;pointer-events:none}
+    #buscarCiudad.con-bandera{padding-left:48px}
     .resultado{display:block;width:100%;min-height:44px;margin:0;padding:10px 12px;border:0;border-radius:8px;background:transparent;color:#263238;text-align:left;font-weight:700;cursor:pointer}
     .resultado:hover,.resultado:focus{background:#edf7fb;outline:none}
     #entrar{border:0;background:#006699;color:#fff;font-weight:900;padding:11px 14px;margin-top:16px;cursor:pointer}
@@ -42,6 +46,7 @@
     <label for="buscarCiudad">¿Qué ciudad querés consultar?</label>
     <div class="buscador-wrap">
       <input id="buscarCiudad" type="search" placeholder="Escribí ciudad o provincia" autocomplete="off" disabled>
+      <img id="banderaSeleccionada" class="bandera seleccion-bandera" alt="" hidden>
       <div id="resultados" class="resultados" hidden></div>
     </div>
 
@@ -77,14 +82,24 @@ async function cargarCiudades(timeoutMs=20000){
 }
 
 function ciudadNombre(c){return String(c.ciudad_visible||c.ciudad||c.nombre||c.ciudad_id||'').trim()}
-function paisMarca(c){
+function paisCodigo(c){
   const id=String(c.pais_id||'').trim().toUpperCase();
-  const codigo=({ARG:'AR',BRA:'BR'})[id]||id.slice(0,2)||'--';
-  return codigo;
+  return ({ARG:'AR',BRA:'BR',AR:'AR',BR:'BR'})[id]||'';
+}
+function banderaSrc(c){
+  const codigo=paisCodigo(c);
+  return codigo ? '/plataforma/assets/banderas/'+codigo.toLowerCase()+'.svg' : '';
 }
 function etiqueta(c){
   const prov=String(c.provincia_id||'').trim().toUpperCase();
-  return paisMarca(c)+' · '+ciudadNombre(c)+(prov?' ('+prov+')':'');
+  return ciudadNombre(c)+(prov?' ('+prov+')':'');
+}
+function mostrarBanderaSeleccionada(c){
+  const img=document.getElementById('banderaSeleccionada');
+  const src=c?banderaSrc(c):'';
+  img.hidden=!src;buscar.classList.toggle('con-bandera',!!src);
+  if(src){img.src=src;img.alt=String(c.pais_visible||c.pais||paisCodigo(c));}
+  else{img.removeAttribute('src');img.alt='';}
 }
 function textoBusqueda(c){
   return [ciudadNombre(c),c.provincia_visible,c.provincia,c.provincia_id,c.pais_visible,c.pais,c.pais_id]
@@ -122,7 +137,7 @@ cargarCiudades().then(raw=>{
 });
 
 function mostrarResultados(){
-  seleccionada=null;entrar.disabled=true;
+  seleccionada=null;entrar.disabled=true;mostrarBanderaSeleccionada(null);
   const q=buscar.value.trim().toLocaleLowerCase('es');
   resultados.innerHTML='';resultados.hidden=true;noDisponible.style.display='none';
   if(!q)return;
@@ -139,9 +154,15 @@ function mostrarResultados(){
 
   matches.forEach(c=>{
     const b=document.createElement('button');
-    b.type='button';b.className='resultado';b.textContent=etiqueta(c);
+    b.type='button';b.className='resultado';
+    const src=banderaSrc(c);
+    if(src){
+      const img=document.createElement('img');img.className='bandera';img.src=src;
+      img.alt=String(c.pais_visible||c.pais||paisCodigo(c));b.appendChild(img);
+    }
+    const nombre=document.createElement('span');nombre.textContent=etiqueta(c);b.appendChild(nombre);
     b.addEventListener('click',()=>{
-      seleccionada=c;buscar.value=etiqueta(c);resultados.hidden=true;
+      seleccionada=c;buscar.value=etiqueta(c);mostrarBanderaSeleccionada(c);resultados.hidden=true;
       noDisponible.style.display='none';entrar.disabled=false;enviarAltura();
     });
     resultados.appendChild(b);
