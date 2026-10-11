@@ -935,6 +935,14 @@ html,body,
 }
 </style>
 <script src="/plataforma/clasificacion.js?v=1"></script>
+<script src="/plataforma/anunciantes-utilidades.js?v=1"></script>
+<style>
+.gld-share-anunciante-btn{width:36px;height:36px;border-radius:50%;border:1px solid #c2ced5;background:#fff;color:#006699;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+.gld-share-anunciante-btn:disabled{opacity:.55;cursor:wait}
+.gld-ficha-compartida{padding:.7rem 1rem;background:#eef5f7;font-size:.95rem}
+.gld-ficha-compartida button{margin-left:.6rem;border:1px solid #006699;border-radius:.4rem;padding:.4rem .7rem;background:#fff;color:#006699;cursor:pointer}
+@media(max-width:600px){.gld-share-anunciante-btn{width:32px;height:32px}}
+</style>
 </head>
 <body><script src="/plataforma/contenido-adulto.js?v=67"></script>
 <div id="gldModuloBloqueo" role="status" aria-live="polite">
@@ -949,6 +957,7 @@ html,body,
   <details class="filtro-multi" id="accionesMulti"><summary id="accionesResumen">Acciones</summary><div class="filtro-multi-opciones" id="accionesOpciones"></div></details>
 </div>
 <div class="buscador-global"><input id="buscadorGlobal" placeholder="Buscar por nombre, tags, dirección, descripción, ciudad, etc." type="text"></div>
+<div id="fichaCompartidaAviso" class="gld-ficha-compartida" hidden>Estás viendo una ficha compartida. <button id="verTodaGuia" type="button">Ver toda la guía</button></div>
 <div class="destacadas-bar" id="destacadasBar"></div>
 <div class="grid" id="contenedor"></div>
 <div class="paginacion-zocalo" id="paginador-abajo">
@@ -1249,11 +1258,27 @@ html,body,
     }
 
 const CITY_CONTEXT_KEY='gld_ciudad_contexto';
-const queryInicial=new URLSearchParams(window.location.search);
+const queryInicial=GLD_ANUNCIANTES_UI.parametros(window.location.href,document.referrer,window.parent!==window);
 let paisSeleccionado=queryInicial.get('pais_id')||'';
 let provinciaSeleccionada=queryInicial.get('provincia_id')||'';
 let ciudadSeleccionada=queryInicial.get('ciudad_id')||'';
 try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(saved){if(!paisSeleccionado)paisSeleccionado=String(saved.pais_id||'');if(!provinciaSeleccionada)provinciaSeleccionada=String(saved.provincia_id||'');if(!ciudadSeleccionada)ciudadSeleccionada=String(saved.ciudad_id||'')}}catch(e){}
+
+    const fichaCompartida=new URLSearchParams(queryInicial);
+    async function gldCompartirAnunciante(btn){
+      btn.disabled=true;
+      try{
+        const resultado=await GLD_ANUNCIANTES_UI.compartir({
+          id:btn.dataset.anuncianteId,nombre:btn.dataset.nombre,sede_id:btn.dataset.sedeId,
+          contexto:{pais_id:paisSeleccionado,provincia_id:provinciaSeleccionada,ciudad_id:ciudadSeleccionada}
+        });
+        if(resultado==='copiado'){
+          const icono=btn.innerHTML;btn.innerHTML='<i class="fas fa-check" aria-hidden="true"></i>';
+          btn.title='Enlace copiado';btn.setAttribute('aria-label','Enlace copiado');
+          setTimeout(()=>{btn.innerHTML=icono;btn.title='Compartir ficha';btn.setAttribute('aria-label','Compartir ficha');},2500);
+        }
+      }finally{btn.disabled=false;}
+    }
 
     let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [], niveles: [] };
     let relacionesSedesGlobales = {};
@@ -1345,6 +1370,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
     /* Promociones se consulta exclusivamente mediante el Worker actual. */
     const PROMOS_ENDPOINT = 'https://login.liqkoargentina.workers.dev/promos';
     const PROMOS_PAGE_URL = 'https://guialocal.ar/promos/';
+    const ACTIVIDADES_PAGE_URL = 'https://guialocal.ar/actividades/';
     const ACTIVIDADES_ENDPOINT = "https://login.liqkoargentina.workers.dev/actividades";
 
     let bannersPromise=null;
@@ -1575,6 +1601,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           if(!matches.length) return '';
           const params = new URLSearchParams();
           params.set('organizador', String(item.nombre || '').trim());
+          if(ciudadSeleccionada)params.set('ciudad_id',ciudadSeleccionada);
           const label = matches.length === 1 ? 'Ver evento activo' : `Ver ${matches.length} eventos activos`;
           const safeName = String(item.nombre || '').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
           const bridgePayload = {
@@ -1702,11 +1729,13 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           const bridgePayload={
             anunciante:String(item.nombre||'').trim(),
             anunciante_id:ids.length?ids[0]:'',
+            ciudad_id:String(ciudadSeleccionada||'').trim(),
             actividad_ids:matches.map(a=>String(a&&a.actividad_id||'').trim()).filter(Boolean)
           };
           const payload=encodeURIComponent(JSON.stringify(bridgePayload));
 
-          return `<a class="actividades-activas-btn" href="#" data-actividad-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.actividadFilter||''));d.ts=Date.now();localStorage.setItem('gld_actividades_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-bullseye"></i> ${label}</a>`;
+          const destino=new URL(ACTIVIDADES_PAGE_URL);destino.searchParams.set('anunciante_id',ids[0]);if(ciudadSeleccionada)destino.searchParams.set('ciudad_id',ciudadSeleccionada);
+          return `<a class="actividades-activas-btn" href="${destino.toString()}" target="_top" data-actividad-filter="${payload}" onclick="try{const d=JSON.parse(decodeURIComponent(this.dataset.actividadFilter||''));d.ts=Date.now();localStorage.setItem('gld_actividades_filter',JSON.stringify(d));}catch(e){}" aria-label="${label} de ${safeName}"><i class="fas fa-bullseye"></i> ${label}</a>`;
         }
 
         function capitalizarFrase(str){
@@ -2109,6 +2138,11 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             if(nivelVisual !== 3 && gldInsigniaActiva(item.verificado)) html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
             if(nivelVisual !== 3 && gldInsigniaActiva(item.gold)) html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
             if(anuncianteFavId && nivelVisual !== 3) html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'${safeNombre.replace(/'/g,"&#039;")}')" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
+            if(anuncianteFavId) {
+              const sedeCompartida=item.__sede_individual&&item.sedes?.length===1?String(item.sedes[0].sede_id||''):'';
+              const safeSede=sedeCompartida.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+              html += `<button class="gld-share-anunciante-btn" type="button" data-anunciante-id="${safeFavId}" data-nombre="${safeNombre}" data-sede-id="${safeSede}" onclick="event.stopPropagation();gldCompartirAnunciante(this)" title="Compartir ficha" aria-label="Compartir ficha"><i class="fas fa-share-nodes" aria-hidden="true"></i></button>`;
+            }
             html += `</div>`;
           }
 
@@ -2783,12 +2817,16 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           ].filter(Boolean).join(' ');
         }
 
+        document.getElementById('verTodaGuia')?.addEventListener('click',()=>{
+          fichaCompartida.delete('anunciante_id');fichaCompartida.delete('sede_id');paginaActual=1;render();
+        });
         function render() {
+          const aviso=document.getElementById('fichaCompartidaAviso');if(aviso)aviso.hidden=!fichaCompartida.get('anunciante_id');
           const qGlobal=normalizar(buscadorGlobal.value.trim());
           const clasificacion=String(selectClasificacion.value||'').trim();
           const accionesElegidas=accionesSeleccionadas();
 
-          let base=serviciosData.filter(item=>{
+          let base=GLD_ANUNCIANTES_UI.filtroFicha(serviciosData,fichaCompartida).filter(item=>{
             if(clasificacion.startsWith('SEG:')){
               return canonicalSegmentoIds(item).includes(clasificacion.slice(4));
             }
@@ -2799,7 +2837,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             return true;
           });
 
-          if(clasificacion || accionesElegidas.length || qGlobal){
+          if(clasificacion || accionesElegidas.length || qGlobal || fichaCompartida.get('sede_id')){
             base=base.flatMap(item=>{
               const sedes=Array.isArray(item.sedes)?item.sedes:[];
               const requiereSede=clasificacion.startsWith('ACT:') || accionesElegidas.length>0;
@@ -2819,7 +2857,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             });
           }
 
-          const hayBusquedaEspecifica=!!(qGlobal || clasificacion || accionesElegidas.length);
+          const hayBusquedaEspecifica=!!(qGlobal || clasificacion || accionesElegidas.length || fichaCompartida.get('anunciante_id'));
 
           let filtrados=base.filter(item=>{
             if(!qGlobal) return true;
@@ -3081,8 +3119,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
 
 async function iniciarAnunciantes(){
-  let qs=new URLSearchParams(window.location.search||'');
-  try{const ref=new URL(document.referrer||'');const refQs=new URLSearchParams(ref.search||'');if(!qs.get('ciudad_id')&&refQs.get('ciudad_id'))qs=refQs}catch(e){}
+  const qs=GLD_ANUNCIANTES_UI.parametros(window.location.href,document.referrer,window.parent!==window);
   let ctx=null;try{ctx=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null')}catch(e){}
   const session=gldGetSubscriberSession();
   if(!paisSeleccionado)paisSeleccionado=String(qs.get('pais_id')||(ctx&&ctx.pais_id)||'').trim();
@@ -3268,3 +3305,4 @@ iniciarAnunciantes();
 </script>
 </body>
 </html>
+
