@@ -69,7 +69,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <button class="tab" data-view="configuracion">Configuración de plataforma</button>
     </div></div>
     <section id="view-inicio" class="view active">
-      <div class="card"><h2>Publicaciones recientes</h2><p>Ya publicadas. Aparecen durante diez días para que puedas revisarlas; salir de esta lista no modifica la publicación.</p><button onclick="ghPublicacionesV77()">Ver publicaciones recientes</button><div id="ghRecientesV77"></div></div><div class="card"><h2>Anuncios y publicidades detenidos por moderación</h2><button onclick="ghBloqueosV77()">Ver pendientes de aprobación</button><div id="ghBloqueosV77"></div></div><div class="card"><h2>Eventos y actividades pendientes de aprobación</h2><button type="button" onclick="cargarPendientes()">Actualizar pendientes</button><div id="pendientes" role="status" aria-live="polite"></div></div>
+      <div class="card"><h2>Publicaciones recientes <span id="ghRecientesCantidad">…</span></h2><p>Ya publicadas. Aparecen durante diez días para que puedas revisarlas; salir de esta lista no modifica la publicación.</p><button onclick="ghPublicacionesV77()">Ver publicaciones recientes</button><div id="ghRecientesV77"></div></div><div class="card"><h2>Pendientes de aprobación <span id="ghRevisionCantidad">…</span></h2><p>Moderación y revisión +18.</p><button onclick="ghRevisionUnificada()">Actualizar pendientes</button><div id="ghRevisionUnificada"></div></div><div hidden><div id="ghBloqueosV77"></div><div id="pendientes" role="status"></div></div>
 
       <div class="card" id="ghSoporteCard"><h2>Solicitudes de acceso y soporte</h2><div class="toolbar"><select id="ghSoporteEstado"><option value="ABIERTAS">Pendientes y en atención</option><option value="PENDIENTE">Pendientes</option><option value="EN_ATENCION">En atención</option><option value="CERRADA">Cerradas</option></select><button type="button" onclick="ghCargarSoporteV73()">Actualizar solicitudes</button></div><div id="ghSoporteResumen"></div><div id="ghSoporteLista" role="status"></div></div>
       <div class="card"><h2>Prioridades de hoy</h2><div class="grid"><div class="stat urgent clickable" onclick="ghGoView('eventos')"><span>Eventos pendientes</span><b id="stEvt">-</b></div><div class="stat urgent clickable" onclick="ghGoView('actividades')"><span>Actividades pendientes</span><b id="stAct">-</b></div><div class="stat urgent clickable" onclick="ghGoView('anunciantes')"><span>Altas / reclamos</span><b id="stAnuPend">-</b></div></div></div>
@@ -344,6 +344,7 @@ async function abrirApp(){
     GH_CITY_STATS={};
 
     await cargarPendientes();
+    await Promise.allSettled([ghRevisionUnificada(),ghPublicacionesV77()]);
     await ghCargarSoporteV73();
     ghRenderTodo();
     ghGoView('inicio');
@@ -972,15 +973,57 @@ if(TOKEN) abrirApp();
 informarAltura();
 </script>
 <script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script><script>
-async function ghPublicacionesV77(offset=0){
- const box=document.getElementById('ghRecientesV77');box.textContent='Cargando...';
- try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/recent?offset='+offset,{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);box.innerHTML=(j.results||[]).map(x=>'<div class="item"><b>'+esc(x.tipo)+' · '+esc(x.nombre)+'</b><p>'+esc(x.fecha)+' · '+esc(x.ciudades.join(', '))+' · ID '+esc(x.id)+'</p><details><summary>Ver publicación</summary><pre>'+esc(JSON.stringify(x.publicacion,null,2))+'</pre></details><button onclick="ghRetirarPublicacionV77(\''+esc(x.collection)+'\',\''+esc(x.id)+'\')">Retirar publicación</button></div>').join('')||'<p>No hay publicaciones recientes en esta página.</p>';if(j.next_offset!==null)box.insertAdjacentHTML('beforeend','<button onclick="ghPublicacionesV77('+j.next_offset+')">Ver siguientes</button>');}catch(e){box.textContent=e.message;}
+async function ghPublicacionesV77(){
+ const box=document.getElementById('ghRecientesV77'),count=document.getElementById('ghRecientesCantidad');box.textContent='Cargando...';count.textContent='…';
+ try{
+  const items=new Map();let offset=0;
+  do{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/recent?offset='+offset,{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudieron cargar las publicaciones.');
+   for(const x of j.results||[])items.set(x.collection+':'+x.id,x);offset=j.next_offset;
+  }while(offset!==null&&offset!==undefined);
+  const rows=[...items.values()];count.textContent='('+rows.length+')';
+  box.innerHTML=rows.map(x=>'<div class="item"><b>'+esc(x.tipo)+' · '+esc(x.nombre)+'</b><p>'+esc(x.fecha)+' · '+esc((x.ciudades||[]).join(', '))+' · ID '+esc(x.id)+'</p><details><summary>Ver publicación</summary><pre>'+esc(JSON.stringify(x.publicacion,null,2))+'</pre></details><button onclick="ghRetirarPublicacionV77(\''+esc(x.collection)+'\',\''+esc(x.id)+'\')">Retirar publicación</button></div>').join('')||'<p>No hay publicaciones recientes.</p>';
+ }catch(e){count.textContent='(sin comprobar)';box.textContent=e.message;}informarAltura();
 }
 async function ghRetirarPublicacionV77(collection,id){if(!confirm('¿Retirar esta publicación de la vista pública?'))return;try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/recent',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({collection,id,action:'retirar'})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);alert('Publicación retirada.');}catch(e){alert(e.message);}}
 async function ghBloqueosV77(){const box=document.getElementById('ghBloqueosV77');box.textContent='Cargando...';try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/blocked',{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);box.innerHTML=(j.results||[]).map(x=>'<details class="item"><summary>'+esc(x.tipo)+' · '+esc(x.nombre||x.titulo||x.id)+'</summary><pre>'+esc(JSON.stringify(x,null,2))+'</pre><button onclick="ghResolverBloqueoV77(\''+esc(x.tipo)+'\',\''+esc(x.id)+'\',\'APROBAR\')">Aprobar publicación</button><button onclick="ghResolverBloqueoV77(\''+esc(x.tipo)+'\',\''+esc(x.id)+'\',\'RECHAZAR\')">Rechazar</button></details>').join('')||'<p>No hay anuncios o publicidades detenidos por moderación.</p>';}catch(e){box.textContent=e.message;}}
 async function ghResolverBloqueoV77(tipo,id,decision){try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/publications/blocked',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({tipo,id,decision})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message);await ghBloqueosV77();}catch(e){alert(e.message);}}
 </script>
 
+<script>
+function ghAgruparRevision(rows){
+ const items=new Map();
+ for(const x of rows){let tipo=String(x.tipo||'').toUpperCase();if(tipo==='ANUNCIO')tipo='ANUNCIANTE';
+  const id=String(x.id||x.evento_id||x.actividad_id||x.anunciante_id||x.publicidad_id||'');if(!id)continue;
+  const key=tipo+':'+id,prior=items.get(key)||{};items.set(key,{...prior,...x,tipo,id,adulto:!!(prior.adulto||x.adulto),normal:!!(prior.normal||x.normal)});
+ }return [...items.values()];
+}
+async function ghRevisionUnificada(){
+ const box=document.getElementById('ghRevisionUnificada'),count=document.getElementById('ghRevisionCantidad');box.textContent='Cargando...';count.textContent='…';
+ const sources=[['/superadmin/moderation/pending','normal'],['/superadmin/publications/blocked','blocked'],['/superadmin/adult-review','adulto']];
+ const results=await Promise.allSettled(sources.map(async([path,source])=>{
+  const r=await fetch(TERRITORY_API_ORIGIN+path,{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo cargar '+source);
+  if(source==='normal')return [...(j.eventos||[]).map(x=>({...x,tipo:'EVENTO',normal:true})),...(j.actividades||[]).map(x=>({...x,tipo:'ACTIVIDAD',normal:true}))];
+  return (j.results||[]).map(x=>({...x,[source==='adulto'?'adulto':'normal']:true}));
+ }));
+ const rows=ghAgruparRevision(results.flatMap(r=>r.status==='fulfilled'?r.value:[])),errors=results.filter(r=>r.status==='rejected');
+ count.textContent='('+rows.length+(errors.length?' · incompleto':'')+')';
+ box.innerHTML=['ANUNCIANTE','PUBLICIDAD','EVENTO','ACTIVIDAD'].map(tipo=>{
+  const group=rows.filter(x=>x.tipo===tipo),label={ANUNCIANTE:'Anuncios',PUBLICIDAD:'Publicidades',EVENTO:'Eventos',ACTIVIDAD:'Actividades'}[tipo];
+  return '<h3>'+label+' ('+group.length+')</h3>'+group.map(x=>{
+   const button=(source,title,decision)=>'<button onclick="ghResolverRevisionUnificada(\''+source+'\',\''+esc(tipo)+'\',\''+esc(x.id)+'\',\''+decision+'\')">'+title+'</button>';
+   let actions='';
+   if(x.adulto)actions+=button('adulto','Aprobar +18','APROBAR')+button('adulto','Rechazar +18','RECHAZAR');
+   if(x.normal&&(!x.adulto||String(x.motivo_revision||'').trim()))actions+=button('normal','Aprobar publicación','APROBAR')+button('normal','Rechazar publicación','RECHAZAR');
+   return '<details class="item"><summary>'+esc(x.nombre_evento||x.nombre||x.titulo||x.id)+(x.adulto?' · Revisión +18':' · Moderación')+'</summary><p>ID: '+esc(x.id)+'</p><pre>'+esc(JSON.stringify(x,null,2))+'</pre><div class="actions">'+actions+'</div></details>';
+  }).join('');
+ }).join('')+errors.map(r=>'<p class="error">'+esc(r.reason.message)+'</p>').join('');informarAltura();
+}
+async function ghResolverRevisionUnificada(source,tipo,id,decision){
+ if(!confirm(decision==='APROBAR'?'¿Aprobar este contenido?':'¿Rechazar este contenido?'))return;
+ const path=source==='adulto'?'/superadmin/adult-review':['EVENTO','ACTIVIDAD'].includes(tipo)?'/superadmin/moderation/resolve':'/superadmin/publications/blocked';
+ try{const r=await fetch(TERRITORY_API_ORIGIN+path,{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({tipo:source==='adulto'&&tipo==='ANUNCIANTE'?'ANUNCIO':tipo,id,decision})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo resolver.');await cargarPendientes();await ghRevisionUnificada();await ghPublicacionesV77();}catch(e){alert(e.message);}
+}
+</script>
 </body>
 </html>
 
