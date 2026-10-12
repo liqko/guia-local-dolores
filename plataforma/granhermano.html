@@ -95,7 +95,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
     <section id="view-actividades" class="view"><div class="card"><h2>Actividades</h2><button class="sec" onclick="ghRevisionUnificada()">Actualizar pendientes</button><div class="review-panel"><h3>Pendientes de aprobación</h3><div id="actividadesAdminList"></div></div></div></section>
 
     <section id="view-anunciantes" class="view"><div class="card" id="anunciantesRevisionArea"><h2>Anunciantes: pendientes de aprobación</h2><button class="sec" onclick="ghRevisionUnificada()">Actualizar pendientes</button><div id="anunciantesRevision" class="review-panel"></div></div><div class="card" id="anunciantesSolicitudesArea"><h2>Altas y reclamos</h2><div id="anunciantesPendientes"></div></div><div class="card" id="publicidadesRevisionArea"><h2>Publicidades: pendientes de aprobación</h2><div id="publicidadesRevision" class="review-panel"></div></div><div id="anuListado" class="card"><h2>Anunciantes y permisos</h2><div class="section-intro">Elegí un anunciante para habilitar sus funciones y establecer los cupos de cada módulo.</div><div class="toolbar"><input id="qAnu" placeholder="Buscar por nombre o ID..."><select id="anuCiudad"><option value="">Todas las ciudades</option></select><button id="btnBuscarAnu">Buscar</button></div><div id="resAnu" class="muted">Escribí un nombre o ID para buscar.</div></div><div id="anuFicha" class="card hidden"><button class="sec back" onclick="volverAnunciantes()">← Volver a anunciantes</button><div id="detalle"></div></div></section>
-    <section id="view-suscriptores" class="view"><div id="susListado" class="card"><h2>Suscriptores</h2><div class="toolbar"><input id="qSus" placeholder="Buscar por nombre, mail o ID..."><select id="susTipo"><option value="">Todos</option><option value="RESIDENTE">Residentes</option><option value="NO_RESIDENTE">No residentes / visitantes</option></select><button id="btnBuscarSus">Actualizar listado</button></div><div id="resSus" class="muted">Cargando suscriptores...</div></div><div id="susFicha" class="card hidden"><button class="sec back" onclick="volverSuscriptores()">← Volver a suscriptores</button><div id="detalleSuscriptor"></div></div></section>
+    <section id="view-suscriptores" class="view"><div id="susListado" class="card"><h2>Suscriptores</h2><div class="toolbar"><input id="qSus" placeholder="Buscar por nombre, mail o ID..."><select id="susCiudad"><option value="">Ciudad para filtrar vínculo</option></select><select id="susTipo"><option value="">Todos los vínculos</option><option value="RESIDENTE">Residentes de la ciudad elegida</option><option value="VISITANTE_TURISTA">Visitantes / turistas de la ciudad elegida</option></select><button id="btnBuscarSus">Actualizar listado</button></div><div id="resSus" class="muted">Cargando suscriptores...</div></div><div id="susFicha" class="card hidden"><button class="sec back" onclick="volverSuscriptores()">← Volver a suscriptores</button><div id="detalleSuscriptor"></div></div></section>
     <section id="view-moderadores" class="view"><div class="card"><h2>Moderadores</h2><p>Elegí una cuenta de suscriptor y asignale qué publicaciones puede moderar y en qué ciudades.</p><div class="toolbar"><input id="modBusqueda" placeholder="Nombre, correo o ID del suscriptor"><button type="button" onclick="ghBuscarModeradores()">Buscar suscriptor</button></div><div id="modResultados"></div><div id="modEditor" hidden></div><div id="modMensaje" role="status"></div></div></section>
     <section id="view-configuracion" class="view">
       <div class="card">
@@ -530,6 +530,7 @@ function ghGoView(name,{pendingOnly=false}={}){
   }
   if(name==='recientes'&&!document.getElementById('ghRecientesV77').children.length)ghPublicacionesV77();
   if(name==='suscriptores'){
+    ghCargarCiudades().then(()=>{const select=document.getElementById('susCiudad'),value=select.value;select.innerHTML='<option value="">Ciudad para filtrar vínculo</option>'+GH_CITIES.map(c=>'<option value="'+esc(c.ciudad_id||c.id)+'">'+esc(c.ciudad_visible||c.nombre||c.ciudad_id||c.id)+'</option>').join('');select.value=value;});
     const box=document.getElementById('resSus');
     if(box) box.innerHTML='<div class="muted">Buscá un suscriptor por nombre, mail o ID.</div>';
   }
@@ -591,14 +592,15 @@ async function buscarSus(){
   const box=document.getElementById('resSus');
   box.innerHTML='Buscando...';
   try{
-    const j=await api('buscar_suscriptores',{q:document.getElementById('qSus').value});
-    const tipo=String((document.getElementById('susTipo')||{}).value||'').toUpperCase();
-    const lista=(j.results||[]).filter(s=>{const t=String(s.tipo||s.tipo_suscriptor||s.perfil||'').toUpperCase();return !tipo||(tipo==='NO_RESIDENTE'?(t==='VISITANTE'||t==='TURISTA'):t===tipo);});
+    const tipo=document.getElementById('susTipo').value,city=document.getElementById('susCiudad').value;
+    if(tipo&&!city){box.textContent='Elegí la ciudad para filtrar residentes o visitantes.';return;}
+    const j=await api('buscar_suscriptores',{q:document.getElementById('qSus').value,tipo,ciudad_id:city});
+    const lista=j.results||[];
     box.innerHTML=lista.map(s=>`
       <div class="result" data-sid="${esc(s.suscriptor_id)}">
         <b>${esc(s.nombre||'(sin nombre)')}</b>
         
-        <div class="muted">${esc(s.mail)} · ${esc(s.suscriptor_id)}</div>
+        <div class="muted">${esc(s.mail)} · ${esc(s.suscriptor_id)}</div><div class="muted">Residencia: ${esc(s.residencia_declarada?[s.residencia_declarada.ciudad,s.residencia_declarada.provincia,s.residencia_declarada.pais].filter(Boolean).join(', '):'Sin confirmar')}</div>
       </div>
     `).join('') || '<div class="muted">Sin resultados</div>';
 
@@ -644,7 +646,7 @@ async function buscarAnu(){
 async function detalleSus(id){
   document.getElementById('susListado').classList.add('hidden');document.getElementById('susFicha').classList.remove('hidden');
   const box=document.getElementById('detalleSuscriptor');box.textContent='Cargando...';
-  try{const j=await api('detalle_suscriptor',{suscriptor_id:id});const x=j.suscriptor||{};const datos=[['Nombre',x.nombre],['Mail',x.mail],['ID',x.suscriptor_id||id],['Teléfono',x.telefono||x.whatsapp],['Ciudad',x.ciudad_visible||x.ciudad||x.ciudad_id],['Estado',x.estado]].filter(function(p){return String(p[1]??'').trim();});box.innerHTML='<h2>'+esc(x.nombre||'Suscriptor')+'</h2>'+datos.map(function(p){return '<div class="kv"><b>'+esc(p[0])+'</b><span>'+esc(p[1])+'</span></div>';}).join('');informarAltura();}catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+  try{const j=await api('detalle_suscriptor',{suscriptor_id:id});const x=j.suscriptor||{};const datos=[['Nombre',x.nombre],['Mail',x.mail],['ID',x.suscriptor_id||id],['Teléfono',x.telefono||x.whatsapp],['Residencia actual',x.residencia_declarada?[x.residencia_declarada.ciudad,x.residencia_declarada.provincia,x.residencia_declarada.pais].filter(Boolean).join(', '):'Sin confirmar'],['Ciudad donde nació',x.ciudad_natal],['Ciudad que consulta',x.ciudad_predeterminada_id||x.ciudad_id],['Vínculos por ciudad',Object.entries(x.vinculos_ciudades||{}).map(([city,link])=>city+': '+(link.condicion==='RESIDENTE'?'Residente':link.condicion==='VISITANTE_TURISTA'?'Visitante / turista':'Sin confirmar')).join(' / ')],['Estado',x.estado]].filter(function(p){return String(p[1]??'').trim();});box.innerHTML='<h2>'+esc(x.nombre||'Suscriptor')+'</h2>'+datos.map(function(p){return '<div class="kv"><b>'+esc(p[0])+'</b><span>'+esc(p[1])+'</span></div>';}).join('');informarAltura();}catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 function volverSuscriptores(){document.getElementById('susFicha').classList.add('hidden');document.getElementById('susListado').classList.remove('hidden');informarAltura();}
 
