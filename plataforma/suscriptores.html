@@ -430,7 +430,7 @@ button:disabled{opacity:.65;cursor:wait}
 
         <div>
           <label for="reg-fecha">Fecha de nacimiento</label>
-          <input id="reg-fecha" type="date">
+          <input id="reg-fecha" type="date" autocomplete="bday"><p class="lead">Opcional. Sin fecha de nacimiento no podrás acceder a contenido +18. Una vez registrada, su corrección se solicita a Soporte.</p>
         </div>
 
         <div>
@@ -584,6 +584,17 @@ button:disabled{opacity:.65;cursor:wait}
         <button id="logout-btn" class="mi-guia-danger" type="button">Cerrar sesión</button>
       </div>
     </div>
+
+    <details class="card" id="mis-datos">
+      <summary><strong>Mis datos</strong></summary>
+      <div class="grid">
+        <div class="full"><label for="datos-nombre">Nombre</label><input id="datos-nombre" autocomplete="name"></div>
+        <div class="full"><label for="datos-mail">Correo de la cuenta</label><input id="datos-mail" type="email" readonly></div>
+        <div class="full"><label for="datos-whatsapp">WhatsApp</label><input id="datos-whatsapp" inputmode="tel" autocomplete="tel"></div>
+        <div class="full"><label for="datos-fecha">Fecha de nacimiento</label><input id="datos-fecha" type="date" autocomplete="bday"><p id="datos-fecha-info" class="lead"></p></div>
+        <div class="full"><button id="datos-guardar" class="primary" type="button">Guardar mis datos</button><div id="datos-msg" class="msg" role="status"></div></div>
+      </div>
+    </details>
 
     <div id="mi-guia-city-choice" class="card mi-guia-city-choice hidden">
       <h2>¿Qué ciudad te interesa?</h2>
@@ -939,6 +950,7 @@ async function renderMiGuia(){
 
 
 function saveSession(suscriptor,token){
+  if((sesionSuscriptor?.suscriptor_id||'')!==(suscriptor?.suscriptor_id||''))datosPromise=null;
   sesionSuscriptor=suscriptor||null;
   if(sesionSuscriptor){
     localStorage.setItem(SESSION_KEY,JSON.stringify(sesionSuscriptor));
@@ -959,6 +971,7 @@ function renderSession(cargarFavoritos=true){
     el('profile-name').textContent =
       (sesionSuscriptor.nombre||'') +
       (sesionSuscriptor.mail ? ' · '+sesionSuscriptor.mail : '');
+    mostrarDatos();
     fillCities(el('profile-city'),sesionSuscriptor.ciudad_predeterminada_id||'');
     if(cargarFavoritos) renderMiGuia();
     actualizarLinksAyuda_();
@@ -1217,6 +1230,42 @@ async function resetRecoveryPassword(){
     setBusy(btn,false);
   }
 }
+
+function mostrarDatos(){
+  const s=sesionSuscriptor||{};
+  el('datos-nombre').value=s.nombre||'';el('datos-mail').value=s.mail||'';el('datos-whatsapp').value=s.whatsapp||'';
+  el('datos-fecha').value=s.fecha_nacimiento||'';
+  el('datos-fecha').disabled=!!s.fecha_nacimiento;
+  el('datos-fecha-info').textContent=s.fecha_nacimiento?'Fecha registrada: '+s.fecha_nacimiento+'. Para corregirla, contactá a Soporte en Ayuda.':'Podés completarla una vez. Sin una fecha válida no podrás acceder a contenido +18. Revisala antes de guardar; las correcciones se solicitan a Soporte.';
+}
+let datosPromise=null;
+el('mis-datos').addEventListener('toggle',()=>{
+  if(!el('mis-datos').open||!sesionSuscriptor||datosPromise)return;
+  datosPromise=(async()=>{
+    try{
+      const r=await fetch(SUSCRIPTORES_URL+'?action=perfil',{headers:authHeaders()});const j=await r.json();
+      if(!r.ok||!j.success||!j.suscriptor)throw new Error(j.message||'No se pudieron consultar tus datos.');
+      sesionSuscriptor={...sesionSuscriptor,...j.suscriptor};localStorage.setItem(SESSION_KEY,JSON.stringify(sesionSuscriptor));mostrarDatos();
+    }catch(e){msg('datos-msg',e.message,false);datosPromise=null;}
+  })();
+});
+el('datos-guardar').addEventListener('click',async()=>{
+  if(datosPromise)await datosPromise;
+  const body={action:'actualizar_perfil',nombre:el('datos-nombre').value.trim(),whatsapp:el('datos-whatsapp').value.trim()};
+  if(!body.nombre){msg('datos-msg','Completá tu nombre.',false);return;}
+  const birth=el('datos-fecha').value;
+  if(!sesionSuscriptor.fecha_nacimiento&&birth){
+    if(sesionSuscriptor.fecha_nacimiento_politica!=='COMPLETAR_UNA_VEZ'){msg('datos-msg','La actualización de fecha requiere el Worker B82. Todavía no está habilitada.',false);return;}
+    if(!confirm('¿Confirmás que tu fecha de nacimiento es '+birth+'? Después de guardarla, las correcciones se solicitan a Soporte.'))return;
+    body.fecha_nacimiento=birth;
+  }
+  const btn=el('datos-guardar');setBusy(btn,true,'Guardando...');
+  try{
+    const r=await fetch(SUSCRIPTORES_URL,{method:'POST',headers:authHeaders({'Content-Type':'application/json'}),body:JSON.stringify(body)});const j=await r.json();
+    if(!r.ok||!j.success||!j.suscriptor)throw new Error(j.message||'No se pudieron guardar tus datos.');
+    saveSession({...sesionSuscriptor,...j.suscriptor});msg('datos-msg','Tus datos quedaron guardados.',true);
+  }catch(e){msg('datos-msg',e.message,false);}finally{setBusy(btn,false);}
+});
 
 async function saveCity(){
   if(!sesionSuscriptor) return;
@@ -1529,5 +1578,6 @@ loadCities().then(()=>{
 <script src="/plataforma/publicacion.js?v=77"></script>
 </body>
 </html>
+
 
 
