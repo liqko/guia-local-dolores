@@ -21,6 +21,6 @@
   if(!key)return native(input,init);install();const check=document.getElementById(key==='free'?'evf-responsabilidad':'aceptacion-'+key);
   if(!check?.checked)return Response.json({success:false,message:'Aceptá los términos y la declaración de responsabilidad antes de continuar.'},{status:400});
   body.declaracion_publicacion={aceptada:true,version};if(key==='alta')body.contenido_adulto=document.getElementById('alta-adulto')?.value==='true';
-  const response=await native(input,{...init,body:JSON.stringify(body)});response.clone().json().then(j=>{if(j.success)check.checked=false;}).catch(()=>{});return response;
+  const response=await native(input,{...init,body:JSON.stringify(body)});response.clone().json().then(j=>{if(j.code==='TERMS_REVIEW_REQUIRED')window.GLD_TERMINOS_ANUNCIANTES?.marcarRevision();if(j.success)check.checked=false;}).catch(()=>{});return response;
  };
 })();
