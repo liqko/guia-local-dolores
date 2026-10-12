@@ -25,15 +25,17 @@
     return u.toString();
   }
   async function compartir(datos,navegador=root.navigator,abrir=(...args)=>root.open(...args)){
-    const contenido={title:texto(datos.nombre)||'Guía Local',url:urlFicha(datos.id,datos.contexto,datos.sede_id)};
+    const nombre=texto(datos.nombre);
+    const contenido={title:nombre?nombre+' | Guía Local':'Guía Local',text:nombre?'📍 '+nombre+'\nMirá su ficha en Guía Local:':'Mirá esta ficha en Guía Local:',url:urlFicha(datos.id,datos.contexto,datos.sede_id)};
+    const mensaje=contenido.text+'\n'+contenido.url;
     if(typeof navegador?.share==='function'){
       try{await navegador.share(contenido);return 'compartido';}
       catch(e){if(e?.name==='AbortError')return 'cancelado';}
     }
     if(typeof navegador?.clipboard?.writeText==='function'){
-      try{await navegador.clipboard.writeText(contenido.url);return 'copiado';}catch(_){}
+      try{await navegador.clipboard.writeText(mensaje);return 'copiado';}catch(_){}
     }
-    abrir('https://wa.me/?text='+encodeURIComponent(contenido.url),'_blank','noopener,noreferrer');
+    abrir('https://wa.me/?text='+encodeURIComponent(mensaje),'_blank','noopener,noreferrer');
     return 'whatsapp';
   }
   function filtroFicha(filas,params){
