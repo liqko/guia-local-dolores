@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const pages=['anunciantes','actividades','login','suscriptores','carcasa'];
+const pages=['anunciantes','actividades','login','suscriptores','carcasa','granhermano'];
 for(const page of pages){
  const path='plataforma/'+page+'.html';
  const html=fs.readFileSync(path,'utf8');
