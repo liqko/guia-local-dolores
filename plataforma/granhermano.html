@@ -45,6 +45,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 </style>
 <script src="/plataforma/clasificacion.js?v=1"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
+<script src="/plataforma/gh-calendario.js?v=83"></script>
 </head>
 <body>
 <div class="wrap">
@@ -68,6 +69,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <button class="tab" data-view="anunciantes">Anunciantes</button>
       <button class="tab" id="tabModeradores" data-view="moderadores" hidden>Moderadores</button>
       <button class="tab" data-view="suscriptores">Suscriptores</button>
+      <button class="tab" data-view="efemerides">Efemérides</button>
       <button class="tab" id="tabSoporte" data-view="soporte">Soporte</button>
       <button class="tab" data-view="configuracion">Configuración de plataforma</button>
     </div></div>
@@ -81,8 +83,10 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
         <button id="ghSupportJump" onclick="ghGoView('soporte')">Soporte y ayuda de acceso: …</button>
       </div><p class="summary-note">Los reclamos de titularidad se resuelven en Anunciantes; las consultas y respuestas, en Soporte.</p></div>
       <div class="card"><h2>Publicaciones recientes <span id="ghRecientesCantidad">Sin consultar</span></h2><p>Ya publicadas en los últimos diez días. Esta lista sirve para revisar; no son pendientes de aprobación.</p><button onclick="ghGoView('recientes')">Ver publicaciones recientes</button></div>
+      <div class="card" id="ghBirthdaySummary"><h2>Cumpleaños · Próximos siete días</h2><p>Hoy y los próximos seis días. Cuentas activas con fecha de nacimiento declarada válida; la edad no está verificada.</p><div id="ghBirthdayContent">Sin consultar</div><div class="actions"><button class="sec" onclick="ghBirthdayRefreshV83()">Actualizar resumen</button><button id="ghBirthdayPrepare" hidden onclick="ghBirthdayPrepareV83()">Preparar resumen de cuentas existentes</button></div></div>
       <span hidden id="stEvt"></span><span hidden id="stAct"></span><div class="card"><h2>Resumen de la plataforma</h2><div class="grid"><div class="stat clickable" onclick="ghGoView('ciudades')"><span>Ciudades habilitadas</span><b id="stCiu">-</b></div><div class="stat clickable" onclick="ghGoView('anunciantes')"><span>Anunciantes</span><b id="stAnu">-</b></div><div class="stat clickable" onclick="ghGoView('suscriptores')"><span>Suscriptores</span><b id="stSus">-</b></div><div class="stat clickable" onclick="ghGoView('eventos')"><span>Eventos VIP publicados</span><b id="stEvtPub">-</b></div><div class="stat clickable" onclick="ghGoView('eventos')"><span>Eventos Free publicados</span><b id="stEvtFreePub">-</b></div><div class="stat clickable" onclick="ghGoView('actividades')"><span>Actividades publicadas</span><b id="stActPub">-</b></div><div class="stat clickable" onclick="ghGoView('anunciantes')"><span>Publicidad</span><b id="stPub">-</b></div></div></div>
     </section>
+    <section id="view-efemerides" class="view"><div class="card"><h2>Efemérides · Próximos siete días</h2><p>Hoy y los próximos seis días. Efemérides generales, provinciales y locales.</p><div class="toolbar"><label>Ciudad<select id="ghEphemeridesCity" onchange="ghCalendarOpenV83()"><option value="">Todas las ciudades</option></select></label><button class="sec" onclick="ghCalendarOpenV83(true)">Actualizar efemérides</button></div><div id="ghEphemeridesList" role="status"></div></div></section>
     <section id="view-soporte" class="view">      <div class="card" id="ghSoporteCard"><h2>Solicitudes de acceso y soporte</h2><div class="toolbar"><select id="ghSoporteEstado"><option value="ABIERTAS">Pendientes y en atención</option><option value="PENDIENTE">Pendientes</option><option value="EN_ATENCION">En atención</option><option value="CERRADA">Cerradas</option></select><button type="button" onclick="ghCargarSoporteV73()">Actualizar solicitudes</button></div><div id="ghSoporteResumen"></div><div id="ghSoporteLista" role="status"></div></div>
 </section>
     <section id="view-recientes" class="view"><div class="card"><h2>Publicaciones recientes</h2><p>Publicaciones ya disponibles. Revisarlas no exige aprobarlas otra vez.</p><button class="sec" onclick="ghGoView('inicio')">Volver al resumen</button><button onclick="ghPublicacionesV77()">Actualizar publicaciones recientes</button><div id="ghRecientesV77"></div></div></section>
@@ -238,7 +242,7 @@ function ghAccessV72(){
 function ghApplyAccessV72(){
  GH_ADMIN_ACCESS=ghAccessV72();const local=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';
  const perms=GH_ADMIN_ACCESS.permisos?.moderacion;
- const allowed={inicio:true,eventos:!local||!perms||perms.EVENTO,actividades:!local||!perms||perms.ACTIVIDAD,anunciantes:!local||!perms||perms.ANUNCIANTE,suscriptores:!local,soporte:!local,configuracion:!local,moderadores:GH_ADMIN_ACCESS.rol==='SUPERADMIN_PRINCIPAL'};
+ const allowed={inicio:true,eventos:!local||!perms||perms.EVENTO,actividades:!local||!perms||perms.ACTIVIDAD,anunciantes:!local||!perms||perms.ANUNCIANTE,suscriptores:!local,efemerides:!local,soporte:!local,configuracion:!local,moderadores:GH_ADMIN_ACCESS.rol==='SUPERADMIN_PRINCIPAL'};
  document.querySelectorAll('#ghTabs .tab').forEach(b=>{b.hidden=!allowed[b.dataset.view];b.style.display=allowed[b.dataset.view]?'':'none';});
  document.getElementById('anuListado').style.display=local?'none':'';
  if(local)document.getElementById('anuFicha').classList.add('hidden');
@@ -344,6 +348,7 @@ async function abrirApp(){
     if(!r.ok||!j.success) throw new Error(j.message||'Sesión inválida.');
 
     ghApplyAccessV72();
+    window.ghCalendarDashboardV83?.(j.cumpleanos);
     window.gldConsumoAdminV68?.(TOKEN);
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
@@ -511,6 +516,7 @@ function ghGoView(name,{pendingOnly=false}={}){
     ghRenderTodo();
   }
   if(name==='actividades') ghRenderTodo();
+  if(name==='efemerides')window.ghCalendarOpenV83?.();
   if(name==='ciudades'){
     ghCargarCiudades().then(ghRenderCiudades);
   }
@@ -1024,6 +1030,7 @@ async function ghResolverRevisionUnificada(source,tipo,id,decision){
 <script src="/plataforma/gh-terminos.js?v=81"></script>
 </body>
 </html>
+
 
 
 
