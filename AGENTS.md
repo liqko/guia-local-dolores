@@ -8,3 +8,5 @@
 - Corregir la función o regla original; no acumular bloques de parche que sobrescriben otros. Centralizar reglas compartidas y conservar una única ruta para cada comportamiento.
 - Las imágenes publicitarias y sus CTA deben navegar en la pestaña actual, usando el mismo enlace nativo con target _top cuando estén embebidos. No forzar window.open desde sus controladores.
 - Usar las mismas etiquetas en todos los módulos de anunciantes: Editar, Pausar, Reanudar, Duplicar y Borrar. Para confirmar un borrado, usar Confirmar borrado. Mantener los IDs y acciones internas existentes.
+
+- En listas de registros del anunciante, mostrar título y estado en la cabecera; agrupar datos secundarios y acciones dentro de un desplegable por registro. Aplicar por módulo conservando los controles y verificando su funcionamiento.
