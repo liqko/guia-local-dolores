@@ -1,6 +1,9 @@
 <!doctype html>
 <html>
 <head>
+<script src="/plataforma/sesion-persistente.js?v=87"></script>
+<script src="/plataforma/consumo-v44.js?v=87"></script>
+
   <meta charset="utf-8" />
   <title>Panel Comercios - Login Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
@@ -7734,6 +7737,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     let data=null;
     try{ data=JSON.parse(text); }catch(e){ data={success:false,message:text||'Respuesta inválida'}; }
     if(!r.ok && data && data.success!==false) data.success=false;
+    if(data && typeof data==='object')data.http_status=r.status;
     return data;
   }
 
@@ -7757,7 +7761,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id || !gldSubscriberToken) return [];
     const data=await apiSuscriptores_({action:'session'});
     if(!data || data.success!==true){
-      throw new Error((data&&(data.message||data.error))||'La sesión venció.');
+      throw Object.assign(new Error((data&&(data.message||data.error))||'No se pudo recuperar la sesión.'),{status:data?.http_status});
     }
     autorizacionesAnunciante=Array.isArray(data.autorizaciones)?data.autorizaciones:[];
     try{localStorage.setItem(SUSCRIPTOR_AUTHS_KEY,JSON.stringify(autorizacionesAnunciante));}catch(_){}
@@ -7849,8 +7853,6 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     if(!autorizacionesAnunciante.length){
       limpiarContextoAnunciante_();
-      guardarSesionSuscriptor_(null);
-      sesionSuscriptor=null;
       autorizacionesAnunciante=[];
       mostrarPanel('no-autorizado');
       return false;
@@ -7891,6 +7893,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
       // abrirCuentaAutorizada_ valida la sesión y recupera sus permisos una sola vez.
       await abrirCuentaAutorizada_({autoAbrir:true});
     }catch(e){
+      if(e.status!==401){
+        const msg=document.getElementById('login-msg');
+        if(msg){msg.textContent='No se pudo recuperar tu cuenta. La sesión se conserva; podés reintentar.';const retry=document.createElement('button');retry.type='button';retry.textContent='Reintentar';retry.addEventListener('click',restaurarSesionSuscriptor_);msg.appendChild(retry);}
+        mostrarPanel('login');
+        return;
+      }
       limpiarContextoAnunciante_();
       guardarSesionSuscriptor_(null);
       gldSubscriberToken='';
@@ -9339,6 +9347,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 <script src="/plataforma/publicacion.js?v=81"></script>
 </body>
 </html>
+
 
 
 

@@ -5,18 +5,18 @@
   window.__gldConsumoV44=true;
   const script=document.currentScript;
   const showPanel=script&&script.hasAttribute('data-gld-consumo-panel');
-  const key='gld_consumo_admin_v68';
+  const key='gld_consumo_admin_v87';
   const origin='https://login.liqkoargentina.workers.dev';
   const allowed=new Set(['login','session','favoritos','anunciantes_autorizados','publicas','turnos','efemerides','perfil','crear','actualizar_perfil','actualizar_ciudad','cambiar_clave','eliminar_cuenta','agregar_favorito','quitar_favorito']);
   let memory=[],view=null,container=null,adminExpires=0;
   const authorized=()=>adminExpires>Date.now();
   const originalFetch=window.fetch.bind(window);
-  function read(){try{const x=JSON.parse(sessionStorage.getItem(key)||'[]');return Array.isArray(x)?x:memory}catch(_){return memory}}
+  function read(){try{const x=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(x)?x:memory}catch(_){return memory}}
   function render(){
     if(!view||!authorized())return;
     const rows=read();view.textContent='';
     const intro=document.createElement('p');
-    intro.textContent='Registro de las últimas llamadas de esta sesión. Consultas y documentos devueltos no son el contador de lecturas facturadas de Firebase. “Sin medición” no significa cero. Respuesta indica si el servicio aceptó la operación; Vista indica si el panel terminó de cargar. Los registros anteriores quedan sin comprobar.';
+    intro.textContent='Registro privado de las pruebas de este navegador: visitante, Mi Guía y anunciante. Guardar y consultar esta tabla no usa Firestore. Consultas y documentos devueltos no son el contador de lecturas facturadas de Firebase. “Sin medición” no significa cero. Respuesta indica si el servicio aceptó la operación; Vista indica si el panel terminó de cargar. Los registros anteriores quedan sin comprobar.';
     view.appendChild(intro);
     const table=document.createElement('table');table.style.cssText='border-collapse:collapse;font:12px sans-serif;min-width:760px';
     const fields=['hora','pagina','ruta','accion','estado','resultado','vista','version','consultas','documentos','escrituras','eliminaciones','origen','detalle','cache_estado'];
@@ -29,8 +29,8 @@
   }
   function save(row){
     if(!authorized())return;
-    memory=read().concat(row).slice(-80);
-    try{sessionStorage.setItem(key,JSON.stringify(memory))}catch(_){}
+    memory=read().concat(row).slice(-160);
+    try{localStorage.setItem(key,JSON.stringify(memory))}catch(_){}
     try{render()}catch(_){}
     try{if(window.parent!==window)window.parent.postMessage({tipo:'gld_consumo_actualizado_v44'},location.origin)}catch(_){}
   }
@@ -39,9 +39,9 @@
     const route=routes[moduleName];if(!route||typeof loaded!=='boolean')return;
     const rows=read();
     const row=[...rows].reverse().find(r=>r.pagina===location.pathname&&r.ruta===route);
-    if(!row)return;
+    if(!row||!authorized())return;
     row.vista=loaded?'Lista':'Error';memory=rows;
-    try{sessionStorage.setItem(key,JSON.stringify(rows))}catch(_){}
+    try{localStorage.setItem(key,JSON.stringify(rows))}catch(_){}
     try{render()}catch(_){}
   };
   window.addEventListener('message',ev=>{if(ev.origin===location.origin&&ev.data&&ev.data.tipo==='gld_consumo_actualizado_v44')render()});
@@ -50,9 +50,10 @@
   function operationsText(items){return items===null?'Sin medición':items.map(x=>x.operation+' · '+x.collection+(x.field?' por '+x.field:'')+': '+x.calls+' operación(es), '+x.documents_returned+' documento(s)').join('; ')||'Sin operaciones en Firestore'}
   function cacheText(items){const labels={hit:'Encontrada',miss:'No encontrada: consulta a Firestore',not_supported:'Consulta sin caché compatible'};return items===null?'Sin medición':items.map(x=>x.collection+(x.field?' por '+x.field:'')+': '+(labels[x.result]||x.result)).join('; ')||'Sin comprobaciones registradas'}
   window.fetch=async function(input,options){
-    if(!authorized())return originalFetch(input,options);
     let url;try{url=new URL(typeof input==='string'||input instanceof URL?String(input):input.url,location.href)}catch(_){return originalFetch(input,options)}
     if(url.origin!==origin)return originalFetch(input,options);
+    await diagnosticReady;
+    if(!authorized())return originalFetch(input,options);
     let action=url.searchParams.get('action')||'';
     try{if(options&&typeof options.body==='string'){const body=JSON.parse(options.body);action=body.action||body.accion||action}}catch(_){}
     action=allowed.has(String(action).toLowerCase())?String(action).toLowerCase():'';
@@ -67,20 +68,62 @@
     }catch(error){try{save({...row,estado:'Error de red',version:null,consultas:null,documentos:null,escrituras:null,eliminaciones:null})}catch(_){}throw error}
   };
   function mount(){
-    if(!showPanel||!document.body||!authorized()||container)return;
+    if(!document.body||!authorized()||container)return;
     const details=document.createElement('details');container=details;details.style.cssText='margin:16px 8px;padding:10px;background:#fff;color:#111;border:1px solid #aaa;border-radius:6px;font:14px sans-serif;position:relative;z-index:2';
-    const summary=document.createElement('summary');summary.textContent='Ver comprobación de consultas';summary.style.cursor='pointer';details.appendChild(summary);
+    const summary=document.createElement('summary');summary.textContent='🔒 Pruebas privadas · ver consumo';summary.style.cursor='pointer';details.appendChild(summary);
     view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);
     const selector=script&&script.getAttribute('data-gld-consumo-container');
     const host=(selector&&document.querySelector(selector))||document.body;
-    if(selector)details.open=true;
+
     host.appendChild(details);details.addEventListener('toggle',render);render();
   }
-  window.gldConsumoAdminV68=function(token){
+  let adminToken='',toolbar=null;
+  const capabilityKey='gld_diagnostic_capability_v87';
+  const endpoint=origin+'/superadmin/diagnostics/session';
+  const localRead=k=>{try{return localStorage.getItem(k)||''}catch{return ''}};
+  function clearView(){container?.remove();container=null;view=null;updateButton();}
+  function stop(){adminExpires=0;try{localStorage.removeItem(capabilityKey)}catch{}clearView();}
+  function updateButton(){const b=document.getElementById('gld-diagnostics-toggle');if(b)b.textContent=authorized()?'Desactivar pruebas privadas':'Activar pruebas privadas';}
+  async function validate(){
     adminExpires=0;
-    try{const payload=JSON.parse(atob(String(token).split('.')[0].replace(/-/g,'+').replace(/_/g,'/')));if(payload.rol==='SUPERADMIN_PRINCIPAL'&&Number(payload.exp)>Date.now())adminExpires=Number(payload.exp)}catch(_){}
-    if(authorized())mount();else{container?.remove();container=null;view=null;memory=[];try{sessionStorage.removeItem(key)}catch(_){}}
+    const capability=localRead(capabilityKey);if(!capability){clearView();return;}
+    try{
+      const r=await originalFetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'validate',capability})});const j=await r.json();
+      if(r.ok&&j.success===true)adminExpires=Number(j.expires_at)||0;
+      else if(r.status===401&&localRead(capabilityKey)===capability){try{localStorage.removeItem(capabilityKey)}catch{}}
+      if(authorized())mount();else clearView();
+    }catch{clearView();}
+    updateButton();
+  }
+  let diagnosticReady=validate();
+  async function toggle(){
+    if(authorized()){stop();return;}
+    const b=document.getElementById('gld-diagnostics-toggle'),message=document.getElementById('gld-diagnostics-message');if(b)b.disabled=true;
+    try{
+      const token=localRead('gld_superadmin_token')||adminToken;
+      const r=await originalFetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({action:'create'})});const j=await r.json();
+      if(!r.ok||!j.success)throw new Error(j.message||'Instalá Worker B87 para activar las pruebas privadas.');
+      localStorage.setItem(capabilityKey,j.capability);adminExpires=Number(j.expires_at);mount();
+      if(message)message.textContent='Activo por ocho horas en este navegador. Probá como visitante o anunciante y volvé aquí para consultar las mediciones.';
+    }catch(e){if(message)message.textContent=e.message||'No se pudo activar.';}finally{if(b)b.disabled=false;updateButton();}
+  }
+  window.gldConsumoAdminV68=function(token){
+    adminToken=String(token||'');
+    if(!adminToken){adminExpires=0;clearView();toolbar?.remove();toolbar=null;return;}
+    let p;try{p=JSON.parse(atob(adminToken.split('.')[0].replace(/-/g,'+').replace(/_/g,'/')))}catch{return;}
+    if(p.rol!=='SUPERADMIN_PRINCIPAL')return;
+    if(!toolbar){toolbar=document.createElement('div');toolbar.className='card';const b=document.createElement('button');b.id='gld-diagnostics-toggle';b.type='button';b.onclick=toggle;toolbar.appendChild(b);const message=document.createElement('p');message.id='gld-diagnostics-message';message.textContent='Activá las pruebas privadas para medir la guía y los paneles. El público no verá estas mediciones.';toolbar.appendChild(message);const choices=document.createElement('div');choices.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
+      const frame=document.createElement('iframe');frame.title='Simulación privada de Guía Local';frame.style.cssText='width:100%;height:760px;border:1px solid #ccc;background:#fff';frame.hidden=true;
+      for(const [label,page] of [['Probar visitante','carcasa.html'],['Probar Mi Guía','suscriptores.html'],['Probar anunciante','login.html']]){const choice=document.createElement('button');choice.type='button';choice.textContent=label;choice.onclick=()=>{if(!authorized()){message.textContent='Activá primero las pruebas privadas.';return;}frame.hidden=false;frame.src='/plataforma/'+page;};choices.appendChild(choice);}
+      const close=document.createElement('button');close.type='button';close.textContent='Cerrar simulación';close.onclick=()=>{frame.hidden=true;frame.removeAttribute('src');};choices.appendChild(close);toolbar.appendChild(choices);toolbar.appendChild(frame);
+      document.querySelector('#app')?.appendChild(toolbar);}
+    diagnosticReady=validate();updateButton();
   };
+  window.addEventListener('storage',e=>{if(e.key===capabilityKey)diagnosticReady=validate();else if(e.key===key)render();else if(e.key==='gld_superadmin_token'&&!e.newValue){stop();toolbar?.remove();toolbar=null;}});
+  window.addEventListener('gld-diagnostics-logout',()=>{stop();toolbar?.remove();toolbar=null;});
+  document.addEventListener('DOMContentLoaded',()=>{if(authorized())mount();});
+
 
 })();
+
 

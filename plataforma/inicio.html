@@ -1,6 +1,9 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/plataforma/sesion-persistente.js?v=87"></script>
+<script src="/plataforma/consumo-v44.js?v=87"></script>
+
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Guía Local - Elegir ciudad</title>
@@ -115,20 +118,23 @@ const solicitarCiudad=document.getElementById('solicitarCiudad');
 const graciasCiudad=document.getElementById('graciasCiudad');
 const WHATSAPP_SOLICITUD_CIUDAD='5491150972086';
 
-// Si existe una sesión iniciada con ciudad predeterminada, la portada no
-// vuelve a pedir ciudad. La cuenta tiene prioridad sobre el selector.
+// Remember the last city locally. An explicit city change keeps the selector open.
+let ciudadRecordada=false;
 try{
-  const sesion=JSON.parse(localStorage.getItem(SUBSCRIBER_SESSION_KEY)||'null');
-  const ciudadPredeterminada=String(sesion&&sesion.ciudad_predeterminada_id||'').trim();
-  if(sesion&&sesion.suscriptor_id&&ciudadPredeterminada){
-    const u=new URL(GUIDE_PAGE_URL);
-    u.searchParams.set('ciudad_id',ciudadPredeterminada);
-    try{localStorage.setItem(CITY_CONTEXT_KEY,JSON.stringify({ciudad_id:ciudadPredeterminada,ts:Date.now()}));}catch(_){}
-    window.location.replace(u.toString());
-  }
+ const sesion=JSON.parse(localStorage.getItem(SUBSCRIBER_SESSION_KEY)||'null');
+ const contexto=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
+ const pending=JSON.parse(localStorage.getItem('gld_cambio_ciudad_pendiente')||'null');
+ const cambiando=!!(pending&&pending.ts&&Date.now()-Number(pending.ts)<15*60*1000);
+ const ciudad=String(contexto?.ciudad_id||sesion?.ciudad_predeterminada_id||'').trim();
+ if(ciudad&&!cambiando){
+  ciudadRecordada=true;const u=new URL(GUIDE_PAGE_URL);
+  const ctx=contexto?.ciudad_id?contexto:{ciudad_id:ciudad};
+  for(const key of ['pais_id','provincia_id','ciudad_id'])if(ctx[key])u.searchParams.set(key,String(ctx[key]));
+  window.location.replace(u.toString());
+ }
 }catch(e){}
 
-cargarCiudades().then(raw=>{
+if(!ciudadRecordada)cargarCiudades().then(raw=>{
   if(!raw || raw.success!==true || !Array.isArray(raw.ciudades)) throw new Error('Catálogo territorial inválido');
   ciudades=raw.ciudades;
   ciudades=ciudades.filter(c=>c&&(c.ciudad_id||c.id)&&ciudadNombre(c));
@@ -204,3 +210,4 @@ new ResizeObserver(enviarAltura).observe(document.body);
 </script>
 </body>
 </html>
+
