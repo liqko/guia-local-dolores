@@ -8,6 +8,14 @@
  const read=k=>{try{return localStorage.getItem(k)||'';}catch{return '';}};
  const known=new Set(Object.values(keys).map(read).filter(Boolean));
  const payload=token=>{try{return JSON.parse(atob(token.split('.')[0].replace(/-/g,'+').replace(/_/g,'/')));}catch{return null;}};
+ // Local navigation hint only; server authorization remains authoritative.
+ window.gldTieneSesionLocal=function(){
+  return Object.values(keys).some(key=>{
+   const token=read(key),p=payload(token);
+   return !!(token.split('.').length===2&&p?.sid&&(p.typ==='GLD_SUBSCRIBER'||p.rol)&&
+    ((p.persistent===true&&p.exp===null)||Number(p.exp)>Date.now()));
+  });
+ };
  window.addEventListener('storage',e=>{if(Object.values(keys).includes(e.key)&&e.oldValue)known.add(e.oldValue);});
  window.fetch=async function(input,options){
   let url;try{url=new URL(typeof input==='string'||input instanceof URL?String(input):input.url,location.href);}catch{return nativeFetch(input,options);}
