@@ -23,6 +23,8 @@ try{
  const activeVisitor=surface();await settle();await activeVisitor.window.fetch('https://login.liqkoargentina.workers.dev/');assert.equal(JSON.parse(store.get('gld_consumo_admin_v87')).length,1);
  for(let i=0;i<2;i++)await activeVisitor.window.fetch('https://login.liqkoargentina.workers.dev/suscriptores',{method:'POST',headers:{Authorization:'Bearer '+legacy,'Content-Type':'application/json'},body:JSON.stringify({action:'session'})});
  assert.equal(JSON.parse(Buffer.from(store.get('gld_suscriptor_token_v2').split('.')[0],'base64url')).persistent,true);
+ const now=Date.now;Date.now=()=>now()+86400000;
+ try{const response=await visitor.window.fetch('https://login.liqkoargentina.workers.dev/suscriptores',{method:'POST',headers:{Authorization:'Bearer '+legacy,'Content-Type':'application/json'},body:JSON.stringify({action:'session'})});assert.equal(response.status,200);assert.equal((await response.json()).persistent,true);}finally{Date.now=now;}
  const reopened=surface();await settle();assert.equal(JSON.parse(storage.getItem('gld_ciudad_contexto')).ciudad_id,'DOL');assert.ok(reopened.nodes.some(n=>n.tagName==='details'));
  await gh.document.getElementById('gld-diagnostics-toggle').onclick();assert.equal(store.has('gld_diagnostic_capability_v87'),false);
  storage.setItem('gld_diagnostic_capability_v87','forged');const forged=surface();await settle();assert.equal(forged.nodes.some(n=>n.tagName==='details'),false);
