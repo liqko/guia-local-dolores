@@ -5,3 +5,5 @@
 - Usar áreas de texto de al menos cuatro renglones para texto libre y aclaraciones; permitir ampliar su altura. Mantener controles específicos para fechas, enlaces, teléfonos y búsquedas.
 - Los cambios de presentación no deben agregar lecturas, escrituras ni eliminaciones en Firestore. Reutilizar los datos ya cargados.
 - Al cambiar la presentación de listas, comprobar que los registros y sus acciones siguen visibles en escritorio y móvil; revisar reglas CSS anteriores que puedan ocultarlos.
+- Corregir la función o regla original; no acumular bloques de parche que sobrescriben otros. Centralizar reglas compartidas y conservar una única ruta para cada comportamiento.
+- Las imágenes publicitarias y sus CTA deben navegar en la pestaña actual, usando el mismo enlace nativo con target _top cuando estén embebidos. No forzar window.open desde sus controladores.
