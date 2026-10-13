@@ -3599,6 +3599,7 @@ function actividadesLugarLabel_(h){
 
 function actividadesAbrirActividadEnForm_(actividad,duplicar=false){
   if(!actividad) return;
+  if(duplicar) gldEditEnd_('actividades');
 
   document.getElementById('act-id').value=duplicar ? '' : (actividad.actividad_id||'');
   document.getElementById('act-adulto').value=actividad.contenido_adulto===true?'true':'false';
@@ -3626,7 +3627,7 @@ function actividadesAbrirActividadEnForm_(actividad,duplicar=false){
     'actividades-msg',
     'ok',
     duplicar
-      ? 'Copia preparada. Modificá lo que cambie y guardala como una actividad nueva.'
+      ? 'Copia preparada, todavía sin guardar. Modificá lo que cambie y guardala como una actividad nueva.'
       : 'Edición abierta. Modificá los datos y guardá los cambios.'
   );
 
@@ -4323,7 +4324,7 @@ function pubUiDuplicar_(p){
     save.disabled=max>0 && guardadas>=max;
   }
 
-  setMsg('publicidad-msg','ok','Duplicado preparado. Modificá lo que necesites y guardalo como una nueva publicidad.');
+  setMsg('publicidad-msg','ok','Copia preparada, todavía sin guardar. Modificá lo que necesites y guardala como una nueva publicidad.');
 
   document.getElementById('publicidad-form-card')
     ?.scrollIntoView({behavior:'smooth',block:'start'});
@@ -6895,6 +6896,77 @@ function renderEventsTable(events){
   list.innerHTML = html;
 }
 
+async function eventAbrirFormulario_(found,duplicar=false){
+        if(duplicar) gldEditEnd_('eventos_vip');
+        editingEventId = duplicar?null:String(found.evento_id||'');
+        lastCreatedEventId = null;
+
+        const btnCreate = document.getElementById('ev-create');
+        btnCreate.textContent = duplicar?'Crear evento':'Guardar cambios';
+        btnCreate.dataset.mode = duplicar?'':'edit';
+        btnCreate.removeAttribute('disabled');
+
+        document.getElementById('ev-adulto').value=found.contenido_adulto===true?'true':'false';
+        document.getElementById('ev-nombre_evento').value = found.nombre_evento || '';
+        setCategoryValues_('ev-categoria','ev-categoria-otra',found.categoria||'');
+        toggleVipOtherCategory_();
+        eventModeLoad_('ev',found);
+        await setEventPlaceSelection(found);
+        eventModeSync_('ev');
+
+        const dirEl = document.getElementById('ev-direccion');
+        if(dirEl) dirEl.value = found.direccion || '';
+        const llegEl = document.getElementById('ev-llegar');
+        if(llegEl) llegEl.value = found.llegar || '';
+
+        document.getElementById('ev-descripcion').value = found.descripcion || '';
+        document.getElementById('ev-fecha_desde').value = toDateInputValue(found.fecha_desde || found.fecha);
+        document.getElementById('ev-fecha_hasta').value = toDateInputValue(found.fecha_hasta);
+        document.getElementById('ev-hora').value = toTimeInputValue(found.hora);
+        document.getElementById('ev-hora2').value = found.hora2 || '';
+        document.getElementById('ev-instagram').value = found.instagram || '';
+        document.getElementById('ev-youtube').value = found.youtube || '';
+        document.getElementById('ev-entradas').value = found.entradas || '';
+        loadEventProgramacion_(found);
+
+        for(let i=1;i<=5;i++){
+          const imgEl = document.getElementById('ev-img'+i);
+          if(imgEl) imgEl.value = found['img'+i] || '';
+        }
+
+        for(let i=1;i<=10;i++){
+          const partnerKey = i===1 ? 'partner' : 'partner'+i;
+          const logoKey = i===1 ? 'logo_partner' : 'logo_partner'+i;
+          const roleKey = i===1 ? 'rol_partner' : 'rol_partner'+i;
+          const legacyRoleKey = i===1 ? 'partner_rol' : 'partner'+i+'_rol';
+          const pids = eventPartnerIds(i);
+
+          const partnerEl = document.getElementById(pids.selectId);
+          const roleEl = document.getElementById(pids.roleId);
+          const otherNameEl = document.getElementById(pids.otherNameId);
+          const otherLogoEl = document.getElementById(pids.otherLogoId);
+          const savedName = String(found[partnerKey] || '').trim();
+
+          if(partnerEl){
+            if(savedName && !isKnownEventPartnerName(savedName)){
+              partnerEl.value = EVENT_PARTNER_OTHER_VALUE;
+              if(otherNameEl) otherNameEl.value = savedName;
+              if(otherLogoEl) otherLogoEl.value = found[logoKey] || '';
+            } else {
+              partnerEl.value = savedName;
+              if(otherNameEl) otherNameEl.value = '';
+              if(otherLogoEl) otherLogoEl.value = '';
+            }
+          }
+          if(roleEl) roleEl.value = found[roleKey] || found[legacyRoleKey] || 'Auspiciante';
+          toggleExternalPartnerFields(i);
+        }
+
+        if(!duplicar) gldEditBegin_('eventos_vip',editingEventId,buildEventPayloadFromForm);
+        setMsg('eventos-msg','ok',duplicar?'Copia preparada, todavía sin guardar. Modificá los datos y tocá "Crear evento".':'Editando evento.');
+        try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
+}
+
 function bindEventsListActions(){
   const list = document.getElementById('eventos-list');
   list.querySelectorAll('button[data-ev-action]').forEach(btn=>{
@@ -6966,73 +7038,7 @@ function bindEventsListActions(){
         const found = (window.__lastEvents || []).find(x => String(x.evento_id||'') === String(evId));
         if(!found){ alert('No se encontró el evento en la lista (refrescá).'); return; }
 
-        editingEventId = evId;
-        lastCreatedEventId = null;
-
-        const btnCreate = document.getElementById('ev-create');
-        btnCreate.textContent = 'Guardar cambios';
-        btnCreate.dataset.mode = 'edit';
-        btnCreate.removeAttribute('disabled');
-
-        document.getElementById('ev-adulto').value=found.contenido_adulto===true?'true':'false';
-        document.getElementById('ev-nombre_evento').value = found.nombre_evento || '';
-        setCategoryValues_('ev-categoria','ev-categoria-otra',found.categoria||'');
-        toggleVipOtherCategory_();
-        eventModeLoad_('ev',found);
-        await setEventPlaceSelection(found);
-        eventModeSync_('ev');
-
-        const dirEl = document.getElementById('ev-direccion');
-        if(dirEl) dirEl.value = found.direccion || '';
-        const llegEl = document.getElementById('ev-llegar');
-        if(llegEl) llegEl.value = found.llegar || '';
-
-        document.getElementById('ev-descripcion').value = found.descripcion || '';
-        document.getElementById('ev-fecha_desde').value = toDateInputValue(found.fecha_desde || found.fecha);
-        document.getElementById('ev-fecha_hasta').value = toDateInputValue(found.fecha_hasta);
-        document.getElementById('ev-hora').value = toTimeInputValue(found.hora);
-        document.getElementById('ev-hora2').value = found.hora2 || '';
-        document.getElementById('ev-instagram').value = found.instagram || '';
-        document.getElementById('ev-youtube').value = found.youtube || '';
-        document.getElementById('ev-entradas').value = found.entradas || '';
-        loadEventProgramacion_(found);
-
-        for(let i=1;i<=5;i++){
-          const imgEl = document.getElementById('ev-img'+i);
-          if(imgEl) imgEl.value = found['img'+i] || '';
-        }
-
-        for(let i=1;i<=10;i++){
-          const partnerKey = i===1 ? 'partner' : 'partner'+i;
-          const logoKey = i===1 ? 'logo_partner' : 'logo_partner'+i;
-          const roleKey = i===1 ? 'rol_partner' : 'rol_partner'+i;
-          const legacyRoleKey = i===1 ? 'partner_rol' : 'partner'+i+'_rol';
-          const pids = eventPartnerIds(i);
-
-          const partnerEl = document.getElementById(pids.selectId);
-          const roleEl = document.getElementById(pids.roleId);
-          const otherNameEl = document.getElementById(pids.otherNameId);
-          const otherLogoEl = document.getElementById(pids.otherLogoId);
-          const savedName = String(found[partnerKey] || '').trim();
-
-          if(partnerEl){
-            if(savedName && !isKnownEventPartnerName(savedName)){
-              partnerEl.value = EVENT_PARTNER_OTHER_VALUE;
-              if(otherNameEl) otherNameEl.value = savedName;
-              if(otherLogoEl) otherLogoEl.value = found[logoKey] || '';
-            } else {
-              partnerEl.value = savedName;
-              if(otherNameEl) otherNameEl.value = '';
-              if(otherLogoEl) otherLogoEl.value = '';
-            }
-          }
-          if(roleEl) roleEl.value = found[roleKey] || found[legacyRoleKey] || 'Auspiciante';
-          toggleExternalPartnerFields(i);
-        }
-
-        gldEditBegin_('eventos_vip',editingEventId,buildEventPayloadFromForm);
-        setMsg('eventos-msg', 'ok', 'Editando evento.');
-        try { document.getElementById('ev-nombre_evento')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
+        await eventAbrirFormulario_(found);
       }
 
       if(action === 'duplicate'){
@@ -7046,54 +7052,7 @@ function bindEventsListActions(){
 
         const found = (window.__lastEvents || []).find(x => String(x.evento_id||'') === String(evId));
         if(!found){ alert('No se encontró el evento en la lista (refrescá).'); return; }
-        setMsg('eventos-msg', 'ok', 'Duplicando evento...');
-        const copyPayload = {
-          nombre_evento: found.nombre_evento || '',
-          categoria: found.categoria || '',
-          ciudad_id: found.ciudad_id || '',
-          lugar: found.lugar || '',
-          sede_id: found.sede_id || '',
-          lugar_id: found.lugar_id || '',
-          direccion: found.direccion || '',
-          llegar: found.llegar || '',
-          descripcion: found.descripcion || '',
-          fecha_desde: toDateInputValue(found.fecha_desde || found.fecha) || '',
-          fecha_hasta: toDateInputValue(found.fecha_hasta) || '',
-          hora: toTimeInputValue(found.hora) || '',
-          hora2: found.hora2 || '',
-          instagram: found.instagram || '',
-          youtube: found.youtube || '',
-          entradas: found.entradas || '',
-          img1: found.img1 || '',
-          img2: found.img2 || '',
-          img3: found.img3 || '',
-          img4: found.img4 || '',
-          img5: found.img5 || '',
-          programacion: Array.isArray(found.programacion)
-            ? found.programacion.map(row=>Object.assign({},row))
-            : []
-        };
-
-        for(let i=1;i<=10;i++){
-          const partnerKey = i===1 ? 'partner' : 'partner'+i;
-          const logoKey = i===1 ? 'logo_partner' : 'logo_partner'+i;
-          const roleKey = i===1 ? 'rol_partner' : 'rol_partner'+i;
-          const legacyRoleKey = i===1 ? 'partner_rol' : 'partner'+i+'_rol';
-
-          copyPayload[partnerKey] = found[partnerKey] || '';
-          copyPayload[logoKey] = found[logoKey] || '';
-          copyPayload[roleKey] = found[roleKey] || found[legacyRoleKey] || 'Auspiciante';
-        }
-
-        await runDashboardAction('Duplicando evento...',async()=>{
-          const res = await events_post({ action:'createVipEvent', payload: copyPayload });
-          if(res.status === 200 && res.json && (res.json.success || res.json.created)){
-            setMsg('eventos-msg', 'ok', 'Evento duplicado.');
-            eventUpsertLocal_(res.json.evento);
-          } else {
-            setMsg('eventos-msg', 'err', 'Error duplicando: ' + JSON.stringify(res.json));
-          }
-        });
+        await eventAbrirFormulario_(found,true);
       }
     });
   });
@@ -7653,8 +7612,8 @@ function cancelEventEdit(){
 
   clearEventForm();
 
-  setMsg('eventos-msg', 'ok', 'Edición cancelada.');
-  loadEventsUI();
+  setMsg('eventos-msg', 'ok', 'Edición o copia cancelada.');
+  eventRefreshLocal_(window.__lastEvents||[]);
 }
 
 /* ====================== INIT ====================== */
