@@ -10,3 +10,5 @@
 - Usar las mismas etiquetas en todos los módulos de anunciantes: Editar, Pausar, Reanudar, Duplicar y Borrar. Para confirmar un borrado, usar Confirmar borrado. Mantener los IDs y acciones internas existentes.
 
 - En listas de registros del anunciante, mostrar título y estado en la cabecera; agrupar datos secundarios y acciones dentro de un desplegable por registro. Aplicar por módulo conservando los controles y verificando su funcionamiento.
+
+- Reducir operaciones en todos los circuitos: reutilizar datos ya cargados y caché válida; preparar altas, ediciones y duplicaciones localmente; no crear registros temporales al pulsar Duplicar; guardar sólo al confirmar. Cancelar y guardar sin cambios no deben generar operaciones Firestore. Evitar consultas y recargas redundantes sin eliminar validaciones de autorización, consistencia o concurrencia del servidor. Medir cada mutación real y no equiparar consultas/documentos retornados con lecturas facturadas.
