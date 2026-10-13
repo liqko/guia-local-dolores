@@ -6069,8 +6069,8 @@ function promoClearForm(){
 function promoCancelEdit(){
   promoSetCreateMode();
   promoClearForm();
-  setMsg('promos-msg', 'ok', 'Edición cancelada.');
-  loadPromosUI();
+  setMsg('promos-msg', 'ok', 'Edición o copia cancelada.');
+  promoRefreshLocal_(window.__lastPromos||[]);
 }
 
 function promoEstadoVisible(p, ahora=new Date()){
@@ -6173,6 +6173,27 @@ function renderPromosTable(promos){
   list.innerHTML = html;
 }
 
+function promoAbrirFormulario_(found, duplicar=false){
+  if(duplicar) promoSetCreateMode();
+  else editingPromoId=String(found.promo_id||'');
+  const btn=document.getElementById('promo-create');
+  btn.textContent=duplicar?'Crear promo':'Guardar cambios';
+  btn.dataset.mode=duplicar?'':'edit';
+  btn.removeAttribute('disabled');
+  document.getElementById('promo-text').value=found.promo||'';
+  document.getElementById('promo-categoria').value=found.categoria||'';
+  cargarSedesPromo(found.sede_id||'');
+  promoActualizarSede(found);
+  document.getElementById('promo-desde').value=toDateInputValue(found.desde);
+  document.getElementById('promo-hasta').value=toDateInputValue(found.hasta);
+  document.getElementById('promo-otros').value=found.otros||'';
+  promoUpdateCount();
+  document.getElementById('promo-img').value=found.img||'';
+  if(!duplicar) gldEditBegin_('promos',editingPromoId,buildPromoPayloadFromForm_);
+  setMsg('promos-msg','ok',duplicar?'Copia preparada, todavía sin guardar. Modificá los datos y tocá "Crear promo".':'Editando promo. Modificá y tocá "Guardar cambios".');
+  try{document.getElementById('promo-text')?.scrollIntoView({behavior:'smooth',block:'start'});}catch(e){}
+}
+
 function bindPromosListActions(){
   const list = document.getElementById('promos-list');
   list.querySelectorAll('button[data-promo-action]').forEach(btn=>{
@@ -6242,25 +6263,7 @@ function bindPromosListActions(){
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ promoShowError_('No se encontró la promo. Refrescá la lista e intentá nuevamente.'); return; }
 
-        editingPromoId = pid;
-        const btnCreate = document.getElementById('promo-create');
-        btnCreate.textContent = 'Guardar cambios';
-        btnCreate.dataset.mode = 'edit';
-        btnCreate.removeAttribute('disabled');
-
-        document.getElementById('promo-text').value = found.promo || '';
-        document.getElementById('promo-categoria').value = found.categoria || '';
-        cargarSedesPromo(found.sede_id || '');
-        promoActualizarSede(found);
-        document.getElementById('promo-desde').value = toDateInputValue(found.desde);
-        document.getElementById('promo-hasta').value = toDateInputValue(found.hasta);
-        document.getElementById('promo-otros').value = found.otros || '';
-        promoUpdateCount();
-        document.getElementById('promo-img').value = found.img || '';
-        gldEditBegin_('promos',editingPromoId,buildPromoPayloadFromForm_);
-
-        setMsg('promos-msg', 'ok', 'Editando promo. Modificá y tocá "Guardar cambios".');
-        try { document.getElementById('promo-text')?.scrollIntoView({ behavior:'smooth', block:'start' }); } catch(e){}
+        promoAbrirFormulario_(found);
       }
 
       if(action === 'duplicate'){
@@ -6274,23 +6277,7 @@ function bindPromosListActions(){
 
         const found = (window.__lastPromos || []).find(x => String(x.promo_id||'') === String(pid));
         if(!found){ promoShowError_('No se encontró la promo. Refrescá la lista e intentá nuevamente.'); return; }
-        setMsg('promos-msg', 'ok', 'Duplicando promo...');
-        const r = await promos_post({ action: 'createPromo', payload: {
-          promo: found.promo || '',
-          categoria: found.categoria || '',
-          sede_id: found.sede_id || '',
-          ciudad_id: found.ciudad_id || '',
-          desde: toDateInputValue(found.desde) || '',
-          hasta: toDateInputValue(found.hasta) || '',
-          otros: found.otros || '',
-          img: found.img || ''
-        }});
-        if(r.status === 200 && r.json && (r.json.success || r.json.created)){
-          setMsg('promos-msg', 'ok', 'Promo duplicada.');
-          promoUpsertLocal_(r.json.promo);
-        } else {
-          setMsg('promos-msg', 'err', 'No se pudo duplicar la promo. Intentá nuevamente.');
-        }
+        promoAbrirFormulario_(found,true);
       }
     });
   });
