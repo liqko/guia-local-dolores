@@ -1,4 +1,4 @@
-/* Diagnóstico local: no envía registros, cuerpos, credenciales ni datos personales. */
+/* Diagnóstico local; compartir una copia requiere una acción explícita del principal. */
 (function(){
   'use strict';
   if(window.__gldConsumoV44)return;
@@ -80,6 +80,42 @@
   let adminToken='',toolbar=null;
   const capabilityKey='gld_diagnostic_capability_v87';
   const endpoint=origin+'/superadmin/diagnostics/session';
+  const shareKey='gld_shared_diagnostics_v90';
+  function shareInfo(){try{return JSON.parse(localRead(shareKey)||'null')}catch{return null}}
+  function updateShareControls(){
+    const info=shareInfo(),live=info&&Number(info.expires_at)>Date.now();
+    const input=document.getElementById('gld-diagnostics-share-url');if(input)input.value=live?String(info.url||''):'';
+    for(const id of ['gld-diagnostics-share-update','gld-diagnostics-share-revoke']){const b=document.getElementById(id);if(b)b.disabled=!live;}
+  }
+  async function shareRegistry(action){
+    const message=document.getElementById('gld-diagnostics-share-message');
+    if(!authorized()){if(message)message.textContent='Activá primero las pruebas privadas.';return;}
+    const ids=['gld-diagnostics-share-create','gld-diagnostics-share-update','gld-diagnostics-share-revoke'];
+    ids.forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=true;});
+    try{
+      const previous=shareInfo(),rows=action==='revoke'?undefined:read();
+      if(action!=='revoke'&&!rows.length)throw new Error('Todavía no hay registros para compartir.');
+      const token=localRead('gld_superadmin_token')||adminToken;
+      const response=await originalFetch(origin+'/superadmin/diagnostics/share',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({action,rows,token:previous?.token})});
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok||!result.success)throw new Error(response.status===404?'Instalá Worker B90 para compartir el registro.':result.message||'No se pudo compartir el registro.');
+      if(action==='revoke'){localStorage.removeItem(shareKey);if(message)message.textContent='Enlace revocado.';}
+      else{
+        localStorage.setItem(shareKey,JSON.stringify({token:result.token,url:result.url,expires_at:result.expires_at}));
+        if(message)message.textContent=(action==='update'?'Copia actualizada. ':'Enlace creado. ')+result.rows+' registros. Caduca a las '+new Date(result.expires_at).toLocaleTimeString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'})+'. Copiá el enlace y compartilo. Si recién se creó, puede tardar unos segundos en estar disponible.';
+      }
+    }catch(error){if(message)message.textContent=error.message||'No se pudo compartir.';}
+    finally{const create=document.getElementById(ids[0]);if(create)create.disabled=false;updateShareControls();}
+  }
+  function addShareControls(host){
+    const title=document.createElement('p');title.textContent='Compartir copia del registro · solo lectura, sin Firestore';host.appendChild(title);
+    for(const [id,label,action] of [['create','Compartir registro','create'],['update','Actualizar enlace','update'],['revoke','Revocar enlace','revoke']]){
+      const button=document.createElement('button');button.type='button';button.id='gld-diagnostics-share-'+id;button.textContent=label;button.style.cssText='display:block;width:100%;margin:6px 0;min-height:44px';button.onclick=()=>shareRegistry(action);host.appendChild(button);
+    }
+    const input=document.createElement('input');input.id='gld-diagnostics-share-url';input.type='text';input.readOnly=true;input.setAttribute('aria-label','Enlace temporal para compartir');input.style.cssText='width:100%;box-sizing:border-box;margin:8px 0;min-height:44px';input.onclick=()=>input.select();host.appendChild(input);
+    const copy=document.createElement('button');copy.type='button';copy.textContent='Copiar enlace';copy.style.cssText='display:block;width:100%;min-height:44px';copy.onclick=async()=>{if(!input.value)return;try{await navigator.clipboard.writeText(input.value);document.getElementById('gld-diagnostics-share-message').textContent='Enlace copiado.';}catch{input.select();document.getElementById('gld-diagnostics-share-message').textContent='Enlace seleccionado: copialo con Ctrl+C o desde el menú del teléfono.';}};host.appendChild(copy);
+    const message=document.createElement('p');message.id='gld-diagnostics-share-message';message.textContent='Se comparte una copia, no una transmisión en vivo. Actualizar envía las nuevas filas a la misma URL. Cada enlace caduca en una hora.';host.appendChild(message);updateShareControls();
+  }
   const localRead=k=>{try{return localStorage.getItem(k)||''}catch{return ''}};
   function clearView(){container?.remove();container=null;view=null;updateButton();}
   function stop(){adminExpires=0;try{localStorage.removeItem(capabilityKey)}catch{}clearView();}
@@ -116,7 +152,7 @@
       const frame=document.createElement('iframe');frame.title='Simulación privada de Guía Local';frame.style.cssText='width:100%;height:760px;border:1px solid #ccc;background:#fff';frame.hidden=true;
       for(const [label,page] of [['Probar visitante','carcasa.html'],['Probar Mi Guía','suscriptores.html'],['Probar anunciante','login.html']]){const choice=document.createElement('button');choice.type='button';choice.textContent=label;choice.onclick=()=>{if(!authorized()){message.textContent='Activá primero las pruebas privadas.';return;}frame.hidden=false;frame.src='/plataforma/'+page;};choices.appendChild(choice);}
       const close=document.createElement('button');close.type='button';close.textContent='Cerrar simulación';close.onclick=()=>{frame.hidden=true;frame.removeAttribute('src');};choices.appendChild(close);toolbar.appendChild(choices);toolbar.appendChild(frame);
-      document.querySelector('#app')?.appendChild(toolbar);}
+      document.querySelector('#app')?.appendChild(toolbar);addShareControls(toolbar);}
     diagnosticReady=validate();updateButton();
   };
   window.addEventListener('storage',e=>{if(e.key===capabilityKey)diagnosticReady=validate();else if(e.key===key)render();else if(e.key==='gld_superadmin_token'&&!e.newValue){stop();toolbar?.remove();toolbar=null;}});
