@@ -43,7 +43,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 
 .attention-card.has-pending{border-left:5px solid #b42318;background:#fff8f7}.attention-card.has-pending h2{color:#b42318}.summary-actions{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.summary-actions button{margin:0;min-height:48px;font-size:15px}.needs-attention{background:#b42318!important;color:#fff!important}.clear-status{background:#edf2f5!important;color:#344054!important}.review-panel{border:1px solid #f1c7c2;border-radius:10px;padding:14px;margin:14px 0}.review-panel h3{color:#b42318;margin-top:0}.review-panel .item{border-left:4px solid #b42318}.review-panel .actions{display:flex;gap:8px;flex-wrap:wrap}.review-panel .actions button{min-height:44px;font-size:15px}.section-jump{min-height:44px}.summary-note{font-size:14px;color:#506774}.review-panel pre{white-space:pre-wrap;overflow-wrap:anywhere}@media(max-width:600px){.summary-actions{grid-template-columns:1fr}.review-panel .actions{display:grid;grid-template-columns:1fr}.review-panel .actions button{width:100%;margin:0}}
 </style>
-<script src="/plataforma/clasificacion.js?v=1"></script>
+<script src="/plataforma/clasificacion.js?v=86"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
 <script src="/plataforma/gh-calendario.js?v=83"></script>
 </head>
@@ -794,11 +794,34 @@ const GH_CATALOGOS=[
 
 function ghCatalogoIdNuevo(tipo){return tipo.replace(/[^a-z0-9]+/gi,'_').toUpperCase()+'_'+Date.now();}
 
+function ghNivelCamposV86(id,row={}){
+  const fields=[['numero','Número',row.numero??GLD_CLASSIFICATION.levelNumber(row)],['orden','Orden / prioridad',row.prioridad??row.orden],['descmax','Máx. descripción',row.descripcion_max],['adicmax','Máx. información adicional',row.adicionales_max],['tagsmax','Máx. tags',row.tags_max],['imgmax','Máx. imágenes',row.imagenes_max]];
+  const flags=[['tags','Permite tags',row.tags_habilitados],['imagenes','Permite imágenes',row.imagenes_habilitadas],['destacado','Destacado',row.destacado]];
+  return '<div class="formgrid">'+fields.map(([key,label,value])=>'<label>'+label+'<input type="number" min="'+(key==='numero'?1:0)+'" step="1" '+(key==='imgmax'?'max="5" ':'')+'data-cat-'+key+'="'+esc(id)+'" value="'+esc(value??'')+'" placeholder="Sin configurar"></label>').join('')+flags.map(([key,label,value])=>{const flag=GLD_CLASSIFICATION.flag(value);return '<label>'+label+'<select data-cat-'+key+'="'+esc(id)+'"><option value="" '+(flag===null?'selected':'')+'>Sin configurar</option><option value="true" '+(flag===true?'selected':'')+'>Sí</option><option value="false" '+(flag===false?'selected':'')+'>No</option></select></label>';}).join('')+'</div><p class="muted">Los campos sin configurar conservan la regla vigente. Cambiar el nombre no modifica los límites.</p>';
+}
+function ghNivelPatchV86(previous,get){
+  const patch={},fields=[['numero','numero'],['orden','prioridad'],['descmax','descripcion_max'],['adicmax','adicionales_max'],['tagsmax','tags_max'],['imgmax','imagenes_max']];
+  for(const [input,key] of fields){
+    const raw=String(get(input)??'').trim();
+    const old=key==='prioridad'?previous?.prioridad??previous?.orden:key==='numero'?previous?.numero??GLD_CLASSIFICATION.levelNumber(previous):previous?.[key];
+    if(raw===String(old??''))continue;
+    if(raw===''){if(key==='numero')throw Error('Indicá un número de nivel válido.');if(old!==undefined&&old!==null)patch[key]=null;continue;}
+    const value=Number(raw);
+    if(!Number.isSafeInteger(value)||value<(key==='numero'?1:0)||(key==='imagenes_max'&&value>5))throw Error('Valor inválido en '+key+'. Usá un número entero dentro del límite.');
+    patch[key]=value;if(key==='prioridad')patch.orden=value;
+  }
+  if(!previous&&(!Number.isSafeInteger(Number(get('numero')))||Number(get('numero'))<=0))throw Error('Indicá un número de nivel válido.');
+  for(const [input,key] of [['tags','tags_habilitados'],['imagenes','imagenes_habilitadas'],['destacado','destacado']]){
+    const value=GLD_CLASSIFICATION.flag(get(input));if(value!==GLD_CLASSIFICATION.flag(previous?.[key]))patch[key]=value;
+  }
+  return patch;
+}
+
 function ghRenderCatalogo(def,rows){
   const box=document.getElementById(def.box);if(!box)return;
   const items=(rows||[]).map(function(x){
     const id=String(x[def.idField]||x.id||''),nombre=GLD_CLASSIFICATION.name(x),titulo=def.tipo==='niveles_anunciante'?GLD_CLASSIFICATION.levelLabel(x):nombre||('Sin nombre · '+id),activo=GLD_CLASSIFICATION.active(x);
-    const extra=def.tipo==='niveles_anunciante'?'<div class="formgrid"><div><label>Número</label><input type="number" data-cat-numero="'+esc(id)+'" value="'+esc(x.numero??id)+'"></div><div><label>Orden / prioridad</label><input type="number" data-cat-orden="'+esc(id)+'" value="'+esc(x.prioridad??x.orden??'')+'"></div><div><label>Máx. descripción</label><input type="number" min="0" data-cat-descmax="'+esc(id)+'" value="'+esc(x.descripcion_max??500)+'"></div><div><label>Máx. información adicional</label><input type="number" min="0" data-cat-adicmax="'+esc(id)+'" value="'+esc(x.adicionales_max??150)+'"></div><div><label>Máx. tags</label><input type="number" min="0" data-cat-tagsmax="'+esc(id)+'" value="'+esc(x.tags_max??0)+'"></div><div><label>Máx. imágenes</label><input type="number" min="0" max="5" data-cat-imgmax="'+esc(id)+'" value="'+esc(x.imagenes_max??0)+'"></div></div><div class="checks"><label><input type="checkbox" data-cat-tags="'+esc(id)+'" '+(x.tags_habilitados===true?'checked':'')+'> Permite tags</label><label><input type="checkbox" data-cat-imagenes="'+esc(id)+'" '+(x.imagenes_habilitadas===true?'checked':'')+'> Permite imágenes</label><label><input type="checkbox" data-cat-destacado="'+esc(id)+'" '+(x.destacado===true?'checked':'')+'> Destacado</label></div>':'';
+    const extra=def.tipo==='niveles_anunciante'?ghNivelCamposV86(id,x):'';
     return '<details class="item"><summary><b>'+esc(titulo)+'</b> <span class="muted">· '+(activo?'Activo':'Inactivo')+'</span></summary><div style="margin-top:12px"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" value="'+esc(nombre)+'"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div>'+extra+'<div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label></div><button onclick="ghGuardarCatalogo(\''+def.tipo+'\',\''+esc(id)+'\')">Guardar</button></div></details>';
   }).join('');
   box.innerHTML='<div class="toolbar"><button onclick="ghNuevoCatalogo(\''+def.tipo+'\')">+ Agregar</button></div>'+(items||'<div class="muted">No hay elementos cargados.</div>');
@@ -813,7 +836,7 @@ async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCa
 function ghNuevoCatalogo(tipo){
   const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
   const box=document.getElementById(def.box);const id=ghCatalogoIdNuevo(tipo);
-  const nivelExtra=tipo==='niveles_anunciante'?'<div class="formgrid"><div><label>Número</label><input type="number" data-cat-numero="'+esc(id)+'" value=""></div><div><label>Orden / prioridad</label><input type="number" data-cat-orden="'+esc(id)+'" value=""></div><div><label>Máx. descripción</label><input type="number" min="0" data-cat-descmax="'+esc(id)+'" value="500"></div><div><label>Máx. información adicional</label><input type="number" min="0" data-cat-adicmax="'+esc(id)+'" value="150"></div><div><label>Máx. tags</label><input type="number" min="0" data-cat-tagsmax="'+esc(id)+'" value="0"></div><div><label>Máx. imágenes</label><input type="number" min="0" max="5" data-cat-imgmax="'+esc(id)+'" value="0"></div></div><div class="checks"><label><input type="checkbox" data-cat-tags="'+esc(id)+'"> Permite tags</label><label><input type="checkbox" data-cat-imagenes="'+esc(id)+'"> Permite imágenes</label><label><input type="checkbox" data-cat-destacado="'+esc(id)+'"> Destacado</label></div>':'';
+  const nivelExtra=tipo==='niveles_anunciante'?ghNivelCamposV86(id):'';
   box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" placeholder="Nombre"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div>'+nivelExtra+'<div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" checked> Activo</label></div><button onclick="ghGuardarCatalogo(\''+tipo+'\',\''+esc(id)+'\')">Guardar</button></div>');
 }
 async function ghGuardarCatalogo(tipo,id){
@@ -821,7 +844,14 @@ async function ghGuardarCatalogo(tipo,id){
   const nombre=(document.querySelector('[data-cat-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
   const activo=!!(document.querySelector('[data-cat-activo="'+CSS.escape(id)+'"]')||{}).checked;
   if(!nombre.trim()){alert('Falta el nombre.');return;}
-  try{const previous=(GH_CATALOG_CACHE[tipo]||[]).find(x=>String(x[def.idField]||x.id||'')===id);const labelField=previous&&Object.hasOwn(previous,'titulo')?'titulo':'nombre';const item={[def.idField]:id,[labelField]:nombre.trim(),activo};if(tipo==='niveles_anunciante'){const numero=Number((document.querySelector('[data-cat-numero="'+CSS.escape(id)+'"]')||{}).value);if(!Number.isFinite(numero)||numero<=0){alert('Indicá un número de nivel válido.');return;}item.numero=numero;item.orden=Number((document.querySelector('[data-cat-orden="'+CSS.escape(id)+'"]')||{}).value||item.numero);item.prioridad=item.orden;item.descripcion_max=Math.max(0,Number((document.querySelector('[data-cat-descmax="'+CSS.escape(id)+'"]')||{}).value||0));item.adicionales_max=Math.max(0,Number((document.querySelector('[data-cat-adicmax="'+CSS.escape(id)+'"]')||{}).value||0));item.tags_max=Math.max(0,Number((document.querySelector('[data-cat-tagsmax="'+CSS.escape(id)+'"]')||{}).value||0));item.imagenes_max=Math.min(5,Math.max(0,Number((document.querySelector('[data-cat-imgmax="'+CSS.escape(id)+'"]')||{}).value||0)));item.tags_habilitados=!!(document.querySelector('[data-cat-tags="'+CSS.escape(id)+'"]')||{}).checked;item.imagenes_habilitadas=!!(document.querySelector('[data-cat-imagenes="'+CSS.escape(id)+'"]')||{}).checked;item.destacado=!!(document.querySelector('[data-cat-destacado="'+CSS.escape(id)+'"]')||{}).checked;}await api('guardar_catalogo',{tipo,item},'POST');await ghCargarCatalogo(def);}
+  try{
+    const previous=(GH_CATALOG_CACHE[tipo]||[]).find(x=>String(x[def.idField]||x.id||'')===id);
+    const labelField=previous&&Object.hasOwn(previous,'titulo')?'titulo':'nombre';
+    const item={[def.idField]:id,[labelField]:nombre.trim()};
+    if(!previous||activo!==GLD_CLASSIFICATION.active(previous))item.activo=activo;
+    if(tipo==='niveles_anunciante')Object.assign(item,ghNivelPatchV86(previous,key=>(document.querySelector('[data-cat-'+key+'="'+CSS.escape(id)+'"]')||{}).value));
+    await api('guardar_catalogo',{tipo,item},'POST');await ghCargarCatalogo(def);
+  }
   catch(e){alert(e.message);}
 }
 
