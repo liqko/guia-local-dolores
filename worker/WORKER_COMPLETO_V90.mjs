@@ -4492,7 +4492,7 @@ function publicProfile(s) {
     nombre: text46(s.nombre),
     mail: text46(s.mail),
     whatsapp: text46(s.whatsapp),
-    fecha_nacimiento: text46(s.fecha_nacimiento),
+    fecha_nacimiento: birthDateOnly_(s.fecha_nacimiento) || text46(s.fecha_nacimiento),
     fecha_nacimiento_politica: "COMPLETAR_UNA_VEZ",
     tipo_usuario: text46(s.tipo_usuario),
     ciudad_origen_id: text46(s.ciudad_origen_id),
@@ -8099,8 +8099,19 @@ function adultFields(current={},payload={}){
  const flag=Object.hasOwn(payload,'contenido_adulto')?adultFlag(payload.contenido_adulto):adultFlag(current?.contenido_adulto);
  return {contenido_adulto:flag,revision_adulto:flag?'PENDIENTE':'NO_APLICA'};
 }
+function birthDateOnly_(value){
+ const raw=String(value??'').trim();
+ const match=raw.match(/^(\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))?$/);
+ if(!match)return '';
+ const [year,month,day]=match[1].split('-').map(Number);
+ const date=new Date(Date.UTC(year,month-1,day));
+ if(date.getUTCFullYear()!==year||date.getUTCMonth()!==month-1||date.getUTCDate()!==day)return '';
+ if(raw.length>10&&!Number.isFinite(Date.parse(raw)))return '';
+ return match[1];
+}
 function adultAge(birth,now=new Date(Date.now()-3*60*60*1000)){
- if(!/^\d{4}-\d{2}-\d{2}$/.test(String(birth||'')))return null;
+ birth=birthDateOnly_(birth);
+ if(!birth)return null;
  const [y,m,d]=birth.split('-').map(Number),b=new Date(Date.UTC(y,m-1,d));
  if(b.getUTCFullYear()!==y||b.getUTCMonth()!==m-1||b.getUTCDate()!==d||b>now)return null;
  return now.getUTCFullYear()-y-(now.getUTCMonth()<m-1||(now.getUTCMonth()===m-1&&now.getUTCDate()<d)?1:0);
