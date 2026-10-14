@@ -20,7 +20,7 @@
  .gld-adult-notice [role=status]:empty{display:none}
  @media(max-width:540px){.card.adult-locked{padding:20px;min-height:220px}.gld-adult-notice{left:10px;right:10px;bottom:10px;padding:18px}.gld-adult-surface .gld-adult-button{width:100%}}
  `;document.head.appendChild(style);
- window.GLD_ADULT={open(){show();banner.querySelector('button').click();},card(){return '<article class="card adult-locked gld-adult-surface" data-adult-decorated="1"><div class="gld-adult-eyebrow"><span class="gld-adult-badge">+18</span><span>ACCESO RESTRINGIDO</span></div><h3>Contenido para mayores de 18 años</h3><p>Ingresá con tu cuenta personal y confirmá tu edad para visualizar esta publicación.</p><button class="gld-adult-button" type="button" onclick="window.GLD_ADULT.open()">Ingresar y visualizar</button></article>';}};
+ window.GLD_ADULT={open(){show();banner.querySelector('button').click();},card(tipo){return '<article class="card adult-locked gld-adult-surface" data-adult-decorated="1"><div class="gld-adult-eyebrow"><span class="gld-adult-badge">+18</span><span>ACCESO RESTRINGIDO</span></div><h3>'+ (tipo==='evento'?'Evento con contenido +18':'Contenido para mayores de 18 años') +'</h3><p>Ingresá con tu cuenta personal y confirmá tu edad para visualizar esta publicación.</p><button class="gld-adult-button" type="button" onclick="window.GLD_ADULT.open()">Ingresar y visualizar</button></article>';}};
  let banner;
  function accountLink(datos){const a=document.createElement('a');a.href='https://guialocal.ar/suscriptores/?vista='+(datos?'mi-guia&seccion=datos':'login');a.target='_top';a.textContent=datos?'Completar mis datos':'Ingresar a mi cuenta personal';return a;}
  function show(){
