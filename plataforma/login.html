@@ -3422,7 +3422,30 @@ function setMsg(elId, kind, msg){
     return;
   }
   el.innerHTML = `<div class="msg ${kind === 'ok' ? 'ok' : 'err'}">${htmlEscape(texto)}</div>`;
-  showGlobalBlockingResult_(kind === 'ok' ? 'ok' : 'err',texto);
+  const visible=showGlobalBlockingResult_(kind === 'ok' ? 'ok' : 'err',texto);
+  if(kind!=='ok' && !visible){
+    const source=document.activeElement;
+    showGlobalBlocking_('Atención',texto,source);
+    showGlobalBlockingResult_('err',texto);
+    const overlay=document.getElementById('global-action-overlay');
+    const card=document.getElementById('global-action-overlay-card');
+    if(overlay)overlay.style.cursor='default';
+    if(card){
+      card.setAttribute('role','alertdialog');
+      card.setAttribute('aria-modal','true');
+      card.setAttribute('aria-labelledby','global-action-overlay-title');
+      card.setAttribute('aria-describedby','global-action-overlay-detail');
+      const close=document.createElement('button');
+      close.type='button';close.textContent='Entendido';close.style.marginTop='16px';
+      close.addEventListener('click',()=>{
+        hideGlobalBlocking_();
+        const target=elId==='eventos-msg' && /Enlace de inscripción o acceso virtual/.test(texto)
+          ? document.getElementById('ev-url-virtual') : source;
+        try{target?.focus();}catch(e){}
+      });
+      card.appendChild(close);close.focus({preventScroll:true});
+    }
+  }
 }
 
 function promoShowError_(msg){
@@ -6565,6 +6588,13 @@ function eventModeSync_(prefix){
   virtualCityOption_(city);
   if(!virtual&&city?.value===EVENT_VIRTUAL_CITY)city.value='';
   const onlineWrap=document.getElementById(prefix+'-virtual-wrap');if(onlineWrap)onlineWrap.hidden=!online;
+  const link=document.getElementById(prefix+'-url-virtual');
+  if(link){
+    link.required=online;
+    link.setAttribute('aria-required',String(online));
+    const label=document.getElementById(prefix+'-url-virtual-label');
+    if(label)label.innerHTML='Enlace de inscripción o acceso virtual'+(online?' <span class="req">*</span> · Obligatorio para eventos virtuales o mixtos':'');
+  }
   if(virtual){
     if(!city.value)city.value=EVENT_VIRTUAL_CITY;
     if(!Array.from(place.options).some(o=>o.value===EVENT_VIRTUAL_PLACE))place.add(new Option('Virtual',EVENT_VIRTUAL_PLACE));
@@ -6585,7 +6615,7 @@ function eventModeFields_(prefix){
 }
 function eventModeError_(payload,free=false){
   if(payload.modalidad==='PRESENCIAL')return '';
-  if(!free&&(!payload.url_virtual||!isHttpUrl(payload.url_virtual)))return 'Completá un enlace virtual válido (https://...).';
+  if(!free&&(!payload.url_virtual||!isHttpUrl(payload.url_virtual)))return 'Completá el campo «Enlace de inscripción o acceso virtual» con una URL válida (https://...). Es obligatorio para eventos virtuales o mixtos.';
   if(payload.modalidad==='MIXTO'&&payload.ciudad_id===EVENT_VIRTUAL_CITY)return 'El evento mixto necesita una ciudad y un lugar físico.';
   return '';
 }
@@ -6603,7 +6633,7 @@ function mountEventModeFields_(){
     city.parentElement.before(box);
     if(prefix==='ev'){
     const link=document.createElement('div');link.className='full';link.id=prefix+'-virtual-wrap';link.hidden=true;
-    link.innerHTML='<label>Enlace de inscripción o acceso virtual</label><input id="'+prefix+'-url-virtual" type="url" placeholder="https://..."><div class="events-small">Virtual no exige domicilio. Mixto conserva la ciudad y el lugar físico, además del enlace. “Virtual · sin ciudad física” se muestra en las agendas de todas las ciudades.</div>';
+    link.innerHTML='<label id="'+prefix+'-url-virtual-label" for="'+prefix+'-url-virtual">Enlace de inscripción o acceso virtual</label><input id="'+prefix+'-url-virtual" type="url" placeholder="https://..."><div class="events-small">Virtual no exige domicilio. Mixto conserva la ciudad y el lugar físico, además del enlace. “Virtual · sin ciudad física” se muestra en las agendas de todas las ciudades.</div>';
     box.after(link);
     }
     box.querySelector('select').addEventListener('change',()=>eventModeSync_(prefix));
