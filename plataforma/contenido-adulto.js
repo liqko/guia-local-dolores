@@ -33,12 +33,10 @@
    try{const r=await nativeFetch(origin+'/adult/access',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({confirmar:true})}),j=await r.json();if(!j.success){status.textContent=(j.message||'No se pudo verificar el acceso.')+' ';if(j.code==='AGE_UNKNOWN')status.append(accountLink(true));else if(j.code==='LOGIN_REQUIRED')status.append(accountLink(false));return;}sessionStorage.setItem(key,j.token);location.reload();}catch{status.textContent='No se pudo verificar el acceso. Reintentá.';}
   };document.body.append(banner);
  }
- function inspect(value){if(!value||typeof value!=='object')return; if(value.bloqueado18)show();for(const child of Object.values(value))inspect(child);}
  window.fetch=async function(input,init){
   const u=new URL(input instanceof Request?input.url:String(input),location.href);
   if(u.origin===origin){const headers=new Headers(input instanceof Request?input.headers:undefined);new Headers(init?.headers).forEach((value,name)=>headers.set(name,value));const token=sessionStorage.getItem(key);const subscriber=localStorage.getItem('gld_suscriptor_token_v2');if(token&&subscriber){const auth=headers.get('Authorization');if(!auth||auth==='Bearer '+subscriber){headers.set('X-GLD-Adult-Token',token);if(!auth)headers.set('Authorization','Bearer '+subscriber);}}else if(token)sessionStorage.removeItem(key);init={...init,headers};}
   const response=await nativeFetch(input,init);
-  if(u.origin===origin&&response.headers.get('content-type')?.includes('application/json'))response.clone().json().then(inspect).catch(()=>{});
   return response;
  };
  // The icon accompanies both locked and authorized cards, without exposing adult data.
