@@ -2714,19 +2714,90 @@ function toggleExternalPartnerFields(i){
   wrap.classList.toggle('open', sel.value === EVENT_PARTNER_OTHER_VALUE);
 }
 
+const eventPartnerCityCache_ = new Map();
+function eventPartnerEligible_(p){
+  return [1,2,4,5,6].includes(Number(p.nivel));
+}
+async function eventPartnerCityRows_(cityId){
+  if(!eventPartnerCityCache_.has(cityId)){
+    const pending=(async()=>{
+      const url=new URL(WORKER_ORIGIN+'/guide');
+      url.searchParams.set('ciudad_id',cityId);
+      const response=await fetch(url.toString(),{mode:'cors'});
+      if(!response.ok) throw new Error('No se pudo cargar la lista de partners.');
+      const data=await response.json();
+      if(data.success===false) throw new Error(data.message||'No se pudo cargar la lista de partners.');
+      return (data.anunciantes||data.results||[]).filter(eventPartnerEligible_);
+    })().catch(error=>{eventPartnerCityCache_.delete(cityId);throw error;});
+    eventPartnerCityCache_.set(cityId,pending);
+  }
+  return eventPartnerCityCache_.get(cityId);
+}
+async function eventPartnerLoadCity_(i,cityId){
+  const ids=eventPartnerIds(i);
+  const sel=document.getElementById(ids.selectId);
+  const city=document.getElementById(ids.selectId+'-ciudad');
+  const request=String(cityId||'');
+  sel.innerHTML='<option value="">'+(request?'Cargando partners…':'Elegí ciudad para buscar un partner')+'</option>';
+  const other=document.createElement('option');
+  other.value=EVENT_PARTNER_OTHER_VALUE;
+  other.textContent='Otro / No figura en Guía Local';
+  sel.appendChild(other);
+  toggleExternalPartnerFields(i);
+  try{
+    const rows=request?await eventPartnerCityRows_(request):[];
+    if(city.value!==request) return;
+    rows.forEach(p=>{
+      const opt=document.createElement('option');
+      opt.value=p.nombre;
+      opt.textContent=p.nombre+' — '+eventCityLabel(request);
+      opt.dataset.partnerId=String(p.id||'');
+      opt.dataset.partnerLogo=String(p.logo||'');
+      sel.insertBefore(opt,other);
+    });
+    const known=evLists.partners||[];
+    rows.forEach(p=>{if(!known.some(x=>String(x.id)===String(p.id)))known.push(p);});
+    evLists.partners=known;
+    if(request&&!rows.length)sel.options[0].textContent='Sin partners habilitados en esta ciudad';
+  }catch(error){
+    if(city.value===request){
+      sel.options[0].textContent='No se pudo cargar. Volvé a elegir la ciudad.';
+      setMsg('eventos-msg','err',error.message);
+    }
+  }
+  if(typeof gldSyncSearchableSelect_==='function')gldSyncSearchableSelect_(sel);
+}
 function configureEventPartnerSelect(i){
-  const ids = eventPartnerIds(i);
-  const sel = document.getElementById(ids.selectId);
-  if(!sel) return;
-  if(!Array.from(sel.options).some(o=>o.value === EVENT_PARTNER_OTHER_VALUE)){
-    const opt = document.createElement('option');
-    opt.value = EVENT_PARTNER_OTHER_VALUE;
-    opt.textContent = 'Otro / No figura en Guía Local';
+  const ids=eventPartnerIds(i);
+  const sel=document.getElementById(ids.selectId);
+  if(!sel)return;
+  if(!document.getElementById(ids.selectId+'-ciudad')){
+    const label=document.createElement('label');
+    label.textContent='Ciudad del partner';
+    const city=document.createElement('select');
+    city.id=ids.selectId+'-ciudad';
+    city.setAttribute('aria-label','Ciudad del partner '+i);
+    city.innerHTML='<option value="">Elegí la ciudad del partner</option>';
+    (evLists.ciudades||[]).forEach(c=>{
+      const opt=document.createElement('option');
+      opt.value=String(c.ciudad_id||'');
+      opt.textContent=[c.ciudad_visible,c.provincia_visible,c.pais_visible].filter(Boolean).join(' · ');
+      if(opt.value)city.appendChild(opt);
+    });
+    const anchor=sel.__gldSearchWrap||sel;
+    anchor.parentNode.insertBefore(label,anchor);
+    anchor.parentNode.insertBefore(city,anchor);
+    city.addEventListener('change',()=>eventPartnerLoadCity_(i,city.value));
+  }
+  if(!Array.from(sel.options).some(o=>o.value===EVENT_PARTNER_OTHER_VALUE)){
+    const opt=document.createElement('option');
+    opt.value=EVENT_PARTNER_OTHER_VALUE;
+    opt.textContent='Otro / No figura en Guía Local';
     sel.appendChild(opt);
   }
   if(!sel.dataset.externalPartnerBound){
-    sel.addEventListener('change', ()=>toggleExternalPartnerFields(i));
-    sel.dataset.externalPartnerBound = '1';
+    sel.addEventListener('change',()=>toggleExternalPartnerFields(i));
+    sel.dataset.externalPartnerBound='1';
   }
   toggleExternalPartnerFields(i);
 }
@@ -6812,7 +6883,7 @@ function buildEventPayloadFromForm(){
       payload[logoKey] = externalName ? (externalLogo || GENERIC_PARTNER_LOGO) : '';
     } else {
       payload[partnerKey] = selected;
-      payload[logoKey] = '';
+      payload[logoKey] = document.getElementById(pids.selectId)?.selectedOptions?.[0]?.dataset.partnerLogo || '';
     }
     payload[roleKey] = evGet(pids.roleId);
   }
