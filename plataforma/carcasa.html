@@ -1,5 +1,6 @@
 <head>
 <script src="/plataforma/sesion-persistente.js?v=90"></script>
+<script src="/plataforma/entrada-recordada.js?v=92"></script>
 <script src="/plataforma/consumo-v44.js?v=87"></script>
 
   <meta charset="UTF-8" />
@@ -1980,6 +1981,8 @@ const controller = new AbortController();
 
     function asegurarContextoCiudad(){
       if(String(ciudadSeleccionada||'').trim()) return true;
+      // The async entry step can recover the preferred city from the signed-in profile.
+      if(gldGetSubscriberToken())return true;
       try{
         const incoming=GLD_ANUNCIANTES_UI.parametros(window.location.href,document.referrer,window.parent!==window);
         if(String(incoming.get('ciudad_id')||'').trim()){
@@ -3670,17 +3673,16 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
       let ctx = null;
       try{ ctx = JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY) || 'null'); }catch(e){}
 
-      const subscriberSession = gldGetSubscriberSession();
-      const sesionRecordada=!!window.gldTieneSesionLocal?.();
-      if(!sesionRecordada) ctx=null;
-      const subscriberDefaultCity = sesionRecordada ? String(subscriberSession && subscriberSession.ciudad_predeterminada_id || '').trim() : '';
-
-      let accesoConUbicacion = String(
-        qs.get('ciudad_id') ||
-        (ctx && ctx.ciudad_id) ||
-        subscriberDefaultCity ||
-        ''
-      ).trim();
+      const explicitCity=String(qs.get('ciudad_id')||'').trim();
+      let accesoConUbicacion=explicitCity;
+      if(!explicitCity){
+        const entrada=await window.gldRecuperarEntradaV92();
+        ctx=entrada.recordada?entrada.contexto:null;
+        accesoConUbicacion=String(entrada.ciudad_id||'').trim();
+        // Replace stale navigation context with the current profile preference.
+        ciudadSeleccionada=accesoConUbicacion;
+        paisSeleccionado=String(ctx?.pais_id||'');provinciaSeleccionada=String(ctx?.provincia_id||'');
+      }
 
       // La página pública /guia/ puede recibir la ciudad aunque este HTML embebido
       // no reciba su query string. Antes de considerar la entrada inválida,
@@ -3836,6 +3838,7 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
       if(cambiar){
         cambiar.addEventListener('click', ()=>{
           gldMarkCityChangePending();
+          window.gldPedirSelectorCiudadV92();
           try{ localStorage.removeItem(CITY_CONTEXT_KEY); }catch(e){}
           gldClearCityPreferenceSkip();
           try{ window.top.location.href = 'https://guialocal.ar/'; }
@@ -4422,4 +4425,5 @@ const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+h
 </script>
 </body>
 </html>
+
 

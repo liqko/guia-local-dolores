@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <script src="/plataforma/sesion-persistente.js?v=90"></script>
+<script src="/plataforma/entrada-recordada.js?v=92"></script>
 <script src="/plataforma/consumo-v44.js?v=87"></script>
 
   <meta charset="UTF-8">
@@ -46,6 +47,7 @@
       </div>
     </div>
 
+    <div id="selectorCiudad" hidden>
     <label for="buscarCiudad">¿Qué ciudad querés consultar?</label>
     <div class="buscador-wrap">
       <input id="buscarCiudad" type="search" placeholder="Escribí ciudad o provincia" autocomplete="off" disabled>
@@ -60,7 +62,8 @@
     </div>
 
     <button id="entrar" disabled>Ingresar a la guía</button>
-    <div id="msg" class="msg"></div>
+    </div>
+    <div id="msg" class="msg" role="status"></div>
   </main>
 
 <script>
@@ -118,30 +121,25 @@ const solicitarCiudad=document.getElementById('solicitarCiudad');
 const graciasCiudad=document.getElementById('graciasCiudad');
 const WHATSAPP_SOLICITUD_CIUDAD='5491150972086';
 
-// Restore the city only with a saved session. Anonymous visitors choose a city.
-let ciudadRecordada=false;
-try{
- const sesion=JSON.parse(localStorage.getItem(SUBSCRIBER_SESSION_KEY)||'null');
- const contexto=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
- const pending=JSON.parse(localStorage.getItem('gld_cambio_ciudad_pendiente')||'null');
- const cambiando=!!(pending&&pending.ts&&Date.now()-Number(pending.ts)<15*60*1000);
- const ciudad=String(contexto?.ciudad_id||sesion?.ciudad_predeterminada_id||'').trim();
- if(ciudad&&!cambiando&&window.gldTieneSesionLocal?.()){
-  ciudadRecordada=true;const u=new URL(GUIDE_PAGE_URL);
-  const ctx=contexto?.ciudad_id?contexto:{ciudad_id:ciudad};
-  for(const key of ['pais_id','provincia_id','ciudad_id'])if(ctx[key])u.searchParams.set(key,String(ctx[key]));
-  window.location.replace(u.toString());
+async function iniciarEntrada(){
+ const cambiando=window.gldConsumirSelectorCiudadV92();
+ if(!cambiando){
+  msg.textContent='Recuperando tu ciudad…';
+  const entrada=await window.gldRecuperarEntradaV92();
+  if(entrada.recordada&&entrada.ciudad_id){
+   const u=new URL(GUIDE_PAGE_URL),ctx=entrada.contexto||{ciudad_id:entrada.ciudad_id};
+   for(const key of ['pais_id','provincia_id','ciudad_id'])if(ctx[key])u.searchParams.set(key,String(ctx[key]));
+   window.location.replace(u.toString());return;
+  }
  }
-}catch(e){}
-
-if(!ciudadRecordada)cargarCiudades().then(raw=>{
-  if(!raw || raw.success!==true || !Array.isArray(raw.ciudades)) throw new Error('Catálogo territorial inválido');
-  ciudades=raw.ciudades;
-  ciudades=ciudades.filter(c=>c&&(c.ciudad_id||c.id)&&ciudadNombre(c));
-  buscar.disabled=false;
-}).catch(()=>{
-  msg.textContent='No se pudieron cargar las ciudades.';
-});
+ msg.textContent='';document.getElementById('selectorCiudad').hidden=false;
+ try{
+  const raw=await cargarCiudades();
+  if(!raw||raw.success!==true||!Array.isArray(raw.ciudades))throw new Error('Catálogo territorial inválido');
+  ciudades=raw.ciudades.filter(c=>c&&(c.ciudad_id||c.id)&&ciudadNombre(c));buscar.disabled=false;
+ }catch{msg.textContent='No se pudieron cargar las ciudades.';}
+}
+iniciarEntrada();
 
 function mostrarResultados(){
   seleccionada=null;entrar.disabled=true;mostrarBanderaSeleccionada(null);
@@ -210,4 +208,5 @@ new ResizeObserver(enviarAltura).observe(document.body);
 </script>
 </body>
 </html>
+
 
