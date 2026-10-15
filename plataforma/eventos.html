@@ -703,7 +703,6 @@
   
     /* ===== SONIDO DEBAJO DEL VIDEO ===== */
     .embed-head .video-sound-btn{margin:0;min-height:44px;font:inherit;flex-shrink:0;}
-    .video-playback-btn{min-height:44px;padding:8px 12px;border:0;border-radius:8px;background:#1f5fb8;color:#fff;font:inherit;cursor:pointer;}
     .video-sound-btn{
       display:inline-flex;align-items:center;justify-content:center;gap:7px;
       min-height:42px;margin:8px auto 0;padding:9px 14px;
@@ -878,129 +877,29 @@
       shell.style.overflow='hidden';
       shell.style.margin='0 auto';
 
-      const posterUrl=`https://i.ytimg.com/vi/${encodeURIComponent(videoId)}/hqdefault.jpg`;
-      const cover=document.createElement('div');
-      cover.style.position='absolute';
-      cover.style.inset='0';
-      cover.style.zIndex='20';
-      cover.style.display='flex';
-      cover.style.alignItems='center';
-      cover.style.justifyContent='center';
-      cover.style.background=`linear-gradient(rgba(0,0,0,.28),rgba(0,0,0,.28)),url(${posterUrl}) center / cover no-repeat`;
-
-      const play=document.createElement('button');
-      play.type='button';
-      play.textContent='▶ Reproducir video';
-      play.style.border='0';
-      play.style.borderRadius='999px';
-      play.style.padding='12px 18px';
-      play.style.fontWeight='900';
-      play.style.cursor='pointer';
-      cover.appendChild(play);
-      shell.appendChild(cover);
-
+      const iframe=document.createElement('iframe');
+      const embedUrl='https://www.youtube.com/embed/'+encodeURIComponent(videoId)+
+        '?autoplay=0&mute=0&controls=1&fs=0&rel=0&playsinline=1';
+      iframe.src=embedUrl;
+      iframe.setAttribute('title',isShort?'Short de YouTube':title||'Video de YouTube');
+      iframe.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
+      // Keep playback inside the platform; do not grant popups or top navigation.
+      iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
+      iframe.setAttribute('referrerpolicy','strict-origin-when-cross-origin');
+      iframe.style.cssText='position:absolute;inset:0;width:100%;height:100%;border:0;display:block;';
+      shell.appendChild(iframe);
       wrap.appendChild(head);
       wrap.appendChild(shell);
       parentEl.appendChild(wrap);
 
-      let player=null;
-      let iframe=null;
       let hidden=false;
-      let soundButton;
-      const playback=document.createElement('button');playback.type='button';playback.className='video-playback-btn';playback.textContent='▶ Reanudar';playback.disabled=true;head.insertBefore(playback,close);
-      playback.onclick=e=>{e.preventDefault();e.stopPropagation();if(!player)return;try{if(player.getPlayerState?.()===YT.PlayerState.PLAYING)player.pauseVideo();else player.playVideo();}catch{}};
-      function soundPlaceholder(){
-        head.querySelector('.video-sound-btn')?.remove();
-        soundButton=document.createElement('button');soundButton.type='button';soundButton.className='video-sound-btn';
-        soundButton.textContent='🔊 Sonido · reproducí el video';soundButton.disabled=true;
-        head.insertBefore(soundButton,close);
-      }
-      soundPlaceholder();
-
-      function restoreCover(){
-        try{if(player&&typeof player.destroy==='function') player.destroy();}catch(e){}
-        player=null;
-        iframe=null;
-        shell.querySelectorAll('iframe,.yt-event-shield').forEach(el=>el.remove());
-        playback.disabled=true;playback.textContent='▶ Reanudar';
-        soundPlaceholder();
-        cover.style.display='flex';
-      }
-
-      function startVideo(){
-        if(iframe) return;
-        cover.style.display='none';
-
-        const iframeId='event-yt-'+Math.floor(Math.random()*1000000000);
-        iframe=document.createElement('iframe');
-        iframe.id=iframeId;
-        iframe.src='https://www.youtube.com/embed/'+encodeURIComponent(videoId)+
-          '?enablejsapi=1&autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&rel=0&playsinline=1&modestbranding=1';
-        iframe.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
-        iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-        iframe.setAttribute('title',title||'Video');
-        iframe.style.position='absolute';
-        iframe.style.width='100%';
-        iframe.style.height='100%';
-        iframe.style.left='0';
-        iframe.style.top='0';
-        iframe.style.border='0';
-        iframe.style.pointerEvents='none';
-        shell.insertBefore(iframe,cover);
-        soundButton=attachEventSoundButton(iframe,head);
-        soundButton.disabled=true;
-        soundButton.textContent='Cargando sonido…';
-        head.insertBefore(soundButton,close);
-
-        const shield=document.createElement('div');
-        shield.className='yt-event-shield';
-        shield.style.position='absolute';
-        shield.style.inset='0';
-        shield.style.zIndex='10';
-        shield.style.background='transparent';
-        shield.style.pointerEvents='auto';
-        shell.appendChild(shield);
-
-        try{ensureYouTubeAPI();}catch(e){}
-        let attempts=0;
-        const attach=()=>{
-          if(!iframe)return;
-          if(window.YT&&YT.Player){
-            try{
-              player=new YT.Player(iframeId,{
-                events:{
-                  onReady:function(e){if(!iframe)return;iframe.__gldYTPlayer=e.target;playback.disabled=hidden;soundButton.disabled=hidden;soundButton.textContent='🔊 Activar sonido';},
-                  onAutoplayBlocked:function(){
-                    if(!iframe)return;iframe.__gldSoundBlocked=true;
-                    soundButton.textContent='▶ Reproducir con sonido';playback.textContent='▶ Reanudar';playback.disabled=hidden;
-                  },
-                  onStateChange:function(e){
-                    if(!iframe)return;
-                    if(e.data===YT.PlayerState.PLAYING){playback.textContent='⏸ Pausar';iframe.__gldSoundPaint?.();}
-                    if(e.data===YT.PlayerState.PAUSED){playback.textContent='▶ Reanudar';if(iframe.__gldWantsSound&&!hidden){iframe.__gldSoundBlocked=true;soundButton.textContent='▶ Reanudar con sonido';}}
-                    if(e.data===YT.PlayerState.ENDED) restoreCover();
-                  },
-                  onError:function(){restoreCover();}
-                }
-              });
-            }catch(e){}
-            return;
-          }
-          attempts++;
-          if(attempts<80) setTimeout(attach,150);
-        };
-        attach();
-      }
-
-      play.addEventListener('click',startVideo);
-
-      close.onclick=()=>{
+      close.onclick=e=>{
+        e.preventDefault();e.stopPropagation();
         hidden=!hidden;
+        // Unload hidden media so it cannot keep playing with sound.
+        iframe.src=hidden?'about:blank':embedUrl;
         shell.style.display=hidden?'none':'block';
         close.textContent=hidden?'Ver':'Ocultar';
-        if(soundButton)soundButton.disabled=hidden||!iframe?.__gldYTPlayer;
-        playback.disabled=hidden||!iframe?.__gldYTPlayer;
-        if(hidden&&player){try{player.pauseVideo();}catch(e){}}
       };
 
       return wrap;
