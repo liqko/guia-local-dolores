@@ -2242,6 +2242,7 @@ function showGlobalBlocking_(label,detail,sourceEl){
   globalBlockingSourceEl_=(sourceEl && sourceEl.nodeType===1) ? sourceEl : document.activeElement;
 
   overlay.dataset.result='';
+  overlay.dataset.requireAck='';
   overlay.dataset.saving=/^(Guardando|Creando|Duplicando)\b/i.test(String(label||'')) ? '1' : '';
   if(overlay.dataset.saving==='1'){ label='Guardando…'; detail=''; }
   overlay.innerHTML=`<div id="global-action-overlay-card" style="position:fixed;left:12px;right:12px;top:${globalBlockingCardTop_(globalBlockingSourceEl_)}px;max-width:460px;margin:0 auto;padding:18px;border-radius:14px;background:#fff;box-shadow:0 8px 32px rgba(0,0,0,.20)">
@@ -2268,6 +2269,7 @@ if(!window.__globalBlockingViewportBound){
 
 function hideGlobalBlocking_(){
   const overlay=document.getElementById('global-action-overlay');
+  if(overlay?.dataset.requireAck==='1')return;
   if(overlay){
     overlay.style.display='none';
     overlay.dataset.result='';
@@ -2309,13 +2311,30 @@ function showGlobalBlockingResult_(kind,msg){
   }
 
   overlay.dataset.result='1';
+  overlay.dataset.requireAck=kind==='ok'?'':'1';
+  const card=document.getElementById('global-action-overlay-card');
+  card?.querySelector('[data-global-error-close]')?.remove();
+  if(kind!=='ok' && card){
+    overlay.style.cursor='default';
+    card.setAttribute('role','alertdialog');card.setAttribute('aria-modal','true');
+    card.setAttribute('aria-labelledby','global-action-overlay-title');card.setAttribute('aria-describedby','global-action-overlay-detail');
+    const close=document.createElement('button');
+    close.type='button';close.textContent='Entendido';close.dataset.globalErrorClose='1';close.style.marginTop='16px';
+    close.addEventListener('click',()=>{
+      overlay.dataset.requireAck='';
+      const target=overlay.__errorFocusTarget||globalBlockingSourceEl_;
+      overlay.__errorFocusTarget=null;hideGlobalBlocking_();
+      try{target?.focus();}catch(e){}
+    });
+    card.appendChild(close);close.focus({preventScroll:true});
+  }
   positionGlobalBlockingCard_();
   return true;
 }
 
 async function pauseGlobalBlockingResult_(){
   const overlay=document.getElementById('global-action-overlay');
-  if(overlay && overlay.style.display!=='none' && overlay.dataset.result==='1'){
+  if(overlay && overlay.style.display!=='none' && overlay.dataset.result==='1' && overlay.dataset.requireAck!=='1'){
     await new Promise(resolve=>setTimeout(resolve,900));
   }
 }
@@ -3422,29 +3441,18 @@ function setMsg(elId, kind, msg){
     return;
   }
   el.innerHTML = `<div class="msg ${kind === 'ok' ? 'ok' : 'err'}">${htmlEscape(texto)}</div>`;
+  const errorOverlay=document.getElementById('global-action-overlay');
+  if(kind!=='ok' && errorOverlay)errorOverlay.__errorFocusTarget=
+    elId==='eventos-msg' && /términos|declaración de responsabilidad/i.test(texto)
+      ? document.getElementById('aceptacion-eventos')
+      : elId==='eventos-msg' && /Enlace de inscripción o acceso virtual/.test(texto)
+        ? document.getElementById('ev-url-virtual') : document.activeElement;
   const visible=showGlobalBlockingResult_(kind === 'ok' ? 'ok' : 'err',texto);
   if(kind!=='ok' && !visible){
     const source=document.activeElement;
     showGlobalBlocking_('Atención',texto,source);
     showGlobalBlockingResult_('err',texto);
-    const overlay=document.getElementById('global-action-overlay');
-    const card=document.getElementById('global-action-overlay-card');
-    if(overlay)overlay.style.cursor='default';
-    if(card){
-      card.setAttribute('role','alertdialog');
-      card.setAttribute('aria-modal','true');
-      card.setAttribute('aria-labelledby','global-action-overlay-title');
-      card.setAttribute('aria-describedby','global-action-overlay-detail');
-      const close=document.createElement('button');
-      close.type='button';close.textContent='Entendido';close.style.marginTop='16px';
-      close.addEventListener('click',()=>{
-        hideGlobalBlocking_();
-        const target=elId==='eventos-msg' && /Enlace de inscripción o acceso virtual/.test(texto)
-          ? document.getElementById('ev-url-virtual') : source;
-        try{target?.focus();}catch(e){}
-      });
-      card.appendChild(close);close.focus({preventScroll:true});
-    }
+
   }
 }
 
