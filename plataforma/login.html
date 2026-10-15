@@ -7570,8 +7570,12 @@ function buildFreeEventPayload_(){
 
 function freeEventQuotaUI_(){
  const rows=window.__lastFreeEvents||[],q=calcularCupoPublicacion(rows,sesion?.eventos_free_cant);
+ const limits=sesion?.eventos_free_limites||{usados:0,sin_limites:false};
+ const currentMonth=new Date(Date.now()-3*3600000).toISOString().slice(0,7);
+ const used=limits.mes&&limits.mes!==currentMonth?0:Number(limits.usados||0);
+ if(limits.sin_limites){q.puedeCrear=true;}else q.puedeCrear=q.puedeCrear&&used<5;
  const status=document.getElementById('eventos-free-status');
- if(status)status.textContent=textoCupoPublicacion(q)+(q.max===0?' · Cupo pendiente de configurar en Gran Hermano.':'');
+ if(status)status.textContent=limits.sin_limites?'Eventos Free sin límites para este anunciante.':textoCupoPublicacion(q)+' · Altas de este mes: '+used+'/5. Borrar no recupera cupo. Primera edición inmediata; después, siete días entre modificaciones.'+(q.max===0?' · Cupo pendiente de configurar en Gran Hermano.':'');
  const button=document.getElementById('evf-guardar'),editing=!!editingFreeEventId;
  if(button)button.disabled=!editing&&!q.puedeCrear;
  const form=button?.closest('.events-free-card');if(form)form.style.display=editing||q.puedeCrear?'':'none';
@@ -7638,6 +7642,8 @@ function renderFreeEvents_(events){
       if(!found) return;
 
       if(action==='edit'){
+        const next=found.ultima_edicion_free?Date.parse(found.ultima_edicion_free)+7*86400000:0;
+        if(!sesion?.eventos_free_limites?.sin_limites&&next>Date.now()){setMsg('eventos-free-msg','err','Podés volver a modificar este evento el '+new Date(next).toLocaleString('es-AR')+'.');return;}
         editingFreeEventId=id;
         document.getElementById('evf-adulto').value=found.contenido_adulto===true?'true':'false';
         document.getElementById('evf-nombre').value=found.nombre_evento||'';
@@ -7724,6 +7730,7 @@ async function loadEventosFreePanelData(){
     }
     const data=res.json;
     sesion.eventos_free_cant=Math.max(0,Number(data.eventos_free_cant||0));
+    sesion.eventos_free_limites=data.eventos_free_limites||{sin_limites:false,usados:0};
     const adv=data.advertiser && typeof data.advertiser==='object' ? data.advertiser : {};
     evFreePublisherAdvertiser={
       nombre:String(adv.nombre||adv.anunciante||sesion?.nombre||'').trim(),
@@ -8510,7 +8517,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
   document.getElementById('evf-guardar')?.addEventListener('click',async()=>{
     if(!sesion || !sesion.id) return;
-    if(!editingFreeEventId&&!freeEventQuotaUI_().puedeCrear){setMsg('eventos-free-msg','err','No hay cupo disponible. Configuralo en Gran Hermano antes de crear un evento.');return;}
+    if(!editingFreeEventId&&!freeEventQuotaUI_().puedeCrear){setMsg('eventos-free-msg','err','No hay cupo disponible para crear otro evento Free. Revisá los límites indicados en el panel.');return;}
     const payload=buildFreeEventPayload_();
     const modeError=eventModeError_(payload,true);if(modeError){setMsg('eventos-free-msg','err',modeError);return;}
     if(String(document.getElementById('evf-descripcion')?.value||'').length>200){ setMsg('eventos-free-msg','err','La descripción admite hasta 200 caracteres.'); return; }
@@ -8549,6 +8556,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         clearFreeEventForm_();
         const save=document.getElementById('evf-guardar');
         if(save) save.textContent='Crear evento free';
+        if(!editing&&sesion.eventos_free_limites){const limits=sesion.eventos_free_limites;const month=new Date(Date.now()-3*3600000).toISOString().slice(0,7);limits.usados=(limits.mes===month?Number(limits.usados||0):0)+1;limits.mes=month;}
         freeEventUpsertLocal_(res.json.evento);
         setMsg('eventos-free-msg','ok',editing?'Evento free actualizado.':'Evento guardado. Se publica directamente salvo revisión por +18 o moderación.');
       }else{
