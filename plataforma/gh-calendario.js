@@ -11,9 +11,9 @@ async function get(path,force=false){
 }
 function birthdays(data){
  const box=el('ghBirthdayContent');if(!box)return;
- if(!data){box.textContent='Requiere desplegar el Worker B83 para mostrar este resumen.';el('ghBirthdayPrepare').hidden=true;return;}
+ if(!data){box.textContent='Requiere desplegar el Worker V91 para mostrar este resumen.';el('ghBirthdayPrepare').hidden=true;return;}
  el('ghBirthdayPrepare').hidden=data.preparado;
- if(!data.preparado){box.textContent='Resumen todavía sin preparar. La carga inicial lee las cuentas existentes una sola vez; las consultas posteriores usan caché.';return;}
+ if(!data.preparado){box.textContent='Resumen todavía sin preparar. La preparación actualiza el índice existente o lee las cuentas una sola vez; las consultas posteriores usan caché.';return;}
  box.innerHTML='<div class="grid"><div class="stat"><span>Cumpleaños</span><b>'+esc(data.total)+'</b></div><div class="stat"><span>Cumplen 18 o más</span><b>'+esc(data.mayores18)+'</b></div><div class="stat"><span>Cumplen menos de 18</span><b>'+esc(data.menores18)+'</b></div></div><p>'+esc(dateLabel(data.desde))+' al '+esc(dateLabel(data.hasta))+'</p>'+'<details><summary>Ver cantidades por día</summary>'+data.dias.map(d=>'<div class="item">'+esc(dateLabel(d.fecha))+' · '+esc(d.total)+' persona(s)</div>').join('')+'</details>';
  window.informarAltura?.();
 }
@@ -21,7 +21,7 @@ window.ghCalendarDashboardV83=function(data){el('ghBirthdaySummary').hidden=GH_A
 window.ghBirthdayRefreshV83=async function(){try{birthdays(await get('/superadmin/birthdays',true));}catch(e){el('ghBirthdayContent').textContent=e.message;}};
 window.ghBirthdayPrepareV83=async function(){
  const btn=el('ghBirthdayPrepare');btn.disabled=true;el('ghBirthdayContent').textContent='Preparando el resumen de las cuentas existentes…';
- try{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/birthdays/prepare',{method:'POST',headers:{Authorization:'Bearer '+TOKEN}});const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo preparar el resumen.');birthdays(j);}catch(e){el('ghBirthdayContent').textContent=e.message;}finally{btn.disabled=false;window.informarAltura?.();}
+ try{let j,cursor;do{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/birthdays/prepare',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({cursor})});j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo preparar el resumen.');cursor=j.cursor;}while(j.continuar);requests.clear();birthdays(j);}catch(e){el('ghBirthdayContent').textContent=e.message;}finally{btn.disabled=false;window.informarAltura?.();}
 };
 window.ghCalendarOpenV83=async function(force=false){
  const box=el('ghEphemeridesList'),select=el('ghEphemeridesCity');
@@ -35,3 +35,4 @@ window.ghCalendarOpenV83=async function(force=false){
  }catch(e){box.textContent=e.message;}finally{window.informarAltura?.();}
 };
 })();
+

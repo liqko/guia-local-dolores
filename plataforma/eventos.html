@@ -702,6 +702,7 @@
     }
   
     /* ===== SONIDO DEBAJO DEL VIDEO ===== */
+    .embed-head .video-sound-btn{margin:0;min-height:44px;font:inherit;flex-shrink:0;}
     .video-sound-btn{
       display:inline-flex;align-items:center;justify-content:center;gap:7px;
       min-height:42px;margin:8px auto 0;padding:9px 14px;
@@ -822,13 +823,15 @@
         e.preventDefault();
         e.stopPropagation();
         muted=!muted;
-        eventYouTubeCommand(frame,muted ? 'mute' : 'unMute');
-        if(!muted) eventYouTubeCommand(frame,'setVolume',[100]);
+        const live=frame.__gldYTPlayer;
+        if(live){try{if(muted)live.mute();else{live.setVolume(100);live.unMute();}}catch(e){}}
+        else{eventYouTubeCommand(frame,muted ? 'mute' : 'unMute');if(!muted)eventYouTubeCommand(frame,'setVolume',[100]);}
         paint();
       };
 
       host.appendChild(btn);
       paint();
+      return btn;
     }
 
     function mountYouTubeBlock(parentEl,title,url){
@@ -854,7 +857,9 @@
       const head=document.createElement('div');
       head.className='embed-head';
       const label=document.createElement('span');
-      label.textContent=title;
+      label.textContent=isShort?'Short de YouTube':title;
+      head.style.flexWrap='wrap';
+      head.style.gap='10px';
       const close=document.createElement('button');
       close.className='embed-close';
       close.type='button';
@@ -898,13 +903,21 @@
       let player=null;
       let iframe=null;
       let hidden=false;
+      let soundButton;
+      function soundPlaceholder(){
+        head.querySelector('.video-sound-btn')?.remove();
+        soundButton=document.createElement('button');soundButton.type='button';soundButton.className='video-sound-btn';
+        soundButton.textContent='🔊 Sonido · reproducí el video';soundButton.disabled=true;
+        head.insertBefore(soundButton,close);
+      }
+      soundPlaceholder();
 
       function restoreCover(){
         try{if(player&&typeof player.destroy==='function') player.destroy();}catch(e){}
         player=null;
         iframe=null;
         shell.querySelectorAll('iframe,.yt-event-shield').forEach(el=>el.remove());
-        wrap.querySelector('.video-sound-btn')?.remove();
+        soundPlaceholder();
         cover.style.display='flex';
       }
 
@@ -921,14 +934,17 @@
         iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
         iframe.setAttribute('title',title||'Video');
         iframe.style.position='absolute';
-        iframe.style.width='116%';
-        iframe.style.height='116%';
-        iframe.style.left='-8%';
-        iframe.style.top='-8%';
+        iframe.style.width='100%';
+        iframe.style.height='100%';
+        iframe.style.left='0';
+        iframe.style.top='0';
         iframe.style.border='0';
         iframe.style.pointerEvents='none';
         shell.insertBefore(iframe,cover);
-        attachEventSoundButton(iframe,wrap);
+        soundButton=attachEventSoundButton(iframe,head);
+        soundButton.disabled=true;
+        soundButton.textContent='Cargando sonido…';
+        head.insertBefore(soundButton,close);
 
         const shield=document.createElement('div');
         shield.className='yt-event-shield';
@@ -942,10 +958,12 @@
         try{ensureYouTubeAPI();}catch(e){}
         let attempts=0;
         const attach=()=>{
+          if(!iframe)return;
           if(window.YT&&YT.Player){
             try{
               player=new YT.Player(iframeId,{
                 events:{
+                  onReady:function(e){if(!iframe)return;iframe.__gldYTPlayer=e.target;soundButton.disabled=hidden;soundButton.textContent='🔊 Activar sonido';},
                   onStateChange:function(e){
                     if(e.data===YT.PlayerState.ENDED) restoreCover();
                   },
@@ -967,7 +985,7 @@
         hidden=!hidden;
         shell.style.display=hidden?'none':'block';
         close.textContent=hidden?'Ver':'Ocultar';
-        const soundButton=wrap.querySelector('.video-sound-btn');if(soundButton)soundButton.hidden=hidden;
+        if(soundButton)soundButton.disabled=hidden||!iframe?.__gldYTPlayer;
         if(hidden&&player){try{player.pauseVideo();}catch(e){}}
       };
 
@@ -2375,6 +2393,7 @@
 </script>
 </body>
 </html>
+
 
 
 
