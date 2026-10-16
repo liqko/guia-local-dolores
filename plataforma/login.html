@@ -708,7 +708,7 @@
     }
   [hidden]{display:none!important}.commerce-common-networks{padding:16px;border:1px solid #dce6eb;border-radius:12px;margin:16px 0}.common-network-fields{display:grid;grid-template-columns:1fr;gap:10px}
 .needs-terms-review{background:#ffcf70!important;color:#593600!important;border:2px solid #c77c00!important;}
-</style>
+.publication-review-state{color:#b42318!important;font-weight:800}.publication-review-link{display:inline-block!important;width:auto!important;min-height:32px;padding:5px 9px!important;margin:0 0 0 6px!important;font-size:.85rem!important;font-weight:700;color:#8f2018!important;background:#fff5f5!important;border:1px solid #b42318!important;border-radius:7px;cursor:pointer}.publication-review-link:focus-visible{outline:3px solid #b42318;outline-offset:2px}</style>
 <script src="/plataforma/clasificacion.js?v=86"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
 <script src="/plataforma/anunciantes-utilidades.js?v=1"></script>
@@ -3487,6 +3487,31 @@ function confirmarBorrado_(elemento){
   return window.confirm('Confirmar borrado\n\n¿Querés borrar '+elemento+'? Esta acción no se puede deshacer.');
 }
 
+function gldRevisionEstado_(row,tipo,id,nombre,fallbackHtml){
+  const rejected=[row?.estado,row?.estado_moderacion,row?.revision_adulto].some(value=>['RECHAZADO','RECHAZADA'].includes(String(value||'').toUpperCase()));
+  if(!rejected)return fallbackHtml;
+  return '<strong class="publication-review-state">Rechazada</strong> <button type="button" class="publication-review-link" data-publication-review="1" data-review-type="'+htmlEscape(tipo)+'" data-review-id="'+htmlEscape(id||'')+'" data-review-name="'+htmlEscape(String(nombre||'').slice(0,180))+'">Solicitar revisión</button>';
+}
+function gldSolicitarRevision_(tipo,id,nombre){
+  const labels={ACTIVIDAD:'Actividad',EVENTO:'Evento VIP',EVENTO_FREE:'Evento Free',PROMO:'Promoción',PUBLICIDAD:'Publicidad'};
+  if(!labels[tipo]||!id)return;
+  const detail=document.getElementById('soporte-detalle');if(!detail)return;
+  const key=tipo+':'+id;
+  if(detail.value.trim()&&detail.dataset.reviewDraft!==key&&!window.confirm('Ya hay un borrador de Soporte. ¿Reemplazarlo por esta solicitud de revisión?'))return;
+  if(detail.dataset.reviewDraft!==key||!detail.value.trim()){
+    detail.value=['Solicitud de revisión de publicación rechazada','Tipo: '+labels[tipo],'Publicación: '+String(nombre||''),'Referencia: '+id,'Anunciante: '+String(sesion?.id||''),'','Motivo de mi solicitud: '].join('\n');
+    detail.dataset.reviewDraft=key;
+  }
+  const mail=document.getElementById('soporte-mail');if(mail&&!mail.value)mail.value=sesionSuscriptor?.mail||'';
+  abrirSoporte_();setMsg('soporte-msg','ok','Completá el motivo y enviá tu solicitud de revisión.');
+  detail.scrollIntoView?.({block:'center'});detail.focus({preventScroll:true});detail.setSelectionRange?.(detail.value.length,detail.value.length);
+}
+document.addEventListener('click',function(event){
+  const button=event.target?.closest?.('[data-publication-review]');if(!button)return;
+  event.preventDefault();event.stopPropagation();
+  gldSolicitarRevision_(button.dataset.reviewType,button.dataset.reviewId,button.dataset.reviewName);
+},true);
+
 function actividadesOptionEscape_(s){ return htmlEscape(String(s ?? '')); }
 
 
@@ -3870,7 +3895,7 @@ function actividadesRenderLista_(){
       return `${h.dia_semana||''} ${hora} · ${h.modalidad==='MIXTO'?'Mixta · ':''}${actividadesLugarLabel_(h)}${extra?' · '+extra:''}`;
     }).join('<br>');
     return `<details class="act-card record-collapse">
-      <summary><span class="record-title">${htmlEscape(a.nombre||'')}</span><span class="record-collapse-state">Estado: ${htmlEscape(estado||'Sin estado')}</span></summary>
+      <summary><span class="record-title">${htmlEscape(a.nombre||'')}</span><span class="record-collapse-state">Estado: ${gldRevisionEstado_(a,'ACTIVIDAD',a.actividad_id||a.id,a.nombre,htmlEscape(estado||'Sin estado'))}</span></summary>
       <div class="record-collapse-body">
       <div class="record-id">ID: ${htmlEscape(a.actividad_id||'SIN ID')}</div>
       <div class="small-muted">${htmlEscape(a.categoria||'')} · ${htmlEscape(estado)} · creada ${htmlEscape(a.creado||'')} · vence ${htmlEscape(a.vigente_hasta||'')}</div>
@@ -4669,7 +4694,7 @@ function pubUiLista_(){
     const categorias=new Set(seg.map(x=>x.categoria_key)).size;
 
     return `<details class="pub-card record-collapse">
-      <summary><span class="record-title">${pubUiEsc_(p.nombre_interno||p.titulo||'Publicidad')}</span><span class="record-collapse-state">Estado: ${pubUiEsc_(p.estado||'Sin estado')}</span></summary>
+      <summary><span class="record-title">${pubUiEsc_(p.nombre_interno||p.titulo||'Publicidad')}</span><span class="record-collapse-state">Estado: ${gldRevisionEstado_(p,'PUBLICIDAD',p.publicidad_id||p.id,p.nombre_interno||p.titulo,pubUiEsc_(p.estado||'Sin estado'))}</span></summary>
       <div class="record-collapse-body">
       <div class="record-id">ID: ${pubUiEsc_(p.publicidad_id||'SIN ID')}</div>
       <div class="small-muted">
@@ -6237,7 +6262,7 @@ function renderPromosCards(promos){
 
     html += `
       <details class="card promo-record">
-        <summary><span class="card-title">${promo}</span><span class="promo-record-state"><b>Estado:</b> ${estadoTxt}</span></summary>
+        <summary><span class="card-title">${promo}</span><span class="promo-record-state"><b>Estado:</b> ${gldRevisionEstado_(p,'PROMO',p.promo_id||p.id,p.promo,estadoTxt)}</span></summary>
         <div class="promo-record-body">
         <div class="record-id">ID: ${pid || 'SIN ID'}</div>
         ${img ? `<img src="${htmlEscape(img)}" alt="Imagen de la promo" style="width:100%;max-height:220px;object-fit:contain;border-radius:8px;border:1px solid #ddd;background:#fff;margin:4px 0 10px">` : ''}
@@ -6971,7 +6996,7 @@ function renderEventsCards(events){
 
     html += `
       <details class="card record-collapse">
-        <summary><span class="record-title">${htmlEscape(e.nombre_evento || '')}</span><span class="record-collapse-state"><b>Estado:</b> ${estadoTxt}</span></summary>
+        <summary><span class="record-title">${htmlEscape(e.nombre_evento || '')}</span><span class="record-collapse-state"><b>Estado:</b> ${gldRevisionEstado_(e,'EVENTO',e.evento_id||e.id,e.nombre_evento,estadoTxt)}</span></summary>
         <div class="record-collapse-body">
         <div class="card-meta">
           <div><b>Desde:</b> ${fechaDesdeTxt || '-'}</div>
@@ -7601,7 +7626,7 @@ function renderFreeEvents_(events){
     const moderacion=adulto&&revisionAdulto!=='APROBADO'?(revisionAdulto==='RECHAZADO'?'RECHAZADO +18':'PENDIENTE DE REVISIÓN +18'):String(ev.estado_moderacion||'').trim();
     const city=freeEventCityLabel_(ev.ciudad_id);
     return `<details class="events-free-row record-collapse">
-      <summary><span class="record-title">${htmlEscape(ev.nombre_evento||'(Sin nombre)')}</span><span class="record-collapse-state">Estado: ${htmlEscape(paused?'Pausado':'Activo')}${moderacion?' · Moderación: '+htmlEscape(moderacion):''}</span></summary>
+      <summary><span class="record-title">${htmlEscape(ev.nombre_evento||'(Sin nombre)')}</span><span class="record-collapse-state">Estado: ${gldRevisionEstado_(ev,'EVENTO_FREE',ev.evento_id||ev.id,ev.nombre_evento,htmlEscape(paused?'Pausado':'Activo')+(moderacion?' · Moderación: '+htmlEscape(moderacion):''))}</span></summary>
       <div class="record-collapse-body">
       <div class="record-id">ID: ${htmlEscape(id||'SIN ID')}</div>
       <div class="events-free-row-meta">${htmlEscape([rango,city,ev.lugar].filter(Boolean).join(' · '))}</div>
