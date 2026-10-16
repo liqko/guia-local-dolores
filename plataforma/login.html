@@ -849,13 +849,11 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
         <button class="secondary" type="button" onclick="mostrarSeccionSoporte_('nueva')">Nueva solicitud</button>
         <button class="secondary" type="button" onclick="abrirMisSolicitudesV74_()">Mis solicitudes y respuestas</button>
       </div>
-      <section id="soporte-nueva" class="support-section"><h3>Registrar una solicitud</h3><label for="soporte-mail">Correo de contacto</label><input id="soporte-mail" type="email"><label for="soporte-whatsapp">WhatsApp de contacto</label><input id="soporte-whatsapp" type="tel"><label for="soporte-detalle">¿Qué necesitás resolver?</label><textarea id="soporte-detalle" rows="4" maxlength="2000"></textarea><button id="btnEnviarSoporte" type="button" onclick="enviarSoporteV73_()">Enviar solicitud</button><div id="soporte-msg" role="status"></div></section>
+      <section id="soporte-nueva" class="support-section"><h3>Registrar una solicitud</h3><label for="soporte-mail">Correo de contacto</label><input id="soporte-mail" type="email"><label for="soporte-whatsapp">WhatsApp de contacto</label><input id="soporte-whatsapp" type="tel"><div id="soporte-revision-contexto" hidden style="white-space:pre-wrap;margin:12px 0;padding:12px;background:#edf3f7;border-radius:8px"></div><label id="soporte-detalle-label" for="soporte-detalle">¿Qué necesitás resolver?</label><textarea id="soporte-detalle" rows="4" maxlength="2000"></textarea><button id="btnEnviarSoporte" type="button" onclick="enviarSoporteV73_()">Enviar solicitud</button><div id="soporte-msg" role="status"></div></section>
       <section id="soporte-solicitudes" class="support-section" hidden><h3>Mis solicitudes y respuestas</h3>
         <button class="secondary" type="button" onclick="cargarMisSolicitudesV74_()">Actualizar solicitudes</button>
         <div id="mis-soporte-lista" role="status"></div><div id="mis-soporte-conversacion"></div>
       </section>
-      <details class="support-fallback"><summary>Contacto de última instancia</summary>
-        <p class="small-muted">Usá WhatsApp si no pudiste resolver tu consulta mediante una solicitud de soporte.</p><a id="link-support_dashboard" href="#" target="_blank" class="btn-whatsapp" aria-label="Contacto de última instancia por WhatsApp">WhatsApp</a></details>
       <button class="secondary" type="button" onclick="mostrarPanel(sesion?.id?'dashboard':'recuperar')">Volver al panel</button>
     </div>
     <div id="panel-recuperar" class="panel">
@@ -2002,7 +2000,11 @@ function mostrarSeccionSoporte_(seccion){
  document.getElementById('soporte-nueva').hidden=seccion!=='nueva';
  document.getElementById('soporte-solicitudes').hidden=seccion!=='solicitudes';
 }
-function abrirSoporte_(){mostrarPanel('soporte');mostrarSeccionSoporte_('nueva');}
+function abrirSoporte_(revision=false){
+ const context=document.getElementById('soporte-revision-contexto'),detail=document.getElementById('soporte-detalle');
+ if(!revision){context.hidden=true;context.textContent='';delete detail.dataset.reviewContext;delete detail.dataset.reviewDraft;detail.maxLength=2000;document.getElementById('soporte-detalle-label').textContent='¿Qué necesitás resolver?';}
+ mostrarPanel('soporte');mostrarSeccionSoporte_('nueva');
+}
 async function abrirMisSolicitudesV74_(){mostrarPanel('soporte');mostrarSeccionSoporte_('solicitudes');await cargarMisSolicitudesV74_();}
 async function soporteFetchV74_(path,data,receipt){
  const opts={headers:receipt?{'Authorization':'Bearer '+receipt}:gldAuthHeaders_({})};
@@ -2028,8 +2030,13 @@ async function abrirConversacionSoporteV74_(id,receipt){
 }
 
 async function enviarSoporteV73_(){
- const msg=document.getElementById('soporte-msg'),button=document.getElementById('btnEnviarSoporte');button.disabled=true;msg.textContent='Registrando...';
- try{const result=await registrarSolicitudSoporteV73_('SOPORTE',String(document.getElementById('soporte-detalle').value||'').trim());msg.textContent='Solicitud '+result.solicitud_id+' registrada. Queda pendiente de atención.';}
+ const msg=document.getElementById('soporte-msg'),button=document.getElementById('btnEnviarSoporte'),input=document.getElementById('soporte-detalle');
+ const motivo=String(input.value||'').trim();
+ if(!motivo){msg.textContent=input.dataset.reviewContext?'Escribí el motivo de tu solicitud.':'Contanos qué necesitás resolver.';input.focus();return;}
+ const detalle=input.dataset.reviewContext?input.dataset.reviewContext+'\n\nMotivo de mi solicitud:\n'+motivo:motivo;
+ if(detalle.length>2000){msg.textContent='El mensaje es demasiado largo. Acortalo para poder enviarlo.';return;}
+ button.disabled=true;msg.textContent='Registrando...';
+ try{await registrarSolicitudSoporteV73_('SOPORTE',detalle);msg.textContent='Solicitud registrada. Queda pendiente de atención. Gracias por contribuir al crecimiento de la plataforma. Te responderemos por este sistema; la revisión y la respuesta pueden demorar hasta siete días. Podés consultar el seguimiento en Mis solicitudes y respuestas.';}
  catch(e){msg.textContent=e.message;}finally{button.disabled=false;}
 }
 
@@ -3493,19 +3500,21 @@ function gldRevisionEstado_(row,tipo,id,nombre,fallbackHtml){
   return '<strong class="publication-review-state">Rechazada</strong> <button type="button" class="publication-review-link" data-publication-review="1" data-review-type="'+htmlEscape(tipo)+'" data-review-id="'+htmlEscape(id||'')+'" data-review-name="'+htmlEscape(String(nombre||'').slice(0,180))+'">Solicitar revisión</button>';
 }
 function gldSolicitarRevision_(tipo,id,nombre){
-  const labels={ACTIVIDAD:'Actividad',EVENTO:'Evento VIP',EVENTO_FREE:'Evento Free',PROMO:'Promoción',PUBLICIDAD:'Publicidad'};
-  if(!labels[tipo]||!id)return;
-  const detail=document.getElementById('soporte-detalle');if(!detail)return;
-  const key=tipo+':'+id;
-  if(detail.value.trim()&&detail.dataset.reviewDraft!==key&&!window.confirm('Ya hay un borrador de Soporte. ¿Reemplazarlo por esta solicitud de revisión?'))return;
-  if(detail.dataset.reviewDraft!==key||!detail.value.trim()){
-    detail.value=['Solicitud de revisión de publicación rechazada','Tipo: '+labels[tipo],'Publicación: '+String(nombre||''),'Referencia: '+id,'Anunciante: '+String(sesion?.id||''),'','Motivo de mi solicitud: '].join('\n');
-    detail.dataset.reviewDraft=key;
-  }
-  const mail=document.getElementById('soporte-mail');if(mail&&!mail.value)mail.value=sesionSuscriptor?.mail||'';
-  abrirSoporte_();setMsg('soporte-msg','ok','Completá el motivo y enviá tu solicitud de revisión.');
-  detail.scrollIntoView?.({block:'center'});detail.focus({preventScroll:true});detail.setSelectionRange?.(detail.value.length,detail.value.length);
+ const labels={ACTIVIDAD:'Actividad',EVENTO:'Evento VIP',EVENTO_FREE:'Evento Free',PROMO:'Promoción',PUBLICIDAD:'Publicidad'};
+ if(!labels[tipo]||!id)return;
+ const detail=document.getElementById('soporte-detalle'),context=document.getElementById('soporte-revision-contexto');if(!detail||!context)return;
+ const key=tipo+':'+id;
+ if(detail.value.trim()&&detail.dataset.reviewDraft!==key&&!window.confirm('Ya hay un borrador de Soporte. ¿Reemplazarlo por esta solicitud de revisión?'))return;
+ if(detail.dataset.reviewDraft!==key){detail.value='';detail.dataset.reviewDraft=key;}
+ const header=['Solicitud de revisión de publicación rechazada','Tipo: '+labels[tipo],'Publicación: '+String(nombre||''),'Referencia: '+id,'Anunciante: '+String(sesion?.id||'')].join('\n');
+ detail.dataset.reviewContext=header;context.textContent=header;context.hidden=false;
+ detail.maxLength=Math.max(0,2000-header.length-'\n\nMotivo de mi solicitud:\n'.length);
+ document.getElementById('soporte-detalle-label').textContent='Motivo de mi solicitud';
+ const mail=document.getElementById('soporte-mail');if(mail&&!mail.value)mail.value=sesionSuscriptor?.mail||'';
+ abrirSoporte_(true);setMsg('soporte-msg','ok','Completá el motivo y enviá tu solicitud de revisión.');
+ detail.scrollIntoView?.({block:'center'});detail.focus({preventScroll:true});
 }
+
 document.addEventListener('click',function(event){
   const button=event.target?.closest?.('[data-publication-review]');if(!button)return;
   event.preventDefault();event.stopPropagation();
@@ -8696,8 +8705,6 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
          window.gldRelacionPuedeEliminarAnunciante()) ? '' : 'none';
     }
     document.getElementById('soporte-mail').value=sesionSuscriptor?.mail||'';
-    document.getElementById('link-support_dashboard').href =
-      `https://wa.me/${SUPPORT_NUMBER}?text=${encodeURIComponent('GLD_SOLICITUD: SOPORTE_PANEL\nNecesito ayuda con mi panel de anunciante.\nPersona: ' + nombrePersona + '\nAnunciante: ' + sesion.nombre + '\nAnunciante ID: ' + sesion.id)}`;
 
     const dashboardLoadStatus=document.getElementById('dashboard-load-status');
     const dashboardReadyPrompt=document.getElementById('dashboard-ready-prompt');
