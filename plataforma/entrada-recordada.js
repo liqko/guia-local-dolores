@@ -16,7 +16,12 @@
   if(pending)return pending;
   pending=(async()=>{
    const sent=token(),sid=identity(sent);let profile=read(SESSION);
-   if(!sid)return {recordada:false,ciudad_id:'',perfil:null};
+   if(!sid){
+    // Remember public navigation independently of account credentials.
+    // This context never authenticates a subscriber or grants private access.
+    const context=read(CONTEXT),city=String(context?.ciudad_id||'').trim();
+    return {recordada:!!city,ciudad_id:city,contexto:city?context:null,perfil:null};
+   }
    if(profile&&String(profile.suscriptor_id)!==sid)profile=null;
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
    try{
