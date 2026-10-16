@@ -3539,6 +3539,7 @@ function actividadesCrearHorarioCard_(h={}){
   wrap.style.cssText='border:1px solid #e5e5e5;border-radius:10px;padding:12px;margin:10px 0;background:#fafafa';
 
   const tipo=String(h.tipo_lugar||'').toUpperCase();
+  const modalidad=String(h.modalidad||(tipo.includes('VIRTUAL')||tipo.includes('ONLINE')?'VIRTUAL':'PRESENCIAL')).toUpperCase();
   const ciudad=String(h.ciudad_id||'') || (actividadesState.ciudades?.length===1 ? String(actividadesState.ciudades[0].ciudad_id||'') : '');
   let selectedLugar=tipo==='SEDE' ? String(h.sede_id||'') : String(h.lugar_id||'');
 
@@ -3548,6 +3549,8 @@ function actividadesCrearHorarioCard_(h={}){
       <button type="button" class="btn-danger act-remove-horario" style="margin:0;width:auto">Quitar</button>
     </div>
     <div class="data-fields-grid">
+      <div class="data-field-card"><label><strong>Modalidad <span class="req" aria-label="obligatorio">*</span></strong></label><select class="act-h-modalidad" aria-required="true"><option value="PRESENCIAL"${modalidad==='PRESENCIAL'?' selected':''}>Presencial</option><option value="VIRTUAL"${modalidad==='VIRTUAL'?' selected':''}>Virtual</option><option value="MIXTO"${modalidad==='MIXTO'?' selected':''}>Mixta · Presencial y virtual</option></select></div>
+      <div class="data-field-card act-h-virtual-wrap"><label><strong>Enlace de acceso virtual <span class="req" aria-label="obligatorio">*</span></strong></label><input class="act-h-url-virtual" type="url" aria-required="true" value="${actividadesOptionEscape_(h.url_virtual||h.link_virtual||h.enlace_virtual||h.web||'')}" placeholder="https://..."><div class="small-muted">Obligatorio para modalidad virtual o mixta.</div></div>
       <div class="data-field-card">
         <label><strong>Ciudad <span class="req" aria-label="obligatorio">*</span></strong></label>
         <select class="act-h-ciudad" aria-required="true">${actividadesCiudadOptions_(ciudad)}</select>
@@ -3625,6 +3628,14 @@ function actividadesCrearHorarioCard_(h={}){
     lugarWrap.innerHTML='<div class="small-muted">Seleccioná el tipo de lugar.</div>';
   }
 
+  function syncModalidad(){
+    const mode=wrap.querySelector('.act-h-modalidad').value,virtual=mode==='VIRTUAL';
+    for(const el of [ciudadSel,tipoSel,wrap.querySelector('.act-h-sector')]){if(el)el.closest('.data-field-card').hidden=virtual;}
+    lugarWrap.hidden=virtual;
+    wrap.querySelector('.act-h-virtual-wrap').hidden=mode==='PRESENCIAL';
+  }
+  wrap.querySelector('.act-h-modalidad').addEventListener('change',syncModalidad);
+  syncModalidad();
   ciudadSel.addEventListener('change',()=>{ selectedLugar=''; renderLugar(); });
   tipoSel.addEventListener('change',()=>{ selectedLugar=''; renderLugar(); });
   wrap.querySelector('.act-remove-horario').addEventListener('click',()=>wrap.remove());
@@ -3745,6 +3756,7 @@ function actividadesFillCategorias_(){
 }
 
 function actividadesLugarLabel_(h){
+  if(h.modalidad==='VIRTUAL'||String(h.tipo_lugar||'').toUpperCase()==='VIRTUAL')return 'Actividad virtual';
   if(h.tipo_lugar==='SEDE'){
     const s=(actividadesState.sedes||[]).find(x=>String(x.sede_id||'')===String(h.sede_id||''));
     return s ? actividadesSedeLabel_(s) : 'Sede del anunciante';
@@ -3850,7 +3862,7 @@ function actividadesRenderLista_(){
         h.sector ? `Sector: ${h.sector}` : '',
         h.responsable ? `A cargo de: ${h.responsable}` : ''
       ].filter(Boolean).join(' · ');
-      return `${h.dia_semana||''} ${hora} · ${actividadesLugarLabel_(h)}${extra?' · '+extra:''}`;
+      return `${h.dia_semana||''} ${hora} · ${h.modalidad==='MIXTO'?'Mixta · ':''}${actividadesLugarLabel_(h)}${extra?' · '+extra:''}`;
     }).join('<br>');
     return `<details class="act-card record-collapse">
       <summary><span class="record-title">${htmlEscape(a.nombre||'')}</span><span class="record-collapse-state">Estado: ${htmlEscape(estado||'Sin estado')}</span></summary>
@@ -3948,8 +3960,10 @@ function actividadesRenderLista_(){
 }
 
 function actividadesHorarioPayload_(card,index){
-  const ciudad_id=String(card.querySelector('.act-h-ciudad')?.value||'').trim();
-  const tipo_lugar=String(card.querySelector('.act-h-tipo')?.value||'').trim();
+  const modalidad=String(card.querySelector('.act-h-modalidad')?.value||'PRESENCIAL');
+  const ciudad_id=modalidad==='VIRTUAL'?'VIRTUAL':String(card.querySelector('.act-h-ciudad')?.value||'').trim();
+  const url_virtual=modalidad==='PRESENCIAL'?'':String(card.querySelector('.act-h-url-virtual')?.value||'').trim();
+  const tipo_lugar=modalidad==='VIRTUAL'?'VIRTUAL':String(card.querySelector('.act-h-tipo')?.value||'').trim();
   const sector=String(card.querySelector('.act-h-sector')?.value||'').trim();
   const responsable=String(card.querySelector('.act-h-responsable')?.value||'').trim();
   const dia_semana=String(card.querySelector('.act-h-dia')?.value||'').trim();
@@ -3962,8 +3976,10 @@ function actividadesHorarioPayload_(card,index){
   if(!dia_semana) throw new Error(`Bloque ${index+1}: seleccioná un día.`);
   if(!hora_desde) throw new Error(`Bloque ${index+1}: completá la hora de inicio.`);
 
-  const out={actividad_horario_id:String(card.dataset.horarioId||''),ciudad_id,tipo_lugar,sector,responsable,dia_semana,hora_desde,hora_hasta,observaciones,activo:true};
+  if(modalidad!=='PRESENCIAL'){let valid=false;try{valid=['http:','https:'].includes(new URL(url_virtual).protocol);}catch(_){}if(!valid)throw new Error(`Bloque ${index+1}: ingresá un enlace de acceso virtual válido (https://...).`);}
+  const out={modalidad,url_virtual,actividad_horario_id:String(card.dataset.horarioId||''),ciudad_id,tipo_lugar,sector,responsable,dia_semana,hora_desde,hora_hasta,observaciones,activo:true};
 
+  if(modalidad==='VIRTUAL')return out;
   if(tipo_lugar==='SEDE' || tipo_lugar==='LUGAR'){
     const sel=card.querySelector('.act-h-lugar');
     const value=String(sel?.value||'').trim();
