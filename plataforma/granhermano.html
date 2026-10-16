@@ -1042,6 +1042,7 @@ function ghAgruparRevision(rows){
   const key=tipo+':'+id,prior=items.get(key)||{};items.set(key,{...prior,...x,tipo,id,adulto:!!(prior.adulto||x.adulto),normal:!!(prior.normal||x.normal)});
  }return [...items.values()];
 }
+let GH_REVISION_RESULT=null;
 let GH_REVISION_ROWS=[],GH_REVISION_ERRORS=[],GH_REVISION_READY=false,GH_REVISION_LOADING=null;
 const GH_REVISION_SOURCES=new Map();
 function ghRenderRequestSummary(){
@@ -1070,7 +1071,7 @@ function ghReviewCard(x){
 }
 function ghRenderReviewQueues(){
  const groups=[['eventosVipRevision','EVENTO','VIP'],['eventosFreeRevision','EVENTO','FREE'],['actividadesAdminList','ACTIVIDAD'],['anunciantesRevision','ANUNCIANTE'],['publicidadesRevision','PUBLICIDAD']];
- for(const [id,tipo,kind]of groups){const box=document.getElementById(id);if(!box)continue;const rows=GH_REVISION_ROWS.filter(x=>x.tipo===tipo&&(!kind||ghPendingKind(x)===kind));box.innerHTML=!GH_REVISION_READY?'Pendientes sin comprobar.':rows.map(ghReviewCard).join('')||(GH_REVISION_ERRORS.length?'<p class="error">No se pudo comprobar toda la bandeja. Actualizá los pendientes.</p>':'<p class="success">No hay pendientes de aprobación.</p>');}
+ for(const [id,tipo,kind]of groups){const box=document.getElementById(id);if(!box)continue;const rows=GH_REVISION_ROWS.filter(x=>x.tipo===tipo&&(!kind||ghPendingKind(x)===kind));box.innerHTML=(GH_REVISION_RESULT?.tipo===tipo?'<p role="status">'+esc(GH_REVISION_RESULT.texto)+'</p>':'')+(!GH_REVISION_READY?'Pendientes sin comprobar.':rows.map(ghReviewCard).join('')||(GH_REVISION_ERRORS.length?'<p class="error">No se pudo comprobar toda la bandeja. Actualizá los pendientes.</p>':'<p class="success">No hay pendientes de aprobación.</p>'));}
  const count=document.getElementById('ghRevisionCantidad');if(count)count.textContent=GH_REVISION_READY?'('+GH_REVISION_ROWS.length+(GH_REVISION_ERRORS.length?' · incompleto':'')+')':'…';
  const box=document.getElementById('ghRevisionUnificada');if(!box)return;
  const defs=[['EVENTO','Eventos VIP','VIP'],['EVENTO_FREE','Eventos Free','FREE'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Anunciantes'],['PUBLICIDAD','Publicidades']];
@@ -1096,10 +1097,23 @@ async function ghRevisionUnificada(){
  })().finally(()=>{GH_REVISION_LOADING=null;});return GH_REVISION_LOADING;
 }
 
+function ghAplicarRevisionResuelta_(tipo,id,decision,result){
+ const item=result.item||result.actividad||result.evento||{};
+ const matches=row=>{const t=String(row.tipo||'').toUpperCase().replace('ANUNCIO','ANUNCIANTE');return t===tipo&&String(row.id||row.evento_id||row.actividad_id||row.anunciante_id||row.publicidad_id||'')===String(id);};
+ const keepAdult=decision==='APROBAR'&&item.revision_adulto==='PENDIENTE';
+ const keepNormal=decision==='APROBAR'&&item.estado_moderacion==='PENDIENTE';
+ GH_REVISION_RESULT={tipo,texto:decision==='RECHAZAR'?'Publicación rechazada. El anunciante verá el estado al actualizar su panel.':keepAdult||keepNormal?'Decisión guardada. Continúa otra revisión pendiente.':'Publicación aprobada.'};
+ for(const [source,rows]of GH_REVISION_SOURCES)GH_REVISION_SOURCES.set(source,rows.filter(row=>!matches(row)||(source==='adulto'?keepAdult:keepNormal)).map(row=>matches(row)?{...row,...item,adulto:source==='adulto',normal:source!=='adulto'}:row));
+ GH_REVISION_ROWS=ghAgruparRevision([...GH_REVISION_SOURCES.values()].flat());
+ if(tipo==='EVENTO')GH_PENDING_EVENTS=GH_PENDING_EVENTS.filter(row=>String(row.id||row.evento_id)!==String(id));
+ if(tipo==='ACTIVIDAD')GH_PENDING_ACTIVITIES=GH_PENDING_ACTIVITIES.filter(row=>String(row.id||row.actividad_id)!==String(id));
+ ghRenderTodo();informarAltura();
+}
+
 async function ghResolverRevisionUnificada(source,tipo,id,decision){
  if(!confirm(decision==='APROBAR'?'¿Aprobar este contenido?':'¿Rechazar este contenido?'))return;
  const path=source==='adulto'?'/superadmin/adult-review':['EVENTO','ACTIVIDAD'].includes(tipo)?'/superadmin/moderation/resolve':'/superadmin/publications/blocked';
- try{const r=await fetch(TERRITORY_API_ORIGIN+path,{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({tipo:source==='adulto'&&tipo==='ANUNCIANTE'?'ANUNCIO':tipo,id,decision})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo resolver.');await ghRevisionUnificada();}catch(e){alert(e.message);}
+ try{const r=await fetch(TERRITORY_API_ORIGIN+path,{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({tipo:source==='adulto'&&tipo==='ANUNCIANTE'?'ANUNCIO':tipo,id,decision})}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo resolver.');ghAplicarRevisionResuelta_(tipo,id,decision,j);}catch(e){alert(e.message);}
 }
 </script>
 <script src="/plataforma/gh-terminos.js?v=81"></script>

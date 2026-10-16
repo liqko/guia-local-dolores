@@ -3483,6 +3483,10 @@ const ACT_CONTACT_LABELS = {
   direccion:'Dirección',maps:'Cómo llegar'
 };
 
+function confirmarBorrado_(elemento){
+  return window.confirm('Confirmar borrado\n\n¿Querés borrar '+elemento+'? Esta acción no se puede deshacer.');
+}
+
 function actividadesOptionEscape_(s){ return htmlEscape(String(s ?? '')); }
 
 
@@ -3855,7 +3859,8 @@ function actividadesRenderLista_(){
 
   box.innerHTML=rows.map((a,index)=>{
     const horarios=Array.isArray(a.horarios)?a.horarios:[];
-    const estado=String(a.estado||'').toUpperCase();
+    const rejected=['RECHAZADO','RECHAZADA'].includes(String(a.revision_adulto||'').toUpperCase())||['RECHAZADO','RECHAZADA'].includes(String(a.estado_moderacion||'').toUpperCase());
+    const estado=rejected?'RECHAZADA':String(a.estado||'').toUpperCase();
     const detalle=horarios.map(h=>{
       const hora=h.hora_hasta ? `${h.hora_desde||''}-${h.hora_hasta}` : `${h.hora_desde||''}`;
       const extra=[
@@ -3912,22 +3917,7 @@ function actividadesRenderLista_(){
         return;
       }
 
-      if(action==='eliminar'){
-        const ahora=Date.now();
-        const hasta=Number(btn.dataset.confirmarHasta||0);
-        if(ahora>hasta){
-          btn.dataset.confirmarHasta=String(ahora+5000);
-          btn.textContent='Confirmar borrado';
-          setMsg('actividades-msg','err','Volvé a presionar “Confirmar borrado” para borrar la actividad.');
-          setTimeout(()=>{
-            if(Number(btn.dataset.confirmarHasta||0)<=Date.now()){
-              btn.textContent='Borrar';
-              btn.dataset.confirmarHasta='0';
-            }
-          },5200);
-          return;
-        }
-      }
+      if(action==='eliminar'&&!confirmarBorrado_('esta actividad'))return;
 
       await runDashboardAction(
         action==='renovar'?'Renovando actividad...':
@@ -4717,28 +4707,7 @@ function pubUiLista_(){
         return;
       }
 
-      if(action==='eliminar'){
-        const hasta=Number(btn.dataset.confirmarHasta||0);
-
-        if(Date.now()>hasta){
-          btn.dataset.confirmarHasta=String(Date.now()+5000);
-          btn.textContent='Confirmar borrado';
-          setMsg(
-            'publicidad-msg',
-            'err',
-            'Volvé a presionar “Confirmar borrado” para borrar la publicidad.'
-          );
-
-          setTimeout(()=>{
-            if(Number(btn.dataset.confirmarHasta||0)<=Date.now()){
-              btn.textContent='Borrar';
-              btn.dataset.confirmarHasta='0';
-            }
-          },5200);
-
-          return;
-        }
-      }
+      if(action==='eliminar'&&!confirmarBorrado_('esta publicidad'))return;
 
       await runDashboardAction(
         'Eliminando publicidad...',
@@ -5305,21 +5274,7 @@ function efemRenderList(){
     if(action==='eliminar'){
       const r=efemState.efemerides.find(x=>String(x.efemeride_id||'')===String(id));
       const nombre=r&&r.nombre?` "${r.nombre}"`:'';
-      const ahora=Date.now();
-      const confirmadoHasta=Number(btn.dataset.confirmarEliminarHasta||0);
-      if(confirmadoHasta < ahora){
-        btn.dataset.confirmarEliminarHasta=String(ahora+8000);
-        btn.textContent='Confirmar borrado';
-        setMsg('efem-msg','err',`Vas a eliminar definitivamente la efeméride${nombre}. Volvé a tocar "Confirmar borrado" para borrarla.`);
-        setTimeout(()=>{
-          if(Number(btn.dataset.confirmarEliminarHasta||0) <= Date.now()){
-            delete btn.dataset.confirmarEliminarHasta;
-            if(btn.isConnected) btn.textContent='Borrar';
-          }
-        },8100);
-        return;
-      }
-      delete btn.dataset.confirmarEliminarHasta;
+      if(!confirmarBorrado_('esta efeméride'+nombre))return;
       const originalText='Borrar';
       await runDashboardAction('Eliminando efeméride...',async()=>{
         btn.disabled=true;
@@ -6029,7 +5984,7 @@ function duplicateSedeCard(card){
 
 async function deleteSedeCard(card){
   if(!card) return;
-  if(!confirm('¿Borrar esta sede?')) return;
+  if(!confirmarBorrado_('esta sede')) return;
 
   const sedeId = String(card.querySelector('[name="sede_id"]')?.value || '').trim();
   if(!sedeId){
@@ -6412,7 +6367,7 @@ function bindPromosListActions(){
       }
 
       if(action === 'delete'){
-        if(!confirm('Confirmar borrar promo?')) return;
+        if(!confirmarBorrado_('esta promoción')) return;
         await runDashboardAction('Eliminando promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Borrando promo...');
           const r = await promos_post({ action: 'deletePromo', payload: { promo_id: pid } });
@@ -7194,7 +7149,7 @@ function bindEventsListActions(){
       }
 
       if(action === 'delete'){
-        if(!confirm('Confirmar borrar evento?')) return;
+        if(!confirmarBorrado_('este evento')) return;
         await runDashboardAction('Eliminando evento...',async()=>{
           setMsg('eventos-msg', 'ok', 'Borrando evento...');
           const res = await events_post({ action:'deleteVipEvent', payload: { evento_id: evId } });
@@ -7721,7 +7676,7 @@ function renderFreeEvents_(events){
       }
 
       if(action==='delete'){
-        if(!confirm('¿Borrar este evento free?')) return;
+        if(!confirmarBorrado_('este evento Free')) return;
         await runDashboardAction('Eliminando evento free...',async()=>{
           const res=await events_post({action:'deleteFreeEvent',payload:{evento_id:id}});
           if(res.status===200 && res.json && res.json.success){
