@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/plataforma/publicidad-distribucion.js?v=101"></script>
 <script src="/plataforma/imagenes-publicas.js?v=89"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/consumo-v44.js?v=87"></script>
@@ -762,6 +763,7 @@
 
 
     let banners = [];
+  let publicidadContexto={};
 
     async function fetchInstagramImage(url) {
       try {
@@ -1654,150 +1656,9 @@
       return card;
     }
 
-    function renderBanner(banner, idx){
- if(banner.bloqueado18) return window.GLD_ADULT.card();
-      const id = `banner-media-${idx}-${Math.floor(Math.random()*10000)}`;
-      const defaultCta = "https://www.guialocaldolores.com.ar";
-      const cta = banner.cta && banner.cta.trim() ? banner.cta.trim() : defaultCta;
-      const replayButton = `<button class="replay-btn" data-target-id="${id}" aria-label="Reproducir aquí">Reproducir aquí</button>`;
+    function renderBanner(banner,idx){return window.GLD_PUBLICIDAD.render(banner,idx);}
 
-      if(banner.img){
-        return `
-          <div data-contenido-adulto="${banner.contenido_adulto===true?'true':'false'}" class="banner-tarjeta has-cta" data-cta="${cta}">
-            <div id="${id}" class="banner-media" data-cta="${cta}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}><img src="${GLD_MEDIA.imageAttr(banner.img)}" alt="Banner"></div>
-            ${replayButton}
-            <a class="cta-btn" href="${cta}" target="_top" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
-          </div>
-        `;
-      }
-
-      if(banner.media && isVideoFile(banner.media)){
-        const posterAttr = banner.poster ? `poster="${banner.poster}"` : '';
-        return `
-          <div data-contenido-adulto="${banner.contenido_adulto===true?'true':'false'}" class="banner-tarjeta has-cta" data-cta="${cta}">
-            <div id="${id}" class="banner-media" data-cta="${cta}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}>
-              <video class="banner-media-video" data-src="${banner.media}" ${posterAttr} muted playsinline preload="metadata" controls></video>
-            </div>
-            ${replayButton}
-            <a class="cta-btn" href="${cta}" target="_top" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
-          </div>
-        `;
-      }
-
-      if(banner.media && isYouTube(banner.media)){
-        const embed = getYouTubeEmbedUrl(banner.media, true) || banner.media;
-        return `
-          <div data-contenido-adulto="${banner.contenido_adulto===true?'true':'false'}" class="banner-tarjeta has-cta" data-cta="${cta}">
-            <div id="${id}" class="banner-media" data-src="${embed}" data-cta="${cta}" ${banner.poster ? `data-poster="${banner.poster}"` : ''}></div>
-            ${replayButton}
-            <a class="cta-btn" href="${cta}" target="_top" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
-          </div>
-        `;
-      }
-      return '';
-    }
-
-    function initBannerObservers(){
-      const observerOptions = { root: null, rootMargin: '0px', threshold: 0.5 };
-      const callback = function(entries, obs){
-        entries.forEach(async entry => {
-          const target = entry.target;
-          if(!target) return;
-
-          if(target.tagName && target.tagName.toLowerCase() === 'video'){
-            const videoEl = target;
-            const dataSrc = videoEl.dataset ? videoEl.dataset.src : videoEl.getAttribute('data-src');
-            if(entry.isIntersecting){
-              if(!videoEl.src && dataSrc){ videoEl.src = dataSrc; try{ videoEl.load(); }catch(e){} }
-              try{ const p = videoEl.play(); if(p && typeof p.then === 'function'){ p.catch(()=>{}); } }catch(e){}
-            } else { try{ videoEl.pause(); }catch(e){} }
-            try {
-              const container = videoEl.closest('.banner-tarjeta');
-              const replayBtn = container ? container.querySelector('.replay-btn') : null;
-              videoEl.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
-            } catch(e){}
-            return;
-          }
-
-          if(entry.isIntersecting){
-            if(target.querySelector && target.querySelector('iframe')) { try{ obs.unobserve(target); }catch(e){} return; }
-            const ds = target.dataset ? target.dataset.src : target.getAttribute('data-src');
-            if(ds){
-              try {
-                if(ds.indexOf('youtube.com') !== -1 || ds.indexOf('youtu.be') !== -1){
-                  let embedUrl = ds;
-                  const sep = ds.includes('?') ? '&' : '?';
-                  const extraParams = 'enablejsapi=1&rel=0&modestbranding=1&playsinline=1';
-                  if(!/enablejsapi=1/.test(ds)) embedUrl = ds + sep + extraParams;
-                  const iframe = document.createElement('iframe');
-                  const iframeId = `yt-embed-${Math.floor(Math.random()*1000000)}`;
-                  iframe.setAttribute('id', iframeId);
-                  iframe.setAttribute('src', embedUrl);
-                  iframe.setAttribute('frameborder', '0');
-                  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                  iframe.setAttribute('allowfullscreen', 'true');
-                  iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-                  iframe.style.width = '100%';
-                  iframe.style.height = '100%';
-                  iframe.style.border = 'none';
-                  target.innerHTML = '';
-                  target.appendChild(iframe);
-                  const poster = (target.dataset && target.dataset.poster) ? target.dataset.poster : '';
-                  target.dataset.embedUrl = embedUrl;
-                  pendingYouTubePlayers.push({ iframeId, containerEl: target, embedUrl, poster });
-                  ensureYouTubeAPI();
-                } else if(isVideoFile(ds)){
-                  const video = document.createElement('video');
-                  video.src = ds; video.muted = true; video.playsInline = true; video.autoplay = true; video.preload = 'metadata'; video.controls = true;
-                  video.style.width = '100%'; video.style.height = '100%'; video.style.border = 'none';
-                  target.innerHTML = ''; target.appendChild(video);
-                  try{ video.play(); }catch(e){}
-                  try{
-                    const container = target.closest('.banner-tarjeta');
-                    const replayBtn = container ? container.querySelector('.replay-btn') : null;
-                    video.onended = function(){ if(replayBtn) replayBtn.style.display = 'inline-flex'; };
-                  }catch(e){}
-                } else {
-                  const iframe = document.createElement('iframe');
-                  iframe.setAttribute('src', ds);
-                  iframe.setAttribute('frameborder', '0');
-                  iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
-                  iframe.setAttribute('allowfullscreen', 'true');
-                  iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-                  iframe.style.width = '100%';
-                  iframe.style.height = '100%';
-                  iframe.style.border = 'none';
-                  target.innerHTML = '';
-                  target.appendChild(iframe);
-                }
-                attachCtaHandlers(); attachReplayHandlers();
-              } catch(err){ console.warn('Error loading embed:', err); }
-              try{ obs.unobserve(target); }catch(e){}
-              return;
-            }
-            if(target.querySelector && target.querySelector('img')) { try{ obs.unobserve(target); }catch(e){} return; }
-          }
-        });
-      };
-
-      const observer = new IntersectionObserver(callback, observerOptions);
-      document.querySelectorAll('.banner-tarjeta video.banner-media-video').forEach(v => {
-        try { if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src'); observer.observe(v); } catch(e){}
-      });
-      document.querySelectorAll('.banner-tarjeta .banner-media').forEach(el => {
-        try {
-          const hasImg = el.querySelector && el.querySelector('img');
-          const hasVideo = el.querySelector && el.querySelector('video');
-          const hasIframe = el.querySelector && el.querySelector('iframe');
-          const ds = el.dataset ? el.dataset.src : el.getAttribute('data-src');
-          if(hasImg || hasIframe){
-          } else if(hasVideo){
-            const v = el.querySelector('video');
-            if(v) { if(!v.dataset.src && v.getAttribute('data-src')) v.dataset.src = v.getAttribute('data-src'); observer.observe(v); }
-          } else { if(ds) observer.observe(el); }
-        } catch(e){}
-      });
-    }
+    function initBannerObservers(){window.GLD_PUBLICIDAD.init();}
 
     const pendingYouTubePlayers = [];
     let youtubeApiLoading = false;
@@ -1945,29 +1806,7 @@
 
     function shuffleArray(arr) { for (let i = arr.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; } }
     function bannerKey(b) { return (b && (b.img || b.media || b.url || b.cta)) ? (b.img || b.media || b.url || b.cta) : JSON.stringify(b); }
-    function buildBannerSequence(slots) {
-      if (!banners || !banners.length || slots <= 0) return [];
-      const seq = []; let attempts = 0;
-      while (seq.length < slots && attempts < 20) {
-        const pool = banners.slice(); shuffleArray(pool);
-        for (let i = 0; i < pool.length && seq.length < slots; i++) {
-          const candidate = pool[i];
-          if (seq.length > 0 && bannerKey(seq[seq.length - 1]) === bannerKey(candidate)) {
-            const altIdx = pool.findIndex((p, idx) => idx > i && bannerKey(p) !== bannerKey(seq[seq.length - 1]));
-            if (altIdx !== -1) seq.push(pool.splice(altIdx, 1)[0]); else seq.push(candidate);
-          } else { seq.push(candidate); }
-        }
-        attempts++;
-      }
-      let i = 0;
-      while (seq.length < slots) {
-        const candidate = banners[i % banners.length];
-        if (seq.length === 0 || bannerKey(seq[seq.length - 1]) !== bannerKey(candidate)) seq.push(candidate);
-        else { i++; if (i > banners.length * 5) seq.push(candidate); }
-        i++;
-      }
-      return seq.slice(0, slots);
-    }
+    function buildBannerSequence(slots){return window.GLD_PUBLICIDAD.sequence(banners,slots,publicidadContexto);}
 
     function cambiarPagina(dir){
       const totalPages = Math.ceil(eventosFiltrados.length / eventsPerPage) || 1;
@@ -2007,7 +1846,10 @@
 
       if (paginadorAbajo) paginadorAbajo.style.display = 'flex';
 
-      const slots = Math.floor(pageData.length / 2);
+      const searchText=String(document.querySelector('input[type="search"]')?.value||document.getElementById('buscador')?.value||'');
+      const category=String(document.getElementById('categoryFilter')?.value||'');
+      publicidadContexto={page:currentPage,slotsPerPage:Math.max(1,Math.floor((eventsPerPage-1)/2)),constrained:!!(searchText||category),query:searchText,categories:data.flatMap(x=>[x.categoria_id,x.categoria].filter(Boolean)),advertisers:data.map(x=>String(x.anunciante_id||''))};
+      const slots = Math.max(1,Math.floor((pageData.length-1)/2));
       const bannerSeq = buildBannerSequence(slots);
 
       pageData.forEach((ev, idx) => {
@@ -2027,6 +1869,8 @@
           }
         }
       });
+      if(pageData.length<3&&bannerSeq[0]){const wrapper=document.createElement('div');wrapper.innerHTML=renderBanner(bannerSeq[0],'final-corto');while(wrapper.firstChild)container.appendChild(wrapper.firstChild);}
+
 
       renderPagination(totalPages, page);
       initBannerObservers();
@@ -2229,10 +2073,11 @@
           const tipo=String(first.tipo_media||b.formato||'').toUpperCase();
           const url=String(first.url||'').trim();
           return {
+            ...b,media_items:mediaItems,
             contenido_adulto:b.contenido_adulto===true,bloqueado18:b.bloqueado18===true,
             img:tipo==='IMAGEN' ? url : '',
             media:tipo==='IMAGEN' ? '' : url,
-            cta:String(b.cta_destino||b.cta||'').trim(),
+            cta:String(b.cta||b.cta_destino||'').trim(),
             poster:String(first.poster||b.poster||'').trim()
           };
         }).filter(b=>b.bloqueado18||b.img||b.media);

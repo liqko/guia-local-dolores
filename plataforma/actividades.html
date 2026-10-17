@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
+<script src="/plataforma/publicidad-distribucion.js?v=101"></script>
 <script src="/plataforma/imagenes-publicas.js?v=89"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/consumo-v44.js?v=87"></script>
@@ -554,6 +555,7 @@
   let actividadesFiltradas = [];
   let currentPage = 1;
   let banners = [];
+  let publicidadContexto={};
   function publicidadActividadesUrl(){
     const u=new URL(PUBLICIDAD_ENDPOINT);
     u.searchParams.set('action','publicas');
@@ -894,89 +896,9 @@ return u.toString();
     paint();
   }
 
-  function renderBanner(banner,idx){
- if(banner.bloqueado18) return window.GLD_ADULT.card();
-    const id=`activity-banner-${idx}-${Math.floor(Math.random()*10000)}`;
-    const cta=(banner.cta&&banner.cta.trim()) ? banner.cta.trim() : 'https://www.guialocal.ar/';
-    const replay=`<button class="replay-btn" data-target-id="${id}">Reproducir nuevamente</button>`;
+  function renderBanner(banner,idx){return window.GLD_PUBLICIDAD.render(banner,idx);}
 
-    if(banner.img){
-      return `<div class="banner-tarjeta" data-contenido-adulto="${banner.contenido_adulto===true?'true':'false'}">
-        <div id="${id}" class="banner-media"><img src="${GLD_MEDIA.imageAttr(banner.img)}" alt="Banner"></div>
-        ${replay}
-        <a class="cta-btn" href="${cta}" target="_top" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
-      </div>`;
-    }
-    if(banner.media && isVideoFile(banner.media)){
-      const poster=banner.poster ? `poster="${banner.poster}"` : '';
-      return `<div class="banner-tarjeta" data-contenido-adulto="${banner.contenido_adulto===true?'true':'false'}">
-        <div id="${id}" class="banner-media">
-          <video class="banner-media-video" data-src="${banner.media}" ${poster} muted playsinline preload="metadata"></video>
-        </div>
-        ${replay}
-        <a class="cta-btn" href="${cta}" target="_top" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
-      </div>`;
-    }
-    if(banner.media && isYouTube(banner.media)){
-      const embed=getYouTubeEmbedUrl(banner.media);
-      return `<div class="banner-tarjeta" data-contenido-adulto="${banner.contenido_adulto===true?'true':'false'}">
-        <div id="${id}" class="banner-media" data-src="${embed}"></div>
-        ${replay}
-        <a class="cta-btn" href="${cta}" target="_top" rel="noopener noreferrer">Visitá el micrositio del anunciante</a>
-      </div>`;
-    }
-    return '';
-  }
-
-  function initActivityBanners(){
-    document.querySelectorAll('.banner-tarjeta').forEach(banner=>{
-      const host=banner.querySelector('.banner-media');
-      if(!host) return;
-
-      const native=host.querySelector('video');
-      if(native){
-        const src=native.dataset.src||'';
-        if(src && !native.src){
-          native.src=src;
-          native.muted=true;
-          native.playsInline=true;
-          native.autoplay=true;
-          try{ const p=native.play(); if(p&&p.catch) p.catch(()=>{}); }catch(e){}
-        }
-        attachActivitySoundButton(native,banner);
-        const replay=banner.querySelector('.replay-btn');
-        native.onended=()=>{ if(replay) replay.style.display='inline-flex'; };
-        return;
-      }
-
-      const ds=host.dataset.src||'';
-      if(ds && !host.querySelector('iframe')){
-        const iframe=document.createElement('iframe');
-        iframe.src=ds;
-        iframe.setAttribute('allow','autoplay; encrypted-media; picture-in-picture');
-        iframe.setAttribute('sandbox','allow-scripts allow-same-origin allow-presentation');
-        iframe.setAttribute('allowfullscreen','true');
-        host.appendChild(iframe);
-        attachActivitySoundButton(iframe,banner);
-      }
-    });
-
-    document.querySelectorAll('.banner-tarjeta .replay-btn').forEach(btn=>{
-      btn.onclick=function(){
-        const host=document.getElementById(btn.dataset.targetId||'');
-        if(!host) return;
-        const video=host.querySelector('video');
-        const iframe=host.querySelector('iframe');
-        if(video){
-          try{ video.currentTime=0; video.play(); btn.style.display='none'; }catch(e){}
-        }else if(iframe){
-          activityYtCommand(iframe,'seekTo',[0,true]);
-          activityYtCommand(iframe,'playVideo');
-          btn.style.display='none';
-        }
-      };
-    });
-  }
+  function initActivityBanners(){window.GLD_PUBLICIDAD.init();}
 
   function shuffleArray(arr){
     for(let i=arr.length-1;i>0;i--){
@@ -985,20 +907,7 @@ return u.toString();
     }
   }
 
-  function buildBannerSequence(slots){
-    if(!banners.length || slots<=0) return [];
-    const out=[];
-    while(out.length<slots){
-      const pool=banners.slice();
-      shuffleArray(pool);
-      for(const b of pool){
-        if(out.length>=slots) break;
-        out.push(b);
-      }
-      if(!pool.length) break;
-    }
-    return out.slice(0,slots);
-  }
+  function buildBannerSequence(slots){return window.GLD_PUBLICIDAD.sequence(banners,slots,publicidadContexto);}
 
   function renderCard(a,index){
  if(a.bloqueado18) return window.GLD_ADULT.card();
@@ -1054,7 +963,9 @@ return u.toString();
 
     const start = (currentPage-1)*ITEMS_PER_PAGE;
     const slice = actividadesFiltradas.slice(start,start+ITEMS_PER_PAGE);
-    const bannerSeq = buildBannerSequence(Math.floor((slice.length - 1) / 2));
+    const query=String(document.getElementById('search')?.value||''),category=String(document.getElementById('categoryFilter')?.value||'');
+    publicidadContexto={page:currentPage,slotsPerPage:Math.max(1,Math.floor((ITEMS_PER_PAGE-1)/2)),constrained:!!(query||category||filtroDeFicha),query,categories:actividadesFiltradas.flatMap(x=>[x.categoria_id,x.categoria].filter(Boolean)),advertisers:actividadesFiltradas.map(x=>String(x.anunciante_id||''))};
+    const bannerSeq = buildBannerSequence(Math.max(1,Math.floor((slice.length - 1) / 2)));
 
     const parts = [];
     let visibleCount = 0;
@@ -1066,6 +977,7 @@ return u.toString();
         if(banner) parts.push(renderBanner(banner,`inter-${currentPage}-${visibleCount}`));
       }
     });
+    if(slice.length<3&&bannerSeq[0])parts.push(renderBanner(bannerSeq[0],'final-corto'));
     cont.innerHTML = parts.join('');
 
     bindGalleries();
@@ -1196,10 +1108,11 @@ const response = await fetchJsonConTimeout(u.toString(),8000);
           const tipo=String(first.tipo_media||b.formato||'').toUpperCase();
           const url=String(first.url||'').trim();
           return {
+            ...b,media_items:mediaItems,
             contenido_adulto:b.contenido_adulto===true,bloqueado18:b.bloqueado18===true,
             img:tipo==='IMAGEN' ? url : '',
             media:tipo==='IMAGEN' ? '' : url,
-            cta:String(b.cta_destino||b.cta||'').trim(),
+            cta:String(b.cta||b.cta_destino||'').trim(),
             poster:String(first.poster||b.poster||'').trim()
           };
         }).filter(b=>b.bloqueado18||b.img||b.media);
