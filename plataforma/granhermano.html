@@ -60,6 +60,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 #anuFicha .contract-picker .contract-choice[hidden]{display:none}#anuFicha .contract-picker .contract-choice input{width:20px;height:20px;margin:0;flex:0 0 20px}
 #anuFicha .contract-picker .contract-all{font-weight:700;background:#edf6fa;border-radius:7px}
 #anuFicha .contract-choices{max-height:280px;overflow-y:auto}#anuFicha .contract-choice:has(input:disabled){opacity:.55}
+#anuFicha .advertising-contract{margin:12px 0 16px;padding:14px;background:#fff;border:1px solid #c7d7df;border-radius:10px}#anuFicha .advertising-contract h5{font-size:17px;color:#006699;margin:0 0 12px}#anuFicha .advertising-contract p{margin:4px 0 0}#anuFicha [data-gh-format-summary]{display:block;font-size:14px;font-weight:400;color:#506774;margin-top:4px}
 </style>
 <script src="/plataforma/clasificacion.js?v=86"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
@@ -755,6 +756,18 @@ function ghContractValues_(box){
  return selected;
 }
 
+function ghPublicidadFormats_(cfg){
+ const formats=[['permite_imagen','Imagen'],['permite_carrusel','Carrusel de 2 a 5 imágenes'],['permite_short','YouTube Short']],selected=formats.filter(([key])=>cfg[key]!==false).length;
+ return '<details class="contract-picker" data-gh-format-picker><summary>Formatos contratados <span data-gh-format-summary>'+esc(selected===3?'Todos los formatos':selected?selected+' formato(s) seleccionado(s)':'Sin formatos habilitados')+'</span></summary><label class="contract-choice contract-all"><input type="checkbox" data-gh-format-all '+(selected===3?'checked':'')+' onchange="ghPublicidadFormatsChanged_(this)"><span>Todos los formatos</span></label><div class="contract-choices">'+formats.map(([key,label])=>'<label class="contract-choice"><input type="checkbox" data-gh-ad-flag="'+key+'" '+(cfg[key]!==false?'checked':'')+' onchange="ghPublicidadFormatsChanged_(this)"><span>'+esc(label)+'</span></label>').join('')+'</div></details>';
+}
+function ghPublicidadFormatsChanged_(input){
+ const box=input.closest('[data-gh-format-picker]'),all=box.querySelector('[data-gh-format-all]'),choices=[...box.querySelectorAll('[data-gh-ad-flag]')];
+ if(input===all)for(const choice of choices)choice.checked=all.checked;
+ const count=choices.filter(c=>c.checked).length;
+ all.checked=count===choices.length;all.indeterminate=count>0&&count<choices.length;
+ box.querySelector('[data-gh-format-summary]').textContent=all.checked?'Todos los formatos':count?count+' formato(s) seleccionado(s)':'Sin formatos habilitados';
+}
+
 function ghFunctionEditor_(adm,catalog,usage){
  GH_FUNCTION_USAGE=usage||{};
  GH_FUNCTION_CONFIG=structuredClone(adm.funcionalidades_config||{});
@@ -766,7 +779,7 @@ function ghFunctionEditor_(adm,catalog,usage){
   const record=(catalog||[]).find(x=>[def.id,...def.aliases||[]].includes(ghFunctionKey_(x.funcionalidad_id||x.id)));
   const rawName=GLD_CLASSIFICATION.name(record);const d={...def,name:rawName&&!rawName.includes('%20')&&![def.id,...def.aliases||[]].includes(ghFunctionKey_(rawName))?rawName:def.name};
   const cfg=GH_FUNCTION_CONFIG[d.id]||Object.entries(GH_FUNCTION_CONFIG).find(([k])=>[d.id,...d.aliases||[]].includes(ghFunctionKey_(k)))?.[1]||{},on=ghFunctionEnabled_(d,adm);
-  let inputs='';
+  let inputs='',contract='';
   if(d.quota||d.id==='PUBLICIDAD'){
    const n=d.quota?ghFunctionNumber_(cfg.cantidad,cfg.cupo,cfg.max,cfg.maximo,adm[d.id.toLowerCase()+'_cant']):ghFunctionNumber_(cfg.activas_max,cfg.activas,cfg.max_activas,adm.publicidad_activas_max);
    const saved=GLD_CUPOS.guardado(n);
@@ -778,6 +791,8 @@ function ghFunctionEditor_(adm,catalog,usage){
    if(!available)inputs+='<p class="muted">Uso sin datos en la copia del panel. No se consultó Firestore para completar estos contadores.</p>';
    if(d.id==='EVENTOS_FREE')inputs+='<details open class="free-exception"><summary>Excepción especial · Eventos Free sin límites</summary><span class="free-exception-state" data-free-exception-state>'+(cfg.sin_limites===true?'ACTIVADO · Excepción especial':'DESACTIVADO · Se aplican los límites habituales')+'</span><p><strong>Usar únicamente en casos especiales.</strong> Sólo Gran Hermano o un moderador local autorizado pueden conceder esta excepción.</p><label class="switch"><input type="checkbox" data-gh-free-unlimited onchange="ghFreeExceptionState_(this)" '+(cfg.sin_limites===true?'checked':'')+'>Habilitar sin límites para este anunciante</label><p>Desactivado: hasta cinco altas por mes calendario; la primera edición puede hacerse inmediatamente y luego se esperan siete días entre modificaciones. Borrar no recupera cupo.</p></details>';
    if(d.id==='PUBLICIDAD'){
+    contract='<section class="advertising-contract"><h5>Contratación de publicidad</h5><div class="quota-settings"><label>Inicio de contratación<input type="date" data-gh-ad-date="vigente_desde" value="'+esc(cfg.vigente_desde||'')+'"></label><label>Fin de contratación<input type="date" data-gh-ad-date="vigente_hasta" value="'+esc(cfg.vigente_hasta||'')+'"></label></div><p class="muted">Estas fechas se aplican a toda la publicidad contratada, cualquiera sea su formato.</p></section>';
+
     inputs+='<ul class="contract-rules"><li>Renovaciones por mes: hasta el cupo de publicidades activas contratado.</li><li>Una rectificación adicional por publicidad durante el mes.</li><li>El cupo de guardado incluye activas y pausadas. Borrar no recupera renovaciones del mes.</li></ul>';
     inputs+='<details open><summary>Cobertura contratada</summary><section class="contract-group"><h5>1. Ciudades</h5><p>Elegí en qué ciudades podrá publicitar este anunciante.</p><label>Máximo de ciudades para una misma publicidad<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="ciudades_max" value="'+ghFunctionNumber_(cfg.ciudades_max,1)+'"></label>';
     inputs+=ghContractPicker_('ciudades_ids','Ciudades contratadas',GH_CITIES,'ciudad_id','ciudad_visible',cfg);
@@ -786,12 +801,12 @@ function ghFunctionEditor_(adm,catalog,usage){
     inputs+='</section><section class="contract-group"><h5>3. Categorías</h5><p>Elegí los rubros en los que podrá publicitar. Cada opción indica también su sección. «Campaña general» permite una publicidad sin rubro específico dentro de esa sección.</p><label>Máximo de categorías para una misma publicidad<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="categorias_max" value="'+ghFunctionNumber_(cfg.categorias_max,1)+'"></label>';
     inputs+=ghContractPicker_('categorias_keys','Categorías contratadas',GH_CATALOG_CACHE.publicidad_categorias||[],'categoria_key','categoria',cfg);
     inputs+='</section><p class="muted">Los máximos se aplican a cada publicidad. Las listas contratadas definen entre qué opciones podrá elegir el anunciante.</p></details>';
-    inputs+='<details><summary>Formatos y vigencia</summary>'+[['permite_imagen','Imagen'],['permite_carrusel','Carrusel de 2 a 5 imágenes'],['permite_short','YouTube Short']].map(([field,label])=>'<label><input type="checkbox" data-gh-ad-flag="'+field+'" '+(cfg[field]!==false?'checked':'')+'> '+label+'</label>').join('')+'<label>Inicio de contratación<input type="date" data-gh-ad-date="vigente_desde" value="'+esc(cfg.vigente_desde||'')+'"></label><label>Fin de contratación<input type="date" data-gh-ad-date="vigente_hasta" value="'+esc(cfg.vigente_hasta||'')+'"></label></details>';
+    inputs+=ghPublicidadFormats_(cfg);
    }
   }
   if(d.territory){let list=[...(d.territory==='ciudades'?GH_CITIES:GH_PROVINCES)];const fallback=d.id==='TURNOS_FARMA'?adm.farmacias_ciudades:(d.territory==='ciudades'?adm.efemerides_ciudades:adm.efemerides_provincias);const ids=Array.isArray(cfg[d.territory])?cfg[d.territory]:Array.isArray(fallback)?fallback:(d.id==='TURNOS_FARMA'?String(adm.turnos_farma||'').split(/[;,|]/).map(v=>v.trim()).filter(v=>v&&v!=='*'):[]);for(const id of ids)if(!list.some(r=>String(r.ciudad_id||r.provincia_id||r.id)===String(id)))list.push({id,nombre:id});const all=ghFunctionTruth_(cfg[d.all])||(d.id==='TURNOS_FARMA'?adm.turnos_farma==='*':ghFunctionTruth_(adm[d.territory==='ciudades'?'efemerides_todas_ciudades':'efemerides_todas_provincias']));inputs+='<label class="switch"><input type="checkbox" data-gh-all="'+d.id+'" '+(all?'checked':'')+'>Todas las '+d.territory+'</label><label>'+ (d.territory==='ciudades'?'Ciudades habilitadas':'Provincias habilitadas')+'<select multiple data-gh-territory="'+d.id+'">'+list.map(r=>{const id=String(r.ciudad_id||r.provincia_id||r.id||'');return '<option value="'+esc(id)+'" '+(ids.map(String).includes(id)?'selected':'')+'>'+esc(r.ciudad_visible||r.nombre||id)+'</option>'}).join('')+'</select></label>';}
   if(d.territory)inputs='<details><summary>Territorio habilitado</summary>'+inputs+'</details>';
-  return '<article class="function-card"><div class="function-heading"><h4>'+esc(d.name)+'</h4></div><label class="module-enable '+(on?'is-enabled':'is-disabled')+'"><input type="checkbox" data-anu-fun="'+esc(d.id)+'" '+(on?'checked':'')+' onchange="ghFunctionToggle_(this)"><strong data-gh-enabled-state>'+(on?'HABILITADO':'DESHABILITADO')+'</strong></label><p class="module-enable-help">Este control habilita el módulo. Asignar un cupo por sí solo no lo habilita.</p><div class="function-fields">'+inputs+'</div></article>';
+  return '<article class="function-card"><div class="function-heading"><h4>'+esc(d.name)+'</h4></div><label class="module-enable '+(on?'is-enabled':'is-disabled')+'"><input type="checkbox" data-anu-fun="'+esc(d.id)+'" '+(on?'checked':'')+' onchange="ghFunctionToggle_(this)"><strong data-gh-enabled-state>'+(on?'HABILITADO':'DESHABILITADO')+'</strong></label>'+contract+'<p class="module-enable-help">Este control habilita el módulo. Asignar un cupo por sí solo no lo habilita.</p><div class="function-fields">'+inputs+'</div></article>';
  }).join('');
 }
 
@@ -1214,6 +1229,7 @@ async function ghResolverRevisionUnificada(source,tipo,id,decision){
 <script src="/plataforma/gh-listados.js?v=102"></script>
 </body>
 </html>
+
 
 
 
