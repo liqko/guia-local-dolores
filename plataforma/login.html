@@ -999,6 +999,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
               <textarea id="promo-text" class="promo-input" maxlength="300" placeholder="Texto de la promo (ej: 10% OFF)" rows="4"></textarea>
             </div>
 
+<label class="adult-field">Contenido para mayores de 18 años<select id="promo-adulto" data-adult-selector disabled><option value="false">No · Para todas las edades</option><option value="true">Sí · +18</option></select></label>
             <div class="promo-extra-row">
               <div class="promo-text-row"><label class="promo-text-label" for="promo-categoria">Categoría de la promo</label>
                 <select id="promo-categoria" class="promo-select"><option value="">Elegí la categoría</option></select>
@@ -6291,7 +6292,7 @@ function promoContactPayload(){
 
 function buildPromoPayloadFromForm_(){
   const sede=promoSelectedSede();
-  return {promo:promoGet('promo-text'),categoria:promoGet('promo-categoria'),sede_id:sede?String(sede.sede_id||'').trim():'',ciudad_id:sede?String(sede.ciudad_id||'').trim():'',img:promoGet('promo-img'),...promoContactPayload(),desde:promoGet('promo-desde'),hasta:promoGet('promo-hasta'),otros:promoGet('promo-otros')};
+  return {contenido_adulto:document.getElementById('promo-adulto')?.value==='true',promo:promoGet('promo-text'),categoria:promoGet('promo-categoria'),sede_id:sede?String(sede.sede_id||'').trim():'',ciudad_id:sede?String(sede.ciudad_id||'').trim():'',img:promoGet('promo-img'),...promoContactPayload(),desde:promoGet('promo-desde'),hasta:promoGet('promo-hasta'),otros:promoGet('promo-otros')};
 }
 
 function promoSetCreateMode(){
@@ -6305,6 +6306,7 @@ function promoSetCreateMode(){
 }
 function promoUpdateCount(){const field=document.getElementById('promo-otros'),counter=document.getElementById('promo-otros-count');if(field&&counter)counter.textContent=field.value.length+' / 120 caracteres';}
 function promoClearForm(){
+  document.getElementById('promo-adulto').value='false';
   document.getElementById('promo-text').value = '';
   document.getElementById('promo-categoria').value = '';
   cargarSedesPromo('');
@@ -6322,6 +6324,10 @@ function promoCancelEdit(){
 }
 
 function promoEstadoVisible(p, ahora=new Date()){
+  if(p.revision_definitiva)return '<strong class="publication-review-state">Bloqueada · revisión rechazada definitivamente</strong>';
+  if(['RECHAZADO','RECHAZADA'].includes(String(p.estado_moderacion||'').toUpperCase()))return '<strong class="publication-review-state">Rechazada</strong>';
+  if(p.estado_moderacion==='PENDIENTE'||p.revision_adulto==='PENDIENTE')return '<strong style="color:#9a6700">Pendiente de aprobación</strong>';
+
   const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(ahora);
   const part=tipo=>parts.find(x=>x.type===tipo).value;
   const hoy=part('year')+'-'+part('month')+'-'+part('day');
@@ -6334,6 +6340,7 @@ function promoEstadoVisible(p, ahora=new Date()){
   return estado+' — '+aviso+'<div class="small-muted" style="margin-top:6px">'+ayuda+'</div>';
 }
 
+function promoBloqueada108_(p){return !!p.revision_definitiva||['RECHAZADO','RECHAZADA'].includes(String(p.estado_moderacion||'').toUpperCase())&&window.GLD_NOTIFICATIONS102?.review('PROMO',String(p.promo_id||p.id))?.estado==='CERRADA';}
 function renderPromosCards(promos){
   const list = document.getElementById('promos-list');
   if(!Array.isArray(promos) || promos.length === 0){
@@ -6368,8 +6375,8 @@ function renderPromosCards(promos){
           <div class="full"><b>Aclaración adicional:</b> ${otros || '-'}</div>
         </div>
         <div class="card-actions">
-          <button data-promo-action="pause" data-pid="${pid}" data-paused="${isPaused}">${pauseBtnText}</button>
-          <button data-promo-action="edit" data-pid="${pid}">Editar</button>
+          <button ${promoBloqueada108_(p)?'hidden disabled':''} data-promo-action="pause" data-pid="${pid}" data-paused="${isPaused}">${pauseBtnText}</button>
+          <button ${promoBloqueada108_(p)?'hidden disabled':''} data-promo-action="edit" data-pid="${pid}">Editar</button>
           <button data-promo-action="duplicate" data-pid="${pid}">Duplicar</button>
           <button data-promo-action="delete" data-pid="${pid}" style="background:#e74c3c;color:#fff;border:0;">Borrar</button>
         </div>
@@ -6410,8 +6417,8 @@ function renderPromosTable(promos){
       <td>${otros}</td>
       <td>${estadoTxt}</td>
       <td>
-        <button data-promo-action="pause" data-pid="${pid}" data-paused="${isPaused}">${pauseBtnText}</button>
-        <button data-promo-action="edit" data-pid="${pid}">Editar</button>
+        <button ${promoBloqueada108_(p)?'hidden disabled':''} data-promo-action="pause" data-pid="${pid}" data-paused="${isPaused}">${pauseBtnText}</button>
+        <button ${promoBloqueada108_(p)?'hidden disabled':''} data-promo-action="edit" data-pid="${pid}">Editar</button>
         <button data-promo-action="delete" data-pid="${pid}">Borrar</button>
         <button data-promo-action="duplicate" data-pid="${pid}">Duplicar</button>
       </td>
@@ -6428,6 +6435,7 @@ function promoAbrirFormulario_(found, duplicar=false){
   btn.textContent=duplicar?'Crear promo':'Guardar cambios';
   btn.dataset.mode=duplicar?'':'edit';
   btn.removeAttribute('disabled');
+  document.getElementById('promo-adulto').value=found.contenido_adulto===true?'true':'false';
   document.getElementById('promo-text').value=found.promo||'';
   document.getElementById('promo-categoria').value=found.categoria||'';
   cargarSedesPromo(found.sede_id||'');
@@ -8427,6 +8435,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   document.getElementById('promo-create')?.addEventListener('click', async (e)=>{
     e.preventDefault();
     if(!sesion || !sesion.id){ promoShowError_('La sesión no está disponible. Volvé a iniciar sesión.'); return; }
+    if(window.GLD_PROMOS_MODERATION_SUPPORTED!==true){promoShowError_('La actualización de Promociones todavía no está disponible. Recargá el panel en unos instantes.');return;}
 
     const btn = document.getElementById('promo-create');
     btn.setAttribute('disabled','true');
@@ -9619,12 +9628,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 </script>
 
 <script src="/plataforma/contadores-caracteres.js?v=1"></script>
-<script src="/plataforma/contenido-adulto.js?v=70" data-adult-editor></script>
+<script src="/plataforma/contenido-adulto.js?v=108" data-adult-editor></script>
 <script src="/plataforma/terminos-anunciantes.js?v=81"></script>
-<script src="/plataforma/publicacion.js?v=81"></script>
+<script src="/plataforma/publicacion.js?v=108"></script>
 <script src="/plataforma/notificaciones.js?v=102"></script>
 </body>
 </html>
+
 
 
 

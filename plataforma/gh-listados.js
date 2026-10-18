@@ -39,7 +39,7 @@ function render(key,s){
   if(key==='moderadores')actions.append(button('Editar permisos',()=>ghEditarModerador({suscriptor_id:r.suscriptor_id||p.id,nombre:r.nombre||p.titulo})));
   if(p.estado==='PENDIENTE')actions.append(button('Ir a revisión',()=>ghGoPending(d.kind==='eventos'?(d.clase==='FREE'?'EVENTO_FREE':'EVENTO'):({actividades:'ACTIVIDAD',promos:'PROMO',publicidad:'PUBLICIDAD'})[d.kind])));
   if(key==='promos'||key==='publicidad'){
-   const action=async(value)=>{if(!confirm(value==='borrar'||value==='eliminar'?'¿Borrar definitivamente esta publicación?':'¿Confirmar el cambio de estado?'))return;actions.querySelectorAll('button').forEach(b=>b.disabled=true);try{await ghAdminRequest_(key==='promos'?'/promos':'/publicidad',{[key==='promos'?'promo_id':'publicidad_id']:p.id,action:value},'POST');await load(key,true,true);}catch(e){actions.after(node('p',e.message,'error'));actions.querySelectorAll('button').forEach(b=>b.disabled=false);}};
+   const action=async(value)=>{if(!confirm(value==='borrar'||value==='eliminar'?'¿Borrar definitivamente esta publicación?':'¿Confirmar el cambio de estado?'))return;actions.querySelectorAll('button').forEach(b=>b.disabled=true);try{const result=await ghAdminRequest_(key==='promos'?'/promos':'/publicidad',{[key==='promos'?'promo_id':'publicidad_id']:p.id,action:value},'POST');if(key==='promos'&&['aprobar','rechazar','borrar'].includes(value)&&typeof ghAplicarRevisionResuelta_==='function')ghAplicarRevisionResuelta_('PROMO',p.id,value==='aprobar'?'APROBAR':'RECHAZAR',{item:result.promo||{},deleted:result.deleted});await load(key,true,true);}catch(e){actions.after(node('p',e.message,'error'));actions.querySelectorAll('button').forEach(b=>b.disabled=false);}};
    if(key==='promos'&&p.estado==='PENDIENTE')actions.append(button('Aprobar publicación',()=>action('aprobar')),button('Rechazar publicación',()=>action('rechazar')));
    if(p.estado!=='BLOQUEADA')actions.append(button(p.estado==='PAUSADA'&&key==='promos'?'Reanudar':'Pausar',()=>action(p.estado==='PAUSADA'&&key==='promos'?'reanudar':'pausar'),key==='publicidad'&&p.estado!=='ACTIVA'));
    actions.append(button('Borrar',()=>action(key==='promos'?'borrar':'eliminar'),key==='publicidad'&&p.estado==='ACTIVA'));
@@ -73,3 +73,4 @@ async function search(kind,page=0){
 }
 buscarAnu=()=>search('anunciantes');buscarSus=()=>search('suscriptores');
 })();
+

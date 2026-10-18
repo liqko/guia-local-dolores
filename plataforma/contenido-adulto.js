@@ -2,7 +2,7 @@
  const origin='https://login.liqkoargentina.workers.dev',key='gld_adult_access_v67',nativeFetch=window.fetch.bind(window);
  const editor=!!document.querySelector('script[data-adult-editor]');
  if(editor){
-  nativeFetch(origin+'/').then(r=>r.json()).then(j=>{window.GLD_ADULT_SUPPORTED=Number(j.version)>=67;window.GLD_EVENT_VIRTUAL_SUPPORTED=Number(j.version)>=70;const enable=()=>{document.querySelectorAll('[data-adult-selector]').forEach(x=>{x.disabled=!window.GLD_ADULT_SUPPORTED;x.title=x.disabled?'Requiere Worker V67':'';});document.querySelectorAll('[data-event-selector],[data-event-virtual-option]').forEach(x=>{x.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;x.title=x.disabled?'Requiere Worker V70':'';});};enable();new MutationObserver(enable).observe(document.body,{childList:true,subtree:true});}).catch(()=>{});return;
+  nativeFetch(origin+'/').then(r=>r.json()).then(j=>{window.GLD_ADULT_SUPPORTED=Number(j.version)>=67;window.GLD_PROMOS_MODERATION_SUPPORTED=Number(j.version)>=108;window.GLD_EVENT_VIRTUAL_SUPPORTED=Number(j.version)>=70;const enable=()=>{document.querySelectorAll('[data-adult-selector]').forEach(x=>{x.disabled=x.id==='promo-adulto'?!window.GLD_PROMOS_MODERATION_SUPPORTED:!window.GLD_ADULT_SUPPORTED;x.title=x.disabled?'La actualización de esta función todavía no está disponible.':'';});document.querySelectorAll('[data-event-selector],[data-event-virtual-option]').forEach(x=>{x.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;x.title=x.disabled?'Requiere Worker V70':'';});};enable();new MutationObserver(enable).observe(document.body,{childList:true,subtree:true});}).catch(()=>{});return;
  }
  const style=document.createElement('style');
  style.textContent=`
@@ -20,7 +20,7 @@
  .gld-adult-notice [role=status]:empty{display:none}
  @media(max-width:540px){.card.adult-locked{padding:20px;min-height:220px}.gld-adult-notice{left:10px;right:10px;bottom:10px;padding:18px}.gld-adult-surface .gld-adult-button{width:100%}}
  `;document.head.appendChild(style);
- window.GLD_ADULT={open(){show();banner.querySelector('button').click();},card(tipo){return '<article class="card adult-locked gld-adult-surface" data-adult-decorated="1"><div class="gld-adult-eyebrow"><span class="gld-adult-badge">+18</span><span>ACCESO RESTRINGIDO</span></div><h3>'+ (tipo==='evento'?'Evento con contenido +18':'Contenido para mayores de 18 años') +'</h3><p>Ingresá con tu cuenta personal y confirmá tu edad para visualizar esta publicación.</p><button class="gld-adult-button" type="button" onclick="window.GLD_ADULT.open()">Ingresar y visualizar</button></article>';}};
+ window.GLD_ADULT={open(){show();banner.querySelector('button').click();},card(tipo){return '<article class="card adult-locked gld-adult-surface" data-adult-decorated="1"><div class="gld-adult-eyebrow"><span class="gld-adult-badge">+18</span><span>ACCESO RESTRINGIDO</span></div><h3>'+ (tipo==='evento'?'Evento con contenido +18':tipo==='promo'?'Promoción con contenido +18':'Contenido para mayores de 18 años') +'</h3><p>Ingresá con tu cuenta personal y confirmá tu edad para visualizar esta publicación.</p><button class="gld-adult-button" type="button" onclick="window.GLD_ADULT.open()">Ingresar y visualizar</button></article>';}};
  let banner;
  function accountLink(datos){const a=document.createElement('a');a.href='https://guialocal.ar/suscriptores/?vista='+(datos?'mi-guia&seccion=datos':'login');a.target='_top';a.textContent=datos?'Completar mis datos':'Ingresar a mi cuenta personal';return a;}
  function show(){
@@ -43,4 +43,5 @@
  const decorate=()=>document.querySelectorAll('.card,.activity-card,[data-contenido-adulto="true"]').forEach(card=>{if(card.dataset.adultDecorated)return;if(card.dataset.contenidoAdulto==='true'||/\+18/.test(card.textContent)){card.dataset.adultDecorated='1';const badge=document.createElement('strong');badge.textContent='+18';badge.style.cssText='display:block;color:#8b0035;padding:8px';card.prepend(badge);}});
  new MutationObserver(decorate).observe(document.body,{childList:true,subtree:true});decorate();
 })();
+
 
