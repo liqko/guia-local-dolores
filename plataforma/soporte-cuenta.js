@@ -5,8 +5,8 @@
   if(!host)return null;
   let owner='',requests=null;
   const node=(tag,text)=>{const element=document.createElement(tag);if(text)element.textContent=text;return element;};
-  const detail=node('details'),summary=node('summary','Solicitar soporte por el sistema');detail.appendChild(summary);
-  detail.appendChild(node('p','Tu consulta queda registrada y el equipo de Guía Local la atiende desde el sistema.'));
+  const detail=node('details'),summary=node('summary','Solicitar soporte personal');detail.appendChild(summary);
+  detail.appendChild(node('p','Este espacio es para consultas personales y problemas de tu cuenta. Si tu consulta corresponde a un anuncio, ingresá al panel de anunciantes, elegí ese anuncio y solicitá soporte desde allí.'));
   const form=node('form'),label=node('label','¿Qué necesitás resolver?'),input=node('textarea');input.id='cuenta-soporte-detalle';input.rows=4;input.maxLength=2000;input.minLength=5;input.required=true;input.style.cssText='display:block;width:100%;box-sizing:border-box;min-height:112px;resize:vertical;margin:8px 0';label.htmlFor=input.id;
   const send=node('button','Enviar solicitud');send.type='submit';send.className='primary';form.appendChild(label);form.appendChild(input);form.appendChild(send);detail.appendChild(form);
   const status=node('p');status.setAttribute('role','status');detail.appendChild(status);host.appendChild(detail);
@@ -23,12 +23,12 @@
   function rows(){
    list.replaceChildren();
    if(!requests?.length)list.appendChild(node('p','No tenés solicitudes registradas.'));
-   for(const row of requests||[]){const button=node('button',(row.tipo==='RECUPERACION'?'Ayuda de acceso':'Soporte')+' · '+row.estado+' · '+row.solicitud_id);button.type='button';button.style.cssText='display:block;width:100%;margin:6px 0;min-height:44px';button.onclick=()=>open(row.solicitud_id,button);list.appendChild(button);}
+   for(const row of requests||[]){const button=node('button',(row.tipo==='RECUPERACION'?'Ayuda de acceso':'Soporte')+' · '+(row.asunto||String(row.detalle||'').split('\n')[0].slice(0,100)||'Consulta personal')+' · '+row.estado);button.type='button';button.style.cssText='display:block;width:100%;margin:6px 0;min-height:44px';button.onclick=()=>open(row.solicitud_id,button);list.appendChild(button);}
    const refresh=node('button','Actualizar solicitudes');refresh.type='button';refresh.onclick=()=>load(true);list.appendChild(refresh);
   }
   async function load(refresh=false){
    sync();mine.disabled=true;
-   try{if(requests===null||refresh){const result=await request('/support/mine');requests=result.results||[];}rows();}
+   try{if(requests===null||refresh){const result=await request('/support/mine?ambito=personal');requests=(result.results||[]).filter(row=>!row.anunciante_id);}rows();}
    catch(error){status.textContent=error.message;}finally{mine.disabled=false;}
   }
   async function open(id,button){
@@ -51,7 +51,7 @@
     const account=options.account(),draft=JSON.stringify([owner,text]);let drafts={};try{drafts=JSON.parse(localStorage.getItem('gld_support_drafts_v74')||'{}');}catch{}
     const key=drafts[draft]||(drafts[draft]=crypto.randomUUID());try{localStorage.setItem('gld_support_drafts_v74',JSON.stringify(drafts));}catch{}
     const result=await request('/support/requests',{tipo:'SOPORTE',mail:account.mail,nombre:account.nombre||'',whatsapp:account.whatsapp||'',detalle:text,request_key:key});
-    status.textContent='Solicitud '+result.solicitud_id+' registrada. Podés seguir la respuesta en Mis solicitudes y respuestas.';
+    status.textContent='Solicitud registrada. Podés seguir la respuesta en Mis solicitudes y respuestas.';input.value='';detail.open=false;
     if(requests!==null){requests=requests.filter(row=>row.solicitud_id!==result.solicitud_id);requests.unshift({solicitud_id:result.solicitud_id,tipo:'SOPORTE',estado:result.estado||'PENDIENTE',detalle:text});rows();}
    }catch(error){status.textContent=error.message;}finally{send.disabled=false;}
   });
@@ -59,3 +59,4 @@
   return {reset:sync};
  }};
 })(window);
+
