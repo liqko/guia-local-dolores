@@ -11,10 +11,15 @@
   const constrained=!!context.constrained;
   const relevance=b=>{
    if(!constrained)return 0;
-   if(query&&normal([b.titulo,b.nombre_interno,...(b.tags||[])].join(' ')).includes(query)||advertisers.has(String(b.anunciante_id)))return 0;
    const cats=[...(b.categoria_ids||[]),...(b.segmentacion||[]).flatMap(s=>[s.categoria_id,s.categoria_nombre].filter(Boolean))].map(normal);
-   if(cats.some(c=>categories.has(c)))return 1;
-   if(b.general===true||cats.some(c=>['*','general','todas','todos'].includes(c)))return 2;
+   const matchesCategory=cats.some(c=>categories.has(c));
+   const general=b.general===true||cats.some(c=>['*','general','todas','todos'].includes(c));
+   if(categories.size&&!matchesCategory)return general?2:99;
+   const tags=Array.isArray(b.tags)?b.tags:String(b.tags||'').split(/[,;\n\r]+/);
+   const matchesText=!!query&&normal([b.titulo,b.nombre_interno,...tags].join(' ')).includes(query);
+   if(matchesCategory)return matchesText||advertisers.has(String(b.anunciante_id))?0:1;
+   if(general)return 2;
+   if(matchesText||advertisers.has(String(b.anunciante_id)))return 0;
    return 99;
   };
   const pool=[...new Map((rows||[]).filter(b=>relevance(b)<99).map(b=>[id(b),b])).values()];
