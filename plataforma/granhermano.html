@@ -815,6 +815,13 @@ function ghFunctionToggle_(input){
  label.classList.toggle('is-enabled',input.checked);label.classList.toggle('is-disabled',!input.checked);
  state.textContent=input.checked?'HABILITADO':'DESHABILITADO';
 }
+function pubCategoryName115(row){
+ const id=String(row.categoria_id||row.id||'');
+ const values=[row.titulo,row.nombre_visible,row.categoria_visible,row.nombre,row.categoria];
+ const name=values.find(v=>String(v||'').trim()&&String(v)!==id&&!/^CAT[-_]/i.test(String(v)));
+ if(name)return String(name).trim();
+ return String(values.find(v=>String(v||'').trim())||id).replace(/^CAT[-_]/i,'').replace(/[_-]+/g,' ').replace(/\b\p{L}/gu,c=>c.toLocaleUpperCase('es'));
+}
 function ghContractOptions_(field,rows,idKey,nameKey,selected=[]){
  const options=new Map(),saved=new Set(selected.map(String));
  for(const row of rows||[]){
@@ -824,7 +831,7 @@ function ghContractOptions_(field,rows,idKey,nameKey,selected=[]){
    const location=String(row.ubicacion_id||id.split(':')[0]||'');
    const section=(GH_CATALOG_CACHE.publicidad_ubicaciones||[]).find(x=>String(x.ubicacion_id||x.id)===location);
    const sectionName=String(section?.nombre_visible||section?.nombre||section?.modulo||location);
-   const category=String(row.categoria||row.nombre||row.categoria_id||id);
+   const category=pubCategoryName115(row);
    label=sectionName+' · '+(String(row.categoria_id||id.split(':')[1]).toUpperCase()==='GENERAL'?'Campaña general (sin rubro específico)':category);
   }
   if(!id||options.has(id))continue;
@@ -839,19 +846,26 @@ function ghContractOptions_(field,rows,idKey,nameKey,selected=[]){
 function ghContractPicker_(field,label,rows,idKey,nameKey,cfg){
  const selected=Array.isArray(cfg[field])?cfg[field].map(String):[],all=!selected.length,options=ghContractOptions_(field,rows,idKey,nameKey,selected);
  const allLabel=({ciudades_ids:'Todas las ciudades del catálogo',ubicaciones_ids:'Todas las secciones del catálogo',categorias_keys:'Todas las categorías del catálogo'})[field];
- return '<details class="contract-picker" data-gh-picker="'+field+'"><summary>'+esc(label)+' <span data-gh-picker-summary>'+esc(all?allLabel:selected.length+' seleccionada(s)')+'</span></summary><label class="contract-choice contract-all"><input type="checkbox" data-gh-ad-any="'+field+'" '+(all?'checked':'')+' onchange="ghContractChanged_(this)"><span>'+esc(allLabel)+'</span></label>'+ (field==='ciudades_ids'?'<div data-gh-province-picker></div>':field==='categorias_keys'?'<div data-gh-category-groups></div>':'')+'<p class="muted">Desmarcá esta opción para elegir una lista concreta.</p><label>Buscar<input type="search" data-gh-contract-search placeholder="Escribí para filtrar la lista" oninput="ghContractFilter_(this)"></label><div class="contract-choices">'+options.map(option=>'<label class="contract-choice" data-gh-contract-row data-search="'+esc(ghNorm(option.label))+'"><input type="checkbox" data-gh-ad-choice="'+field+'" value="'+esc(option.id)+'" '+(selected.includes(option.id)?'checked':'')+' '+(all?'disabled':'')+' onchange="ghContractChanged_(this)"><span>'+esc(option.label)+'</span></label>').join('')+'</div><p data-gh-contract-empty '+(options.length?'hidden':'')+'>No hay opciones para mostrar.</p></details>';
+ return '<details class="contract-picker" data-gh-picker="'+field+'"><summary>'+esc(label)+' <span data-gh-picker-summary>'+esc(all?allLabel:selected.length+' seleccionada(s)')+'</span></summary><label class="contract-choice contract-all"><input type="checkbox" data-gh-ad-any="'+field+'" '+(all?'checked':'')+' onchange="ghContractChanged_(this)"><span>'+esc(allLabel)+'</span></label>'+ (field==='ciudades_ids'?'<div data-gh-province-picker></div>':field==='categorias_keys'?'<div data-gh-category-groups></div>':'')+'<p class="muted">'+(field==='categorias_keys'?'Elegí todas, por funcionalidad o una por una.':'Desmarcá esta opción para elegir una lista concreta.')+'</p><label>Buscar<input type="search" data-gh-contract-search placeholder="Escribí para filtrar la lista" oninput="ghContractFilter_(this)"></label><div class="contract-choices">'+options.map(option=>'<label class="contract-choice" data-gh-contract-row data-search="'+esc(ghNorm(option.label))+'"><input type="checkbox" data-gh-ad-choice="'+field+'" value="'+esc(option.id)+'" '+(selected.includes(option.id)?'checked':'')+' '+(all?'disabled':'')+' onchange="ghContractChanged_(this)"><span>'+esc(option.label)+'</span></label>').join('')+'</div><p data-gh-contract-empty '+(options.length?'hidden':'')+'>No hay opciones para mostrar.</p></details>';
 }
 function ghScopeLimitChanged_(input){const field=input.dataset.ghAdFlag.replace('_sin_limite','_max'),limit=document.querySelector('[data-gh-limit="PUBLICIDAD"][data-gh-field="'+field+'"]');if(limit){limit.disabled=input.checked;limit.parentElement.style.opacity=input.checked?'0.55':'1';}}
 function ghCategoryGroups_(){
  for(const host of document.querySelectorAll('[data-gh-category-groups]')){
-  const box=host.closest('[data-gh-picker]'),choices=[...box.querySelectorAll('[data-gh-ad-choice]')],sections=GH_CATALOG_CACHE.publicidad_ubicaciones||[];
-  const groups=[{key:'TODAS',label:'Todas las categorías',choices},...sections.map(s=>({key:String(s.ubicacion_id||s.id),label:s.nombre_visible||s.nombre||s.modulo||s.ubicacion_id,choices:choices.filter(c=>c.value.split(':')[0]===String(s.ubicacion_id||s.id))})).filter(g=>g.choices.length)];
-  host.innerHTML='<label>Elegir categorías por sección<select data-gh-category-group>'+groups.map(g=>'<option value="'+esc(g.key)+'">'+esc(g.label)+' · '+g.choices.length+'</option>').join('')+'</select></label><button type="button" class="secondary" data-gh-category-action="add">Seleccionar grupo</button> <button type="button" class="secondary" data-gh-category-action="remove">Quitar grupo</button><p class="muted">Estos grupos definen el catálogo contratado. El máximo por pieza se configura por separado.</p>';
-  host.querySelectorAll('[data-gh-category-action]').forEach(button=>button.addEventListener('click',()=>{
-   const group=groups.find(g=>g.key===host.querySelector('[data-gh-category-group]').value);if(!group)return;const all=box.querySelector('[data-gh-ad-any]'),remove=button.dataset.ghCategoryAction==='remove';
-   const wanted=new Set((all.checked?(remove?choices:[]):choices.filter(c=>c.checked)).map(c=>c.value));for(const c of group.choices)remove?wanted.delete(c.value):wanted.add(c.value);
-   all.checked=!remove&&group.key==='TODAS';choices.forEach(c=>{c.checked=wanted.has(c.value);c.disabled=all.checked;});ghContractChanged_(all);
-  }));
+  const box=host.closest('[data-gh-picker]'),list=box.querySelector('.contract-choices'),choices=[...box.querySelectorAll('[data-gh-ad-choice]')],sections=GH_CATALOG_CACHE.publicidad_ubicaciones||[];
+  host.innerHTML='';
+  const master=box.querySelector('[data-gh-ad-any]');if(master.checked)choices.forEach(c=>{c.checked=!c.value.endsWith(':GENERAL');c.disabled=false;});
+  for(const section of sections){
+   const key=String(section.ubicacion_id||section.id),group=choices.filter(c=>c.value.split(':')[0]===key),normal=group.filter(c=>c.value.split(':')[1]!=='GENERAL');if(!normal.length)continue;
+   const details=document.createElement('details');details.className='contract-picker';
+   const title=section.nombre_visible||section.nombre||section.modulo||key;
+   details.innerHTML='<summary>Categorías de '+esc(title)+' <span data-gh-group-count></span></summary><label class="contract-choice"><input type="checkbox" data-gh-group-all><span>Todas las categorías de '+esc(title)+'</span></label><div data-gh-group-list></div>';
+   const dest=details.querySelector('[data-gh-group-list]');for(const c of normal){const row=c.closest('label'),span=row.querySelector('span');span.textContent=span.textContent.replace(/^.*? · /,'');dest.appendChild(row);}
+   list.appendChild(details);
+   const toggle=details.querySelector('[data-gh-group-all]'),update=()=>{const all=box.querySelector('[data-gh-ad-any]'),n=normal.filter(c=>c.checked||all.checked).length;toggle.checked=n===normal.length;toggle.indeterminate=n>0&&n<normal.length;details.querySelector('[data-gh-group-count]').textContent=n+' / '+normal.length;};
+   toggle.onchange=()=>{const all=box.querySelector('[data-gh-ad-any]');if(all.checked)choices.forEach(c=>c.checked=!c.value.endsWith(':GENERAL'));all.checked=false;normal.forEach(c=>c.checked=toggle.checked);ghContractChanged_(toggle);};
+   box.addEventListener('change',update);update();
+  }
+  choices.filter(c=>c.value.split(':')[1]==='GENERAL').forEach(c=>c.closest('label').hidden=true);
  }
 }
 function ghMountProvincePickers_(){
@@ -862,7 +876,7 @@ function ghMountProvincePickers_(){
 }
 function ghContractChanged_(input){
  const box=input.closest('[data-gh-picker]'),all=box.querySelector('[data-gh-ad-any]'),choices=[...box.querySelectorAll('[data-gh-ad-choice]')];
- for(const choice of choices)choice.disabled=all.checked;
+ if(box.dataset.ghPicker==='categorias_keys'){if(input===all)choices.forEach(c=>c.checked=all.checked&&!c.value.endsWith(':GENERAL'));else if(input.hasAttribute('data-gh-ad-choice'))all.checked=false;choices.forEach(c=>c.disabled=false);}else for(const choice of choices)choice.disabled=all.checked;
  const count=choices.filter(c=>c.checked).length,field=box.dataset.ghPicker;
  const allLabel=({ciudades_ids:'Todas las ciudades del catálogo',ubicaciones_ids:'Todas las secciones del catálogo',categorias_keys:'Todas las categorías del catálogo'})[field];
  box.querySelector('[data-gh-picker-summary]').textContent=all.checked?allLabel:count?count+' seleccionada(s)':'Elegí al menos una opción';
@@ -870,8 +884,8 @@ function ghContractChanged_(input){
 }
 function ghContractFilter_(input){
  const box=input.closest('[data-gh-picker]'),q=ghNorm(input.value);let visible=0;
- for(const row of box.querySelectorAll('[data-gh-contract-row]')){const show=!q||row.dataset.search.includes(q);row.hidden=!show;if(show)visible++;}
- box.querySelector('[data-gh-contract-empty]').hidden=visible>0;informarAltura();
+ for(const row of box.querySelectorAll('[data-gh-contract-row]')){const show=!row.querySelector('[data-gh-ad-choice]')?.value.endsWith(':GENERAL')&&(!q||row.dataset.search.includes(q));row.hidden=!show;if(show)visible++;}
+ if(q)box.querySelectorAll('.contract-choices details').forEach(d=>d.open=true);box.querySelector('[data-gh-contract-empty]').hidden=visible>0;informarAltura();
 }
 function ghContractValues_(box){
  const all=box.querySelector('[data-gh-ad-any]');if(all.checked)return [];
@@ -924,7 +938,7 @@ function ghFunctionEditor_(adm,catalog,usage){
     inputs+=ghContractPicker_('ciudades_ids','Ciudades contratadas',GH_CITIES,'ciudad_id','ciudad_visible',cfg);
     inputs+='</section><section class="contract-group"><h5>2. Secciones</h5><p>Elegí en qué partes de la plataforma podrá aparecer su publicidad.</p>';
     inputs+=ghContractPicker_('ubicaciones_ids','Secciones contratadas',GH_CATALOG_CACHE.publicidad_ubicaciones||[],'ubicacion_id','nombre_visible',cfg);
-    inputs+='</section><section class="contract-group"><h5>3. Categorías</h5><p>Elegí los rubros en los que podrá publicitar. Cada opción indica también su sección. «Campaña general» permite una publicidad sin rubro específico dentro de esa sección.</p><label>Máximo de categorías para una misma publicidad<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="categorias_max" value="'+ghFunctionNumber_(cfg.categorias_max,1)+'"></label>';
+    inputs+='</section><section class="contract-group"><h5>3. Categorías</h5><p>Elegí los rubros en los que podrá publicitar. Cada opción indica también su sección. Podés elegir todas las categorías del catálogo, todas las de una funcionalidad o una por una.</p><label>Máximo de categorías para una misma publicidad<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="categorias_max" value="'+ghFunctionNumber_(cfg.categorias_max,1)+'"></label>';
     inputs+='<label class="contract-choice"><input type="checkbox" data-gh-ad-flag="categorias_sin_limite" onchange="ghScopeLimitChanged_(this)" '+(cfg.categorias_sin_limite===true?'checked':'')+'>Permitir todas las categorías contratadas en una misma publicidad · Sin tope por pieza</label><p class="muted">El catálogo contratado define dónde puede aparecer. El máximo por pieza limita cuántas opciones puede elegir a la vez; esta casilla elimina solo ese máximo.</p>';
     inputs+=ghContractPicker_('categorias_keys','Categorías contratadas',GH_CATALOG_CACHE.publicidad_categorias||[],'categoria_key','categoria',cfg);
     inputs+='</section><p class="muted">Los máximos se aplican a cada publicidad. Las listas contratadas definen entre qué opciones podrá elegir el anunciante.</p></details>';
@@ -1388,6 +1402,7 @@ async function ghResolverRevisionUnificada(source,tipo,id,decision){
 <script src="/plataforma/gh-listados.js?v=108"></script>
 <script>window.addEventListener('message',e=>{const f=document.getElementById('empleoAdminFrame');if(e.source===f?.contentWindow&&e.data?.tipo==='alturaIframeGLD'&&Number(e.data.altura)>0){f.style.height=Math.min(30000,Number(e.data.altura))+'px';informarAltura();}});</script><script src="/plataforma/empleo-enlaces.js?v=109"></script><script src="/plataforma/cobertura-provincia.js?v=113"></script></body>
 </html>
+
 
 
 

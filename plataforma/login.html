@@ -4223,7 +4223,7 @@ function pubUiEsc_(s){ return htmlEscape(String(s ?? '')); }
 
 function pubUiSelected_(root){
   return Array.from(
-    document.querySelectorAll(root+' input[type="checkbox"]:checked')
+    document.querySelectorAll(root+' input[type="checkbox"]:checked:not([data-pub-group-all])')
   ).map(x=>String(x.value||'').trim()).filter(Boolean);
 }
 
@@ -4323,6 +4323,7 @@ function pubUiUbicaciones_(selected=[]){
 
   box.querySelectorAll('input').forEach(cb=>{
     cb.addEventListener('change',()=>{
+      if(!cb.checked)document.querySelectorAll('#pub-categorias input[data-ubicacion]').forEach(c=>{if(c.dataset.ubicacion===cb.value)c.checked=false;});
       pubUiCategorias_();
       pubUiCruces_();
     });
@@ -4357,22 +4358,31 @@ function pubUiCiudades_(selected=[]){
   });
 }
 
+function pubCategoryName115(row){
+ const id=String(row.categoria_id||row.id||'');
+ const values=[row.titulo,row.nombre_visible,row.categoria_visible,row.nombre,row.categoria];
+ const name=values.find(v=>String(v||'').trim()&&String(v)!==id&&!/^CAT[-_]/i.test(String(v)));
+ if(name)return String(name).trim();
+ return String(values.find(v=>String(v||'').trim())||id).replace(/^CAT[-_]/i,'').replace(/[_-]+/g,' ').replace(/\b\p{L}/gu,c=>c.toLocaleUpperCase('es'));
+}
 function pubUiCategoryBatchPlan_(selected,group,max,remove=false){const next=new Set(selected.map(String));for(const key of group)remove?next.delete(String(key)):next.add(String(key));return {keys:[...next],exceeds:next.size>max,total:next.size};}
 function pubUiGruposCategorias_(cats,max){
- const box=document.getElementById('pub-categorias-grupos');if(!box)return;
- const previousGroup=document.getElementById('pub-categoria-grupo')?.value||'TODAS';
- const groups=[{key:'TODAS',label:'Todas las categorías disponibles',rows:cats}];
- for(const section of publicidadState.ubicaciones||[]){const rows=cats.filter(c=>String(c.ubicacion_id)===String(section.ubicacion_id));if(rows.length)groups.push({key:String(section.ubicacion_id),label:section.nombre_visible||section.nombre||section.modulo||section.ubicacion_id,rows});}
- box.innerHTML='<label>Elegir categorías en grupo<select id="pub-categoria-grupo">'+groups.map(g=>'<option value="'+pubUiEsc_(g.key)+'">'+pubUiEsc_(g.label)+' · '+new Set(g.rows.map(c=>c.categoria_key)).size+'</option>').join('')+'</select></label><div class="module-form-actions"><button type="button" class="secondary" data-pub-category-batch="add">Seleccionar grupo</button><button type="button" class="secondary" data-pub-category-batch="remove">Quitar grupo</button></div><p id="pub-categorias-grupo-msg" role="status" aria-live="polite"></p><p class="small-muted">Podés elegir todas juntas o agruparlas por Guía, Eventos, Promociones o Actividades, dentro de las secciones y categorías contratadas.</p>';
- if(groups.some(g=>g.key===previousGroup))document.getElementById('pub-categoria-grupo').value=previousGroup;
- box.querySelectorAll('[data-pub-category-batch]').forEach(button=>button.addEventListener('click',()=>{
-  const group=groups.find(g=>g.key===document.getElementById('pub-categoria-grupo').value);if(!group)return;
-  const plan=pubUiCategoryBatchPlan_(pubUiSelected_('#pub-categorias'),group.rows.map(c=>c.categoria_key),max,button.dataset.pubCategoryBatch==='remove');
-  if(plan.exceeds&&button.dataset.pubCategoryBatch==='add'){const notice=document.getElementById('pub-categorias-grupo-msg');if(notice){notice.className='error';notice.textContent='No podés elegir tantas categorías juntas: quedarían '+plan.total+' y tu cupo es '+max+'. La selección anterior se conserva.';}setMsg('publicidad-msg','err','No podés elegir tantas categorías juntas: la selección quedaría en '+plan.total+' y tu cupo por publicidad es '+max+'. No se modificó la selección.');return;}
-  const wanted=new Set(plan.keys);if(button.dataset.pubCategoryBatch==='add'){const sectionIds=new Set(group.rows.map(c=>String(c.ubicacion_id)));document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]').forEach(input=>{if(sectionIds.has(input.value))input.checked=true;});}
-  document.querySelectorAll('#pub-categorias input[type="checkbox"]').forEach(input=>input.checked=wanted.has(input.value));
-  pubUiCategorias_(plan.keys);pubUiCruces_();const notice=document.getElementById('pub-categorias-grupo-msg');if(notice){notice.className='small-muted';notice.textContent=plan.total+' categorías seleccionadas.';}setMsg('publicidad-msg','ok',plan.total+' categorías seleccionadas. Revisá la cobertura y guardá la pieza cuando esté lista.');
- }));
+ const host=document.getElementById('pub-categorias-grupos'),box=document.getElementById('pub-categorias');if(!host||!box)return;
+ host.innerHTML='<label class="pub-check"><input type="checkbox" value="" data-pub-all-categories> Todas las categorías disponibles</label><p id="pub-categorias-grupo-msg" role="status" aria-live="polite"></p>';
+ const allChoices=[...box.querySelectorAll('input[type="checkbox"]')];
+ const apply=(keys,checked)=>{const plan=pubUiCategoryBatchPlan_(pubUiSelected_('#pub-categorias'),keys,max,!checked);if(checked&&plan.exceeds){document.getElementById('pub-categorias-grupo-msg').textContent='No podés elegir tantas categorías juntas: quedarían '+plan.total+' y tu cupo es '+max+'.';refresh();return;}document.getElementById('pub-categorias-grupo-msg').textContent='';const wanted=new Set(plan.keys);allChoices.forEach(c=>c.checked=wanted.has(c.value));if(checked){const sections=new Set(keys.map(k=>k.split(':')[0]));document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]').forEach(c=>{if(sections.has(c.value))c.checked=true;});}pubUiCruces_();refresh();};
+ const grouped=[];
+ for(const section of publicidadState.ubicaciones||[]){
+  const key=String(section.ubicacion_id),inputs=allChoices.filter(c=>c.dataset.ubicacion===key&&c.value.split(':')[1]!=='GENERAL');if(!inputs.length)continue;
+  const title=section.nombre_visible||section.nombre||section.modulo||key,details=document.createElement('details');details.className='pub-scope-group';details.style.cssText='border:1px solid #ccd5df;border-radius:10px;padding:12px;margin:10px 0';
+  details.innerHTML='<summary style="font-weight:800;font-size:1rem">Categorías de '+pubUiEsc_(title)+' <span data-count></span></summary><label class="pub-check"><input type="checkbox" value="" data-pub-group-all> Todas las categorías de '+pubUiEsc_(title)+'</label><div data-group-list></div>';
+  inputs.forEach(c=>details.querySelector('[data-group-list]').appendChild(c.closest('label')));box.appendChild(details);
+  const toggle=details.querySelector('[data-pub-group-all]');toggle.onchange=()=>apply(inputs.map(c=>c.value),toggle.checked);grouped.push({inputs,toggle,details});
+ }
+ allChoices.filter(c=>c.value.split(':')[1]==='GENERAL').forEach(c=>c.closest('label').hidden=true);
+ const normal=allChoices.filter(c=>c.value.split(':')[1]!=='GENERAL'),all=host.querySelector('[data-pub-all-categories]');
+ function refresh(){for(const g of grouped){const n=g.inputs.filter(c=>c.checked).length;g.toggle.checked=n===g.inputs.length;g.toggle.indeterminate=n>0&&n<g.inputs.length;g.details.querySelector('[data-count]').textContent=n+' / '+g.inputs.length;}const n=normal.filter(c=>c.checked).length;all.checked=normal.length>0&&n===normal.length;all.indeterminate=n>0&&n<normal.length;}
+ all.onchange=()=>apply(normal.map(c=>c.value),all.checked);box.onchange=refresh;refresh();
 }
 function pubUiCategorias_(selected=[]){
   const box=document.getElementById('pub-categorias');
@@ -4390,8 +4400,8 @@ function pubUiCategorias_(selected=[]){
     .filter(c=>seccionesPermitidas.has(String(c.ubicacion_id)))
     .filter(c=>!c.categoria_heredada||previo.has(String(c.categoria_key))||contratadas.includes(String(c.categoria_key)))
     .filter(c=>!contratadas.length||contratadas.includes(String(c.categoria_key)));
-  const cats=todas.filter(c=>(ubicaciones.size?ubicaciones:seccionesPermitidas).has(String(c.ubicacion_id)));
-  pubUiGruposCategorias_(todas,max);
+  const cats=todas;
+
 
   box.innerHTML=cats.map(c=>`
     <label class="pub-check">
@@ -4400,14 +4410,16 @@ function pubUiCategorias_(selected=[]){
         data-ubicacion="${pubUiEsc_(c.ubicacion_id)}"
         ${previo.has(c.categoria_key)?'checked':''}>
       <span>
-        <strong>${pubUiEsc_(c.categoria)}</strong>
-        <br><span class="small-muted">${pubUiEsc_((publicidadState.ubicaciones||[]).find(u=>String(u.ubicacion_id)===String(c.ubicacion_id))?.nombre_visible||'Sección seleccionada')}</span>
+        <strong>${pubUiEsc_(pubCategoryName115(c))}</strong>
+        
       </span>
     </label>
   `).join('') || '<div class="small-muted">'+(ubicaciones.size?'No hay categorías habilitadas para las secciones elegidas. Consultá la cobertura contratada.':'No hay categorías habilitadas en la cobertura contratada.')+'</div>';
 
-  box.querySelectorAll('input').forEach(cb=>{
+  pubUiGruposCategorias_(cats,max);
+  box.querySelectorAll('input[data-ubicacion]').forEach(cb=>{
     cb.addEventListener('change',()=>{
+      if(cb.checked)document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]').forEach(c=>{if(c.value===cb.dataset.ubicacion)c.checked=true;});
       if(pubUiSelected_('#pub-categorias').length>max){
         cb.checked=false;
         setMsg('publicidad-msg','err',`Podés elegir hasta ${max} categorías.`);
@@ -4417,7 +4429,6 @@ function pubUiCategorias_(selected=[]){
       if(cb.checked){
         const section=Array.from(document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]')).find(input=>input.value===cb.dataset.ubicacion);
         if(section)section.checked=true;
-        pubUiCategorias_();
       }
       pubUiCruces_();
     });
@@ -4428,7 +4439,7 @@ function pubUiCruces_(){
  const box=document.getElementById('pub-cruces-preview');if(!box)return;
  const selected=[['Secciones','#pub-ubicaciones','pub-secciones-count'],['Ciudades','#pub-ciudades','pub-ciudades-count'],['Categorías','#pub-categorias','pub-categorias-count']];
  box.innerHTML='<strong>Resumen de cobertura</strong>'+selected.map(([label,root,id])=>{
-  const inputs=Array.from(document.querySelectorAll(root+' input:checked'));
+  const inputs=Array.from(document.querySelectorAll(root+' input:checked:not([data-pub-group-all])'));
   const count=document.getElementById(id);if(count)count.textContent='('+inputs.length+')';
   const names=inputs.map(input=>input.closest('label')?.querySelector('strong')?.textContent||input.value);
   return '<div><b>'+label+': '+inputs.length+'</b><span>'+pubUiEsc_(names.join(', ')||'Sin seleccionar')+'</span></div>';
@@ -9661,6 +9672,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 <script src="/plataforma/notificaciones.js?v=102"></script>
 <script src="/plataforma/empleo-enlaces.js?v=110"></script><script src="/plataforma/cobertura-provincia.js?v=113"></script></body>
 </html>
+
 
 
 
