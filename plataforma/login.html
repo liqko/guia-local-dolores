@@ -4338,32 +4338,55 @@ function pubUiUbicaciones_(selected=[]){
   });
 }
 
+function pubUiCityPlan118_(selected,ids,max,remove=false){
+ const next=new Set(selected.map(String));for(const id of ids)remove?next.delete(String(id)):next.add(String(id));
+ return {ids:[...next],exceeds:max>0&&next.size>max};
+}
 function pubUiCiudades_(selected=[]){
-  const box=document.getElementById('pub-ciudades');
-  if(!box) return;
-
-  const set=new Set(selected);
-  const max=(publicidadState.config?.ciudades_sin_limite?0:Number(publicidadState.config?.ciudades_max||0));
-
-  box.innerHTML=(publicidadState.ciudades||[]).filter(c=>!(publicidadState.config?.ciudades_ids||[]).length||publicidadState.config.ciudades_ids.includes(String(c.ciudad_id))).map(c=>`
-    <label class="pub-check">
-      <input type="checkbox" value="${pubUiEsc_(c.ciudad_id)}"${set.has(c.ciudad_id)?' checked':''}>
-      <span>${pubUiEsc_(c.ciudad_visible)}</span>
-    </label>
-  `).join('') || '<div class="small-muted">No hay ciudades disponibles.</div>';
-
-  window.GLDCoberturaProvincia?.mount({host:document.getElementById('pub-provincias'),ciudades:(publicidadState.ciudades||[]).filter(c=>!(publicidadState.config?.ciudades_ids||[]).length||publicidadState.config.ciudades_ids.includes(String(c.ciudad_id))),seleccion:()=>pubUiSelected_('#pub-ciudades'),max,aplicar:ids=>{const wanted=new Set(ids);box.querySelectorAll('input[type="checkbox"]').forEach(c=>c.checked=wanted.has(c.value));setMsg('publicidad-msg','ok','Selección por provincia preparada. Revisala y guardá la publicidad.');pubUiCruces_();},error:message=>setMsg('publicidad-msg','err',message)});
-  box.querySelectorAll('input').forEach(cb=>{
-    cb.addEventListener('change',()=>{
-      if(max>0 && pubUiSelected_('#pub-ciudades').length>max){
-        cb.checked=false;
-        setMsg('publicidad-msg','err',`Podés elegir hasta ${max} ciudades.`);
-      }else{
-        setMsg('publicidad-msg','ok','');
-      }
-      pubUiCruces_();
-    });
-  });
+ const box=document.getElementById('pub-ciudades'),host=document.getElementById('pub-provincias');if(!box||!host)return;
+ const cfg=publicidadState.config||{},allowed=(cfg.ciudades_ids||[]).map(String);
+ const cities=(publicidadState.ciudades||[]).filter(c=>!allowed.length||allowed.includes(String(c.ciudad_id)));
+ const set=new Set(selected.map(String)),max=cfg.ciudades_sin_limite?0:Number(cfg.ciudades_max||0);
+ const norm=v=>String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+ const province=c=>String(c.pais_id||'')+':'+String(c.provincia_id||c.provincia||c.provincia_visible||'');
+ const groups=new Map();for(const c of cities){const name=c.provincia_visible||c.provincia||c.provincia_id;if(name)groups.set(province(c),String(name));}
+ box.innerHTML=cities.map(c=>'<label class="pub-check"><input type="checkbox" value="'+pubUiEsc_(c.ciudad_id)+'"'+(set.has(String(c.ciudad_id))?' checked':'')+'><span>'+pubUiEsc_(c.ciudad_visible)+'</span></label>').join('')||'<p class="small-muted">No hay ciudades disponibles.</p>';
+ host.innerHTML='<label>Cómo elegir las ciudades<select data-city-mode><option value="individual">Una por una</option><option value="province">Por provincia</option><option value="all">Todas las ciudades del catálogo</option></select></label><div data-city-province hidden><label>Provincia<select data-city-province-select><option value="">Seleccioná una provincia</option>'+
+ [...groups].sort((a,b)=>a[1].localeCompare(b[1],'es')).map(([id,name])=>'<option value="'+pubUiEsc_(id)+'">'+pubUiEsc_(name)+'</option>').join('')+
+ '</select></label><p>Elegí ciudades de la lista o agregá todas las de la provincia.</p><button type="button" class="secondary" data-city-add>Agregar todas las ciudades de esta provincia</button><button type="button" class="secondary" data-city-remove>Quitar las ciudades de esta provincia</button></div><label data-city-search-label>Buscar ciudad<input type="search" data-city-search placeholder="Escribí las primeras letras"></label><p data-city-message role="status" class="small-muted"></p>';
+ const mode=host.querySelector('[data-city-mode]'),prov=host.querySelector('[data-city-province-select]'),search=host.querySelector('[data-city-search]'),message=host.querySelector('[data-city-message]');
+ const rows=[...box.querySelectorAll('label')],inputs=[...box.querySelectorAll('input')];
+ const current=()=>inputs.filter(c=>c.checked).map(c=>c.value);
+ const apply=(ids,remove=false)=>{
+  const plan=pubUiCityPlan118_(current(),ids,max,remove);
+  if(plan.exceeds){message.textContent='Esta selección supera tu cupo de '+max+' ciudades. No se modificó la selección.';setMsg('publicidad-msg','err',message.textContent);return false;}
+  const wanted=new Set(plan.ids);inputs.forEach(c=>c.checked=wanted.has(c.value));
+  message.textContent='Ciudades seleccionadas: '+wanted.size+'. Guardá la publicidad para aplicar los cambios.';setMsg('publicidad-msg','ok','');pubUiCruces_();return true;
+ };
+ const filter=()=>{
+  const byProvince=mode.value==='province',all=mode.value==='all',q=norm(search.value);
+  host.querySelector('[data-city-province]').hidden=!byProvince;
+  host.querySelector('[data-city-search-label]').hidden=all;box.hidden=all;
+  rows.forEach((row,i)=>row.hidden=(byProvince&&(!prov.value||province(cities[i])!==prov.value))||!norm(cities[i].ciudad_visible).includes(q));
+ };
+ let previous='individual';
+ mode.addEventListener('change',()=>{
+  if(mode.value==='all'&&!apply(cities.map(c=>String(c.ciudad_id))))mode.value=previous;
+  previous=mode.value;filter();
+ });
+ prov.addEventListener('change',filter);search.addEventListener('input',filter);
+ const provinceBatch=remove=>{
+  if(!prov.value){message.textContent='Seleccioná una provincia.';return;}
+  apply(cities.filter(c=>province(c)===prov.value).map(c=>String(c.ciudad_id)),remove);
+ };
+ host.querySelector('[data-city-add]').addEventListener('click',()=>provinceBatch(false));
+ host.querySelector('[data-city-remove]').addEventListener('click',()=>provinceBatch(true));
+ inputs.forEach(cb=>cb.addEventListener('change',()=>{
+  if(max>0&&current().length>max){cb.checked=false;message.textContent='Podés elegir hasta '+max+' ciudades.';setMsg('publicidad-msg','err',message.textContent);}
+  else{message.textContent='Ciudades seleccionadas: '+current().length;setMsg('publicidad-msg','ok','');}
+  pubUiCruces_();
+ }));
+ filter();
 }
 
 function pubCategoryName115(row){
