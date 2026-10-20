@@ -1775,9 +1775,9 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
 
 
             <section id="pub-alcance-tecnico" class="module-details" aria-labelledby="pub-coverage-title"><h4 id="pub-coverage-title">Ciudad, sección y categoría <span class="req" aria-label="obligatorio">*</span></h4><p class="small-muted">Elegí dónde mostrar esta pieza, dentro de lo contratado. La relevancia de la búsqueda se aplica antes de la prioridad por nivel.</p><div id="pub-cruces-preview" class="pub-coverage-summary" role="status" aria-live="polite"></div>
-<details class="pub-coverage-picker" open><summary>Secciones <span id="pub-secciones-count"></span></summary>
+<details class="pub-coverage-picker" open><summary>Ciudades <span id="pub-ciudades-count"></span></summary><div id="pub-provincias"></div><div id="pub-ciudades" class="pub-check-grid"></div>
+              </details><details class="pub-coverage-picker"><summary>Secciones <span id="pub-secciones-count"></span></summary>
               <div id="pub-ubicaciones" class="pub-check-grid"></div>
-              </details><details class="pub-coverage-picker"><summary>Ciudades <span id="pub-ciudades-count"></span></summary><div id="pub-provincias"></div><div id="pub-ciudades" class="pub-check-grid"></div>
               </details><details class="pub-coverage-picker"><summary>Categorías <span id="pub-categorias-count"></span></summary><div id="pub-categorias-grupos"></div><div id="pub-categorias" class="pub-check-grid"></div>
               </details>
             </section>
@@ -4305,6 +4305,14 @@ function pubUiMedia_(existing=[]){
   add.style.display=arr.length<5?'':'none';
 }
 
+function pubUiSeccionNombre117_(section){
+ const raw=String(section.modulo||section.ubicacion_id||section.nombre_visible||section.nombre||''),code=raw.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
+ if(/GUIA|ANUNCIANTE|COMERCIO/.test(code))return 'Guía';
+ if(/ACTIVIDAD/.test(code))return 'Actividades';
+ if(/EVENTO/.test(code))return 'Eventos';
+ if(/PROMO/.test(code))return 'Promociones';
+ return String(section.nombre_visible||section.nombre||raw).replace(/^listado\s+(?:de\s+)?/i,'').trim();
+}
 function pubUiUbicaciones_(selected=[]){
   const box=document.getElementById('pub-ubicaciones');
   if(!box) return;
@@ -4315,7 +4323,7 @@ function pubUiUbicaciones_(selected=[]){
     <label class="pub-check">
       <input type="checkbox" value="${pubUiEsc_(u.ubicacion_id)}"${set.has(u.ubicacion_id)?' checked':''}>
       <span>
-        <strong>${pubUiEsc_(u.nombre_visible||u.ubicacion_id)}</strong>
+        <strong>${pubUiEsc_(pubUiSeccionNombre117_(u))}</strong>
         <br><span class="small-muted">${pubUiEsc_(u.modulo||'')}</span>
       </span>
     </label>
@@ -4370,14 +4378,26 @@ function pubUiGruposCategorias_(cats,max){
  const host=document.getElementById('pub-categorias-grupos'),box=document.getElementById('pub-categorias');if(!host||!box)return;
  host.innerHTML='<label class="pub-check"><input type="checkbox" value="" data-pub-all-categories> Todas las categorías disponibles</label><p id="pub-categorias-grupo-msg" role="status" aria-live="polite"></p>';
  const allChoices=[...box.querySelectorAll('input[type="checkbox"]')];
- const apply=(keys,checked)=>{const plan=pubUiCategoryBatchPlan_(pubUiSelected_('#pub-categorias'),keys,max,!checked);if(checked&&plan.exceeds){document.getElementById('pub-categorias-grupo-msg').textContent='No podés elegir tantas categorías juntas: quedarían '+plan.total+' y tu cupo es '+max+'.';refresh();return;}document.getElementById('pub-categorias-grupo-msg').textContent='';const wanted=new Set(plan.keys);allChoices.forEach(c=>c.checked=wanted.has(c.value));if(checked){const sections=new Set(keys.map(k=>k.split(':')[0]));document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]').forEach(c=>{if(sections.has(c.value))c.checked=true;});}pubUiCruces_();refresh();};
+ const apply=(keys,checked,notice=document.getElementById('pub-categorias-grupo-msg'))=>{
+  box.querySelectorAll('[data-group-message]').forEach(n=>{n.hidden=true;n.textContent='';});
+  const globalNotice=document.getElementById('pub-categorias-grupo-msg');globalNotice.textContent='';
+  const groupKeys=[...new Set(keys.map(String))],plan=pubUiCategoryBatchPlan_(pubUiSelected_('#pub-categorias'),groupKeys,max,!checked);
+  if(checked&&plan.exceeds){
+   notice.hidden=false;notice.textContent='No se pudo marcar todo: este grupo tiene '+groupKeys.length+' categorías. Con las otras que elegiste serían '+plan.total+' y tu cupo por publicidad es '+max+'. La selección anterior se conserva.';
+   refresh();return;
+  }
+  if(notice){notice.hidden=true;notice.textContent='';}
+  const wanted=new Set(plan.keys);allChoices.forEach(c=>{c.checked=wanted.has(String(c.value));c.indeterminate=false;});
+  if(checked){const sections=new Set(groupKeys.map(k=>k.split(':')[0]));document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]').forEach(c=>{if(sections.has(c.value))c.checked=true;});}
+  pubUiCruces_();refresh();
+ };
  const grouped=[];
  for(const section of publicidadState.ubicaciones||[]){
   const key=String(section.ubicacion_id),inputs=allChoices.filter(c=>c.dataset.ubicacion===key&&c.value.split(':')[1]!=='GENERAL');if(!inputs.length)continue;
-  const title=section.nombre_visible||section.nombre||section.modulo||key,details=document.createElement('details');details.className='pub-scope-group';details.style.cssText='border:1px solid #ccd5df;border-radius:10px;padding:12px;margin:10px 0';
-  details.innerHTML='<summary style="font-weight:800;font-size:1rem">Categorías de '+pubUiEsc_(title)+' <span data-count></span></summary><label class="pub-check"><input type="checkbox" value="" data-pub-group-all> Todas las categorías de '+pubUiEsc_(title)+'</label><div data-group-list></div>';
+  const title=pubUiSeccionNombre117_(section),details=document.createElement('details');details.className='pub-scope-group';details.style.cssText='border:1px solid #ccd5df;border-radius:10px;padding:12px;margin:10px 0';
+  details.innerHTML='<summary style="font-weight:800;font-size:1rem">Categorías de '+pubUiEsc_(title)+' <span data-count></span></summary><label class="pub-check"><input type="checkbox" value="" data-pub-group-all> Todas las categorías de '+pubUiEsc_(title)+'</label><p data-group-message role="alert" style="color:#b42318;font-weight:700" hidden></p><div data-group-list></div>';
   inputs.forEach(c=>details.querySelector('[data-group-list]').appendChild(c.closest('label')));box.appendChild(details);
-  const toggle=details.querySelector('[data-pub-group-all]');toggle.onchange=()=>apply(inputs.map(c=>c.value),toggle.checked);grouped.push({inputs,toggle,details});
+  const toggle=details.querySelector('[data-pub-group-all]');toggle.onchange=()=>apply(inputs.map(c=>c.value),toggle.checked,details.querySelector('[data-group-message]'));grouped.push({inputs,toggle,details});
  }
  allChoices.filter(c=>c.value.split(':')[1]==='GENERAL').forEach(c=>c.closest('label').hidden=true);
  const normal=allChoices.filter(c=>c.value.split(':')[1]!=='GENERAL'),all=host.querySelector('[data-pub-all-categories]');
@@ -4437,7 +4457,7 @@ function pubUiCategorias_(selected=[]){
 
 function pubUiCruces_(){
  const box=document.getElementById('pub-cruces-preview');if(!box)return;
- const selected=[['Secciones','#pub-ubicaciones','pub-secciones-count'],['Ciudades','#pub-ciudades','pub-ciudades-count'],['Categorías','#pub-categorias','pub-categorias-count']];
+ const selected=[['Ciudades','#pub-ciudades','pub-ciudades-count'],['Secciones','#pub-ubicaciones','pub-secciones-count'],['Categorías','#pub-categorias','pub-categorias-count']];
  box.innerHTML='<strong>Resumen de cobertura</strong>'+selected.map(([label,root,id])=>{
   const inputs=Array.from(document.querySelectorAll(root+' input:checked:not([data-pub-group-all])'));
   const count=document.getElementById(id);if(count)count.textContent='('+inputs.length+')';
