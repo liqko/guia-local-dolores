@@ -2,6 +2,31 @@
 'use strict';
 const el=id=>document.getElementById(id),states=new Map(),searchStates=new Map();
 const defs={vip:{kind:'eventos',clase:'VIP',box:'eventosList'},free:{kind:'eventos',clase:'FREE',box:'eventosFreeList'},actividades:{kind:'actividades',box:'activitiesAll102'},promos:{kind:'promos',box:'ghPromosList'},publicidad:{kind:'publicidad',box:'ghPublicidadList'},moderadores:{kind:'moderadores',box:'moderadoresAll102'}};
+
+let directoryActionPending=false;
+async function runDirectoryAction(work){
+ if(directoryActionPending)return;
+ directoryActionPending=true;
+ let host=window;
+ try{while(host.parent!==host&&host.parent.location.origin===location.origin)host=host.parent;}catch(_){}
+ const doc=host.document,previous=doc.activeElement;
+ const overlay=doc.createElement('div');
+ overlay.setAttribute('role','alertdialog');overlay.setAttribute('aria-modal','true');overlay.setAttribute('aria-label','Operación en curso');
+ overlay.style.cssText='position:fixed;inset:0;z-index:2147483647;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:20px';
+ const card=doc.createElement('div');card.style.cssText='background:white;color:#172033;border-radius:16px;padding:24px;max-width:440px;width:100%;font:17px system-ui;box-shadow:0 12px 48px #0004';
+ const message=doc.createElement('p');message.textContent='Procesando… Esperá a que termine la operación.';message.tabIndex=-1;card.append(message);overlay.append(card);
+ const siblings=[...doc.body.children].map(n=>[n,n.inert]);siblings.forEach(([n])=>n.inert=true);doc.body.append(overlay);message.focus();
+ const preventExit=e=>{e.preventDefault();e.returnValue='';};host.addEventListener('beforeunload',preventExit);
+ let failed=false;
+ try{await work();message.textContent='Operación finalizada.';}
+ catch(error){failed=true;message.textContent=error.message||'No se pudo completar la operación. No se confirmó el cambio.';}
+ finally{host.removeEventListener('beforeunload',preventExit);directoryActionPending=false;}
+ overlay.setAttribute('aria-label',failed?'No se pudo completar la operación':'Operación finalizada');
+ const close=doc.createElement('button');close.type='button';close.textContent='Entendido';close.style.cssText='width:100%;padding:12px;margin-top:12px;font:inherit;cursor:pointer';
+ close.onclick=()=>{overlay.remove();siblings.forEach(([n,inert])=>n.inert=inert);try{previous?.focus();}catch(_){}};
+ card.append(close);close.focus();
+}
+
 function node(tag,text,className){const n=document.createElement(tag);if(text)n.textContent=text;if(className)n.className=className;return n;}
 function button(text,fn,disabled=false){const b=node('button',text,'sec');b.type='button';b.disabled=disabled;b.onclick=fn;return b;}
 function navigation(box,page,total,previous,next){const n=node('nav','','actions');n.setAttribute('aria-label','Páginas del listado');n.append(button('Anterior',previous,!previous),node('span','Página '+(page+1)+' · '+total+' resultado(s)'),button('Siguiente',next,!next));box.append(n);}
@@ -39,7 +64,7 @@ function render(key,s){
   if(key==='moderadores')actions.append(button('Editar permisos',()=>ghEditarModerador({suscriptor_id:r.suscriptor_id||p.id,nombre:r.nombre||p.titulo})));
   if(p.estado==='PENDIENTE')actions.append(button('Ir a revisión',()=>ghGoPending(d.kind==='eventos'?(d.clase==='FREE'?'EVENTO_FREE':'EVENTO'):({actividades:'ACTIVIDAD',promos:'PROMO',publicidad:'PUBLICIDAD'})[d.kind])));
   if(key==='promos'||key==='publicidad'){
-   const action=async(value)=>{if(!confirm(value==='borrar'||value==='eliminar'?'¿Borrar definitivamente esta publicación?':'¿Confirmar el cambio de estado?'))return;actions.querySelectorAll('button').forEach(b=>b.disabled=true);try{const result=await ghAdminRequest_(key==='promos'?'/promos':'/publicidad',{[key==='promos'?'promo_id':'publicidad_id']:p.id,action:value},'POST');if(key==='promos'&&['aprobar','rechazar','borrar'].includes(value)&&typeof ghAplicarRevisionResuelta_==='function')ghAplicarRevisionResuelta_('PROMO',p.id,value==='aprobar'?'APROBAR':'RECHAZAR',{item:result.promo||{},deleted:result.deleted});await load(key,true,true);}catch(e){actions.after(node('p',e.message,'error'));actions.querySelectorAll('button').forEach(b=>b.disabled=false);}};
+   const action=async(value)=>{if(!confirm(value==='borrar'||value==='eliminar'?'¿Borrar definitivamente esta publicación?':'¿Confirmar el cambio de estado?'))return;await runDirectoryAction(async()=>{actions.querySelectorAll('button').forEach(b=>b.disabled=true);try{const result=await ghAdminRequest_(key==='promos'?'/promos':'/publicidad',{[key==='promos'?'promo_id':'publicidad_id']:p.id,action:value},'POST');if(key==='promos'&&['aprobar','rechazar','borrar'].includes(value)&&typeof ghAplicarRevisionResuelta_==='function')ghAplicarRevisionResuelta_('PROMO',p.id,value==='aprobar'?'APROBAR':'RECHAZAR',{item:result.promo||{},deleted:result.deleted});await load(key,true,true);}catch(e){actions.after(node('p',e.message,'error'));actions.querySelectorAll('button').forEach(b=>b.disabled=false);throw e;}});};
    if(key==='promos'&&p.estado==='PENDIENTE')actions.append(button('Aprobar publicación',()=>action('aprobar')),button('Rechazar publicación',()=>action('rechazar')));
    if(p.estado!=='BLOQUEADA')actions.append(button(p.estado==='PAUSADA'&&key==='promos'?'Reanudar':'Pausar',()=>action(p.estado==='PAUSADA'&&key==='promos'?'reanudar':'pausar'),key==='publicidad'&&p.estado!=='ACTIVA'));
    actions.append(button('Borrar',()=>action(key==='promos'?'borrar':'eliminar'),key==='publicidad'&&p.estado==='ACTIVA'));
@@ -58,7 +83,7 @@ async function load(key,reset=false,force=false,page=0){
  if(s.pending===page)return;const seq=++s.seq;const box=el(d.box);if(s.pages.has(page)&&!force){s.page=page;s.data=s.pages.get(page);render(key,s);return;}s.pending=page;
  box.textContent='Cargando listado…';
  try{const data=await ghAdminRequest_('/listados',{tipo:d.kind,clase:d.clase||'',...f,cursor:s.cursors[page]||''});if(states.get(key)!==s||s.seq!==seq)return;s.page=page;s.data=data;s.pages.set(page,data);s.cursors[page+1]=data.next_cursor;render(key,s);}
- catch(e){if(states.get(key)===s&&s.seq===seq)box.textContent=e.message;}finally{if(s.seq===seq)s.pending=null;}
+ catch(e){if(states.get(key)===s&&s.seq===seq)box.textContent=e.message;if(directoryActionPending)throw e;}finally{if(s.seq===seq)s.pending=null;}
 }
 const oldGo=ghGoView,oldEvents=ghRenderEventos;
 ghRenderEventos=function(){if(GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL')return oldEvents();};
