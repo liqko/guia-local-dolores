@@ -1778,7 +1778,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
 <details class="pub-coverage-picker" open><summary>Secciones <span id="pub-secciones-count"></span></summary>
               <div id="pub-ubicaciones" class="pub-check-grid"></div>
               </details><details class="pub-coverage-picker"><summary>Ciudades <span id="pub-ciudades-count"></span></summary><div id="pub-provincias"></div><div id="pub-ciudades" class="pub-check-grid"></div>
-              </details><details class="pub-coverage-picker"><summary>Categorías <span id="pub-categorias-count"></span></summary><div id="pub-categorias" class="pub-check-grid"></div>
+              </details><details class="pub-coverage-picker"><summary>Categorías <span id="pub-categorias-count"></span></summary><div id="pub-categorias-grupos"></div><div id="pub-categorias" class="pub-check-grid"></div>
               </details>
             </section>
 
@@ -4357,6 +4357,23 @@ function pubUiCiudades_(selected=[]){
   });
 }
 
+function pubUiCategoryBatchPlan_(selected,group,max,remove=false){const next=new Set(selected.map(String));for(const key of group)remove?next.delete(String(key)):next.add(String(key));return {keys:[...next],exceeds:next.size>max,total:next.size};}
+function pubUiGruposCategorias_(cats,max){
+ const box=document.getElementById('pub-categorias-grupos');if(!box)return;
+ const previousGroup=document.getElementById('pub-categoria-grupo')?.value||'TODAS';
+ const groups=[{key:'TODAS',label:'Todas las categorías disponibles',rows:cats}];
+ for(const section of publicidadState.ubicaciones||[]){const rows=cats.filter(c=>String(c.ubicacion_id)===String(section.ubicacion_id));if(rows.length)groups.push({key:String(section.ubicacion_id),label:section.nombre_visible||section.nombre||section.modulo||section.ubicacion_id,rows});}
+ box.innerHTML='<label>Elegir categorías en grupo<select id="pub-categoria-grupo">'+groups.map(g=>'<option value="'+pubUiEsc_(g.key)+'">'+pubUiEsc_(g.label)+' · '+new Set(g.rows.map(c=>c.categoria_key)).size+'</option>').join('')+'</select></label><div class="module-form-actions"><button type="button" class="secondary" data-pub-category-batch="add">Seleccionar grupo</button><button type="button" class="secondary" data-pub-category-batch="remove">Quitar grupo</button></div><p class="small-muted">Podés elegir todas juntas o agruparlas por Guía, Eventos, Promociones o Actividades, dentro de las secciones y categorías contratadas.</p>';
+ if(groups.some(g=>g.key===previousGroup))document.getElementById('pub-categoria-grupo').value=previousGroup;
+ box.querySelectorAll('[data-pub-category-batch]').forEach(button=>button.addEventListener('click',()=>{
+  const group=groups.find(g=>g.key===document.getElementById('pub-categoria-grupo').value);if(!group)return;
+  const plan=pubUiCategoryBatchPlan_(pubUiSelected_('#pub-categorias'),group.rows.map(c=>c.categoria_key),max,button.dataset.pubCategoryBatch==='remove');
+  if(plan.exceeds&&button.dataset.pubCategoryBatch==='add'){setMsg('publicidad-msg','err','No podés elegir tantas categorías juntas: la selección quedaría en '+plan.total+' y tu cupo por publicidad es '+max+'. No se modificó la selección.');return;}
+  const wanted=new Set(plan.keys);if(button.dataset.pubCategoryBatch==='add'){const sectionIds=new Set(group.rows.map(c=>String(c.ubicacion_id)));document.querySelectorAll('#pub-ubicaciones input[type="checkbox"]').forEach(input=>{if(sectionIds.has(input.value))input.checked=true;});}
+  document.querySelectorAll('#pub-categorias input[type="checkbox"]').forEach(input=>input.checked=wanted.has(input.value));
+  pubUiCategorias_(plan.keys);pubUiCruces_();setMsg('publicidad-msg','ok',plan.total+' categorías seleccionadas. Revisá la cobertura y guardá la pieza cuando esté lista.');
+ }));
+}
 function pubUiCategorias_(selected=[]){
   const box=document.getElementById('pub-categorias');
   if(!box) return;
@@ -4365,14 +4382,16 @@ function pubUiCategorias_(selected=[]){
   const previo=new Set(
     selected.length ? selected : pubUiSelected_('#pub-categorias')
   );
-  const max=(publicidadState.config?.categorias_sin_limite?0:Number(publicidadState.config?.categorias_max||0));
+  const max=publicidadState.config?.categorias_sin_limite===true?Infinity:Math.max(0,Number(publicidadState.config?.categorias_max)||0);
 
   const contratadas=publicidadState.config?.categorias_keys||[];
   const seccionesPermitidas=new Set((publicidadState.ubicaciones||[]).filter(u=>!(publicidadState.config?.ubicaciones_ids||[]).length||publicidadState.config.ubicaciones_ids.includes(String(u.ubicacion_id))).map(u=>String(u.ubicacion_id)));
-  const cats=(publicidadState.categorias||[])
-    .filter(c=>(ubicaciones.size?ubicaciones:seccionesPermitidas).has(String(c.ubicacion_id)))
+  const todas=(publicidadState.categorias||[])
+    .filter(c=>seccionesPermitidas.has(String(c.ubicacion_id)))
     .filter(c=>!c.categoria_heredada||previo.has(String(c.categoria_key))||contratadas.includes(String(c.categoria_key)))
     .filter(c=>!contratadas.length||contratadas.includes(String(c.categoria_key)));
+  const cats=todas.filter(c=>(ubicaciones.size?ubicaciones:seccionesPermitidas).has(String(c.ubicacion_id)));
+  pubUiGruposCategorias_(todas,max);
 
   box.innerHTML=cats.map(c=>`
     <label class="pub-check">
@@ -4389,7 +4408,7 @@ function pubUiCategorias_(selected=[]){
 
   box.querySelectorAll('input').forEach(cb=>{
     cb.addEventListener('change',()=>{
-      if(max>0 && pubUiSelected_('#pub-categorias').length>max){
+      if(pubUiSelected_('#pub-categorias').length>max){
         cb.checked=false;
         setMsg('publicidad-msg','err',`Podés elegir hasta ${max} categorías.`);
       }else{
