@@ -5979,6 +5979,7 @@ async function promos_post(payload){
   return postJson(WORKER_PROMOS_URL, body);
 }
 let commerceRevisionsInternal={id:'',datos:'',sedes:{}};
+const commercePendingOperations132=new Map();
 async function commerce_post(payload){
   const body=Object.assign({},payload||{});
   if(body.accion&&!body.action){body.action=body.accion;delete body.accion;}
@@ -5989,7 +5990,14 @@ async function commerce_post(payload){
     if(body.action==='set_sedes')body.sedes=(body.sedes||[]).map(row=>({...row,...(row.sede_id?{revision_sede:commerceRevisionsInternal.sedes[row.sede_id]}:{})}));
     if(['set_relaciones_sede','delete_sede'].includes(body.action))body.revision_sede=commerceRevisionsInternal.sedes[body.sede_id];
   }
+  let operationFingerprint132='';
+  if(['save_ficha','set_datos','set_sedes','set_relaciones_sede','delete_sede'].includes(body.action)){
+    operationFingerprint132=JSON.stringify(body);
+    if(!commercePendingOperations132.has(operationFingerprint132))commercePendingOperations132.set(operationFingerprint132,crypto.randomUUID());
+    body.operation_id=commercePendingOperations132.get(operationFingerprint132);
+  }
   const response=await postJson(WORKER_COMMERCE_URL,body);
+  if((response.status===200&&response.json?.success||response.status===409&&response.json?.code==='GUIDE_OPERATION_REVIEW')&&operationFingerprint132)commercePendingOperations132.delete(operationFingerprint132);
   if(response.status===200&&response.json?.success){
     if(response.json.revision_datos)commerceRevisionsInternal.datos=response.json.revision_datos;
     if(response.json.revision_sedes)commerceRevisionsInternal.sedes={...commerceRevisionsInternal.sedes,...response.json.revision_sedes};

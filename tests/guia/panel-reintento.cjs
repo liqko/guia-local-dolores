@@ -1,0 +1,24 @@
+const fs=require('node:fs');
+const vm=require('node:vm');
+const assert=require('node:assert/strict');
+const source=fs.readFileSync(require('node:path').join(__dirname,'../../plataforma/login.html'),'utf8');
+const start=source.indexOf("let commerceRevisionsInternal=");
+const end=source.indexOf('let commerceEditBaseline=',start);
+assert(start>=0&&end>start);
+let sequence=0,status=503;
+const calls=[];
+const context={sesion:{id:'A'},WORKER_COMMERCE_URL:'test',crypto:{randomUUID:()=>String(++sequence)},postJson:async(url,body)=>{calls.push(structuredClone(body));return {status,json:{success:status===200}};}};
+vm.createContext(context);
+vm.runInContext(source.slice(start,end),context);
+(async()=>{
+ const body={action:'save_ficha',sedes:[{ciudad_id:'D',direccion:'Nueva sede'}]};
+ await context.commerce_post(body);
+ await context.commerce_post(body);
+ assert.equal(calls[0].operation_id,calls[1].operation_id,'An unconfirmed retry keeps its operation identifier');
+ status=200;
+ await context.commerce_post(body);
+ assert.equal(calls[0].operation_id,calls[2].operation_id);
+ await context.commerce_post(body);
+ assert.notEqual(calls[2].operation_id,calls[3].operation_id,'A new operation after confirmed success receives a new identifier');
+ console.log('PASS unconfirmed owner saves retain their operation identifier; confirmed operations release it.');
+})().catch(error=>{console.error(error);process.exitCode=1;});
