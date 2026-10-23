@@ -12,3 +12,9 @@
 - En listas de registros del anunciante, mostrar título y estado en la cabecera; agrupar datos secundarios y acciones dentro de un desplegable por registro. Aplicar por módulo conservando los controles y verificando su funcionamiento.
 
 - Reducir operaciones en todos los circuitos: reutilizar datos ya cargados y caché válida; preparar altas, ediciones y duplicaciones localmente; no crear registros temporales al pulsar Duplicar; guardar sólo al confirmar. Cancelar y guardar sin cambios no deben generar operaciones Firestore. Evitar consultas y recargas redundantes sin eliminar validaciones de autorización, consistencia o concurrencia del servidor. Medir cada mutación real y no equiparar consultas/documentos retornados con lecturas facturadas.
+
+## Trabajo sistemático en todos los módulos
+
+- Aplicar siempre `docs/CONTROL_MODULOS.md`. Mantener la matriz del módulo con evidencia y versiones, y trabajar cada recorrido completo en usuario, anunciante y Gran Hermano, incluido su consumo.
+- No dar por terminado un recorrido por funcionar si falta revisar sus operaciones evitables. No repetir pruebas aprobadas sin un cambio que las afecte. Registrar el motivo de las repeticiones necesarias.
+- La prioridad vigente es Guía completa, luego Eventos, demás módulos y Publicidad al final. El control actual de Guía está en `docs/estado-guia.json`.
