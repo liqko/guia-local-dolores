@@ -1,0 +1,23 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const html=fs.readFileSync(require('node:path').join(__dirname,'../../plataforma/granhermano.html'),'utf8');
+const start=html.indexOf('let GH_EDIT_BASE=null;'),end=html.indexOf('let GH_ADMIN_ACCESS',start);
+assert(start>=0&&end>start);
+let calls=[],fail=false;
+const context=vm.createContext({structuredClone,console,ghAdminRequest_:async(path,body)=>{calls.push({path,body:structuredClone(body)});if(fail)throw Error('La configuración cambió');return {success:true,...(body.commercial?{revision_comercial:'revision-'+calls.length}:{}),...(body.profile?{revision_perfil:'perfil-'+calls.length}:{}),...(body.sedes?{revision_sedes:{SED:'sede-'+calls.length}}:{})};}});
+vm.runInContext(html.slice(start,end)+'\nglobalThis.setBase=x=>GH_EDIT_BASE=structuredClone(x);globalThis.getBase=()=>structuredClone(GH_EDIT_BASE);globalThis.save=ghSaveAdvertiserDelta_;',context);
+(async()=>{
+ const base={anunciante_id:'A',nivel:'4',subnivel:'',aprobado:true,verificado:true,gold:false,funcionalidades:['EVENTOS'],funcionalidades_config:{EVENTOS:{cantidad:5}},sedes:[],revision_comercial:'initial'};
+ context.setBase(base);
+ let form=structuredClone(base);form.funcionalidades_config.EVENTOS.cantidad=9;
+ await context.save(form);assert.equal(calls[0].body.commercial.revision_comercial,'initial');assert.equal(context.getBase().revision_comercial,'revision-1');
+ form=structuredClone(form);form.funcionalidades_config.EVENTOS.cantidad=12;
+ await context.save(form);assert.equal(calls[1].body.commercial.revision_comercial,'revision-1');assert.equal(context.getBase().revision_comercial,'revision-2');
+ const before=context.getBase();fail=true;form=structuredClone(form);form.funcionalidades_config.EVENTOS.cantidad=20;
+ await assert.rejects(context.save(form),/configuración cambió/);assert.deepEqual(context.getBase(),before);
+ fail=false;context.setBase(base);calls=[];await context.save(base);assert.equal(calls.length,0);
+ context.setBase({...base,revision_perfil:'perfil-inicial',sedes:[{sede_id:'SED',actividad_ids:[],accion_ids:[],nodo_ids:[]}],revision_sedes:{SED:'sede-inicial'}});calls=[];
+ let other=context.getBase();other.pet=true;await context.save(other);assert.equal(calls[0].body.profile.revision_perfil,'perfil-inicial');assert.equal(context.getBase().revision_perfil,'perfil-1');
+ other=structuredClone(other);other.sedes[0].nodo_ids=['NODO'];await context.save(other);assert.equal(calls[1].body.sedes[0].revision_sede,'sede-inicial');assert.equal(context.getBase().revision_sedes.SED,'sede-2');
+ const previous=context.getBase();fail=true;other=structuredClone(other);other.sedes[0].nodo_ids=['OTRO'];await assert.rejects(context.save(other));assert.deepEqual(context.getBase(),previous);fail=false;
+ console.log('PASS panel: cada guardado usa la revisión confirmada anterior; rechazo no cambia la base del formulario; guardar sin cambios no envía solicitudes.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

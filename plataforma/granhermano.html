@@ -338,30 +338,21 @@ function ghComparable_(v){
 }
 function ghDifferent_(a,b){return JSON.stringify(ghComparable_(a))!==JSON.stringify(ghComparable_(b));}
 async function ghSaveAdvertiserDelta_(data){
-  if(!GH_EDIT_BASE||GH_EDIT_BASE.anunciante_id!==data.anunciante_id)throw new Error('Volvé a abrir la ficha antes de guardar.');
-  const id=encodeURIComponent(data.anunciante_id),base=GH_EDIT_BASE;
-  let changed=false;
-  for(const [route,fields]of [
-    ['commercial',['nivel','subnivel','aprobado','verificado','gold','funcionalidades','funcionalidades_config']],
-    ['profile',['contenido_adulto','segmento_id','categoria_ids','pet','eco','gayfriendly']]
-  ]){
-    const patch={};
-    for(const k of fields)if(ghDifferent_(base[k],data[k]))patch[k]=data[k];
-    if(!Object.keys(patch).length)continue;
-    await ghAdminRequest_('/advertisers/'+id+'/'+route,{payload:patch},'POST');
-    Object.assign(base,patch);changed=true;
-  }
-  const old=new Map((base.sedes||[]).map(s=>[s.sede_id,s])),sedes=[];
-  for(const row of data.sedes||[]){
-    const previous=old.get(row.sede_id)||{},patch={sede_id:row.sede_id};
-    for(const k of ['actividad_ids','accion_ids','nodo_ids'])if(ghDifferent_(previous[k],row[k]))patch[k]=row[k];
-    if(Object.keys(patch).length>1)sedes.push(patch);
-  }
-  if(sedes.length){
-    await ghAdminRequest_('/advertisers/'+id+'/sedes/relations',{sedes},'POST');
-    base.sedes=structuredClone(data.sedes);changed=true;
-  }
-  return{success:true,updated:changed};
+ if(!GH_EDIT_BASE||GH_EDIT_BASE.anunciante_id!==data.anunciante_id)throw new Error('Volvé a abrir la ficha antes de guardar.');
+ const base=GH_EDIT_BASE,body={};
+ for(const [route,fields]of [['commercial',['nivel','subnivel','aprobado','verificado','gold','funcionalidades','funcionalidades_config']],['profile',['contenido_adulto','segmento_id','categoria_ids','pet','eco','gayfriendly']]]){
+  const patch={};for(const k of fields)if(ghDifferent_(base[k],data[k]))patch[k]=data[k];
+  if(!Object.keys(patch).length)continue;
+  if(route==='commercial')patch.revision_comercial=base.revision_comercial;else patch.revision_perfil=base.revision_perfil;
+  body[route]=patch;
+ }
+ const old=new Map((base.sedes||[]).map(s=>[s.sede_id,s]));
+ const sedes=[];for(const row of data.sedes||[]){const previous=old.get(row.sede_id)||{},patch={sede_id:row.sede_id};for(const k of ['actividad_ids','accion_ids','nodo_ids'])if(ghDifferent_(previous[k],row[k]))patch[k]=row[k];if(Object.keys(patch).length>1)sedes.push({...patch,revision_sede:base.revision_sedes?.[row.sede_id]});}
+ if(sedes.length)body.sedes=sedes;
+ if(!Object.keys(body).length)return {success:true,updated:false};
+ const saved=await ghAdminRequest_('/advertisers/'+encodeURIComponent(data.anunciante_id)+'/save',body,'POST');
+ GH_EDIT_BASE={...structuredClone(data),revision_comercial:saved.revision_comercial||base.revision_comercial,revision_perfil:saved.revision_perfil||base.revision_perfil,revision_sedes:{...base.revision_sedes,...saved.revision_sedes}};
+ return saved;
 }
 
 
@@ -1062,7 +1053,7 @@ async function detalleAnu(id){
       if(catalogResults[0].status==='rejected')document.getElementById('anuNivel').disabled=true;
       if(catalogResults[1].status==='rejected')document.getElementById('anuSegmento').disabled=true;
     }
-    GH_EDIT_BASE=ghAdvertiserFormPayload_();
+    GH_EDIT_BASE={...ghAdvertiserFormPayload_(),revision_comercial:j.revision_comercial,revision_perfil:j.revision_perfil,revision_sedes:j.revision_sedes};
     informarAltura();
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
@@ -1415,6 +1406,7 @@ async function ghResolverRevisionUnificada(source,tipo,id,decision){
 <script src="/plataforma/gh-listados.js?v=118"></script>
 <script>window.addEventListener('message',e=>{const f=document.getElementById('empleoAdminFrame');if(e.source===f?.contentWindow&&e.data?.tipo==='alturaIframeGLD'&&Number(e.data.altura)>0){f.style.height=Math.min(30000,Number(e.data.altura))+'px';informarAltura();}});</script><script src="/plataforma/empleo-enlaces.js?v=109"></script><script src="/plataforma/cobertura-provincia.js?v=113"></script><script src="/plataforma/preparacion-paneles.js?v=116"></script></body>
 </html>
+
 
 
 

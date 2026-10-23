@@ -5978,11 +5978,24 @@ async function promos_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_PROMOS_URL, body);
 }
+let commerceRevisionsInternal={id:'',datos:'',sedes:{}};
 async function commerce_post(payload){
-  const body = Object.assign({}, payload || {});
-  if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
-  if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_COMMERCE_URL, body);
+  const body=Object.assign({},payload||{});
+  if(body.accion&&!body.action){body.action=body.accion;delete body.accion;}
+  if(!body.advertiserId&&sesion&&sesion.id)body.advertiserId=String(sesion.id);
+  if(String(body.advertiserId||'')===commerceRevisionsInternal.id){
+    if(body.action==='set_datos')body.revision_datos=commerceRevisionsInternal.datos;
+    if(body.action==='save_ficha'){if(body.datos)body.datos={...body.datos,revision_datos:commerceRevisionsInternal.datos};body.sedes=(body.sedes||[]).map(row=>({...row,...(row.sede_id?{revision_sede:commerceRevisionsInternal.sedes[row.sede_id]}:{})}));}
+    if(body.action==='set_sedes')body.sedes=(body.sedes||[]).map(row=>({...row,...(row.sede_id?{revision_sede:commerceRevisionsInternal.sedes[row.sede_id]}:{})}));
+    if(['set_relaciones_sede','delete_sede'].includes(body.action))body.revision_sede=commerceRevisionsInternal.sedes[body.sede_id];
+  }
+  const response=await postJson(WORKER_COMMERCE_URL,body);
+  if(response.status===200&&response.json?.success){
+    if(response.json.revision_datos)commerceRevisionsInternal.datos=response.json.revision_datos;
+    if(response.json.revision_sedes)commerceRevisionsInternal.sedes={...commerceRevisionsInternal.sedes,...response.json.revision_sedes};
+    if(body.action==='delete_sede')delete commerceRevisionsInternal.sedes[body.sede_id];
+  }
+  return response;
 }
 let commerceEditBaseline=null;
 
@@ -8331,58 +8344,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
           return;
         }
 
-        if(hayDatos){
-          const response=await commerce_post(dataPatch);
-          const savedOk=!!(
-            response.json &&
-            (response.json.success || response.json.updated || response.json.aprobado===true)
-          );
-
-          if(response.status!==200 || !savedOk){
-            if(await handleUnconfirmedOperation(response,{
-              msgId:'msg-datos-comercio',
-              reload:()=>loadCommerceUI(),
-              unknownMessage:'La respuesta se perdió. Los datos fueron recargados; revisá si el cambio quedó aplicado antes de volver a guardar.'
-            })) return;
-
-            setMsg(
-              'msg-datos-comercio',
-              'err',
-              'No se pudieron guardar los datos: ' +
-              ((response.json && (response.json.message || response.json.error))
-                ? (response.json.message || response.json.error)
-                : 'sin detalle')
-            );
-            return;
-          }
+        const response=await commerce_post({action:'save_ficha',...(hayDatos?{datos:dataPatch}:{}),...(haySedes?{sedes:sedePayload.sedes}:{})});
+        if(response.status!==200||!response.json?.success){
+          if(await handleUnconfirmedOperation(response,{msgId:'msg-datos-comercio',reload:()=>loadCommerceUI(),unknownMessage:'No se pudo confirmar la respuesta. Se recargaron los datos; revisalos antes de volver a guardar.'}))return;
+          setMsg('msg-datos-comercio','err',response.json?.message||response.json?.error||'No se pudieron guardar los cambios.');return;
         }
-
-        if(haySedes){
-          const sedeResponse=await commerce_post(sedePayload);
-          const sedesOk=!!(
-            sedeResponse.json &&
-            (sedeResponse.json.success || sedeResponse.json.updated)
-          );
-
-          if(sedeResponse.status!==200 || !sedesOk){
-            if(await handleUnconfirmedOperation(sedeResponse,{
-              msgId:'msg-datos-comercio',
-              reload:()=>loadCommerceUI(),
-              unknownMessage:'Los datos generales se guardaron, pero la respuesta de las sedes se perdió. Se recargaron los datos; revisá las sedes antes de volver a guardar.'
-            })) return;
-
-            setMsg(
-              'msg-datos-comercio',
-              'err',
-              'Datos generales guardados, pero hubo un error guardando sedes: ' +
-              ((sedeResponse.json && (sedeResponse.json.message || sedeResponse.json.error))
-                ? (sedeResponse.json.message || sedeResponse.json.error)
-                : 'sin detalle')
-            );
-            return;
-          }
-          savedSedes=Array.isArray(sedeResponse.json.sedes)?sedeResponse.json.sedes:[];
-        }
+        savedSedes=Array.isArray(response.json.sedes)?response.json.sedes:[];
 
         // Usar las filas devueltas por el guardado, también para IDs de sedes nuevas.
         if(savedSedes.length){
@@ -8930,6 +8897,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
       const territorio=await gldTerritoryPublic_();
       currentCommerceSedes = sedes;
+      commerceRevisionsInternal={id:String(rawDatos.id||sesion?.id||''),datos:rawDatos.revision_datos||'',sedes:rawDatos.revision_sedes||{}};
       commerceCatalogs = {
         segmentos:Array.isArray(rawDatos.segmentos) ? rawDatos.segmentos : [],
         categorias:Array.isArray(rawDatos.categorias) ? rawDatos.categorias : [],
