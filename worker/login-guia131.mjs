@@ -8593,7 +8593,9 @@ function withPanelCacheV48(db,env,report){
     let preparadas=0,existentes=0,omitidas=0;
     async function prime(/** @type {string} */ key,/** @type {any} */ data){if(await read(key)){existentes++;return;}if(JSON.stringify(data).length>2000000){omitidas++;return;}await requiredSave(key,{version:48,data,revision:''});preparadas++;}
     if(cursor===0){
-      for(const [c,field,value]of [['anunciantes','revision_adulto','PENDIENTE'],['eventos','revision_adulto','PENDIENTE'],['actividades','revision_adulto','PENDIENTE'],['promos','revision_adulto','PENDIENTE'],['publicidades','revision_adulto','PENDIENTE'],['anunciantes','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','REVISION'],['promos','estado_moderacion','PENDIENTE'],['publicidades','estado_moderacion','PENDIENTE'],['actividades','aprobado',false]]){
+      /** @type {Array<[string, string, string | boolean]>} */
+      const initialQueries=[['anunciantes','revision_adulto','PENDIENTE'],['eventos','revision_adulto','PENDIENTE'],['actividades','revision_adulto','PENDIENTE'],['promos','revision_adulto','PENDIENTE'],['publicidades','revision_adulto','PENDIENTE'],['anunciantes','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','REVISION'],['promos','estado_moderacion','PENDIENTE'],['publicidades','estado_moderacion','PENDIENTE'],['actividades','aprobado',false]];
+      for(const [c,field,value]of initialQueries){
         if(snapshots.has(c))await prime(queryKey(c,value,field),(snapshots.get(c)||[]).filter(row=>row[field]===value));
       }
     }
@@ -9765,8 +9767,8 @@ class GldPublicCache119 {
  async fetch(request){
   // Preserve ordering across external I/O without the 30-second input gate.
   const previous=this.requestTail127||Promise.resolve();
-  let release;
-  this.requestTail127=new Promise(resolve=>{release=resolve;});
+  let release=()=>{};
+  this.requestTail127=new Promise(resolve=>{release=()=>resolve(undefined);});
   await previous;
   try{return await this.process127(request);}finally{release();}
  }
@@ -9792,7 +9794,7 @@ function coordinatedCities119(env,report){
   const result=await response.json(),stats=report.public_store??={calls:0,rows_read:0,rows_written:0,legacy_gets:0,legacy_lists:0};stats.calls++;
   for(const k of ['rows_read','rows_written','legacy_gets','legacy_lists'])stats[k]+=Number(result.metrics?.[k]||0);
   for(const [key,entry]of Object.entries(result.metrics?.source_operations||{})){const target=report.operations[key]??={operation:entry.operation,collection:entry.collection,field:entry.field||'',calls:0,documents_returned:0,failures:0};for(const field of ['calls','documents_returned','failures'])target[field]+=Number(entry[field]||0);}
-  if(!response.ok){const error=Error(result.error||'Public cache unavailable');error.cacheRecoverable=true;throw error;}
+  if(!response.ok)throw Object.assign(Error(result.error||'Public cache unavailable'),{cacheRecoverable:true});
   return result;
  }
  const binding=new Proxy(kv,{get(target,prop){
@@ -9826,7 +9828,7 @@ function requestCache121(env,report,readOnly126=false){
  const native=env.GLD_CACHE_KV;if(!native)return env;
  let shared=PUBLIC_CATALOG_POOL126.get(env.__gldCatalogScope126);if(!shared){shared=new Map();PUBLIC_CATALOG_POOL126.set(env.__gldCatalogScope126,shared);}
  const values=new Map(),pending=new Map(),epochs=new Map(),lists=new Map();
- const stats=report.cache_optimization={reads_reused:0,lists_reused:0,writes_unchanged:0};
+ const stats=report.cache_optimization={reads_reused:0,lists_reused:0,writes_unchanged:0,catalogs_reused:0};
  const epoch=k=>epochs.get(k)||0;
  function invalidate(k){epochs.set(k,epoch(k)+1);values.delete(k);pending.delete(k);lists.clear();if(PUBLIC_CATALOG_KEYS126.has(k))shared.delete(k);}
  const kv=new Proxy(native,{get(target,method){
