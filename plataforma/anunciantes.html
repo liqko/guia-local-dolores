@@ -1120,7 +1120,7 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try{
-        const r = await fetch(u.toString(), {signal:controller.signal,cache:'default'});
+        const r = await fetch(u.toString(), {signal:controller.signal,cache:action==='guia'?'no-store':'default'});
         if(!r.ok) throw new Error('HTTP '+r.status);
         return await r.json();
       }finally{
@@ -1370,9 +1370,8 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       if(!ciudadId) return null;
       const key = guiaKey(paisId, provinciaId, ciudadId);
 
-      // Si ya visitó esta ciudad, mostramos la guía inmediatamente.
-      const local = leerGuiaLocalCache(paisId, provinciaId, ciudadId);
-      if(local) return Promise.resolve(local);
+      // Una lectura fresca por ciudad y apertura; las búsquedas y la paginación
+      // reutilizan la misma promesa. No se consulta periódicamente.
 
       if(!guiaPrefetchCache.has(key)){
         guiaPrefetchCache.set(
@@ -1804,8 +1803,8 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
           // Recuperar campos que no deben desaparecer de la tarjeta.
           out.link = String(meta.link || out.link || '').trim();
-          out.verificado = meta.verificado !== undefined ? meta.verificado : out.verificado;
-          out.gold = meta.gold !== undefined ? meta.gold : out.gold;
+          out.verificado = out.verificado !== undefined ? out.verificado : meta.verificado;
+          out.gold = out.gold !== undefined ? out.gold : meta.gold;
 
           function enriquecerRelacion(lista, catalogo, idField){
             return (Array.isArray(lista) ? lista : []).map(x=>{
@@ -1823,7 +1822,8 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
           out.sedes = (Array.isArray(out.sedes) ? out.sedes : []).map(raw => {
             const sede = Object.assign({}, raw);
-            const rel = relacionesSedesGlobales[relKey(sede.sede_id)] || sede.relaciones || {actividades:sede.actividades||[],acciones:sede.acciones||[],nodos:sede.nodos||[]};
+            const propias=sede.relaciones||(['actividades','acciones','nodos'].some(k=>Array.isArray(sede[k]))?{actividades:sede.actividades||[],acciones:sede.acciones||[],nodos:sede.nodos||[]}:null);
+            const rel = propias || relacionesSedesGlobales[relKey(sede.sede_id)] || {actividades:[],acciones:[],nodos:[]};
             sede.relaciones = {
               actividades:enriquecerRelacion(rel.actividades, catalogosGlobales.actividades, 'actividad_id'),
               acciones:enriquecerRelacion(rel.acciones, catalogosGlobales.acciones, 'accion_id'),

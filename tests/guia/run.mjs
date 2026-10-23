@@ -7,7 +7,7 @@ const work=mkdtempSync(join(tmpdir(),'gld-guia-'));
 mkdirSync(join(work,'circuits128'));
 mkdirSync(join(work,'cierre-integral'));
 mkdirSync(join(work,'revision-por-interfaz/usuario-guia'),{recursive:true});
-const tests=['verify-config-collision-integrado.mjs','verify-owner-collision-integrado.mjs','verify-profile-sedes-collision-integrado.mjs','verify-whole-advertiser-save-integrado.mjs','verify-user-guide-integrado.mjs','panel-guardado.cjs','verify-cache-costs.mjs','verify-guide-recovery.mjs','panel-reintento.cjs'];
+const tests=['verify-config-collision-integrado.mjs','verify-owner-collision-integrado.mjs','verify-profile-sedes-collision-integrado.mjs','verify-whole-advertiser-save-integrado.mjs','verify-user-guide-integrado.mjs','panel-guardado.cjs','verify-cache-costs.mjs','verify-guide-recovery.mjs','panel-reintento.cjs','public-cache.cjs'];
 try{
   for(const name of tests){
     const result=spawnSync(process.execPath,[fileURLToPath(new URL(name,import.meta.url))],{cwd:work,encoding:'utf8'});
