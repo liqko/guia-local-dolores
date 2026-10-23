@@ -18,7 +18,7 @@
   const action=String(body.action||body.accion||'').toLowerCase();let key;
   if(url.pathname==='/promos'){const data=body.payload||body;const content=action==='createpromo'||action==='updatepromo'&&Object.keys(data).some(k=>!['promo_id','pausado','action','accion','advertiserId','advertiser_id','declaracion_publicacion'].includes(k));if(content)key='promos';}
   if(url.pathname==='/events-new'&&['createfreeevent','updatefreeevent','createvipevent','updatevipevent'].includes(action))key=action.includes('free')?'free':'eventos';
-  if(url.pathname==='/actividades'&&action==='guardar')key='actividades';if(url.pathname==='/publicidad'&&['guardar','save'].includes(action))key='publicidad';if(url.pathname==='/commerce'&&action==='set_datos')key='anunciante';if(url.pathname==='/suscriptores'&&action==='crear')key='cuenta';if(url.pathname==='/suscriptores'&&action==='solicitar_anunciante')key='alta';
+  if(url.pathname==='/actividades'&&action==='guardar')key='actividades';if(url.pathname==='/publicidad'&&['guardar','save'].includes(action))key='publicidad';if(url.pathname==='/commerce'&&['set_datos','save_ficha'].includes(action))key='anunciante';if(url.pathname==='/suscriptores'&&action==='crear')key='cuenta';if(url.pathname==='/suscriptores'&&action==='solicitar_anunciante')key='alta';
   if(!key)return native(input,init);install();const check=document.getElementById(key==='free'?'evf-responsabilidad':'aceptacion-'+key);
   if(!check?.checked)return Response.json({success:false,message:'Aceptá los términos y la declaración de responsabilidad antes de continuar.'},{status:400});
   body.declaracion_publicacion={aceptada:true,version};if(key==='alta')body.contenido_adulto=document.getElementById('alta-adulto')?.value==='true';
