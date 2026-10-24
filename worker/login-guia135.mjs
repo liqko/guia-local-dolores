@@ -1722,7 +1722,11 @@ async function publicidadPublicaV2({ cache, cityId, moduleName, categoryId = "" 
   }
   const [packet2, catalogs] = await Promise.all([
     getPublicityCity({ cache, cityId: city }),
-    getPublicidadCatalogs(cache)
+    // Para publicar anuncios sólo hacen falta las ubicaciones propias de Publicidad.
+    // No cargar los catálogos de Guía, Eventos, Actividades ni Promociones.
+    cache.get(KEYS.publicidad).then(packet => ({
+      ubicaciones: (packet?.ubicaciones || []).filter(active3)
+    }))
   ]);
   if (packet2.status) return packet2;
   const ubicaciones = new Set(
