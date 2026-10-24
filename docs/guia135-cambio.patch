@@ -1,0 +1,93 @@
+--- github-guia/worker/login-guia133.mjs	2026-10-23 19:41:13.030452227 +0000
++++ github-guia/worker/login-guia135.mjs	2026-10-24 13:46:35.802019445 +0000
+@@ -9723,20 +9723,41 @@
+  }
+  query(sql,...args){const cursor=this.sql.exec(sql,...args),rows=[...cursor];this.metrics.rows_read+=cursor.rowsRead||0;this.metrics.rows_written+=cursor.rowsWritten||0;return rows;}
+  async legacy(key){this.metrics.legacy_gets++;const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;}
++ guideSnapshot135(packet,maxBytes=1500000){
++  // Stay below the provider's 2 MB row limit. Larger cities retain the
++  // existing entity representation rather than failing a read or a save.
++  const serialized=JSON.stringify(packet);
++  return new TextEncoder().encode(serialized).byteLength<=maxBytes?serialized:null;
++ }
+  async read(key,def){
+   if(this.cached!==null)return this.cached;
+   const head=this.query('SELECT value,deleted FROM packet WHERE slot=1')[0];
+   if(!head)return this.legacy(key);
+   if(head.deleted)return null;
++  const stored=JSON.parse(head.value);
++  if(def.module==='guide'&&Array.isArray(stored[def.field])){
++   if(head.value.length<2000000)this.cached=stored;
++   return stored;
++  }
+   const rows=this.query('SELECT value FROM entities WHERE value IS NOT NULL ORDER BY position,id').map(x=>JSON.parse(x.value));
+-  const result={...JSON.parse(head.value),[def.field]:sortPublicCity119(key,rows)};
++  const result={...stored,[def.field]:sortPublicCity119(key,rows)};
++  // Upgrade the old metadata-only row once per city. Subsequent cold reads
++  // use the finished packet; normal saves replace the row they already wrote.
++  if(def.module==='guide'){
++   const snapshot=this.guideSnapshot135(result);
++   if(snapshot!==null){
++    try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
++    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'135',error:String(error?.message||error)}));}
++   }
++  }
+   if(JSON.stringify(result).length<2000000)this.cached=result;
+   return result;
+  }
+  initialize(packet,def){
+   if(this.query('SELECT slot FROM packet WHERE slot=1').length)return;
+   const {[def.field]:rows=[],...meta}=packet||{};
+-  this.query('INSERT INTO packet(slot,value,deleted) VALUES(1,?,0)',JSON.stringify(meta));
++  const snapshot=def.module==='guide'?this.guideSnapshot135({...meta,[def.field]:rows}):null;
++  this.query('INSERT INTO packet(slot,value,deleted) VALUES(1,?,0)',snapshot??JSON.stringify(meta));
+   for(const [position,row]of rows.entries()){
+    const id=String(row[def.id]||row.id||'');if(!id)throw Error('Public cache entity missing identifier');
+    this.query('INSERT OR REPLACE INTO entities(id,value,stamp,position) VALUES(?,?,?,?)',id,JSON.stringify(row),'',position);
+@@ -9776,8 +9797,9 @@
+     this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,b?JSON.stringify(b):null,stamp||current?.stamp||'',current?.position??Date.now());
+     if(b)merged.set(id,b);else merged.delete(id);
+    }
+-   this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',JSON.stringify(meta));
+    nextPacket={...meta,[def.field]:sortPublicCity119(key,[...merged.values()])};
++   const snapshot=def.module==='guide'?this.guideSnapshot135(nextPacket):null;
++   this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',snapshot??JSON.stringify(meta));
+   });
+   this.cached=nextPacket&&JSON.stringify(nextPacket).length<2000000?nextPacket:null;
+   return {ok:true};
+@@ -10169,7 +10191,7 @@
+ };
+ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
+  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
+- const report={event:'gld_guide_replay',worker_version:'133',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
++ const report={event:'gld_guide_replay',worker_version:'135',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+  const db=observeDbV41(createDb(this.env),report);
+  try{
+   const datos=await db.get('anunciantes',aid),sedes=[];
+@@ -10180,7 +10202,7 @@
+ };
+ GldPublicCache119.prototype.repairGuide132=async function(){
+  const job=await this.guideJob132();if(!job)return;
+- const report={event:'gld_guide_recovery',worker_version:'133',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
++ const report={event:'gld_guide_recovery',worker_version:'135',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
+  const source=requestDb119(observeDbV41(createDb(env),report),report);
+  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
+@@ -10234,7 +10256,7 @@
+ 
+ var app_main_v35_default = {
+   async fetch(request,env){
+-    const report={event:'gld_firestore_observation',worker_version:'133',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
++    const report={event:'gld_firestore_observation',worker_version:'135',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
+     let db,cacheFlushed=false;
+     const traced=async (/** @type {Response} */ response)=>{
+@@ -10271,7 +10293,7 @@
+       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
+       await preparePublicationV77(ctx);
+ 
+-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"133"}));
++      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"135"}));
+ 
+       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
+       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
