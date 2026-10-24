@@ -1,4 +1,4 @@
-# Reglas para el panel de anunciantes
+# Reglas de trabajo de Guía Local
 
 - Hacer correcciones puntuales. Conservar registros, acciones existentes (editar, pausar, reanudar, duplicar y eliminar), IDs de controles, validaciones y límites.
 - Ordenar formularios y botones en una columna tanto en escritorio como en móvil. Mantener campos obligatorios visibles y agrupar opciones secundarias en desplegables con títulos claros.
@@ -17,4 +17,15 @@
 
 - Aplicar siempre `docs/CONTROL_MODULOS.md`. Mantener la matriz del módulo con evidencia y versiones, y trabajar cada recorrido completo en usuario, anunciante y Gran Hermano, incluido su consumo.
 - No dar por terminado un recorrido por funcionar si falta revisar sus operaciones evitables. No repetir pruebas aprobadas sin un cambio que las afecte. Registrar el motivo de las repeticiones necesarias.
-- La prioridad vigente es Guía completa, luego Eventos, demás módulos y Publicidad al final. El control actual de Guía está en `docs/estado-guia.json`.
+- El trabajo de Guía pública se mantiene aislado en su rama. Por instrucción del usuario del 24/10/2026, otros problemas de Publicidad, Empleo u otros módulos pueden avanzar en ramas independientes sin esperar el cierre global de Guía. El orden de instalación se decide por cambios comprobados y dependencias reales; no mezclar correcciones de módulos distintos. El control actual de Guía está en `docs/estado-guia.json`.
+
+## Criterios vigentes para avanzar sin alterar lo que funciona
+
+- El ingeniero presenta alternativas, recomienda una y explica alcance, efecto operativo, consumo y limitaciones. No delegar decisiones de programación al usuario ni cambiar de propuesta sin nueva evidencia concreta.
+- Una rama por problema, basada en la versión estable. Registrar archivos afectados y contratos compartidos antes de editar. No usar como base otro candidato no instalado. Los cambios compartidos del Worker se integran de forma controlada; no sobrescribir versiones con copias completas de otro trabajo.
+- Un hallazgo no es automáticamente una falla: registrar comportamiento esperado, resultado observado, reproducción y localización. Si la expectativa no está confirmada, conservarlo como observación. El usuario confirmó que Favoritos no se activa sin sesión y pidió no modificar Corazón ni Compartir; ambos quedan fuera de la corrección de consumo.
+- Las correcciones visuales no agregan lecturas, escrituras, borrados ni llamadas a Firestore o Cloudflare. Para cambios funcionales, contar todas las operaciones de la acción en ambos servicios y justificar cualquier incremento antes de instalar. No eliminar controles de permisos o concurrencia para reducir contadores.
+- Diferenciar cantidad por acción, porcentaje de cada cuota (con su período), uso total de cuenta y factura. No presentar un conteo de SQL local como consumo facturado de Cloudflare ni una consulta como un documento leído.
+- Reutilizar comprobaciones aprobadas. Repetir solamente recorridos afectados por el cambio o evidencia contradictoria, registrando el motivo. Usar registros reales existentes; no inventar anunciantes, cuentas ni datos para pruebas.
+- Ninguna corrección se instala automáticamente en producción. Primero preparar el cambio completo en una rama, comprobar el recorrido afectado y conservar una vía de reversión. No declarar una mejora instalada si sólo existe un candidato.
+- No congelar toda la plataforma por una comprobación de otro módulo. Cada entrega informa cambio, evidencia, consumo, límites concretos y estado de instalación; las tareas abiertas permanecen identificadas para retomarlas sin repetir el diagnóstico.
