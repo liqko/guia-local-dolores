@@ -9,8 +9,8 @@
 - Trabajar en un solo circuito autorizado a la vez. Registrar otros problemas como pendientes sin abandonar el objetivo ni incorporarlos por iniciativa propia.
 
 ## 2. Arquitectura de referencia y separación de responsabilidades
-- La plataforma tiene ámbitos de gestión y presentación que deben examinarse según el circuito: Gran Hermano (administración/configuración), Anunciante (gestión de los datos) y la interfaz pública pertinente. La ubicación de un módulo no determina por sí sola sus dependencias.
-- **El objeto de trabajo es el módulo funcional seleccionado**, no necesariamente la Carcasa ni la Guía. Carcasa es un contenedor/interfaz; Guía es otro componente. Se debe identificar expresamente dónde se presenta el módulo estudiado, sin confundir continente, módulo y servicios compartidos.
+- **La plataforma tiene exactamente tres interfaces de usuario:** **Usuario**, **Anunciante** y **Administrador (Gran Hermano)**. Cada funcionalidad puede tener operaciones o vistas en una o varias de esas interfaces. No confundir interfaz con funcionalidad, contenedor visual o servicio técnico.
+- **El objeto de trabajo es la funcionalidad seleccionada** y su circuito completo en las interfaces que correspondan. **Carcasa es un contenedor visual**, no una cuarta interfaz ni una funcionalidad universal. **Guía (anuncios), Eventos, Actividades, Farmacias de turno y Efemérides son funcionalidades distintas.** Registrar dónde aparece cada una sin inferir dependencias entre ellas por compartir contenedor.
 - Firestore/Firebase es fuente de datos operativos en los circuitos que corresponda. El Worker valida autorizaciones y mutaciones, prepara y publica paquetes derivados en el almacenamiento/cache de Cloudflare. El público consume paquetes preparados, sin recomponerlos ni consultar Firestore en cada visita.
 - Preparación o invalidación del paquete: ante altas, modificaciones, bajas, cambios relevantes, vencimientos programados o cambios administrativos; considerar atomicidad, errores parciales, reintentos, idempotencia y concurrencia. Documentar explícitamente cualquier excepción.
 - No copiar ni heredar código anterior sin justificarlo y verificar su contrato; usarlo como referencia de comportamientos existentes. Preferir módulos de fuente independientes con interfaces claras, aun si la entrega final requiere un único Worker.
@@ -23,7 +23,7 @@ Antes de cambiar un módulo, mapear y documentar:
 3. Colecciones/documentos Firestore y contrato de datos.
 4. Rutas y funciones Worker: validación, mutaciones, preparación, caché e invalidación.
 5. Paquete Cloudflare y contrato público de lectura.
-6. Consumo y presentación en **el módulo e interfaz de destino que se estén trabajando**, sea Carcasa, Guía u otro componente.
+6. Consumo y presentación de **la funcionalidad seleccionada en la interfaz Usuario**, y sus interacciones con Anunciante y Administrador cuando corresponda. Indicar el contenedor visual utilizado, sin tratarlo como una interfaz diferente.
 7. Dependencias reales con otros módulos (si existen), sin asumir ninguna.
 8. Operaciones/costo por acción y fuentes de medición.
 Si un punto no existe, registrar «no aplica» con motivo; si no se comprobó, registrar «pendiente/sin medir». No confundir ausencia de evidencia con resultado correcto.
@@ -54,11 +54,11 @@ Para cada circuito mantener un documento o ficha versionada con:
 - estado: diagnosticado / implementado / probado / validado / autorizado para despliegue / desplegado.
 Antes de cualquier intervención, leer este contrato y la ficha del circuito; al finalizar, actualizar ambos si corresponde. No declarar memoria perfecta ni control automático donde sólo existen documentos.
 
-## 7. Regla general aplicable al módulo seleccionado
-- **No fijar Farmacias, Carcasa, Guía ni ningún otro componente como objeto permanente de este contrato.** Al comenzar cada trabajo, registrar cuál es el módulo concreto, dónde se configura, desde dónde se administran sus datos y dónde se visualiza.
+## 7. Regla general aplicable a la funcionalidad seleccionada
+- **No fijar ninguna funcionalidad ni contenedor como objeto permanente de este contrato.** Al comenzar cada trabajo, registrar la funcionalidad concreta, sus operaciones en Usuario, Anunciante y Administrador (cuando apliquen), su origen de datos y el contenedor visual de presentación.
 - Rastrear el circuito completo de ese módulo: origen de datos, permisos, altas/cambios/bajas, Worker, preparación y almacenamiento de paquetes si corresponde, lectura y presentación en su destino real.
-- La caché es una capa técnica, no una interfaz de usuario ni un módulo funcional por sí misma. Su utilización se define según el circuito y los objetivos de eficiencia, sin agregar operaciones redundantes.
-- No conectar módulos diferentes por comodidad o por compartir contenedor. Una dependencia sólo es válida cuando está justificada por el modelo de datos y está comprobada.
+- La caché es una capa técnica, no una interfaz, un contenedor ni una funcionalidad. Su utilización se define según el circuito y los objetivos de eficiencia, sin agregar operaciones redundantes.
+- No conectar funcionalidades diferentes por comodidad o por compartir contenedor visual. Una dependencia sólo es válida cuando está justificada por el modelo de datos y está comprobada.
 - No tocar otras funciones o circuitos salvo dependencias compartidas expresamente justificadas y autorizadas.
 - El código existente es referencia para inventariar contratos y comportamientos, no garantía de diseño correcto. Ningún candidato se instala sin pruebas y autorización.
 
