@@ -16,11 +16,11 @@
     if(!view||!authorized())return;
     const rows=read();view.textContent='';
     const intro=document.createElement('p');
-    intro.textContent='Registro privado de las pruebas de este navegador: visitante, Mi Guía y anunciante. Guardar y consultar esta tabla no usa Firestore. Consultas y documentos devueltos no son el contador de lecturas facturadas de Firebase. “Sin medición” no significa cero. Respuesta indica si el servicio aceptó la operación; Vista indica si el panel terminó de cargar. Los registros anteriores quedan sin comprobar.';
+    intro.textContent='Registro privado de las pruebas de este navegador: visitante, Mi Guía y anunciante. Guardar y consultar esta tabla no usa Firestore. Los contadores Cloudflare proceden de la respuesta del Worker, sin consultas adicionales: no equivalen a la factura de Cloudflare. Consultas y documentos devueltos no son el contador de lecturas facturadas de Firebase. “Sin medición” no significa cero. Respuesta indica si el servicio aceptó la operación; Vista indica si el panel terminó de cargar. Los registros anteriores quedan sin comprobar.';
     view.appendChild(intro);
     const table=document.createElement('table');table.style.cssText='border-collapse:collapse;font:12px sans-serif;min-width:760px';
-    const fields=['hora','pagina','ruta','accion','estado','resultado','vista','version','consultas','documentos','escrituras','eliminaciones','origen','detalle','cache_estado'];
-    const labels=['Hora Argentina','Pantalla','Llamada','Acción','HTTP','Respuesta','Vista','Worker','Consultas','Documentos','Escrituras','Eliminaciones','Fuente','Operaciones','Caché'];
+    const fields=['hora','pagina','ruta','accion','estado','resultado','vista','version','consultas','documentos','escrituras','eliminaciones','cf_worker','cf_kv_get','cf_kv_put','cf_kv_delete','cf_kv_list','cf_store_read','cf_store_write','cf_admin_read','cf_admin_write','cf_cpu','cf_cobertura','origen','detalle','cache_estado'];
+    const labels=['Hora Argentina','Pantalla','Llamada','Acción','HTTP','Respuesta','Vista','Worker','Consultas Firebase','Documentos','Escrituras Firebase','Eliminaciones Firebase','Solicitudes Worker','KV lecturas','KV escrituras','KV eliminaciones','KV listados','Almacén público filas leídas','Almacén público filas escritas','Almacén admin filas leídas','Almacén admin filas escritas','CPU (ms)','Cobertura Cloudflare','Fuente','Operaciones','Caché'];
     const head=document.createElement('tr');labels.forEach(label=>{const th=document.createElement('th');th.textContent=label;th.style.cssText='padding:6px;border:1px solid #ccc';head.appendChild(th)});table.appendChild(head);
     rows.forEach(row=>{const tr=document.createElement('tr');fields.forEach(field=>{const td=document.createElement('td');td.textContent=row[field]==null?(['resultado','vista'].includes(field)?'Sin comprobar':'Sin medición'):String(row[field]);td.style.cssText='padding:6px;border:1px solid #ccc';tr.appendChild(td)});table.appendChild(tr)});
     view.appendChild(table);
@@ -47,6 +47,13 @@
   window.addEventListener('message',ev=>{if(ev.origin===location.origin&&ev.data&&ev.data.tipo==='gld_consumo_actualizado_v44')render()});
   function numberHeader(response,name){const value=response.headers.get(name);return value!==null&&/^\d+$/.test(value)?Number(value):null}
   function detailHeader(response,name){try{const raw=response.headers.get(name);return raw===null?null:JSON.parse(decodeURIComponent(raw))}catch(_){return null}}
+  function metric(value){return Number.isSafeInteger(value)&&value>=0?value:null}
+  function cloudflareMetrics(raw){
+    const c=raw&&typeof raw==='object'?raw.cloudflare:null;
+    const kv=c&&c.kv||{},publicStore=c&&c.public_store||{},adminStore=c&&c.admin_store||{};
+    const coverage=raw&&raw.coverage||{};
+    return {cf_worker:metric(c&&c.worker_requests),cf_kv_get:metric(kv.get_calls),cf_kv_put:metric(kv.put_calls),cf_kv_delete:metric(kv.delete_calls),cf_kv_list:metric(kv.list_calls),cf_store_read:metric(publicStore.rows_read),cf_store_write:metric(publicStore.rows_written),cf_admin_read:metric(adminStore.rows_read),cf_admin_write:metric(adminStore.rows_written),cf_cpu:typeof c?.cpu_ms==='number'&&Number.isFinite(c.cpu_ms)?c.cpu_ms:null,cf_cobertura:coverage.status||'Sin medición'};
+  }
   function operationsText(items){return items===null?'Sin medición':items.map(x=>x.operation+' · '+x.collection+(x.field?' por '+x.field:'')+': '+x.calls+' operación(es), '+x.documents_returned+' documento(s)').join('; ')||'Sin operaciones en Firestore'}
   function cacheText(items){const labels={hit:'Encontrada',miss:'No encontrada: consulta a Firestore',not_supported:'Consulta sin caché compatible'};return items===null?'Sin medición':items.map(x=>x.collection+(x.field?' por '+x.field:'')+': '+(labels[x.result]||x.result)).join('; ')||'Sin comprobaciones registradas'}
   window.fetch=async function(input,options){
@@ -62,8 +69,8 @@
       const response=await originalFetch(input,options);
       let resultado=response.ok?'Sin comprobar':'Error HTTP';
       try{const data=await response.clone().json();if(response.ok&&data&&typeof data.success==='boolean')resultado=data.success?'Aceptada':'Rechazada';}catch(_){}
-      const operaciones=detailHeader(response,'X-GLD-Operations'),cache=detailHeader(response,'X-GLD-Cache-Checks');
-      try{save({...row,accion:response.headers.get('X-GLD-Action')||row.accion,operaciones,cache,detalle:operationsText(operaciones),cache_estado:cacheText(cache),estado:response.status,resultado,version:response.headers.get('X-GLD-Worker-Version'),request_id:response.headers.get('X-GLD-Request-Id'),consultas:numberHeader(response,'X-GLD-Read-Calls'),documentos:numberHeader(response,'X-GLD-Documents-Returned'),escrituras:numberHeader(response,'X-GLD-Write-Calls'),eliminaciones:numberHeader(response,'X-GLD-Delete-Calls'),origen:response.headers.get('X-GLD-Source'),bloqueadas:numberHeader(response,'X-GLD-Public-Blocked')})}catch(_){}
+      const operaciones=detailHeader(response,'X-GLD-Operations'),cache=detailHeader(response,'X-GLD-Cache-Checks'),consumption=detailHeader(response,'X-GLD-Consumption');
+      try{save({...row,...cloudflareMetrics(consumption),consumo_cloudflare:consumption,accion:response.headers.get('X-GLD-Action')||row.accion,operaciones,cache,detalle:operationsText(operaciones),cache_estado:cacheText(cache),estado:response.status,resultado,version:response.headers.get('X-GLD-Worker-Version'),request_id:response.headers.get('X-GLD-Request-Id'),consultas:numberHeader(response,'X-GLD-Read-Calls'),documentos:numberHeader(response,'X-GLD-Documents-Returned'),escrituras:numberHeader(response,'X-GLD-Write-Calls'),eliminaciones:numberHeader(response,'X-GLD-Delete-Calls'),origen:response.headers.get('X-GLD-Source'),bloqueadas:numberHeader(response,'X-GLD-Public-Blocked')})}catch(_){}
       return response;
     }catch(error){try{save({...row,estado:'Error de red',version:null,consultas:null,documentos:null,escrituras:null,eliminaciones:null})}catch(_){}throw error}
   };
