@@ -28,7 +28,7 @@ Antes de cambiar un módulo, mapear y documentar:
 8. Operaciones/costo por acción y fuentes de medición.
 Si un punto no existe, registrar «no aplica» con motivo; si no se comprobó, registrar «pendiente/sin medir». No confundir ausencia de evidencia con resultado correcto.
 
-## 4. Regla antipa rches y gestión de cambios
+## 4. Regla antiparches y gestión de cambios
 - Prohibido acumular funciones duplicadas, sobrescrituras al final de archivos, rutas paralelas o excepciones ad hoc para disimular una falla.
 - Antes de corregir un síntoma, identificar causa, propietario del dato, dependencias, escenarios afectados y posibles regresiones. Corregir la ruta original o rediseñar el módulo completo cuando la causa sea estructural.
 - Cambios limitados al alcance autorizado; no mezclar Guía, Farmacias, Publicidad u otros circuitos. Si hay infraestructura compartida, analizar impacto transversal y no modificarla sin explicitar alcance y obtener autorización.
