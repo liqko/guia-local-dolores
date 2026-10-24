@@ -29,3 +29,14 @@
 - Reutilizar comprobaciones aprobadas. Repetir solamente recorridos afectados por el cambio o evidencia contradictoria, registrando el motivo. Usar registros reales existentes; no inventar anunciantes, cuentas ni datos para pruebas.
 - Ninguna corrección se instala automáticamente en producción. Primero preparar el cambio completo en una rama, comprobar el recorrido afectado y conservar una vía de reversión. No declarar una mejora instalada si sólo existe un candidato.
 - No congelar toda la plataforma por una comprobación de otro módulo. Cada entrega informa cambio, evidencia, consumo, límites concretos y estado de instalación; las tareas abiertas permanecen identificadas para retomarlas sin repetir el diagnóstico.
+
+## Contrato obligatorio de medición y entrega (24/10/2026)
+
+- Antes de probar, fijar la acción exacta, alcance completo (pantalla y dependencias, perfil y favoritos si hay sesión), versión instalada e intervalo horario. No medir una parte y presentarla como toda la pantalla.
+- Usar siempre la misma tabla por componente/acción: Firestore lecturas, escrituras, eliminaciones; Cloudflare SQL filas leídas y escritas (borrados incluidos en escritas); Cloudflare KV lecturas, escrituras, eliminaciones y listados; solicitudes Worker, llamadas Durable Objects y CPU cuando se midan. No llamar a todas estas unidades indistintamente "consultas" o "lecturas".
+- KV y SQL son contadores separados y adicionales. No ocultar ninguno en un total genérico. Indicar unidad, servicio, cuota y período al calcular porcentajes. Un consumo no observado es "sin medir", nunca cero.
+- Vincular cada resultado a evidencia identificable: ruta/acción, versión, hora, contador y fuente. Diferenciar resultado observado de inferencia. No deducir el reparto de un total entre varias dependencias sin evidencia.
+- Mantener una lista persistente de acciones, hallazgos, cambios y comprobaciones en docs/estado-guia.json. Antes de cada entrega, cotejarla con el alcance; conservar lo abierto y no reiniciar pruebas ya aprobadas.
+- No declarar comprobación cerrada, ahorro confirmado o cobertura completa si falta algún componente del alcance. Una respuesta HTTP correcta no demuestra exactitud de datos ni recuperación persistente. Un despliegue por sí solo no prueba que la consulta medida ocurrió sin memoria temporal.
+- La recuperación persistente de Guía 135 sigue NO CONFIRMADA en producción: la recarga de 14:39:24 UTC tuvo /guide con cero filas leídas; /farmacias a las 14:39:23 UTC informó seis filas entre sus dependencias sin desglose. No presentar ese total como prueba aislada de Guía.
+- Las obligaciones de este contrato son del asistente. No pedir al usuario que recuerde el formato, detecte omisiones o repita pruebas por fallas del instrumento. Las reglas escritas no equivalen a un medidor implementado: distinguir ambos estados.
