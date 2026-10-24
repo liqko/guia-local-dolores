@@ -39,6 +39,6 @@ La prueba con navegador Chromium local no pudo iniciarse: el entorno carece del 
 5. Reversión: retirar capturador del frontend primero, restaurar Worker136 después. No borrar datos originales de negocio. GLD_TELEMETRY_ENABLED=0 detiene persistencia, pero no retira el script del navegador ni sus intentos de envío.
 
 ## Estado
-Código implementado y20 pruebas locales aprobadas; NO instalado ni validado en producción. La conexiónCloudflare disponible sólo permite observar; el navegador de publicación muestra inicio de sesión. Publicación pendiente de acceso autenticado. No reemplaza ni cierra el estadoGuía135 ni la auditoríaCiudades.
+Código implementado y20 pruebas locales aprobadas. Worker137 cargado por el usuario: raízHTTP200/version137 comprobada desde navegador el24/10 a20:48UTC; dos peticionestelemetry.internal HTTP200 y seis ejecucionesSQL observadas. Frontend en publicación; visor autenticado y captura real siguen pendientes. No reemplaza ni cierra el estadoGuía135 ni la auditoríaCiudades.
 
 Fuentes técnicas: https://developers.cloudflare.com/durable-objects/api/id/ y https://developers.cloudflare.com/changelog/post/2026-03-15-durable-object-id-name/ (ctx.id.name también en alarmas). No se usa endpoint ni credencial nueva para facturación.
