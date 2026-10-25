@@ -1,6 +1,6 @@
 # Farmacias139: turno vigente y siguiente
 
-Base Worker activa138 verificada, SHA256b84dba9f2b3094ee172778323dadcff594e5f6097ce328e9ee4b0c782d0812de. Frontend sobre main57eda8a. Rama aislada; sin despliegue.
+Base Worker activa138 verificada, SHA256b84dba9f2b3094ee172778323dadcff594e5f6097ce328e9ee4b0c782d0812de. Frontend sobre main57eda8a. Publicado en producción mediante PR35, commit93e5f9b91fa54f77dfc81aefdf1d8b075f04dc7c. Firebase run40243734252 exitoso; HTML y script respondieron200 y coincidieron exactamente con los archivos probados. Nueva ruta de Worker139 confirmada antes de integrar. Comportamiento en navegador real y consumos facturados no se certifican.
 
 Se conserva GET diario turnos y configuración administrativa. Nueva lectura GET /farmacias?action=ciclo&ciudad_id=…: paquete preparado existente de la ciudad,1DO público, ninguna lectura Guía/Firestore. Paquete ausente503; ciudad vacía400. Datos de rotación públicos acotados, nombres/contactos del paquete ya publicado. No se incorpora reconstrucción ni escritura durante GET. Nombres/contactos cambian cuando se vuelve a publicar el ciclo (guardado efectivo/rebuild existente), sin refrescar desde Guía por visita. No se modifica el circuito de edición de Guía.
 
