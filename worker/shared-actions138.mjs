@@ -167,7 +167,7 @@ var GLD_ACTIONS138 = (() => {
    await this.schedule();
    return this.resume(res,false);
   }
-  async serialized(fn){const previous=this.tail;let release;this.tail=new Promise(resolve=>{release=resolve;});await previous;try{return await fn();}finally{release();}}
+  async serialized(fn){const previous=this.tail;let release=()=>{};this.tail=new Promise(resolve=>{release=()=>resolve(undefined);});await previous;try{return await fn();}finally{release();}}
   async fetch(request,parsedBody){return this.serialized(async()=>{
    this.metrics={rows_read:0,rows_written:0,alarm_set_calls:0,alarm_cancel_calls:0};
    let res;
