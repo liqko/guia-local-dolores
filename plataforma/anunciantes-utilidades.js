@@ -18,7 +18,7 @@
   }
   function urlFicha(id,contexto={},sedeId=''){
     if(!texto(id))throw new Error('Falta identificar el anunciante.');
-    const u=new URL('https://guialocal.ar/guia/');
+    const u=new URL('https://anunciantes-guialocal.web.app/plataforma/carcasa.html');
     for(const k of ['pais_id','provincia_id','ciudad_id'])if(texto(contexto[k]))u.searchParams.set(k,texto(contexto[k]));
     u.searchParams.set('anunciante_id',texto(id));
     if(texto(sedeId))u.searchParams.set('sede_id',texto(sedeId));
