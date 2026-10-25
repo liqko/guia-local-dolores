@@ -1,0 +1,17 @@
+# Farmacias139: turno vigente y siguiente
+
+Base Worker activa138 verificada, SHA256b84dba9f2b3094ee172778323dadcff594e5f6097ce328e9ee4b0c782d0812de. Frontend sobre main57eda8a. Rama aislada; sin despliegue.
+
+Se conserva GET diario turnos y configuración administrativa. Nueva lectura GET /farmacias?action=ciclo&ciudad_id=…: paquete preparado existente de la ciudad,1DO público, ninguna lectura Guía/Firestore. Paquete ausente503; ciudad vacía400. Datos de rotación públicos acotados, nombres/contactos del paquete ya publicado. No se incorpora reconstrucción ni escritura durante GET. Nombres/contactos cambian cuando se vuelve a publicar el ciclo (guardado efectivo/rebuild existente), sin refrescar desde Guía por visita. No se modifica el circuito de edición de Guía.
+
+Carcasa reemplaza semana por vigente y próximo; cálculo local con horas argentinas UTC-03, inicio y duración configurados,12/24h, simultáneas y reinicio automático de ronda. Memoria y localStorage por ciudad, solicitudes simultáneas agrupadas, captura de ciudad y generación contra respuestas tardías. Reutilización entre recargas durante15min; vencimiento hace1descarga en la siguiente comprobación visible (temporizador local máximo60s, o regreso a pestaña). El cambio visual de turno se programa al límite; no hay petición por fecha. No hay reintento de red automático ni consultas con pestaña oculta; reintento explícito si falla. No se conserva silenciosamente dato vencido ante fallo.
+
+Guardar ciclo sin cambios efectivos evita republicación; la pantalla ya evitaba envío sin cambios. No se alteran permisos, ciclos ni datos existentes. Recuperación persistente de guardados Farmacias y vacíos de permisos no se rediseñan aquí.
+
+Consumo: anterior hoy+semana sin cache8Worker+16DO; nuevo paquete1Worker+1DO (reducción de solicitudes94% de DO,87.5% Worker para ese recorrido, no factura). Reutilizar/cambiar turno dentro de15min0operaciones de proveedores. Si la página permanece abierta, como máximo1actualización exitosa cada15min por ciudad;4porhora,96en24h visibles. Solicitud fallida sólo se repite por acción explícita, volver a enfocar o recargar; no hay bucle de fallos. SQL frío depende de ciclos almacenados; memoria caliente puede dar0filas. Legacy sin migrar puede agregar1KVget, primera lectura de legacy no escribe. Sin ahorro monetario ni CPU/facturación reales certificado. Evitar trasladar costos a otra persistencia:0tablas nuevas,0alarmas,0escrituras para medición.
+
+Pruebas:8casos automatizados con cálculo real/VM, Worker completo/SQLite local y proveedores simulados; cobertura08:00,00:00,12h,24h,simultáneas,vuelta de ronda,mes/año,UTC,TTL,recarga,caché por ciudad,fallos,reintento,GET diario conservado,no-op y contadores. Scripts HTML analizados y comprobación de integridad de publicación. No es navegador real ni facturación Cloudflare.
+
+Instalación:primero Worker139 completo, después carcasa.html y farmacias-ciclo.js juntos. No subir sólo HTML contra138:action=ciclo no existe allí. Reversión:primeroHTMLanterior, despuésWorker138; los datos y paquetes son compatibles. No se despliega automáticamente.
+
+Regresión adicional:21/21 pruebas del Worker territorial anterior pasan con139.

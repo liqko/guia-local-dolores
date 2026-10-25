@@ -1,4 +1,5 @@
 <head>
+<script src="/plataforma/farmacias-ciclo.js?v=139"></script>
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=90"></script>
 <script src="/plataforma/entrada-recordada.js?v=100"></script>
@@ -1109,11 +1110,10 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
   <section id="farmaciaTurnoSection" class="farma-turno-section">
     <h2>💊 Farmacias de turno</h2>
     <div id="farmaTurnoCiudad" class="small-muted"></div>
+    <h3>Turno vigente</h3>
     <div id="farmaTurnoHoy" class="farma-turno-list"><div class="farma-state">Cargando farmacia de turno...</div></div>
-    <details class="farma-week">
-      <summary>Ver próximos 7 días</summary>
-      <div id="farmaTurnoSemanaContenido"></div>
-    </details>
+    <h3>Próximo turno</h3>
+    <div id="farmaTurnoSemanaContenido" class="farma-turno-list"></div>
   </section>
   <section id="efemeridesHoySection" class="efem-hoy-section" aria-live="polite">
     <h2>📅 Efemérides de hoy</h2>
@@ -2050,35 +2050,11 @@ const controller = new AbortController();
     function farmaShiftDate(iso,days){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);const d=m?new Date(+m[1],+m[2]-1,+m[3],12):new Date();d.setDate(d.getDate()+days);return farmaIsoDate(d)}
     function farmaHumanDate(iso){const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);if(!m)return iso;const d=new Date(+m[1],+m[2]-1,+m[3],12);return new Intl.DateTimeFormat('es-AR',{weekday:'long',day:'numeric',month:'long'}).format(d)}
     function farmaEsc(v){return String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;')}
-    const FARMA_CACHE_PREFIX='gld_farma_turno_cache_v2:';
-    function farmaCacheKey(fecha){return FARMA_CACHE_PREFIX+String(ciudadSeleccionada||'')+':'+String(fecha||'')}
-    function farmaLeerCache(fecha){
-      try{
-        const x=JSON.parse(localStorage.getItem(farmaCacheKey(fecha))||'null');
-        if(!x||!x.data||Date.now()-Number(x.ts||0)>24*60*60*1000) return null;
-        if((x.data.turnos||[]).some(t=>{const nombre=String(t.nombre_sede||'').trim()||String(t.nombre_ref||'').trim()||String(t.nombre||'').trim();return !nombre||nombre.toLowerCase()==='farmacia';})) return null;
-        return x.data;
-      }catch(e){return null}
-    }
-    function farmaGuardarCache(fecha,data){
-      try{localStorage.setItem(farmaCacheKey(fecha),JSON.stringify({ts:Date.now(),data:data}));}catch(e){}
-    }
-    async function farmaFetchTurnos(fecha){
-      if(!ciudadSeleccionada) throw new Error('No hay ciudad seleccionada');
-      const u=new URL(FARMACIAS_ENDPOINT);
-      u.searchParams.set('action','turnos');u.searchParams.set('ciudad_id',ciudadSeleccionada);u.searchParams.set('fecha',fecha);
-const cached=farmaLeerCache(fecha);
-      if(cached){
-        gldFetchJson(u.toString(),{timeoutMs:6000,retries:1,retryDelay:400}).then(({data})=>{
-          if(data&&data.success===true) farmaGuardarCache(fecha,data);
-        }).catch(()=>{});
-        return cached;
-      }
-      const {data}=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDelay:400});
-      if(!data || data.success!==true) throw new Error('No se pudieron cargar los turnos');
-      farmaGuardarCache(fecha,data);
-      return data;
-    }
+    const farmaCycles=GLDFarmCycle.client({storage:localStorage,fetchPacket:async city=>{
+      const u=new URL(FARMACIAS_ENDPOINT);u.searchParams.set('action','ciclo');u.searchParams.set('ciudad_id',city);
+      const {data}=await gldFetchJson(u.toString(),{}, {timeoutMs:6500,retries:0});return data;
+    }});
+    let farmaRenderGeneration=0,farmaTimer=null,farmaShownCity='';
     function farmaContactLinks(t){
       const links=[];const tel=String(t.telefono||'').trim();const wa=String(t.whatsapp||'').replace(/\D/g,'');const maps=String(t.maps||'').trim();const mail=String(t.mail||'').trim();
       if(tel)links.push(`<a href="tel:${farmaEsc(tel.replace(/\s+/g,''))}">📞 Llamar</a>`);
@@ -2105,95 +2081,27 @@ const cached=farmaLeerCache(fecha);
       return `<article class="farma-turno-card"><div class="farma-turno-name">${farmaEsc(nombre)}</div>${horario?`<div class="farma-turno-time">${horario}</div>`:''}${t.direccion?`<div class="farma-turno-dir">${farmaEsc(t.direccion)}</div>`:''}${t.observaciones?`<div class="farma-turno-dir">${farmaEsc(t.observaciones)}</div>`:''}<div class="farma-turno-actions">${farmaContactLinks(t)}</div></article>`;
     }
     async function cargarFarmaciasTurnoGuia(){
-      farmaSemanaCargada=false;
-      farmaSemanaPromise=null;
-      const hoyBox=document.getElementById('farmaTurnoHoy');const semanaBox=document.getElementById('farmaTurnoSemanaContenido');const ciudadBox=document.getElementById('farmaTurnoCiudad');
-      if(!hoyBox||!semanaBox)return;
-      let ciudadNombre='';try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');ciudadNombre=String(saved&&saved.ciudad||'').trim()}catch(e){}
-      if(ciudadBox)ciudadBox.textContent=ciudadNombre?`Turnos para ${ciudadNombre}`:'';
-      if(!ciudadSeleccionada){hoyBox.innerHTML='<div class="farma-state error">No hay ciudad seleccionada.</div>';semanaBox.innerHTML='';return}
-      const hoy=farmaIsoDate(new Date());
+      const generation=++farmaRenderGeneration,city=String(ciudadSeleccionada||'');
+      clearTimeout(farmaTimer);
+      const today=document.getElementById('farmaTurnoHoy'),upcoming=document.getElementById('farmaTurnoSemanaContenido');
+      if(!today||!upcoming)return;
+      if(farmaShownCity!==city){today.innerHTML='<div class="farma-state">Cargando farmacia de turno...</div>';upcoming.innerHTML='';farmaShownCity=city;}
+
       try{
-        const data=await farmaFetchTurnos(hoy);
-        const turnos=Array.isArray(data.turnos)?data.turnos:[];
-        // No usamos en_turno_ahora del Worker para decidir la vista: ese valor puede
-        // haber quedado guardado en caché cuando el día todavía era una fecha futura.
-        // Calculamos el turno vigente en el navegador con las fechas/horas reales.
-        const ahoraMs=Date.now();
-        const turnoMs=(fecha,hora)=>{
-          const m=String(fecha||'').match(/^(\\d{4})-(\\d{2})-(\\d{2})$/);
-          const h=String(hora||'00:00').match(/^(\\d{1,2}):(\\d{2})/);
-          if(!m||!h)return NaN;
-          return new Date(+m[1],+m[2]-1,+m[3],+h[1],+h[2],0,0).getTime();
-        };
-        const activos=turnos.filter(t=>{
-          if(!t)return false;
-          const desde=turnoMs(t.fecha_desde,t.hora_desde);
-          const hasta=turnoMs(t.fecha_hasta,t.hora_hasta);
-          return Number.isFinite(desde)&&Number.isFinite(hasta)&&ahoraMs>=desde&&ahoraMs<hasta;
-        });
-        const iniciadosHoy=turnos.filter(t=>String((t&&t.fecha_desde)||'').trim()===hoy);
-        // Entre 00:00 y 08:00 deben verse las dos referencias útiles:
-        // la farmacia que sigue de turno desde ayer y la que comienza hoy a las 08:00.
-        // Desde las 08:00 ambas listas apuntan al mismo turno y se deduplican.
-        const mostrar=[];
-        const vistos=new Set();
-        [...activos,...iniciadosHoy].forEach(t=>{
-          const key=[t&&t.ciclo_id,t&&t.sede_id,t&&t.fecha_desde,t&&t.hora_desde].join('|');
-          if(!vistos.has(key)){vistos.add(key);mostrar.push(t);}
-        });
-        hoyBox.innerHTML=mostrar.length?mostrar.map(farmaCardHtml).join(''):'<div class="farma-state">No hay farmacia de turno informada para hoy.</div>';
+        const packet=await farmaCycles.get(city);
+        if(generation!==farmaRenderGeneration||city!==String(ciudadSeleccionada||''))return;
+        const view=GLDFarmCycle.turns(packet);
+        today.innerHTML=view.current.length?view.current.map(farmaCardHtml).join(''):'<div class="farma-state">No hay turno vigente informado.</div>';
+        upcoming.innerHTML=view.next.length?view.next.map(farmaCardHtml).join(''):'<div class="farma-state">No hay próximo turno informado.</div>';
+        // Boundary changes are local; at most one server refresh per15min while visible.
+        const delay=Math.min(60000,Math.max(50,view.boundary-Date.now()+50));
+        farmaTimer=setTimeout(()=>{if(!document.hidden)cargarFarmaciasTurnoGuia();},delay);
       }catch(e){
-        console.warn('Farmacias no disponibles todavía:',e);
-        gldMostrarReintento(hoyBox,'La información está demorando más de lo habitual.',cargarFarmaciasTurnoGuia);
+        if(generation!==farmaRenderGeneration||city!==String(ciudadSeleccionada||''))return;
+        upcoming.innerHTML='';gldMostrarReintento(today,'No se pudo actualizar la información de farmacias.',cargarFarmaciasTurnoGuia);
       }
-      // Los próximos 7 días NO se cargan al iniciar la Guía.
-      // Se consultan recién cuando el usuario abre el desplegable.
-      semanaBox.innerHTML='';
     }
-
-    let farmaSemanaCargada=false;
-    let farmaSemanaPromise=null;
-
-    async function cargarFarmaciasSemanaGuia(){
-      if(farmaSemanaCargada) return true;
-      if(farmaSemanaPromise) return farmaSemanaPromise;
-
-      const semanaBox=document.getElementById('farmaTurnoSemanaContenido');
-      if(!semanaBox || !ciudadSeleccionada) return false;
-
-      const hoy=farmaIsoDate(new Date());
-      const fechas=Array.from({length:7},(_,i)=>farmaShiftDate(hoy,i+1));
-      semanaBox.innerHTML='<div class="farma-state">Cargando próximos días...</div>';
-
-      farmaSemanaPromise=(async()=>{
-        try{
-          const respuestas=await Promise.all(
-            fechas.map(f=>farmaFetchTurnos(f).catch(()=>null))
-          );
-
-          semanaBox.innerHTML=respuestas.map((data,i)=>{
-            const fecha=fechas[i];
-
-            if(!data){
-              return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fecha))}</div><div class="farma-state">La información de este día está demorando. Volvé a abrir esta sección para reintentar.</div></div>`;
-            }
-
-            const turnos=(Array.isArray(data.turnos)?data.turnos:[])
-              .filter(t=>String((t&&t.fecha_desde)||'').trim()===fecha);
-
-            return `<div class="farma-week-day"><div class="farma-week-date">${farmaEsc(farmaHumanDate(fecha))}</div>${turnos.length?turnos.map(farmaCardHtml).join(''):'<div class="small-muted">Sin información cargada.</div>'}</div>`;
-          }).join('');
-
-          farmaSemanaCargada=true;
-          return true;
-        }finally{
-          farmaSemanaPromise=null;
-        }
-      })();
-
-      return farmaSemanaPromise;
-    }
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)cargarFarmaciasTurnoGuia();else clearTimeout(farmaTimer);});
     let gldDestinoPendiente='';
     let gldDestinoObserver=null;
     let gldDestinoTimer=null;
@@ -2260,10 +2168,6 @@ const cached=farmaLeerCache(fecha);
       document.getElementById('farmaTurnoGo')?.addEventListener('click',()=>gldIrASeccion('farmaciaTurnoSection'));
       document.getElementById('efemeridesHoyGo')?.addEventListener('click',()=>gldIrASeccion('efemeridesHoySection'));
 
-      const semanaDetails=document.querySelector('#farmaciaTurnoSection .farma-week');
-      semanaDetails?.addEventListener('toggle',()=>{
-        if(semanaDetails.open) cargarFarmaciasSemanaGuia();
-      });
     });
 
 
