@@ -12,19 +12,27 @@
   const authorized=()=>adminExpires>Date.now();
   const originalFetch=window.fetch.bind(window);
   function read(){try{const x=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(x)?x:memory}catch(_){return memory}}
-  let historyMode='today';
-  const argDay=value=>{const d=new Date(value);return value&&Number.isFinite(d.getTime())?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(d):null;};
+  const measurementKey='gld_medicion_actual_v141';
+  function measurement(){try{return JSON.parse(localStorage.getItem(measurementKey)||'null');}catch{return null;}}
+  function currentRows(rows=read()){const m=measurement();return m?rows.filter(r=>r.medicion_id===m.id&&Date.parse(r.fecha)>=m.start):[];}
+  function beginMeasurement(){const m={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),start:Date.now(),active:true};try{localStorage.setItem(measurementKey,JSON.stringify(m));}catch{throw Error('No se pudo iniciar la medición en este navegador.');}render();}
+  const exportFields=['medicion_id','inicio_medicion_utc','fecha','fecha_argentina','pagina','ruta','accion','metodo','estado','resultado','vista','version','request_id','consultas','documentos','escrituras','eliminaciones','cf_worker','cf_kv_get','cf_kv_put','cf_kv_delete','cf_kv_list','cf_public_calls','cf_store_read','cf_store_write','cf_admin_calls','cf_admin_read','cf_admin_write','cf_action_calls','cf_action_read','cf_action_write','cf_alarm_set','cf_alarm_cancel','cf_marker_get','cf_marker_put','cf_cpu','cf_cobertura','cf_missing','detalle','cache_estado'];
+  function csvCell(value){let v=value==null?'':String(value);if(/^[\s]*[=+@-]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
+  function csvRows(rows){return '\uFEFF'+[exportFields.map(csvCell).join(','),...rows.map(saved=>{const row={...saved,...(saved.consumo_cloudflare?cloudflareMetrics(saved.consumo_cloudflare):{}),fecha_argentina:argStamp(saved)};return exportFields.map(k=>csvCell(row[k])).join(',');})].join('\r\n');}
+  function downloadRows(rows,label){const blob=new Blob([csvRows(rows)],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='medicion-'+label+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
   const argStamp=row=>{const d=new Date(row.fecha);return row.fecha&&Number.isFinite(d.getTime())?new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(d):'Fecha no registrada · '+String(row.hora||'Hora no registrada');};
   function render(){
     if(!view||!authorized())return;
-    const stored=read(),today=argDay(new Date().toISOString());view.textContent='';
+    const stored=read(),m=measurement();view.textContent='';
     const intro=document.createElement('p');
     intro.textContent='Respuestas capturadas en este navegador con las pruebas privadas activadas. No es el consumo total de la cuenta ni un monitor global en vivo. Consultas Firebase y documentos devueltos no equivalen a lecturas facturadas. Los datos ausentes se indican como sin medición. Mostrar y filtrar este historial no consulta servidores.';view.appendChild(intro);
-    const mode=document.createElement('select');mode.setAttribute('aria-label','Período de mediciones');
-    for(const [value,label]of [['today','Hoy · hora argentina'],['all','Todo el historial, incluidos registros sin fecha']]){const option=document.createElement('option');option.value=value;option.textContent=label;option.selected=value===historyMode;mode.appendChild(option);}
-    mode.addEventListener('change',()=>{historyMode=mode.value;render();});view.appendChild(mode);
-    const rows=stored.map((row,index)=>({row,index})).filter(({row})=>historyMode==='all'||argDay(row.fecha)===today).sort((a,b)=>(Date.parse(b.row.fecha)||0)-(Date.parse(a.row.fecha)||0)||b.index-a.index).map(({row})=>row);
-    const count=document.createElement('p');count.textContent=rows.length+' registros visibles de '+stored.length+' guardados en este navegador. Los anteriores no se borran.';view.appendChild(count);
+    const controls=document.createElement('div');controls.style.cssText='display:flex;flex-direction:column;gap:8px';view.appendChild(controls);
+    const begin=document.createElement('button');begin.type='button';begin.textContent=m?'Empezar una nueva medición desde ahora':'Empezar medición desde ahora';begin.onclick=()=>{try{beginMeasurement();}catch(e){count.textContent=e.message;}};controls.appendChild(begin);
+    const rows=currentRows(stored).map((row,index)=>({row,index})).sort((a,b)=>(Date.parse(b.row.fecha)||0)-(Date.parse(a.row.fecha)||0)||b.index-a.index).map(({row})=>row);
+    const end=document.createElement('button');end.type='button';end.textContent='Terminar medición';end.disabled=!m?.active;end.onclick=()=>{const latest=measurement();if(latest){latest.active=false;latest.end=Date.now();localStorage.setItem(measurementKey,JSON.stringify(latest));render();}};controls.appendChild(end);
+    const exportCurrent=document.createElement('button');exportCurrent.type='button';exportCurrent.textContent='Descargar esta medición · CSV para Sheets';exportCurrent.disabled=!rows.length;exportCurrent.onclick=()=>downloadRows(currentRows(),'actual');controls.appendChild(exportCurrent);
+    const count=document.createElement('p');count.textContent=m?(m.active?'Midiendo desde ':'Medición terminada · inicio ')+argStamp({fecha:new Date(m.start).toISOString()})+' · '+rows.length+' pedidos conservados (límite del navegador:160).':'Sin medición iniciada. Pulsá Empezar medición antes de realizar la acción.';view.appendChild(count);
+    const archived=stored.filter(r=>!m||r.medicion_id!==m.id),history=document.createElement('details'),title=document.createElement('summary');title.textContent='Registros anteriores · sólo para exportar';history.appendChild(title);const info=document.createElement('p');info.textContent='No se mezclan con la medición actual. Este navegador conserva hasta160registros en total; descargá el CSV antes de acumular más o borrar los datos del navegador. Importalo en Google Sheets para conservar y comparar. Las celdas numéricas vacías significan sin medición, no cero.';history.appendChild(info);const exportHistory=document.createElement('button');exportHistory.type='button';exportHistory.textContent='Descargar registros anteriores · CSV';exportHistory.disabled=!archived.length;exportHistory.onclick=()=>{const active=measurement();downloadRows(read().filter(r=>!active||r.medicion_id!==active.id),'anteriores');};history.appendChild(exportHistory);view.appendChild(history);
     const scroll=document.createElement('div');scroll.style.cssText='overflow:auto;max-height:65vh;border:1px solid #ccd8df';view.appendChild(scroll);
     const table=document.createElement('table');table.style.cssText='border-collapse:separate;border-spacing:0;font:13px sans-serif;min-width:900px;width:100%';scroll.appendChild(table);
     const fields=['fecha','accion','estado','consultas','documentos','escrituras','eliminaciones','cf_worker','details'];
@@ -36,11 +44,10 @@
       if(field==='details'){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Ver Firebase y Cloudflare';details.appendChild(summary);const dl=document.createElement('dl');for(const [key,label]of detailFields){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dt.style.fontWeight='bold';dd.textContent=row[key]==null?'Sin medición':String(row[key]);dl.appendChild(dt);dl.appendChild(dd);}details.appendChild(dl);td.appendChild(details);}
       else td.textContent=field==='fecha'?argStamp(row):field==='accion'?[row.accion,row.ruta].filter(Boolean).join(' · '):row[field]==null?'Sin medición':String(row[field]);
     });});
-    const data=document.createElement('textarea');data.readOnly=true;data.setAttribute('aria-label','Registro para compartir');data.style.cssText='width:100%;height:110px;margin-top:10px';data.value=JSON.stringify(stored,null,2);view.appendChild(data);
-    if(!rows.length){const empty=document.createElement('p');empty.textContent='No hay registros para este período. Podés seleccionar todo el historial.';view.appendChild(empty);}
+    if(!rows.length){const empty=document.createElement('p');empty.textContent='Esta medición todavía no tiene pedidos registrados.';view.appendChild(empty);}
   }
   function save(row){
-    if(!authorized())return;
+    const m=measurement();if(!authorized()||!m?.active||row.medicion_id!==m.id||Date.parse(row.fecha)<m.start)return;
     memory=read().concat(row).slice(-160);
     try{localStorage.setItem(key,JSON.stringify(memory))}catch(_){}
     try{render()}catch(_){}
@@ -50,7 +57,7 @@
     const routes={turnos_farma:'/farmacias',publicidad:'/publicidad',promos:'/promos',eventos:'/events-new',eventos_free:'/events-new',actividades:'/actividades',efemerides:'/efemerides',modificar_datos:'/commerce'};
     const route=routes[moduleName];if(!route||typeof loaded!=='boolean')return;
     const rows=read();
-    const row=[...rows].reverse().find(r=>r.pagina===location.pathname&&r.ruta===route);
+    const row=[...currentRows(rows)].reverse().find(r=>r.pagina===location.pathname&&r.ruta===route);
     if(!row||!authorized())return;
     row.vista=loaded?'Lista':'Error';memory=rows;
     try{localStorage.setItem(key,JSON.stringify(rows))}catch(_){}
@@ -74,7 +81,8 @@
     let action=url.searchParams.get('action')||'';
     try{if(options&&typeof options.body==='string'){const body=JSON.parse(options.body);action=body.action||body.accion||action}}catch(_){}
     action=allowed.has(String(action).toLowerCase())?String(action).toLowerCase():'';
-    const row={fecha:new Date().toISOString(),hora:new Date().toLocaleTimeString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}),pagina:location.pathname,ruta:url.pathname.replace(/(\/advertisers\/)[^/]+/g,'$1:id').replace(/(\/subscribers\/)[^/]+/g,'$1:id'),accion:action,metodo:String(options&&options.method||input&&input.method||'GET').toUpperCase()};
+    const m=measurement();
+    const row={medicion_id:m?.active?m.id:null,inicio_medicion_utc:m?new Date(m.start).toISOString():null,fecha:new Date().toISOString(),hora:new Date().toLocaleTimeString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}),pagina:location.pathname,ruta:url.pathname.replace(/(\/advertisers\/)[^/]+/g,'$1:id').replace(/(\/subscribers\/)[^/]+/g,'$1:id'),accion:action,metodo:String(options&&options.method||input&&input.method||'GET').toUpperCase()};
     try{
       const response=await originalFetch(input,options);
       let resultado=response.ok?'Sin comprobar':'Error HTTP';
@@ -87,7 +95,7 @@
   function mount(){
     if(!document.body||!authorized()||container)return;
     const details=document.createElement('details');container=details;details.style.cssText='margin:16px 8px;padding:10px;background:#fff;color:#111;border:1px solid #aaa;border-radius:6px;font:14px sans-serif;position:relative;z-index:2';
-    const summary=document.createElement('summary');summary.textContent='🔒 Pruebas privadas · ver consumo';summary.style.cursor='pointer';details.appendChild(summary);
+    const summary=document.createElement('summary');summary.textContent='🔒 Medición actual · consumos';summary.style.cursor='pointer';details.appendChild(summary);
     view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);
     const selector=script&&script.getAttribute('data-gld-consumo-container');
     const host=(selector&&document.querySelector(selector))||document.body;
@@ -110,7 +118,7 @@
     const ids=['gld-diagnostics-share-create','gld-diagnostics-share-update','gld-diagnostics-share-revoke'];
     ids.forEach(id=>{const b=document.getElementById(id);if(b)b.disabled=true;});
     try{
-      const previous=shareInfo(),rows=action==='revoke'?undefined:read();
+      const previous=shareInfo(),rows=action==='revoke'?undefined:currentRows();
       if(action!=='revoke'&&!rows.length)throw new Error('Todavía no hay registros para compartir.');
       const token=localRead('gld_superadmin_token')||adminToken;
       const response=await originalFetch(origin+'/superadmin/diagnostics/share',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({action,rows,token:previous?.token})});
@@ -172,7 +180,7 @@
       document.querySelector('#app')?.appendChild(toolbar);addShareControls(toolbar);}
     diagnosticReady=validate();updateButton();
   };
-  window.addEventListener('storage',e=>{if(e.key===capabilityKey)diagnosticReady=validate();else if(e.key===key)render();else if(e.key==='gld_superadmin_token'&&!e.newValue){stop();toolbar?.remove();toolbar=null;}});
+  window.addEventListener('storage',e=>{if(e.key===capabilityKey)diagnosticReady=validate();else if(e.key===key||e.key===measurementKey)render();else if(e.key==='gld_superadmin_token'&&!e.newValue){stop();toolbar?.remove();toolbar=null;}});
   window.addEventListener('gld-diagnostics-logout',()=>{stop();toolbar?.remove();toolbar=null;});
   document.addEventListener('DOMContentLoaded',()=>{if(authorized())mount();});
 
