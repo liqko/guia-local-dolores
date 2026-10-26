@@ -4,6 +4,8 @@
  const normalize=v=>Array.isArray(v)?v.map(normalize):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).filter(k=>v[k]!==undefined).sort().map(k=>[k,normalize(v[k])])):v;
  function eligible(url,body){
   const path=new URL(url,location.href).pathname,action=String(body?.action||body?.accion||'').toLowerCase();
+  if(path==='/events-new')return ['createfreeevent','updatefreeevent','pausefreeevent','deletefreeevent','createvipevent','updatevipevent','pausevipevent','deletevipevent','duplicatevipevent','duplicate'].includes(action);
+  if(path==='/superadmin/moderation/events/resolve'||path==='/superadmin/moderation/resolve'&&String(body?.tipo||'').toUpperCase()==='EVENTO')return true;
   return path==='/promos'?['createpromo','updatepromo','deletepromo'].includes(action):path==='/publicidad'?['guardar','actualizar_activos','eliminar'].includes(action):path==='/superadmin/promos'?['pausar','reanudar','borrar','aprobar','rechazar'].includes(action):path==='/superadmin/publicidad'?['pausar','eliminar'].includes(action):false;
  }
  async function run(url,body,send){

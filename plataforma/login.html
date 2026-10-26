@@ -1,7 +1,7 @@
 <!doctype html>
 <html>
 <head>
-<script src="/plataforma/publicacion-pedidos.js?v=143"></script>
+<script src="/plataforma/publicacion-pedidos.js?v=145"></script>
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/imagenes-publicas.js?v=89"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
@@ -3092,6 +3092,8 @@ async function loadEventosPanelData(){
     const catalog=eventFormCatalogs_(data,territorio);
     evLists.categorias=catalog.categorias;
     evLists.ciudades=catalog.ciudades;
+    eventScopeAdvertiserCity145=String(data.advertiser?.ciudad_id||data.advertiser?.ciudad_ids?.[0]||sesion?.ciudad_id||'').trim();
+    eventScopeRender145('ev');eventScopeRender145('evf');
     evLists.partners=await eventPartnerAllRows_();
 
     evLists.lugaresTodos=catalog.lugares.map(o=>{
@@ -6798,6 +6800,53 @@ function virtualCityOption_(select){
   if(select&&!Array.from(select.options).some(o=>o.value===EVENT_VIRTUAL_CITY)){const option=new Option('Virtual · sin ciudad física',EVENT_VIRTUAL_CITY);option.setAttribute('data-event-virtual-option','');option.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;select.add(option);}
 }
 function eventVirtualPlace_(){return {key:EVENT_VIRTUAL_PLACE,nombre:'Virtual',nombre_visible:'Virtual',lugar:'Virtual',tipo:'VIRTUAL',tipo_lugar:'VIRTUAL',sede_id:'',lugar_id:'',direccion:'',maps:'',llegar:''};}
+// Uses the territory already loaded by both event forms; no network requests.
+let eventScopeAdvertiserCity145='';
+const eventScopeState145={};
+function eventScopeRead145(prefix){
+ const mode=evGet(prefix+'-scope-mode')||'CIUDAD';
+ const scope={version:1,modo:mode};
+ if(mode==='CIUDAD')scope.ciudad_id=evGet(prefix+'-scope-city');
+ if(mode==='CIUDADES')scope.ciudades=Array.from(document.getElementById(prefix+'-scope-cities')?.selectedOptions||[]).map(o=>o.value).sort();
+ if(mode==='PAIS'||mode==='PROVINCIA')scope.pais_id=evGet(prefix+'-scope-country');
+ if(mode==='PROVINCIA')scope.provincia_id=evGet(prefix+'-scope-province');
+ return scope;
+}
+function eventScopeRender145(prefix,scope=eventScopeState145[prefix]){
+ const box=document.getElementById(prefix+'-scope-box');if(!box)return;
+ scope ||= {version:1,modo:'CIUDAD',ciudad_id:eventScopeAdvertiserCity145};
+ eventScopeState145[prefix]=scope;
+ const mode=document.getElementById(prefix+'-scope-mode');mode.value=scope.modo;
+ const cities=(evLists.ciudades||[]).filter(c=>String(c.ciudad_id||'')!=='VIRTUAL');
+ const one=document.getElementById(prefix+'-scope-city'),many=document.getElementById(prefix+'-scope-cities'),country=document.getElementById(prefix+'-scope-country'),province=document.getElementById(prefix+'-scope-province');
+ function fill(select,rows,valueKey,labelKey,chosen,multiple=false){
+  select.replaceChildren();if(!multiple)select.add(new Option('Seleccioná una opción',''));
+  for(const row of rows){const val=String(row[valueKey]||'').trim();if(!val)continue;const option=new Option(String(row[labelKey]||val),val);option.selected=multiple?(chosen||[]).includes(val):val===chosen;select.add(option);}
+ }
+ if(scope.modo==='CIUDAD')fill(one,cities,'ciudad_id','ciudad_visible',scope.ciudad_id||eventScopeAdvertiserCity145);
+ if(scope.modo==='CIUDADES')fill(many,cities,'ciudad_id','ciudad_visible',scope.ciudades||[],true);
+ const countries=[...new Map(cities.filter(c=>c.pais_id).map(c=>[c.pais_id,{id:c.pais_id,nombre:c.pais_visible||c.pais||c.pais_id}])).values()];
+ fill(country,countries,'id','nombre',scope.pais_id||'');
+ const provinces=[...new Map(cities.filter(c=>c.pais_id===scope.pais_id&&c.provincia_id).map(c=>[c.provincia_id,{id:c.provincia_id,nombre:c.provincia_visible||c.provincia||c.provincia_id}])).values()];
+ fill(province,provinces,'id','nombre',scope.provincia_id||'');
+ for(const [id,show]of [['city',scope.modo==='CIUDAD'],['cities',scope.modo==='CIUDADES'],['country',['PAIS','PROVINCIA'].includes(scope.modo)],['province',scope.modo==='PROVINCIA']])document.getElementById(prefix+'-scope-'+id+'-wrap').hidden=!show;
+ box.hidden=eventModeValue_(prefix)!=='VIRTUAL'&&!(prefix==='ev'&&readEventProgramacionFromUI_().some(p=>p.ciudad_id==='VIRTUAL'));
+ gldRefreshAllSearchableSelects_();
+}
+function eventScopeLoad145(prefix,row={}){
+ const virtual=eventModeFromRow_(row)==='VIRTUAL'||row.ciudad_id==='VIRTUAL'||(row.programacion||[]).some(p=>p.ciudad_id==='VIRTUAL');
+ eventScopeRender145(prefix,row.alcance_publicacion||(virtual&&row.evento_id?{version:1,modo:'TODAS'}:{version:1,modo:'CIUDAD',ciudad_id:eventScopeAdvertiserCity145}));
+}
+function eventScopeMount145(prefix,anchor){
+ const box=document.createElement('div');box.id=prefix+'-scope-box';box.className='full';box.hidden=true;
+ box.innerHTML=`<label for="${prefix}-scope-mode">Dónde mostrar el evento virtual</label><select data-event-scope-selector disabled id="${prefix}-scope-mode"><option value="CIUDAD">Una ciudad · inicialmente la del anunciante</option><option value="CIUDADES">Elegir ciudades manualmente</option><option value="PROVINCIA">Una provincia</option><option value="PAIS">Un país</option><option value="TODAS">Todas las ciudades de todos los países</option></select><div id="${prefix}-scope-city-wrap"><label>Ciudad de publicación</label><select data-event-scope-selector disabled id="${prefix}-scope-city"></select></div><div id="${prefix}-scope-cities-wrap" hidden><label>Ciudades de publicación · hasta 500</label><select data-event-scope-selector disabled multiple size="6" id="${prefix}-scope-cities"></select></div><div id="${prefix}-scope-country-wrap" hidden><label>País</label><select data-event-scope-selector disabled id="${prefix}-scope-country"></select></div><div id="${prefix}-scope-province-wrap" hidden><label>Provincia</label><select data-event-scope-selector disabled id="${prefix}-scope-province"></select></div><div class="events-small">Define en qué guías aparece. La ubicación del evento sigue siendo virtual. Provincia y país incluyen sus ciudades actuales y las que se incorporen después. Los eventos anteriores conservan su alcance hasta que lo cambies.</div>`;
+ anchor.after(box);
+ box.addEventListener('change',e=>{
+  eventScopeState145[prefix]=eventScopeRead145(prefix);
+  if(e.target.id===prefix+'-scope-mode'||e.target.id===prefix+'-scope-country')eventScopeRender145(prefix);
+ });
+}
+
 function eventModeSync_(prefix){
   const mode=eventModeValue_(prefix),virtual=mode==='VIRTUAL',online=mode!=='PRESENCIAL';
   const city=document.getElementById(prefix+'-ciudad'),place=document.getElementById(prefix+'-lugar');
@@ -6823,13 +6872,16 @@ function eventModeSync_(prefix){
     const el=document.getElementById(id);if(el){const box=id.endsWith('-wrap')?el:el.closest('.full');if(box)box.hidden=virtual;}
   }
   if(virtual){if(prefix==='ev'){document.getElementById('ev-sede_id').value='';document.getElementById('ev-lugar_id').value='';}else toggleFreeOtherFields_();}
+  eventScopeRender145(prefix);
   gldRefreshAllSearchableSelects_();
 }
 function eventModeFields_(prefix){
   const mode=eventModeValue_(prefix),virtual=mode==='VIRTUAL';
-  return {modalidad:mode,...(prefix==='ev'?{url_virtual:mode==='PRESENCIAL'?'':evGet(prefix+'-url-virtual')}:{ }),...(virtual?{tipo_lugar:'VIRTUAL',lugar:'Virtual',lugar_texto:'Virtual',sede_id:'',lugar_id:'',direccion:'',maps:'',llegar:''}:{})};
+  return {modalidad:mode,...((virtual||prefix==='ev'&&readEventProgramacionFromUI_().some(p=>p.ciudad_id==='VIRTUAL'))&&window.GLD_EVENT_SCOPE_SUPPORTED?{alcance_publicacion:eventScopeRead145(prefix)}:{}),...(prefix==='ev'?{url_virtual:mode==='PRESENCIAL'?'':evGet(prefix+'-url-virtual')}:{ }),...(virtual?{tipo_lugar:'VIRTUAL',lugar:'Virtual',lugar_texto:'Virtual',sede_id:'',lugar_id:'',direccion:'',maps:'',llegar:''}:{})};
 }
 function eventModeError_(payload,free=false){
+  if((payload.modalidad==='VIRTUAL'||(payload.programacion||[]).some(p=>p.ciudad_id==='VIRTUAL'))&&!window.GLD_EVENT_SCOPE_SUPPORTED)return 'El alcance de eventos todavía requiere instalar el Worker145. No se guardó el evento.';
+  if(payload.alcance_publicacion){const a=payload.alcance_publicacion;if(a.modo==='CIUDAD'&&!a.ciudad_id||a.modo==='CIUDADES'&&!a.ciudades?.length||['PAIS','PROVINCIA'].includes(a.modo)&&!a.pais_id||a.modo==='PROVINCIA'&&!a.provincia_id)return 'Elegí dónde mostrar el evento virtual.';}
   if(payload.modalidad==='PRESENCIAL')return '';
   if(!free&&(!payload.url_virtual||!isHttpUrl(payload.url_virtual)))return 'Completá el campo «Enlace de inscripción o acceso virtual» con una URL válida (https://...). Es obligatorio para eventos virtuales o mixtos.';
   if(payload.modalidad==='MIXTO'&&payload.ciudad_id===EVENT_VIRTUAL_CITY)return 'El evento mixto necesita una ciudad y un lugar físico.';
@@ -6840,6 +6892,7 @@ function eventModeLoad_(prefix,row={}){
   const link=document.getElementById(prefix+'-url-virtual');if(link)link.value=row.url_virtual||row.link_virtual||row.enlace_virtual||'';
   virtualCityOption_(document.getElementById(prefix+'-ciudad'));
   eventModeSync_(prefix);
+  eventScopeLoad145(prefix,row);
 }
 function mountEventModeFields_(){
   for(const prefix of ['ev','evf']){
@@ -6847,9 +6900,10 @@ function mountEventModeFields_(){
     const box=document.createElement('div');
     box.innerHTML='<label>Modalidad del evento</label><select data-event-selector disabled id="'+prefix+'-modalidad"><option value="PRESENCIAL">Presencial</option><option value="VIRTUAL">Virtual</option><option value="MIXTO">Mixto · presencial y virtual</option></select>';
     city.parentElement.before(box);
+    eventScopeMount145(prefix,box);
     if(prefix==='ev'){
     const link=document.createElement('div');link.className='full';link.id=prefix+'-virtual-wrap';link.hidden=true;
-    link.innerHTML='<label id="'+prefix+'-url-virtual-label" for="'+prefix+'-url-virtual">Enlace de inscripción o acceso virtual</label><input id="'+prefix+'-url-virtual" type="url" placeholder="https://..."><div class="events-small">Virtual no exige domicilio. Mixto conserva la ciudad y el lugar físico, además del enlace. “Virtual · sin ciudad física” se muestra en las agendas de todas las ciudades.</div>';
+    link.innerHTML='<label id="'+prefix+'-url-virtual-label" for="'+prefix+'-url-virtual">Enlace de inscripción o acceso virtual</label><input id="'+prefix+'-url-virtual" type="url" placeholder="https://..."><div class="events-small">Virtual no exige domicilio. Mixto conserva la ciudad y el lugar físico, además del enlace. Elegí el alcance en «Dónde mostrar el evento virtual».</div>';
     box.after(link);
     }
     box.querySelector('select').addEventListener('change',()=>eventModeSync_(prefix));
@@ -6981,6 +7035,7 @@ function eventProgramacionCard_(row,index){
     renderEventProgramacion_();
   });
 
+  card.addEventListener('change',()=>eventScopeRender145('ev'));
   card.querySelector('.evp-remove').addEventListener('click',()=>{
     eventProgramacionState=readEventProgramacionFromUI_();
     eventProgramacionState.splice(index,1);
@@ -6994,9 +7049,10 @@ function renderEventProgramacion_(){
   box.innerHTML='';
   if(!eventProgramacionState.length){
     box.innerHTML='<div class="events-small" style="padding:8px 0">Sin programación detallada.</div>';
-    return;
+    eventScopeRender145('ev');return;
   }
   eventProgramacionState.forEach((row,index)=>box.appendChild(eventProgramacionCard_(row,index)));
+  eventScopeRender145('ev');
 }
 function readEventProgramacionFromUI_(){
   const general=eventProgramacionGeneralPlace_();
@@ -7326,7 +7382,7 @@ async function eventAbrirFormulario_(found,duplicar=false){
           toggleExternalPartnerFields(i);
         }
 
-        if(!duplicar) gldEditBegin_('eventos_vip',editingEventId,buildEventPayloadFromForm);
+        if(!duplicar){gldEditBegin_('eventos_vip',editingEventId,buildEventPayloadFromForm);gldEditSessions.eventos_vip.revision145=found.revision_evento145;}
         setMsg('eventos-msg','ok',duplicar?'Copia preparada, todavía sin guardar. Modificá los datos y tocá "Crear evento".':'Editando evento.');
         enfocarAvisoFormulario_('eventos-msg');
 }
@@ -7883,7 +7939,7 @@ function renderFreeEvents_(events){
         const save=document.getElementById('evf-guardar');
         if(save) save.textContent='Guardar cambios';
         freeEventQuotaUI_();
-        gldEditBegin_('eventos_free',editingFreeEventId,buildFreeEventPayload_);
+        gldEditBegin_('eventos_free',editingFreeEventId,buildFreeEventPayload_);gldEditSessions.eventos_free.revision145=found.revision_evento145;
         enfocarAvisoFormulario_('eventos-free-msg');
         return;
       }
@@ -7955,6 +8011,8 @@ async function loadEventosFreePanelData(){
     const catalog=eventFormCatalogs_(data,territorio);
     evLists.categorias=catalog.categorias;
     evLists.ciudades=catalog.ciudades;
+    eventScopeAdvertiserCity145=String(data.advertiser?.ciudad_id||data.advertiser?.ciudad_ids?.[0]||sesion?.ciudad_id||'').trim();
+    eventScopeRender145('ev');eventScopeRender145('evf');
     fillFreeEventCatalogs_(catalog);
 
     const events=Array.isArray(data.eventos_free)?data.eventos_free:[];
@@ -8697,7 +8755,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     if(!payload.acepta_responsabilidad){ setMsg('eventos-free-msg','err','Debés aceptar la responsabilidad sobre la publicación.'); return; }
 
     const editing=!!editingFreeEventId;
-    const payloadToSend=editing ? Object.assign({evento_id:editingFreeEventId},gldEditPatch_('eventos_free',buildFreeEventPayload_,['suscriptor_id','acepta_responsabilidad'])) : payload;
+    const payloadToSend=editing ? Object.assign({evento_id:editingFreeEventId,revision_evento145:gldEditSessions.eventos_free?.revision145},gldEditPatch_('eventos_free',buildFreeEventPayload_,['suscriptor_id','acepta_responsabilidad'])) : payload;
     if(editing && Object.keys(payloadToSend).length===1){setMsg('eventos-free-msg','ok','No hay cambios para guardar.');return;}
     await runDashboardAction(editing?'Guardando cambios del evento free...':'Creando evento free...',async()=>{
       let res=await events_post({action:editing?'updateFreeEvent':'createFreeEvent',payload:payloadToSend});
@@ -8772,7 +8830,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         if(!Object.keys(editPatch).length){setMsg('eventos-msg','ok','No hay cambios para guardar.');return;}
         await runDashboardAction('Guardando cambios del evento...',async()=>{
           setMsg('eventos-msg', 'ok', 'Guardando cambios...');
-          const res = await events_post({ action:'updateVipEvent', payload: Object.assign({ evento_id: editingEventId }, editPatch) });
+          const res = await events_post({ action:'updateVipEvent', payload: Object.assign({evento_id:editingEventId,revision_evento145:gldEditSessions.eventos_vip?.revision145},editPatch) });
           if(res.status === 200 && res.json && (res.json.success || res.json.updated)){
             setMsg('eventos-msg', 'ok', 'Evento actualizado.');
             eventUpsertLocal_(res.json.evento);
@@ -9690,7 +9748,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 </script>
 
 <script src="/plataforma/contadores-caracteres.js?v=1"></script>
-<script src="/plataforma/contenido-adulto.js?v=108" data-adult-editor></script>
+<script src="/plataforma/contenido-adulto.js?v=145" data-adult-editor></script>
 <script src="/plataforma/terminos-anunciantes.js?v=81"></script>
 <script src="/plataforma/publicacion.js?v=109"></script>
 <script src="/plataforma/notificaciones.js?v=102"></script>
