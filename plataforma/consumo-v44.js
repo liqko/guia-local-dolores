@@ -12,20 +12,32 @@
   const authorized=()=>adminExpires>Date.now();
   const originalFetch=window.fetch.bind(window);
   function read(){try{const x=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(x)?x:memory}catch(_){return memory}}
+  let historyMode='today';
+  const argDay=value=>{const d=new Date(value);return value&&Number.isFinite(d.getTime())?new Intl.DateTimeFormat('en-CA',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit'}).format(d):null;};
+  const argStamp=row=>{const d=new Date(row.fecha);return row.fecha&&Number.isFinite(d.getTime())?new Intl.DateTimeFormat('es-AR',{timeZone:'America/Argentina/Buenos_Aires',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(d):'Fecha no registrada · '+String(row.hora||'Hora no registrada');};
   function render(){
     if(!view||!authorized())return;
-    const rows=read();view.textContent='';
+    const stored=read(),today=argDay(new Date().toISOString());view.textContent='';
     const intro=document.createElement('p');
-    intro.textContent='Registro privado de las pruebas de este navegador: visitante, Mi Guía y anunciante. Guardar y consultar esta tabla no usa Firestore. Consultas y documentos devueltos no son el contador de lecturas facturadas de Firebase. “Sin medición” no significa cero. Respuesta indica si el servicio aceptó la operación; Vista indica si el panel terminó de cargar. Los registros anteriores quedan sin comprobar.';
-    view.appendChild(intro);
-    const table=document.createElement('table');table.style.cssText='border-collapse:collapse;font:12px sans-serif;min-width:760px';
-    const fields=['hora','pagina','ruta','accion','estado','resultado','vista','version','consultas','documentos','escrituras','eliminaciones','origen','detalle','cache_estado'];
-    const labels=['Hora Argentina','Pantalla','Llamada','Acción','HTTP','Respuesta','Vista','Worker','Consultas','Documentos','Escrituras','Eliminaciones','Fuente','Operaciones','Caché'];
-    const head=document.createElement('tr');labels.forEach(label=>{const th=document.createElement('th');th.textContent=label;th.style.cssText='padding:6px;border:1px solid #ccc';head.appendChild(th)});table.appendChild(head);
-    rows.forEach(row=>{const tr=document.createElement('tr');fields.forEach(field=>{const td=document.createElement('td');td.textContent=row[field]==null?(['resultado','vista'].includes(field)?'Sin comprobar':'Sin medición'):String(row[field]);td.style.cssText='padding:6px;border:1px solid #ccc';tr.appendChild(td)});table.appendChild(tr)});
-    view.appendChild(table);
-    const data=document.createElement('textarea');data.readOnly=true;data.setAttribute('aria-label','Registro para compartir');data.style.cssText='width:100%;height:110px;margin-top:10px';data.value=JSON.stringify(rows,null,2);view.appendChild(data);
-    if(!rows.length){const p=document.createElement('p');p.textContent='Todavía no se registraron llamadas.';view.appendChild(p)}
+    intro.textContent='Respuestas capturadas en este navegador con las pruebas privadas activadas. No es el consumo total de la cuenta ni un monitor global en vivo. Consultas Firebase y documentos devueltos no equivalen a lecturas facturadas. Los datos ausentes se indican como sin medición. Mostrar y filtrar este historial no consulta servidores.';view.appendChild(intro);
+    const mode=document.createElement('select');mode.setAttribute('aria-label','Período de mediciones');
+    for(const [value,label]of [['today','Hoy · hora argentina'],['all','Todo el historial, incluidos registros sin fecha']]){const option=document.createElement('option');option.value=value;option.textContent=label;option.selected=value===historyMode;mode.appendChild(option);}
+    mode.addEventListener('change',()=>{historyMode=mode.value;render();});view.appendChild(mode);
+    const rows=stored.map((row,index)=>({row,index})).filter(({row})=>historyMode==='all'||argDay(row.fecha)===today).sort((a,b)=>(Date.parse(b.row.fecha)||0)-(Date.parse(a.row.fecha)||0)||b.index-a.index).map(({row})=>row);
+    const count=document.createElement('p');count.textContent=rows.length+' registros visibles de '+stored.length+' guardados en este navegador. Los anteriores no se borran.';view.appendChild(count);
+    const scroll=document.createElement('div');scroll.style.cssText='overflow:auto;max-height:65vh;border:1px solid #ccd8df';view.appendChild(scroll);
+    const table=document.createElement('table');table.style.cssText='border-collapse:separate;border-spacing:0;font:13px sans-serif;min-width:900px;width:100%';scroll.appendChild(table);
+    const fields=['fecha','accion','estado','consultas','documentos','escrituras','eliminaciones','cf_worker','details'];
+    const labels=['Fecha y hora Argentina','Acción / ruta','HTTP','Consultas Firebase','Documentos devueltos','Escrituras Firebase','Eliminaciones Firebase','Solicitudes Worker','Desglose'];
+    const thead=document.createElement('thead'),head=document.createElement('tr');thead.appendChild(head);table.appendChild(thead);labels.forEach(label=>{const th=document.createElement('th');th.textContent=label;th.scope='col';th.style.cssText='position:sticky;top:0;z-index:1;background:#edf5f9;padding:9px;border:1px solid #ccd8df;text-align:left';head.appendChild(th);});
+    const tbody=document.createElement('tbody');table.appendChild(tbody);
+    const detailFields=[['pagina','Pantalla'],['ruta','Ruta'],['metodo','Método'],['request_id','Identificador del pedido'],['version','Versión Worker'],['resultado','Respuesta'],['vista','Vista'],['cf_kv_get','KV: lecturas'],['cf_kv_put','KV: escrituras'],['cf_kv_delete','KV: eliminaciones'],['cf_kv_list','KV: listados'],['cf_public_calls','Llamadas al almacén público'],['cf_store_read','SQL público: filas leídas'],['cf_store_write','SQL público: filas escritas'],['cf_admin_calls','Llamadas al almacén administrativo'],['cf_admin_read','SQL administrativo: filas leídas'],['cf_admin_write','SQL administrativo: filas escritas'],['cf_action_calls','Llamadas al coordinador de Ciudades'],['cf_action_read','Coordinador: filas leídas'],['cf_action_write','Coordinador: filas/unidades de escritura registradas'],['cf_alarm_set','Alarmas: programación'],['cf_alarm_cancel','Alarmas: cancelación'],['cf_marker_get','Marcador durable: lecturas (incluidas en el coordinador)'],['cf_marker_put','Marcador durable: escrituras (incluidas en el coordinador)'],['cf_cpu','CPU del Worker (ms)'],['cf_cobertura','Cobertura informada'],['cf_missing','Mediciones no disponibles'],['detalle','Operaciones Firebase'],['cache_estado','Caché']];
+    rows.forEach(saved=>{const row={...saved,...(saved.consumo_cloudflare?cloudflareMetrics(saved.consumo_cloudflare):{})},tr=document.createElement('tr');tbody.appendChild(tr);fields.forEach(field=>{const td=document.createElement('td');td.style.cssText='padding:9px;border:1px solid #ccd8df;vertical-align:top';tr.appendChild(td);
+      if(field==='details'){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Ver Firebase y Cloudflare';details.appendChild(summary);const dl=document.createElement('dl');for(const [key,label]of detailFields){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dt.style.fontWeight='bold';dd.textContent=row[key]==null?'Sin medición':String(row[key]);dl.appendChild(dt);dl.appendChild(dd);}details.appendChild(dl);td.appendChild(details);}
+      else td.textContent=field==='fecha'?argStamp(row):field==='accion'?[row.accion,row.ruta].filter(Boolean).join(' · '):row[field]==null?'Sin medición':String(row[field]);
+    });});
+    const data=document.createElement('textarea');data.readOnly=true;data.setAttribute('aria-label','Registro para compartir');data.style.cssText='width:100%;height:110px;margin-top:10px';data.value=JSON.stringify(stored,null,2);view.appendChild(data);
+    if(!rows.length){const empty=document.createElement('p');empty.textContent='No hay registros para este período. Podés seleccionar todo el historial.';view.appendChild(empty);}
   }
   function save(row){
     if(!authorized())return;
@@ -47,6 +59,11 @@
   window.addEventListener('message',ev=>{if(ev.origin===location.origin&&ev.data&&ev.data.tipo==='gld_consumo_actualizado_v44')render()});
   function numberHeader(response,name){const value=response.headers.get(name);return value!==null&&/^\d+$/.test(value)?Number(value):null}
   function detailHeader(response,name){try{const raw=response.headers.get(name);return raw===null?null:JSON.parse(decodeURIComponent(raw))}catch(_){return null}}
+  function metric(value){return Number.isSafeInteger(value)&&value>=0?value:null}
+  function cloudflareMetrics(raw){
+    const c=raw&&typeof raw==='object'?raw.cloudflare:null,kv=c?.kv||{},pub=c?.public_store||{},admin=c?.admin_store||{},action=c?.action_store||{},coverage=raw?.coverage||{};
+    return {cf_worker:metric(c?.worker_requests),cf_kv_get:metric(kv.get_calls),cf_kv_put:metric(kv.put_calls),cf_kv_delete:metric(kv.delete_calls),cf_kv_list:metric(kv.list_calls),cf_public_calls:metric(pub.calls),cf_store_read:metric(pub.rows_read),cf_store_write:metric(pub.rows_written),cf_admin_calls:metric(admin.calls),cf_admin_read:metric(admin.rows_read),cf_admin_write:metric(admin.rows_written),cf_action_calls:metric(action.calls),cf_action_read:metric(action.rows_read),cf_action_write:metric(action.rows_written),cf_alarm_set:metric(action.alarm_set_calls),cf_alarm_cancel:metric(action.alarm_cancel_calls),cf_marker_get:metric(action.marker_get_calls),cf_marker_put:metric(action.marker_put_calls),cf_cpu:typeof c?.cpu_ms==='number'&&Number.isFinite(c.cpu_ms)&&c.cpu_ms>=0?c.cpu_ms:null,cf_cobertura:coverage.status||'Sin medición',cf_missing:Array.isArray(coverage.missing)?coverage.missing.join(', '):null};
+  }
   function operationsText(items){return items===null?'Sin medición':items.map(x=>x.operation+' · '+x.collection+(x.field?' por '+x.field:'')+': '+x.calls+' operación(es), '+x.documents_returned+' documento(s)').join('; ')||'Sin operaciones en Firestore'}
   function cacheText(items){const labels={hit:'Encontrada',miss:'No encontrada: consulta a Firestore',not_supported:'Consulta sin caché compatible'};return items===null?'Sin medición':items.map(x=>x.collection+(x.field?' por '+x.field:'')+': '+(labels[x.result]||x.result)).join('; ')||'Sin comprobaciones registradas'}
   window.fetch=async function(input,options){
@@ -62,8 +79,8 @@
       const response=await originalFetch(input,options);
       let resultado=response.ok?'Sin comprobar':'Error HTTP';
       try{const data=await response.clone().json();if(response.ok&&data&&typeof data.success==='boolean')resultado=data.success?'Aceptada':'Rechazada';}catch(_){}
-      const operaciones=detailHeader(response,'X-GLD-Operations'),cache=detailHeader(response,'X-GLD-Cache-Checks');
-      try{save({...row,accion:response.headers.get('X-GLD-Action')||row.accion,operaciones,cache,detalle:operationsText(operaciones),cache_estado:cacheText(cache),estado:response.status,resultado,version:response.headers.get('X-GLD-Worker-Version'),request_id:response.headers.get('X-GLD-Request-Id'),consultas:numberHeader(response,'X-GLD-Read-Calls'),documentos:numberHeader(response,'X-GLD-Documents-Returned'),escrituras:numberHeader(response,'X-GLD-Write-Calls'),eliminaciones:numberHeader(response,'X-GLD-Delete-Calls'),origen:response.headers.get('X-GLD-Source'),bloqueadas:numberHeader(response,'X-GLD-Public-Blocked')})}catch(_){}
+      const operaciones=detailHeader(response,'X-GLD-Operations'),cache=detailHeader(response,'X-GLD-Cache-Checks'),consumption=detailHeader(response,'X-GLD-Consumption');
+      try{save({...row,...cloudflareMetrics(consumption),consumo_cloudflare:consumption,accion:response.headers.get('X-GLD-Action')||row.accion,operaciones,cache,detalle:operationsText(operaciones),cache_estado:cacheText(cache),estado:response.status,resultado,version:response.headers.get('X-GLD-Worker-Version'),request_id:response.headers.get('X-GLD-Request-Id'),consultas:numberHeader(response,'X-GLD-Read-Calls'),documentos:numberHeader(response,'X-GLD-Documents-Returned'),escrituras:numberHeader(response,'X-GLD-Write-Calls'),eliminaciones:numberHeader(response,'X-GLD-Delete-Calls'),origen:response.headers.get('X-GLD-Source'),bloqueadas:numberHeader(response,'X-GLD-Public-Blocked')})}catch(_){}
       return response;
     }catch(error){try{save({...row,estado:'Error de red',version:null,consultas:null,documentos:null,escrituras:null,eliminaciones:null})}catch(_){}throw error}
   };
@@ -161,5 +178,3 @@
 
 
 })();
-
-
