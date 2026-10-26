@@ -683,14 +683,16 @@ function ghNuevoTerritorio(tipo){
   if(tipo==='provincia') rel='<label>País</label><select data-terr-pais="'+id+'"><option value="">Seleccioná país</option>'+paisOpts+'</select>';
   if(tipo==='ciudad') rel='<label>País</label><select data-terr-pais="'+id+'" onchange="ghFiltrarProvinciasAlta(\''+id+'\')"><option value="">Seleccioná país</option>'+paisOpts+'</select><label>Provincia / Estado</label><select data-terr-prov="'+id+'"><option value="">Seleccioná provincia / estado</option>'+provOpts+'</select>';
   const titulo=tipo==='pais'?'País':(tipo==='provincia'?'Provincia / Estado':'Ciudad / Partido');
-  box.innerHTML='<div class="item"><h3>Agregar '+titulo+'</h3><div class="formgrid"><div><label>Nombre</label><input data-terr-nombre="'+id+'" placeholder="'+titulo+'"></div><div>'+rel+'</div></div><button onclick="ghGuardarTerritorio(\''+tipo+'\',\''+id+'\')">Guardar</button> <button class="sec" onclick="document.getElementById(\'territorioAlta\').innerHTML=\'\'">Cancelar</button></div>';
+  box.innerHTML='<div class="item"><h3>Agregar '+titulo+'</h3><div class="formgrid"><div><label>Nombre</label><input data-terr-nombre="'+id+'" placeholder="'+titulo+'"></div><div>'+rel+'</div></div><button data-terr-guardar="'+id+'" onclick="ghGuardarTerritorio(\''+tipo+'\',\''+id+'\')">Guardar</button> <button class="sec" onclick="document.getElementById(\'territorioAlta\').innerHTML=\'\'">Cancelar</button></div>';
 }
 function ghFiltrarProvinciasAlta(id){
   const pais=(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'';
   const sel=document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]'); if(!sel)return;
   sel.innerHTML='<option value="">Seleccioná provincia / estado</option>'+GH_PROVINCES.filter(x=>String(x.pais_id||'')===pais).map(x=>'<option value="'+esc(x.provincia_id||x.id||'')+'">'+esc(x.nombre||x.provincia_visible||x.provincia||x.provincia_id||x.id)+'</option>').join('');
 }
+const GH_TERRITORY_PENDING=new Set();
 async function ghGuardarTerritorio(tipo,id){
+  if(GH_TERRITORY_PENDING.has(id))return;
   const nombre=(document.querySelector('[data-terr-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
   if(!nombre.trim()){alert('Falta el nombre.');return;}
   if(tipo!=='ciudad'){
@@ -707,6 +709,10 @@ async function ghGuardarTerritorio(tipo,id){
     activa:true
   };
   if(!item.pais_id||!item.provincia_id){alert('Seleccioná país y provincia / estado.');return;}
+  GH_TERRITORY_PENDING.add(id);
+  const controls=['nombre','pais','prov','guardar'].map(field=>document.querySelector('[data-terr-'+field+'="'+CSS.escape(id)+'"]')).filter(Boolean);
+  const prior=controls.map(control=>({control,disabled:control.disabled,text:control.textContent}));
+  controls.forEach(control=>{control.disabled=true;if(control.matches('[data-terr-guardar]'))control.textContent='Guardando…';});
   try{
     const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/create',{
       method:'POST',
@@ -718,10 +724,17 @@ async function ghGuardarTerritorio(tipo,id){
     });
     const j=await r.json();
     if(!r.ok||!j.success) throw new Error(j.message||'No se pudo guardar la ciudad.');
-    document.getElementById('territorioAlta').innerHTML='';
-    await ghCargarCiudades();
+    const saved=j.ciudad;
+    if(!saved||String(saved.ciudad_id||saved.id)!==String(id)){
+      alert('El guardado fue aceptado. Usá Actualizar para consultar el listado; no repitas el alta.');return;
+    }
+    // Merge only the confirmed row, preserving other locally loaded cities.
+    GH_CITIES=GH_CITIES.filter(city=>String(city.ciudad_id||city.id)!==String(id)).concat(saved);
+    GH_CITIES.sort((a,b)=>String(a.ciudad_visible||a.nombre||a.ciudad_id).localeCompare(String(b.ciudad_visible||b.nombre||b.ciudad_id),'es'));
+    if(document.querySelector('[data-terr-nombre="'+CSS.escape(id)+'"]'))document.getElementById('territorioAlta').innerHTML='';
     ghRenderCiudades();
   }catch(e){alert(e.message);}
+  finally{GH_TERRITORY_PENDING.delete(id);prior.forEach(({control,disabled,text})=>{control.disabled=disabled;if(control.matches('[data-terr-guardar]'))control.textContent=text;});}
 }
 
 async function buscarSus(){
