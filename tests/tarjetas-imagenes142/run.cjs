@@ -4,7 +4,7 @@ const fs=require('node:fs');const assert=require('node:assert/strict');
  const browser=await chromium.launch({executablePath:process.env.CHROME_PATH||undefined,headless:true,args:['--no-sandbox']});
  try{
  const page=await browser.newPage({viewport:{width:800,height:600}});const requests=[];
- await page.route('https://images.invalid/**',async route=>{requests.push(route.request().url());await route.fulfill({status:route.request().url().includes('broken')?404:200,contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110"><rect width="110" height="110" fill="blue"/></svg>'})});
+ await page.route('https://images.invalid/**',async route=>{requests.push(route.request().url());if(route.request().url().includes('broken'))return route.abort('failed');await route.fulfill({status:200,contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110"><rect width="110" height="110" fill="blue"/></svg>'})});
  await page.route('https://test.invalid/',r=>r.fulfill({contentType:'text/html',body:'<html><body></body></html>'}));
  await page.goto('https://test.invalid/');await page.addScriptTag({content:fs.readFileSync('plataforma/tarjetas-imagenes.js','utf8')});
  await page.evaluate(()=>{
