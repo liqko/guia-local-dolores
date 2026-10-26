@@ -85,7 +85,7 @@ let broken='';const put=env.GLD_CACHE_KV.put.bind(env.GLD_CACHE_KV);env.GLD_CACH
 const sourceWrites=()=>allOperations.filter(x=>['PATCH','DELETE'].includes(x.op)).length;
 try{
  seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_id:'D',ciudad_ids:['D']});
- seed('anunciantes_administracion','A',{nivel:4,aprobado:true,funcionalidades:'EVENTOS,EVENTOS_FREE,MODIFICAR',eventos_cant:20,eventos_free_cant:10,funcionalidades_config:{EVENTOS:{cantidad:20},EVENTOS_FREE:{cantidad:10,sin_limites:true}}});
+ seed('anunciantes_administracion','A',{nivel:4,aprobado:true,funcionalidades:'EVENTOS,EVENTOS_FREE,MODIFICAR',eventos_cant:20,eventos_free_cant:2,funcionalidades_config:{EVENTOS:{cantidad:20},EVENTOS_FREE:{cantidad:2,sin_limites:false}}});
  values.set('territorio:public:v1',JSON.stringify({ciudades:[{ciudad_id:'D',provincia_id:'BA',pais_id:'ARG'},{ciudad_id:'E',provincia_id:'BA',pais_id:'ARG'},{ciudad_id:'F',provincia_id:'COR',pais_id:'ARG'},{ciudad_id:'B',provincia_id:'SP',pais_id:'BRA'}]}));
  values.set('catalogs:eventos:v1',JSON.stringify({categorias:['Cultura'],lugares:[],partners:[]}));
  ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'persona@test.invalid',clave:'test-password'})).j.token;
@@ -134,5 +134,9 @@ try{
  writes=sourceWrites();await ok('admin','/superadmin/moderation/resolve',{tipo:'EVENTO',id:vipId,decision:'APROBAR',operation_id:makeKey(19)});assert.equal(sourceWrites(),writes);console.log('PASS GH approve/reject preserve scope; repeated decision has no source write');
  // A second owner is not authorized for this advertiser's event or receipt.
  seed('suscriptores','T',{mail:'other@test.invalid',activo:true});const deniedToken=sign({sid:'T',tipo:'SUSCRIPTOR',persistent:true,sv:0});token=deniedToken;writes=sourceWrites();const denied=await call('/events-new',{action:'updateVipEvent',advertiserId:'A',payload:{evento_id:vipId,nombre_evento:'Not allowed'},operation_id:makeKey(15)});assert([401,403].includes(denied.r.status));assert.equal(sourceWrites(),writes);console.log('PASS unrelated subscriber cannot access mutation or replay');
+ broken='publication:recent:v77:';
+ result=await as('owner','/events-new',{action:'createFreeEvent',advertiserId:'A',payload:{...event('Free recover',{modo:'CIUDAD',ciudad_id:'D'}),confirmar_similar:true},operation_id:makeKey(20)});assert.equal(result.r.status,503);const freeRecovery=[...rows.values()].find(r=>r.nombre_evento==='Free recover');assert(freeRecovery);writes=sourceWrites();env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');broken='';await env.GLD_PUBLIC_CACHE.runAlarms();assert.equal(sourceWrites(),writes);assert(await visible('D',freeRecovery.evento_id));
+ await ok('owner','/events-new',{action:'deleteFreeEvent',advertiserId:'A',payload:{evento_id:freeRecovery.evento_id},operation_id:makeKey(21)});assert.equal(rows.get('eventos/'+freeRecovery.evento_id).eliminado,true);assert(!await visible('D',freeRecovery.evento_id));writes=sourceWrites();
+ result=await as('owner','/events-new',{action:'createFreeEvent',advertiserId:'A',payload:{...event('Over monthly quota',{modo:'CIUDAD',ciudad_id:'D'}),confirmar_similar:true},operation_id:makeKey(22)});assert.notEqual(result.j.success,true);assert.equal(sourceWrites(),writes);console.log('PASS limited FREE recovery and deletion preserve monthly slot; delete does not restore quota');
  console.log('PASS all Eventos145 integration checks');
 }finally{globalThis.fetch=original;console.log=savedLog;fs.writeFileSync('docs/evidencias/eventos145-local-reports.json',JSON.stringify(logRows,null,2));}

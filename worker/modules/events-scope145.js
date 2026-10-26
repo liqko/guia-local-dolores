@@ -80,7 +80,7 @@ var GLD_EVENTS145=(()=>{
    const auth=await requirePanel(env,request,aid,action.includes('free')?'eventos_free':'eventos',true);
    if(auth.response)return auth.response;identity={kind:'subscriber',value:auth.session};
   }else{
-   const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+   const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);if(!canModerate2(auth))return json({success:false,message:'No tenés permiso para moderar eventos.'},403);
    const row=await db.get('eventos',text(body.evento_id||body.id));if(!row)return null;
    assertModeratorV72(auth,'EVENTO');assertAdminCityV71(auth,row);
    if(auth.rol==='ADMIN_LOCAL')for(const part of await getPreparedRelationsV1({cache:ctx.cache,type:'event',id:text(row.evento_id||row.id),current:row,load:()=>db.queryEqual('evento_programacion','evento_id',text(row.evento_id||row.id),500)}))assertAdminCityV71(auth,{...part,ciudad_id:part.ciudad_id||row.ciudad_id});

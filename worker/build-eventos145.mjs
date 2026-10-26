@@ -44,7 +44,7 @@ for(const name of ['updateEventV3','pauseEventV3','deleteEventV3']){
  const start=s.indexOf('async function '+name+'('),end=s.indexOf('\nasync function ',start+20);let b=s.slice(start,end);
  b=b.replace('const current = await db.get("eventos", eventId);','const eventVersion145=await db.getVersioned("eventos",eventId);\n  const current=eventVersion145.doc;');
  if(name==='updateEventV3')b=b.replace('  if(level===\'FREE\')removeFreeEventLinks(data);',`  if(data.revision_evento145&&data.revision_evento145!==await GLD_EVENTS145.revision(current))throw httpError('El evento cambió. Volvé a abrirlo antes de guardar.',409);
-  delete data.revision_evento145;
+  delete data.revision_evento145;delete data.operation_id145;delete data.operation_fingerprint145;
   if(level==='FREE')removeFreeEventLinks(data);`);
  b=b.replaceAll('{ mustExist: true }','{mustExist:true,...(eventVersion145.updateTime?{updateTime:eventVersion145.updateTime}:{})}').replace('{mustExist:true,quotaReceiptOnly:true}','{mustExist:true,quotaReceiptOnly:true,...(eventVersion145.updateTime?{updateTime:eventVersion145.updateTime}:{})}');
  b=b.replace('...(editVersion?.updateTime?{updateTime:editVersion.updateTime}:{})','...((editVersion?.updateTime||eventVersion145.updateTime)?{updateTime:editVersion?.updateTime||eventVersion145.updateTime}:{})');
@@ -69,5 +69,6 @@ once("const deleted=['deletepromo','borrar','eliminar'].includes(receipt.action)
 once("  if(receipt.kind==='promos')Object.assign(result,", "  if(receipt.kind==='eventos')Object.assign(result,{evento:saved[0]||null,evento_id:receipt.refs[0]?.id});\n  else if(receipt.kind==='promos')Object.assign(result,");
 once('var app_main_v35_default = {',readFileSync(new URL('./modules/events-scope145.js',import.meta.url),'utf8')+'\nvar app_main_v35_default = {');
 s=s.replaceAll("worker_version:'143'","worker_version:'145'").replaceAll("'X-GLD-Worker-Version':'143'","'X-GLD-Worker-Version':'145'").replace('version:"143"','version:"145",event_scope_version:1');
+s=s.replaceAll('Guardá menos cambios de publicidad o promociones juntos.','Guardá menos cambios de publicaciones juntos.').replaceAll('Hay un cambio anterior de publicidad o promociones pendiente.','Hay una publicación anterior pendiente de sincronización.');
 writeFileSync(new URL('./login-eventos145.mjs',import.meta.url),s);
 console.log(JSON.stringify({version:145,bytes:Buffer.byteLength(s),sha256:createHash('sha256').update(s).digest('hex')}));
