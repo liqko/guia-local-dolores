@@ -1,0 +1,80 @@
+{
+  "date": "2026-10-26",
+  "scope": "Publicidad: read-only audit of current Worker140 and available historical logs. No production mutations.",
+  "historical": {
+    "window_from": "2026-10-19T00:00:00Z",
+    "error": "KV put() limit exceeded for the day.",
+    "observed_errors": 3,
+    "invocations": [
+      {
+        "id": "43d5b0de24561fe956606e68a27834aa",
+        "route": "POST /promos",
+        "status": 500
+      },
+      {
+        "id": "fd14a1eeae57c59fd711a894a217680e",
+        "route": "POST /promos",
+        "status": 500
+      },
+      {
+        "id": "4ef32b1994288a88f2a2753d8024cf81",
+        "route": "POST /superadmin/advertisers/:id/commercial",
+        "status": 500,
+        "firestore_writes_logged": 1
+      }
+    ],
+    "limits": "These are failures once the shared quota was exhausted, not attribution of the previous 1000 writes. Exact incident date and complete per-operation history unavailable in connector events view (schema error); structured old counters absent."
+  },
+  "current_public_sample": {
+    "date_argentina": "2026-10-26 13:40",
+    "worker": 140,
+    "provider_request_id": "20edea9dee4f519118c9d4f86d90647d",
+    "route": "GET /publicidad?action=publicas&ciudad_id=Dolores&modulo=GUIA",
+    "worker_requests": 1,
+    "public_do_calls": 1,
+    "kv": {
+      "reads": 3,
+      "writes": 0,
+      "deletes": 0,
+      "lists": 0
+    },
+    "sql": {
+      "rows_read": 8,
+      "rows_written": 0
+    },
+    "firestore": {
+      "reads": 0,
+      "writes": 0,
+      "deletes": 0
+    },
+    "cpu_ms": 8,
+    "wall_ms": 840
+  },
+  "source_findings": [
+    {
+      "name": "Public reads still read catalog plus distinct advertiser contracts",
+      "source": "publicidadPublicaV3",
+      "status": "current code and physical reads observed",
+      "recommendation": "Prepare complete public projection and propagate contract/catalog mutations and expiry; do not simply remove validation."
+    },
+    {
+      "name": "Multiple derived copies on mutation",
+      "source": "publicityCommitV101, syncPublicityPreparedV2, publication recent keys, panel/index cache flush",
+      "status": "Code paths identified, not all cache.put calls are KV: city packets intercepted into Durable Object SQL. No fake fixed save cost claimed.",
+      "recommendation": "Measure one actual save and trace physical puts before consolidating snapshots; preserve recovery and concurrency."
+    },
+    {
+      "name": "Browser background refresh despite cached publicity",
+      "source": "obtenerBannersPromise",
+      "status": "code confirmed; one request per opening in current sample, not a proven runaway loop",
+      "recommendation": "Define freshness/invalidation policy before removing refresh."
+    },
+    {
+      "name": "Persistence succeeded before derived-cache error",
+      "source": "historical commercial invocation",
+      "status": "1Firestore write plus HTTP500 and KVlimit in same invocation",
+      "recommendation": "Recover publication failures idempotently; do not invite blind retry."
+    }
+  ],
+  "changes_deployed": false
+}

@@ -34,6 +34,6 @@ function ghPublicidadRender101(){
  box.querySelectorAll('[data-gh-pub]').forEach(button=>button.onclick=async()=>{
   const id=button.dataset.id,action=button.dataset.ghPub;
   if(action==='eliminar'&&!window.confirm('Confirmar borrado\n\n¿Querés borrar esta publicidad? Esta acción no se puede deshacer.'))return;
-  button.disabled=true;try{await ghAdminRequest_('/publicidad',{publicidad_id:id,action},'POST');if(action==='eliminar')GH_PUBLICIDAD_ROWS=GH_PUBLICIDAD_ROWS.filter(p=>String(p.publicidad_id||p.id)!==id);else GH_PUBLICIDAD_ROWS=GH_PUBLICIDAD_ROWS.map(p=>String(p.publicidad_id||p.id)===id?{...p,estado:'INACTIVA'}:p);ghPublicidadRender101();document.getElementById('ghPublicidadMessage').textContent=action==='eliminar'?'Publicidad borrada.':'Publicidad pausada.';}catch(e){button.disabled=false;document.getElementById('ghPublicidadMessage').textContent=e.message;}
+  button.disabled=true;try{await ghAdminRequest_('/publicidad',{publicidad_id:id,action,advertiserId:GH_PUBLICIDAD_ROWS.find(p=>String(p.publicidad_id||p.id)===id)?.anunciante_id||''},'POST');if(action==='eliminar')GH_PUBLICIDAD_ROWS=GH_PUBLICIDAD_ROWS.filter(p=>String(p.publicidad_id||p.id)!==id);else GH_PUBLICIDAD_ROWS=GH_PUBLICIDAD_ROWS.map(p=>String(p.publicidad_id||p.id)===id?{...p,estado:'INACTIVA'}:p);ghPublicidadRender101();document.getElementById('ghPublicidadMessage').textContent=action==='eliminar'?'Publicidad borrada.':'Publicidad pausada.';}catch(e){button.disabled=false;document.getElementById('ghPublicidadMessage').textContent=e.message;}
  });
 }

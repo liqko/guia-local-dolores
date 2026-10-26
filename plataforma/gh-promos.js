@@ -3,6 +3,13 @@
 let rows=[],prepared=false,loaded=false,loading=null,mutating=false;
 const el=id=>document.getElementById(id);
 async function request(path,body){
+ const url=TERRITORY_API_ORIGIN+'/superadmin'+path;
+ if(body&&window.GLD_PUBLICATION_REQUEST143?.eligible(url,body)){
+  const result=await window.GLD_PUBLICATION_REQUEST143.run(url,body,async next=>({status:200,json:await requestRaw143(path,next)}));return result.json;
+ }
+ return requestRaw143(path,body);
+}
+async function requestRaw143(path,body){
  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+TOKEN,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
  const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo consultar Promos.');return j;
 }
@@ -39,7 +46,7 @@ async function act(id,action){
  if(mutating)return;
  if(!confirm(({borrar:'¿Borrar definitivamente esta promoción?',aprobar:'¿Aprobar la publicación y su clasificación +18, si corresponde?',rechazar:'¿Rechazar esta promoción?',pausar:'¿Pausar esta promoción?',reanudar:'¿Reanudar esta promoción respetando el cupo del anunciante?'})[action]))return;
  mutating=true;render();
- try{const j=await request('/promos',{promo_id:id,action});if(j.deleted)rows=rows.filter(p=>String(p.promo_id||p.id)!==id);else if(j.promo)rows=rows.map(p=>String(p.promo_id||p.id)===id?j.promo:p);el('ghPromosMessage').textContent=j.unchanged?'No hay cambios para guardar.':'Operación completada.';}catch(e){el('ghPromosMessage').textContent=e.message;}finally{mutating=false;render();}
+ try{const j=await request('/promos',{promo_id:id,action,advertiserId:rows.find(p=>String(p.promo_id||p.id)===id)?.anunciante_id||''});if(j.deleted)rows=rows.filter(p=>String(p.promo_id||p.id)!==id);else if(j.promo)rows=rows.map(p=>String(p.promo_id||p.id)===id?j.promo:p);el('ghPromosMessage').textContent=j.unchanged?'No hay cambios para guardar.':'Operación completada.';}catch(e){el('ghPromosMessage').textContent=e.message;}finally{mutating=false;render();}
 }
 window.ghPromosFilterV91=render;
 })();
