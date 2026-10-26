@@ -1,4 +1,5 @@
 <head>
+<script src="/plataforma/efemerides-calendario.js?v=140"></script>
 <script src="/plataforma/farmacias-ciclo.js?v=139"></script>
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=90"></script>
@@ -2194,57 +2195,25 @@ const controller = new AbortController();
       const tipoClase=tipo==='LOCAL'?'local':(tipo==='PROVINCIAL'?'provincial':'general');
       return `<article class="efem-hoy-card ${tipoClase}"><div class="efem-hoy-head"><span class="efem-hoy-badge ${tipoClase}">${tipo}</span><div class="efem-hoy-name">${nombre}</div></div>${descripcion?`<div class="efem-hoy-desc">${descripcion}</div>`:''}${imagen?`<img class="efem-hoy-img" src="${efemEsc(imagen)}" alt="${nombre}" loading="lazy" onerror="this.style.display='none'">`:''}</article>`;
     }
+    const efemCalendars=GLDEphemeridesCalendar.client({storage:localStorage,fetchCalendar:async(city,revision)=>{
+      const u=new URL(EFEMERIDES_ENDPOINT);u.searchParams.set('action','calendario');u.searchParams.set('ciudad_id',city);if(revision)u.searchParams.set('revision',revision);
+      const {data}=await gldFetchJson(u.toString(),{}, {timeoutMs:6500,retries:0});return data;
+    }});
+    let efemGeneration=0,efemTimer=null;
     async function cargarEfemeridesHoyGuia(){
-      const section=document.getElementById('efemeridesHoySection');
-      const fechaBox=document.getElementById('efemeridesHoyFecha');
-      const list=document.getElementById('efemeridesHoyLista');
-      if(!section||!fechaBox||!list) return;
-
-      section.classList.remove('oculta');
-      fechaBox.textContent='';
-      list.innerHTML='<div class="efem-state">Cargando efemérides de hoy...</div>';
-
-      if(!ciudadSeleccionada){
-        list.innerHTML='<div class="efem-state error">No hay ciudad seleccionada.</div>';
-        return;
-      }
-
-      const hoy=farmaIsoDate(new Date());
+      const generation=++efemGeneration,city=String(ciudadSeleccionada||'');clearTimeout(efemTimer);
+      const section=document.getElementById('efemeridesHoySection'),fechaBox=document.getElementById('efemeridesHoyFecha'),list=document.getElementById('efemeridesHoyLista');if(!section||!fechaBox||!list)return;
+      section.classList.remove('oculta');fechaBox.textContent='';list.innerHTML='<div class="efem-state">Cargando efemérides de hoy...</div>';
+      if(!city){list.innerHTML='<div class="efem-state error">No hay ciudad seleccionada.</div>';return;}
       try{
-        const u=new URL(EFEMERIDES_ENDPOINT);
-        u.searchParams.set('action','efemerides');
-        u.searchParams.set('ciudad_id',ciudadSeleccionada);
-        u.searchParams.set('fecha',hoy);
-const efemCacheKey='gld_efem_hoy_cache_v2:'+String(ciudadSeleccionada||'')+':'+hoy;
-        let data=null;
-        try{
-          const x=JSON.parse(localStorage.getItem(efemCacheKey)||'null');
-          if(x&&x.data&&Date.now()-Number(x.ts||0)<24*60*60*1000) data=x.data;
-        }catch(e){}
-        // Con una respuesta válida del día en caché no generar otra lectura de red.
-        // Ciudad y fecha forman parte de la clave; la consulta se renueva al cambiar el día.
-        if(!data){
-          const resp=await gldFetchJson(u.toString(),{timeoutMs:6500,retries:1,retryDelay:400});
-          data=resp.data;
-          if(data&&data.success===true){try{localStorage.setItem(efemCacheKey,JSON.stringify({ts:Date.now(),data:data}));}catch(e){}}
-        }
-        if(!data||data.success!==true) throw new Error('No se pudieron cargar las efemérides');
-        const rows=Array.isArray(data.efemerides)?data.efemerides:[];
-        if(!rows.length){
-          section.classList.remove('oculta');
-          fechaBox.textContent=efemHoyFechaHumana(data.fecha||hoy);
-          list.innerHTML='<div class="efem-state">No hay efemérides cargadas para hoy.</div>';
-          return;
-        }
-
-        section.classList.remove('oculta');
-        fechaBox.textContent=efemHoyFechaHumana(data.fecha||hoy);
-        list.innerHTML=rows.map(efemHoyCardHtml).join('');
-      }catch(e){
-        console.warn('Efemérides no disponibles todavía:',e);
-        gldMostrarReintento(list,'La información está demorando más de lo habitual.',cargarEfemeridesHoyGuia);
-      }
+        const data=await efemCalendars.get(city);if(generation!==efemGeneration||city!==String(ciudadSeleccionada||''))return;
+        const now=new Date(),hoy=farmaIsoDate(now),rows=data.efemerides.filter(row=>GLDEphemeridesCalendar.matches(row,now));
+        fechaBox.textContent=efemHoyFechaHumana(hoy);list.innerHTML=rows.length?rows.map(efemHoyCardHtml).join(''):'<div class="efem-state">No hay efemérides cargadas para hoy.</div>';
+        const tomorrow=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1).getTime();
+        efemTimer=setTimeout(()=>{if(!document.hidden)cargarEfemeridesHoyGuia();},Math.max(50,tomorrow-Date.now()+50));
+      }catch(e){if(generation!==efemGeneration||city!==String(ciudadSeleccionada||''))return;gldMostrarReintento(list,'No se pudo actualizar el calendario de efemérides.',cargarEfemeridesHoyGuia);}
     }
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)cargarEfemeridesHoyGuia();else clearTimeout(efemTimer);});
 
     let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
     let relacionesSedesGlobales = {};
