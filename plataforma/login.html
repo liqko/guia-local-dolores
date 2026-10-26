@@ -7236,6 +7236,21 @@ function buildEventPayloadFromForm(){
   return payload;
 }
 
+function eventExpired146(row,now=new Date()){
+  const dates=(Array.isArray(row?.programacion)?row.programacion:[]).filter(p=>p.activo!==false).map(p=>toDateInputValue(p.fecha)).filter(Boolean).sort();
+  const end=dates.at(-1)||toDateInputValue(row?.fecha_hasta??row?.fechaHasta??row?.fecha_hasta_iso)||toDateInputValue(row?.fecha_desde??row?.fechaDesde??row?.fecha_desde_iso??row?.fecha);
+  if(!end)return false;
+  const today=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+  return end<today;
+}
+function eventStatus146(row){
+  const paused=publicacionPausada(row);
+  return eventExpired146(row)?'Vencido · '+(paused?'pausado':'sin pausa'):(paused?'Pausado':'Activo');
+}
+function eventExpiryNote146(row,free=false){
+  if(!eventExpired146(row))return '';
+  return '<div class="small-muted" style="margin:8px 0"><b>Evento vencido:</b> ya no se muestra al público. '+(publicacionPausada(row)?'Está pausado y no ocupa cupo de activos.':'Sigue sin pausa y ocupa cupo de activos; podés pausarlo para liberar ese cupo.')+' Conserva un lugar entre los eventos guardados.'+(free?' Borrar no recupera el cupo de altas de este mes.':'')+'</div>';
+}
 function renderEventsCards(events){
   const list = document.getElementById('eventos-list');
   if(!Array.isArray(events) || events.length === 0){
@@ -7249,14 +7264,15 @@ function renderEventsCards(events){
     const fechaDesdeTxt = htmlEscape(formatDateForTable(e.fecha_desde || e.fecha));
     const fechaHastaTxt = htmlEscape(formatDateForTable(e.fecha_hasta || ''));
     const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
-    const isPaused = (e.pausado === true || String(e.pausado).toUpperCase() === 'TRUE');
-    const estadoTxt = isPaused ? '<span style="color:#c00;font-weight:800">PAUSADO</span>' : '<span style="color:#060;font-weight:800">ACTIVO</span>';
+    const isPaused = publicacionPausada(e);
+    const estadoTxt = '<span style="color:'+(eventExpired146(e)?'#805500':isPaused?'#c00':'#060')+';font-weight:800">'+eventStatus146(e)+'</span>';
     const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
 
     html += `
       <details class="card record-collapse">
-        <summary><span class="record-title">${htmlEscape(e.nombre_evento || '')}</span><span class="record-collapse-state"><b>Estado:</b> ${gldRevisionEstado_(e,'EVENTO',e.evento_id||e.id,e.nombre_evento,estadoTxt)}</span></summary>
+        <summary><span class="record-title">${htmlEscape(e.nombre_evento || '')}</span><span class="record-collapse-state"><b>Estado:</b> ${gldRevisionEstado_(e,'EVENTO',e.evento_id||e.id,e.nombre_evento,estadoTxt)}${eventExpired146(e)&&[e.estado,e.estado_moderacion,e.revision_adulto].some(v=>['RECHAZADO','RECHAZADA'].includes(String(v||'').toUpperCase()))?' · Vencido':''}</span></summary>
         <div class="record-collapse-body">
+        ${eventExpiryNote146(e)}
         <div class="card-meta">
           <div><b>Desde:</b> ${fechaDesdeTxt || '-'}</div>
           <div><b>Hasta:</b> ${fechaHastaTxt || '-'}</div>
@@ -7292,7 +7308,7 @@ function renderEventsTable(events){
     const fechaDesdeTxt = htmlEscape(formatDateForTable(e.fecha_desde || e.fecha));
     const fechaHastaTxt = htmlEscape(formatDateForTable(e.fecha_hasta || ''));
     const horaTxt = htmlEscape(formatTimeForTable(e.hora2 || e.hora || ''));
-    const isPaused = (e.pausado === true || String(e.pausado).toUpperCase() === 'TRUE');
+    const isPaused = publicacionPausada(e);
     const estadoTxt = isPaused ? '<span style="color:#c00">PAUSADO</span>' : '<span style="color:#060">ACTIVO</span>';
     const pauseBtnText = isPaused ? 'Reanudar' : 'Pausar';
     html += `<tr>
@@ -7877,7 +7893,7 @@ function renderFreeEvents_(events){
 
   box.innerHTML=events.map(ev=>{
     const id=String(ev.evento_id||'');
-    const paused=String(ev.pausado||'').toLowerCase()==='true' || ev.pausado===true;
+    const paused=publicacionPausada(ev);
     const fecha=String(ev.fecha_desde||'').trim();
     const hasta=String(ev.fecha_hasta||'').trim();
     const rango=hasta && hasta!==fecha ? `${fecha} al ${hasta}` : fecha;
@@ -7886,8 +7902,9 @@ function renderFreeEvents_(events){
     const moderacion=adulto&&revisionAdulto!=='APROBADO'?(revisionAdulto==='RECHAZADO'?'RECHAZADO +18':'PENDIENTE DE REVISIÓN +18'):String(ev.estado_moderacion||'').trim();
     const city=freeEventCityLabel_(ev.ciudad_id);
     return `<details class="events-free-row record-collapse">
-      <summary><span class="record-title">${htmlEscape(ev.nombre_evento||'(Sin nombre)')}</span><span class="record-collapse-state">Estado: ${gldRevisionEstado_(ev,'EVENTO_FREE',ev.evento_id||ev.id,ev.nombre_evento,htmlEscape(paused?'Pausado':'Activo')+(moderacion?' · Moderación: '+htmlEscape(moderacion):''))}</span></summary>
+      <summary><span class="record-title">${htmlEscape(ev.nombre_evento||'(Sin nombre)')}</span><span class="record-collapse-state">Estado: ${gldRevisionEstado_(ev,'EVENTO_FREE',ev.evento_id||ev.id,ev.nombre_evento,htmlEscape(eventStatus146(ev))+(moderacion?' · Moderación: '+htmlEscape(moderacion):''))}${eventExpired146(ev)&&[ev.estado,ev.estado_moderacion,ev.revision_adulto].some(v=>['RECHAZADO','RECHAZADA'].includes(String(v||'').toUpperCase()))?' · Vencido':''}</span></summary>
       <div class="record-collapse-body">
+      ${eventExpiryNote146(ev,true)}
       <div class="record-id">ID: ${htmlEscape(id||'SIN ID')}</div>
       <div class="events-free-row-meta">${htmlEscape([rango,city,ev.lugar].filter(Boolean).join(' · '))}</div>
       ${ev.organizador?`<div class="events-free-row-meta">Compartido por ${htmlEscape(ev.organizador)}</div>`:''}
