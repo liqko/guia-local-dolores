@@ -642,7 +642,60 @@ function ghRenderAnunciantesPendientes(){
   window.GH_DIRECTORY_LOCAL102?.(box,'altas',GH_PENDING_ADVERTISERS.map(x=>x.id).join(','),ghRenderAnunciantesPendientes);
 }
 
-function ghRenderCiudades(){const sel=document.getElementById('ciuSelect');if(!sel)return;const q=ghNorm((document.getElementById('ciuQ')||{}).value||'');const list=GH_CITIES.filter(function(x){return !q||ghNorm(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id).indexOf(q)>=0;});sel.innerHTML='<option value="">Seleccioná una ciudad</option>'+list.map(function(x){const id=String(x.ciudad_id||x.id||'');const nm=String(x.ciudad_visible||x.nombre||x.ciudad||id);return '<option value="'+esc(id)+'">'+esc(nm)+'</option>';}).join('');const d=document.getElementById('ciudadDetalle');if(d)d.textContent=list.length?list.length+' ciudad(es) encontradas.':'Sin coincidencias.';}
+const GH_CITY_EDIT_PENDING=new Set();
+function ghRenderCiudades(){
+ const sel=document.getElementById('ciuSelect');if(!sel)return;
+ const selected=sel.value;
+ const q=ghNorm((document.getElementById('ciuQ')||{}).value||'');
+ const list=GH_CITIES.filter(x=>!q||ghNorm(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id).includes(q));
+ sel.innerHTML='<option value="">Seleccioná una ciudad</option>'+list.map(x=>'<option value="'+esc(String(x.ciudad_id||x.id||''))+'">'+esc(String(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id||''))+(x.activa===false?' · Desactivada':'')+'</option>').join('');
+ if(list.some(x=>String(x.ciudad_id||x.id)===selected))sel.value=selected;
+ ghRenderCiudadEdicion();
+}
+function ghRenderCiudadEdicion(){
+ const d=document.getElementById('ciudadDetalle'),sel=document.getElementById('ciuSelect');
+ if(!d||!sel)return;
+ const x=GH_CITIES.find(row=>String(row.ciudad_id||row.id)===sel.value);
+ if(!x){d.textContent='Seleccioná una ciudad para ver sus datos.';return;}
+ const id=String(x.ciudad_id||x.id),name=String(x.ciudad_visible||x.nombre||x.ciudad||id);
+ const province=GH_PROVINCES.find(p=>String(p.provincia_id||p.id)===String(x.provincia_id));
+ const country=GH_COUNTRIES.find(p=>String(p.pais_id||p.id)===String(x.pais_id));
+ const busy=GH_CITY_EDIT_PENDING.has(id);
+ d.innerHTML='<p><b>ID:</b> '+esc(id)+' · <b>País:</b> '+esc(country?.nombre||country?.pais_visible||x.pais_id||'')+' · <b>Provincia:</b> '+esc(province?.nombre||province?.provincia_visible||x.provincia_id||'')+'</p>'+
+ '<p><b>Estado:</b> '+(x.activa===false?'Desactivada':'Activa')+'</p>'+
+ '<label for="ghCiudadNombre">Nombre de la ciudad</label> <input id="ghCiudadNombre" maxlength="160" value="'+esc(name)+'"'+(busy?' disabled':'')+'>'+
+ '<button type="button" id="ghCiudadEditar" onclick="ghGuardarCambioCiudad(\'nombre\')"'+(busy?' disabled':'')+'>Guardar nombre</button> '+
+ '<button type="button" id="ghCiudadActivar" onclick="ghGuardarCambioCiudad(\'estado\')"'+(busy?' disabled':'')+'>'+(x.activa===false?'Activar ciudad':'Desactivar ciudad')+'</button>'+
+ '<p id="ghCiudadEstadoEdicion" role="status"></p>'+
+ '<p class="muted">Eliminar requiere comprobar las vinculaciones existentes. No se borrará automáticamente una provincia ni un país compartidos.</p>';
+}
+async function ghGuardarCambioCiudad(accion){
+ const id=document.getElementById('ciuSelect')?.value;
+ const x=GH_CITIES.find(row=>String(row.ciudad_id||row.id)===id);
+ if(!x||GH_CITY_EDIT_PENDING.has(id))return;
+ const name=String(document.getElementById('ghCiudadNombre')?.value||'').trim();
+ if(accion==='nombre'&&!name){alert('Ingresá el nombre de la ciudad.');return;}
+ const newActive=accion==='estado'?x.activa===false:x.activa!==false;
+ const newName=accion==='nombre'?name:String(x.ciudad_visible||x.nombre||x.ciudad||'').trim();
+ if(newName===String(x.ciudad_visible||x.nombre||x.ciudad||'').trim()&&newActive===(x.activa!==false))return;
+ if(accion==='estado'&&!confirm(newActive?'¿Activar esta ciudad?':'¿Desactivar esta ciudad? Dejará de figurar como ciudad habilitada para el público.'))return;
+ GH_CITY_EDIT_PENDING.add(id);ghRenderCiudadEdicion();
+ try{
+  const item={...x,ciudad_id:id,ciudad_visible:newName,nombre:newName,ciudad:newName,activa:newActive};
+  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/'+encodeURIComponent(id),{
+   method:'PATCH',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},
+   body:JSON.stringify({item})
+  });
+  const j=await r.json();
+  if(!r.ok||!j.success||!j.ciudad)throw new Error(j.message||'No se pudo actualizar la ciudad.');
+  GH_CITIES=GH_CITIES.map(row=>String(row.ciudad_id||row.id)===id?j.ciudad:row);
+  GH_CITIES.sort((a,b)=>String(a.ciudad_visible||a.nombre||'').localeCompare(String(b.ciudad_visible||b.nombre||''),'es'));
+  ghRenderCiudades();
+  const status=document.getElementById('ghCiudadEstadoEdicion');if(status)status.textContent='Cambio confirmado por el servidor.';
+ }catch(e){alert(e.message||'No se pudo actualizar la ciudad.');}
+ finally{GH_CITY_EDIT_PENDING.delete(id);ghRenderCiudadEdicion();}
+}
+
 function ghRenderTodo(){ghRenderEventos();ghRenderAnunciantesPendientes();ghRenderReviewQueues();ghRenderRequestSummary();ghRenderCiudades();informarAltura();}
 
 function ghGoView(name,{pendingOnly=false}={}){
@@ -1266,6 +1319,7 @@ document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.
 document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
 document.getElementById('ciuSelect').addEventListener('change',async function(){
+  ghRenderCiudadEdicion();
   const id=this.value;
   const x=GH_CITIES.find(function(c){return String(c.ciudad_id||c.id||'')===id;});
   const d=document.getElementById('ciudadDetalle');
