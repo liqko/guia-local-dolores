@@ -992,6 +992,9 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
 .gld-direct-chip img,.gld-direct-chip .gld-chip-symbol{flex:0 0 36px;width:36px;height:36px;display:block;margin:0 auto;object-fit:contain;line-height:36px}
 .gld-direct-chip > span:last-child{display:block;width:100%;min-height:42px;line-height:1.3;text-align:center;overflow-wrap:break-word}
 .gld-direct-chip[hidden]{display:none}
+.gld-filter-state{padding:0 14px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:.82rem;color:#34576a}
+.gld-filter-state button{border:1px solid #9bb9c8;background:#fff;border-radius:8px;color:#16465d;padding:5px 10px;cursor:pointer;font-weight:700}
+.gld-filter-state button:disabled{opacity:.45;cursor:default}
 .gld-original-filter{display:none!important}
 .gld-direct-strip{display:flex;align-items:center;gap:4px;padding:0 8px}
 .gld-direct-strip .gld-direct-scroller{flex:1;min-width:0}
@@ -1023,6 +1026,7 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
   <div class="gld-filter-section gld-filter-features">
     <div class="gld-direct-title" id="accionesTitulo">Actividades clave / Acciones</div>
     <div class="gld-direct-strip"><button type="button" class="gld-direct-arrow" id="accesosPrev" aria-label="Desplazar accesos hacia la izquierda">‹</button><div class="gld-direct-scroller" id="accesosDirectos" role="group" aria-labelledby="accionesTitulo"></div><button type="button" class="gld-direct-arrow" id="accesosNext" aria-label="Desplazar accesos hacia la derecha">›</button></div>
+    <div class="gld-filter-state"><span id="filtrosActivosAviso" role="status" aria-live="polite">Elegí una o varias opciones. Dentro de cada grupo se muestran las coincidencias con cualquiera de las elegidas; entre grupos se combinan.</span><button type="button" id="limpiarFiltrosGuia">Limpiar filtros</button></div>
     <div class="gld-original-filter" aria-hidden="true">
       <details class="filtro-multi" id="accionesMulti"><summary id="accionesResumen">Ver opciones</summary><div class="filtro-multi-opciones" id="accionesOpciones"></div></details>
     </div>
@@ -2036,19 +2040,29 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           });
           actualizarAccesosDirectos();
         }
+        const actividadesElegidas=new Set();
+        const filtrosActivosAviso=document.getElementById('filtrosActivosAviso');
+        const limpiarFiltrosGuia=document.getElementById('limpiarFiltrosGuia');
         function actualizarAccesosDirectos(){
           accesosDirectos.querySelectorAll('button').forEach(b=>{
             const tipo=b.dataset.tipo,id=b.dataset.id;
-            const on=tipo==='actividad'?selectClasificacion.value==='ACT:'+id:
+            const on=tipo==='actividad'?actividadesElegidas.has(id):
               tipo==='segmento'?selectSegmento.value===id:
               accionesSeleccionadas().includes(id);
             b.setAttribute('aria-pressed',String(on));
           });
+          const etiquetas=Array.from(accesosDirectos.querySelectorAll('button[aria-pressed="true"]')).map(b=>b.getAttribute('aria-label'));
+          const hayOtros=!!(buscadorGlobal.value.trim()||selectSegmentoCategoria.value);
+          filtrosActivosAviso.textContent=etiquetas.length?'Seleccionados: '+etiquetas.join(' · '):'Elegí una o varias actividades o acciones. Dentro de cada grupo se suman resultados; entre grupos se cruzan.';
+          limpiarFiltrosGuia.disabled=!etiquetas.length&&!hayOtros;
         }
         accesosDirectos.addEventListener('click',event=>{
           const b=event.target.closest('button[data-tipo]');if(!b)return;
           const tipo=b.dataset.tipo,id=b.dataset.id;
-          if(tipo==='actividad')selectClasificacion.value=selectClasificacion.value==='ACT:'+id?'':'ACT:'+id;
+          if(tipo==='actividad'){
+            if(actividadesElegidas.has(id))actividadesElegidas.delete(id);
+            else actividadesElegidas.add(id);
+          }
           else if(tipo==='segmento'){
             selectSegmento.value=selectSegmento.value===id?'':id;
             selectCategoria.value='';
@@ -2064,6 +2078,13 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         cargarSelectClasificacion();
         cargarAcciones();
         cargarAccesosDirectos();
+        limpiarFiltrosGuia.addEventListener('click',()=>{
+          actividadesElegidas.clear();selectClasificacion.value='';
+          selectSegmento.value='';selectCategoria.value='';selectSegmentoCategoria.value='';
+          buscadorGlobal.value='';
+          accionesOpciones.querySelectorAll('input[type="checkbox"]').forEach(cb=>{cb.checked=false;});
+          actualizarResumenAcciones();paginaActual=1;actualizarAccesosDirectos();render();
+        });
         // Carrusel circular: las flechas nunca quedan deshabilitadas.
         // Sólo mueve el scroll del DOM, sin consultas de red ni cambios de filtros.
         const btnPrev=document.getElementById('accesosPrev'),btnNext=document.getElementById('accesosNext');
@@ -2897,6 +2918,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           const segmentoElegido=String(selectSegmento.value||'').trim();
           const categoriaElegida=String(selectCategoria.value||'').trim();
           const accionesElegidas=accionesSeleccionadas();
+          const actividadesFiltro=Array.from(actividadesElegidas);
 
           let base=GLD_ANUNCIANTES_UI.filtroFicha(serviciosData,fichaCompartida).filter(item=>{
             if(segmentoElegido && !canonicalSegmentoIds(item).includes(segmentoElegido))return false;
@@ -2914,7 +2936,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           if(clasificacion || segmentoElegido || categoriaElegida || accionesElegidas.length || qGlobal || fichaCompartida.get('sede_id')){
             base=base.flatMap(item=>{
               const sedes=Array.isArray(item.sedes)?item.sedes:[];
-              const requiereSede=clasificacion.startsWith('ACT:') || accionesElegidas.length>0;
+              const requiereSede=clasificacion.startsWith('ACT:') || actividadesFiltro.length>0 || accionesElegidas.length>0;
 
               if(!sedes.length) return requiereSede ? [] : [item];
 
@@ -2922,8 +2944,9 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
                 .filter(sede=>{
                   if(clasificacion.startsWith('ACT:') && !sedeActIds(sede).includes(clasificacion.slice(4))) return false;
 
+                  if(actividadesFiltro.length && !actividadesFiltro.some(id=>sedeActIds(sede).includes(id)))return false;
                   const accionesSede=sedeAccIds(sede);
-                  if(accionesElegidas.some(id=>!accionesSede.includes(id))) return false;
+                  if(accionesElegidas.length && !accionesElegidas.some(id=>accionesSede.includes(id)))return false;
 
                   return true;
                 })
@@ -2931,7 +2954,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             });
           }
 
-          const hayBusquedaEspecifica=!!(qGlobal || clasificacion || segmentoElegido || categoriaElegida || accionesElegidas.length || fichaCompartida.get('anunciante_id'));
+          const hayBusquedaEspecifica=!!(qGlobal || clasificacion || segmentoElegido || categoriaElegida || actividadesFiltro.length || accionesElegidas.length || fichaCompartida.get('anunciante_id'));
 
           let filtrados=base.filter(item=>{
             if(!qGlobal) return true;
@@ -2988,7 +3011,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         }
 
         buscadorGlobal.addEventListener('input', () => {
-          paginaActual = 1;
+          paginaActual = 1;actualizarAccesosDirectos();
           render();
         });
 
