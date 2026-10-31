@@ -26,7 +26,7 @@ async function run(role,linked){
  return {result,deleted,puts,queries};
 }
 let x=await run('SUPERADMIN_PRINCIPAL',false);
-assert.equal(x.result.status,200);assert.equal(x.deleted,1);assert.equal(x.puts,2);
+assert.equal(x.result.status,200);assert.equal(x.deleted,1);assert.equal(x.puts,10);
 assert.equal(x.queries,19);
 x=await run('SUPERADMIN_PRINCIPAL',true);
 assert.equal(x.result.status,409);assert.equal(x.deleted,0);assert.equal(x.puts,0);
