@@ -981,7 +981,10 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
 .gld-direct-title{padding:10px 14px 0;font-weight:800;color:#285c44}
 .gld-direct-scroller{display:flex;gap:9px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;padding:12px 14px 16px;scrollbar-width:thin}
 .gld-direct-chip{flex:0 0 112px;min-height:90px;scroll-snap-align:start;border:1px solid #d4e0e5;border-radius:12px;background:#f7fafb;color:#183a49;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:9px;cursor:pointer;font-size:.78rem;font-weight:700;line-height:1.25;text-align:center;white-space:normal}
-.gld-direct-chip[aria-pressed="true"]{border-color:#006699;background:#dceef5;box-shadow:inset 0 0 0 1px #006699}
+.gld-direct-chip[data-tipo="actividad"],.gld-direct-chip[data-tipo="segmento"]{background:#e8f2fc;border-color:#c4d9ef;color:#153f64}
+.gld-direct-chip[data-tipo="accion"]{background:#e8f3e9;border-color:#c1dec7;color:#225334}
+.gld-direct-chip[aria-pressed="true"]{border-color:#006699;box-shadow:inset 0 0 0 2px #006699}
+.gld-direct-chip[data-tipo="accion"][aria-pressed="true"]{border-color:#267344;box-shadow:inset 0 0 0 2px #267344}
 .gld-direct-chip img{width:36px;height:36px;object-fit:contain}
 .gld-direct-chip .gld-chip-symbol{font-size:25px;line-height:36px}
 /* Todos los íconos anclados a la misma altura; el texto crece hacia abajo. */
@@ -2061,15 +2064,44 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         cargarSelectClasificacion();
         cargarAcciones();
         cargarAccesosDirectos();
-        // Flechas para navegar en escritorio, sin disparar filtros ni lecturas.
+        // Carrusel circular: las flechas nunca quedan deshabilitadas.
+        // Sólo mueve el scroll del DOM, sin consultas de red ni cambios de filtros.
         const btnPrev=document.getElementById('accesosPrev'),btnNext=document.getElementById('accesosNext');
-        function actualizarFlechas(){
-          btnPrev.disabled=accesosDirectos.scrollLeft<=2;
-          btnNext.disabled=accesosDirectos.scrollLeft+accesosDirectos.clientWidth>=accesosDirectos.scrollWidth-2;
+        const maxScrollAccesos=()=>Math.max(0,accesosDirectos.scrollWidth-accesosDirectos.clientWidth);
+        function moverCarrusel(direccion){
+          const max=maxScrollAccesos();
+          if(max<=1)return;
+          const paso=Math.max(220,accesosDirectos.clientWidth*.7);
+          if(direccion>0 && accesosDirectos.scrollLeft>=max-3){
+            accesosDirectos.scrollTo({left:0,behavior:'smooth'});
+          }else if(direccion<0 && accesosDirectos.scrollLeft<=3){
+            accesosDirectos.scrollTo({left:max,behavior:'smooth'});
+          }else{
+            accesosDirectos.scrollBy({left:direccion*paso,behavior:'smooth'});
+          }
         }
-        btnPrev.addEventListener('click',()=>accesosDirectos.scrollBy({left:-Math.max(220,accesosDirectos.clientWidth*.7),behavior:'smooth'}));
-        btnNext.addEventListener('click',()=>accesosDirectos.scrollBy({left:Math.max(220,accesosDirectos.clientWidth*.7),behavior:'smooth'}));
-        accesosDirectos.addEventListener('scroll',actualizarFlechas,{passive:true});
+        btnPrev.addEventListener('click',()=>moverCarrusel(-1));
+        btnNext.addEventListener('click',()=>moverCarrusel(1));
+        function actualizarFlechas(){
+          const hasOverflow=maxScrollAccesos()>1;
+          btnPrev.disabled=!hasOverflow;btnNext.disabled=!hasOverflow;
+        }
+        // En táctiles, un nuevo deslizamiento en el extremo hace el retorno circular.
+        let gestoInicio=null;
+        accesosDirectos.addEventListener('touchstart',ev=>{
+          if(ev.touches.length!==1)return;
+          gestoInicio={x:ev.touches[0].clientX,left:accesosDirectos.scrollLeft,max:maxScrollAccesos()};
+        },{passive:true});
+        accesosDirectos.addEventListener('touchend',ev=>{
+          if(!gestoInicio||!ev.changedTouches.length)return;
+          const dx=ev.changedTouches[0].clientX-gestoInicio.x;
+          if(Math.abs(dx)>35){
+            if(dx<0 && gestoInicio.left>=gestoInicio.max-3)accesosDirectos.scrollTo({left:0,behavior:'smooth'});
+            if(dx>0 && gestoInicio.left<=3)accesosDirectos.scrollTo({left:maxScrollAccesos(),behavior:'smooth'});
+          }
+          gestoInicio=null;
+        },{passive:true});
+        accesosDirectos.addEventListener('touchcancel',()=>{gestoInicio=null;},{passive:true});
         window.addEventListener('resize',actualizarFlechas);
         requestAnimationFrame(actualizarFlechas);
         selectSegmentoCategoria.addEventListener('change',()=>{
