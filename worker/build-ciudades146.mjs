@@ -14,6 +14,8 @@ once("  const args={env:resources.env,request,db,cache,idFromPath:spec.id||''};"
 "  const args={env:resources.env,request,db,cache,idFromPath:spec.id||'',skipDependencies146:!!resolved};");
 once("  const fn=spec.kind==='rebuild'?rebuildTerritory:spec.kind==='countries'?saveCountry:spec.kind==='provinces'?saveProvince:saveCity;",
 "  const fn=spec.kind==='rebuild'?rebuildTerritory:spec.kind==='delete_city'?deleteCity146:spec.kind==='countries'?saveCountry:spec.kind==='provinces'?saveProvince:saveCity;");
+once("     if(recovering){\n      const current=await res.db.getVersioned(write.collection,write.id);",
+"     if(recovering&&!write.remove){\n      const current=await res.db.getVersioned(write.collection,write.id);");
 once("     if(!row)row=await res.db.patch(write.collection,write.id,write.patch,options);\n     saved[write.collection+'/'+write.id]=row;",
 "     if(write.remove){\n       if(recovering){const current=await res.db.getVersioned(write.collection,write.id);\n         if(current.doc&&Object.keys(write.before||{}).some(k=>k!=='actualizado_en'&&!equal(current.doc[k],write.before[k])))throw Object.assign(Error('La ciudad cambió durante la recuperación.'),{status:409});\n         if(current.doc)await res.db.delete(write.collection,write.id);\n       }else await res.db.delete(write.collection,write.id);\n       saved[write.collection+'/'+write.id]=null;\n     }else{\n       if(!row)row=await res.db.patch(write.collection,write.id,write.patch,options);\n       saved[write.collection+'/'+write.id]=row;\n     }");
 once("  if(!['SUPERADMIN_PRINCIPAL','SUPERADMIN'].includes(auth.rol))return json({success:false,message:'El acceso de moderador está limitado a las publicaciones y ciudades asignadas.'},403);",
