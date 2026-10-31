@@ -721,8 +721,21 @@ async function ghEliminarCiudad146(){
  if(typed!==name){if(typed!==null)alert('El nombre no coincide. No se eliminó nada.');return;}
  GH_CITY_EDIT_PENDING.add(id);ghRenderCiudadEdicion();
  try{
+  // Fase 1: la ciudad deja de ofrecerse al público antes de borrar datos.
+  if(row.activa!==false){
+   const pausa={...row,ciudad_id:id,activa:false};
+   const responsePausa=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/'+encodeURIComponent(id),{
+    method:'PATCH',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},
+    body:JSON.stringify({item:pausa})
+   });
+   const resultadoPausa=await responsePausa.json();
+   if(!responsePausa.ok||!resultadoPausa.success||!resultadoPausa.ciudad||resultadoPausa.ciudad.activa!==false)
+    throw Error(resultadoPausa.message||'No se pudo suspender la ciudad. No se inició el borrado.');
+   GH_CITIES=GH_CITIES.map(x=>String(x.ciudad_id||x.id)===id?resultadoPausa.ciudad:x);
+  }
+  // Fase 2: una falla de borrado deja la ciudad suspendida y reintentable.
   const response=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/'+encodeURIComponent(id),{
-   method:'DELETE',headers:{Authorization:'Bearer '+TOKEN,'Idempotency-Key':'city-delete-'+id.slice(-48)+'-'+Date.now()}
+   method:'DELETE',headers:{Authorization:'Bearer '+TOKEN,'Idempotency-Key':'city-delete-'+id.slice(-48)}
   });
   const data=await response.json();
   if(!response.ok||!data.success||!data.eliminada){
@@ -733,7 +746,7 @@ async function ghEliminarCiudad146(){
   document.getElementById('ciuSelect').value='';
   ghRenderCiudades();
   alert('Ciudad eliminada: '+name);
- }catch(error){alert(error.message||'No se pudo eliminar la ciudad.');}
+ }catch(error){ghRenderCiudades();alert((error.message||'No se pudo eliminar la ciudad.')+' Si se suspendió, permanecerá desactivada hasta completar o reintentar la eliminación.');}
  finally{GH_CITY_EDIT_PENDING.delete(id);ghRenderCiudadEdicion();}
 }
 
