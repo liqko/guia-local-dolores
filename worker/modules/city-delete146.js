@@ -49,7 +49,15 @@ async function deleteCity146({env,request,db,cache,idFromPath="",skipDependencie
  const now=new Date().toISOString();
  await Promise.all([
   cache.put(ADMIN_KEY,{...admin,updated_at:now,ciudades:remove(admin.ciudades,"ciudad_id",id)}),
-  cache.put(PUBLIC_KEY,{...pub,updated_at:now,ciudades:remove(pub.ciudades,"ciudad_id",id)})
+  cache.put(PUBLIC_KEY,{...pub,updated_at:now,ciudades:remove(pub.ciudades,"ciudad_id",id)}),
+  cache.put("guide:city:v1:"+id,{version:2,ciudad_id:id,updated_at:now,cards:[]}),
+  cache.put("events:city:v2:"+id,{version:2,ciudad_id:id,updated_at:now,events:[]}),
+  cache.put("activities:city:v2:"+id,{version:2,ciudad_id:id,updated_at:now,actividades:[]}),
+  cache.put("promos:city:v1:"+id,{version:1,ciudad_id:id,updated_at:now,promos:[]}),
+  cache.put("publicity:city:v2:"+id,{version:2,ciudad_id:id,updated_at:now,publicidades:[]}),
+  cache.put("farmacias:city:v1:"+id,{version:1,ciudad_id:id,updated_at:now,ciclos:[]}),
+  cache.put("farmacias:city:v2:"+id,{version:2,ciudad_id:id,updated_at:now,ciclos:[]}),
+  cache.put("efemerides:city:v1:"+id,{version:1,ciudad_id:id,updated_at:now,efemerides:[]})
  ]);
  return json({success:true,eliminada:true,ciudad_id:id});
 }
