@@ -680,8 +680,9 @@ function ghRenderCiudadEdicion(){
  '<label for="ghCiudadNombre">Nombre de la ciudad</label> <input id="ghCiudadNombre" maxlength="160" value="'+esc(name)+'"'+(busy?' disabled':'')+'>'+
  '<button type="button" id="ghCiudadEditar" onclick="ghGuardarCambioCiudad(\'nombre\')"'+(busy?' disabled':'')+'>Editar ciudad</button> '+
  '<button type="button" id="ghCiudadActivar" onclick="ghGuardarCambioCiudad(\'estado\')"'+(busy?' disabled':'')+'>'+(x.activa===false?'Activar ciudad':'Desactivar ciudad')+'</button>'+
+ (GH_ADMIN_ACCESS?.rol==='SUPERADMIN_PRINCIPAL'?' <button type="button" id="ghCiudadEliminar" onclick="ghEliminarCiudad146()"'+(busy?' disabled':'')+'>Eliminar ciudad</button>':'')+
  '<p id="ghCiudadEstadoEdicion" role="status"></p>'+
- '<p class="muted">Eliminar requiere comprobar las vinculaciones existentes. No se borrará automáticamente una provincia ni un país compartidos.</p>';
+ '<p class="muted">La eliminación solo se permite si la ciudad no tiene datos vinculados. No afecta a la provincia ni al país.</p>';
 }
 async function ghGuardarCambioCiudad(accion){
  const id=document.getElementById('ciuSelect')?.value;
@@ -707,6 +708,32 @@ async function ghGuardarCambioCiudad(accion){
   ghRenderCiudades();
  
  }catch(e){alert(e.message||'No se pudo actualizar la ciudad.');}
+ finally{GH_CITY_EDIT_PENDING.delete(id);ghRenderCiudadEdicion();}
+}
+
+async function ghEliminarCiudad146(){
+ const id=String(document.getElementById('ciuSelect')?.value||'');
+ const row=GH_CITIES.find(x=>String(x.ciudad_id||x.id)===id);
+ if(!row||GH_CITY_EDIT_PENDING.has(id)||GH_ADMIN_ACCESS?.rol!=='SUPERADMIN_PRINCIPAL')return;
+ const name=String(row.ciudad_visible||row.nombre||row.ciudad||id);
+ if(!confirm('¿Eliminar definitivamente la ciudad «'+name+'»? Si tiene datos vinculados, el sistema bloqueará el borrado.'))return;
+ const typed=prompt('Para confirmar, escribí exactamente el nombre de la ciudad: '+name);
+ if(typed!==name){if(typed!==null)alert('El nombre no coincide. No se eliminó nada.');return;}
+ GH_CITY_EDIT_PENDING.add(id);ghRenderCiudadEdicion();
+ try{
+  const response=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/'+encodeURIComponent(id),{
+   method:'DELETE',headers:{Authorization:'Bearer '+TOKEN,'Idempotency-Key':'city-delete-'+id.slice(-48)+'-'+Date.now()}
+  });
+  const data=await response.json();
+  if(!response.ok||!data.success||!data.eliminada){
+   const details=Array.isArray(data.referencias)&&data.referencias.length?' Referencias: '+data.referencias.join(', '):'';
+   throw Error((data.message||'No se pudo eliminar la ciudad.')+details);
+  }
+  GH_CITIES=GH_CITIES.filter(x=>String(x.ciudad_id||x.id)!==id);
+  document.getElementById('ciuSelect').value='';
+  ghRenderCiudades();
+  alert('Ciudad eliminada: '+name);
+ }catch(error){alert(error.message||'No se pudo eliminar la ciudad.');}
  finally{GH_CITY_EDIT_PENDING.delete(id);ghRenderCiudadEdicion();}
 }
 
