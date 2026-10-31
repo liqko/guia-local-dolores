@@ -4,7 +4,9 @@ async function deleteCity146({env,request,db,cache,idFromPath="",skipDependencie
  if(auth instanceof Response)return auth;
  if(auth.rol!=="SUPERADMIN_PRINCIPAL")return json({success:false,message:"Solo el administrador principal puede eliminar ciudades."},403);
  const id=text3(idFromPath),admin=packet(await cache.get(ADMIN_KEY)),pub=packet(await cache.get(PUBLIC_KEY));
- if(!admin.ciudades.some(row=>text3(row.ciudad_id||row.id)===id))return json({success:false,message:"Ciudad inexistente."},404);
+ const objetivo=admin.ciudades.find(row=>text3(row.ciudad_id||row.id)===id);
+ if(!objetivo)return json({success:false,message:"Ciudad inexistente."},404);
+ if(objetivo.activa!==false)return json({success:false,code:"CITY_MUST_BE_SUSPENDED",message:"Primero debe suspenderse la ciudad; no se eliminó nada."},409);
  if(!GLD_ACTIONS138.isInternal(env))return json({success:false,message:"Debe intervenir el coordinador."},503);
  if(!skipDependencies146){
   // La sede pertenece a una sola ciudad. El anunciante es compartido y se conserva.
