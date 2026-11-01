@@ -978,10 +978,9 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
           <div id="dashboard-modules" class="dashboard-modules"></div>
         </div>
 
-        <!-- Información permanente del anunciante -->
+        <!-- Modificar datos -->
         <div id="modificar-datos-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
           <h3>Información del anunciante</h3>
-          <p class="small-muted">Acá administrás tus datos, redes, imágenes y sedes. La información se conserva al cambiar de nivel; los permisos de publicación determinan qué aparece en cada módulo.</p>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
             <div class="data-form-actions">
@@ -3320,14 +3319,11 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const reglaNivel=GLD_CLASSIFICATION.findLevel(commerceCatalogs.niveles_anunciante,nivelActual);
   const reglasNivel=GLD_CLASSIFICATION.rules(reglaNivel,nivelActual);
   const limiteCampo=(fieldName)=>Object.hasOwn(reglasNivel,fieldName+'_max')?reglasNivel[fieldName+'_max']:null;
-  const permiteCampo=(fieldName)=>{const key=({web:'web_habilitada',link:'web_habilitada',logo:'logo_habilitado',descripcion:'descripcion_habilitada',adicionales:'adicionales_habilitados',telefono:'telefono_habilitado',whatsapp:'whatsapp_habilitado',mail:'mail_habilitado',instagram:'instagram_habilitado',facebook:'facebook_habilitado',youtube:'youtube_habilitado',tiktok:'tiktok_habilitado',linkedin:'linkedin_habilitado',x:'x_habilitado'})[fieldName];if(!key)return true;const v=GLD_CLASSIFICATION.flag(reglaNivel[key]);return v===null?(fieldName!=='descripcion'||nivelActual!=='3'):v;};
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
-    if(fieldName==='link')return; // Conservar visibles los datos cargados al cambiar de nivel.
+    if(fieldName==='link')return;
     if(fieldName==='contenido_adulto'){html+='<label>Contenido para mayores de 18 años<select name="contenido_adulto" data-adult-selector disabled><option value="false" '+(values.contenido_adulto===true?'':'selected')+'>No · Para todas las edades</option><option value="true" '+(values.contenido_adulto===true?'selected':'')+'>Sí · +18</option></select></label>';return;}
     const rawValue = values[fieldName];
-    const visibleEnFicha=permiteCampo(fieldName);
-    const avisoOculto=!visibleEnFicha?'<span class="small-muted" style="display:block">Guardado en tu cuenta, no visible en la ficha con tu nivel actual.</span>':'';
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
     const upperName = fieldName.toUpperCase();
 
@@ -3346,28 +3342,24 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
       return;
     }
 
-    // Máximos de almacenamiento independientes del plan. El límite público no borra datos.
-    // Los valores especiales ya usados por las fichas son 500/150/300 respectivamente.
-    const masterMaximos={descripcion:500,adicionales:150,tags:300,nombre:120,actividad:160};
-    const masterMax=masterMaximos[fieldName]??null;
-    const maxLengthAttr=masterMax!==null?' maxlength="'+masterMax+'"':'';
-    const maxLengthNum=limiteCampo(fieldName);
-    const publicacion= maxLengthNum===null?'':' · La tarjeta '+(
-      (fieldName==='descripcion'&&!visibleEnFicha)||maxLengthNum===0?'no muestra este dato':
-      'puede mostrar hasta '+maxLengthNum+' caracteres');
-    const restrictionHtml=masterMax!==null
-      ? ` <span class="small-muted">(Hasta ${masterMax} caracteres en Información del anunciante${htmlEscape(publicacion)})</span>`
-      : (publicacion?` <span class="small-muted">(${htmlEscape(publicacion)})</span>`:'');
-    const labelHtml=`<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
+    let maxLengthAttr = '';
+    const maxLengthNum = limiteCampo(fieldName);
+    if(maxLengthNum!==null && maxLengthNum>0) maxLengthAttr = ' maxlength="'+maxLengthNum+'"';
+    if(maxLengthNum===0){
+      html += '<div class="data-field-card"><label><strong>'+htmlEscape(upperName)+'</strong></label><div class="small-muted">Este campo no está habilitado para el nivel actual.</div></div>';
+      return;
+    }
+    const restrictionHtml = maxLengthNum!==null && maxLengthNum>0 ? ` <span style="color:#c00;font-weight:normal;font-size:.9em">(Hasta ${maxLengthNum} caracteres)</span>` : '';
+    const labelHtml = `<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
 
     if(['descripcion','adicionales','tags','actividad','nombre'].includes(fieldName)){
       html += `<div class="data-field-card" style="grid-column:1/-1">
-        <label>${labelHtml}${avisoOculto}</label>
+        <label>${labelHtml}</label>
         <textarea name="${htmlEscape(fieldName)}" rows="4"${maxLengthAttr}>${htmlEscape(fieldValue)}</textarea>
       </div>`;
     }else{
       html += `<div class="data-field-card">
-        <label>${labelHtml}${avisoOculto}</label>
+        <label>${labelHtml}</label>
         <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
       </div>`;
     }
@@ -3376,12 +3368,10 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   html += '</div>';
   html += `<input type="hidden" name="__id" value="${htmlEscape((sesion && sesion.id) || '')}"/>`;
 
-  html += '<div class="info-banner" style="grid-column:1/-1"><strong>Redes y sitio web</strong><br>Guardá tus canales de contacto aunque tu nivel actual no los publique. Las redes visibles en cada tarjeta dependen de los permisos de publicación.</div>';
-   html += '<div class="data-field-card" style="grid-column:1/-1"><label><strong>Sitio web del anunciante</strong><input type="text" name="link" value="'+htmlEscape(values.link||'')+'" placeholder="https://..."></label></div>';
+  html += '<input type="hidden" name="link" value="'+htmlEscape(values.link||'')+'">';
   html += commerceSharedNetworksMarkup_(values,sedes);
   html += `<div class="commerce-sedes-wrap">
-    <h3>Sedes y sucursales</h3>
-    <p class="small-muted">Actualizá direcciones, contactos y redes de cada sede. Podés agregar, duplicar o borrar sedes; esos cambios se guardan al confirmar.</p>`;
+    <h3>Sedes</h3>`;
   const sedeList = Array.isArray(sedes) ? sedes : [];
 
   sedeList.forEach((sede, index)=>{
@@ -3433,8 +3423,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
       const isImage = /^img\d+$/.test(fieldName);
       const imageNumber = isImage ? Number(fieldName.replace('img','')) : 0;
       const imagenesMax = reglasNivel.imagenes_max;
-      // La ficha maestra conserva y permite revisar todas las imágenes, incluso las no publicadas por este nivel.
-      // Los datos de redes se conservan al bajar de nivel; el catálogo decide qué se publica.
+      if(isImage && (imageNumber>5 || imageNumber>imagenesMax)) return;
       const group=['instagram','facebook','youtube','tiktok','linkedin','x','web'].includes(fieldName)?'Redes y web':['nombre_sede','direccion','lat','lng','maps'].includes(fieldName)?'Ubicación':['telefono','whatsapp','mail'].includes(fieldName)?'Teléfonos y contacto':isImage?'Imágenes':'Estado';
       if(group!==previousGroup){html+=group==='Ubicación'?ciudadMarkup:'<div class="sede-section"><div class="sede-section-title">'+group+'</div></div>';previousGroup=group;}
       html += `<div class="data-field-card${isImage ? ' image-field' : ''}">
