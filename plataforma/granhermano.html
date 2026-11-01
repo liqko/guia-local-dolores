@@ -1304,13 +1304,16 @@ function ghNivelCamposV86(id,row={}){
     ['descmax','Máx. descripción',row.descripcion_max],['adicmax','Máx. información adicional',row.adicionales_max],
     ['tagsmax','Máx. tags',row.tags_max],['imgmax','Máx. imágenes',row.imagenes_max]];
   const effective={descmax:rules.descripcion_max,adicmax:rules.adicionales_max,tagsmax:rules.tags_max,imgmax:rules.imagenes_max};
+  // Si hay un bloqueo heredado, mostrar el máximo realmente aplicado.
+  const legacyLimitWarn=(key)=>((key==='tagsmax'&&GLD_CLASSIFICATION.flag(row.tags_habilitados)===false)||
+    (key==='imgmax'&&GLD_CLASSIFICATION.flag(row.imagenes_habilitadas)===false));
   const numberFields=fields.map(([key,label,value])=>'<label>'+label+
     '<input type="number" min="'+(key==='numero'?1:0)+'" step="1" '+(key==='imgmax'?'max="5" ':'')+
     'data-cat-'+key+'="'+esc(id)+'" value="'+esc(value??'')+'" placeholder="'+
     (Object.hasOwn(effective,key)?'Actual: '+esc(effective[key]):'Sin configurar')+'">'+
-    (Object.hasOwn(effective,key)?'<small class="muted">Aplicado según catálogo y regla de respaldo: '+esc(effective[key])+'</small>':'')+
+    (Object.hasOwn(effective,key)?'<small class="muted">Aplicado actualmente: '+esc(effective[key])+(legacyLimitWarn(key)?' · Cambiá y guardá el máximo para actualizar el permiso anterior':'')+'</small>':'')+
     '</label>').join('');
-  const legacyFlags=[['tags','Permite tags',row.tags_habilitados],['imagenes','Permite imágenes',row.imagenes_habilitadas],['destacado','Destacado',row.destacado]];
+  const legacyFlags=[['destacado','Destacado',row.destacado]];
   const selectFlag=(key,label,value)=>{const flag=GLD_CLASSIFICATION.flag(value);
     return '<label>'+esc(label)+'<select data-cat-'+key+'="'+esc(id)+'">'+
       '<option value="" '+(flag===null?'selected':'')+'>Sin configurar (mantener comportamiento actual)</option>'+
@@ -1350,7 +1353,15 @@ function ghNivelPatchV86(previous,get){
     patch[key]=value;if(key==='prioridad')patch.orden=value;
   }
   if(!previous&&(!Number.isSafeInteger(Number(get('numero')))||Number(get('numero'))<=0))throw Error('Indicá un número de nivel válido.');
-  for(const [input,key] of [['tags','tags_habilitados'],['imagenes','imagenes_habilitadas'],['destacado','destacado'],
+  // Una única regla para tags e imágenes: 0 deshabilita, >0 habilita.
+  // Cuando el administrador cambia el máximo, sincronizar también el flag heredado
+  // para que Worker y tarjetas no mantengan un bloqueo contradictorio.
+  for(const [maxKey,enabledKey] of [['tags_max','tags_habilitados'],['imagenes_max','imagenes_habilitadas']]){
+    if(!Object.hasOwn(patch,maxKey)||patch[maxKey]===null)continue;
+    const enabled=patch[maxKey]>0;
+    if(GLD_CLASSIFICATION.flag(previous?.[enabledKey])!==enabled)patch[enabledKey]=enabled;
+  }
+  for(const [input,key] of [['destacado','destacado'],
     ...GH_NIVEL_PRESTACIONES.map(([key])=>['prest_'+key,key])]){
     const raw=String(get(input)??'').trim();
     const old=GLD_CLASSIFICATION.flag(previous?.[key]);
