@@ -8,9 +8,9 @@ function gldClassificationV86(){
   const name=row=>text(row?.titulo||row?.nombre||row?.label);
   const limit=(value,fallback)=>value===null||value===undefined||text(value)===''?fallback:Number.isSafeInteger(Number(value))&&Number(value)>=0?Number(value):0;
   const rules=(row={},value)=>{const n=levelNumber(row)??levelNumber({id:value});return {
-    descripcion_max:limit(row.descripcion_max,500),adicionales_max:limit(row.adicionales_max,150),
+    descripcion_max:limit(row.descripcion_max,n===3?0:500),adicionales_max:limit(row.adicionales_max,150),
     tags_max:flag(row.tags_habilitados)===false?0:limit(row.tags_max,300),
-    imagenes_max:flag(row.imagenes_habilitadas)===false?0:Math.min(5,limit(row.imagenes_max,n===3?0:n===1||n===2?3:5))
+    imagenes_max:flag(row.imagenes_habilitadas)===false?0:Math.min(5,limit(row.imagenes_max,n===3?0:[1,2,4].includes(n)?3:5))
   };};
   return {text,ids,flag,levelNumber,name,findLevel,rules,active:row=>flag(row?.activo??row?.activa)!==false,levelLabel:row=>{const n=levelNumber(row),label=name(row);return (n===null?'Nivel sin número':'Nivel '+n)+(label?' · '+label:'');}};
 }
