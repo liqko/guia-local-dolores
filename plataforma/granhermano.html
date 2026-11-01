@@ -168,7 +168,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
       <div class="cfgpane hidden" data-cfgpane="nodos"><div class="card"><h2>Nodos</h2><p class="muted">Creá o editá un nodo y elegí su ciudad en la misma ficha.</p><div class="toolbar"><select id="nodosFiltroCiudad" onchange="ghRenderNodos()"><option value="">Todas las ciudades</option></select><button onclick="ghNuevoNodo()">+ Agregar nodo</button><button class="sec" onclick="ghCargarNodos()">Actualizar</button></div><div id="nodosLista"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="segmentos"><div class="card"><h3>Segmentos</h3><div id="cfgSegmentos"></div></div></div>
-      <div class="cfgpane hidden" data-cfgpane="niveles"><div class="card"><h3>Niveles de anunciantes</h3><div id="cfgNivelesAnunciante"></div></div></div>
+      <div class="cfgpane hidden" data-cfgpane="niveles"><div class="card"><h3>Parámetros generales de carga · todos los niveles</h3><p class="muted">Estos máximos son únicos para todas las fichas, independientemente del nivel contratado. El anunciante conserva sus datos aunque su nivel no permita publicarlos.</p><div id="cfgCargaGeneralAnunciantes"></div></div><div class="card"><h3>Prestaciones de publicación por nivel</h3><p class="muted">Acá solo decidís qué aparece en las tarjetas públicas y en qué cantidad. No modifica ni elimina datos de las fichas.</p><div id="cfgNivelesAnunciante"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="funcionalidades"><div class="card"><h3>Funcionalidades</h3><div id="cfgFuncionalidades"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="categorias"><div class="card"><h3>Categorías de anunciantes</h3><div id="cfgCategoriasAnunciantes"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="actividades"><div class="card"><h3>Actividades clave</h3><div id="cfgActividadesClave"></div></div></div>
@@ -1295,6 +1295,51 @@ const GH_NIVEL_DESTINOS = [
   ['logo_destino','Al tocar el logo',[['ninguno','Sin enlace'],['web','Sitio web del anunciante'],['ficha','Ficha del anunciante']]],
   ['imagenes_destino','Al tocar una imagen',[['ampliar','Ampliar imagen'],['ninguno','Sin acción'],['web','Sitio web del anunciante'],['ficha','Ficha del anunciante']]]
 ];
+// Ficha técnica inactiva del catálogo existente: un solo registro global, no un nivel comercial.
+const GH_CARGA_GENERAL_ID='CONFIG_GENERAL_ANUNCIANTES';
+const GH_CARGA_GENERAL_FIELDS=[
+ ['descripcion_max','Descripción · máximo de caracteres',500],
+ ['adicionales_max','Información adicional · máximo de caracteres',150],
+ ['tags_max','Tags · máximo de caracteres',300],
+ ['imagenes_max','Imágenes · cantidad máxima para cargar y conservar',5],
+ ['redes_max','Redes sociales · cantidad máxima para cargar y conservar',6]
+];
+let GH_CARGA_GENERAL_BASE=null;
+function ghCargaGeneralRender(rows){
+ const host=document.getElementById('cfgCargaGeneralAnunciantes');if(!host)return;
+ const base=(rows||[]).find(x=>String(x.nivel_id||x.id||'')===GH_CARGA_GENERAL_ID);
+ GH_CARGA_GENERAL_BASE=base||null;
+ host.innerHTML='<div class="formgrid">'+GH_CARGA_GENERAL_FIELDS.map(([key,label,fallback])=>
+ '<label>'+esc(label)+'<input type="number" min="0" step="1" data-carga-general="'+esc(key)+'" value="'+
+ esc(base?.['carga_'+key]??fallback)+'"></label>').join('')+'</div>'+
+ '<p class="muted">Los valores se guardan una sola vez en el catálogo de configuración, no en cada nivel. La aplicación efectiva de estos límites en Login y Worker deberá verificarse antes de considerarlos operativos.</p>'+
+ '<div class="toolbar"><button type="button" onclick="ghGuardarCargaGeneral()">Guardar parámetros generales</button><span id="ghCargaGeneralMensaje" role="status"></span></div>';
+}
+async function ghGuardarCargaGeneral(){
+ const message=document.getElementById('ghCargaGeneralMensaje');
+ const item={nivel_id:GH_CARGA_GENERAL_ID};
+ try{
+  for(const [key,label] of GH_CARGA_GENERAL_FIELDS){
+   const node=document.querySelector('[data-carga-general="'+key+'"]');
+   const value=Number(node?.value);
+   if(!node||!String(node.value).trim()||!Number.isSafeInteger(value)||value<0||value>10000)
+    throw Error('Valor inválido: '+label);
+   if(key==='imagenes_max'&&value>10)throw Error('Actualmente existen 10 campos de imagen por sede como máximo.');
+   if(key==='redes_max'&&value>6)throw Error('Actualmente existen 6 campos de redes sociales.');
+   if(value!==Number(GH_CARGA_GENERAL_BASE?.['carga_'+key]??GH_CARGA_GENERAL_FIELDS.find(x=>x[0]===key)[2]))
+    item['carga_'+key]=value;
+  }
+  if(Object.keys(item).length===1){if(message)message.textContent='Sin cambios.';return;}
+  if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
+  if(message)message.textContent='Guardando…';
+  await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  const j=await api('listar_catalogo',{tipo:'niveles_anunciante'});
+  GH_CATALOG_CACHE.niveles_anunciante=j.results||[];
+  ghCargaGeneralRender(j.results||[]);
+  ghRenderCatalogo(GH_CATALOGOS.find(x=>x.tipo==='niveles_anunciante'),j.results||[]);
+  if(document.getElementById('ghCargaGeneralMensaje'))document.getElementById('ghCargaGeneralMensaje').textContent='Guardado.';
+ }catch(e){if(message)message.textContent='Error: '+String(e.message||e);}
+}
 function ghNivelCamposV86(id,row={}){
  const nivel=GLD_CLASSIFICATION.levelNumber(row),rules=GLD_CLASSIFICATION.rules(row,nivel);
  const eid=esc(id),flag=GLD_CLASSIFICATION.flag;
@@ -1380,7 +1425,8 @@ function ghNivelPatchV86(previous,get){
 
 function ghRenderCatalogo(def,rows){
   const box=document.getElementById(def.box);if(!box)return;
-  const items=(rows||[]).map(function(x){
+  const listado=def.tipo==='niveles_anunciante'?(rows||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID):(rows||[]);
+  const items=listado.map(function(x){
     const id=String(x[def.idField]||x.id||''),nombre=GLD_CLASSIFICATION.name(x),titulo=def.tipo==='niveles_anunciante'?GLD_CLASSIFICATION.levelLabel(x):nombre||('Sin nombre · '+id),activo=GLD_CLASSIFICATION.active(x);
     const extra=def.tipo==='niveles_anunciante'?ghNivelCamposV86(id,x):'';
     return '<details class="item"><summary><b>'+esc(titulo)+'</b> <span class="muted">· '+(activo?'Activo':'Inactivo')+'</span></summary><div style="margin-top:12px"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" value="'+esc(nombre)+'"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div>'+extra+'<div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label></div><button onclick="ghGuardarCatalogo(\''+def.tipo+'\',\''+esc(id)+'\')">Guardar</button></div></details>';
@@ -1390,7 +1436,7 @@ function ghRenderCatalogo(def,rows){
 
 async function ghCargarCatalogo(def){
   const box=document.getElementById(def.box);if(box)box.innerHTML='<div class="muted">Cargando...</div>';
-  try{const j=await api('listar_catalogo',{tipo:def.tipo});GH_CATALOG_CACHE[def.tipo]=j.results||[];ghRenderCatalogo(def,j.results||[]);if(def.tipo==='niveles_anunciante')ghRenderResumenNiveles108();}
+  try{const j=await api('listar_catalogo',{tipo:def.tipo});GH_CATALOG_CACHE[def.tipo]=j.results||[];ghRenderCatalogo(def,j.results||[]);if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(j.results||[]);ghRenderResumenNiveles108();}}
   catch(e){if(box)box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
 async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
