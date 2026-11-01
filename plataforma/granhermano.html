@@ -1283,16 +1283,15 @@ const GH_NIVEL_PRESTACIONES = [
   ['adicionales_habilitados','Mostrar información adicional'],
   ['telefono_habilitado','Mostrar teléfono'],['whatsapp_habilitado','Mostrar WhatsApp'],
   ['mail_habilitado','Mostrar correo electrónico'],['web_habilitada','Mostrar sitio web'],
-  ['instagram_habilitado','Mostrar Instagram'],['facebook_habilitado','Mostrar Facebook'],
-  ['youtube_habilitado','Mostrar YouTube'],['tiktok_habilitado','Mostrar TikTok'],
-  ['linkedin_habilitado','Mostrar LinkedIn'],['x_habilitado','Mostrar X / Twitter'],
-  ['instagram_enlace','Instagram con enlace'],['facebook_enlace','Facebook con enlace'],
-  ['youtube_enlace','YouTube con enlace'],['tiktok_enlace','TikTok con enlace'],
-  ['linkedin_enlace','LinkedIn con enlace'],['x_enlace','X / Twitter con enlace'],
   ['contactos_enlace','Teléfono / WhatsApp con enlaces'],
-  ['insignias_habilitadas','Mostrar insignias'],['verificado_habilitado','Permitir insignia Verificado'],
-  ['gold_habilitado','Permitir insignia Gold'],['favoritos_habilitados','Botón Favoritos'],
+  ['insignias_habilitadas','Mostrar insignias'],['verificado_habilitado','Mostrar insignia Verificado'],
+  ['gold_habilitado','Mostrar insignia Gold'],['favoritos_habilitados','Botón Favoritos'],
   ['compartir_habilitado','Botón Compartir'],['galeria_habilitada','Mostrar galería']
+];
+const GH_NIVEL_REDES_LIMITES = [
+  ['redes_carga_max','Cantidad máxima de redes para cargar',6],
+  ['redes_visibles_max','Cantidad máxima de redes visibles',null],
+  ['redes_enlaces_max','Cantidad máxima de redes con enlace',null]
 ];
 const GH_NIVEL_DESTINOS = [
   ['logo_destino','Al tocar el logo',[['ninguno','Sin enlace'],['web','Sitio web del anunciante'],['ficha','Ficha del anunciante']]],
@@ -1320,6 +1319,11 @@ function ghNivelCamposV86(id,row={}){
   };
   const allFlags=legacyFlags.map(([key,label,value])=>selectFlag(key,label,value)).join('')+
     GH_NIVEL_PRESTACIONES.map(([key,label])=>selectFlag('prest_'+key,label,row[key])).join('');
+  const redesN=GH_NIVEL_REDES_LIMITES.map(([key,label,defaultValue])=>{
+    const base=defaultValue??(key==='redes_visibles_max'?(nivel===3||nivel===4?1:6):(nivel===3?0:nivel===4?1:6));
+    const value=row[key],actual=value===undefined||value===null||value===''?base:value;
+    return '<label>'+esc(label)+'<input type="number" min="0" max="20" step="1" data-cat-red_'+key+'="'+esc(id)+'" value="'+esc(value??'')+'" placeholder="Actual: '+esc(actual)+'"><small class="muted">Aplicado: '+esc(actual)+'</small></label>';
+  }).join('');
   const destinations=GH_NIVEL_DESTINOS.map(([key,label,opts])=>'<label>'+esc(label)+
     '<select data-cat-dest_'+key+'="'+esc(id)+'"><option value="" '+(!row[key]?'selected':'')+
     '>Sin configurar (mantener comportamiento actual)</option>'+opts.map(([value,title])=>
@@ -1327,7 +1331,9 @@ function ghNivelCamposV86(id,row={}){
     '</select></label>').join('');
   return '<div class="card" style="margin-top:12px"><h4>Límites y prestaciones de esta ficha</h4>'+
     '<p class="muted">Los límites y permisos se configuran por nivel. Los campos sin definir mantienen transitoriamente el comportamiento del código actual. Guardar actualiza el catálogo compartido.</p>'+
-    '<div class="formgrid">'+numberFields+'</div><h4>Permisos y enlaces individuales</h4>'+
+    '<div class="formgrid">'+numberFields+'</div><h4>Redes sociales (el anunciante elige cuáles)</h4>'+ 
+    '<p class="muted">No se restringen Facebook, Instagram, TikTok, YouTube, LinkedIn o X por separado. Se limita la cantidad visible y cuántas pueden tener enlace. Los datos ocultos se conservan.</p>'+ 
+    '<div class="formgrid">'+redesN+'</div><h4>Qué aparece en la tarjeta</h4>'+
     '<div class="formgrid">'+allFlags+'</div><h4>Destino al pulsar imágenes</h4>'+
     '<div class="formgrid">'+destinations+'</div></div>';
 }
@@ -1354,6 +1360,14 @@ function ghNivelPatchV86(previous,get){
     }
     const value=raw==='true';
     if(value!==old)patch[key]=value;
+  }
+  for(const [key,label] of GH_NIVEL_REDES_LIMITES){
+    const raw=String(get('red_'+key)??'').trim();
+    const old=previous?.[key];
+    if(raw===''){if(old!==undefined&&old!==null)patch[key]=null;continue;}
+    const n=Number(raw);
+    if(!Number.isSafeInteger(n)||n<0||n>20)throw Error('Cantidad inválida: '+label);
+    if(n!==old)patch[key]=n;
   }
   for(const [key,,options] of GH_NIVEL_DESTINOS){
     const raw=String(get('dest_'+key)??'').trim();
