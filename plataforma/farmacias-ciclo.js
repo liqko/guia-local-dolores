@@ -1,7 +1,7 @@
 /* Prepared cycle: rotation is computed locally, never per date. */
 (function(root){
  'use strict';
- const TTL=15*60*1000,OFFSET=3*60*60*1000;
+ const OFFSET=3*60*60*1000;
  const stamp=(date,time)=>Date.parse(String(date)+'T'+String(time||'00:00')+':00-03:00');
  function dateTime(ms){const d=new Date(ms-OFFSET);return {fecha:d.toISOString().slice(0,10),hora:d.toISOString().slice(11,16)};}
  function turns(packet,now=Date.now()){
@@ -17,16 +17,26 @@
   }
   return {current,next,boundary};
  }
- function client({fetchPacket,storage,clock=()=>Date.now()}){
-  const memory=new Map(),pending=new Map(),key=city=>'gld_farma_cycle_v139:'+city;
-  return {async get(city){
-   if(!city)throw Error('No hay ciudad seleccionada');
-   let hit=memory.get(city);if(!hit)try{hit=JSON.parse(storage.getItem(key(city))||'null');}catch{}
-   if(hit&&hit.data?.ciudad_id===city&&clock()>=hit.ts&&clock()-hit.ts<TTL){memory.set(city,hit);return hit.data;}
-   if(pending.has(city))return pending.get(city);
-   const work=(async()=>{const data=await fetchPacket(city);if(!data||data.success!==true||data.ciudad_id!==city||!Array.isArray(data.ciclos))throw Error('No se pudo actualizar el ciclo de farmacias');const saved={ts:clock(),data};memory.set(city,saved);try{storage.setItem(key(city),JSON.stringify(saved));}catch{}return data;})();pending.set(city,work);
-   try{return await work;}finally{if(pending.get(city)===work)pending.delete(city);}
-  }};
+ function client({fetchPacket}){
+  // Un paquete por ciudad y apertura de pantalla. Nunca refrescar por tiempo.
+  // Una nueva visita carga nuevamente el dato vigente; un cambio de turno se calcula localmente.
+  const memory=new Map(),pending=new Map();
+  return {
+   async get(city,{refresh=false}={}){
+    if(!city)throw Error('No hay ciudad seleccionada');
+    if(!refresh&&memory.has(city))return memory.get(city);
+    if(pending.has(city))return pending.get(city);
+    const work=(async()=>{
+     const data=await fetchPacket(city);
+     if(!data||data.success!==true||data.ciudad_id!==city||!Array.isArray(data.ciclos))throw Error('No se pudo actualizar el ciclo de farmacias');
+     memory.set(city,data);
+     return data;
+    })();
+    pending.set(city,work);
+    try{return await work;}finally{if(pending.get(city)===work)pending.delete(city);}
+   },
+   invalidate(city){if(city)memory.delete(city);else memory.clear();}
+  };
  }
- root.GLDFarmCycle={turns,client,TTL};
+ root.GLDFarmCycle={turns,client};
 })(globalThis);
