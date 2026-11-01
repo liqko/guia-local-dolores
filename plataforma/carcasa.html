@@ -2203,76 +2203,17 @@ const controller = new AbortController();
     }
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)cargarEfemeridesHoyGuia();else clearTimeout(efemTimer);});
 
-    let catalogosGlobales = { segmentos: [], segmentosPublicos: [], categorias: [], actividades: [], acciones: [], nodos: [] };
-    let relacionesSedesGlobales = {};
-    let metaPorIdGlobal = {};
-    let bootstrapCompletoPromise = null;
-    const guiaPrefetchCache = new Map();
-    const GUIA_LOCAL_CACHE_PREFIX = 'gld_guia_cache_v3:';
-    const GUIA_LOCAL_CACHE_MS = 2 * 60 * 60 * 1000;
+    // Los catálogos de anunciantes se administran dentro de anunciantes.html.
 
-    function guiaLocalCacheKey(paisId, provinciaId, ciudadId){
-      return GUIA_LOCAL_CACHE_PREFIX + guiaKey(paisId, provinciaId, ciudadId);
-    }
 
-    function leerGuiaLocalCache(paisId, provinciaId, ciudadId){
-      try{
-        const raw = localStorage.getItem(guiaLocalCacheKey(paisId, provinciaId, ciudadId));
-        if(!raw) return null;
-        const parsed = JSON.parse(raw);
-        if(!parsed || !parsed.data || (Date.now() - Number(parsed.ts || 0)) > GUIA_LOCAL_CACHE_MS) return null;
-        const cachedData = parsed.data;
-        if(Array.isArray(cachedData) && cachedData.length===0) return null;
-        if(cachedData && !Array.isArray(cachedData) && typeof cachedData === 'object'){
-          const nested = Array.isArray(cachedData.results) ? cachedData.results : (Array.isArray(cachedData.data) ? cachedData.data : null);
-          if(nested && nested.length===0) return null;
-        }
-        return cachedData;
-      }catch(e){ return null; }
-    }
 
-    function guardarGuiaLocalCache(paisId, provinciaId, ciudadId, data){
-      try{
-        localStorage.setItem(
-          guiaLocalCacheKey(paisId, provinciaId, ciudadId),
-          JSON.stringify({ts:Date.now(), data:data})
-        );
-      }catch(e){}
-    }
 
-    function guiaKey(paisId, provinciaId, ciudadId){
-      return [paisId, provinciaId, ciudadId].map(v => String(v || '').trim()).join('|');
-    }
 
-    function prefetchGuia(paisId, provinciaId, ciudadId){
-      // ciudad_id es suficiente para empezar a leer indice_guia.
-      // País/provincia pueden resolverse después sin frenar la tarjeta pública.
-      if(!ciudadId) return null;
-      const key = guiaKey(paisId, provinciaId, ciudadId);
 
-      // Si ya visitó esta ciudad, mostramos la guía inmediatamente.
-      const local = leerGuiaLocalCache(paisId, provinciaId, ciudadId);
-      if(local) return Promise.resolve(local);
 
-      if(!guiaPrefetchCache.has(key)){
-        guiaPrefetchCache.set(
-          key,
-          guiaPublicApi({
-            action:'guia',
-            pais_id:paisId,
-            provincia_id:provinciaId,
-            ciudad_id:ciudadId
-          }).then(data => {
-            guardarGuiaLocalCache(paisId, provinciaId, ciudadId, data);
-            return data;
-          }).catch(err => {
-            guiaPrefetchCache.delete(key);
-            throw err;
-          })
-        );
-      }
-      return guiaPrefetchCache.get(key);
-    }
+
+
+
 
     const urlAnunciantes = ANUNCIANTES_API + '?pais_id=' + encodeURIComponent(paisSeleccionado)
       + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
@@ -2407,36 +2348,7 @@ const controller = new AbortController();
       return territorioPublicoPromise;
     }
 
-    function iniciarBootstrapCompleto(){
-      if(!bootstrapCompletoPromise){
-        bootstrapCompletoPromise = gldFetchJson(GUIA_CATALOGOS_API, {}, {timeoutMs:15000}).then(({data})=>data)
-          .then(data=>{
-            if(!data || data.success !== true){
-              throw new Error((data && (data.error || data.message)) || 'Bootstrap inválido');
-            }
 
-            catalogosGlobales.segmentos = Array.isArray(data.segmentos) ? data.segmentos : [];
-            catalogosGlobales.segmentosPublicos = Array.isArray(data.segmentos_publicos)
-              ? data.segmentos_publicos
-              : catalogosGlobales.segmentos.filter(s => {
-                  const v = String(s.visible_publico ?? '').trim().toLowerCase();
-                  return v === 'true' || v === '1' || v === 'x' || v === 'si' || v === 'sí';
-                });
-            catalogosGlobales.categorias = Array.isArray(data.categorias) ? data.categorias : [];
-            catalogosGlobales.actividades = Array.isArray(data.actividades_clave) ? data.actividades_clave : [];
-            catalogosGlobales.acciones = Array.isArray(data.acciones) ? data.acciones : [];
-            catalogosGlobales.nodos = Array.isArray(data.nodos) ? data.nodos : [];
-            relacionesSedesGlobales = (data.relaciones_sedes && typeof data.relaciones_sedes === 'object') ? data.relaciones_sedes : {};
-            metaPorIdGlobal = (data.meta_por_id && typeof data.meta_por_id === 'object') ? data.meta_por_id : {};
-            return data;
-          })
-          .catch(err=>{
-            bootstrapCompletoPromise = null;
-            throw err;
-          });
-      }
-      return bootstrapCompletoPromise;
-    }
 
     function normId(v){
       return String(v || '').trim().toLowerCase();
