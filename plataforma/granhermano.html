@@ -1296,111 +1296,86 @@ const GH_NIVEL_DESTINOS = [
   ['imagenes_destino','Al tocar una imagen',[['ampliar','Ampliar imagen'],['ninguno','Sin acción'],['web','Sitio web del anunciante'],['ficha','Ficha del anunciante']]]
 ];
 function ghNivelCamposV86(id,row={}){
-  const nivel=GLD_CLASSIFICATION.levelNumber(row),rules=GLD_CLASSIFICATION.rules(row,nivel);
-  const escId=esc(id),flag=GLD_CLASSIFICATION.flag;
-  const inputN=(key,label,value,actual,max)=>{
-    return '<label>'+esc(label)+'<input type="number" min="0" step="1" '+(max?'max="'+max+'" ':'')+
-      'data-cat-'+key+'="'+escId+'" value="'+esc(value??actual??'')+'"></label>';
-  };
-  const selectFlag=(key,label,value)=>{
-    const v=flag(value);
-    return '<label>'+esc(label)+'<select data-cat-'+key+'="'+escId+'">'+
-      '<option value="" '+(v===null?'selected':'')+'>Sin configurar (mantener actual)</option>'+
-      '<option value="true" '+(v===true?'selected':'')+'>Sí</option>'+
-      '<option value="false" '+(v===false?'selected':'')+'>No</option></select></label>';
-  };
-  const card=(title,contents)=>'<div style="padding:12px;border:1px solid var(--border,#d4d4d8);border-radius:10px">'+
-    '<h4 style="margin:0 0 10px">'+esc(title)+'</h4><div class="formgrid">'+contents+'</div></div>';
-  const perm=(key,label)=>selectFlag('prest_'+key,label,row[key]);
-  const count=(key,label,base)=>{
-    const v=row[key],actual=v===undefined||v===null||v===''?base:v;
-    return inputN('red_'+key,label,v,actual,20);
-  };
-  const identity=card('Identificación del nivel',
-    '<label>Número<input type="number" min="1" step="1" data-cat-numero="'+escId+'" value="'+esc(row.numero??nivel??'')+'"></label>'+
-    inputN('orden','Orden / prioridad',row.prioridad??row.orden,undefined));
-  const content=[
-    card('Logo',perm('logo_habilitado','Mostrar logo')),
-    card('Descripción',inputN('descmax','Máximo de caracteres',row.descripcion_max,rules.descripcion_max)+perm('descripcion_habilitada','Mostrar descripción')),
-    card('Información adicional',inputN('adicmax','Máximo de caracteres',row.adicionales_max,rules.adicionales_max)+perm('adicionales_habilitados','Mostrar información adicional')),
-    card('Tags',inputN('tagsmax','Máximo de caracteres',row.tags_max,rules.tags_max)+selectFlag('prest_tags_habilitados','Mostrar tags',row.tags_habilitados)),
-    card('Imágenes y galería',inputN('imgmax','Cantidad de imágenes publicadas en la tarjeta (máximo técnico actual: 5)',row.imagenes_max,rules.imagenes_max,5)+
-      selectFlag('prest_imagenes_habilitadas','Mostrar imágenes y galería',row.imagenes_habilitadas)),
-    card('Redes sociales',count('redes_visibles_max','Cantidad publicada (capacidad de carga objetivo: 6)',nivel===3||nivel===4?1:6)+
-      count('redes_enlaces_max','Cantidad con enlace',nivel===3?0:nivel===4?1:6)+
-      '<p class="muted" style="grid-column:1/-1">El anunciante conserva todas sus redes guardadas; aquí sólo se define qué puede publicar.</p>')
-  ].join('');
-  const contacts=card('Contacto',[
-    perm('telefono_habilitado','Mostrar teléfono'),
-    perm('whatsapp_habilitado','Mostrar WhatsApp'),
-    perm('mail_habilitado','Mostrar correo electrónico'),
-    perm('web_habilitada','Mostrar acceso web interno de Guía Local')
-  ].join(''));
-  const actions=card('Identificación y acciones',[
+ const nivel=GLD_CLASSIFICATION.levelNumber(row),rules=GLD_CLASSIFICATION.rules(row,nivel);
+ const eid=esc(id),flag=GLD_CLASSIFICATION.flag;
+ const input=(key,label,value,fallback,max)=>'<label>'+esc(label)+'<input type="number" min="0" step="1" '+(max!==undefined?'max="'+max+'" ':'')+
+  'data-cat-'+key+'="'+eid+'" value="'+esc(value??fallback??0)+'"></label>';
+ const select=(key,label,value)=>{
+  const v=flag(value);
+  return '<label>'+esc(label)+'<select data-cat-'+key+'="'+eid+'">'+
+   '<option value="" '+(v===null?'selected':'')+'>Sin configurar (conservar regla actual)</option>'+
+   '<option value="true" '+(v===true?'selected':'')+'>Sí</option>'+
+   '<option value="false" '+(v===false?'selected':'')+'>No</option></select></label>';
+ };
+ const group=(title,body)=>'<div style="padding:12px;border:1px solid #d4d4d8;border-radius:10px"><h4 style="margin:0 0 10px">'+esc(title)+'</h4><div class="formgrid">'+body+'</div></div>';
+ const perm=(key,label)=>select('prest_'+key,label,row[key]);
+ const maxImages=row.imagenes_max??rules.imagenes_max;
+ const fields=[
+  group('Logo',perm('logo_habilitado','Publicar logo')),
+  group('Descripción',perm('descripcion_habilitada','Publicar descripción')),
+  group('Información adicional',perm('adicionales_habilitados','Publicar información adicional')),
+  group('Tags',select('prest_tags_habilitados','Publicar tags',row.tags_habilitados)),
+  group('Imágenes y galería',input('imgmax','Cantidad de imágenes que publica este nivel (0 = no mostrar)',maxImages,5,5)+
+    '<small class="muted" style="grid-column:1/-1">Se conserva la carga de hasta 5 imágenes en la ficha general. Este número determina cuántas publica la tarjeta.</small>'),
+  group('Redes sociales',input('red_redes_visibles_max','Cantidad de redes que publica este nivel',row.redes_visibles_max,nivel===3||nivel===4?1:6,6)+
+    input('red_redes_enlaces_max','De ellas, cuántas tienen enlace',row.redes_enlaces_max,nivel===3?0:nivel===4?1:6,6)+
+    '<small class="muted" style="grid-column:1/-1">La ficha maestra puede conservar 6 redes. La cantidad enlazada nunca debe superar la visible.</small>'),
+  group('Contacto',[
+    perm('telefono_habilitado','Publicar teléfono'),
+    perm('whatsapp_habilitado','Publicar WhatsApp'),
+    perm('mail_habilitado','Publicar correo electrónico'),
+    perm('web_habilitada','Publicar acceso web interno de Guía Local')
+  ].join('')),
+  group('Identificación y acciones',[
     perm('insignias_habilitadas','Mostrar insignias'),perm('verificado_habilitado','Mostrar Verificado'),
     perm('gold_habilitado','Mostrar Gold'),perm('favoritos_habilitados','Botón Favoritos'),
-    perm('compartir_habilitado','Botón Compartir'),selectFlag('destacado','Destacado',row.destacado)
-  ].join(''));
-  const destinations=GH_NIVEL_DESTINOS.map(([key,label,opts])=>'<label>'+esc(label)+
-    '<select data-cat-dest_'+key+'="'+escId+'"><option value="" '+(!row[key]?'selected':'')+
-    '>Sin configurar (mantener actual)</option>'+opts.map(([value,title])=>
-    '<option value="'+esc(value)+'" '+(row[key]===value?'selected':'')+'>'+esc(title)+'</option>').join('')+
-    '</select></label>').join('');
-  return '<div class="card" style="margin-top:12px"><h4>Prestaciones de este nivel</h4>'+
-    '<p class="muted"><b>Dos reglas distintas:</b> la ficha maestra conserva los datos completos; este nivel establece qué se publica. Capacidad general objetivo: 5 imágenes y 6 redes, independientemente del nivel. La separación entre carga y publicación requiere adecuar también Worker y Login; no se aplica sólo por modificar esta pantalla.</p>'+
-    '<div style="display:grid;gap:12px">'+identity+content+contacts+actions+card('Acciones sobre imágenes',destinations)+'</div>'+
-    '<p class="muted"><b>Publicación obligatoria para todos los niveles:</b> nombre, segmento, categoría y al menos uno entre dirección física, red social visible, teléfono o WhatsApp. Si falta, la tarjeta debe pausarse sin borrar datos.</p>'+
-    '<p class="muted"><b>Acceso web:</b> únicamente enlaces a www.guialocal.ar, incluidos micrositios y páginas externas embebidas.</p></div>';
+    perm('compartir_habilitado','Botón Compartir'),select('destacado','Destacado',row.destacado)
+  ].join(''))
+ ].join('');
+ const destinations=GH_NIVEL_DESTINOS.map(([key,label,opts])=>'<label>'+esc(label)+
+  '<select data-cat-dest_'+key+'="'+eid+'"><option value="" '+(!row[key]?'selected':'')+'>Sin configurar (conservar actual)</option>'+
+  opts.map(([value,title])=>'<option value="'+esc(value)+'" '+(row[key]===value?'selected':'')+'>'+esc(title)+'</option>').join('')+
+  '</select></label>').join('');
+ return '<div class="card" style="margin-top:12px"><h4>Qué publica este nivel</h4>'+
+  '<p class="muted">Los máximos generales de carga pertenecen a la ficha maestra y son independientes del nivel. Aquí sólo se elige qué se publica. Cambiar de nivel nunca borra información.</p>'+
+  '<div style="display:grid;gap:12px">'+
+  group('Identificación del nivel','<label>Número<input type="number" min="1" step="1" data-cat-numero="'+eid+'" value="'+esc(row.numero??nivel??'')+'"></label>'+
+    input('orden','Orden / prioridad',row.prioridad??row.orden,0))+
+  fields+group('Al tocar imágenes o logo',destinations)+'</div>'+
+  '<p class="muted"><b>Mínimo obligatorio en toda tarjeta:</b> nombre, segmento, categoría y al menos un contacto (dirección, red social, teléfono o WhatsApp). La validación efectiva y la pausa automática requieren implementación en Worker.</p>'+
+  '<p class="muted"><b>Web:</b> sólo enlaces dentro de www.guialocal.ar.</p></div>';
 }
 function ghNivelPatchV86(previous,get){
-  const patch={},fields=[['numero','numero'],['orden','prioridad'],['descmax','descripcion_max'],
-    ['adicmax','adicionales_max'],['tagsmax','tags_max'],['imgmax','imagenes_max']];
-  for(const [input,key] of fields){
-    const raw=String(get(input)??'').trim();
-    const old=key==='prioridad'?previous?.prioridad??previous?.orden:key==='numero'?previous?.numero??GLD_CLASSIFICATION.levelNumber(previous):previous?.[key];
-    if(raw===String(old??''))continue;
-    if(raw===''){if(key==='numero')throw Error('Indicá un número de nivel válido.');if(old!==undefined&&old!==null)patch[key]=null;continue;}
-    const value=Number(raw);
-    if(!Number.isSafeInteger(value)||value<(key==='numero'?1:0)||(key==='imagenes_max'&&value>5))throw Error('Valor inválido en '+key+'.');
-    patch[key]=value;if(key==='prioridad')patch.orden=value;
-  }
-  if(!previous&&(!Number.isSafeInteger(Number(get('numero')))||Number(get('numero'))<=0))throw Error('Indicá un número de nivel válido.');
-  // Una única regla para tags e imágenes: 0 deshabilita, >0 habilita.
-  // Cuando el administrador cambia el máximo, sincronizar también el flag heredado
-  // para que Worker y tarjetas no mantengan un bloqueo contradictorio.
-  for(const [maxKey,enabledKey] of [['tags_max','tags_habilitados'],['imagenes_max','imagenes_habilitadas']]){
-    if(!Object.hasOwn(patch,maxKey)||patch[maxKey]===null)continue;
-    const explicit=String(get('prest_'+enabledKey)??'').trim();
-    const enabled=explicit===''?patch[maxKey]>0:explicit==='true';
-    if(GLD_CLASSIFICATION.flag(previous?.[enabledKey])!==enabled)patch[enabledKey]=enabled;
-  }
-  for(const [input,key] of [['destacado','destacado'],['prest_tags_habilitados','tags_habilitados'],['prest_imagenes_habilitadas','imagenes_habilitadas'],
-    ...GH_NIVEL_PRESTACIONES.map(([key])=>['prest_'+key,key])]){
-    const raw=String(get(input)??'').trim();
-    const old=GLD_CLASSIFICATION.flag(previous?.[key]);
-    if(raw===''){
-      if(previous?.[key]!==undefined&&previous?.[key]!==null&&previous?.[key]!=='')patch[key]=null;
-      continue;
-    }
-    const value=raw==='true';
-    if(value!==old)patch[key]=value;
-  }
-  // Un solo control visual para imágenes y galería; conservar ambos permisos heredados sincronizados.
-  if(Object.hasOwn(patch,'imagenes_habilitadas'))patch.galeria_habilitada=patch.imagenes_habilitadas;
-  for(const [key,label] of GH_NIVEL_REDES_LIMITES){
-    const raw=String(get('red_'+key)??'').trim();
-    const old=previous?.[key];
-    if(raw===''){if(old!==undefined&&old!==null)patch[key]=null;continue;}
-    const n=Number(raw);
-    if(!Number.isSafeInteger(n)||n<0||n>20)throw Error('Cantidad inválida: '+label);
-    if(n!==old)patch[key]=n;
-  }
-  for(const [key,,options] of GH_NIVEL_DESTINOS){
-    const raw=String(get('dest_'+key)??'').trim();
-    if(raw && !options.some(([v])=>v===raw))throw Error('Destino de enlace inválido: '+key);
-    if(raw!==String(previous?.[key]??''))patch[key]=raw||null;
-  }
-  return patch;
+ const patch={},number=get('numero'),order=get('orden');
+ if(String(number??'').trim()===''||!Number.isSafeInteger(Number(number))||Number(number)<1)throw Error('Número de nivel inválido.');
+ if(Number(number)!==Number(previous?.numero??GLD_CLASSIFICATION.levelNumber(previous)))patch.numero=Number(number);
+ if(String(order??'').trim()!==''){
+  if(!Number.isSafeInteger(Number(order))||Number(order)<0)throw Error('Orden inválido.');
+  if(Number(order)!==Number(previous?.prioridad??previous?.orden??0)){patch.prioridad=Number(order);patch.orden=Number(order);}
+ }
+ const max=Number(get('imgmax'));
+ if(!Number.isSafeInteger(max)||max<0||max>5)throw Error('La cantidad de imágenes publicadas debe estar entre 0 y 5.');
+ if(max!==Number(previous?.imagenes_max??GLD_CLASSIFICATION.rules(previous,GLD_CLASSIFICATION.levelNumber(previous)).imagenes_max))patch.imagenes_max=max;
+ // La galería y las imágenes son una sola prestación: preservar campos heredados sincronizados.
+ if(GLD_CLASSIFICATION.flag(previous?.imagenes_habilitadas)!==(max>0))patch.imagenes_habilitadas=max>0;
+ if(GLD_CLASSIFICATION.flag(previous?.galeria_habilitada)!==(max>0))patch.galeria_habilitada=max>0;
+ const visible=Number(get('red_redes_visibles_max')),links=Number(get('red_redes_enlaces_max'));
+ if(!Number.isSafeInteger(visible)||visible<0||visible>6||!Number.isSafeInteger(links)||links<0||links>visible)throw Error('Redes: hasta 6 visibles y enlaces no mayores que redes visibles.');
+ if(visible!==Number(previous?.redes_visibles_max??(Number(number)===3||Number(number)===4?1:6)))patch.redes_visibles_max=visible;
+ if(links!==Number(previous?.redes_enlaces_max??(Number(number)===3?0:Number(number)===4?1:6)))patch.redes_enlaces_max=links;
+ for(const [key]of [['destacado'],['tags_habilitados'],...GH_NIVEL_PRESTACIONES.map(([k])=>[k]).filter(([k])=>k!=='galeria_habilitada')]){
+  const field=key==='destacado'?'destacado':'prest_'+key;
+  const raw=String(get(field)??'').trim();
+  const old=GLD_CLASSIFICATION.flag(previous?.[key]);
+  if(raw===''){if(previous?.[key]!==undefined&&previous?.[key]!==null&&previous?.[key]!=='')patch[key]=null;}
+  else if((raw==='true')!==old)patch[key]=raw==='true';
+ }
+ for(const [key,,opts]of GH_NIVEL_DESTINOS){
+  const raw=String(get('dest_'+key)??'').trim();
+  if(raw&&!opts.some(([v])=>v===raw))throw Error('Destino inválido: '+key);
+  if(raw!==String(previous?.[key]??''))patch[key]=raw||null;
+ }
+ return patch;
 }
 
 function ghRenderCatalogo(def,rows){
