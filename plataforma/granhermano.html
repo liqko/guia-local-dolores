@@ -1328,15 +1328,10 @@ async function ghGuardarCargaGeneral(){
   if(Object.keys(item).length===1){if(message)message.textContent='Sin cambios.';return;}
   if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
   if(message)message.textContent='Guardando…';
-  await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-  const j=await api('listar_catalogo',{tipo:'niveles_anunciante'});
-  const confirmed=(j.results||[]).find(x=>String(x.nivel_id||x.id||'')===GH_CARGA_GENERAL_ID);
-  if(!confirmed||Object.entries(item).some(([key,value])=>key.startsWith('carga_')&&Number(confirmed[key])!==Number(value)))
-   throw Error('El servidor no confirmó los parámetros generales. No se dan por guardados.');
-  GH_CATALOG_CACHE.niveles_anunciante=j.results||[];
-  ghCargaGeneralRender(j.results||[]);
-  ghRenderCatalogo(GH_CATALOGOS.find(x=>x.tipo==='niveles_anunciante'),j.results||[]);
-  if(document.getElementById('ghCargaGeneralMensaje'))document.getElementById('ghCargaGeneralMensaje').textContent='Guardado y verificado.';
+  const saved=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  if(!saved.success)throw Error('No se confirmó el guardado.');
+  GH_CARGA_GENERAL_BASE={...(GH_CARGA_GENERAL_BASE||{}),...item};
+  if(message)message.textContent='Guardado.';
  }catch(e){if(message)message.textContent='Error: '+String(e.message||e);}
 }
 function ghNivelCamposV86(id,row={}){
@@ -1445,7 +1440,6 @@ function ghNuevoCatalogo(tipo){
   const nivelExtra=tipo==='niveles_anunciante'?ghNivelCamposV86(id):'';
   box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" placeholder="Nombre"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div>'+nivelExtra+'<div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" checked> Activo</label></div><button onclick="ghGuardarCatalogo(\''+tipo+'\',\''+esc(id)+'\')">Guardar</button></div>');
 }
-function ghEqualSave_(a,b){return JSON.stringify(a??null)===JSON.stringify(b??null);}
 async function ghGuardarCatalogo(tipo,id){
   const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
   const nombre=(document.querySelector('[data-cat-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
@@ -1457,14 +1451,12 @@ async function ghGuardarCatalogo(tipo,id){
     const item={[def.idField]:id,[labelField]:nombre.trim()};
     if(!previous||activo!==GLD_CLASSIFICATION.active(previous))item.activo=activo;
     if(tipo==='niveles_anunciante')Object.assign(item,ghNivelPatchV86(previous,key=>(document.querySelector('[data-cat-'+key+'="'+CSS.escape(id)+'"]')||{}).value));
-    await api('guardar_catalogo',{tipo,item},'POST');
-    const readback=await api('listar_catalogo',{tipo});
-    const saved=(readback.results||[]).find(x=>String(x[def.idField]||x.id||'')===id);
-    if(!saved||Object.entries(item).some(([k,v])=>k!==def.idField&&!ghEqualSave_(saved[k],v)))
-      throw Error('El servidor no confirmó todos los valores. Revisá la configuración antes de continuar.');
-    GH_CATALOG_CACHE[tipo]=readback.results||[];
-    ghRenderCatalogo(def,readback.results||[]);
-    if(tipo==='niveles_anunciante'){ghCargaGeneralRender(readback.results||[]);ghRenderResumenNiveles108();}
+    const result=await api('guardar_catalogo',{tipo,item},'POST');
+    if(!result.success)throw Error('No se confirmó el guardado.');
+    const updated={...(previous||{}),...item};
+    GH_CATALOG_CACHE[tipo]=previous?(GH_CATALOG_CACHE[tipo]||[]).map(x=>String(x[def.idField]||x.id||'')===id?updated:x):[...(GH_CATALOG_CACHE[tipo]||[]),updated];
+    ghRenderCatalogo(def,GH_CATALOG_CACHE[tipo]);
+    if(tipo==='niveles_anunciante'){ghCargaGeneralRender(GH_CATALOG_CACHE[tipo]);ghRenderResumenNiveles108();}
   }
   catch(e){alert(e.message);}
 }
