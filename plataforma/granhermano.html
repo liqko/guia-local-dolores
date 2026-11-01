@@ -1326,7 +1326,7 @@ async function ghGuardarCargaGeneral(){
     throw Error('Valor inválido: '+label);
    if(key==='imagenes_max'&&value>10)throw Error('Actualmente existen 10 campos de imagen por sede como máximo.');
    if(key==='redes_max'&&value>6)throw Error('Actualmente existen 6 campos de redes sociales.');
-   if(value!==Number(GH_CARGA_GENERAL_BASE?.['carga_'+key]??GH_CARGA_GENERAL_FIELDS.find(x=>x[0]===key)[2]))
+   if(!GH_CARGA_GENERAL_BASE||value!==Number(GH_CARGA_GENERAL_BASE?.['carga_'+key]??GH_CARGA_GENERAL_FIELDS.find(x=>x[0]===key)[2]))
     item['carga_'+key]=value;
   }
   if(Object.keys(item).length===1){if(message)message.textContent='Sin cambios.';return;}
@@ -1512,22 +1512,20 @@ document.getElementById('ghTabs').addEventListener('click',function(e){const b=e
 
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
- const catalog=GH_CATALOG_CACHE.niveles_anunciante||[];
- const descriptions={
-  1:['Espacio gratuito','Ficha con nombre, actividad, contacto, logo, redes e imágenes según los datos y límites habilitados.'],
-  2:['Espacio gratuito o bonificado','Ficha con nombre, actividad, contacto, logo, redes e imágenes según los datos y límites habilitados. La administración define la bonificación.'],
-  3:['Espacio gratuito básico','Ficha sencilla: nombre, actividad, un teléfono, un WhatsApp y una red social mostrada como texto. No incluye logo en la presentación de la ficha ni botones de compartir o guardar como favorito.'],
-  4:['Plan pago','Ficha con logo, descripción, contacto, galería y una red social con enlace. Participa en el listado según la búsqueda y el nivel. Puede contratar publicidad y otros módulos con cupos propios.'],
-  5:['Plan pago con mayor prioridad','Ficha con logo, descripción, contacto, galería y las redes sociales cargadas con enlace. Tiene prioridad sobre el nivel 4 cuando corresponde a la misma búsqueda. Puede contratar publicidad y otros módulos con cupos propios.'],
-  6:['Súper premium','Ficha con logo, descripción, contacto, galería y redes sociales. En la guía general aparece completa en la primera página y en un carrusel desde la segunda. En una búsqueda solo aparece si coincide con lo buscado.']
- };
- box.innerHTML=Array.from({length:6},(_,i)=>{
-  const number=i+1,row=GLD_CLASSIFICATION.findLevel(catalog,number),known=Object.keys(row).length>0;
-  const name=known?GLD_CLASSIFICATION.name(row):descriptions[number][0],rules=GLD_CLASSIFICATION.rules(row,number);
-  const active=known&&GLD_CLASSIFICATION.active(row);
-  const limits=known?'<ul>'+(number===3?'<li>Presentación básica, sin descripción extensa en la ficha pública.</li>':'<li>Descripción: hasta '+esc(rules.descripcion_max)+' caracteres.</li>')+'<li>Información adicional: hasta '+esc(rules.adicionales_max)+' caracteres.</li><li>Tags de la ficha: '+(rules.tags_max?'hasta '+esc(rules.tags_max)+' caracteres.':'no habilitados.')+'</li><li>Imágenes de la galería: '+(rules.imagenes_max?'hasta '+esc(rules.imagenes_max)+'.':'no habilitadas.')+'</li></ul>':'<p class="notice">Este nivel no figura en el catálogo cargado. No hay límites confirmados para ofrecerlo.</p>';
-  const streaming=number===6?'<div class="plan-streaming"><strong>Incluye un segmento en ACP Contenidos.</strong><p>Presentación, anuncio o publinota dentro de un programa o transmisión de producción propia del canal. Es una prestación comprometida de este nivel. El formato y la ubicación se coordinan según la propuesta y la programación, sin duración fija. No obliga a programas producidos por terceros.</p></div>':'';
-  return '<details class="plan-level"><summary><strong>Nivel '+number+' · '+esc(name)+'</strong><span>'+esc(descriptions[number][0])+(known&&!active?' · No habilitado en el catálogo':'')+'</span></summary><p>'+esc(descriptions[number][1])+'</p>'+streaming+'<details><summary>Límites vigentes de la ficha</summary>'+limits+'</details></details>';
+ const catalog=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID);
+ const general=GH_CARGA_GENERAL_BASE;
+ const defaults=GH_CARGA_GENERAL_FIELDS.map(([key,label,n])=>'<li>'+esc(label)+': '+esc(general?.['carga_'+key]??n)+'</li>').join('');
+ const flag=(row,key)=>{const v=GLD_CLASSIFICATION.flag(row[key]);return v===null?'Sin configurar':v?'Sí':'No';};
+ box.innerHTML='<div class="card"><h3>Parámetros generales de carga (iguales para todos)</h3><ul>'+defaults+'</ul></div>'+
+ Array.from({length:6},(_,i)=>{
+  const n=i+1,row=GLD_CLASSIFICATION.findLevel(catalog,n),known=Object.keys(row).length>0;
+  if(!known)return '<details class="plan-level"><summary><strong>Nivel '+n+'</strong></summary><p>Sin configuración cargada.</p></details>';
+  const r=GLD_CLASSIFICATION.rules(row,n),v=row.redes_visibles_max??(n===3||n===4?1:6),l=row.redes_enlaces_max??(n===3?0:n===4?1:6);
+  return '<details class="plan-level"><summary><strong>Nivel '+n+' · '+esc(GLD_CLASSIFICATION.name(row))+'</strong><span>'+(GLD_CLASSIFICATION.active(row)?'Activo':'Inactivo')+'</span></summary>'+
+  '<ul><li>Logo: '+flag(row,'logo_habilitado')+'</li><li>Descripción: '+flag(row,'descripcion_habilitada')+'</li>'+
+  '<li>Información adicional: '+flag(row,'adicionales_habilitados')+'</li><li>Tags: '+flag(row,'tags_habilitados')+'</li>'+
+  '<li>Imágenes publicadas: '+esc(r.imagenes_max)+'</li><li>Redes publicadas: '+esc(v)+'; con enlace: '+esc(l)+'</li>'+
+  '<li>Teléfono: '+flag(row,'telefono_habilitado')+'; WhatsApp: '+flag(row,'whatsapp_habilitado')+'; correo: '+flag(row,'mail_habilitado')+'</li></ul></details>';
  }).join('');
  informarAltura();
 }
