@@ -75,6 +75,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 <script src="/plataforma/cupos.js?v=64"></script>
 <script src="/plataforma/gh-calendario.js?v=91"></script>
 <script src="/plataforma/gh-promos.js?v=91"></script>
+<script src="./farmacias-ciclo.js?v=147"></script>
 </head>
 <body>
 <div class="wrap">
@@ -127,9 +128,9 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
     </section>
     <section id="view-farmacias" class="view">
       <div class="card"><h2>Farmacias · Consulta por ciudad</h2>
-        <p class="muted">Consulta los turnos publicados por la plataforma. La programación y edición pertenecen al panel del anunciante.</p>
+        <p class="muted">Consulta los ciclos, su orden y los turnos vigente y próximo. La edición permanece en el panel del anunciante.</p>
         <div class="toolbar"><label>Ciudad<select id="ghFarmaciaCiudad"><option value="">Seleccioná una ciudad</option></select></label>
-          <button type="button" onclick="ghFarmaciasConsultar()">Consultar turnos</button></div>
+          <button type="button" onclick="ghFarmaciasConsultar()">Consultar ciclos y turnos</button></div>
         <div id="ghFarmaciasResultado" role="status">Seleccioná una ciudad para consultar.</div>
       </div>
     </section>
@@ -756,20 +757,52 @@ async function ghFarmaciasConsultar(){
  const city=document.getElementById('ghFarmaciaCiudad')?.value;
  const box=document.getElementById('ghFarmaciasResultado');
  if(!box||!city){if(box)box.textContent='Seleccioná una ciudad.';return;}
- box.textContent='Consultando turnos...';
+ box.textContent='Consultando ciclos y turnos...';
  try{
-  const r=await fetch(TERRITORY_API_ORIGIN+'/farmacias?action=turnos&ciudad_id='+encodeURIComponent(city));
+  // Misma fuente pública ya preparada que utiliza la Carcasa: una consulta por ciudad.
+  const r=await fetch(TERRITORY_API_ORIGIN+'/farmacias?action=ciclo&ciudad_id='+encodeURIComponent(city));
   const j=await r.json();
-  if(!r.ok||!j.success)throw Error(j.message||'No se pudieron consultar las farmacias.');
+  if(!r.ok||!j.success)throw Error(j.message||'No se pudieron consultar los ciclos.');
   const cycles=Array.isArray(j.ciclos)?j.ciclos:[];
   box.replaceChildren();
-  if(!cycles.length){box.textContent='No hay ciclos de turnos publicados para esta ciudad.';return;}
-  const sum=document.createElement('p');sum.textContent='Ciclos publicados: '+cycles.length;box.appendChild(sum);
-  cycles.forEach((cycle,i)=>{const d=document.createElement('details'),h=document.createElement('summary'),p=document.createElement('pre');
-   h.textContent='Ciclo '+(i+1)+' · '+String(cycle.nombre||cycle.ciclo||cycle.id||cycle.fecha_desde||'');
-   p.textContent=JSON.stringify(cycle,null,2);d.append(h,p);box.appendChild(d);
+  const heading=document.createElement('h3');
+  heading.textContent='Ciclos publicados: '+cycles.length;
+  box.appendChild(heading);
+  if(!cycles.length){
+   const p=document.createElement('p');p.textContent='No hay ciclos publicados para esta ciudad.';box.appendChild(p);return;
+  }
+  if(!window.GLDFarmCycle)throw Error('No está disponible el cálculo de turnos.');
+  const view=window.GLDFarmCycle.turns(j);
+  const renderTurnos=(title,rows)=>{
+   const h=document.createElement('h3');h.textContent=title;box.appendChild(h);
+   if(!rows.length){const p=document.createElement('p');p.textContent='Sin turno informado.';box.appendChild(p);return;}
+   const ul=document.createElement('ul');
+   rows.forEach(t=>{
+    const li=document.createElement('li');
+    li.textContent=(t.nombre_sede||t.nombre_ref||t.nombre||t.sede_id||'Farmacia')+
+     ' · '+t.fecha_desde+' '+t.hora_desde+' a '+t.fecha_hasta+' '+t.hora_hasta;
+    ul.appendChild(li);
+   });
+   box.appendChild(ul);
+  };
+  renderTurnos('Turno vigente',view.current);
+  renderTurnos('Próximo turno',view.next);
+  const title=document.createElement('h3');title.textContent='Ciclos y orden de rotación';box.appendChild(title);
+  cycles.forEach((cycle,i)=>{
+   const details=document.createElement('details'),summary=document.createElement('summary'),info=document.createElement('p'),list=document.createElement('ol');
+   const hours=Number(cycle.duracion_horas||24);
+   summary.textContent='Ciclo '+(i+1)+' · '+hours+' horas'+(cycle.activo===false?' · INACTIVO':'');
+   info.textContent='Inicio: '+(cycle.fecha_inicio||'Sin fecha')+' '+(cycle.hora_inicio||'')+' · Farmacias simultáneas: '+(cycle.farmacias_por_turno||1);
+   const sedes=new Map((cycle.sedes||[]).map(x=>[String(x.sede_id||x.id),x]));
+   [...(cycle.participantes||[])].filter(p=>p&&p.activo!==false).sort((a,b)=>Number(a.orden||999999)-Number(b.orden||999999)).forEach(p=>{
+    const li=document.createElement('li'),sede=sedes.get(String(p.sede_id))||{};
+    li.textContent=sede.nombre_sede||sede.nombre_ref||sede.nombre||p.sede_id||'Sede sin nombre';
+    list.appendChild(li);
+   });
+   if(!list.children.length){const li=document.createElement('li');li.textContent='Sin farmacias participantes.';list.appendChild(li);}
+   details.append(summary,info,list);box.appendChild(details);
   });
- }catch(e){box.textContent=e.message||'Error consultando los turnos.';}
+ }catch(e){box.textContent=e.message||'Error consultando Farmacias.';}
  informarAltura();
 }
 
