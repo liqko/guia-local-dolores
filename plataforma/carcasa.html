@@ -561,23 +561,6 @@
       .gld-user-strip button{flex:1}
     }
 
-    /* ===== FAVORITO EN INSIGNIAS ===== */
-    .gld-fav-anunciante-btn{
-      width:40px;height:40px;border-radius:50%;
-      border:2px solid #006699;background:#fff;color:#006699;
-      display:inline-flex;align-items:center;justify-content:center;
-      cursor:pointer;font-size:1.45rem;line-height:1;
-      padding:0;box-shadow:0 2px 8px rgba(0,0,0,.12);
-      font-style:normal;
-    }
-    .gld-fav-anunciante-btn.activo{
-      background:#fff0f0;color:#d62828;border-color:#d62828;
-    }
-    .gld-fav-anunciante-btn:disabled{opacity:.55;cursor:wait}
-    @media(max-width:700px){
-      .gld-fav-anunciante-btn{width:32px;height:32px;font-size:1.2rem}
-    }
-
     /* ===== BLOQUEO TOTAL DE CARGA ===== */
     .gld-bloqueo-total{
       display:none;position:fixed;inset:0;z-index:300000;align-items:flex-start;justify-content:center;
@@ -1204,27 +1187,6 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
       }catch(e){ return ''; }
     }
 
-    const ANUNCIANTES_API = "https://login.liqkoargentina.workers.dev/guide";
-    const GUIA_CATALOGOS_API = "https://login.liqkoargentina.workers.dev/catalogs/public/guide";
-
-    async function guiaPublicApi(params={}, timeoutMs=15000) {
-      const u = new URL(ANUNCIANTES_API);
-      Object.entries(params).forEach(([k,v]) => {
-        if(k !== 'action' && v !== undefined && v !== null && String(v) !== '') u.searchParams.set(k, v);
-      });
-const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      try{
-        const r = await fetch(u.toString(), {signal:controller.signal});
-        if(!r.ok) throw new Error('HTTP '+r.status);
-        const data=await r.json();
-        if(!data || data.success!==true) throw new Error((data && data.message) || 'Guía no disponible');
-        return data;
-      }finally{
-        clearTimeout(timer);
-      }
-    }
-
     async function gldFetchJson(url, options={}, config={}){
       const timeoutMs=Number(config.timeoutMs||6500);
       const retries=Number(config.retries??1);
@@ -1305,124 +1267,6 @@ const controller = new AbortController();
 
     function gldIsSubscriberLogged(){
       return !!gldGetSubscriberSession() && !!gldGetSubscriberToken();
-    }
-
-    let gldFavoritosAnunciantes=new Set();
-    const GLD_FAVORITOS_CACHE_PREFIX='gld_favoritos_anunciantes_v2:';
-
-    function gldPintarFavoritosAnunciantes(){
-      document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(btn=>{
-        const id=String(btn.dataset.anuncianteId||'').trim();
-        const on=gldFavoritosAnunciantes.has(id);
-        btn.classList.toggle('activo',on);
-        btn.textContent=on?'♥':'♡';
-        btn.title=on?'Quitar de favoritos':'Agregar a favoritos';
-      });
-    }
-
-    function gldLeerFavoritosCache(suscriptorId){
-      try{
-        const x=JSON.parse(localStorage.getItem(GLD_FAVORITOS_CACHE_PREFIX+String(suscriptorId||''))||'null');
-        return x&&Array.isArray(x.ids)?x.ids:[];
-      }catch(e){return []}
-    }
-
-    function gldGuardarFavoritosCache(suscriptorId){
-      try{
-        localStorage.setItem(GLD_FAVORITOS_CACHE_PREFIX+String(suscriptorId||''),JSON.stringify({ts:Date.now(),ids:[...gldFavoritosAnunciantes]}));
-      }catch(e){}
-    }
-
-    async function gldCargarFavoritosAnunciantes(){
-      gldFavoritosAnunciantes=new Set();
-      const s=gldGetSubscriberSession();
-      if(!s || !s.suscriptor_id) return;
-
-      // Primero se recupera lo último conocido: el corazón aparece sin esperar la red.
-      gldLeerFavoritosCache(s.suscriptor_id).forEach(id=>gldFavoritosAnunciantes.add(String(id||'').trim()));
-      gldPintarFavoritosAnunciantes();
-
-      try{
-        const token=gldGetSubscriberToken();
-        if(!token)return;
-        const u=new URL(GLD_SUSCRIPTORES_API);
-        u.searchParams.set('action','favoritos');
-        u.searchParams.set('tipo','ANUNCIANTE');
-
-        const r=await fetch(u.toString(),{
-          method:'GET',
-          cache:'no-store',
-          headers:{Authorization:'Bearer '+token}
-        });
-        const data=await r.json().catch(()=>null);
-        if(!r.ok||!data||data.success!==true){
-          throw new Error((data&&(data.message||data.error))||'No se pudieron cargar los favoritos.');
-        }
-
-        const frescos=new Set();
-        (data.favoritos||[]).forEach(f=>{
-          const id=String(f&&f.referencia_id||'').trim();
-          if(id) frescos.add(id);
-        });
-        gldFavoritosAnunciantes=frescos;
-        gldGuardarFavoritosCache(s.suscriptor_id);
-        gldPintarFavoritosAnunciantes();
-      }catch(e){
-        console.warn('Favoritos anunciantes:',e);
-      }
-    }
-
-    async function gldToggleFavoritoAnunciante(btn,id,nombre){
-      id=String(id||'').trim();
-      if(!id) return;
-
-      if(!gldIsSubscriberLogged()){
-        gldShowSubscriberLogin(btn);
-        return;
-      }
-
-      const session=gldGetSubscriberSession();
-      const token=gldGetSubscriberToken();
-      const activo=gldFavoritosAnunciantes.has(id);
-      btn.disabled=true;
-
-      try{
-        if(!token)throw new Error('La sesión venció. Ingresá nuevamente.');
-        const r=await fetch(GLD_SUSCRIPTORES_API,{
-          method:'POST',
-          headers:{
-            'Content-Type':'application/json',
-            Authorization:'Bearer '+token
-          },
-          body:JSON.stringify({
-            action:activo?'quitar_favorito':'agregar_favorito',
-            tipo:'ANUNCIANTE',
-            referencia_id:id,
-            nombre_ref:String(nombre||'').trim(),
-            ciudad_id:String(ciudadSeleccionada||'').trim()
-          })
-        });
-        const data=await r.json();
-        if(!data || data.success!==true){
-          throw new Error((data&&(data.message||data.error))||'No se pudo actualizar el favorito.');
-        }
-
-        if(activo) gldFavoritosAnunciantes.delete(id);
-        else gldFavoritosAnunciantes.add(id);
-        gldGuardarFavoritosCache(session.suscriptor_id);
-
-        document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(b=>{
-          if(String(b.dataset.anuncianteId||'')!==id) return;
-          const on=gldFavoritosAnunciantes.has(id);
-          b.classList.toggle('activo',on);
-          b.textContent=on?'♥':'♡';
-          b.title=on?'Quitar de favoritos':'Agregar a favoritos';
-        });
-      }catch(e){
-        console.error('Favorito anunciante:',e);
-      }finally{
-        btn.disabled=false;
-      }
     }
 
     function gldShowSubscriberLogin(disparador){
@@ -2203,21 +2047,6 @@ const controller = new AbortController();
     }
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)cargarEfemeridesHoyGuia();else clearTimeout(efemTimer);});
 
-    // Los catálogos de anunciantes se administran dentro de anunciantes.html.
-
-
-
-
-
-
-
-
-
-
-
-    const urlAnunciantes = ANUNCIANTES_API + '?pais_id=' + encodeURIComponent(paisSeleccionado)
-      + '&provincia_id=' + encodeURIComponent(provinciaSeleccionada)
-      + '&ciudad_id=' + encodeURIComponent(ciudadSeleccionada);
     /* Integración con agenda de eventos: usa el MISMO origen de datos de la página Eventos. */
     const EVENTS_WEBAPP_URL = "https://login.liqkoargentina.workers.dev/events-new";
     const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL + "?action=getevents";
@@ -2576,9 +2405,6 @@ const controller = new AbortController();
         });
       }
 
-      // Favoritos de anunciantes pertenecen al módulo anunciantes.html.
-      const favoritosInicioPromise = Promise.resolve();
-
       // La publicidad pertenece a cada módulo central. La carcasa no la duplica.
       const publicidadInicioPromise = Promise.resolve();
       const efemInicioPromise = cargarEfemeridesHoyGuia().catch(e=>{
@@ -2588,17 +2414,6 @@ const controller = new AbortController();
       // El bootstrap global NO se dispara al abrir la Guía.
       // Se evita releer catálogos completos de Firestore en cada ingreso.
 
-      // Favoritos forman parte de la carga inicial cuando hay sesión, usando cache inmediata si existe.
-      favoritosInicioPromise.then(()=>{
-        document.querySelectorAll('.gld-fav-anunciante-btn[data-anunciante-id]').forEach(btn=>{
-          const id=String(btn.dataset.anuncianteId||'').trim();
-          const on=gldFavoritosAnunciantes.has(id);
-          btn.classList.toggle('activo',on);
-          btn.textContent=on?'♥':'♡';
-          btn.title=on?'Quitar de favoritos':'Agregar a favoritos';
-        });
-      }).catch(()=>{});
-
       // La carcasa queda disponible inmediatamente. Farmacias, efemérides y
       // favoritos son módulos independientes y nunca deben bloquear la Guía.
       gldSetModuloCargando('guia',false);
@@ -2606,8 +2421,7 @@ const controller = new AbortController();
       Promise.allSettled([
         farmaInicioPromise,
         efemInicioPromise,
-        publicidadInicioPromise,
-        favoritosInicioPromise
+        publicidadInicioPromise
       ]).catch(()=>{});
     }
 
