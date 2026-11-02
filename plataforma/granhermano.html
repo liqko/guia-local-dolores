@@ -1381,11 +1381,11 @@ function ghCargaGeneralRender(rows){
    const stored=GH_CARGA_GENERAL_BASE?.['carga_'+grupo+'_'+key];
    const legacy=GH_CARGA_GENERAL_BASE?.['carga_'+key];
    return '<label>'+esc(label)+'<input type="number" min="0" step="1" data-carga-grupo="'+grupo+'" data-carga-clave="'+esc(key)+'" value="'+esc(stored??legacy??def)+'"></label>';
-  }).join('')+'</div><div class="toolbar"><button type="button" onclick="ghGuardarCargaGrupo_(\''+grupo+'\')">Guardar parámetros</button><span role="status" data-carga-msg="'+grupo+'"></span></div>';
+  }).join('')+'</div>';
  }
 }
 async function ghGuardarCargaGrupo_(grupo){
- const msg=document.querySelector('[data-carga-msg="'+grupo+'"]'),item={nivel_id:GH_CARGA_GENERAL_ID};
+ const msg=document.querySelector('[data-regla-msg="'+grupo+'"]'),item={nivel_id:GH_CARGA_GENERAL_ID};
  try{
   for(const [key,label,def] of GH_CARGA_GENERAL_FIELDS){
    const el=document.querySelector('[data-carga-grupo="'+grupo+'"][data-carga-clave="'+key+'"]');
@@ -1394,15 +1394,15 @@ async function ghGuardarCargaGrupo_(grupo){
    const storage='carga_'+grupo+'_'+key;
    if(val!==Number(GH_CARGA_GENERAL_BASE?.[storage]??GH_CARGA_GENERAL_BASE?.['carga_'+key]??def))item[storage]=val;
   }
-  if(Object.keys(item).length===1){if(msg)msg.textContent='Sin cambios.';return;}
+  if(Object.keys(item).length===1)return 0;
   if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
   if(msg)msg.textContent='Guardando…';
   const r=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
   if(!r?.success)throw Error('Guardado no confirmado.');
   GH_CARGA_GENERAL_BASE={...(GH_CARGA_GENERAL_BASE||{}),...item};
   GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).concat([GH_CARGA_GENERAL_BASE]);
-  if(msg)msg.textContent='Guardado.';
- }catch(e){if(msg)msg.textContent='Error: '+String(e.message||e);}
+  return 1;
+ }catch(e){throw e;}
 }
 function ghNivelCamposV86(id,row={}){
  const nivel=GLD_CLASSIFICATION.levelNumber(row),rules=GLD_CLASSIFICATION.rules(row,nivel);
@@ -1534,7 +1534,7 @@ function ghEditorReglas_(rows,grupo){
  }).join('')+'</tr>').join('');
  return '<p class="muted">Cada columna es un nivel. Marcá qué se publica o indicá las cantidades. En «Cómo se publica el contacto»: la primera opción muestra el domicilio si existe y, si no existe, permite elegir un único teléfono, WhatsApp o red social. La segunda muestra los contactos permitidos según las casillas de ese nivel. Un casillero sin marcar significa No.</p>'+
  '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">Regla</th>'+encabezado+'</tr></thead><tbody>'+cuerpo+'</tbody></table></div>'+
- '<div class="toolbar"><button type="button" onclick="ghGuardarMatrizReglas_(\''+esc(grupo)+'\')">Guardar reglas '+(grupo==='institucional'?'institucionales':'comerciales')+'</button><span role="status" data-regla-msg="'+esc(grupo)+'"></span></div>';
+ '<div class="toolbar" style="margin-top:24px;gap:12px"><button type="button" data-guardar-grupo="'+esc(grupo)+'" onclick="ghGuardarGrupoCompleto_(\''+esc(grupo)+'\')">Guardar</button><span role="status" data-regla-msg="'+esc(grupo)+'"></span></div>';
 }
 async function ghGuardarMatrizReglas_(grupo){
  const msg=document.querySelector('[data-regla-msg="'+grupo+'"]'),nodes=[...document.querySelectorAll('[data-regla-matriz="'+grupo+'"]')],rows=GH_CATALOG_CACHE.niveles_anunciante||[],patches=new Map();
@@ -1552,7 +1552,7 @@ async function ghGuardarMatrizReglas_(grupo){
    patches.get(id)[key]=val;
    if(key==='imagenes_max'){patches.get(id).imagenes_habilitadas=val>0;patches.get(id).galeria_habilitada=val>0;}
   }
-  if(!patches.size){if(msg)msg.textContent='Sin cambios.';return;}
+  if(!patches.size)return 0;
   if(msg)msg.textContent='Guardando…';
   let done=0;
   for(const [id,item] of patches){
@@ -1560,8 +1560,23 @@ async function ghGuardarMatrizReglas_(grupo){
    if(!r?.success)throw Error('No se confirmó el nivel '+id);
    GH_CATALOG_CACHE.niveles_anunciante=GH_CATALOG_CACHE.niveles_anunciante.map(x=>String(x.nivel_id||x.id)===id?{...x,...item}:x);done++;
   }
-  if(msg)msg.textContent='Guardado en '+done+' nivel(es).';
- }catch(e){if(msg)msg.textContent='Error: '+String(e.message||e);}
+  return done;
+ }catch(e){throw e;}
+}
+async function ghGuardarGrupoCompleto_(grupo){
+ const btn=document.querySelector('[data-guardar-grupo="'+grupo+'"]');
+ const msg=document.querySelector('[data-regla-msg="'+grupo+'"]');
+ if(!['institucional','comercial'].includes(grupo))return;
+ if(btn)btn.disabled=true;
+ if(msg)msg.textContent='Guardando reglas y parámetros…';
+ try{
+  // Un solo botón: ambos conjuntos se guardan, sin alterar las reglas ni sus claves actuales.
+  // La persistencia es secuencial, no una transacción única en Firebase.
+  const reglas=await ghGuardarMatrizReglas_(grupo);
+  const parametros=await ghGuardarCargaGrupo_(grupo);
+  if(msg)msg.textContent=(reglas+parametros)>0?'Guardado: '+reglas+' nivel(es) y '+parametros+' configuración general.':'Sin cambios.';
+ }catch(e){if(msg)msg.textContent='Guardado incompleto: '+String(e.message||e)+'. Revisá antes de reintentar.';}
+ finally{if(btn)btn.disabled=false;}
 }
 async function ghEliminarNivel(id){
  const rows=GH_CATALOG_CACHE.niveles_anunciante||[];
