@@ -1,0 +1,16 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const ctx={URL,location:{href:'https://www.guialocal.ar/'}};ctx.window=ctx;vm.runInNewContext(fs.readFileSync('plataforma/publicidad-reglas147.js','utf8'),ctx);vm.runInNewContext(fs.readFileSync('plataforma/publicidad-distribucion.js','utf8'),ctx);
+const R=ctx.GLD_AD_RULES147,S=ctx.GLD_PUBLICIDAD.sequence;
+const cfg={reglas_version:147,posiciones:3,activas_max:5,modalidad:'DIARIA',excepcion_motivo:'Circo',cobertura_tipo:'CIUDADES',ciudades_ids:['D'],ubicaciones_ids:['G'],vigente_desde:'2026-11-01',vigente_hasta:'2026-11-14'};
+assert.doesNotThrow(()=>R.validate(cfg));assert.equal(R.days(cfg),14);
+for(const patch of [{posiciones:0},{posiciones:1.5},{ciudades_ids:[]},{ubicaciones_ids:[]},{vigente_desde:'2026-02-30'},{vigente_hasta:'2026-10-01'},{excepcion_motivo:''}])assert.throws(()=>R.validate({...cfg,...patch}));
+assert.equal(R.section({modulo:'PROMOCIONES'}),'');assert.equal(R.section({modulo:'EVENTOS'}),'Eventos');
+const ad=(aid,id,extra={})=>({reglas_version:147,anunciante_id:aid,publicidad_id:id,posiciones:1,nivel:5,...extra});
+let rows=[ad('A','A1'),ad('A','A2'),ad('A','A3'),ad('B','B1')];let seq=S(rows,12,{});assert.equal(seq.filter(x=>x.anunciante_id==='A').length,6);assert.equal(seq.filter(x=>x.anunciante_id==='B').length,6);assert.equal(new Set(seq.filter(x=>x.anunciante_id==='A').map(x=>x.publicidad_id)).size,3);
+rows=[ad('A','A1',{posiciones:3}),ad('B','B1')];seq=S(rows,12,{});assert.equal(seq.filter(x=>x.anunciante_id==='A').length,9);assert.equal(seq.filter(x=>x.anunciante_id==='B').length,3);
+rows=[ad('A','z',{tags:['zunga']}),ad('B','carne',{tags:['carne'],posiciones:50}),ad('C','ropa',{busqueda147:{categoria_ids:['ROPA']}})];
+assert(S(rows,4,{query:'zungas',constrained:true,categories:['ROPA']}).every(x=>x.anunciante_id==='A'));
+assert(S(rows,4,{query:'camperas',constrained:true,categories:['ROPA']}).every(x=>x.anunciante_id==='C'));
+assert.equal(new Set(S(rows,6,{query:'inexistente',constrained:true,categories:['X']}).map(x=>x.anunciante_id)).size>0,true);
+for(const file of ['plataforma/login.html','plataforma/granhermano.html','plataforma/eventos.html','plataforma/actividades.html','plataforma/promos.html'])for(const [,attrs,js]of fs.readFileSync(file,'utf8').matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi))if(!/\bsrc\s*=/.test(attrs)&&!/type=["'](?:application\/ld\+json|module)/.test(attrs))new vm.Script(js,{filename:file});
+console.log('PASS contract validation; daily duration; tags and relevance; positions distinct from pieces; inline scripts');
