@@ -6194,6 +6194,12 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
   const territory=incoming.length?await cache.get('territorio:public:v1'):null;
   // Una sola lectura de la configuración por operación de sedes.
   const limites=incoming.length?await commerceLoadLimitsV149({db,cache,advertiserId}):null;
+  if(limites?.sedes>0&&incoming.some(x=>!String(x?.sede_id||'').trim())){
+    const reader=db.panelReadDb?db.panelReadDb({advertiserId}):db;
+    const existentes=await reader.queryEqual('anunciantes_sedes','anunciante_id',advertiserId,500);
+    const nuevos=incoming.filter(x=>!String(x?.sede_id||'').trim()).length;
+    if(existentes.length+nuevos>limites.sedes)throw Error('Se admiten hasta '+limites.sedes+' sedes cargadas.');
+  }
   const prepared=[],seen=new Set();
   // Validar toda la operación antes de escribir: una sede ajena no deja cambios parciales.
   for(const raw of incoming){
@@ -6212,6 +6218,11 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
     const city=text(patch.ciudad_id??current?.ciudad_id);
     if(!city||!(territory&&territory.ciudades||[]).some(c=>text(c.ciudad_id||c.id)===city))throw new Error('Seleccioná una ciudad válida para la sede.');
     await validateCommerceFieldsV86({db,cache,advertiserId,patch:changedFieldsV1(current,patch),limits:limites});
+    const sociales=['instagram','facebook','youtube','tiktok','linkedin','x'];
+    if(sociales.some(k=>Object.hasOwn(patch,k)&&String(patch[k]??'')!==String(current?.[k]??''))){
+      const conjunto={...(current||{}),...patch};
+      if(sociales.filter(k=>String(conjunto[k]||'').trim()).length>limites.redes)throw Error('Se admiten hasta '+limites.redes+' redes cargadas por sede.');
+    }
     if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){prepared.push({id,patch,current,existingId,updateTime:null});continue;}
     if(existingId){
       version=await db.getVersioned('anunciantes_sedes',id);
