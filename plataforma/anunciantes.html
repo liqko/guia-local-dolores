@@ -2364,7 +2364,32 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           const max=limitePublicacionNivel_(nivel,'sedes_publicadas_max',nivel===3?1:0);
           return max===0?sedes:sedes.slice(0,max);
         }
+        function contactoNivel3Seleccionado_(item,nivel){
+          if(nivel!==3||reglaNivel_(nivel)?.contacto_modo!=='direccion_o_alternativa')return null;
+          const sede=sedesPublicables_(item,nivel)[0]||{};
+          if(permisoNivel_(nivel,'direccion_habilitada',true)&&String(sede.direccion||item.direccion||'').trim())
+            return {tipo:'direccion',valor:String(sede.direccion||item.direccion),sede};
+          const values={
+            telefono:String(sede.telefono||item.telefono||'').trim(),
+            whatsapp:String(sede.whatsapp||item.whatsapp||'').trim(),
+            ...Object.fromEntries(['instagram','facebook','youtube','tiktok','linkedin','x'].map(k=>[k,String(sede[k]||item[k]||'').trim()]))
+          };
+          const orden=['telefono','whatsapp','instagram','facebook','youtube','tiktok','linkedin','x'];
+          const permitida=k=>['telefono','whatsapp'].includes(k)?permisoNivel_(nivel,k+'_habilitado',true):limitePublicacionNivel_(nivel,'redes_visibles_max',1)>0;
+          const elegido=String(sede.contacto_publico_elegido||'');
+          const tipo=orden.find(k=>k===elegido&&values[k]&&permitida(k))||orden.find(k=>values[k]&&permitida(k));
+          return tipo?{tipo,valor:values[tipo],sede}:null;
+        }
         function renderContactoNuevo(item, nivelVisual) {
+          const unica=contactoNivel3Seleccionado_(item,nivelVisual);
+          if(nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo==='direccion_o_alternativa'){
+            if(!unica)return '';
+            let body='';
+            if(unica.tipo==='direccion')body='<div><i class="fas fa-map-marker-alt"></i> '+unica.valor+'</div>';
+            if(unica.tipo==='telefono')body='<div><i class="fas fa-phone"></i> '+unica.valor+'</div>';
+            if(unica.tipo==='whatsapp'){const tel=unica.valor.replace(/[^0-9]/g,'');body='<div><i class="fab fa-whatsapp"></i> '+(permisoNivel_(nivelVisual,'contactos_enlace',false)?'<a href="https://wa.me/'+tel+'">'+unica.valor+'</a>':unica.valor)+'</div>';}
+            return body?'<div class="contacto-bloque">'+body+'</div><span class="segmento-doble"></span>':'';
+          }
           const sedes = Array.isArray(item.sedes) ? item.sedes : [];
           const clickable = permisoNivel_(nivelVisual,"contactos_enlace",nivelVisual!==3);
           let html = '';
@@ -2469,7 +2494,12 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           if(descVisible&&permisoNivel_(nivelVisual,'descripcion_habilitada',nivelVisual!==3))html += `<div class="descripcion">${descVisible}</div><span class="segmento-doble"></span>`;
           if(item.adicionales&&permisoNivel_(nivelVisual,'adicionales_habilitados',false))html += `<div class="descripcion">${item.adicionales}</div><span class="segmento-doble"></span>`;
           html += renderContactoNuevo(item,nivelVisual);
-          html += renderRedesBloque(item,nivelVisual);
+          const alternativa=contactoNivel3Seleccionado_(item,nivelVisual);
+          if(alternativa&&['instagram','facebook','youtube','tiktok','linkedin','x'].includes(alternativa.tipo)){
+            const solo={...item,instagram:'',facebook:'',youtube:'',tiktok:'',linkedin:'',x:''};
+            solo[alternativa.tipo]=alternativa.valor;
+            html += renderRedesBloque(solo,nivelVisual);
+          }else if(!(nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo==='direccion_o_alternativa'))html += renderRedesBloque(item,nivelVisual);
           html += renderGaleria(item,nivelVisual,galeriaId);
           let webMailHtml='';
           if(enlaceWeb&&permisoNivel_(nivelVisual,'web_habilitada',nivelVisual!==3))webMailHtml += `<div><i class="fas fa-globe"></i> <a href="${enlaceWeb}" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div>`;
