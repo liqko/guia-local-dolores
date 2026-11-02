@@ -3327,7 +3327,15 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const nivelActual=String((sesion&&sesion.administracion&&sesion.administracion.nivel)??'').trim();
   const reglaNivel=GLD_CLASSIFICATION.findLevel(commerceCatalogs.niveles_anunciante,nivelActual);
   const reglasNivel=GLD_CLASSIFICATION.rules(reglaNivel,nivelActual);
-  const limiteCampo=(fieldName)=>Object.hasOwn(reglasNivel,fieldName+'_max')?reglasNivel[fieldName+'_max']:null;
+  // Los máximos de carga son por segmento, no por nivel de publicación.
+  const cfgCarga=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
+  const grupoCarga=[1,2].includes(Number(nivelActual))?'institucional':'comercial';
+  const limiteCampo=(fieldName)=>{
+    const defaults={descripcion:500,adicionales:150,tags:300};
+    if(!Object.hasOwn(defaults,fieldName))return null;
+    const raw=cfgCarga['carga_'+grupoCarga+'_'+fieldName+'_max']??cfgCarga['carga_'+fieldName+'_max']??defaults[fieldName];
+    const n=Number(raw);return Number.isSafeInteger(n)&&n>=0?n:defaults[fieldName];
+  };
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     if(fieldName==='link')return;
@@ -3354,10 +3362,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
     let maxLengthAttr = '';
     const maxLengthNum = limiteCampo(fieldName);
     if(maxLengthNum!==null && maxLengthNum>0) maxLengthAttr = ' maxlength="'+maxLengthNum+'"';
-    if(maxLengthNum===0){
-      html += '<div class="data-field-card"><label><strong>'+htmlEscape(upperName)+'</strong></label><div class="small-muted">Este campo no está habilitado para el nivel actual.</div></div>';
-      return;
-    }
+    // Carga 0 = sin límite específico; nunca ocultar datos por permisos de publicación.
     const restrictionHtml = maxLengthNum!==null && maxLengthNum>0 ? ` <span style="color:#c00;font-weight:normal;font-size:.9em">(Hasta ${maxLengthNum} caracteres)</span>` : '';
     const labelHtml = `<strong>${htmlEscape(upperName)}</strong>${restrictionHtml}`;
 
