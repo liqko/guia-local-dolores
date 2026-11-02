@@ -1399,7 +1399,7 @@ function ghNivelCamposV86(id,row={}){
  const fields=[
   group('Sedes y medios de contacto',input('sedes_publicadas_max','Máximo de sedes publicadas en este nivel (0 = sin límite configurado)',row.sedes_publicadas_max,nivel===3?1:0,10000)+
     input('contactos_visibles_max','Máximo de medios de contacto visibles por tarjeta de sede (0 = sin límite)',row.contactos_visibles_max,nivel===3?1:0,20)+
-    '<small class="muted" style="grid-column:1/-1">El nivel 3 propone inicialmente 1 sede publicada y 1 medio de contacto. El anunciante elige cuál mostrar; cargar datos adicionales no los elimina.</small>'),
+    '<small class="muted" style="grid-column:1/-1">Los límites regulan la publicación, no borran información cargada.</small>'+ (nivel===3?'<label style="grid-column:1/-1">Regla de contacto del nivel 3<select data-cat-contacto_modo="'+eid+'"><option value="direccion_o_alternativa" selected>Dirección física si existe; si no, elegir uno: teléfono, WhatsApp o red social</option></select></label><small class="muted" style="grid-column:1/-1">La dirección física tiene prioridad y no se suma a otro contacto. Si no existe, se publica solo una alternativa entre teléfono, WhatsApp o red social. Los permisos Sí indican opciones elegibles, no publicación simultánea.</small>':'')),
   group('Logo',perm('logo_habilitado','Publicar logo')),
   group('Descripción',perm('descripcion_habilitada','Publicar descripción')),
   group('Información adicional',perm('adicionales_habilitados','Publicar información adicional')),
@@ -1456,6 +1456,7 @@ function ghNivelPatchV86(previous,get){
  if(!Number.isSafeInteger(sedesMax)||sedesMax<0||sedesMax>10000)throw Error('Cantidad de sedes publicadas inválida.');
  if(!Number.isSafeInteger(contactosMax)||contactosMax<0||contactosMax>20)throw Error('Cantidad de medios de contacto inválida.');
  const nivelActual=Number(number);
+ if(nivelActual===3&&previous?.contacto_modo!=='direccion_o_alternativa')patch.contacto_modo='direccion_o_alternativa';
  if(sedesMax!==Number(previous?.sedes_publicadas_max??(nivelActual===3?1:0)))patch.sedes_publicadas_max=sedesMax;
  if(contactosMax!==Number(previous?.contactos_visibles_max??(nivelActual===3?1:0)))patch.contactos_visibles_max=contactosMax;
  const visible=Number(get('red_redes_visibles_max')),links=Number(get('red_redes_enlaces_max'));
@@ -1474,7 +1475,7 @@ function ghNivelPatchV86(previous,get){
 
 function ghRenderCatalogo(def,rows){
   const box=document.getElementById(def.box);if(!box)return;
-  const listado=def.tipo==='niveles_anunciante'?(rows||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID):(rows||[]);
+  const listado=def.tipo==='niveles_anunciante'?[...(rows||[])].filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).sort((a,b)=>{const na=Number(a.numero??GLD_CLASSIFICATION.levelNumber(a)),nb=Number(b.numero??GLD_CLASSIFICATION.levelNumber(b));return (Number.isFinite(na)?na:9999)-(Number.isFinite(nb)?nb:9999)||String(a.nivel_id||a.id||'').localeCompare(String(b.nivel_id||b.id||''));}):(rows||[]);
   const items=listado.map(function(x){
     const id=String(x[def.idField]||x.id||''),nombre=GLD_CLASSIFICATION.name(x),titulo=def.tipo==='niveles_anunciante'?GLD_CLASSIFICATION.levelLabel(x):nombre||('Sin nombre · '+id),activo=GLD_CLASSIFICATION.active(x);
     const extra=def.tipo==='niveles_anunciante'?ghNivelCamposV86(id,x):'';
