@@ -168,8 +168,15 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
       <div class="cfgpane hidden" data-cfgpane="nodos"><div class="card"><h2>Nodos</h2><p class="muted">Creá o editá un nodo y elegí su ciudad en la misma ficha.</p><div class="toolbar"><select id="nodosFiltroCiudad" onchange="ghRenderNodos()"><option value="">Todas las ciudades</option></select><button onclick="ghNuevoNodo()">+ Agregar nodo</button><button class="sec" onclick="ghCargarNodos()">Actualizar</button></div><div id="nodosLista"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="segmentos"><div class="card"><h3>Segmentos</h3><div id="cfgSegmentos"></div></div></div>
-      <div class="cfgpane hidden" data-cfgpane="niveles"><div class="card"><h3>Administración de niveles</h3><p class="muted">ID, nombre, número, estado y prioridad de aparición. Las reglas se administran abajo.</p><div id="cfgNivelesAnunciante"></div></div><div class="card"><h3>Reglas institucionales · niveles 1 y 2</h3><div id="cfgReglasInstitucionales"></div></div><div class="card"><h3>Reglas comerciales · niveles 3 a 6</h3><div id="cfgReglasComerciales"></div></div><div class="card"><h3>Parámetros generales de carga · todos los niveles</h3><p class="muted">Estos máximos son únicos para todas las fichas, independientemente del nivel contratado. El anunciante conserva sus datos aunque su nivel no permita publicarlos.</p><div id="cfgCargaGeneralAnunciantes"></div></div><div class="card"><h3>Origen de cada dato · anunciante o sede</h3><p class="muted">Definí dónde corresponde cada campo. Esta clasificación es independiente de los seis niveles. No mueve datos existentes ni altera todavía Login o Guía.</p><div id="cfgAmbitoCamposAnunciante"></div></div></div>
-      <div class="cfgpane hidden" data-cfgpane="funcionalidades"><div class="card"><h3>Funcionalidades</h3><div id="cfgFuncionalidades"></div></div></div>
+      <div class="cfgpane hidden" data-cfgpane="niveles">
+<details class="card" open><summary><b>Administración de niveles</b> · Identidad, prioridad y estado</summary><div id="cfgNivelesAnunciante"></div></details>
+<details class="card" open><summary><b>Reglas institucionales</b> · Niveles 1 y 2, permisos y cantidades</summary><div id="cfgReglasInstitucionales"></div></details>
+<details class="card" open><summary><b>Reglas comerciales</b> · Niveles 3 a 6, permisos y cantidades</summary><div id="cfgReglasComerciales"></div></details>
+<details class="card"><summary><b>Parámetros generales institucionales</b> · Límites de carga para niveles 1 y 2</summary><div id="cfgCargaGeneralInstitucional"></div></details>
+<details class="card"><summary><b>Parámetros generales comerciales</b> · Límites de carga para niveles 3 a 6</summary><div id="cfgCargaGeneralComercial"></div></details>
+<details class="card"><summary><b>Origen de cada dato</b> · Único del anunciante o por sede</summary><p class="muted">Define la clasificación de los campos, no su publicación.</p><div id="cfgAmbitoCamposAnunciante"></div></details>
+</div>
+<div class="cfgpane hidden" data-cfgpane="funcionalidades"><div class="card"><h3>Funcionalidades</h3><div id="cfgFuncionalidades"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="categorias"><div class="card"><h3>Categorías de anunciantes</h3><div id="cfgCategoriasAnunciantes"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="actividades"><div class="card"><h3>Actividades clave</h3><div id="cfgActividadesClave"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="acciones"><div class="card"><h3>Acciones</h3><div id="cfgAcciones"></div></div></div>
@@ -1346,39 +1353,36 @@ async function ghGuardarAmbitoCampos(){
 }
 
 function ghCargaGeneralRender(rows){
- const host=document.getElementById('cfgCargaGeneralAnunciantes');if(!host)return;
- const base=(rows||[]).find(x=>String(x.nivel_id||x.id||'')===GH_CARGA_GENERAL_ID);
- GH_CARGA_GENERAL_BASE=base||null;
+ GH_CARGA_GENERAL_BASE=(rows||[]).find(x=>String(x.nivel_id||x.id||'')===GH_CARGA_GENERAL_ID)||null;
  ghRenderAmbitoCampos();
- host.innerHTML='<div class="formgrid">'+GH_CARGA_GENERAL_FIELDS.map(([key,label,fallback])=>
- '<label>'+esc(label)+'<input type="number" min="0" step="1" data-carga-general="'+esc(key)+'" value="'+
- esc(base?.['carga_'+key]??fallback)+'"></label>').join('')+'</div>'+
- '<p class="muted">Los valores se guardan una sola vez en el catálogo de configuración, no en cada nivel. La aplicación efectiva de estos límites en Login y Worker deberá verificarse antes de considerarlos operativos.</p>'+
- '<div class="toolbar"><button type="button" onclick="ghGuardarCargaGeneral()">Guardar parámetros generales</button><span id="ghCargaGeneralMensaje" role="status"></span></div>';
+ for(const grupo of ['institucional','comercial']){
+  const host=document.getElementById(grupo==='institucional'?'cfgCargaGeneralInstitucional':'cfgCargaGeneralComercial');if(!host)continue;
+  host.innerHTML='<div class="formgrid">'+GH_CARGA_GENERAL_FIELDS.map(([key,label,def])=>{
+   const stored=GH_CARGA_GENERAL_BASE?.['carga_'+grupo+'_'+key];
+   const legacy=GH_CARGA_GENERAL_BASE?.['carga_'+key];
+   return '<label>'+esc(label)+'<input type="number" min="0" step="1" data-carga-grupo="'+grupo+'" data-carga-clave="'+esc(key)+'" value="'+esc(stored??legacy??def)+'"></label>';
+  }).join('')+'</div><div class="toolbar"><button type="button" onclick="ghGuardarCargaGrupo_(\''+grupo+'\')">Guardar parámetros</button><span role="status" data-carga-msg="'+grupo+'"></span></div>';
+ }
 }
-async function ghGuardarCargaGeneral(){
- const message=document.getElementById('ghCargaGeneralMensaje');
- const item={nivel_id:GH_CARGA_GENERAL_ID};
+async function ghGuardarCargaGrupo_(grupo){
+ const msg=document.querySelector('[data-carga-msg="'+grupo+'"]'),item={nivel_id:GH_CARGA_GENERAL_ID};
  try{
-  for(const [key,label] of GH_CARGA_GENERAL_FIELDS){
-   const node=document.querySelector('[data-carga-general="'+key+'"]');
-   const value=Number(node?.value);
-   if(!node||!String(node.value).trim()||!Number.isSafeInteger(value)||value<0||value>10000)
-    throw Error('Valor inválido: '+label);
-   if(key==='imagenes_max'&&value>10)throw Error('Actualmente existen 10 campos de imagen por sede como máximo.');
-   if(key==='redes_max'&&value>6)throw Error('Actualmente existen 6 campos de redes sociales.');
-   if(key==='sedes_max'&&value>10000)throw Error('El máximo de sedes permitido en esta configuración es 10000.');
-   if(!GH_CARGA_GENERAL_BASE||value!==Number(GH_CARGA_GENERAL_BASE?.['carga_'+key]??GH_CARGA_GENERAL_FIELDS.find(x=>x[0]===key)[2]))
-    item['carga_'+key]=value;
+  for(const [key,label,def] of GH_CARGA_GENERAL_FIELDS){
+   const el=document.querySelector('[data-carga-grupo="'+grupo+'"][data-carga-clave="'+key+'"]');
+   const val=Number(el?.value);
+   if(!el||!String(el.value).trim()||!Number.isSafeInteger(val)||val<0||val>10000||key==='imagenes_max'&&val>10||key==='redes_max'&&val>6)throw Error('Valor inválido: '+label);
+   const storage='carga_'+grupo+'_'+key;
+   if(val!==Number(GH_CARGA_GENERAL_BASE?.[storage]??GH_CARGA_GENERAL_BASE?.['carga_'+key]??def))item[storage]=val;
   }
-  if(Object.keys(item).length===1){if(message)message.textContent='Sin cambios.';return;}
+  if(Object.keys(item).length===1){if(msg)msg.textContent='Sin cambios.';return;}
   if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
-  if(message)message.textContent='Guardando…';
-  const saved=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-  if(!saved.success)throw Error('No se confirmó el guardado.');
+  if(msg)msg.textContent='Guardando…';
+  const r=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  if(!r?.success)throw Error('Guardado no confirmado.');
   GH_CARGA_GENERAL_BASE={...(GH_CARGA_GENERAL_BASE||{}),...item};
-  if(message)message.textContent='Guardado.';
- }catch(e){if(message)message.textContent='Error: '+String(e.message||e);}
+  GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).concat([GH_CARGA_GENERAL_BASE]);
+  if(msg)msg.textContent='Guardado.';
+ }catch(e){if(msg)msg.textContent='Error: '+String(e.message||e);}
 }
 function ghNivelCamposV86(id,row={}){
  const nivel=GLD_CLASSIFICATION.levelNumber(row),rules=GLD_CLASSIFICATION.rules(row,nivel);
@@ -1486,7 +1490,7 @@ function ghRenderCatalogo(def,rows){
  const inst=document.getElementById('cfgReglasInstitucionales'),com=document.getElementById('cfgReglasComerciales');
  if(inst)inst.innerHTML=ghEditorReglas_(listado.filter(x=>[1,2].includes(GLD_CLASSIFICATION.levelNumber(x))),'institucional');
  if(com)com.innerHTML=ghEditorReglas_(listado.filter(x=>![1,2].includes(GLD_CLASSIFICATION.levelNumber(x))),'comercial');
- ghReglaTipo_('institucional');ghReglaTipo_('comercial');
+ 
 }
 
 const GH_REGLAS_OPCIONES=[
@@ -1501,59 +1505,44 @@ const GH_REGLAS_OPCIONES=[
 ];
 function ghEditorReglas_(rows,grupo){
  if(!rows.length)return '<p class="muted">No hay niveles en este grupo.</p>';
- const options=GH_REGLAS_OPCIONES.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.label)+'</option>').join('');
- const targets=rows.map(x=>'<label style="display:inline-flex;gap:6px;align-items:center;margin-right:16px"><input type="checkbox" data-regla-nivel="'+esc(grupo)+'" value="'+esc(x.nivel_id||x.id)+'" checked> Nivel '+esc(GLD_CLASSIFICATION.levelNumber(x))+'</label>').join('');
- return '<p class="muted">Configurá una prestación una sola vez y elegí los niveles que la reciben. Para una excepción, seleccioná solo ese nivel. Las demás configuraciones permanecen intactas.</p>'+
- '<div class="formgrid"><label>Regla<select data-regla-campo="'+esc(grupo)+'" onchange="ghReglaTipo_(\''+esc(grupo)+'\')">'+options+'</select></label>'+
- '<label>Valor<select data-regla-valor="'+esc(grupo)+'"><option value="true">Sí</option><option value="false">No</option></select></label></div>'+
- '<div><strong>Aplicar a:</strong> '+targets+'</div>'+
- '<div class="toolbar"><button type="button" onclick="ghGuardarReglaGrupo_(\''+esc(grupo)+'\')">Guardar regla en niveles seleccionados</button><span role="status" data-regla-msg="'+esc(grupo)+'"></span></div>'+
- '<details><summary>Consultar configuración actual por nivel</summary><div style="overflow:auto"><table><thead><tr><th>Nivel</th><th>Regla seleccionada</th><th>Valor actual</th></tr></thead><tbody data-regla-resumen="'+esc(grupo)+'"></tbody></table></div></details>';
+ const encabezado=rows.map(x=>'<th style="text-align:center;white-space:nowrap">Nivel '+esc(GLD_CLASSIFICATION.levelNumber(x))+'</th>').join('');
+ const cuerpo=GH_REGLAS_OPCIONES.map(opt=>'<tr><th style="text-align:left;min-width:215px;font-weight:500">'+esc(opt.label)+'</th>'+
+ rows.map(x=>{const id=String(x.nivel_id||x.id||''),actual=x[opt.key];let valor=actual;
+ if(opt.kind==='bool'){const b=GLD_CLASSIFICATION.flag(actual);return '<td style="text-align:center"><input type="checkbox" style="width:20px;height:20px" data-regla-matriz="'+esc(grupo)+'" data-nivel-id="'+esc(id)+'" data-clave="'+esc(opt.key)+'" '+(b===true?'checked':'')+'></td>';}
+ if(opt.kind==='mode'){return '<td><select data-regla-matriz="'+esc(grupo)+'" data-nivel-id="'+esc(id)+'" data-clave="'+esc(opt.key)+'"><option value="" '+(!valor?'selected':'')+'>Sin definir</option><option value="direccion_o_alternativa" '+(valor==='direccion_o_alternativa'?'selected':'')+'>Dirección o alternativa</option><option value="libre" '+(valor==='libre'?'selected':'')+'>Contactos habilitados</option></select></td>';}
+ return '<td><input type="number" min="0" max="'+opt.max+'" step="1" style="min-width:65px;width:85px" data-regla-matriz="'+esc(grupo)+'" data-nivel-id="'+esc(id)+'" data-clave="'+esc(opt.key)+'" value="'+esc(valor??'')+'" placeholder="—"></td>';
+ }).join('')+'</tr>').join('');
+ return '<p class="muted">Cada columna es un nivel: marcá lo que publica o indicá su cantidad. Un casillero sin marcar significa No. Los valores vacíos conservan la configuración anterior.</p>'+
+ '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">Regla</th>'+encabezado+'</tr></thead><tbody>'+cuerpo+'</tbody></table></div>'+
+ '<div class="toolbar"><button type="button" onclick="ghGuardarMatrizReglas_(\''+esc(grupo)+'\')">Guardar reglas '+(grupo==='institucional'?'institucionales':'comerciales')+'</button><span role="status" data-regla-msg="'+esc(grupo)+'"></span></div>';
 }
-function ghReglaTipo_(grupo){
- const key=document.querySelector('[data-regla-campo="'+grupo+'"]')?.value;
- const opt=GH_REGLAS_OPCIONES.find(x=>x.key===key),v=document.querySelector('[data-regla-valor="'+grupo+'"]');
- if(!opt||!v)return;
- if(opt.kind==='bool')v.outerHTML='<select data-regla-valor="'+grupo+'"><option value="true">Sí</option><option value="false">No</option></select>';
- else if(opt.kind==='mode')v.outerHTML='<select data-regla-valor="'+grupo+'"><option value="direccion_o_alternativa">Dirección física o un contacto alternativo</option><option value="libre">Publicar contactos habilitados</option></select>';
- else v.outerHTML='<input type="number" min="0" max="'+opt.max+'" step="1" value="0" data-regla-valor="'+grupo+'">';
- ghResumenRegla_(grupo);
-}
-function ghResumenRegla_(grupo){
- const key=document.querySelector('[data-regla-campo="'+grupo+'"]')?.value,host=document.querySelector('[data-regla-resumen="'+grupo+'"]');
- if(!host)return;
- const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>x.eliminado!==true&& (grupo==='institucional'?[1,2].includes(GLD_CLASSIFICATION.levelNumber(x)):![1,2].includes(GLD_CLASSIFICATION.levelNumber(x))));
- host.innerHTML=rows.map(x=>'<tr><td>'+esc(GLD_CLASSIFICATION.levelNumber(x))+'</td><td>'+esc(GH_REGLAS_OPCIONES.find(o=>o.key===key)?.label||key)+'</td><td>'+esc(x[key]===undefined?'Sin configurar':String(x[key]))+'</td></tr>').join('');
-}
-async function ghGuardarReglaGrupo_(grupo){
- const key=document.querySelector('[data-regla-campo="'+grupo+'"]')?.value,opt=GH_REGLAS_OPCIONES.find(x=>x.key===key);
- const msg=document.querySelector('[data-regla-msg="'+grupo+'"]');
- const selected=[...document.querySelectorAll('[data-regla-nivel="'+grupo+'"]:checked')].map(x=>x.value);
- if(!opt||!selected.length){if(msg)msg.textContent='Elegí una regla y al menos un nivel.';return;}
- const raw=document.querySelector('[data-regla-valor="'+grupo+'"]')?.value;
- let value=raw;
- if(opt.kind==='bool')value=raw==='true';
- if(opt.kind==='number'){value=Number(raw);if(!Number.isSafeInteger(value)||value<0||value>opt.max){if(msg)msg.textContent='Cantidad inválida.';return;}}
- if(opt.kind==='mode'&&!['direccion_o_alternativa','libre'].includes(raw)){if(msg)msg.textContent='Modalidad inválida.';return;}
- const rows=GH_CATALOG_CACHE.niveles_anunciante||[];
- const changes=selected.map(id=>({id,old:rows.find(x=>String(x.nivel_id||x.id)===id)})).filter(x=>x.old&&JSON.stringify(x.old[key])!==JSON.stringify(value));
- if(!changes.length){if(msg)msg.textContent='Sin cambios.';return;}
- if(msg)msg.textContent='Guardando '+changes.length+' nivel(es)…';
- let count=0;
+async function ghGuardarMatrizReglas_(grupo){
+ const msg=document.querySelector('[data-regla-msg="'+grupo+'"]'),nodes=[...document.querySelectorAll('[data-regla-matriz="'+grupo+'"]')],rows=GH_CATALOG_CACHE.niveles_anunciante||[],patches=new Map();
  try{
-  for(const {id} of changes){
-   const item={nivel_id:id,[key]:value};
-   if(key==='imagenes_max'){item.imagenes_habilitadas=value>0;item.galeria_habilitada=value>0;}
-   const response=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-   if(!response?.success)throw Error('No se confirmó el guardado del nivel '+id);
-   GH_CATALOG_CACHE.niveles_anunciante=GH_CATALOG_CACHE.niveles_anunciante.map(x=>String(x.nivel_id||x.id)===id?{...x,...item}:x);
-   count++;
+  for(const el of nodes){
+   const id=el.dataset.nivelId,key=el.dataset.clave,opt=GH_REGLAS_OPCIONES.find(o=>o.key===key),prev=rows.find(x=>String(x.nivel_id||x.id)===id);
+   if(!prev||!opt)continue;
+   let val=opt.kind==='bool'?el.checked:el.value;
+   if(opt.kind==='number'){if(val==='')continue;val=Number(val);if(!Number.isSafeInteger(val)||val<0||val>opt.max)throw Error('Valor inválido: '+opt.label);}
+   if(opt.kind==='mode'&&val==='')continue;
+   if(opt.kind==='mode'&&!['direccion_o_alternativa','libre'].includes(val))throw Error('Modalidad inválida.');
+   if(opt.kind==='bool'&&GLD_CLASSIFICATION.flag(prev[key])===val)continue;
+   if(opt.kind!=='bool'&&JSON.stringify(prev[key])===JSON.stringify(val))continue;
+   if(!patches.has(id))patches.set(id,{nivel_id:id});
+   patches.get(id)[key]=val;
+   if(key==='imagenes_max'){patches.get(id).imagenes_habilitadas=val>0;patches.get(id).galeria_habilitada=val>0;}
   }
-  if(msg)msg.textContent='Guardado en '+count+' nivel(es).';
-  ghResumenRegla_(grupo);
- }catch(e){if(msg)msg.textContent='Se guardaron '+count+' de '+changes.length+'. Error: '+String(e.message||e);ghResumenRegla_(grupo);}
+  if(!patches.size){if(msg)msg.textContent='Sin cambios.';return;}
+  if(msg)msg.textContent='Guardando…';
+  let done=0;
+  for(const [id,item] of patches){
+   const r=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+   if(!r?.success)throw Error('No se confirmó el nivel '+id);
+   GH_CATALOG_CACHE.niveles_anunciante=GH_CATALOG_CACHE.niveles_anunciante.map(x=>String(x.nivel_id||x.id)===id?{...x,...item}:x);done++;
+  }
+  if(msg)msg.textContent='Guardado en '+done+' nivel(es).';
+ }catch(e){if(msg)msg.textContent='Error: '+String(e.message||e);}
 }
-
 async function ghEliminarNivel(id){
  const rows=GH_CATALOG_CACHE.niveles_anunciante||[];
  const old=rows.find(x=>String(x.nivel_id||x.id||'')===String(id));
