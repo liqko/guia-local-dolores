@@ -6132,26 +6132,35 @@ async function commercePanelDataV3({db,advertiserId,catalogs}){
   }};
 }
 
-async function validateCommerceFieldsV86({db,cache,advertiserId,patch}){
+async function commerceLoadLimitsV149({db,cache,advertiserId}){
+ const [admin,catalogs]=await Promise.all([
+  db.panelAdministration?db.panelAdministration(advertiserId):db.get('anunciantes_administracion',advertiserId),
+  getCommerceCatalogs(cache)
+ ]);
+ const grupo=[1,2].includes(Number(admin?.nivel))?'institucional':'comercial';
+ const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
+ const fallback={descripcion:500,adicionales:150,tags:300,imagenes:5,redes:6,sedes:0};
+ const get=key=>{
+  const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
+  const value=Number(raw);
+  if(!Number.isSafeInteger(value)||value<0)throw Error('Configuración inválida: '+key);
+  return value;
+ };
+ return Object.fromEntries(Object.keys(fallback).map(k=>[k,get(k)]));
+}
+async function validateCommerceFieldsV86({db,cache,advertiserId,patch,limits}){
  const fields=Object.keys(patch).filter(k=>['descripcion','adicionales','tags'].includes(k)||/^img\d+$/.test(k));
  if(!fields.length)return;
- return (async()=>{
-  const [admin,catalogs]=await Promise.all([db.panelAdministration?db.panelAdministration(advertiserId):db.get('anunciantes_administracion',advertiserId),getCommerceCatalogs(cache)]);
-  const grupo=[1,2].includes(Number(admin?.nivel))?'institucional':'comercial';
-  const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
-  for(const key of fields){
-   const image=/^img\d+$/.test(key),field=image?'imagenes':key;
-   const fallback={descripcion:500,adicionales:150,tags:300,imagenes:5}[field];
-   const raw=cfg['carga_'+grupo+'_'+field+'_max']??cfg['carga_'+field+'_max']??fallback;
-   const max=Number(raw);
-   if(!Number.isSafeInteger(max)||max<0)throw Error('Configuración inválida: '+field);
+ const cfg=limits||await commerceLoadLimitsV149({db,cache,advertiserId});
+ for(const key of fields){
+   const image=/^img\d+$/.test(key),field=image?'imagenes':key,max=cfg[field];
    const value=String(patch[key]??'');
    if(image){
-    if(value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas.');
+    if(value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas por sede.');
    }else if(max>0&&value.length>max)throw Error('El campo '+key+' supera '+max+' caracteres de carga.');
-  }
- })();
+ }
 }
+
 async function commerceSetDatosV3({db,cache,advertiserId,body}){
   const patch={actualizado_en:new Date().toISOString()};
   for(const [k,v] of Object.entries(body||{})){
@@ -6181,6 +6190,8 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
   const incoming=Array.isArray(body&&body.sedes)?body.sedes:[];
   if(incoming.length>100)throw new Error('Demasiadas sedes en una operación.');
   const territory=incoming.length?await cache.get('territorio:public:v1'):null;
+  // Una sola lectura de la configuración por operación de sedes.
+  const limites=incoming.length?await commerceLoadLimitsV149({db,cache,advertiserId}):null;
   const prepared=[],seen=new Set();
   // Validar toda la operación antes de escribir: una sede ajena no deja cambios parciales.
   for(const raw of incoming){
@@ -6198,7 +6209,7 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
     }
     const city=text(patch.ciudad_id??current?.ciudad_id);
     if(!city||!(territory&&territory.ciudades||[]).some(c=>text(c.ciudad_id||c.id)===city))throw new Error('Seleccioná una ciudad válida para la sede.');
-    await validateCommerceFieldsV86({db,cache,advertiserId,patch:changedFieldsV1(current,patch)});
+    await validateCommerceFieldsV86({db,cache,advertiserId,patch:changedFieldsV1(current,patch),limits:limites});
     if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){prepared.push({id,patch,current,existingId,updateTime:null});continue;}
     if(existingId){
       version=await db.getVersioned('anunciantes_sedes',id);
