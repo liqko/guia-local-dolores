@@ -2323,24 +2323,8 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             if(nombreVisible) html += `<div class="sede-nombre">${nombreVisible}</div>`;
             if(s.direccion && permisoNivel_(nivelVisual,'direccion_habilitada',true)) html += `<div><i class="fas fa-map-marker-alt"></i> ${s.direccion}${s.ciudad ? ` · ${s.ciudad}` : ''}</div><span class="espaciado"></span>`;
             if(s.maps && clickable && permisoNivel_(nivelVisual,'mapa_habilitado',true)){
-              // Reutilizar el punto del mapa existente; usar la dirección sólo si el enlace no contiene coordenadas.
-              const mapaActual = String(s.maps || '');
-              let destino = '';
-              try {
-                const u = new URL(mapaActual);
-                for(const k of ['query','q','ll','center','destination']){
-                  const val = u.searchParams.get(k) || '';
-                  if (/^-?\d{1,2}(?:\.\d+)?,\s*-?\d{1,3}(?:\.\d+)?$/.test(val.trim())) { destino = val.trim(); break; }
-                }
-                if(!destino){
-                  const m = u.href.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)
-                    || u.href.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
-                  if(m) destino = m[1]+','+m[2];
-                }
-              }catch(_){}
-              if(!destino) destino = [s.direccion,s.ciudad || 'Dolores','Buenos Aires','Argentina'].filter(Boolean).join(', ');
-              const ruta = destino ? 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(destino) : '';
-              html += `<div style="margin:.45em 0;"><a href="${s.maps}" target="_blank" rel="noopener noreferrer" style="color:#006699;font-weight:bold;text-decoration:none;">Ver en mapa</a>${ruta ? ' &nbsp;|&nbsp; <a href="'+ruta+'" target="_blank" rel="noopener noreferrer" style="color:#006699;font-weight:bold;text-decoration:none;">Cómo llegar</a>' : ''}</div>`;
+              const dir = [s.direccion,s.ciudad || 'Dolores','Buenos Aires','Argentina'].filter(Boolean).join(', ');
+              html += `<div style="margin:.45em 0;"><button type="button" class="gld-ruta-open" data-map="${encodeURIComponent(String(s.maps||''))}" data-dir="${encodeURIComponent(dir)}" style="border:0;background:none;padding:0;color:#006699;font-weight:bold;text-decoration:underline;cursor:pointer;font:inherit;">Ubicación y cómo llegar</button></div>`;
             }
             if(s.telefono && permisoNivel_(nivelVisual,"telefono_habilitado",true)) html += `<div><i class="fas fa-phone"></i> ${s.telefono}</div><span class="espaciado"></span>`;
             if(s.whatsapp && permisoNivel_(nivelVisual,"whatsapp_habilitado",true)){
@@ -3442,6 +3426,88 @@ iniciarAnunciantes();
       [100,600,1500].forEach(ms=>setTimeout(medirYEnviarAltura,ms));
     })();
 
+</script>
+
+<!-- Mapa en ficha: sin cambio de datos ni consultas a la API propia -->
+<style>
+#gld-route-modal[hidden]{display:none!important}
+#gld-route-modal{position:fixed;inset:0;z-index:2147483600;background:rgba(0,0,0,.58);display:flex;align-items:center;justify-content:center;padding:12px}
+#gld-route-modal .gld-route-box{background:#fff;border-radius:14px;width:min(96vw,760px);max-height:95vh;display:flex;flex-direction:column;overflow:hidden;color:#263238}
+#gld-route-modal .gld-route-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;gap:12px}
+#gld-route-modal .gld-route-head button{border:0;background:transparent;font-size:26px;cursor:pointer}
+#gld-route-modal iframe{border:0;min-height:260px;height:min(65vh,520px);width:100%}
+#gld-route-modal .gld-route-actions{display:flex;gap:12px;flex-wrap:wrap;padding:12px 16px}
+#gld-route-modal .gld-route-actions button,#gld-route-modal .gld-route-actions a{border:1px solid #006699;color:#006699;border-radius:8px;background:white;padding:9px 12px;font-weight:600;cursor:pointer;text-decoration:none}
+</style>
+<div id="gld-route-modal" role="dialog" aria-modal="true" aria-label="Ubicación y recorrido" hidden>
+ <div class="gld-route-box">
+  <div class="gld-route-head"><strong>Ubicación y cómo llegar</strong><button type="button" id="gld-route-close" aria-label="Cerrar mapa">×</button></div>
+  <iframe id="gld-route-frame" title="Mapa de ubicación y recorrido" loading="lazy" referrerpolicy="no-referrer-when-downgrade" allow="geolocation"></iframe>
+  <div class="gld-route-actions"><button type="button" id="gld-route-directions">Ver recorrido desde mi ubicación</button><a id="gld-route-external" href="#" target="_blank" rel="noopener noreferrer">Abrir en Google Maps</a></div>
+ </div>
+</div>
+<script>
+(()=>{
+  // Clave restringida de navegador para Maps Embed API. Completar solo cuando Google Cloud la permita consultar.
+  const MAPS_EMBED_KEY = '';
+  const modal=document.getElementById('gld-route-modal');
+  const frame=document.getElementById('gld-route-frame');
+  const close=document.getElementById('gld-route-close');
+  const external=document.getElementById('gld-route-external');
+  const route=document.getElementById('gld-route-directions');
+  let destination='', previousFocus=null;
+  function coordsFromMap(raw){
+    try{
+      const u=new URL(raw);
+      const values=['query','q','ll','destination'].map(k=>u.searchParams.get(k));
+      for(const val of values){if(val && /^-?\d{1,2}(?:\.\d+)?,\s*-?\d{1,3}(?:\.\d+)?$/.test(val.trim()))return val.trim();}
+      const m=u.href.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)||u.href.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+      if(m)return m[1]+','+m[2];
+    }catch(_){}
+    return '';
+  }
+  function mapsUrl(origin){
+    const u=new URL('https://www.google.com/maps/dir/');
+    u.searchParams.set('api','1');u.searchParams.set('destination',destination);
+    if(origin)u.searchParams.set('origin',origin);
+    return u.toString();
+  }
+  function embed(mode,origin){
+    const u=new URL('https://www.google.com/maps/embed/v1/'+mode);
+    u.searchParams.set('key',MAPS_EMBED_KEY);
+    if(mode==='directions'){u.searchParams.set('origin',origin);u.searchParams.set('destination',destination);}
+    else u.searchParams.set('q',destination);
+    return u.toString();
+  }
+  function hide(){modal.hidden=true;frame.removeAttribute('src');if(previousFocus)previousFocus.focus();}
+  document.addEventListener('click',e=>{
+    const target=e.target.closest('.gld-ruta-open');if(!target)return;
+    const raw=decodeURIComponent(target.dataset.map||'');
+    destination=coordsFromMap(raw)||decodeURIComponent(target.dataset.dir||'');
+    if(!destination)return;
+    previousFocus=target;external.href=mapsUrl();
+    // Sin clave, conservamos acceso directo a la ubicación real sin iframe roto.
+    frame.hidden=!MAPS_EMBED_KEY;
+    if(MAPS_EMBED_KEY)frame.src=embed('place');
+    route.textContent='Ver recorrido desde mi ubicación';
+    modal.hidden=false;close.focus();
+  });
+  route.addEventListener('click',()=>{
+    if(!MAPS_EMBED_KEY){window.open(mapsUrl(),'_blank','noopener,noreferrer');return;}
+    if(!navigator.geolocation){window.open(mapsUrl(),'_blank','noopener,noreferrer');return;}
+    route.disabled=true;route.textContent='Obteniendo ubicación…';
+    navigator.geolocation.getCurrentPosition(p=>{
+      frame.hidden=false;frame.src=embed('directions',p.coords.latitude+','+p.coords.longitude);
+      route.disabled=false;route.textContent='Actualizar recorrido';
+    },()=>{
+      route.disabled=false;route.textContent='Ver recorrido desde mi ubicación';
+      window.open(mapsUrl(),'_blank','noopener,noreferrer');
+    },{enableHighAccuracy:false,timeout:12000,maximumAge:60000});
+  });
+  close.addEventListener('click',hide);
+  modal.addEventListener('click',e=>{if(e.target===modal)hide();});
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!modal.hidden)hide();});
+})();
 </script>
 </body>
 </html>
