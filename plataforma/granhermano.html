@@ -372,6 +372,7 @@ async function ghSaveAdvertiserDelta_(data){
  for(const [route,fields]of [['commercial',['nivel','subnivel','aprobado','verificado','gold','funcionalidades','funcionalidades_config']],['profile',['contenido_adulto','segmento_id','categoria_ids','pet','eco','gayfriendly']]]){
   const patch={};for(const k of fields)if(ghDifferent_(base[k],data[k]))patch[k]=data[k];
   if(!Object.keys(patch).length)continue;
+  if(route==='commercial'&&patch.funcionalidades_config&&data.funcionalidades.includes('PUBLICIDAD')&&patch.funcionalidades_config.PUBLICIDAD?.reglas_version===147){if(!GH_AD_SUPPORTED147)throw Error('Primero debe estar instalado el Worker de las nuevas reglas de Publicidad. No se guardó el cambio.');GLD_AD_RULES147.validate(patch.funcionalidades_config.PUBLICIDAD);}
   if(route==='commercial')patch.revision_comercial=base.revision_comercial;else patch.revision_perfil=base.revision_perfil;
   body[route]=patch;
  }
@@ -989,13 +990,13 @@ const GH_FUNCTION_DEFS=[
  {id:'EVENTOS',name:'Eventos VIP',aliases:['EVENTOS_VIP','EVENTOS VIP'],quota:true},
  {id:'EVENTOS_FREE',name:'Eventos Free',aliases:['EV_FREE','EVFREE','EVENTOS FREE'],quota:true},
  {id:'ACTIVIDADES',name:'Actividades',quota:true},
- {id:'PUBLICIDAD',name:'Publicidad',aliases:['PUBLI'],fields:[['activas_max','Máximo de piezas activas'],['cambios_activos_por_dia_max','Cambios de selección por día']]},
+ {id:'PUBLICIDAD',name:'Publicidad',aliases:['PUBLI'],fields:[['activas_max','Máximo de piezas activas'],['posiciones','Posiciones contratadas']]},
  {id:'TURNOS_FARMA',name:'Farmacias de turno',aliases:['FARMACIAS','TURNOS FARMA'],territory:'ciudades',all:'todas_ciudades'},
  {id:'EFEMERIDES_GRL',name:'Efemérides generales',aliases:['EF GENERAL','EFEMERIDES_GENERAL']},
  {id:'EFEMERIDES_PROVINCIAL',name:'Efemérides provinciales',aliases:['EF PROVINCIAL'],territory:'provincias',all:'todas_provincias'},
  {id:'EFEMERIDES_LOCAL',name:'Efemérides locales',aliases:['EF LOCAL'],territory:'ciudades',all:'todas_ciudades'}
 ];
-let GH_FUNCTION_CONFIG={},GH_FUNCTION_EXTRA=[],GH_FUNCTION_USAGE={};
+let GH_FUNCTION_CONFIG={},GH_FUNCTION_EXTRA=[],GH_FUNCTION_USAGE={},GH_AD_EDITED147=false,GH_AD_SUPPORTED147=false;
 function ghFunctionTruth_(v){return v===true||v===1||['true','1','si','sí','x','activo','activa'].includes(String(v??'').trim().toLowerCase());}
 function ghFunctionKey_(v){let s=String(v??'').trim();try{s=decodeURIComponent(s)}catch(_){}return s.toUpperCase();}
 function ghFunctionKeys_(v){return (Array.isArray(v)?v:String(v??'').split(/[;,|\n]/)).map(ghFunctionKey_).filter(Boolean);}
@@ -1035,7 +1036,7 @@ function ghContractOptions_(field,rows,idKey,nameKey,selected=[]){
  return [...options.values()].sort((a,b)=>a.label.localeCompare(b.label,'es',{sensitivity:'base'}));
 }
 function ghContractPicker_(field,label,rows,idKey,nameKey,cfg){
- const selected=Array.isArray(cfg[field])?cfg[field].map(String):[],all=!selected.length,options=ghContractOptions_(field,rows,idKey,nameKey,selected);
+ const selected=Array.isArray(cfg[field])?cfg[field].map(String):[],all=!selected.length&&!(field==='ciudades_ids'&&cfg.cobertura_tipo==='CIUDADES'),options=ghContractOptions_(field,rows,idKey,nameKey,selected);
  const allLabel=({ciudades_ids:'Todas las ciudades del catálogo',ubicaciones_ids:'Todas las secciones del catálogo',categorias_keys:'Todas las categorías del catálogo'})[field];
  return '<details class="contract-picker" data-gh-picker="'+field+'"><summary>'+esc(label)+' <span data-gh-picker-summary>'+esc(all?allLabel:selected.length+' seleccionada(s)')+'</span></summary><label class="contract-choice contract-all"><input type="checkbox" data-gh-ad-any="'+field+'" '+(all?'checked':'')+' onchange="ghContractChanged_(this)"><span>'+esc(allLabel)+'</span></label>'+ (field==='ciudades_ids'?'<div data-gh-province-picker></div>':field==='categorias_keys'?'<div data-gh-category-groups></div>':'')+'<p class="muted">'+(field==='categorias_keys'?'Elegí todas, por funcionalidad o una por una.':'Desmarcá esta opción para elegir una lista concreta.')+'</p><label>Buscar<input type="search" data-gh-contract-search placeholder="Escribí para filtrar la lista" oninput="ghContractFilter_(this)"></label><div class="contract-choices">'+options.map(option=>'<label class="contract-choice" data-gh-contract-row data-search="'+esc(ghNorm(option.label))+'"><input type="checkbox" data-gh-ad-choice="'+field+'" value="'+esc(option.id)+'" '+(selected.includes(option.id)?'checked':'')+' '+(all?'disabled':'')+' onchange="ghContractChanged_(this)"><span>'+esc(option.label)+'</span></label>').join('')+'</div><p data-gh-contract-empty '+(options.length?'hidden':'')+'>No hay opciones para mostrar.</p></details>';
 }
@@ -1070,10 +1071,11 @@ function ghCategoryGroups_(){
 function ghMountProvincePickers_(){
  ghCategoryGroups_();
  document.querySelectorAll('[data-gh-ad-flag$="_sin_limite"]').forEach(ghScopeLimitChanged_);
- for(const host of document.querySelectorAll('[data-gh-province-picker]')){const box=host.closest('[data-gh-picker]');window.GLDCoberturaProvincia?.mount({host,ciudades:GH_CITIES,seleccion:()=>[...box.querySelectorAll('[data-gh-ad-choice]:checked')].map(c=>c.value),aplicar:ids=>{box.querySelector('[data-gh-ad-any]').checked=false;const wanted=new Set(ids);box.querySelectorAll('[data-gh-ad-choice]').forEach(c=>{c.disabled=false;c.checked=wanted.has(c.value);});ghContractChanged_(box.querySelector('[data-gh-ad-any]'));},error:message=>alert(message)});}
+ for(const host of document.querySelectorAll('[data-gh-province-picker]')){const box=host.closest('[data-gh-picker]');window.GLDCoberturaProvincia?.mount({host,ciudades:GH_CITIES,seleccion:()=>[...box.querySelectorAll('[data-gh-ad-choice]:checked')].map(c=>c.value),aplicar:ids=>{box.querySelector('[data-gh-ad-any]').checked=false;const wanted=new Set(ids);box.querySelectorAll('[data-gh-ad-choice]').forEach(c=>{c.disabled=false;c.checked=wanted.has(c.value);});ghContractChanged_(box.querySelector('[data-gh-ad-any]'));},error:message=>alert(message)});GLD_AD_RULES147.countryPicker({host,cities:GH_CITIES,selection:()=>[...box.querySelectorAll('[data-gh-ad-choice]:checked')].map(c=>c.value),apply:ids=>{box.querySelector('[data-gh-ad-any]').checked=false;const wanted=new Set(ids);box.querySelectorAll('[data-gh-ad-choice]').forEach(c=>{c.disabled=false;c.checked=wanted.has(c.value);});ghContractChanged_(box.querySelector('[data-gh-ad-any]'));}});}
  for(const host of document.querySelectorAll('[data-gh-provinces-for]')){const key=host.dataset.ghProvincesFor,sel=document.querySelector('[data-gh-territory="'+key+'"]');window.GLDCoberturaProvincia?.mount({host,ciudades:GH_CITIES,seleccion:()=>[...sel.selectedOptions].map(o=>o.value),aplicar:ids=>{const wanted=new Set(ids);[...sel.options].forEach(o=>o.selected=wanted.has(o.value));const all=document.querySelector('[data-gh-all="'+key+'"]');if(all)all.checked=false;informarAltura();},error:message=>alert(message)});}
 }
 function ghContractChanged_(input){
+ GH_AD_EDITED147=true;
  const box=input.closest('[data-gh-picker]'),all=box.querySelector('[data-gh-ad-any]'),choices=[...box.querySelectorAll('[data-gh-ad-choice]')];
  if(box.dataset.ghPicker==='categorias_keys'){if(input===all)choices.forEach(c=>c.checked=all.checked&&!c.value.endsWith(':GENERAL'));else if(input.hasAttribute('data-gh-ad-choice'))all.checked=false;choices.forEach(c=>c.disabled=false);}else for(const choice of choices)choice.disabled=all.checked;
  const count=choices.filter(c=>c.checked).length,field=box.dataset.ghPicker;
@@ -1106,6 +1108,7 @@ function ghPublicidadFormatsChanged_(input){
 }
 
 function ghFunctionEditor_(adm,catalog,usage){
+ GH_AD_EDITED147=false;
  GH_FUNCTION_USAGE=usage||{};
  GH_FUNCTION_CONFIG=structuredClone(adm.funcionalidades_config||{});
  const known=new Set(GH_FUNCTION_DEFS.flatMap(d=>[d.id,...d.aliases||[]]));
@@ -1127,24 +1130,23 @@ function ghFunctionEditor_(adm,catalog,usage){
    const field=d.quota?'cantidad':'activas_max';
    const u=GH_FUNCTION_USAGE[d.id],available=u?.disponible===true;
    const val=k=>available?esc(u[k]??0):'—';
-   inputs='<div class="quota-settings"><label>Cupo asignado<input type="number" min="0" step="1" data-gh-limit="'+d.id+'" data-gh-field="'+field+'" value="'+n+'"></label><label>Cupo de guardado (automático: el doble)<input type="number" min="0" step="1" readonly data-gh-storage="'+d.id+'" value="'+saved+'"></label></div>';
+   inputs='<div class="quota-settings"><label>'+(d.id==='PUBLICIDAD'?'Máximo de piezas activas':'Cupo asignado')+'<input type="number" min="0" step="1" data-gh-limit="'+d.id+'" data-gh-field="'+field+'" value="'+n+'"></label><label>Cupo de guardado (automático: el doble)<input type="number" min="0" step="1" readonly data-gh-storage="'+d.id+'" value="'+saved+'"></label></div>';
    inputs+='<div class="quota-usage" data-gh-usage="'+d.id+'"><span>Activos<b>'+val('activas')+'</b></span><span>Pausados<b>'+val('pausadas')+'</b></span><span>Guardados<b>'+val('guardadas')+'</b></span><span>Disponibles<b data-gh-free-active>'+ (available?Math.max(0,n-u.activas):'—')+'</b></span><span>Disponibles para guardar<b data-gh-free-saved>'+ (available?Math.max(0,saved-u.guardadas):'—')+'</b></span><span>Pendientes<b>'+val('pendientes')+'</b></span></div>';
    if(!available)inputs+='<p class="muted">Uso sin datos en la copia del panel. No se consultó Firestore para completar estos contadores.</p>';
    if(d.id==='EVENTOS_FREE')inputs+='<p class="muted">El cupo asignado define el máximo de activos y de altas por mes calendario. Predeterminado: 5. La biblioteca permite el doble de ese cupo.</p>';
    if(d.id==='EVENTOS_FREE')inputs+='<details open class="free-exception"><summary>Excepción especial · Eventos Free sin límites</summary><span class="free-exception-state" data-free-exception-state>'+(cfg.sin_limites===true?'ACTIVADO · Excepción especial':'DESACTIVADO · Se aplican los límites habituales')+'</span><p><strong>Usar únicamente en casos especiales.</strong> Sólo Gran Hermano o un moderador territorial autorizado pueden conceder esta excepción.</p><label class="switch"><input type="checkbox" data-gh-free-unlimited onchange="ghFreeExceptionState_(this)" '+(cfg.sin_limites===true?'checked':'')+'>Habilitar sin límites para este anunciante</label><p>Desactivado: se aplica el cupo asignado de altas por mes calendario (predeterminado: 5); la primera edición puede hacerse inmediatamente y luego se esperan siete días entre modificaciones. Borrar no recupera cupo.</p></details>';
    if(d.id==='PUBLICIDAD'){
-    contract='<section class="advertising-contract"><h5>Contratación de publicidad</h5><div class="quota-settings"><label>Inicio de contratación<input type="date" data-gh-ad-date="vigente_desde" value="'+esc(cfg.vigente_desde||'')+'"></label><label>Fin de contratación<input type="date" data-gh-ad-date="vigente_hasta" value="'+esc(cfg.vigente_hasta||'')+'"></label></div><p class="muted">Estas fechas se aplican a toda la publicidad contratada, cualquiera sea su formato.</p></section>';
-
-    inputs+='<ul class="contract-rules"><li>Renovaciones por mes: hasta el cupo de publicidades activas contratado.</li><li>Una rectificación adicional por publicidad durante el mes.</li><li>El cupo de guardado incluye activas y pausadas. Borrar no recupera renovaciones del mes.</li></ul>';
-    inputs+='<details open><summary>Cobertura contratada</summary><section class="contract-group"><h5>1. Ciudades</h5><p>Elegí en qué ciudades podrá publicitar este anunciante.</p><label>Máximo de ciudades para una misma publicidad<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="ciudades_max" value="'+ghFunctionNumber_(cfg.ciudades_max,1)+'"></label>';
-    inputs+='<label class="contract-choice"><input type="checkbox" data-gh-ad-flag="ciudades_sin_limite" onchange="ghScopeLimitChanged_(this)" '+(cfg.ciudades_sin_limite===true?'checked':'')+'>Permitir todas las ciudades contratadas en una misma publicidad · Sin tope por pieza</label><p class="muted">El catálogo contratado define dónde puede aparecer. El máximo por pieza limita cuántas opciones puede elegir a la vez; esta casilla elimina solo ese máximo.</p>';
-    inputs+=ghContractPicker_('ciudades_ids','Ciudades contratadas',GH_CITIES,'ciudad_id','ciudad_visible',cfg);
-    inputs+='</section><section class="contract-group"><h5>2. Secciones</h5><p>Elegí en qué partes de la plataforma podrá aparecer su publicidad.</p>';
-    inputs+=ghContractPicker_('ubicaciones_ids','Secciones contratadas',GH_CATALOG_CACHE.publicidad_ubicaciones||[],'ubicacion_id','nombre_visible',cfg);
-    inputs+='</section><section class="contract-group"><h5>3. Categorías</h5><p>Elegí los rubros en los que podrá publicitar. Cada opción indica también su sección. Podés elegir todas las categorías del catálogo, todas las de una funcionalidad o una por una.</p><label>Máximo de categorías para una misma publicidad<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="categorias_max" value="'+ghFunctionNumber_(cfg.categorias_max,1)+'"></label>';
-    inputs+='<label class="contract-choice"><input type="checkbox" data-gh-ad-flag="categorias_sin_limite" onchange="ghScopeLimitChanged_(this)" '+(cfg.categorias_sin_limite===true?'checked':'')+'>Permitir todas las categorías contratadas en una misma publicidad · Sin tope por pieza</label><p class="muted">El catálogo contratado define dónde puede aparecer. El máximo por pieza limita cuántas opciones puede elegir a la vez; esta casilla elimina solo ese máximo.</p>';
-    inputs+=ghContractPicker_('categorias_keys','Categorías contratadas',GH_CATALOG_CACHE.publicidad_categorias||[],'categoria_key','categoria',cfg);
-    inputs+='</section><p class="muted">Los máximos se aplican a cada publicidad. Las listas contratadas definen entre qué opciones podrá elegir el anunciante.</p></details>';
+    const locations=(GH_CATALOG_CACHE.publicidad_ubicaciones||[]).filter(x=>GLD_AD_RULES147.section(x));
+    const scopeCfg=Object.keys(cfg).length?cfg:{...cfg,cobertura_tipo:'CIUDADES',ciudades_ids:ANUNCIANTE_CIUDADES.slice(0,1),ubicaciones_ids:locations.filter(x=>GLD_AD_RULES147.section(x)==='Guía').slice(0,1).map(x=>String(x.ubicacion_id||x.id))};
+    contract='<section class="advertising-contract"><h5>Contratación de publicidad</h5><p>Las piezas permiten variar el contenido. Las posiciones determinan las participaciones en la rueda publicitaria.</p></section>';
+    inputs+='<label>Posiciones contratadas<input type="number" min="1" step="1" data-gh-limit="PUBLICIDAD" data-gh-field="posiciones" value="'+ghFunctionNumber_(cfg.posiciones,1)+'"></label>';
+    inputs+='<label>Modalidad<select data-gh-ad-value="modalidad"><option value="TRIMESTRAL" '+(cfg.modalidad!=='DIARIA'?'selected':'')+'>Trimestral · pago anticipado</option><option value="DIARIA" '+(cfg.modalidad==='DIARIA'?'selected':'')+'>Excepción · contratación por día</option></select></label><p>La modalidad diaria se reserva para campañas temporales, eventos y actividades de duración limitada.</p>';
+    inputs+='<div class="quota-settings"><label>Inicio de contratación<input type="date" data-gh-ad-date="vigente_desde" value="'+esc(cfg.vigente_desde||'')+'"></label><label>Último día de publicación<input type="date" data-gh-ad-date="vigente_hasta" value="'+esc(cfg.vigente_hasta||'')+'"></label></div><p>Las fechas delimitan la publicación de las piezas de esta contratación. El trimestre comercial se acuerda con referencia al día 5.</p><label>Motivo de la excepción por día<textarea rows="4" maxlength="500" data-gh-ad-value="excepcion_motivo">'+esc(cfg.excepcion_motivo||'')+'</textarea></label>';
+    inputs+='<details open><summary>Cobertura contratada</summary><section class="contract-group"><h5>Ciudades</h5><p>Elegí las ciudades, agrupá por provincia o país, o autorizá todas las ciudades habilitadas.</p>';
+    inputs+=ghContractPicker_('ciudades_ids','Ciudades contratadas',GH_CITIES,'ciudad_id','ciudad_visible',scopeCfg);
+    inputs+='</section><section class="contract-group"><h5>Secciones (funcionalidades)</h5><p>Guía, Eventos y Actividades. Promociones no lleva publicidad.</p>';
+    inputs+=ghContractPicker_('ubicaciones_ids','Secciones (funcionalidades) contratadas',locations,'ubicacion_id','nombre_visible',{...scopeCfg,ubicaciones_ids:(scopeCfg.ubicaciones_ids||[]).filter(id=>locations.some(x=>String(x.ubicacion_id||x.id)===String(id)))});
+    inputs+='</section></details><p>La publicidad acompaña la búsqueda utilizando los datos del anunciante y los tags de la campaña. No se contratan categorías por separado.</p>';
     inputs+=ghPublicidadFormats_(cfg);
    }
   }
@@ -1191,7 +1193,14 @@ function ghFunctionPayload_(){
  for(const d of GH_FUNCTION_DEFS){let cfg={...(root[d.id]||(d.id==='TURNOS_FARMA'?root.FARMACIAS:undefined)||{})},changed=false;
   for(const input of document.querySelectorAll('[data-gh-limit="'+d.id+'"]')){const n=Number(input.value);if(input.value.trim()===''||!Number.isSafeInteger(n)||n<0)throw Error('Indicá un número entero mayor o igual a cero en '+d.name+'.');cfg[input.dataset.ghField]=n;changed=true;}
   if(d.territory){const all=document.querySelector('[data-gh-all="'+d.id+'"]'),sel=document.querySelector('[data-gh-territory="'+d.id+'"]');cfg[d.all]=!!all?.checked;cfg[d.territory]=sel?[...sel.selectedOptions].map(o=>o.value):[];changed=true;}
-  if(d.id==='PUBLICIDAD'){for(const box of document.querySelectorAll('[data-gh-picker]'))cfg[box.dataset.ghPicker]=ghContractValues_(box);for(const el of document.querySelectorAll('[data-gh-ad-flag]'))cfg[el.dataset.ghAdFlag]=el.checked;for(const el of document.querySelectorAll('[data-gh-ad-date]'))cfg[el.dataset.ghAdDate]=el.value;delete cfg.cruces_max;delete cfg.cambios_activos_por_dia_max;changed=true;}
+  if(d.id==='PUBLICIDAD'){if((!GH_AD_EDITED147||!document.querySelector('[data-anu-fun="PUBLICIDAD"]')?.checked)&&GH_FUNCTION_CONFIG.PUBLICIDAD?.reglas_version!==147){if(GH_FUNCTION_CONFIG.PUBLICIDAD)root.PUBLICIDAD=structuredClone(GH_FUNCTION_CONFIG.PUBLICIDAD);else delete root.PUBLICIDAD;continue;}for(const box of document.querySelectorAll('[data-gh-picker]'))cfg[box.dataset.ghPicker]=ghContractValues_(box);for(const el of document.querySelectorAll('[data-gh-ad-flag]'))cfg[el.dataset.ghAdFlag]=el.checked;for(const el of document.querySelectorAll('[data-gh-ad-date]'))cfg[el.dataset.ghAdDate]=el.value;for(const el of document.querySelectorAll('[data-gh-ad-value]'))cfg[el.dataset.ghAdValue]=el.value;
+   cfg.reglas_version=147;cfg.cobertura_tipo=document.querySelector('[data-gh-ad-any="ciudades_ids"]')?.checked?'TODAS':'CIUDADES';
+   cfg.ciudades_sin_limite=true;cfg.categorias_sin_limite=true;cfg.categorias_keys=[];
+   const locations=(GH_CATALOG_CACHE.publicidad_ubicaciones||[]).filter(x=>GLD_AD_RULES147.section(x));
+   if(document.querySelector('[data-gh-ad-any="ubicaciones_ids"]')?.checked)cfg.ubicaciones_ids=locations.map(x=>String(x.ubicacion_id||x.id));
+   cfg.ubicaciones_ids=cfg.ubicaciones_ids.filter(id=>locations.some(x=>String(x.ubicacion_id||x.id)===id));
+
+   delete cfg.cruces_max;delete cfg.cambios_activos_por_dia_max;changed=true;}
   if(d.id==='EVENTOS_FREE'){cfg.sin_limites=!!document.querySelector('[data-gh-free-unlimited]')?.checked;changed=true;}
   if(changed)root[d.id]=cfg;
  }
@@ -1233,6 +1242,7 @@ async function detalleAnu(id){
   try{
     await ghCargarCiudades();
     const j=await api('detalle_anunciante',{anunciante_id:id});
+    GH_AD_SUPPORTED147=j.publicidad_reglas_version===147;
     const catalogTypes=['niveles_anunciante','segmentos','categorias','funcionalidades','actividades_clave','acciones','nodos','publicidad_ubicaciones','publicidad_categorias'];
     const catalogResults=await Promise.allSettled(catalogTypes.map(tipo=>api('listar_catalogo',{tipo})));
     const [nivJ,segJ,catJ,funJ,actJ,accJ,nodoJ]=catalogResults.map((r,i)=>r.status==='fulfilled'?r.value:{results:GH_CATALOG_CACHE[catalogTypes[i]]||[]});
@@ -1252,6 +1262,8 @@ async function detalleAnu(id){
       if(catalogResults[0].status==='rejected')document.getElementById('anuNivel').disabled=true;
       if(catalogResults[1].status==='rejected')document.getElementById('anuSegmento').disabled=true;
     }
+    const advertisingCard=box.querySelector('[data-anu-fun="PUBLICIDAD"]')?.closest('.function-card');
+    advertisingCard?.addEventListener('input',()=>{GH_AD_EDITED147=true;});advertisingCard?.addEventListener('change',()=>{GH_AD_EDITED147=true;});
     GH_EDIT_BASE={...ghAdvertiserFormPayload_(),revision_comercial:j.revision_comercial,revision_perfil:j.revision_perfil,revision_sedes:j.revision_sedes};
     informarAltura();
   }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
@@ -1839,6 +1851,7 @@ async function ghResolverRevisionUnificada(source,tipo,id,decision){
 }
 </script>
 <script src="/plataforma/gh-terminos.js?v=81"></script>
+<script src="/plataforma/publicidad-reglas147.js?v=147"></script>
 <script src="/plataforma/gh-publicidad.js?v=102"></script>
 <script src="/plataforma/gh-listados.js?v=118"></script>
 <script>window.addEventListener('message',e=>{const f=document.getElementById('empleoAdminFrame');if(e.source===f?.contentWindow&&e.data?.tipo==='alturaIframeGLD'&&Number(e.data.altura)>0){f.style.height=Math.min(30000,Number(e.data.altura))+'px';informarAltura();}});</script><script src="/plataforma/empleo-enlaces.js?v=109"></script><script src="/plataforma/cobertura-provincia.js?v=113"></script><script src="/plataforma/preparacion-paneles.js?v=116"></script></body>

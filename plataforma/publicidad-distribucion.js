@@ -6,6 +6,7 @@
  const id=b=>String(b.publicidad_id||b.id||b.titulo||JSON.stringify(b));
  const level=b=>[4,5,6].includes(Number(b.nivel))?Number(b.nivel):4;
  function sequence(rows,slots,context={}){
+  if((rows||[]).some(b=>b.reglas_version===147))return sequence147(rows,slots,context);
   slots=Math.max(0,Number(slots)||0);if(!slots)return [];
   const query=normal(context.query),categories=new Set((context.categories||[]).map(normal)),advertisers=new Set((context.advertisers||[]).map(String));
   const constrained=!!context.constrained;
@@ -34,6 +35,46 @@
   if(result.length<slots){const seen=new Set(result.map(id));result.push(...take(premium.filter(b=>!seen.has(id(b))),slots-result.length,(page-1)*2));}
   return result;
  }
+ function sequence147(rows,slots,context={}){
+  slots=Math.max(0,Math.floor(Number(slots)||0));if(!slots)return [];
+  const stem=v=>normal(v).split(/[^a-z0-9+]+/).filter(Boolean).map(t=>t.length>3?t.replace(/s$/,''):t);
+  const query=stem(context.query),categories=new Set((context.categories||[]).map(normal)),advertisers=new Set((context.advertisers||[]).map(String));
+  const relevance=b=>{
+   if(!context.constrained)return 0;
+   const data=[b.titulo,...(Array.isArray(b.tags)?b.tags:String(b.tags||'').split(/[,;\n]+/)),b.busqueda147?.texto||''];
+   const words=new Set(stem(data.join(' ')));
+   if(query.length&&query.every(t=>words.has(t))||advertisers.has(String(b.anunciante_id)))return 0;
+   const cats=[...(b.categoria_ids||[]),...(b.busqueda147?.categoria_ids||[]),...(b.segmentacion||[]).flatMap(s=>[s.categoria_id,s.categoria_nombre].filter(Boolean))].map(normal);
+   return cats.some(c=>categories.has(c)&&!['general','*'].includes(c))?1:2;
+  };
+  let pool=[...new Map((rows||[]).map(b=>[id(b),b])).values()];
+  if(!pool.length)return [];
+  const tier=Math.min(...pool.map(relevance));pool=pool.filter(b=>relevance(b)===tier);
+  if(!context.constrained){
+   const premium=pool.filter(b=>level(b)===6),other=pool.filter(b=>level(b)!==6);
+   if(premium.length&&other.length){const reserve=Math.min(2,slots,new Set(premium.map(b=>String(b.anunciante_id||id(b)))).size);return [...wheel147(premium,reserve,context),...wheel147(other,slots-reserve,context)];}
+  }
+  return wheel147(pool,slots,context);
+ }
+ function wheel147(pool,slots,context){
+  if(!slots)return [];
+  // One advertiser owns its positions, regardless of the number of active pieces.
+  const groups=new Map();
+  for(const row of pool){const key=String(row.anunciante_id||id(row));if(!groups.has(key))groups.set(key,{key,weight:Math.max(1,Math.floor(Number(row.posiciones)||1)),level:level(row),pieces:[],credit:0,turns:0});groups.get(key).pieces.push(row);}
+  const advertisersPool=[...groups.values()].sort((a,b)=>b.level-a.level||hash(a.key)-hash(b.key));
+  for(const g of advertisersPool)g.pieces.sort((a,b)=>hash(id(a))-hash(id(b)));
+  const total=advertisersPool.reduce((n,g)=>n+g.weight,0),page=Math.max(1,Math.floor(Number(context.page)||1)),perPage=Math.max(slots,Math.floor(Number(context.slotsPerPage)||4));
+  const offset=(page-1)*perPage,result=[];
+  for(let turn=0;turn<offset+slots;turn++){
+   if(turn&&turn%total===0){for(const lvl of [6,5,4]){const indices=advertisersPool.map((g,i)=>g.level===lvl?i:-1).filter(i=>i>=0);if(indices.length<2)continue;const ordered=indices.map(i=>advertisersPool[i]);ordered.push(ordered.shift());indices.forEach((index,i)=>advertisersPool[index]=ordered[i]);}}
+   let winner=advertisersPool[0];
+   for(const g of advertisersPool){g.credit+=g.weight;if(g.credit>winner.credit)winner=g;}
+   winner.credit-=total;
+   const piece=winner.pieces[winner.turns++%winner.pieces.length];if(turn>=offset)result.push(piece);
+  }
+  return result;
+ }
+
 function pubInternalDestination106(raw){
  const value=String(raw||'').trim();
  if(!value||/[\\\s]/.test(value))return '';
@@ -61,7 +102,8 @@ function pubInternalDestination106(raw){
    content='<div class="banner-media" style="width:min(100%,360px);max-width:100%;aspect-ratio:auto;height:auto;display:flex;overflow-x:auto;scroll-snap-type:x mandatory">'+images.map(url=>'<img src="'+(window.GLD_MEDIA?.imageAttr?window.GLD_MEDIA.imageAttr(url):esc(url))+'" alt="Publicidad" loading="lazy" style="flex:0 0 100%;width:100%;height:auto;max-height:640px;object-fit:contain;scroll-snap-align:start">').join('')+'</div>';
   }
   const ficha=b.cta_tipo==='FICHA_ANUNCIANTE'&&String(b.anunciante_id||'').trim();
-  const href=ficha?new URL('anunciantes.html?ciudad_id='+encodeURIComponent(b.ciudad_id||'')+'&anunciante_id='+encodeURIComponent(b.anunciante_id),location.href).href:pubInternalDestination106(b.cta||b.cta_destino||'');
+  const linked=['EVENTO','ACTIVIDAD'].includes(b.cta_tipo)&&/^https:\/\/anunciantes-guialocal\.web\.app\/plataforma\/(?:eventos|actividades)\.html\?/.test(b.cta||'');
+  const href=linked?b.cta:ficha?new URL('anunciantes.html?ciudad_id='+encodeURIComponent(b.ciudad_id||'')+'&anunciante_id='+encodeURIComponent(b.anunciante_id),location.href).href:pubInternalDestination106(b.cta||b.cta_destino||'');
   return '<aside class="banner-tarjeta" data-contenido-adulto="'+(b.contenido_adulto===true)+'" aria-label="Publicidad"><small>Publicidad</small>'+content+(href?'<a class="cta-btn" href="'+esc(href)+'" target="'+(ficha?'_self':'_top')+'">'+esc(b.cta_texto||'Ver anunciante')+'</a>':'')+'</aside>';
  }
  function init(){
