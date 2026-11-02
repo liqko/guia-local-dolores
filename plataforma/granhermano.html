@@ -422,11 +422,11 @@ async function ghGuardarModerador(){
 
 let GH_SUPPORT_ROWS=[];
 let GH_SUPPORT_ACTIVE_COUNT=null;
-async function ghCargarSoporteV73(){
+async function ghCargarSoporteV73(prefetched=null){
  const card=document.getElementById('ghSoporteCard'),box=document.getElementById('ghSoporteLista');
  const local=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';card.style.display=local?'none':'';const supportTab=document.getElementById('tabSoporte');if(supportTab)supportTab.hidden=local;document.getElementById('ghSupportJump').hidden=local;if(local)return;
  box.textContent='Cargando solicitudes...';
- try{const result=await ghAdminRequest_('/support/requests',{estado:document.getElementById('ghSoporteEstado').value});GH_SUPPORT_ROWS=result.results||[];if(document.getElementById('ghSoporteEstado').value==='ABIERTAS'){GH_SUPPORT_ACTIVE_COUNT=GH_SUPPORT_ROWS.length;ghRenderRequestSummary();}
+ try{const result=(prefetched&&document.getElementById('ghSoporteEstado').value==='ABIERTAS')?prefetched:await ghAdminRequest_('/support/requests',{estado:document.getElementById('ghSoporteEstado').value});GH_SUPPORT_ROWS=result.results||[];if(document.getElementById('ghSoporteEstado').value==='ABIERTAS'){GH_SUPPORT_ACTIVE_COUNT=GH_SUPPORT_ROWS.length;ghRenderRequestSummary();}
  document.getElementById('ghSoporteResumen').textContent=result.cantidades.recuperacion+' de acceso · '+result.cantidades.soporte+' de soporte';
  box.replaceChildren();if(!GH_SUPPORT_ROWS.length)box.textContent='No hay solicitudes en este estado.';
  for(const row of GH_SUPPORT_ROWS){const id=row.solicitud_id||row.id,article=document.createElement('article');article.className='card';
@@ -515,7 +515,6 @@ async function abrirApp(){
     GH_CITY_STATS={};
 
     await ghRevisionUnificada();
-    await ghCargarSoporteV73();
     ghRenderTodo();
     ghGoView('inicio');
   }catch(e){
@@ -1745,19 +1744,18 @@ function ghRenderReviewQueues(){
 async function ghRevisionUnificada(){
  if(GH_REVISION_LOADING)return GH_REVISION_LOADING;
  GH_REVISION_LOADING=(async()=>{
- const sources=[['/superadmin/moderation/pending','normal'],...(GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL'?[]:[['/superadmin/publications/blocked','blocked'],['/superadmin/adult-review','adulto']])];
- const results=await Promise.allSettled(sources.map(async([path,source])=>{
-  const r=await fetch(TERRITORY_API_ORIGIN+path,{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo cargar '+source);
-  let rows;
-  if(source==='normal'){
-   GH_PENDING_EVENTS=j.eventos||[];GH_PENDING_ACTIVITIES=j.actividades||[];GH_PENDING_ADVERTISERS=j.anunciantes||[];
-   rows=[...GH_PENDING_EVENTS.map(x=>({...x,nivel:x.nivel||x.tipo,tipo:'EVENTO',normal:true})),...GH_PENDING_ACTIVITIES.map(x=>({...x,tipo:'ACTIVIDAD',normal:true}))];
-  }else rows=(j.results||[]).map(x=>({...x,[source==='adulto'?'adulto':'normal']:true}));
-  GH_REVISION_SOURCES.set(source,rows);return rows;
- }));
- GH_REVISION_ERRORS=results.filter(r=>r.status==='rejected').map(r=>r.reason);GH_REVISION_READY=true;
- GH_REVISION_ROWS=ghAgruparRevision(sources.flatMap(([,source])=>GH_REVISION_SOURCES.get(source)||[]));
- ghRenderAnunciantesPendientes();ghRenderReviewQueues();ghRenderRequestSummary();ghRenderEventos();informarAltura();
+  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/inbox',{headers:{Authorization:'Bearer '+TOKEN}});
+  const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo consultar el buzón');
+  GH_PENDING_EVENTS=j.moderation.eventos||[];
+  GH_PENDING_ACTIVITIES=j.moderation.actividades||[];
+  GH_PENDING_ADVERTISERS=j.moderation.anunciantes||[];
+  GH_REVISION_SOURCES.set('normal',[...GH_PENDING_EVENTS.map(x=>({...x,nivel:x.nivel||x.tipo,tipo:'EVENTO',normal:true})),...GH_PENDING_ACTIVITIES.map(x=>({...x,tipo:'ACTIVIDAD',normal:true}))]);
+  GH_REVISION_SOURCES.set('blocked',(j.blocked||[]).map(x=>({...x,normal:true})));
+  GH_REVISION_SOURCES.set('adulto',(j.adult||[]).map(x=>({...x,adulto:true})));
+  GH_REVISION_ERRORS=[];GH_REVISION_READY=true;
+  GH_REVISION_ROWS=ghAgruparRevision(['normal','blocked','adulto'].flatMap(source=>GH_REVISION_SOURCES.get(source)||[]));
+  await ghCargarSoporteV73(j.support);
+  ghRenderAnunciantesPendientes();ghRenderReviewQueues();ghRenderRequestSummary();ghRenderEventos();informarAltura();
  })().finally(()=>{GH_REVISION_LOADING=null;});return GH_REVISION_LOADING;
 }
 
