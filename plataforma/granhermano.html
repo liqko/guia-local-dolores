@@ -168,7 +168,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
       <div class="cfgpane hidden" data-cfgpane="nodos"><div class="card"><h2>Nodos</h2><p class="muted">Creá o editá un nodo y elegí su ciudad en la misma ficha.</p><div class="toolbar"><select id="nodosFiltroCiudad" onchange="ghRenderNodos()"><option value="">Todas las ciudades</option></select><button onclick="ghNuevoNodo()">+ Agregar nodo</button><button class="sec" onclick="ghCargarNodos()">Actualizar</button></div><div id="nodosLista"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="segmentos"><div class="card"><h3>Segmentos</h3><div id="cfgSegmentos"></div></div></div>
-      <div class="cfgpane hidden" data-cfgpane="niveles"><div class="card"><h3>Parámetros generales de carga · todos los niveles</h3><p class="muted">Estos máximos son únicos para todas las fichas, independientemente del nivel contratado. El anunciante conserva sus datos aunque su nivel no permita publicarlos.</p><div id="cfgCargaGeneralAnunciantes"></div></div><div class="card"><h3>Prestaciones de publicación por nivel</h3><p class="muted">Acá solo decidís qué aparece en las tarjetas públicas y en qué cantidad. No modifica ni elimina datos de las fichas.</p><div id="cfgNivelesAnunciante"></div></div></div>
+      <div class="cfgpane hidden" data-cfgpane="niveles"><div class="card"><h3>Parámetros generales de carga · todos los niveles</h3><p class="muted">Estos máximos son únicos para todas las fichas, independientemente del nivel contratado. El anunciante conserva sus datos aunque su nivel no permita publicarlos.</p><div id="cfgCargaGeneralAnunciantes"></div></div><div class="card"><h3>Origen de cada dato · anunciante o sede</h3><p class="muted">Definí dónde corresponde cada campo. Esta clasificación es independiente de los seis niveles. No mueve datos existentes ni altera todavía Login o Guía.</p><div id="cfgAmbitoCamposAnunciante"></div></div><div class="card"><h3>Prestaciones de publicación por nivel</h3><p class="muted">Acá solo decidís qué aparece en las tarjetas públicas y en qué cantidad. No modifica ni elimina datos de las fichas.</p><div id="cfgNivelesAnunciante"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="funcionalidades"><div class="card"><h3>Funcionalidades</h3><div id="cfgFuncionalidades"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="categorias"><div class="card"><h3>Categorías de anunciantes</h3><div id="cfgCategoriasAnunciantes"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="actividades"><div class="card"><h3>Actividades clave</h3><div id="cfgActividadesClave"></div></div></div>
@@ -1301,10 +1301,55 @@ const GH_CARGA_GENERAL_FIELDS=[
  ['redes_max','Redes sociales · cantidad máxima para cargar y conservar',6]
 ];
 let GH_CARGA_GENERAL_BASE=null;
+
+// Inventario de datos: una única clasificación, independiente de los permisos de publicación.
+const GH_AMBITO_CAMPOS=[
+ ['nombre','Nombre del anunciante','general'],['segmento_id','Segmento','general'],['categoria_ids','Categorías','general'],
+ ['logo','Logo','general'],['descripcion','Descripción','general'],['adicionales','Información adicional','general'],['tags','Etiquetas / tags','general'],
+ ['nombre_sede','Nombre de la sede','sede'],['ciudad_id','Ciudad','sede'],['direccion','Dirección física','sede'],
+ ['lat_lng','Ubicación / coordenadas','sede'],['maps','Enlace al mapa','sede'],
+ ['telefono','Teléfonos','sede'],['whatsapp','WhatsApp','sede'],['mail','Correos electrónicos','sede'],
+ ['web','Sitio web','sede'],['redes','Redes sociales','sede'],['imagenes','Imágenes / galería','sede'],
+ ['actividades_clave','Actividades clave','sede'],['acciones','Acciones','sede'],['nodos','Nodos','sede']
+];
+function ghRenderAmbitoCampos(){
+ const host=document.getElementById('cfgAmbitoCamposAnunciante');if(!host)return;
+ const current=GH_CARGA_GENERAL_BASE?.ambito_campos||{};
+ host.innerHTML='<div class="formgrid">'+GH_AMBITO_CAMPOS.map(([key,label,fallback])=>{
+  const value=current[key]==='general'||current[key]==='sede'?current[key]:fallback;
+  return '<label>'+esc(label)+'<select data-ambito-campo="'+esc(key)+'"><option value="general" '+(value==='general'?'selected':'')+'>Único del anunciante</option><option value="sede" '+(value==='sede'?'selected':'')+'>Por sede</option></select></label>';
+ }).join('')+'</div>'+
+ '<p class="muted">La asignación se guarda como configuración. Todavía no cambia la estructura física de Firebase ni el comportamiento de Login, Worker o Guía; su aplicación se hará de forma coordinada.</p>'+
+ '<div class="toolbar"><button type="button" onclick="ghGuardarAmbitoCampos()">Guardar clasificación de campos</button><span id="ghAmbitoCamposMensaje" role="status"></span></div>';
+}
+async function ghGuardarAmbitoCampos(){
+ const msg=document.getElementById('ghAmbitoCamposMensaje');
+ try{
+  const ambito={};
+  for(const [key] of GH_AMBITO_CAMPOS){
+   const value=document.querySelector('[data-ambito-campo="'+key+'"]')?.value;
+   if(value!=='general'&&value!=='sede')throw Error('Clasificación inválida: '+key);
+   ambito[key]=value;
+  }
+  if(JSON.stringify(ambito)===JSON.stringify(Object.fromEntries(GH_AMBITO_CAMPOS.map(([key,,def])=>[key,GH_CARGA_GENERAL_BASE?.ambito_campos?.[key]||def])))){
+   if(msg)msg.textContent='Sin cambios.';return;
+  }
+  if(msg)msg.textContent='Guardando…';
+  const item={nivel_id:GH_CARGA_GENERAL_ID,ambito_campos:ambito};
+  if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
+  const response=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  if(!response.success)throw Error('No se confirmó el guardado.');
+  GH_CARGA_GENERAL_BASE={...(GH_CARGA_GENERAL_BASE||{}),...item};
+  GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).concat([GH_CARGA_GENERAL_BASE]);
+  if(msg)msg.textContent='Clasificación guardada (pendiente de aplicar en Login y Guía).';
+ }catch(e){if(msg)msg.textContent='Error: '+String(e.message||e);}
+}
+
 function ghCargaGeneralRender(rows){
  const host=document.getElementById('cfgCargaGeneralAnunciantes');if(!host)return;
  const base=(rows||[]).find(x=>String(x.nivel_id||x.id||'')===GH_CARGA_GENERAL_ID);
  GH_CARGA_GENERAL_BASE=base||null;
+ ghRenderAmbitoCampos();
  host.innerHTML='<div class="formgrid">'+GH_CARGA_GENERAL_FIELDS.map(([key,label,fallback])=>
  '<label>'+esc(label)+'<input type="number" min="0" step="1" data-carga-general="'+esc(key)+'" value="'+
  esc(base?.['carga_'+key]??fallback)+'"></label>').join('')+'</div>'+
