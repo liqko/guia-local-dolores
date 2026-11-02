@@ -1292,6 +1292,8 @@ function buildGuideCard({ advertiser, admin, sedes, catalogs, territory, cityId 
     descripcion: text4(advertiser.descripcion),
     tags: text4(advertiser.tags),
     adicionales: text4(advertiser.adicionales),
+    pie: text4(advertiser.pie),
+    servicios_iconos: text4(advertiser.servicios_iconos),
     logo: text4(advertiser.logo),
     img1: text4(advertiser.img1),
     img2: text4(advertiser.img2),
@@ -6105,7 +6107,7 @@ function newSedeId(advertiserId){
   return "SED-"+text(advertiserId)+"-"+crypto.randomUUID().replace(/-/g,"").slice(0,10);
 }
 const DATA_ALLOWED=new Set([
-  "contenido_adulto","redes_web_comunes","actividad","descripcion","tags","adicionales","logo","link","segmento_id","categoria_id","categoria_ids",
+  "contenido_adulto","redes_web_comunes","actividad","pie","descripcion","tags","adicionales","servicios_iconos","logo","link","segmento_id","categoria_id","categoria_ids",
   "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"
 ]);
 const SEDE_ALLOWED=new Set([
@@ -6141,7 +6143,7 @@ async function commerceLoadLimitsV149({db,cache,advertiserId}){
  ]);
  const grupo=[1,2].includes(Number(admin?.nivel))?'institucional':'comercial';
  const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
- const fallback={descripcion:500,adicionales:150,tags:300,imagenes:5,redes:6,sedes:0};
+ const fallback={pie:80,descripcion:500,adicionales:150,tags:300,imagenes:5,redes:6,sedes:0};
  const get=key=>{
   const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
   const value=Number(raw);
@@ -6151,11 +6153,17 @@ async function commerceLoadLimitsV149({db,cache,advertiserId}){
  return Object.fromEntries(Object.keys(fallback).map(k=>[k,get(k)]));
 }
 async function validateCommerceFieldsV86({db,cache,advertiserId,patch,limits}){
- const fields=Object.keys(patch).filter(k=>['descripcion','adicionales','tags'].includes(k)||/^img\d+$/.test(k));
+ const fields=Object.keys(patch).filter(k=>['pie','descripcion','adicionales','tags','servicios_iconos'].includes(k)||/^img\d+$/.test(k));
  if(!fields.length)return;
  const cfg=limits||await commerceLoadLimitsV149({db,cache,advertiserId});
  for(const key of fields){
-   const image=/^img\d+$/.test(key),field=image?'imagenes':key,max=cfg[field];
+   const image=/^img\d+$/.test(key),field=image?'imagenes':key,max=key==='servicios_iconos'?null:cfg[field];
+   if(key==='servicios_iconos'){
+    const allowed=new Set(['tarjetas','efectivo','transferencia','delivery','retiro','reservas','turnos','accesibilidad','estacionamiento','wifi']);
+    const parts=String(patch[key]??'').split(',').map(x=>x.trim()).filter(Boolean);
+    if(parts.length>10||new Set(parts).size!==parts.length||parts.some(x=>!allowed.has(x)))throw Error('Prestaciones e íconos inválidos.');
+    continue;
+   }
    const value=String(patch[key]??'');
    if(image){
     if(value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas por sede.');
