@@ -622,6 +622,13 @@
     .farma-turno-dir{color:#444;margin:.25rem 0}
     .farma-turno-actions{display:flex;gap:.5rem;flex-wrap:wrap;margin-top:.65rem}
     .farma-turno-actions a{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:.45rem .7rem;border-radius:.6rem;text-decoration:none;font-weight:800;border:1px solid #1f8f4e;color:#1f8f4e;background:#fff}
+    .farma-turno-actions button{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:.45rem .7rem;border-radius:.6rem;text-decoration:none;font:800 inherit;border:1px solid #1f8f4e;color:#1f8f4e;background:#fff;cursor:pointer}
+    .farma-mapa-panel{margin-top:12px;border:1px solid #d1dce2;border-radius:10px;padding:10px;background:#fff;color:#263238;font-family:inherit}
+    .farma-mapa-cabecera,.farma-mapa-acciones{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0}
+    .farma-mapa-cabecera button{border:0;background:transparent;color:#263238;font-size:24px;cursor:pointer}
+    .farma-mapa-panel iframe{display:block;border:0;width:100%;height:340px;min-height:270px;border-radius:8px}
+    .farma-mapa-acciones button{border:1px solid #006699;background:#fff;color:#006699;border-radius:8px;padding:9px 12px;font:700 inherit;cursor:pointer}
+    .farma-mapa-estado{font-size:.85rem;color:#624014}
     .farma-week{margin-top:1rem;border-top:1px solid #dfe9e2;padding-top:.8rem}
     .farma-week summary{cursor:pointer;font-weight:900;color:#006699;padding:.55rem 0}
     .farma-week-day{padding:.7rem 0;border-bottom:1px solid #e8eee9}
@@ -1892,10 +1899,67 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
       const links=[];const tel=String(t.telefono||'').trim();const wa=String(t.whatsapp||'').replace(/\D/g,'');const maps=String(t.maps||'').trim();const mail=String(t.mail||'').trim();
       if(tel)links.push(`<a href="tel:${farmaEsc(tel.replace(/\s+/g,''))}">📞 Llamar</a>`);
       if(wa)links.push(`<a href="https://wa.me/${farmaEsc(wa)}" target="_blank" rel="noopener">💬 WhatsApp</a>`);
-      if(maps)links.push(`<a href="${farmaEsc(maps)}" target="_blank" rel="noopener">📍 Ubicación y cómo llegar</a>`);
+      if(maps&&/^https:\/\//i.test(maps))links.push(`<button type="button" class="farma-mapa-abrir" data-maps="${farmaEsc(maps)}" data-direccion="${farmaEsc(String(t.direccion||''))}">📍 Ubicación y cómo llegar</button>`);
       if(mail)links.push(`<a href="mailto:${farmaEsc(mail)}">✉️ Mail</a>`);
       return links.join('');
     }
+    // Mapa y recorrido dentro de la misma tarjeta, sin cargar datos adicionales.
+    const FARMA_MAPS_EMBED_KEY="AIzaSyBat5NBLq98KLfv4nCSd9hmGAgDVYIsTCs";
+    function farmaDestino(raw,dir){
+      try{
+        const u=new URL(raw);
+        for(const k of ['query','q','ll','destination']){
+          const v=u.searchParams.get(k);
+          if(v&&/^-?\d+(?:\.\d+)?,\s*-?\d+(?:\.\d+)?$/.test(v))return v;
+        }
+        const m=u.href.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)||u.href.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+        if(m)return m[1]+','+m[2];
+      }catch(e){}
+      return dir ? dir+', Dolores, Buenos Aires, Argentina' : '';
+    }
+    document.addEventListener('click',function(e){
+      const boton=e.target.closest('.farma-mapa-abrir');
+      if(boton){
+        const tarjeta=boton.closest('.farma-turno-card');if(!tarjeta)return;
+        const abierto=tarjeta.querySelector('.farma-mapa-panel');
+        if(abierto){abierto.remove();boton.setAttribute('aria-expanded','false');return;}
+        const destino=farmaDestino(boton.dataset.maps||'',boton.dataset.direccion||'');
+        if(!destino)return;
+        const panel=document.createElement('div');panel.className='farma-mapa-panel';
+        const encabezado=document.createElement('div');encabezado.className='farma-mapa-cabecera';
+        const titulo=document.createElement('strong');titulo.textContent='Ubicación y cómo llegar';
+        const cerrar=document.createElement('button');cerrar.type='button';cerrar.textContent='×';cerrar.setAttribute('aria-label','Cerrar mapa');
+        encabezado.append(titulo,cerrar);
+        const frame=document.createElement('iframe');frame.title='Mapa y recorrido hasta la farmacia';frame.loading='lazy';frame.referrerPolicy='no-referrer-when-downgrade';
+        const url=modo=>{
+          const u=new URL('https://www.google.com/maps/embed/v1/'+modo);
+          u.searchParams.set('key',FARMA_MAPS_EMBED_KEY);
+          if(modo==='place')u.searchParams.set('q',destino);
+          return u;
+        };
+        frame.src=url('place').toString();
+        const acciones=document.createElement('div');acciones.className='farma-mapa-acciones';
+        const ruta=document.createElement('button');ruta.type='button';ruta.textContent='Ver recorrido desde mi ubicación';
+        const estado=document.createElement('div');estado.className='farma-mapa-estado';estado.setAttribute('role','status');
+        acciones.append(ruta);
+        panel.append(encabezado,frame,acciones,estado);
+        tarjeta.appendChild(panel);boton.setAttribute('aria-expanded','true');
+        cerrar.addEventListener('click',()=>{panel.remove();boton.setAttribute('aria-expanded','false');boton.focus();});
+        ruta.addEventListener('click',()=>{
+          ruta.disabled=true;estado.textContent='Obteniendo tu ubicación…';
+          if(!navigator.geolocation){ruta.disabled=false;estado.textContent='Este navegador no permite obtener tu ubicación.';return;}
+          navigator.geolocation.getCurrentPosition(pos=>{
+            const u=url('directions');u.searchParams.set('origin',pos.coords.latitude+','+pos.coords.longitude);
+            u.searchParams.set('destination',destino);frame.src=u.toString();
+            ruta.disabled=false;estado.textContent='Recorrido desde tu ubicación.';
+          },err=>{
+            ruta.disabled=false;
+            estado.textContent=err.code===1?'No se autorizó la ubicación. Revisá los permisos del navegador.':err.code===3?'No se obtuvo la ubicación a tiempo. Volvé a intentarlo.':'No se pudo determinar tu ubicación.';
+          },{timeout:12000,maximumAge:60000,enableHighAccuracy:false});
+        });
+        return;
+      }
+    });
     function farmaDiaMes(iso){
       const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
       if(!m) return String(iso||'');
