@@ -2381,73 +2381,63 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           return tipo?{tipo,valor:values[tipo],sede}:null;
         }
         function renderContactoNuevo(item, nivelVisual) {
-          const unica=contactoNivel3Seleccionado_(item,nivelVisual);
-          if(nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo==='direccion_o_alternativa'){
-            if(!unica)return '';
-            let body='';
-            if(unica.tipo==='direccion')body='<div><i class="fas fa-map-marker-alt"></i> '+unica.valor+'</div>';
-            if(unica.tipo==='telefono')body='<div><i class="fas fa-phone"></i> '+unica.valor+'</div>';
-            if(unica.tipo==='whatsapp'){const tel=unica.valor.replace(/[^0-9]/g,'');body='<div><i class="fab fa-whatsapp"></i> '+(permisoNivel_(nivelVisual,'contactos_enlace',false)?'<a href="https://wa.me/'+tel+'">'+unica.valor+'</a>':unica.valor)+'</div>';}
-            return body?'<div class="contacto-bloque">'+body+'</div><span class="segmento-doble"></span>':'';
+          const unico=contactoNivel3Seleccionado_(item,nivelVisual);
+          const esUnico=nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo==='direccion_o_alternativa';
+          if(esUnico){
+            if(!unico)return '';
+            let contenido='';
+            if(unico.tipo==='direccion')contenido='<div><i class="fas fa-map-marker-alt"></i> '+unico.valor+'</div>';
+            if(unico.tipo==='telefono')contenido='<div><i class="fas fa-phone"></i> '+unico.valor+'</div>';
+            if(unico.tipo==='whatsapp'){
+              const wa=unico.valor.replace(/[^0-9]/g,'');
+              contenido='<div><i class="fab fa-whatsapp"></i> '+(permisoNivel_(nivelVisual,'contactos_enlace',false)?'<a href="https://wa.me/'+wa+'" target="_blank" rel="noopener noreferrer">'+unico.valor+'</a>':unico.valor)+'</div>';
+            }
+            return contenido?'<div class="contacto-bloque">'+contenido+'</div><span class="segmento-doble"></span>':'';
           }
-          const sedes = Array.isArray(item.sedes) ? item.sedes : [];
-          const clickable = permisoNivel_(nivelVisual,"contactos_enlace",nivelVisual!==3);
-          let html = '';
-
-          const sedesVisibles = sedesPublicables_(item,nivelVisual);
-          const contactoUnico=nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo==='direccion_o_alternativa';
-          const existeDireccion=contactoUnico&&sedesVisibles.some(x=>String(x?.direccion||'').trim()&&permisoNivel_(nivelVisual,'direccion_habilitada',true));
-          let alternativaUsada=false;
-          sedesVisibles.forEach((s, idx) => {
-            const tiene = s && (s.direccion || s.nombre_sede || s.maps || s.telefono || s.whatsapp);
-            if(!tiene) return;
-
-            const nombreRaw = String(s.nombre_sede || '').trim();
-            const nombreNorm = normalizar(nombreRaw);
-            const nombreVisible = (nombreNorm === 'sede' || nombreNorm === 'sede principal') ? '' : nombreRaw;
-
-            html += `<div class="sede-ficha">`;
-            if(nombreVisible) html += `<div class="sede-nombre">${nombreVisible}</div>`;
-            if(s.direccion && permisoNivel_(nivelVisual,'direccion_habilitada',true)) html += `<div><i class="fas fa-map-marker-alt"></i> ${s.direccion}${s.ciudad ? ` · ${s.ciudad}` : ''}</div><span class="espaciado"></span>`;
-            if(s.maps && clickable && !contactoUnico && permisoNivel_(nivelVisual,'mapa_habilitado',true)){
-              const dir = [s.direccion,s.ciudad || 'Dolores','Buenos Aires','Argentina'].filter(Boolean).join(', ');
-              html += `<div style="margin:.45em 0;"><button type="button" class="gld-ruta-open" data-map="${encodeURIComponent(String(s.maps||''))}" data-dir="${encodeURIComponent(dir)}" style="border:0;background:none;padding:0;color:#006699;font-weight:bold;text-decoration:underline;cursor:pointer;font:inherit;">Ubicación y cómo llegar</button></div>`;
+          const max=limitePublicacionNivel_(nivelVisual,'contactos_visibles_max',0,20);
+          const sedes=sedesPublicables_(item,nivelVisual);
+          const lista=sedes.length?sedes:[item];
+          const tarjetas=[];
+          const clic=permisoNivel_(nivelVisual,'contactos_enlace',nivelVisual!==3);
+          for(const sede of lista){
+            const contenido=[];
+            const espacio='<span class="espaciado"></span>';
+            const permite=()=>max===0||contenido.length<max;
+            const push=texto=>{if(permite())contenido.push(texto);};
+            const nombre=String(sede.nombre_sede||'').trim();
+            const dir=String(sede.direccion||item.direccion||'').trim();
+            if(dir&&permisoNivel_(nivelVisual,'direccion_habilitada',true)){
+              push('<div><i class="fas fa-map-marker-alt"></i> '+dir+(sede.ciudad?' · '+sede.ciudad:'')+'</div>');
             }
-            if(s.telefono && (!contactoUnico||(!existeDireccion&&!alternativaUsada&&(alternativaUsada=true))) && permisoNivel_(nivelVisual,"telefono_habilitado",true)) html += `<div><i class="fas fa-phone"></i> ${s.telefono}</div><span class="espaciado"></span>`;
-            if(s.whatsapp && (!contactoUnico||(!existeDireccion&&!alternativaUsada&&(alternativaUsada=true))) && permisoNivel_(nivelVisual,"whatsapp_habilitado",true)){
-              const n = String(s.whatsapp).replace(/[^0-9]/g,'');
-              html += clickable
-                ? `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${n}" target="_blank" rel="noopener noreferrer">${s.whatsapp}</a></div>`
-                : `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${s.whatsapp}</div>`;
+            const phones=['telefono','telefono2','telefono3','telefono4','telefono5'];
+            const whats=['whatsapp','whatsapp2','whatsapp3','whatsapp4','whatsapp5'];
+            const mails=['mail','mail2','mail3'];
+            if(permisoNivel_(nivelVisual,'telefono_habilitado',true))
+              for(const k of phones){const val=String(sede[k]||item[k]||'').trim();if(val)push('<div><i class="fas fa-phone"></i> '+val+'</div>');}
+            if(permisoNivel_(nivelVisual,'whatsapp_habilitado',true))
+              for(const k of whats){
+                const val=String(sede[k]||item[k]||'').trim();if(!val)continue;
+                const wa=val.replace(/[^0-9]/g,'');
+                push('<div><i class="fab fa-whatsapp" style="color:#25D366"></i> '+(clic?'<a href="https://wa.me/'+wa+'" target="_blank" rel="noopener noreferrer">'+val+'</a>':val)+'</div>');
+              }
+            if(permisoNivel_(nivelVisual,'mail_habilitado',true))
+              for(const k of mails){const val=String(sede[k]||item[k]||'').trim();if(val)push('<div><i class="fas fa-envelope"></i> <a href="mailto:'+val+'">'+val+'</a></div>');}
+            if(permisoNivel_(nivelVisual,'web_habilitada',true)){
+              const web=enlaceWebGuiaInternal(sede.web||item.link);
+              if(web)push('<div><i class="fas fa-globe"></i> <a href="'+web+'" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div>');
             }
-            html += `</div>`;
-          });
-
-          const phones = ['telefono','telefono2','telefono3','telefono4','telefono5']
-            .map(k => String(item[k] || '').trim()).filter(Boolean);
-          const whats = ['whatsapp','whatsapp2','whatsapp3','whatsapp4','whatsapp5']
-            .map(k => String(item[k] || '').trim()).filter(Boolean);
-
-          const usedPhones = new Set(sedesVisibles.map(s => String((s&&s.telefono)||'').trim()).filter(Boolean));
-          const usedWhats = new Set(sedesVisibles.map(s => String((s&&s.whatsapp)||'').trim()).filter(Boolean));
-
-          const phoneList = permisoNivel_(nivelVisual,"telefono_habilitado",true)?phones.filter(v => !usedPhones.has(v)):[];
-          const waList = permisoNivel_(nivelVisual,"whatsapp_habilitado",true)?whats.filter(v => !usedWhats.has(v)):[];
-
-          const phoneLimit = nivelVisual === 3 ? 1 : phoneList.length;
-          const waLimit = nivelVisual === 3 ? 1 : waList.length;
-
-          (contactoUnico&&(existeDireccion||alternativaUsada)?[]:phoneList.slice(0,contactoUnico?1:phoneLimit)).forEach(tel => { alternativaUsada=true;
-            html += `<div><i class="fas fa-phone"></i> ${tel}</div><span class="espaciado"></span>`;
-          });
-          (contactoUnico&&(existeDireccion||alternativaUsada)?[]:waList.slice(0,contactoUnico?1:waLimit)).forEach(wh => { alternativaUsada=true;
-            const n = wh.replace(/[^0-9]/g,'');
-            html += clickable
-              ? `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> <a href="https://wa.me/${n}" target="_blank" rel="noopener noreferrer">${wh}</a></div><span class="espaciado"></span>`
-              : `<div><i class="fab fa-whatsapp" style="color:#25D366;"></i> ${wh}</div><span class="espaciado"></span>`;
-          });
-
-          return html ? `<div class="contacto-bloque">${html}</div><span class="segmento-doble"></span>` : '';
+            if(!contenido.length)continue;
+            let markup='<div class="sede-ficha">';
+            if(nombre&&!['sede','sede principal'].includes(normalizar(nombre)))markup+='<div class="sede-nombre">'+nombre+'</div>';
+            markup+=contenido.join(espacio);
+            if(dir&&sede.maps&&clic&&permisoNivel_(nivelVisual,'mapa_habilitado',true)){
+              const destino=[dir,sede.ciudad||'Dolores','Buenos Aires','Argentina'].join(', ');
+              markup+='<div style="margin:.45em 0"><button type="button" class="gld-ruta-open" data-map="'+encodeURIComponent(String(sede.maps))+'" data-dir="'+encodeURIComponent(destino)+'">Ubicación y cómo llegar</button></div>';
+            }
+            markup+='</div>';
+            tarjetas.push(markup);
+          }
+          return tarjetas.length?'<div class="contacto-bloque">'+tarjetas.join('')+'</div><span class="segmento-doble"></span>':'';
         }
 
         function enlaceWebGuiaInternal(value){
@@ -2502,10 +2492,6 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             html += renderRedesBloque(solo,nivelVisual);
           }else if(!(nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo==='direccion_o_alternativa'))html += renderRedesBloque(item,nivelVisual);
           html += renderGaleria(item,nivelVisual,galeriaId);
-          let webMailHtml='';
-          if(enlaceWeb&&permisoNivel_(nivelVisual,'web_habilitada',nivelVisual!==3))webMailHtml += `<div><i class="fas fa-globe"></i> <a href="${enlaceWeb}" target="_blank" rel="noopener noreferrer">Visita nuestra web!</a></div>`;
-          if(item.mail&&permisoNivel_(nivelVisual,'mail_habilitado',nivelVisual!==3))webMailHtml += `<div><i class="fas fa-envelope"></i> <a href="mailto:${item.mail}">${item.mail}</a></div>`;
-          if(webMailHtml)html += '<div class="web-mail-bloque">'+webMailHtml+'</div><span class="segmento-doble"></span>';
           if(nivelVisual===1)html += '<div class="leyenda-nivel-4">ESPACIO GRATUITO</div><span class="segmento-doble"></span>';
           if(nivelVisual===2)html += '<div class="leyenda-nivel-3">ESPACIO GRATUITO/BONIFICADO</div><span class="segmento-doble"></span>';
           if(nivelVisual===3)html += '<div class="leyenda-nivel-espacio-gratis">ESPACIO GRATUITO</div><span class="segmento-doble"></span>';
