@@ -1483,13 +1483,77 @@ function ghRenderCatalogo(def,rows){
  listado.map(x=>{const id=String(x.nivel_id||x.id||''),nivel=GLD_CLASSIFICATION.levelNumber(x),nombre=GLD_CLASSIFICATION.name(x),activo=GLD_CLASSIFICATION.active(x);
   return '<div class="item"><div class="formgrid"><label>Nivel<input type="number" min="1" step="1" data-cat-numero="'+esc(id)+'" value="'+esc(x.numero??nivel)+'"></label><label>ID<input disabled value="'+esc(id)+'"></label><label>Nombre<input data-cat-nombre="'+esc(id)+'" value="'+esc(nombre)+'"></label><label>Orden / prioridad<input type="number" min="0" step="1" data-cat-orden="'+esc(id)+'" value="'+esc(x.prioridad??x.orden??0)+'"></label></div><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label><button onclick="ghGuardarCatalogo(\'niveles_anunciante\',\''+esc(id)+'\')">Guardar nivel</button><button type="button" onclick="ghEliminarNivel(\''+esc(id)+'\')">Eliminar</button></div>';
  }).join('');
- const renderRules=items=>items.map(x=>{const id=String(x.nivel_id||x.id||''),nivel=GLD_CLASSIFICATION.levelNumber(x);
-  return '<details class="item"><summary><b>Nivel '+esc(nivel)+'</b> · '+esc(GLD_CLASSIFICATION.name(x))+'</summary>'+ghNivelCamposV86(id,x)+'<button onclick="ghGuardarCatalogo(\'niveles_anunciante\',\''+esc(id)+'\')">Guardar reglas</button></details>';
- }).join('')||'<p class="muted">Sin niveles asignados.</p>';
  const inst=document.getElementById('cfgReglasInstitucionales'),com=document.getElementById('cfgReglasComerciales');
- if(inst)inst.innerHTML=renderRules(listado.filter(x=>[1,2].includes(GLD_CLASSIFICATION.levelNumber(x))));
- if(com)com.innerHTML=renderRules(listado.filter(x=>![1,2].includes(GLD_CLASSIFICATION.levelNumber(x))));
+ if(inst)inst.innerHTML=ghEditorReglas_(listado.filter(x=>[1,2].includes(GLD_CLASSIFICATION.levelNumber(x))),'institucional');
+ if(com)com.innerHTML=ghEditorReglas_(listado.filter(x=>![1,2].includes(GLD_CLASSIFICATION.levelNumber(x))),'comercial');
+ ghReglaTipo_('institucional');ghReglaTipo_('comercial');
 }
+
+const GH_REGLAS_OPCIONES=[
+ ...GH_NIVEL_PRESTACIONES.filter(([k])=>k!=='galeria_habilitada').map(([key,label])=>({key,label,kind:'bool'})),
+ {key:'tags_habilitados',label:'Mostrar tags',kind:'bool'},
+ {key:'imagenes_max',label:'Imágenes visibles por sede',kind:'number',max:5},
+ {key:'redes_visibles_max',label:'Redes visibles por sede',kind:'number',max:6},
+ {key:'redes_enlaces_max',label:'Redes enlazadas por sede',kind:'number',max:6},
+ {key:'sedes_publicadas_max',label:'Sedes publicadas',kind:'number',max:10000},
+ {key:'contactos_visibles_max',label:'Contactos visibles por sede (0 = sin límite)',kind:'number',max:20},
+ {key:'contacto_modo',label:'Modalidad de contacto',kind:'mode'}
+];
+function ghEditorReglas_(rows,grupo){
+ if(!rows.length)return '<p class="muted">No hay niveles en este grupo.</p>';
+ const options=GH_REGLAS_OPCIONES.map(x=>'<option value="'+esc(x.key)+'">'+esc(x.label)+'</option>').join('');
+ const targets=rows.map(x=>'<label style="display:inline-flex;gap:6px;align-items:center;margin-right:16px"><input type="checkbox" data-regla-nivel="'+esc(grupo)+'" value="'+esc(x.nivel_id||x.id)+'" checked> Nivel '+esc(GLD_CLASSIFICATION.levelNumber(x))+'</label>').join('');
+ return '<p class="muted">Configurá una prestación una sola vez y elegí los niveles que la reciben. Para una excepción, seleccioná solo ese nivel. Las demás configuraciones permanecen intactas.</p>'+
+ '<div class="formgrid"><label>Regla<select data-regla-campo="'+esc(grupo)+'" onchange="ghReglaTipo_(\''+esc(grupo)+'\')">'+options+'</select></label>'+
+ '<label>Valor<select data-regla-valor="'+esc(grupo)+'"><option value="true">Sí</option><option value="false">No</option></select></label></div>'+
+ '<div><strong>Aplicar a:</strong> '+targets+'</div>'+
+ '<div class="toolbar"><button type="button" onclick="ghGuardarReglaGrupo_(\''+esc(grupo)+'\')">Guardar regla en niveles seleccionados</button><span role="status" data-regla-msg="'+esc(grupo)+'"></span></div>'+
+ '<details><summary>Consultar configuración actual por nivel</summary><div style="overflow:auto"><table><thead><tr><th>Nivel</th><th>Regla seleccionada</th><th>Valor actual</th></tr></thead><tbody data-regla-resumen="'+esc(grupo)+'"></tbody></table></div></details>';
+}
+function ghReglaTipo_(grupo){
+ const key=document.querySelector('[data-regla-campo="'+grupo+'"]')?.value;
+ const opt=GH_REGLAS_OPCIONES.find(x=>x.key===key),v=document.querySelector('[data-regla-valor="'+grupo+'"]');
+ if(!opt||!v)return;
+ if(opt.kind==='bool')v.outerHTML='<select data-regla-valor="'+grupo+'"><option value="true">Sí</option><option value="false">No</option></select>';
+ else if(opt.kind==='mode')v.outerHTML='<select data-regla-valor="'+grupo+'"><option value="direccion_o_alternativa">Dirección física o un contacto alternativo</option><option value="libre">Publicar contactos habilitados</option></select>';
+ else v.outerHTML='<input type="number" min="0" max="'+opt.max+'" step="1" value="0" data-regla-valor="'+grupo+'">';
+ ghResumenRegla_(grupo);
+}
+function ghResumenRegla_(grupo){
+ const key=document.querySelector('[data-regla-campo="'+grupo+'"]')?.value,host=document.querySelector('[data-regla-resumen="'+grupo+'"]');
+ if(!host)return;
+ const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>x.eliminado!==true&& (grupo==='institucional'?[1,2].includes(GLD_CLASSIFICATION.levelNumber(x)):![1,2].includes(GLD_CLASSIFICATION.levelNumber(x))));
+ host.innerHTML=rows.map(x=>'<tr><td>'+esc(GLD_CLASSIFICATION.levelNumber(x))+'</td><td>'+esc(GH_REGLAS_OPCIONES.find(o=>o.key===key)?.label||key)+'</td><td>'+esc(x[key]===undefined?'Sin configurar':String(x[key]))+'</td></tr>').join('');
+}
+async function ghGuardarReglaGrupo_(grupo){
+ const key=document.querySelector('[data-regla-campo="'+grupo+'"]')?.value,opt=GH_REGLAS_OPCIONES.find(x=>x.key===key);
+ const msg=document.querySelector('[data-regla-msg="'+grupo+'"]');
+ const selected=[...document.querySelectorAll('[data-regla-nivel="'+grupo+'"]:checked')].map(x=>x.value);
+ if(!opt||!selected.length){if(msg)msg.textContent='Elegí una regla y al menos un nivel.';return;}
+ const raw=document.querySelector('[data-regla-valor="'+grupo+'"]')?.value;
+ let value=raw;
+ if(opt.kind==='bool')value=raw==='true';
+ if(opt.kind==='number'){value=Number(raw);if(!Number.isSafeInteger(value)||value<0||value>opt.max){if(msg)msg.textContent='Cantidad inválida.';return;}}
+ if(opt.kind==='mode'&&!['direccion_o_alternativa','libre'].includes(raw)){if(msg)msg.textContent='Modalidad inválida.';return;}
+ const rows=GH_CATALOG_CACHE.niveles_anunciante||[];
+ const changes=selected.map(id=>({id,old:rows.find(x=>String(x.nivel_id||x.id)===id)})).filter(x=>x.old&&JSON.stringify(x.old[key])!==JSON.stringify(value));
+ if(!changes.length){if(msg)msg.textContent='Sin cambios.';return;}
+ if(msg)msg.textContent='Guardando '+changes.length+' nivel(es)…';
+ let count=0;
+ try{
+  for(const {id} of changes){
+   const item={nivel_id:id,[key]:value};
+   if(key==='imagenes_max'){item.imagenes_habilitadas=value>0;item.galeria_habilitada=value>0;}
+   const response=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+   if(!response?.success)throw Error('No se confirmó el guardado del nivel '+id);
+   GH_CATALOG_CACHE.niveles_anunciante=GH_CATALOG_CACHE.niveles_anunciante.map(x=>String(x.nivel_id||x.id)===id?{...x,...item}:x);
+   count++;
+  }
+  if(msg)msg.textContent='Guardado en '+count+' nivel(es).';
+  ghResumenRegla_(grupo);
+ }catch(e){if(msg)msg.textContent='Se guardaron '+count+' de '+changes.length+'. Error: '+String(e.message||e);ghResumenRegla_(grupo);}
+}
+
 async function ghEliminarNivel(id){
  const rows=GH_CATALOG_CACHE.niveles_anunciante||[];
  const old=rows.find(x=>String(x.nivel_id||x.id||'')===String(id));
