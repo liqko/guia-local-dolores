@@ -1018,7 +1018,12 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
     <label class="gld-filter-title" for="buscadorGlobal">¿Qué estás buscando?</label>
     <div class="buscador-global"><input id="buscadorGlobal" placeholder="Nombre, palabra clave o tag" type="search"></div>
   </div>
-  <div class="gld-filter-section gld-filter-category">
+  <div class="gld-filter-near" style="padding:9px 12px">
+<label><input id="gld-cerca" type="checkbox" style="width:auto"> Cerca de mí</label>
+<select id="gld-cerca-radio" disabled aria-label="Distancia máxima"><option value="1">1 km</option><option value="2" selected>2 km</option><option value="5">5 km</option><option value="10">10 km</option></select>
+<span id="gld-cerca-estado" role="status"></span>
+</div>
+<div class="gld-filter-section gld-filter-category">
     <label class="gld-filter-title" for="selectSegmentoCategoria">Segmentos / Categorías</label>
     <div class="selector-bar"><select id="selectSegmentoCategoria"><option value="">Todos los segmentos y categorías</option></select></div>
   </div>
@@ -1600,6 +1605,34 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           ? dataResponse
           : ((dataResponse && (dataResponse.results || dataResponse.data)) || []);
         const buscadorGlobal = document.getElementById('buscadorGlobal');
+        const cercaCheck=document.getElementById('gld-cerca');
+        const cercaRadio=document.getElementById('gld-cerca-radio');
+        const cercaEstado=document.getElementById('gld-cerca-estado');
+        let cercaPosicion=null;
+        function cercaCoordenadas(sede){
+          const lat=Number(sede?.lat),lon=Number(sede?.lng);
+          if(Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&(lat||lon))return [lat,lon];
+          const url=String(sede?.maps||'');
+          const m=url.match(/!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/)||url.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)/);
+          return m?[Number(m[1]),Number(m[2])]:null;
+        }
+        function cercaKm(sede){
+          const xy=cercaCoordenadas(sede);if(!cercaPosicion||!xy)return Infinity;
+          const rad=Math.PI/180,la=(xy[0]-cercaPosicion[0])*rad,lo=(xy[1]-cercaPosicion[1])*rad;
+          const h=Math.sin(la/2)**2+Math.cos(xy[0]*rad)*Math.cos(cercaPosicion[0]*rad)*Math.sin(lo/2)**2;
+          return 12742*Math.asin(Math.min(1,Math.sqrt(h)));
+        }
+        cercaCheck.addEventListener('change',()=>{
+          if(!cercaCheck.checked){cercaPosicion=null;cercaRadio.disabled=true;cercaEstado.textContent='';paginaActual=1;render();return;}
+          cercaEstado.textContent='Solicitando ubicación…';
+          navigator.geolocation?.getCurrentPosition(p=>{
+            if(!cercaCheck.checked)return;
+            cercaPosicion=[p.coords.latitude,p.coords.longitude];cercaRadio.disabled=false;
+            cercaEstado.textContent='';paginaActual=1;render();
+          },()=>{cercaCheck.checked=false;cercaEstado.textContent='No se pudo obtener la ubicación.';},{timeout:12000,maximumAge:60000});
+          if(!navigator.geolocation){cercaCheck.checked=false;cercaEstado.textContent='Ubicación no disponible.';}
+        });
+        cercaRadio.addEventListener('change',()=>{paginaActual=1;render();});
         const contenedor = document.getElementById('contenedor');
         const destacadasBar = document.getElementById('destacadasBar');
         const selectClasificacion = document.getElementById('selectClasificacion');
@@ -2090,6 +2123,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           actividadesElegidas.clear();selectClasificacion.value='';
           selectSegmento.value='';selectCategoria.value='';selectSegmentoCategoria.value='';
           buscadorGlobal.value='';
+          cercaCheck.checked=false;cercaPosicion=null;cercaRadio.disabled=true;cercaEstado.textContent='';
           accionesOpciones.querySelectorAll('input[type="checkbox"]').forEach(cb=>{cb.checked=false;});
           actualizarResumenAcciones();paginaActual=1;actualizarAccesosDirectos();render();
         });
@@ -2986,7 +3020,13 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             });
           }
 
-          const hayBusquedaEspecifica=!!(qGlobal || clasificacion || segmentoElegido || categoriaElegida || actividadesFiltro.length || accionesElegidas.length || fichaCompartida.get('anunciante_id'));
+          if(cercaCheck.checked&&cercaPosicion){
+            const radio=Number(cercaRadio.value)||2;
+            base=base.flatMap(item=>(Array.isArray(item.sedes)&&item.sedes.length?item.sedes:[item])
+              .filter(sede=>cercaKm(sede)<=radio)
+              .map(sede=>item.__sede_individual?item:tarjetaDeSede(item,sede)));
+          }
+          const hayBusquedaEspecifica=!!((cercaCheck.checked&&cercaPosicion) || qGlobal || clasificacion || segmentoElegido || categoriaElegida || actividadesFiltro.length || accionesElegidas.length || fichaCompartida.get('anunciante_id'));
 
           let filtrados=base.filter(item=>{
             if(!qGlobal) return true;
@@ -3001,7 +3041,9 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             filtrados.sort((a,b)=>{
               const porNivel=compararNivelesGuia(a,b);
               if(porNivel!==0) return porNivel;
-              return Number(a.subnivel)-Number(b.subnivel);
+              const sub=Number(a.subnivel)-Number(b.subnivel);
+              if(sub)return sub;
+              return cercaCheck.checked&&cercaPosicion ? Math.min(...(a.sedes||[a]).map(cercaKm))-Math.min(...(b.sedes||[b]).map(cercaKm)) : 0;
             });
           }else{
             // Navegación general: niveles del 6 al 1.
