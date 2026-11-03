@@ -1,20 +1,78 @@
-/* Guía Local — contingencia sin conexión, sin cachear datos privados ni consultas. */
-const OFFLINE_VERSION='gld-offline-v1';
+/* Guía Local: versión pública consultada, disponible sin conexión.
+   Nunca guardar tokens, favoritos, cuentas, turnos vigentes ni respuestas privadas. */
+const SHELL_CACHE='gld-shell-v2';
+const PUBLIC_CACHE='gld-guide-public-v2';
 const OFFLINE_PAGE='/plataforma/offline.html';
+const SHELL=['/plataforma/offline.html','/plataforma/inicio.html','/plataforma/carcasa.html','/plataforma/anunciantes.html','/plataforma/eventos.html','/plataforma/promos.html','/plataforma/actividades.html','/plataforma/pwa-web.js'];
+const API_ORIGIN='https://login.liqkoargentina.workers.dev';
 self.addEventListener('install',event=>{
-  event.waitUntil(caches.open(OFFLINE_VERSION).then(cache=>cache.add(OFFLINE_PAGE)).then(()=>self.skipWaiting()));
+ event.waitUntil((async()=>{
+   const cache=await caches.open(SHELL_CACHE);
+   await cache.add(OFFLINE_PAGE);
+   // Archivos públicos de la interfaz. Los fallos no impiden instalar el modo sin conexión.
+   await Promise.all(SHELL.filter(x=>x!==OFFLINE_PAGE).map(x=>cache.add(x).catch(()=>{})));
+   await self.skipWaiting();
+ })());
 });
 self.addEventListener('activate',event=>{
-  event.waitUntil((async()=>{
-    for(const name of await caches.keys())if(name.startsWith('gld-offline-')&&name!==OFFLINE_VERSION)await caches.delete(name);
-    await self.clients.claim();
-  })());
+ event.waitUntil((async()=>{
+   for(const name of await caches.keys()){
+     if((name.startsWith('gld-shell-')&&name!==SHELL_CACHE)||
+        (name.startsWith('gld-guide-public-')&&name!==PUBLIC_CACHE)||
+        name.startsWith('gld-offline-'))await caches.delete(name);
+   }
+   await self.clients.claim();
+ })());
 });
+function isPublicGuide(request,url){
+ return request.method==='GET'&&url.origin===API_ORIGIN&&
+   url.pathname==='/guide'&&url.searchParams.get('compact')==='1'&&
+   !!url.searchParams.get('ciudad_id')&&!request.headers.has('Authorization');
+}
 self.addEventListener('fetch',event=>{
-  if(event.request.mode!=='navigate'||event.request.method!=='GET')return;
-  const url=new URL(event.request.url);
-  if(url.origin!==self.location.origin||!url.pathname.startsWith('/plataforma/'))return;
-  event.respondWith(fetch(event.request).catch(async()=>await caches.match(OFFLINE_PAGE)||Response.error()));
+ const request=event.request,url=new URL(request.url);
+ if(isPublicGuide(request,url)){
+   event.respondWith((async()=>{
+     const cache=await caches.open(PUBLIC_CACHE);
+     try{
+       const response=await fetch(request);
+       if(response.ok&&response.type!=='opaque')event.waitUntil(cache.put(request,response.clone()).catch(()=>{}));
+       return response;
+     }catch(err){
+       const previous=await cache.match(request,{ignoreSearch:false});
+       if(previous)return previous;
+       throw err;
+     }
+   })());
+   return;
+ }
+ if(request.method!=='GET'||url.origin!==self.location.origin||
+    !url.pathname.startsWith('/plataforma/'))return;
+ if(request.mode==='navigate'){
+   event.respondWith((async()=>{
+     const cache=await caches.open(SHELL_CACHE);
+     try{
+       const response=await fetch(request);
+       const pathname=url.pathname;
+       if(response.ok&&SHELL.includes(pathname))event.waitUntil(cache.put(pathname,response.clone()).catch(()=>{}));
+       return response;
+     }catch(err){
+       return await cache.match(url.pathname)||await cache.match(OFFLINE_PAGE)||Response.error();
+     }
+   })());
+   return;
+ }
+ // Recursos estáticos GET de Firebase: persistencia bajo demanda, sin solicitudes extras.
+ if(/\.(js|css|woff2?|svg|png|jpe?g|webp)$/i.test(url.pathname)){
+   event.respondWith((async()=>{
+     const cache=await caches.open(SHELL_CACHE);
+     try{
+       const response=await fetch(request);
+       if(response.ok&&response.type!=='opaque')event.waitUntil(cache.put(request,response.clone()).catch(()=>{}));
+       return response;
+     }catch(err){return await cache.match(request)||Response.error();}
+   })());
+ }
 });
 /* El receptor de push no habilita suscripciones ni envíos por sí mismo. */
 self.addEventListener('push',event=>{
