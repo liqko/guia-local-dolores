@@ -53,11 +53,21 @@ async function edit(person,role){
    const selected=new Set((p.acciones?.length?p.acciones:legacy)),assigned=new Set(p.ciudades||[]);
   let html='<h2>'+safe(person.nombre||sid)+'</h2><p>Rol: '+role+'</p><p>Estado guardado: '+(p.activo?'Habilitado':'Pausado')+'</p><label class="role-check"><input type="checkbox" data-active '+(p.activo?'checked':'')+'> Habilitar persona</label>';
   html+='<h3>Ciudades</h3><label class="role-check"><input type="checkbox" data-all> Seleccionar todas</label>';
-  const groups=new Map();
-  for(const city of terr.ciudades||[]){const group=String(city.pais_id||'Sin país')+' / '+String(city.provincia_id||'Sin provincia');if(!groups.has(group))groups.set(group,[]);groups.get(group).push(city);}
-  for(const [group,items] of groups){
-   html+='<details class="role-group"><summary>'+safe(group)+'</summary><label class="role-check"><input type="checkbox" data-group="'+safe(group)+'"> Seleccionar grupo</label>';
-   for(const c of items){const id=String(c.ciudad_id||c.id);html+='<label class="role-check"><input type="checkbox" data-city="'+safe(id)+'" data-city-group="'+safe(group)+'" '+(assigned.has(id)?'checked':'')+'> '+safe(c.ciudad_visible||c.nombre||id)+'</label>';}
+  const countries=new Map(),countryNames=new Map((terr.paises||[]).map(x=>[String(x.pais_id||x.id),String(x.nombre||x.pais_visible||x.pais_id)])),provinceNames=new Map((terr.provincias||[]).map(x=>[String(x.provincia_id||x.id),String(x.nombre||x.provincia_visible||x.provincia_id)]));
+  for(const city of terr.ciudades||[]){
+   const country=String(city.pais_id||'SIN_PAIS'),province=String(city.provincia_id||'SIN_PROVINCIA');
+   if(!countries.has(country))countries.set(country,new Map());
+   const provinces=countries.get(country);
+   if(!provinces.has(province))provinces.set(province,[]);
+   provinces.get(province).push(city);
+  }
+  for(const [country,provinces] of countries){
+   html+='<details class="role-group"><summary>País: '+safe(countryNames.get(country)||country)+'</summary><label class="role-check"><input type="checkbox" data-country="'+safe(country)+'"> Todas las ciudades de este país</label>';
+   for(const [province,items] of provinces){
+    html+='<details class="role-group"><summary>Provincia: '+safe(provinceNames.get(province)||province)+'</summary><label class="role-check"><input type="checkbox" data-province="'+safe(province)+'" data-country="'+safe(country)+'"> Todas las ciudades de esta provincia</label>';
+    for(const c of items){const id=String(c.ciudad_id||c.id);html+='<label class="role-check"><input type="checkbox" data-city="'+safe(id)+'" data-city-country="'+safe(country)+'" data-city-province="'+safe(province)+'" '+(assigned.has(id)?'checked':'')+'> '+safe(c.ciudad_visible||c.nombre||id)+'</label>';}
+    html+='</details>';
+   }
    html+='</details>';
   }
   html+='<h3>Permisos individuales</h3>';
@@ -71,7 +81,9 @@ async function edit(person,role){
   box.onchange=e=>{
    const input=e.target;
    if(input.hasAttribute('data-all'))box.querySelectorAll('[data-city]').forEach(c=>c.checked=input.checked);
-   if(input.hasAttribute('data-group'))box.querySelectorAll('[data-city-group]').forEach(c=>{if(c.dataset.cityGroup===input.dataset.group)c.checked=input.checked;});
+   if(input.hasAttribute('data-country')||input.hasAttribute('data-province')){
+    for(const c of box.querySelectorAll('[data-city]'))if(c.dataset.cityCountry===input.dataset.country&&(!input.dataset.province||c.dataset.cityProvince===input.dataset.province))c.checked=input.checked;
+   }
   };
   box.querySelector('[data-save]').onclick=async()=>{
    const button=box.querySelector('[data-save]'),msg=box.querySelector('[data-status]');button.disabled=true;msg.textContent='Guardando...';
