@@ -34,6 +34,7 @@
   });
  }
  const ui=window.GLD_TERMINOS_ANUNCIANTES={
+  versionActual(){return states.get(lastUser)?.version||null;},
   aceptarIngreso(id){lastUser=id;if(pending)return pending;
    pending=(async()=>{
     let state;try{state=await current(id);}catch(error){state={error};}
