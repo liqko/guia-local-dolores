@@ -11,7 +11,7 @@ async function refresh(){
   let html='<p>Establecé las acciones máximas de cada rol. «En preparación» indica que todavía no se puede autorizar esa operación.</p><div class="role-head"><b>Acción</b>'+R.map(r=>'<b>'+r+'</b>').join('')+'</div>';
   for(const [area,ops] of Object.entries(data.catalogo)){
    html+='<h3>'+safe(area)+'</h3>';
-   for(const op of ops){const key=area+'.'+op;html+='<div class="role-line"><span>'+safe(op)+(data.operativos.includes(key)?'':' · En preparación')+'</span>'+R.map(role=>'<label><input type="checkbox" data-role="'+role+'" data-action="'+safe(key)+'" '+(data.roles[role]||[]).includes(key)?'checked':'')+'></label>').join('')+'</div>';}
+   for(const op of ops){const key=area+'.'+op;html+='<div class="role-line"><span>'+safe(op)+(data.operativos.includes(key)?'':' · En preparación')+'</span>'+R.map(role=>'<label><input type="checkbox" data-role="'+role+'" data-action="'+safe(key)+'" '+((data.roles[role]||[]).includes(key)?'checked':'')+'></label>').join('')+'</div>';}
   }
   box.innerHTML=html+'<button type="button" id="saveRoles155">Guardar roles</button><p id="roleMessage155" role="status"></p>';
   if(GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')box.querySelectorAll('input,button').forEach(c=>c.disabled=true);
