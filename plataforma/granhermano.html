@@ -70,6 +70,18 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 .plan-overview .plan-module{border-top:2px solid #d4e2e8;margin-top:26px;padding-top:22px}.plan-overview .plan-module:first-of-type{border-top:0;margin-top:0;padding-top:0}.plan-overview .plan-module h3{font-size:21px;color:#174c64;margin-bottom:12px}
 .plan-comparison{width:100%;border-collapse:collapse;margin:18px 0 26px;table-layout:fixed}.plan-comparison th,.plan-comparison td{border:1px solid #d4e2e8;padding:10px;text-align:left;vertical-align:top;overflow-wrap:anywhere}.plan-comparison thead{background:#eef5f8}.plan-comparison th:first-child{width:46%}@media(max-width:600px){.plan-comparison{font-size:13px;line-height:1.4}.plan-comparison th,.plan-comparison td{padding:7px}}
     .gh-tab-group{display:inline-flex;align-items:center;gap:7px;flex-wrap:wrap;padding:7px 9px;border:1px solid #e1e6e8;border-radius:12px}.gh-tab-group strong{color:#546e7a;font-size:.83rem;margin-right:6px}
+
+/* Moderadores: controles compactos y alineados, también en pantallas angostas. */
+#modEditor .gh-mod-check{display:flex!important;align-items:center;justify-content:flex-start;gap:8px;width:fit-content;max-width:100%;margin:5px 0;line-height:1.35;cursor:pointer;font-weight:400}
+#modEditor .gh-mod-check input[type=checkbox]{appearance:auto;width:18px!important;height:18px!important;min-width:18px;margin:0!important;padding:0!important;flex:0 0 18px;accent-color:#006699}
+#modEditor .gh-mod-group{border:1px solid #dce6eb;border-radius:9px;padding:8px 12px;margin:7px 0;background:#fff}
+#modEditor .gh-mod-group>summary{cursor:pointer;font-weight:600}
+#modEditor .gh-mod-group>summary::marker{color:#006699}
+#modEditor .gh-mod-choices{padding-left:20px}
+#modEditor .gh-mod-toolbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:12px 0}
+#modEditor .gh-mod-toolbar button{padding:7px 12px}
+#modEditor .gh-mod-count{font-size:14px;color:#506774}
+
 </style>
 <script src="/plataforma/clasificacion.js?v=86"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
@@ -415,7 +427,20 @@ async function ghEditarModerador(row){
  const m=data.moderador;GH_MOD_CITIES=territory.ciudades||[];
  if(m&&m.rol!=='ADMIN_LOCAL'){box.textContent='Esta cuenta tiene un rol superior. No se modifica desde Moderadores.';return;}
  const assigned=new Set(m?.ciudades||[]),perms=m?.permisos?.moderacion||{};
- box.innerHTML='<h3>'+esc(row.nombre||GH_MOD_SELECTED)+'</h3><p>'+esc(row.mail||'')+'</p><label><input type="checkbox" id="modActivo" '+(m?.activo===true?'checked':'')+'> Moderador habilitado</label><h3>Ciudades asignadas</h3><div id="modCiudades">'+GH_MOD_CITIES.map(c=>'<label style="display:block"><input type="checkbox" data-mod-city="'+esc(c.ciudad_id||c.id)+'" '+(assigned.has(String(c.ciudad_id||c.id))?'checked':'')+'> '+esc(c.ciudad_visible||c.nombre||c.ciudad_id)+'</label>').join('')+'</div><h3>Puede aprobar y rechazar</h3>'+[['EVENTO','Eventos Free y VIP'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Altas y reclamos de anunciantes']].map(([k,label])=>'<label style="display:block"><input type="checkbox" data-mod-perm="'+k+'" '+(perms[k]===true?'checked':'')+'> '+label+'</label>').join('')+'<p>Los cambios de permisos o la deshabilitación invalidan la sesión anterior.</p><button type="button" id="modGuardar" onclick="ghGuardarModerador()">Guardar permisos</button>';
+  const cities=GH_MOD_CITIES.map(c=>({...c,_id:String(c.ciudad_id||c.id||''),_country:String(c.pais_id||''),_province:String(c.provincia_id||'')})).filter(c=>c._id);
+  const countryNames=new Map((territory.paises||territory.paises_activos||[]).map(p=>[String(p.pais_id||p.id),String(p.nombre||p.pais_visible||p.pais||p.pais_id||p.id)]));
+  const provinceNames=new Map((territory.provincias||[]).map(p=>[String(p.provincia_id||p.id),String(p.nombre||p.provincia_visible||p.provincia||p.provincia_id||p.id)]));
+  const countries=new Map();
+  for(const city of cities){const country=city._country||'SIN_PAIS',province=city._province||'SIN_PROVINCIA';if(!countries.has(country))countries.set(country,new Map());const provinces=countries.get(country);if(!provinces.has(province))provinces.set(province,[]);provinces.get(province).push(city);}
+  const cityInput=c=>'<label class="gh-mod-check"><input type="checkbox" data-mod-city="'+esc(c._id)+'" '+(assigned.has(c._id)?'checked':'')+'><span>'+esc(c.ciudad_visible||c.nombre||c.ciudad||c._id)+'</span></label>';
+  const options=[...countries].sort((a,b)=>(countryNames.get(a[0])||a[0]).localeCompare(countryNames.get(b[0])||b[0],'es')).map(([country,provinces])=>'<details class="gh-mod-group"><summary>'+esc(countryNames.get(country)||country)+'</summary><div class="gh-mod-choices"><label class="gh-mod-check"><input type="checkbox" data-mod-group="country" data-country="'+esc(country)+'"><span>Seleccionar todas las ciudades de este país</span></label>'+[...provinces].sort((a,b)=>(provinceNames.get(a[0])||a[0]).localeCompare(provinceNames.get(b[0])||b[0],'es')).map(([province,items])=>'<details class="gh-mod-group"><summary>'+esc(provinceNames.get(province)||province)+'</summary><div class="gh-mod-choices"><label class="gh-mod-check"><input type="checkbox" data-mod-group="province" data-country="'+esc(country)+'" data-province="'+esc(province)+'"><span>Seleccionar todas las ciudades de esta provincia</span></label>'+items.sort((a,b)=>String(a.ciudad_visible||a.nombre||a._id).localeCompare(String(b.ciudad_visible||b.nombre||b._id),'es')).map(cityInput).join('')+'</div></details>').join('')+'</div></details>').join('');
+  box.innerHTML='<h3>'+esc(row.nombre||GH_MOD_SELECTED)+'</h3><p>'+esc(row.mail||'')+'</p><label class="gh-mod-check"><input type="checkbox" id="modActivo" '+(m?.activo===true?'checked':'')+'><span>Moderador habilitado</span></label><h3>Ciudades asignadas</h3><div class="gh-mod-toolbar"><label class="gh-mod-check"><input type="checkbox" id="modTodasCiudades"><span>Seleccionar todas las ciudades</span></label><button type="button" class="sec" id="modQuitarTodas">Quitar todas</button><span class="gh-mod-count" id="modCantidad"></span></div><div id="modCiudades">'+options+'</div><h3>Puede aprobar y rechazar</h3>'+[['EVENTO','Eventos Free y VIP'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Altas y reclamos de anunciantes']].map(([k,label])=>'<label class="gh-mod-check"><input type="checkbox" data-mod-perm="'+k+'" '+(perms[k]===true?'checked':'')+'><span>'+label+'</span></label>').join('')+'<p>Los cambios de permisos o la deshabilitación invalidan la sesión anterior.</p><button type="button" id="modGuardar" onclick="ghGuardarModerador()">Guardar permisos</button>';
+  const cityChecks=[...box.querySelectorAll('[data-mod-city]')];
+  const matching=(input)=>cityChecks.filter(el=>{const city=cities.find(c=>c._id===el.dataset.modCity);return city&&(input.dataset.country===undefined||city._country===input.dataset.country)&&(input.dataset.province===undefined||city._province===input.dataset.province);});
+  const refresh=()=>{for(const input of box.querySelectorAll('[data-mod-group],#modTodasCiudades')){const group=input.id==='modTodasCiudades'?cityChecks:matching(input);const n=group.filter(x=>x.checked).length;input.checked=group.length>0&&n===group.length;input.indeterminate=n>0&&n<group.length;}box.querySelector('#modCantidad').textContent=cityChecks.filter(x=>x.checked).length+' de '+cityChecks.length+' ciudades seleccionadas';};
+  box.addEventListener('change',ev=>{const input=ev.target;if(input.id==='modTodasCiudades'||input.matches('[data-mod-group]')){for(const city of input.id==='modTodasCiudades'?cityChecks:matching(input))city.checked=input.checked;}refresh();});
+  box.querySelector('#modQuitarTodas').addEventListener('click',()=>{for(const city of cityChecks)city.checked=false;refresh();});
+  refresh();
  }catch(e){box.textContent=e.message;}
  informarAltura();
 }
