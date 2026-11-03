@@ -8,13 +8,58 @@
         .catch(err=>console.warn('Guía Local: modo sin conexión no disponible',err));
     },{once:true});
   }
-  // Dentro del contenedor de Jimdo no se anuncia una instalación que no corresponde al origen visible.
-  if(window.top!==window.self)return;
+  // El sitio institucional conserva su contenedor: desde allí se abre la PWA en su origen
+  // real para que el navegador pueda completar la instalación. Nunca se instala un iframe.
+  const embedded=window.top!==window.self;
   const standalone=()=>window.matchMedia('(display-mode: standalone)').matches||window.navigator.standalone===true;
   if(standalone())return;
   const ios=/iPad|iPhone|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);
   const mobile=ios||/Android/i.test(navigator.userAgent);
   if(!mobile)return;
+  if(embedded){
+    let closed=false;
+    try{closed=Number(sessionStorage.getItem('gld_instalacion_embebida_cerrada')||0)>Date.now();}catch(e){}
+    if(closed)return;
+    function showEmbeddedInstall(){
+      if(!document.body||document.getElementById('gld-pwa-instalacion-embebida'))return;
+      const style=document.createElement('style');
+      style.textContent='#gld-pwa-instalacion-embebida{position:relative;z-index:2147480000;box-sizing:border-box;margin:8px auto 12px;width:calc(100% - 16px);max-width:580px;border:1px solid #bcd6e3;border-radius:13px;background:#f6fbfe;color:#19384b;box-shadow:0 3px 12px rgba(0,0,0,.11);padding:13px 44px 13px 14px;font:14px/1.4 system-ui,-apple-system,sans-serif}#gld-pwa-instalacion-embebida strong{display:block;font-size:16px;margin-bottom:5px}#gld-pwa-instalacion-embebida p{margin:0 0 10px}#gld-pwa-instalacion-embebida a{display:inline-block;background:#006699;color:#fff;text-decoration:none;border-radius:9px;padding:10px 14px;font-weight:700}#gld-pwa-instalacion-embebida button{position:absolute;top:5px;right:6px;border:0;background:transparent;color:#263238;font-size:24px;width:34px;min-height:34px;padding:0;cursor:pointer}';
+      document.head.appendChild(style);
+      const banner=document.createElement('aside');
+      banner.id='gld-pwa-instalacion-embebida';
+      banner.setAttribute('aria-label','Instalar Guía Local');
+      const heading=document.createElement('strong');
+      heading.textContent='Llevá Guía Local a tu teléfono';
+      const description=document.createElement('p');
+      description.textContent='Instalá la aplicación y abrila después desde su ícono.';
+      const link=document.createElement('a');
+      // Un enlace real con activación del usuario permite salir del contenedor Jimdo.
+      link.href='https://anunciantes-guialocal.web.app/plataforma/inicio.html';
+      link.target='_top';
+      link.textContent='Instalar Guía Local';
+      const close=document.createElement('button');
+      close.type='button';
+      close.setAttribute('aria-label','Cerrar aviso de instalación');
+      close.textContent='×';
+      close.addEventListener('click',function(){
+        try{sessionStorage.setItem('gld_instalacion_embebida_cerrada',String(Date.now()+86400000));}catch(e){}
+        banner.remove();
+      });
+      banner.append(heading,description,link,close);
+      const main=document.querySelector('main');
+      if(main&&main.classList.contains('ubicacion-wrap'))main.insertBefore(banner,main.firstChild);
+      else{
+        const header=document.querySelector('header.header');
+        if(header)header.insertAdjacentElement('beforebegin',banner);
+        else document.body.insertBefore(banner,document.body.firstChild);
+      }
+      // La altura del iframe de Jimdo se recalcula al sumar el aviso.
+      try{window.parent.postMessage({tipo:'alturaPie',altura:document.documentElement.scrollHeight},'*');}catch(e){}
+    }
+    if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',showEmbeddedInstall,{once:true});
+    else showEmbeddedInstall();
+    return;
+  }
   let deferredPrompt=null;
   let banner=null;
   let dismissed=false;
