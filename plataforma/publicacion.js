@@ -1,6 +1,6 @@
 (function(){
  const version='2026-10-10',origin='https://login.liqkoargentina.workers.dev',native=window.fetch.bind(window);
- const declaration='Declaro que la información y el contenido que publico son veraces, que cuento con los derechos y autorizaciones necesarios y que cumplen las normas de la plataforma. Asumo la responsabilidad por esta publicación.';
+ const declaration='Leí y acepto los términos de publicación de Guía Local. Declaro que la información y los contenidos que publico son veraces, que cuento con los derechos y autorizaciones necesarios y que asumo la responsabilidad por esta publicación.';
  const terms='Al usar Guía Local, me comprometo a publicar información veraz, contar con las autorizaciones necesarias y respetar las normas de la plataforma. No publicaré contenido que promueva violencia, acoso, abuso, explotación o actividades ilícitas. La plataforma puede restringir o retirar publicaciones que incumplan estas condiciones. Marcar +18 no permite contenido prohibido.';
  const explanation='Marcá Sí si ofrecés contenido, productos, servicios o espectáculos exclusivos para adultos. Requiere revisión y restringe la visualización a usuarios mayores de 18 años con sesión iniciada y aceptación de acceso. No reemplaza las condiciones de ingreso del evento.';
  const submitTargets={promos:'#promo-create',eventos:'#ev-create',free:'#evf-guardar',actividades:'#act-guardar',publicidad:'#pub-guardar',anunciante:'#btnGuardarDatosComercio',alta:'#btnEnviarAltaAnunciante',cuenta:'#register-btn'};
