@@ -2982,9 +2982,40 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           ].filter(Boolean).join(' ');
         }
 
+        // Una ficha abierta desde la navegación actual conserva página y filtros en memoria.
+        // No se recargan datos, y Volver recupera exactamente esa selección.
+        let gldEstadoAnteriorFicha_=null;
+        document.addEventListener('click',event=>{
+          if(event.defaultPrevented || event.button!==0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)return;
+          const link=event.target?.closest?.('a[href]');
+          if(!link || !link.closest('#contenedor,#destacadasBar'))return;
+          let url;
+          try{url=new URL(link.href,location.href);}catch(_){return;}
+          if(url.origin!==location.origin || !url.pathname.endsWith('/anunciantes.html'))return;
+          const anuncianteId=String(url.searchParams.get('anunciante_id')||'').trim();
+          if(!anuncianteId)return;
+          event.preventDefault();
+          if(!fichaCompartida.get('anunciante_id'))gldEstadoAnteriorFicha_={pagina:paginaActual};
+          fichaCompartida.set('anunciante_id',anuncianteId);
+          const sedeId=String(url.searchParams.get('sede_id')||'').trim();
+          if(sedeId)fichaCompartida.set('sede_id',sedeId);
+          else fichaCompartida.delete('sede_id');
+          paginaActual=1;
+          render();
+          setTimeout(scrollInicioResultados_,40);
+        },true);
         document.getElementById('verTodaGuia')?.addEventListener('click',()=>{
           const compartida=String(fichaCompartida.get('anunciante_id')||'').trim();
           if(!compartida)return;
+          if(gldEstadoAnteriorFicha_){
+            const paginaRetorno=gldEstadoAnteriorFicha_.pagina;
+            gldEstadoAnteriorFicha_=null;
+            fichaCompartida.delete('anunciante_id');fichaCompartida.delete('sede_id');
+            paginaActual=paginaRetorno;
+            render();
+            setTimeout(scrollInicioResultados_,40);
+            return;
+          }
           const city=String(fichaCompartida.get('ciudad_id')||ciudadSeleccionada||'').trim();
           let habitual='';
           try{habitual=String(JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null')?.ciudad_id||'').trim();}catch(_){}
@@ -2999,7 +3030,12 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         const ordenAleatorioGuiaInternal=new WeakMap();
         function render() {
           window.GLD_CARD_IMAGES?.reset();
-          const aviso=document.getElementById('fichaCompartidaAviso');if(aviso)aviso.hidden=!fichaCompartida.get('anunciante_id');
+          const aviso=document.getElementById('fichaCompartidaAviso');
+          if(aviso){
+            aviso.hidden=!fichaCompartida.get('anunciante_id');
+            const boton=aviso.querySelector('button');
+            if(boton)boton.textContent=gldEstadoAnteriorFicha_?'Volver a los resultados anteriores':'Volver a toda la guía';
+          }
           const qGlobal=normalizar(buscadorGlobal.value.trim());
           const clasificacion=String(selectClasificacion.value||'').trim();
           const segmentoElegido=String(selectSegmento.value||'').trim();
