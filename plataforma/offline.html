@@ -1,15 +1,80 @@
 <!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#006699">
-<title>Sin conexión | Guía Local</title>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#006699"><title>Guía Local | Sin conexión</title>
 <style>
-*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:Manrope,"Segoe UI",Arial,sans-serif;color:#263238;background:#eef5f8}
-body{display:grid;min-height:100vh;place-items:center;padding:20px}
-main{max-width:480px;width:100%;padding:32px 24px;text-align:center;background:#fff;border-radius:18px;box-shadow:0 8px 30px rgba(0,58,89,.12)}
-h1{font-size:1.5rem;color:#006699;margin:12px 0}p{line-height:1.6}button{border:0;border-radius:9px;padding:13px 20px;background:#006699;color:white;font:700 1rem Arial,sans-serif;cursor:pointer}small{display:block;margin-top:18px;color:#5b6870}
-</style>
-</head>
-<body><main role="main"><div aria-hidden="true" style="font-size:2.8rem">📶</div><h1>Estás sin conexión</h1><p>Guía Local no puede actualizar la información en este momento. Revisá tu conexión a Internet y volvé a intentarlo.</p><button type="button" onclick="location.reload()">Reintentar</button><small>Las farmacias de turno, eventos y promociones necesitan datos actualizados para mostrarse correctamente.</small></main></body></html>
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;font-family:"Segoe UI",Arial,sans-serif;color:#263238;background:#eef5f8}
+body{padding:18px}main{max-width:720px;margin:0 auto;padding:24px 20px;background:#fff;border-radius:18px;box-shadow:0 8px 30px rgba(0,58,89,.12)}
+h1{font-size:1.6rem;color:#006699;margin:0 0 8px}h2{font-size:1.12rem;color:#006699}p{line-height:1.5}small{color:#58656c}
+button{border:0;border-radius:9px;padding:12px 18px;background:#006699;color:white;font-size:1rem;font-weight:700;cursor:pointer}
+input{border:1px solid #b8c9d2;border-radius:9px;width:100%;padding:12px;font-size:1rem;margin:10px 0}
+#list{display:grid;gap:10px;margin-top:12px}.entry{border:1px solid #d8e4ea;border-radius:10px;padding:12px;background:#f9fcfd}.entry strong{display:block;color:#1d536c;margin-bottom:5px}.entry span{font-size:.9rem;color:#46535b}
+.notice{background:#fff5de;border-left:4px solid #ba7f00;padding:11px 14px;border-radius:6px;margin:16px 0}.muted{color:#596971}
+</style></head><body><main>
+<h1>Guía Local, también sin conexión</h1>
+<p>Podés consultar los comercios y servicios de la última versión pública que se haya guardado en este dispositivo.</p>
+<div class="notice"><strong>Información guardada, no actualizada.</strong> Los horarios, las promociones, los eventos y las farmacias de turno pueden haber cambiado. No se muestran turnos como vigentes sin conexión.</div>
+<button type="button" id="reload">Volver a conectarme</button>
+<section aria-labelledby="saved-title"><h2 id="saved-title">Guía guardada</h2><p id="status" class="muted">Buscando la información disponible en este dispositivo…</p><input id="search" type="search" placeholder="Buscar comercios y servicios guardados" aria-label="Buscar en la guía guardada" hidden><div id="list"></div></section>
+<small>La información se guarda después de visitar Guía Local con conexión y depende del almacenamiento disponible en tu navegador.</small>
+</main>
+<script>
+(function(){
+'use strict';
+document.getElementById('reload').onclick=()=>location.assign('/plataforma/inicio.html');
+const status=document.getElementById('status'), list=document.getElementById('list'), search=document.getElementById('search');
+const all=[];
+function append(data,source){
+ const items=Array.isArray(data)?data:(Array.isArray(data?.results)?data.results:(Array.isArray(data?.data)?data.data:[]));
+ for(const item of items){
+  if(!item||typeof item!=='object'||item.bloqueado18)continue;
+  const name=String(item.nombre||item.nombre_sede||item.nombre_fantasia||'').trim();
+  if(!name)continue;
+  const sede=Array.isArray(item.sedes)?item.sedes[0]:null;
+  const dir=String(sede?.direccion||item.direccion||'').trim();
+  all.push({name,dir,source});
+ }
+}
+try{
+ const context=JSON.parse(localStorage.getItem('gld_ciudad_contexto')||'null');
+ const city=String(context?.ciudad_id||'');
+ // Los datos públicos de la Guía ya se guardaban localmente antes de habilitar el modo offline.
+ if(city){
+  for(let i=0;i<localStorage.length;i++){
+   const key=localStorage.key(i);
+   if(!key||!key.startsWith('gld_guia_cache_v3:')||!key.endsWith('|'+city))continue;
+   try{const value=JSON.parse(localStorage.getItem(key)||'null');append(value?.data,'local');}catch{}
+  }
+ }
+}catch{}
+(async()=>{
+ try{
+  const cache=await caches.open('gld-guide-public-v2');
+  const keys=await cache.keys();
+  let desiredCity='';
+  try{desiredCity=String(JSON.parse(localStorage.getItem('gld_ciudad_contexto')||'null')?.ciudad_id||'');}catch{}
+  for(const key of keys){
+   const url=new URL(key.url),city=url.searchParams.get('ciudad_id');
+   if(desiredCity&&city!==desiredCity)continue;
+   const response=await cache.match(key);
+   if(!response)continue;
+   try{append(await response.json(),'cache');}catch{}
+  }
+ }catch{}
+ const byName=new Map();
+ for(const item of all){const key=item.name.toLocaleLowerCase('es')+'|'+item.dir.toLocaleLowerCase('es');if(!byName.has(key))byName.set(key,item);}
+ const entries=[...byName.values()].sort((a,b)=>a.name.localeCompare(b.name,'es'));
+ const paint=()=>{
+  list.replaceChildren();
+  const q=search.value.trim().toLocaleLowerCase('es');
+  const visible=entries.filter(e=>(e.name+' '+e.dir).toLocaleLowerCase('es').includes(q));
+  for(const item of visible.slice(0,300)){
+   const card=document.createElement('div');card.className='entry';
+   const name=document.createElement('strong');name.textContent=item.name;card.appendChild(name);
+   if(item.dir){const dir=document.createElement('span');dir.textContent=item.dir;card.appendChild(dir);}
+   list.appendChild(card);
+  }
+  status.textContent=entries.length?visible.length+' de '+entries.length+' establecimientos guardados.':'No hay una versión guardada de esta ciudad todavía. Abrí Guía Local con conexión para conservarla.';
+ };
+ search.hidden=!entries.length;search.addEventListener('input',paint);paint();
+})();
+})();
+</script></body></html>
