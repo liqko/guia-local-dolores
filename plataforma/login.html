@@ -1938,12 +1938,12 @@ let editingEfemActive = null;
 let efemGroupsOpen = { GENERAL:true, PROVINCIAL:true, LOCAL:true };
 
 const COMMERCE_DATA_FIELDS = [
-  "contenido_adulto","actividad","descripcion","tags","servicios_iconos","logo","link"
+  "contenido_adulto","actividad","descripcion","tags","logo","link"
 ];
 
 const COMMERCE_SEDE_FIELDS = [
   "instagram","facebook","youtube","tiktok","linkedin","x","web",
-  "nombre_sede","contacto_publico_elegido","direccion","lat","lng","maps","horarios_atencion",
+  "nombre_sede","contacto_publico_elegido","direccion","lat","lng","maps","horarios_atencion","servicios_iconos",
   "telefono","whatsapp","mail",
   "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"
 ];
@@ -3340,14 +3340,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     if(fieldName==='link')return;
-    if(fieldName==='servicios_iconos'){
-   const chosen=String(values.servicios_iconos||'').split(',').map(x=>x.trim()).filter(Boolean);
-   const opts=[['tarjetas','Tarjetas de crédito / débito'],['efectivo','Efectivo'],['transferencia','Transferencias'],['delivery','Delivery'],['retiro','Retiro / takeaway'],['reservas','Reservas'],['turnos','Turnos'],['estacionamiento','Estacionamiento'],['wifi','Wi-Fi']];
-   const habilitadas=cfgCarga['carga_'+grupoCarga+'_prestaciones'];
-   const disponibles=Array.isArray(habilitadas)?opts.filter(([id])=>habilitadas.includes(id)):opts;
-   html+='<div class="data-field-card" style="grid-column:1/-1"><label><strong>PRESTACIONES Y SERVICIOS</strong></label><p class="small-muted">Elegí las opciones que corresponden. Gran Hermano define si se muestran en la tarjeta.</p>'+disponibles.map(([id,label])=>'<label style="display:inline-flex;align-items:center;margin:7px 15px 7px 0;gap:5px"><input type="checkbox" name="servicios_iconos_opcion" value="'+id+'" '+(chosen.includes(id)?'checked':'')+'>'+label+'</label>').join('')+'<input type="hidden" name="servicios_iconos" value="'+htmlEscape(chosen.join(','))+'"></div>';return;
- }
- if(fieldName==='contenido_adulto'){html+='<label>Contenido para mayores de 18 años<select name="contenido_adulto" data-adult-selector disabled><option value="false" '+(values.contenido_adulto===true?'':'selected')+'>No · Para todas las edades</option><option value="true" '+(values.contenido_adulto===true?'selected':'')+'>Sí · +18</option></select></label>';return;}
+    if(fieldName==='contenido_adulto'){html+='<label>Contenido para mayores de 18 años<select name="contenido_adulto" data-adult-selector disabled><option value="false" '+(values.contenido_adulto===true?'':'selected')+'>No · Para todas las edades</option><option value="true" '+(values.contenido_adulto===true?'selected':'')+'>Sí · +18</option></select></label>';return;}
     const rawValue = values[fieldName];
     const fieldValue = rawValue === undefined || rawValue === null ? '' : String(rawValue);
     const upperName = fieldName.toUpperCase();
@@ -3463,6 +3456,16 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
       if(isImage && imageNumber>imagenesMax) return;
       const group=['instagram','facebook','youtube','tiktok','linkedin','x','web'].includes(fieldName)?'Redes y web':['nombre_sede','direccion','lat','lng','maps'].includes(fieldName)?'Ubicación':['telefono','whatsapp','mail'].includes(fieldName)?'Teléfonos y contacto':fieldName==='horarios_atencion'?'Horarios':'Otros';
       if(group!==previousGroup){html+=group==='Ubicación'?ciudadMarkup:'<div class="sede-section"><div class="sede-section-title">'+group+'</div></div>';previousGroup=group;}
+      if(fieldName==='servicios_iconos'){
+        const chosen=String(sede.servicios_iconos||'').split(',').map(x=>x.trim()).filter(Boolean);
+        const opts=[['tarjetas','Tarjetas de crédito / débito'],['efectivo','Efectivo'],['transferencia','Transferencias'],['delivery','Delivery'],['retiro','Retiro / takeaway'],['reservas','Reservas'],['turnos','Turnos'],['accesibilidad','Accesibilidad'],['estacionamiento','Estacionamiento'],['wifi','Wi-Fi']];
+        const cfg=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
+        const grupo=[1,2].includes(Number(nivelActual))?'institucional':'comercial';
+        const enabled=cfg['carga_'+grupo+'_prestaciones'];
+        const visible=Array.isArray(enabled)?opts.filter(([id])=>enabled.includes(id)):opts;
+        html+='<div class="data-field-card" style="grid-column:1/-1"><label><strong>PRESTACIONES Y SERVICIOS DE ESTA SEDE</strong></label><p class="small-muted">Marcá únicamente las opciones que ofrece esta sede. Otra sucursal puede tener opciones diferentes.</p>'+visible.map(([id,label])=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:6px 14px 6px 0"><input type="checkbox" name="servicios_iconos_opcion" value="'+id+'" '+(chosen.includes(id)?'checked':'')+'>'+label+'</label>').join('')+'<input type="hidden" name="servicios_iconos" value="'+htmlEscape(chosen.join(','))+'"></div>';
+        return;
+      }
       if(fieldName==='horarios_atencion'){
         html += `<div class="data-field-card" style="grid-column:1/-1">
           <label><strong>HORARIOS DE ATENCIÓN</strong></label>
@@ -6193,7 +6196,6 @@ function buildCommerceSavePayload(){
   }
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     if(fieldName==='contenido_adulto'){if(window.GLD_ADULT_SUPPORTED)payload[fieldName]=form?.querySelector('[name="contenido_adulto"]')?.value==='true';return;}
-    if(fieldName==='servicios_iconos'){const prev=String(form?.querySelector('[name="servicios_iconos"]')?.value||'').split(',').filter(Boolean);const shown=[...form.querySelectorAll('[name="servicios_iconos_opcion"]')].map(x=>x.value);const selected=[...form.querySelectorAll('[name="servicios_iconos_opcion"]:checked')].map(x=>x.value);payload[fieldName]=[...new Set([...prev.filter(x=>!shown.includes(x)),...selected])].join(',');return;}
     const input=form?.querySelector(`[name="${fieldName}"]`);
     if(input)payload[fieldName] = String(input.value || '').trim();
   });
@@ -6219,6 +6221,13 @@ function buildCommerceSedesPayload(){
       sede_id:String(card.querySelector('[name="sede_id"]')?.value || '').trim()
     };
     COMMERCE_SEDE_FIELDS.forEach(fieldName => {
+      if(fieldName==='servicios_iconos'){
+        const prev=String(card.querySelector('[name="servicios_iconos"]')?.value||'').split(',').map(x=>x.trim()).filter(Boolean);
+        const shown=[...card.querySelectorAll('[name="servicios_iconos_opcion"]')].map(x=>x.value);
+        const selected=[...card.querySelectorAll('[name="servicios_iconos_opcion"]:checked')].map(x=>x.value);
+        sede.servicios_iconos=[...new Set([...prev.filter(x=>!shown.includes(x)),...selected])].join(',');
+        return;
+      }
       const input=card.querySelector(`[name="${fieldName}"]`);
       if(input)sede[fieldName] = String(input.value || '').trim();
     });
