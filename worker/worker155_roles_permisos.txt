@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 154 - TARJETAS Y PUBLICIDAD
+// GUÍA LOCAL - WORKER 155 - ROLES Y PERMISOS (base 154)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'154',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'155',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -8147,7 +8147,7 @@ async function superadminLoginV2({ env, db, body }) {
   if(["ADMINISTRADOR","MODERADOR","VENDEDOR"].includes(perfil155)){
    const limits=await rolePolicy155(createCache(env));
    const granted=(Array.isArray(perms155.acciones)?perms155.acciones:[]).filter(x=>(limits.roles?.[perfil155]||[]).includes(x)&&ROLE_SUPPORTED155.has(x));
-   perms155={...perms155,acciones:granted,moderacion:{EVENTO:granted.includes("Eventos.aprobar")&&granted.includes("Eventos.rechazar"),ACTIVIDAD:granted.includes("Actividades.aprobar")&&granted.includes("Actividades.rechazar"),ANUNCIANTE:granted.includes("Anunciantes.aprobar")&&granted.includes("Anunciantes.rechazar")}};
+   perms155={...perms155,acciones:granted,moderacion:{EVENTO:granted.includes("Eventos.aprobar")||granted.includes("Eventos.rechazar"),ACTIVIDAD:granted.includes("Actividades.aprobar")||granted.includes("Actividades.rechazar"),ANUNCIANTE:granted.includes("Anunciantes.aprobar")||granted.includes("Anunciantes.rechazar")}};
   }
   const token2 = await issue2(env, { sid, sv:Number(sessionState.version||0), rol: role, nombre, mail: text81(sus.mail), ciudades, permisos:perms155, perfil:perfil155, access_revision:admin.access_revision||"" });
   return {
@@ -8278,9 +8278,9 @@ function newAdvertiserId2() {
 }
 async function resolvePendingV3({ db, cache, auth, tipo, id: id4, decision, nivel = "" }) {
   const kind = text82(tipo).toUpperCase();
-  assertModeratorV72(auth,kind);
   const itemId = text82(id4);
   const dec = text82(decision).toUpperCase();
+  assertModeratorV72(auth,kind,dec);
   if (!itemId || !["APROBAR", "RECHAZAR"].includes(dec)) throw new Error("Falta indicar contenido o decisión.");
   if (kind === "EVENTO") {
     return resolveEventModerationV2({
@@ -8447,8 +8447,13 @@ function moderatorAllowsV72(auth,kind) {
   const perms=auth.permisos&&auth.permisos.moderacion;
   return perms ? perms[kind]===true : true;
 }
-function assertModeratorV72(auth,kind){
+function assertModeratorV72(auth,kind,decision=""){
   if(!moderatorAllowsV72(auth,kind)){throw httpError("No tenés permiso para moderar este tipo de publicación.",403);}
+  if(decision&&["ADMINISTRADOR","MODERADOR","VENDEDOR"].includes(auth.perfil)){
+   const area={EVENTO:"Eventos",ACTIVIDAD:"Actividades",ANUNCIANTE:"Anunciantes"}[kind];
+   const action=decision==="APROBAR"?"aprobar":"rechazar";
+   if(!area||!auth.permisos?.acciones?.includes(area+"."+action))throw httpError("No tenés permiso para esta decisión.",403);
+  }
 }
 function adminCanCityV71(auth,item) {
   if(auth.rol!=="ADMIN_LOCAL")return true;
@@ -8517,14 +8522,13 @@ async function roleRoutes155({path,request,env,db,cache,url}){
  const caps=(await rolePolicy155(cache)).roles[perfil]||[],actions=roleGrants155(body.acciones);
  if(actions.some(x=>!caps.includes(x)||!ROLE_SUPPORTED155.has(x)))return json({success:false,message:"Los permisos elegidos superan el perfil o aun no estan operativos."},400);
  if(!principal&&actions.some(x=>!auth.permisos?.acciones?.includes(x)))return json({success:false,message:"No podes delegar permisos que no tenes."},403);
- for(const area of ["Eventos","Actividades","Anunciantes"])if(actions.includes(area+".aprobar")!==actions.includes(area+".rechazar"))return json({success:false,message:"Por ahora aprobar y rechazar deben asignarse juntos."},400);
  const ciudades=adminCityIdsV71(body.ciudades),activo=body.activo===true;
  if(activo&&(!ciudades.length||(perfil!=="VENDEDOR"&&!actions.length)))return json({success:false,message:"Indica ciudades y permisos."},400);
  const territory=await cache.get("territorio:public:v1")||{};
  const known=new Set((territory.ciudades||[]).map(x=>String(x.ciudad_id||x.id)));
  if(ciudades.some(x=>!known.has(x)))return json({success:false,message:"Ciudad no autorizada."},400);
  if(!await read.get("suscriptores",sid))return json({success:false,message:"No existe el suscriptor."},404);
- const moderation={EVENTO:actions.includes("Eventos.aprobar"),ACTIVIDAD:actions.includes("Actividades.aprobar"),ANUNCIANTE:actions.includes("Anunciantes.aprobar")};
+ const moderation={EVENTO:actions.some(x=>x.startsWith("Eventos.")&&(x.endsWith(".aprobar")||x.endsWith(".rechazar"))),ACTIVIDAD:actions.some(x=>x.startsWith("Actividades.")&&(x.endsWith(".aprobar")||x.endsWith(".rechazar"))),ANUNCIANTE:actions.some(x=>x.startsWith("Anunciantes.")&&(x.endsWith(".aprobar")||x.endsWith(".rechazar")))};
  const revision=crypto.randomUUID(),key="admin:access:v72:"+sid;
  await cache.put(key,{activo:false,revision});
  await db.patch("superadmins",String(old?.id||sid),{suscriptor_id:sid,rol:"ADMIN_LOCAL",perfil,activo,ciudades,permisos:{...(old?.permisos||{}),moderacion,acciones:actions},access_revision:revision,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid});
@@ -8543,12 +8547,12 @@ async function roleGate155({path,request,env}){
  auth.permisos={...auth.permisos,acciones:current};
  if(request.method==="GET"&&["/superadmin/roles","/superadmin/access","/superadmin/dashboard"].includes(path))return null;
  if(path==="/superadmin/access"&&request.method==="POST"&&auth.permisos?.acciones?.some(x=>x.startsWith("Personal.asignar ")))return null;
- const actions=auth.permisos?.acciones||[],can=a=>actions.includes(a+".aprobar")&&actions.includes(a+".rechazar");
+ const actions=auth.permisos?.acciones||[],can=a=>actions.includes(a+".aprobar")||actions.includes(a+".rechazar");
  if(perfil!=="VENDEDOR"&&["Eventos","Actividades","Anunciantes"].some(can)){
-  if(request.method==="POST"&&path==="/superadmin/moderation/resolve"){const b=await request.clone().json().catch(()=>({}));const kind={EVENTO:"Eventos",ACTIVIDAD:"Actividades",ANUNCIANTE:"Anunciantes"}[String(b.tipo||"").toUpperCase()];if(!kind||!can(kind))return json({success:false,message:"No tenes permiso para esta moderacion."},403);}
+  if(request.method==="POST"&&path==="/superadmin/moderation/resolve"){const b=await request.clone().json().catch(()=>({}));const kind={EVENTO:"Eventos",ACTIVIDAD:"Actividades",ANUNCIANTE:"Anunciantes"}[String(b.tipo||"").toUpperCase()];const decision=String(b.decision||"").toUpperCase()==="APROBAR"?"aprobar":"rechazar";if(!kind||!actions.includes(kind+"."+decision))return json({success:false,message:"No tenes permiso para esta decision."},403);}
   if(request.method==="GET"&&["/superadmin/inbox","/superadmin/moderation/pending"].includes(path))return null;
   if(request.method==="POST"&&path==="/superadmin/moderation/resolve")return null;
-  if(can("Eventos")&&path==="/superadmin/free-event-exceptions")return null;
+  // Excepciones Free requieren un permiso distinto; no se delegan implicitamente.
  }
  return json({success:false,message:"Accion no autorizada para el perfil."},403);
 }
