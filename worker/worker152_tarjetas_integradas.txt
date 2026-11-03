@@ -9545,7 +9545,7 @@ async function syncPublicationReviewV77({db,cache,collection,id,current,next}){
  if(collection==='actividades'){const horarios=await getPreparedRelationsV1({cache,type:'activity',id,current,load:()=>db.queryEqual('actividad_horarios','actividad_id',id,500)});return syncActivityPreparedV2({cache,activityId:id,current,next,horarios,previousCities:[...new Set(horarios.map(h=>h.ciudad_id).filter(Boolean))]});}
  if(collection==='publicidades'){const [media,segmentacion]=await Promise.all([getPreparedRelationsV1({cache,type:'publicity-media',id,current,load:()=>db.queryEqual('publicidad_media','publicidad_id',id,500)}),getPreparedRelationsV1({cache,type:'publicity-seg',id,current,load:()=>db.queryEqual('publicidad_segmentacion','publicidad_id',id,500)})]);return syncPublicityPreparedV2({cache,publicityId:id,current,next,media,segmentacion,previousCities:[...new Set(segmentacion.map(s=>s.ciudad_id).filter(Boolean))]});}
 }
-const PUBLICATION_TERMS_V77='2026-10-10';
+const PUBLICATION_TERMS_V77='2026-10-11';
 function publicationErrorV77(message,status=400){throw httpError(message,status);}
 function publicationPolicyV77(row,rules){
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -9562,7 +9562,7 @@ function publicationDbV77(base,context,cache){
   async patch(c,id,patch,options={}){
    if(!context.collections.includes(c)){const result=await db.patch(c,id,patch,options);known.set(c+'/'+id,result);return result;}
    const prior=known.get(c+'/'+id),row={...prior,...context.data,...patch};
-   const acceptance={version:PUBLICATION_TERMS_V77,usuario_id:context.sid||String(id),fecha:new Date().toISOString()};
+   const acceptance={version:context.termsVersion||PUBLICATION_TERMS_V77,usuario_id:context.sid||String(id),fecha:new Date().toISOString()};
    if(c==='suscriptores')patch={...patch,aceptacion_terminos:acceptance};
    else {
     const policy=publicationPolicyV77(row,context.rules);
@@ -9588,12 +9588,14 @@ async function preparePublicationV77(ctx){
  if(!collections.length)return;
  let sid='';if(collections[0]!=='suscriptores'){const session=await verifySubscriberSession(ctx.env,ctx.request);if(!session.ok)publicationErrorV77(session.message,401);sid=session.sid;}
  const accepted=body.declaracion_publicacion;
- if(!accepted||accepted.aceptada!==true||accepted.version!==PUBLICATION_TERMS_V77)publicationErrorV77('Aceptá los términos y la declaración de responsabilidad antes de publicar.');
+ const activeTerms=sid?await currentTermsV81(ctx.cache):null;
+ const expectedVersion=activeTerms?.version||PUBLICATION_TERMS_V77;
+ if(!accepted||accepted.aceptada!==true||accepted.version!==expectedVersion)publicationErrorV77('Los términos de publicación cambiaron. Revisá y aceptá la versión vigente antes de guardar.',412);
  const catalogs=await ctx.cache.get('admin:catalogs:v2');
  if(collections[0]!=='suscriptores'&&(!catalogs||!Array.isArray(catalogs.moderacion_18)))publicationErrorV77('No está disponible el catálogo de moderación. Reintentá cuando se restablezca.',503);
- if(sid&&collections[0]!=='suscriptores'&&ctx.db.cachedSubscriberProjection){const account=await ctx.db.cachedSubscriberProjection(sid),prior=account?.aceptacion_terminos_anunciante;if(prior){const active=await currentTermsV81(ctx.cache);if((account.historial_terminos_anunciante?.[active.version]||prior).version!==active.version)throw Object.assign(new Error('Los términos para anunciantes cambiaron. Revisalos y aceptalos desde el botón Términos y condiciones.'),{status:412,code:'TERMS_REVIEW_REQUIRED'});}}
+ if(sid&&collections[0]!=='suscriptores'&&ctx.db.cachedSubscriberProjection){const account=await ctx.db.cachedSubscriberProjection(sid),prior=account?.aceptacion_terminos_anunciante;if(prior&&((account.historial_terminos_anunciante?.[expectedVersion]||prior).version!==expectedVersion))throw Object.assign(new Error('Los términos para anunciantes cambiaron. Revisalos y aceptalos desde el botón Términos y condiciones.'),{status:412,code:'TERMS_REVIEW_REQUIRED'});}
  const data=body.payload&&typeof body.payload==='object'?body.payload:body;
- ctx.publication={sid,collections,data,rules:catalogs?.moderacion_18||[]};ctx.db=publicationDbV77(ctx.db,ctx.publication,ctx.cache);
+ ctx.publication={sid,collections,data,rules:catalogs?.moderacion_18||[],termsVersion:expectedVersion};ctx.db=publicationDbV77(ctx.db,ctx.publication,ctx.cache);
 }
 async function routePublicationsV77(ctx){
  const {path,request,env,cache,db}=ctx;
