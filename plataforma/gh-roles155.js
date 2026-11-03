@@ -49,7 +49,8 @@ async function edit(person,role){
   const p=(await ghAdminRequest_('/access',{suscriptor_id:sid})).personal||{};
   if(p.perfil&&p.perfil!==role){box.textContent='La persona pertenece a otro perfil: '+p.perfil;return;}
   const terr=await fetch(TERRITORY_API_ORIGIN+'/territory/public').then(r=>r.json());
-  const selected=new Set(p.acciones||[]),assigned=new Set(p.ciudades||[]);
+  const legacy=Object.entries({EVENTO:"Eventos",ACTIVIDAD:"Actividades",ANUNCIANTE:"Anunciantes"}).flatMap(([k,a])=>p.moderacion?.[k]?[a+".aprobar",a+".rechazar"]:[]);
+   const selected=new Set((p.acciones?.length?p.acciones:legacy)),assigned=new Set(p.ciudades||[]);
   let html='<h2>'+safe(person.nombre||sid)+'</h2><p>Rol: '+role+'</p><p>Estado guardado: '+(p.activo?'Habilitado':'Pausado')+'</p><label class="role-check"><input type="checkbox" data-active '+(p.activo?'checked':'')+'> Habilitar persona</label>';
   html+='<h3>Ciudades</h3><label class="role-check"><input type="checkbox" data-all> Seleccionar todas</label>';
   const groups=new Map();
