@@ -1,6 +1,6 @@
 /* Guía Local: versión pública consultada, disponible sin conexión.
    Nunca guardar tokens, favoritos, cuentas, turnos vigentes ni respuestas privadas. */
-const SHELL_CACHE='gld-shell-v3';
+const SHELL_CACHE='gld-shell-v2';
 const PUBLIC_CACHE='gld-guide-public-v2';
 const OFFLINE_PAGE='/plataforma/offline.html';
 const SHELL=['/plataforma/offline.html','/plataforma/inicio.html','/plataforma/carcasa.html','/plataforma/anunciantes.html','/plataforma/eventos.html','/plataforma/promos.html','/plataforma/actividades.html','/plataforma/pwa-web.js'];
@@ -8,9 +8,9 @@ const API_ORIGIN='https://login.liqkoargentina.workers.dev';
 self.addEventListener('install',event=>{
  event.waitUntil((async()=>{
    const cache=await caches.open(SHELL_CACHE);
-   // Descargar solo la página mínima sin conexión; las demás secciones se guardan
-   // al visitarlas. Evita transferir toda Guía Local a cada visitante nuevo.
    await cache.add(OFFLINE_PAGE);
+   // Archivos públicos de la interfaz. Los fallos no impiden instalar el modo sin conexión.
+   await Promise.all(SHELL.filter(x=>x!==OFFLINE_PAGE).map(x=>cache.add(x).catch(()=>{})));
    await self.skipWaiting();
  })());
 });
