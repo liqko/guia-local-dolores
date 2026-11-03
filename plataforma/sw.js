@@ -23,7 +23,7 @@ self.addEventListener('push',event=>{
   if(!data.title||typeof data.title!=='string')return;
   const url=typeof data.url==='string'&&data.url.startsWith('/plataforma/')?data.url:'/plataforma/inicio.html';
   event.waitUntil(self.registration.showNotification(data.title.slice(0,120),{
-    body:String(data.body||'').slice(0,250),icon:'/plataforma/icono.png',tag:String(data.tag||'guia-local').slice(0,64),
+    body:String(data.body||'').slice(0,250),tag:String(data.tag||'guia-local').slice(0,64),
     data:{url}
   }));
 });
