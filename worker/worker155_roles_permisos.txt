@@ -8142,7 +8142,14 @@ async function superadminLoginV2({ env, db, body }) {
   if (role === "ADMIN_LOCAL" && !ciudades.length) return {success:false,message:"El administrador local no tiene una ciudad asignada."};
   const sessionState=await subscriberSessionState(env,sid);
   if(sessionState.deleted)return {success:false,message:"Suscriptor no activo"};
-  const token2 = await issue2(env, { sid, sv:Number(sessionState.version||0), rol: role, nombre, mail: text81(sus.mail), ciudades, permisos:admin.permisos||{}, perfil:admin.perfil||"", access_revision:admin.access_revision||"" });
+  const perfil155=admin.perfil||"";
+  let perms155=admin.permisos||{};
+  if(["ADMINISTRADOR","MODERADOR","VENDEDOR"].includes(perfil155)){
+   const limits=await rolePolicy155(createCache(env));
+   const granted=(Array.isArray(perms155.acciones)?perms155.acciones:[]).filter(x=>(limits.roles?.[perfil155]||[]).includes(x)&&ROLE_SUPPORTED155.has(x));
+   perms155={...perms155,acciones:granted,moderacion:{EVENTO:granted.includes("Eventos.aprobar")&&granted.includes("Eventos.rechazar"),ACTIVIDAD:granted.includes("Actividades.aprobar")&&granted.includes("Actividades.rechazar"),ANUNCIANTE:granted.includes("Anunciantes.aprobar")&&granted.includes("Anunciantes.rechazar")}};
+  }
+  const token2 = await issue2(env, { sid, sv:Number(sessionState.version||0), rol: role, nombre, mail: text81(sus.mail), ciudades, permisos:perms155, perfil:perfil155, access_revision:admin.access_revision||"" });
   return {
     success: true,
     token: token2,
@@ -8500,6 +8507,7 @@ async function roleRoutes155({path,request,env,db,cache,url}){
  let old=await read.get("superadmins",sid);
  if(!old){const found=await read.queryEqual("superadmins","suscriptor_id",sid,5);old=found.find(x=>String(x.suscriptor_id)===sid);}
  if(old?.rol==="SUPERADMIN_PRINCIPAL")return json({success:false,message:"No se modifica la cuenta principal."},403);
+ if(old?.rol==="SUPERADMIN")return json({success:false,message:"La cuenta superadministradora existente no se cambia desde este panel."},403);
  if(!principal&&(old?.perfil==="ADMINISTRADOR"||old?.rol==="SUPERADMIN"))return json({success:false,message:"No se puede consultar ni modificar otro administrador."},403);
  if(request.method==="GET")return json({success:true,personal:old?{suscriptor_id:sid,perfil:old.perfil||"MODERADOR",activo:old.activo===true,ciudades:adminCityIdsV71(old.ciudades),acciones:old.permisos?.acciones||[],moderacion:old.permisos?.moderacion||{}}:null});
  if(request.method!=="POST")return json({success:false,message:"Metodo no permitido."},405);
@@ -8531,11 +8539,13 @@ async function roleGate155({path,request,env}){
  const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
  const policy=(await rolePolicy155(ctx.cache)).roles[perfil]||[];
  const current=auth.permisos?.acciones||[];
- auth.permisos={...auth.permisos,acciones:current.filter(x=>policy.includes(x)&&ROLE_SUPPORTED155.has(x))};
+ if(current.some(x=>!policy.includes(x)||!ROLE_SUPPORTED155.has(x)))return json({success:false,message:"Cambiaron los permisos del rol. Volve a iniciar sesion."},401);
+ auth.permisos={...auth.permisos,acciones:current};
  if(request.method==="GET"&&["/superadmin/roles","/superadmin/access","/superadmin/dashboard"].includes(path))return null;
  if(path==="/superadmin/access"&&request.method==="POST"&&auth.permisos?.acciones?.some(x=>x.startsWith("Personal.asignar ")))return null;
  const actions=auth.permisos?.acciones||[],can=a=>actions.includes(a+".aprobar")&&actions.includes(a+".rechazar");
  if(perfil!=="VENDEDOR"&&["Eventos","Actividades","Anunciantes"].some(can)){
+  if(request.method==="POST"&&path==="/superadmin/moderation/resolve"){const b=await request.clone().json().catch(()=>({}));const kind={EVENTO:"Eventos",ACTIVIDAD:"Actividades",ANUNCIANTE:"Anunciantes"}[String(b.tipo||"").toUpperCase()];if(!kind||!can(kind))return json({success:false,message:"No tenes permiso para esta moderacion."},403);}
   if(request.method==="GET"&&["/superadmin/inbox","/superadmin/moderation/pending"].includes(path))return null;
   if(request.method==="POST"&&path==="/superadmin/moderation/resolve")return null;
   if(can("Eventos")&&path==="/superadmin/free-event-exceptions")return null;
