@@ -985,7 +985,6 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
           <h3>Información del anunciante</h3>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
-            <label style="display:flex;align-items:flex-start;gap:10px;margin:14px 0;font-weight:normal"><input type="checkbox" id="datos-comercio-declaracion" style="width:auto;margin-top:4px"><span>Declaro que los datos que publico son veraces, que tengo autorización para publicarlos y acepto los términos de publicación.</span></label>
             <div class="data-form-actions">
               <button id="btnGuardarDatosComercio" class="primary" type="button">Guardar cambios</button>
             </div>
@@ -1946,8 +1945,7 @@ const COMMERCE_SEDE_FIELDS = [
   "instagram","facebook","youtube","tiktok","linkedin","x","web",
   "nombre_sede","contacto_publico_elegido","direccion","lat","lng","maps",
   "telefono","whatsapp","mail",
-  "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10",
-  "estado"
+  "img1","img2","img3","img4","img5","img6","img7","img8","img9","img10"
 ];
 const COMMERCE_IMAGE_FIELDS = new Set(COMMERCE_DATA_FIELDS.filter((fieldName)=> /^(logo|img\d+)$/.test(fieldName)));
 let currentCommerceSedes = [];
@@ -3444,7 +3442,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
         </select>
       </div>`;
     let previousGroup='';
-    COMMERCE_SEDE_FIELDS.forEach(fieldName=>{
+    COMMERCE_SEDE_FIELDS.filter(fieldName=>!/^img\d+$/.test(fieldName)).forEach(fieldName=>{
       const value = sede[fieldName] === undefined || sede[fieldName] === null ? '' : String(sede[fieldName]);
       if(fieldName==='contacto_publico_elegido'){
         if(Number(nivelActual)===3 && reglaNivel?.contacto_modo==='direccion_o_alternativa'){
@@ -3500,6 +3498,29 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
     html += relationBox('ACTIVIDADES CLAVE', commerceCatalogs.actividades_clave, 'actividad_id', 'rel_actividad', actSel);
     html += relationBox('ACCIONES', commerceCatalogs.acciones, 'accion_id', 'rel_accion', accSel);
     html += relationBox('NODOS', commerceCatalogs.nodos, 'nodo_id', 'rel_nodo', nodoSel);
+
+    // Imágenes al final de los campos editables de la sede, después de las relaciones.
+    html += '<div class="sede-section"><div class="sede-section-title">Imágenes</div></div>';
+    const cfgImagenes=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
+    const grupoImagenes=[1,2].includes(Number(nivelActual))?'institucional':'comercial';
+    const rawImagenes=cfgImagenes['carga_'+grupoImagenes+'_imagenes_max']??cfgImagenes.carga_imagenes_max??5;
+    const imagenesMaxSede=Math.max(0,Math.min(10,Number(rawImagenes)||0));
+    COMMERCE_SEDE_FIELDS.filter(fieldName=>/^img\d+$/.test(fieldName)).forEach(fieldName=>{
+      if(Number(fieldName.slice(3))>imagenesMaxSede)return;
+      const value=String(sede[fieldName]??'');
+      html += `<div class="data-field-card image-field">
+        <label><strong>${htmlEscape(fieldName.toUpperCase())}</strong></label>
+        ${value? `<img src="${htmlEscape(value)}" alt="${htmlEscape(fieldName.toUpperCase())}" style="width:120px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #ddd;background:#fff;display:block;margin-bottom:6px">`:''}
+        ${mediaRuleMarkup_('ficha')}
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(value)}">
+      </div>`;
+    });
+    const estadoOriginal=String(sede.estado??'').trim();
+    const inactiva=sede.activo===false||/^(inactiv|pausad|suspendid|baja|false|0)/i.test(estadoOriginal);
+    const activa=sede.activo===true||/^(activ|habilitad|publicad|true|1)/i.test(estadoOriginal);
+    const estadoTexto=inactiva?'INACTIVA':activa?'ACTIVA':'SIN DEFINIR';
+    const estadoColor=inactiva?'#b42318':activa?'#087443':'#596579';
+    html += '<div class="data-field-card" style="grid-column:1/-1"><label><strong>ESTADO (solo lectura)</strong></label><div role="status" style="display:inline-block;font-weight:800;border-radius:8px;padding:7px 12px;color:#fff;background:'+estadoColor+'">'+estadoTexto+'</div></div>';
 
     html += '</div></div></details>';
   });
@@ -8491,12 +8512,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
           setMsg('msg-datos-comercio','ok','No hay cambios para guardar.');
           return;
         }
-        if(hayDatos&&!document.getElementById('datos-comercio-declaracion')?.checked){
-          setMsg('msg-datos-comercio','err','Para guardar modificaciones de la ficha, aceptá la declaración de responsabilidad y los términos de publicación.');
-          return;
-        }
-
-        const response=await commerce_post({action:'save_ficha',...(hayDatos?{datos:dataPatch,declaracion_publicacion:{aceptada:true,version:'2026-10-10'}}:{}),...(haySedes?{sedes:sedePayload.sedes}:{})});
+        // La declaración única, su aceptación y la versión las gestiona publicacion.js.
+        const response=await commerce_post({action:'save_ficha',...(hayDatos?{datos:dataPatch}:{}),...(haySedes?{sedes:sedePayload.sedes}:{})});
         if(response.status!==200||!response.json?.success){
           if(await handleUnconfirmedOperation(response,{msgId:'msg-datos-comercio',reload:()=>loadCommerceUI(),unknownMessage:'No se pudo confirmar la respuesta. Se recargaron los datos; revisalos antes de volver a guardar.'}))return;
           setMsg('msg-datos-comercio','err',response.json?.message||response.json?.error||'No se pudieron guardar los cambios.');return;
