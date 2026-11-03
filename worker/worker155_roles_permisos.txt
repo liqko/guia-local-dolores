@@ -8491,6 +8491,7 @@ async function roleRoutes155({path,request,env,db,cache,url}){
   await cache.put("admin:roles:config:v155",policy);
   return json({success:true,roles:policy.roles});
  }
+ if(!principal){const cap=(await rolePolicy155(cache)).roles[auth.perfil]||[],grants=auth.permisos?.acciones||[];auth.permisos={...auth.permisos,acciones:grants.filter(x=>cap.includes(x)&&ROLE_SUPPORTED155.has(x))};}
  if(!principal&&!roleCanAssign155(auth,"MODERADOR")&&!roleCanAssign155(auth,"VENDEDOR"))return json({success:false,message:"No autorizado."},403);
  const body=request.method==="POST"?await request.json().catch(()=>({})):{};
  const sid=String(body.suscriptor_id||url.searchParams.get("suscriptor_id")||"").trim();
@@ -8499,6 +8500,7 @@ async function roleRoutes155({path,request,env,db,cache,url}){
  let old=await read.get("superadmins",sid);
  if(!old){const found=await read.queryEqual("superadmins","suscriptor_id",sid,5);old=found.find(x=>String(x.suscriptor_id)===sid);}
  if(old?.rol==="SUPERADMIN_PRINCIPAL")return json({success:false,message:"No se modifica la cuenta principal."},403);
+ if(!principal&&(old?.perfil==="ADMINISTRADOR"||old?.rol==="SUPERADMIN"))return json({success:false,message:"No se puede consultar ni modificar otro administrador."},403);
  if(request.method==="GET")return json({success:true,personal:old?{suscriptor_id:sid,perfil:old.perfil||"MODERADOR",activo:old.activo===true,ciudades:adminCityIdsV71(old.ciudades),acciones:old.permisos?.acciones||[],moderacion:old.permisos?.moderacion||{}}:null});
  if(request.method!=="POST")return json({success:false,message:"Metodo no permitido."},405);
  const perfil=String(body.perfil||"").toUpperCase();
@@ -8527,6 +8529,9 @@ async function roleGate155({path,request,env}){
  const perfil=roleClaim155(request);
  if(!ROLE_SET155.includes(perfil))return null;
  const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+ const policy=(await rolePolicy155(ctx.cache)).roles[perfil]||[];
+ const current=auth.permisos?.acciones||[];
+ auth.permisos={...auth.permisos,acciones:current.filter(x=>policy.includes(x)&&ROLE_SUPPORTED155.has(x))};
  if(request.method==="GET"&&["/superadmin/roles","/superadmin/access","/superadmin/dashboard"].includes(path))return null;
  if(path==="/superadmin/access"&&request.method==="POST"&&auth.permisos?.acciones?.some(x=>x.startsWith("Personal.asignar ")))return null;
  const actions=auth.permisos?.acciones||[],can=a=>actions.includes(a+".aprobar")&&actions.includes(a+".rechazar");
