@@ -1,0 +1,57 @@
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+import {Script} from 'node:vm';
+const read=p=>readFileSync(p,'utf8');
+const entry=read('plataforma/entrada-recordada.js'),inicio=read('plataforma/inicio.html'),carcasa=read('plataforma/carcasa.html'),users=read('plataforma/suscriptores.html');
+const brand=read('plataforma/marca-global.js'),visor=read('plataforma/visor-web-global.js'),guide=read('plataforma/anunciantes.html');
+const root=read('index.html');
+for(const [file,source] of [['marca-global.js',brand],['visor-web-global.js',visor],['entrada-recordada.js',entry]]){
+  new Script(source,{filename:file});
+  console.log('PASS sintaxis '+file);
+}
+assert.match(root,/location\.replace\('\/plataforma\/inicio\.html'/);
+assert.match(entry,/if\(!sid\)\{[\s\S]*?recordada:false/);
+assert.match(inicio,/new URL\('\/plataforma\/carcasa\.html',window\.location\.origin\)/);
+assert.match(users,/window\.location\.replace\('\/plataforma\/inicio\.html\?cambiar_ciudad=1'\)/);
+assert.match(carcasa,/window\.location\.assign\('\/plataforma\/inicio\.html\?cambiar_ciudad=1'\)/);
+assert.match(carcasa,/plataforma\/visor-web-global\.js/);
+assert.match(guide,/puenteWebDisponible/);
+assert.match(guide,/tipo:'gld:visor-web:abrir'/);
+assert.match(visor,/document\.documentElement\.style\.overflow='hidden'/);
+assert.match(visor,/gld:visor-web:cerrado/);
+for(const path of ['plataforma/inicio.html','plataforma/carcasa.html','plataforma/suscriptores.html','plataforma/login.html','plataforma/granhermano.html','plataforma/nosotros.html','plataforma/privacidad.html','plataforma/app-prueba.html']){
+  assert.match(read(path),/marca-global\.js/,path+' branding');
+}
+assert.match(brand,/Panel administrador/);
+assert.match(brand,/\/plataforma\/granhermano\.html/);
+assert.match(brand,/\/plataforma\/login\.html/);
+assert.match(brand,/\/plataforma\/suscriptores\.html/);
+assert.match(brand,/\/plataforma\/pie\.html/);
+assert.match(inicio,/gld-city-pin/);
+assert.match(carcasa,/gld-city-pin/);
+const manifest=JSON.parse(read('manifest.webmanifest'));
+assert.equal(manifest.display,'standalone');
+assert.equal(manifest.start_url,'/plataforma/inicio.html?app_prueba=1');
+assert.ok(users.includes('<h3>Ciudad predeterminada</h3>'));
+assert.ok(!carcasa.includes('id="banner-inicio"'));
+assert.ok(carcasa.includes('id="topBtn"'));
+assert.ok(carcasa.includes("window.addEventListener('scroll',actualizar"));
+const app=read('plataforma/app-prueba.html');
+assert.ok(app.includes('pwa-web.js'));
+assert.ok(app.includes('Comprobar instalación'));
+assert.ok(app.includes('if(!pendiente)'));
+assert.ok(app.includes('[hidden]{display:none!important}'));
+console.log('PASS ciudad predeterminada, sin casita, botón subir, instalación con respuesta');
+assert.ok(brand.includes('position:sticky;top:0'),'navegación visible al desplazarse');
+assert.ok(brand.includes("drawer.open=true"),'enlaces visibles en escritorio');
+assert.ok(brand.includes('gld-volver-guia'),'regreso disponible desde paneles');
+assert.ok(app.includes("window.location.replace('/plataforma/inicio.html')"),'la app instalada no debe mostrar pantalla intermedia');
+console.log('PASS menú navegable, regreso a Guía y entrada directa app');
+assert.ok(brand.includes('function urlGuiaActual()'),'la navegación debe conservar ciudad elegida');
+assert.ok(brand.includes("a.href=href==='/'?urlGuiaActual():href"),'Inicio no debe volver a predeterminada');
+assert.ok(brand.includes('regreso.href=urlGuiaActual()'),'Volver no debe volver a predeterminada');
+assert.ok(carcasa.includes("if(ciudadUrl && String(ctx.ciudad_id||'').trim()!==ciudadUrl)ctx={}"),'módulos deben aislar ciudades');
+assert.ok(carcasa.includes("if(explicitCity && String(ctx?.ciudad_id||'').trim()!==explicitCity)ctx=null"),'carcasa debe aislar ciudades');
+assert.ok(guide.includes("if(ciudadUrl&&String(ctx?.ciudad_id||'').trim()!==ciudadUrl)ctx=null"),'anuncios deben aislar ciudades');
+console.log('PASS ciudad explícita aislada de contexto anterior y retorno a ciudad elegida');
+console.log('PASS integración de raíz, ciudades, menú, visor, 3 interfaces, pie y app de prueba');

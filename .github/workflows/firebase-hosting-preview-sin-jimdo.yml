@@ -1,0 +1,45 @@
+name: Vista previa Guía Local sin Jimdo
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Obtener identidad original de Jimdo una sola vez
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p plataforma/assets/marca
+          if [ ! -s plataforma/assets/marca/fondo-ciudad.jpg ]; then
+            curl --fail --location --silent --show-error --retry 3 'https://image.jimcdn.com/app/cms/image/transf/dimension=1150x/path/sce186cc4fc44f014/backgroundarea/id39632ac3c36b8b7/version/1792596239/imagen-de-fondo-ciudad-digital.png' -o plataforma/assets/marca/fondo-ciudad.jpg
+          fi
+          if [ ! -s plataforma/assets/marca/logo-guia-local.png ]; then
+            curl --fail --location --silent --show-error --retry 3 'https://image.jimcdn.com/app/cms/image/transf/none/path/sce186cc4fc44f014/image/i4c2364db49e7f4cd/version/1784742392/image.png' -o plataforma/assets/marca/logo-guia-local.png
+          fi
+          file plataforma/assets/marca/*
+          test -s plataforma/assets/marca/fondo-ciudad.jpg
+          test -s plataforma/assets/marca/logo-guia-local.png
+          if ! git diff --quiet -- plataforma/assets/marca || [ -n "$(git ls-files --others --exclude-standard plataforma/assets/marca)" ]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add plataforma/assets/marca
+            git commit -m 'assets(marca): guardar imagen y logo originales de la portada'
+            git push origin "HEAD:fix/entrada-firebase-sesion-selector-20261104"
+          fi
+      - name: Verificar integridad antes de vista previa
+        run: |
+          node tests/publication-integrity.mjs
+          node tests/entrada-firebase-preview.mjs
+      - name: Publicar solamente canal de prueba
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+          projectId: anunciantes-guialocal
+          channelId: prueba-sin-jimdo
+          expires: 7d
