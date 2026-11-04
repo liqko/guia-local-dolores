@@ -52,7 +52,7 @@ Esta secuencia sustituye las instrucciones anteriores que pedían al usuario cer
 ### Tablero vigente
 | Bloque / acción | Usuario | Anunciante | Gran Hermano | Entrega | Cierre |
 |---|---|---|---|---|---|
-| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 156 desplegado y cotejado con GitHub | ABIERTA; ahorro NO COMPROBADO |
+| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 156 desplegado; 157 preparado para reducir lectura de Perfil | ABIERTA; ahorro NO COMPROBADO |
 
 ### Formato fijo de cada actualización
 Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · corrección concreta · comprobación y consumo · pendiente y próximo paso exacto. Actualizar este tablero al obtener evidencia; no presentar porcentajes de avance inventados.
@@ -62,7 +62,7 @@ Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · c
 - **Estado:** ABIERTA. No comenzar la 002.
 - **Problema:** al ingresar a Gran Hermano, el resumen de cumpleaños recorría repetidamente claves KV.
 - **Corrección incorporada:** el resumen se conserva temporalmente, con invalidación al modificar cumpleaños. Comprobación aislada: segunda consulta, 0 listados adicionales; modificación de cumpleaños, 1 reconstrucción.
-- **Worker preparado:** versión 156 (desplegada y cotejada con GitHub), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
+- **Worker preparado:** versión 157 (pendiente de despliegue; 156 sigue activo), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
 - **Despliegue:** 156 realizado por el usuario y verificado directamente en Cloudflare el 2026-11-04. Código activo coincide con GitHub. Ahorro real aún NO COMPROBADO.
 - **Pendiente para cerrar 001:** seguir la secuencia 001.1–001.6 y verificar consumos reales por ingreso completo en las tres interfaces; correlacionar una pulsación con todas las solicitudes; revisar escrituras/lecturas y operaciones facturadas; validar caché e invalidación de cumpleaños; corregir más hallazgos de la 001 si los hubiera.
 - **Dato importante:** usuario y anunciante comparten `POST /suscriptores` (`action=login`), sin marcador de origen en métricas actuales; Gran Hermano llama `POST /superadmin/session/login`, luego `GET /superadmin/dashboard` y `GET /superadmin/inbox` para cargar pantalla. Las dos últimas son funciones de la pantalla, no validación de credenciales; no representan datos duplicados idénticos.
@@ -125,3 +125,13 @@ Ninguna todavía.
 - Resultado concreto: HTML servido coincide con GitHub; las consultas perfil/favoritos observadas en 156 respondieron correctamente y no recurrieron a Firestore según sus contadores. No se encontraron respuestas 500 en ese conjunto; no generalizar al resto de la plataforma ni considerar corregidos los 500 históricos sin reproducir su causa.
 - Duplicación por pulsación y ahorro integral del ingreso: NO COMPROBADOS, porque no hay registro login 156 ni correlación con una pulsación. No se modificó Worker ni frontend.
 - Próximo paso exacto: completar interceptores de Usuario y comprobar la posible doble carga de favoritos si el login coincide con la resolución de ciudades mediante reproducción aislada del código servido; luego registrar si es reproducible y su impacto antes de preparar una corrección. Sigue 001.1 → Usuario.
+
+## Optimización relacionada con 001 — entrega 157
+- Evaluación concreta de las lecturas de Perfil: sesión 1 KV + índice de cuenta 1 KV + paquete de cuenta 1 KV. Se reduce la indirección del perfil guardando su proyección sin clave en el índice por suscriptor durante la misma escritura existente. No se añaden claves ni escrituras; aumenta el tamaño del valor del índice.
+- Archivo único actualizado a 157; commit `32aba6535df14f82d4bc789f0418074c6ec02f06`, blob `3299abb9eebbcadb98aad7ebd7cd77d87531a916`. Cotejo previo de código desplegado 156 contra GitHub: coincidencia. Lectura posterior de GitHub: coincidencia exacta con entrega.
+- Alcance funcional: únicamente `withAuthCacheV58.store` y `cachedSubscriberProjection`, más identificación de versión. No se modificaron favoritos, revocación, permisos ni cumpleaños.
+- Prueba aislada ejecutando la función modificada con KV/DB simulados: proyección 2 → 1 lecturas KV, 0 Firestore en caché preparada; contando la validación de sesión que permanece intacta, Perfil pasa de 3 → 2 lecturas por respuesta (reducción esperada 33,3%). Escrituras al preparar caché: siguen siendo 2.
+- Pruebas pasadas: edición de nombre, cambio de correo (login antiguo rechazado), cambio de contraseña (anterior rechazada), cuenta inactiva, eliminación, exclusión de contraseña en proyección y compatibilidad con índice antiguo. Índice antiguo conserva su camino anterior de 2 lecturas de proyección, sin escritura de migración al leer. La reducción entra al regenerarse la caché por sus mecanismos existentes, no automáticamente en todos los perfiles al desplegar.
+- No se retiró ninguna lectura de favoritos: versión y marcador de cambios sirven a la coherencia del paquete; reducirlas requiere una evaluación separada dentro de esta acción. No declararlas sobrantes sin comprobar invalidaciones.
+- **Estado:** 157 preparado y pruebas aisladas pasadas; NO desplegado ni ahorro real comprobado. Activo verificado antes de preparar: 156.
+- **Próximo paso exacto:** el usuario despliega 157 desde el mismo enlace; comprobar código activo, medir Perfil con índice nuevo frente a índice antiguo y confirmar lecturas reales y funcionamiento antes de declarar ahorro. Continúa Acción 001, interfaz Usuario; no se avanza a otra acción.
