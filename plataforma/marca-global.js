@@ -1,8 +1,8 @@
 /* Identidad compartida de la plataforma, sin dependencia de contenedores Jimdo. */
 (function(){
   'use strict';
-  const BACKGROUND='https://image.jimcdn.com/app/cms/image/transf/dimension=1150x/path/sce186cc4fc44f014/backgroundarea/id39632ac3c36b8b7/version/1792596239/imagen-de-fondo-ciudad-digital.png';
-  const LOGO='https://image.jimcdn.com/app/cms/image/transf/none/path/sce186cc4fc44f014/image/i4c2364db49e7f4cd/version/1784742392/image.png';
+  const BACKGROUND='/plataforma/assets/marca/fondo-ciudad.jpg';
+  const LOGO='/plataforma/assets/marca/logo-guia-local.png';
 
   function montar(){
     if(document.getElementById('gldMarcaGlobal')) return;
