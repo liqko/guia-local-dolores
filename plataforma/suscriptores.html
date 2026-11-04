@@ -687,16 +687,22 @@ function actualizarLinksAyuda_(){
   };
   Object.entries(links).forEach(([id,mensaje])=>{const a=el(id);if(a)a.href=whatsappUrl_(mensaje);});
 }
-async function cargarComerciosAutorizados_(){
+async function cargarComerciosAutorizados_(anunciantesLogin){
+  const owner=favoritesSessionKey();
   const box=el('mi-guia-comercios');
   if(!box||!sesionSuscriptor||!sesionSuscriptor.suscriptor_id)return;
   try{
-    const u=new URL(SUSCRIPTORES_URL);u.searchParams.set('action','anunciantes_autorizados');
-    const r=await fetch(u.toString(),{headers:authHeaders()});const j=await r.json();
+    let j;
+    if(Array.isArray(anunciantesLogin))j={success:true,anunciantes:anunciantesLogin};
+    else{
+      const u=new URL(SUSCRIPTORES_URL);u.searchParams.set('action','anunciantes_autorizados');
+      const r=await fetch(u.toString(),{headers:authHeaders()});j=await r.json();
+    }
+    if(owner!==favoritesSessionKey())return;
     if(!j||j.success!==true)throw new Error('No disponible');
     const lista=GLD_ANUNCIANTES_UI.ordenarAutorizados(j.anunciantes);
     box.innerHTML=lista.length?lista.map(a=>'<div class="mi-guia-item"><span class="mi-guia-item-name">'+escapeHtml_(a.anunciante_nombre||a.nombre||'Comercio')+'</span><span class="muted">'+escapeHtml_(a.rol||'')+'</span></div>').join(''):'<div class="mi-guia-empty">Todavía no tenés comercios asociados a tu cuenta.</div>';
-  }catch(e){box.innerHTML='<div class="mi-guia-empty">No se pudieron cargar tus comercios.</div>';}
+  }catch(e){if(owner===favoritesSessionKey())box.innerHTML='<div class="mi-guia-empty">No se pudieron cargar tus comercios.</div>';}
 }
 
 function showLogin(){
@@ -804,15 +810,23 @@ async function apiFavorito(action,tipo,referenciaId){
   return j;
 }
 
+let favoritesPending=null,favoritesRequestedFor='';
+function favoritesSessionKey(){return String(sesionSuscriptor?.suscriptor_id||'')+':'+subscriberToken();}
 async function loadFavorites(){
   if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id) return [];
-
-  const u=new URL(SUSCRIPTORES_URL);
-  u.searchParams.set('action','favoritos');
-  const r=await fetch(u.toString(),{headers:authHeaders()});
-  const j=await r.json();
-  if(!j || j.success!==true) throw new Error((j&&(j.message||j.error))||'No se pudieron cargar los favoritos.');
-  return Array.isArray(j.favoritos)?j.favoritos:[];
+  const owner=favoritesSessionKey();
+  favoritesRequestedFor=owner;
+  if(favoritesPending?.owner===owner)return favoritesPending.promise;
+  const pending={owner,promise:null};
+  pending.promise=(async()=>{
+    const u=new URL(SUSCRIPTORES_URL);u.searchParams.set('action','favoritos');
+    const r=await fetch(u.toString(),{headers:authHeaders()});const j=await r.json();
+    if(!j || j.success!==true)throw new Error((j&&(j.message||j.error))||'No se pudieron cargar los favoritos.');
+    return Array.isArray(j.favoritos)?j.favoritos:[];
+  })();
+  favoritesPending=pending;
+  try{return await pending.promise;}
+  finally{if(favoritesPending===pending)favoritesPending=null;}
 }
 
 function goToCityId(ciudadId){
@@ -839,6 +853,7 @@ function goToCityId(ciudadId){
 
 async function renderMiGuia(){
   if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id) return;
+  const owner=favoritesSessionKey();
 
   const habitualBox=el('mi-guia-ciudad-habitual');
   const ciudadesBox=el('mi-guia-ciudades-favoritas');
@@ -866,6 +881,7 @@ async function renderMiGuia(){
 
   try{
     const favoritos=await loadFavorites();
+    if(owner!==favoritesSessionKey())return;
     const favCiudades=favoritos.filter(f=>String(f.tipo||'').toUpperCase()==='CIUDAD');
     const favLugares=favoritos.filter(f=>String(f.tipo||'').toUpperCase()==='ANUNCIANTE');
 
@@ -926,7 +942,7 @@ async function renderMiGuia(){
 }
 
 
-function saveSession(suscriptor,token){
+function saveSession(suscriptor,token,anunciantesLogin){
   if((sesionSuscriptor?.suscriptor_id||'')!==(suscriptor?.suscriptor_id||''))datosPromise=null;
   sesionSuscriptor=suscriptor||null;
   if(sesionSuscriptor){
@@ -936,7 +952,7 @@ function saveSession(suscriptor,token){
     localStorage.removeItem(SESSION_KEY);
     localStorage.removeItem(TOKEN_KEY);
   }
-  renderSession();
+  renderSession(true,anunciantesLogin);
 }
 
 function personalEmploymentTab(open){
@@ -956,7 +972,7 @@ function syncPersonalEmployment(){
 el('personal-tab').onclick=()=>personalEmploymentTab(false);
 el('employment-tab').onclick=()=>personalEmploymentTab(true);
 el('empleo-opt-in').onchange=()=>{const enabled=el('empleo-opt-in').checked;try{localStorage.setItem('gld_empleo_opt_in:'+employmentAccount,String(enabled));}catch{}el('employment-tab').hidden=!enabled;personalEmploymentTab(enabled);};
-function renderSession(cargarFavoritos=true){
+function renderSession(cargarFavoritos=true,anunciantesLogin){
   syncPersonalEmployment();
   soporteCuenta?.reset();
   const logged=!!(sesionSuscriptor&&sesionSuscriptor.suscriptor_id);
@@ -972,7 +988,7 @@ function renderSession(cargarFavoritos=true){
     abrirSeccionSolicitada();
     if(cargarFavoritos) renderMiGuia();
     actualizarLinksAyuda_();
-    cargarComerciosAutorizados_();
+    cargarComerciosAutorizados_(anunciantesLogin);
   }
 
 }
@@ -1014,7 +1030,7 @@ async function login(){
       msg('login-msg','No se recibió una sesión válida.',false);
       return;
     }
-    saveSession(j.suscriptor,j.token);
+    saveSession(j.suscriptor,j.token,j.anunciantes);
   }catch(err){
     msg('login-msg','No se pudo conectar con el sistema.',false);
   }finally{
@@ -1455,7 +1471,7 @@ if(!sesionSuscriptor){
 // Mostrar la cuenta enseguida; favoritos se cargan una sola vez, tras ciudades.
 renderSession(false);
 loadCities().then(()=>{
-  if(sesionSuscriptor) renderMiGuia();
+  if(sesionSuscriptor&&favoritesRequestedFor!==favoritesSessionKey()) renderMiGuia();
 });
 </script>
 
