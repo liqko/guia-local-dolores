@@ -1612,7 +1612,7 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
     let territorioPublicoPromise=null;
     try{
       const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');
-      if(saved){
+      if(saved && (!ciudadSeleccionada || String(saved.ciudad_id||'').trim()===ciudadSeleccionada)){
         if(!paisSeleccionado) paisSeleccionado=String(saved.pais_id||'');
         if(!provinciaSeleccionada) provinciaSeleccionada=String(saved.provincia_id||'');
         if(!ciudadSeleccionada) ciudadSeleccionada=String(saved.ciudad_id||'');
@@ -2092,7 +2092,10 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
       let ctx = null;
       try{ ctx = JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY) || 'null'); }catch(e){}
 
-      const explicitCity=String(qs.get('ciudad_id')||'').trim();
+      // La URL actual define el territorio. Nunca mezclar metadatos de otra ciudad.
+      const urlActual=new URLSearchParams(window.location.search);
+      const explicitCity=String(urlActual.get('ciudad_id')||qs.get('ciudad_id')||'').trim();
+      if(explicitCity && String(ctx?.ciudad_id||'').trim()!==explicitCity)ctx=null;
       let accesoConUbicacion=explicitCity;
       if(!explicitCity){
         const entrada=await window.gldRecuperarEntradaV92();
@@ -2175,9 +2178,9 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
         return n;
       }
 
-      let ciudadNombre = nombreVisibleValido(qs.get('ciudad') || (ctx && ctx.ciudad), ciudadSeleccionada);
-      let provinciaNombre = nombreVisibleValido(qs.get('provincia') || (ctx && ctx.provincia), provinciaSeleccionada);
-      let paisNombre = nombreVisibleValido(qs.get('pais') || (ctx && ctx.pais), paisSeleccionado);
+      let ciudadNombre = nombreVisibleValido(urlActual.get('ciudad') || qs.get('ciudad') || (ctx && ctx.ciudad), ciudadSeleccionada);
+      let provinciaNombre = nombreVisibleValido(urlActual.get('provincia') || qs.get('provincia') || (ctx && ctx.provincia), provinciaSeleccionada);
+      let paisNombre = nombreVisibleValido(urlActual.get('pais') || qs.get('pais') || (ctx && ctx.pais), paisSeleccionado);
 
       // Si el contexto sólo trae IDs, resolvemos los nombres reales con el catálogo
       // de ubicaciones que ya utiliza la Guía. Los IDs nunca se muestran al usuario.
@@ -2525,8 +2528,11 @@ body{line-height:1.55;-webkit-font-smoothing:antialiased;}
 
   function contextoUrl(base){
     const u=new URL(base,window.location.href);
-    const recibidos=GLD_ANUNCIANTES_UI.parametros(window.location.href,document.referrer,window.parent!==window);
+    const recibidos=new URLSearchParams(window.location.search);
     let ctx={};try{ctx=JSON.parse(localStorage.getItem('gld_ciudad_contexto')||'null')||{};}catch(_){}
+    // No heredar ni un dato territorial si el contexto guardado es de otra ciudad.
+    const ciudadUrl=String(recibidos.get('ciudad_id')||'').trim();
+    if(ciudadUrl && String(ctx.ciudad_id||'').trim()!==ciudadUrl)ctx={};
     ['pais_id','provincia_id','ciudad_id','pais','provincia','ciudad'].forEach(k=>{
       const v=String(recibidos.get(k)||ctx[k]||'').trim();if(v)u.searchParams.set(k,v);
     });
