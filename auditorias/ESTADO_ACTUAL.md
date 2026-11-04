@@ -5,7 +5,7 @@ Este archivo es el punto de continuación obligatorio de la auditoría de consum
 ## Objetivo fijo
 Auditar y optimizar, una acción a la vez y de punta a punta, las tres interfaces: Usuario final, Anunciante y Gran Hermano. Medir operaciones de Cloudflare (Worker, KV, Durable Objects), Firebase/Firestore y cualquier otro servicio, con cuota y costo real por acción; identificar y corregir duplicaciones, comprobar ahorro. Sin datos medidos, marcar NO COMPROBADO.
 
-## Estado actual — 2026-11-03
+## Estado actual — 2026-11-04
 - **Acción vigente:** 001 — INGRESAR, tres interfaces.
 - **Estado:** ABIERTA. No comenzar la 002.
 - **Problema:** al ingresar a Gran Hermano, el resumen de cumpleaños recorría repetidamente claves KV.
@@ -26,3 +26,13 @@ Auditar y optimizar, una acción a la vez y de punta a punta, las tres interface
 
 ## Acciones cerradas
 Ninguna todavía.
+
+## Verificación de continuidad — 2026-11-04
+- **Acción 001 sigue ABIERTA.** Intervención de solo lectura sobre producción; no se desplegó ni modificó el Worker.
+- GitHub: archivo único `worker/worker155_roles_permisos.txt` en `feature/gran-hermano-roles-permisos-20261103`, blob `5cd3addb093bd714e484614ecffc4a49b66fbbea`. Conserva caché de cumpleaños por día con TTL 300 s e invalidación al cambiar fecha/estado o crear un cumpleaños activo.
+- Cloudflare: Worker `login`, última modificación declarada `2026-11-03T23:39:11.240947Z`. Código recuperado directamente del despliegue: **NO contiene** `BIRTHDAY_SUMMARY_CACHE_V155`; el resumen sigue enumerando KV en cada consulta. La cabecera dice 155 pero el reporte principal emite `worker_version:154` y la raíz `version:147`. No identificar el despliegue por su cabecera solamente.
+- Línea base observada: consulta de las 24 h anteriores a esta intervención, ruta exacta `/superadmin/dashboard`: 7 observaciones, 65 listados KV, 42 lecturas KV y 0 lecturas/escrituras Firestore según los contadores emitidos; versión reportada 154. Son agregados de esa ruta, **no** costo por pulsación ni cantidad atribuida exclusivamente a cumpleaños, ni comprobante de facturación.
+- Segunda consulta (2026-11-03T13:15:00Z a 2026-11-04T12:24:50.412Z): `/suscriptores`, `action=login`, estado 200: 3 observaciones, 60 lecturas KV, 0 listados/escrituras KV y 0 lecturas/escrituras Firestore reportadas. No permite distinguir Usuario de Anunciante. Hallazgos adicionales a correlacionar con INGRESAR: 9 respuestas 500 de `perfil` y 10 de `favoritos`; no se atribuyen al ingreso sin trazas.
+- Limitaciones comprobadas: consulta de eventos individuales falla en el conector por validación de `$workers.requestId` ausente; las agregaciones sí responden. No hay herramienta de despliegue en el conector de Cloudflare disponible. El navegador conectado devuelve “Browser access requires the originating browser context”; no se pudo usar esa sesión para desplegar ni ejecutar ingresos autenticados. No hay acceso directo a métricas/facturación de Firebase/Firestore en las herramientas disponibles. Costo monetario integral y ahorro: **NO COMPROBADOS**.
+- **Próximo paso exacto:** recuperar acceso al navegador conectado desde ChatGPT abierto con su extensión; comparar nuevamente el código activo con el archivo único de GitHub para evitar sobrescribir desarrollo concurrente; verificar impacto y desplegar el ajuste pendiente; ejecutar un ingreso controlado por interfaz y un segundo ingreso, correlacionando solicitudes y contadores; comprobar invalidación de cumpleaños con cuenta autorizada y revisar los 500 de perfil/favoritos si forman parte de la carga inicial. Contrastar contadores con consumo de proveedor antes de cerrar 001.
+- Registro actualizado a 2026-11-04T12:25:17.768Z; no iniciar Acción 002.
