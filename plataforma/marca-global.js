@@ -48,9 +48,26 @@
       ['Anunciantes','/plataforma/login.html'],
       ['Panel administrador','/plataforma/granhermano.html']
     ];
+    // Regresar a la Guía conserva la ciudad que la persona eligió para esta
+    // navegación, incluso si su ciudad predeterminada de perfil es distinta.
+    function urlGuiaActual(){
+      let contexto=null;
+      try{contexto=JSON.parse(localStorage.getItem('gld_ciudad_contexto')||'null')}catch(_){}
+      const urlParams=new URLSearchParams(window.location.search);
+      const cid=String(urlParams.get('ciudad_id')||contexto?.ciudad_id||'').trim();
+      if(!cid)return '/plataforma/inicio.html?cambiar_ciudad=1';
+      if(urlParams.get('ciudad_id') && cid!==String(contexto?.ciudad_id||'').trim())contexto=null;
+      const url=new URL('/plataforma/carcasa.html',window.location.origin);
+      url.searchParams.set('ciudad_id',cid);
+      for(const k of ['pais_id','provincia_id','pais','provincia','ciudad']){
+        const v=String(urlParams.get(k)||contexto?.[k]||'').trim();
+        if(v)url.searchParams.set(k,v);
+      }
+      return url.pathname+url.search;
+    }
     const list=document.createElement('div');list.className='gld-nav-links';
     for(const [title,href] of routes){
-      const a=document.createElement('a');a.href=href;a.textContent=title;
+      const a=document.createElement('a');a.href=href==='/'?urlGuiaActual():href;a.textContent=title;
       const current=location.pathname;
       const active=href==='/'?(current==='/'||current==='/plataforma/inicio.html'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
       if(active){a.setAttribute('aria-current','page');a.classList.add('active')}
@@ -72,7 +89,7 @@
     navigation.append(drawer);
     const regreso=document.createElement('a');
     regreso.className='gld-volver-guia';
-    regreso.href='/plataforma/inicio.html';
+    regreso.href=urlGuiaActual();
     regreso.textContent='← Volver a Guía';
     if(['/plataforma/suscriptores','/plataforma/suscriptores.html','/plataforma/login','/plataforma/login.html','/plataforma/granhermano','/plataforma/granhermano.html'].includes(location.pathname)){
       navigation.appendChild(regreso);
