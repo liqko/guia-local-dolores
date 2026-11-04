@@ -145,3 +145,8 @@ Ninguna todavía.
 - Publicación automática Firebase iniciada por cambio de main; ejecución `41846422607`. Primera consulta de página servida aún devuelve blob anterior; no declarar publicada hasta comprobar ejecución y HTML activo.
 - Ahorro demostrado en reproducción: se evitan solicitudes completas, no solo lecturas internas. Equivalencia de ahorro KV de favoritos esperada si conserva caché caliente: una solicitud duplicada evitada suprime sus 4 lecturas observadas en 156. Es una proyección del caso reproducido, NO medición de tráfico de producción tras el cambio.
 - Próximo paso exacto: comprobar finalización de Firebase y cotejar el blob servido con `18f43ed4d409a86121dbf7ee7bf48a909bdaa976`; medir ingreso real con código nuevo. 157 sigue preparado para copia manual, no desplegado. Acción 001 ABIERTA.
+
+### Publicación del cambio de Usuario comprobada
+- Firebase ejecución `41846422607`: completed / success.
+- HTTP directo de `https://anunciantes-guialocal.web.app/plataforma/suscriptores.html`: 200; Git blob calculado `18f43ed4d409a86121dbf7ee7bf48a909bdaa976`, coincidencia exacta con entrega. Presentes reutilización de anunciantes del login y deduplicación de favoritos. Corrección frontend publicada.
+- No declarar aún ahorro de producción por ingreso: pendiente correlación de pulsación autenticada y solicitudes del código nuevo. Próximo paso: medir ese caso con la publicación comprobada; no requiere volver a desplegar frontend. Worker 157 permanece pendiente de despliegue manual.
