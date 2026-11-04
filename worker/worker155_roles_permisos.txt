@@ -9706,14 +9706,18 @@ async function routeAdminPromosV91(ctx){
 const BIRTHDAY_READY_V83='private:birthdays:ready:v91';
 const BIRTHDAY_PREFIX_V91='private:birthdays:v91:';
 function birthdayKeyV83(row){const birth=birthDateOnly_(row?.fecha_nacimiento),sid=String(row?.suscriptor_id||row?.id||'').trim();return sid&&adultAge(birth)!==null&&adultAge(birth)<=120?BIRTHDAY_PREFIX_V91+birth.slice(5)+':'+encodeURIComponent(sid):'';}
+const BIRTHDAY_SUMMARY_CACHE_V155='private:birthdays:summary:v155:';
 async function syncBirthdayV83(env,previous,next){
  const kv=env.GLD_CACHE_KV;if(!kv?.put||!kv?.delete)return;
  const sid=String(next?.suscriptor_id||next?.id||previous?.suscriptor_id||previous?.id||'').trim();
  const oldKey=birthdayKeyV83(previous),key=birthdayKeyV83(next),active=next&&(next.activo===undefined||truthy4(next.activo));
+ const oldActive=previous&&(previous.activo===undefined||truthy4(previous.activo));
+ const changed=Boolean(previous)&&((oldActive?oldKey:'')!==(active?key:'')||birthDateOnly_(previous.fecha_nacimiento)!==birthDateOnly_(next?.fecha_nacimiento));
  if(oldKey&&(oldKey!==key||!active))await kv.delete(oldKey);
  if(sid)await kv.put('private:birthdays:subscriber:v91:'+encodeURIComponent(sid),JSON.stringify({key:key&&active?key:null}));
- if(!key||!active)return;
- await kv.put(key,JSON.stringify({fecha_nacimiento:birthDateOnly_(next.fecha_nacimiento)}));
+ if(key&&active)await kv.put(key,JSON.stringify({fecha_nacimiento:birthDateOnly_(next.fecha_nacimiento)}));
+ // Una sola invalidación del resumen; no vuelve a enumerar cumpleaños en cada ingreso.
+ if((!previous&&active&&key)||changed)await kv.delete(BIRTHDAY_SUMMARY_CACHE_V155+calendarDaysV83()[0]);
 }
 /** @param {Record<string, any>} env @param {Record<string, any>} db @param {ReturnType<typeof createCache>} cache @param {Request} request */
 async function prepareBirthdaysV91(env,db,cache,request){
@@ -9743,7 +9747,10 @@ function calendarDaysV83(now=new Date()){
  return Array.from({length:30},(_,i)=>new Date(start+i*86400000).toISOString().slice(0,10));
 }
 async function birthdaySummaryV83(env,cache,now=new Date()){
- const days=calendarDaysV83(now),ready=await cache.get(BIRTHDAY_READY_V83);
+ const days=calendarDaysV83(now),summaryKey=BIRTHDAY_SUMMARY_CACHE_V155+days[0];
+ const cached=await cache.get(summaryKey);
+ if(cached?.desde===days[0]&&cached?.hasta===days[29]&&cached.preparado===true)return cached;
+ const ready=await cache.get(BIRTHDAY_READY_V83);
  if(!ready)return {preparado:false,total:null,dias:days.map(fecha=>({fecha,total:null})),desde:days[0],hasta:days[29]};
  const kv=env.GLD_CACHE_KV,selected=new Map(days.map(fecha=>[fecha.slice(5),{fecha,total:0,mayores18:0,menores18:0}]));
  let cursor;
@@ -9762,7 +9769,10 @@ async function birthdaySummaryV83(env,cache,now=new Date()){
   cursor=page.list_complete?null:page.cursor;
  }while(cursor);
  const dias=days.map(fecha=>selected.get(fecha.slice(5)));
- return {preparado:true,desde:days[0],hasta:days[29],total:dias.reduce((a,x)=>a+x.total,0),mayores18:dias.reduce((a,x)=>a+x.mayores18,0),menores18:dias.reduce((a,x)=>a+x.menores18,0),dias};
+ const result={preparado:true,desde:days[0],hasta:days[29],total:dias.reduce((a,x)=>a+x.total,0),mayores18:dias.reduce((a,x)=>a+x.mayores18,0),menores18:dias.reduce((a,x)=>a+x.menores18,0),dias};
+ // Caduca solo como respaldo: las actualizaciones reales invalidan la clave.
+ await cache.put(summaryKey,result,{expirationTtl:300});
+ return result;
 }
 async function routeCalendarV83(ctx){
  const {path,request,env,db,cache,url}=ctx;
