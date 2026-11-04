@@ -52,7 +52,7 @@ Esta secuencia sustituye las instrucciones anteriores que pedían al usuario cer
 ### Tablero vigente
 | Bloque / acción | Usuario | Anunciante | Gran Hermano | Entrega | Cierre |
 |---|---|---|---|---|---|
-| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 156 desplegado; 157 preparado para reducir lectura de Perfil | ABIERTA; ahorro NO COMPROBADO |
+| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 157 desplegado y cotejado; reducción de Perfil pendiente de medición | ABIERTA; ahorro NO COMPROBADO |
 
 ### Formato fijo de cada actualización
 Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · corrección concreta · comprobación y consumo · pendiente y próximo paso exacto. Actualizar este tablero al obtener evidencia; no presentar porcentajes de avance inventados.
@@ -62,8 +62,8 @@ Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · c
 - **Estado:** ABIERTA. No comenzar la 002.
 - **Problema:** al ingresar a Gran Hermano, el resumen de cumpleaños recorría repetidamente claves KV.
 - **Corrección incorporada:** el resumen se conserva temporalmente, con invalidación al modificar cumpleaños. Comprobación aislada: segunda consulta, 0 listados adicionales; modificación de cumpleaños, 1 reconstrucción.
-- **Worker preparado:** versión 157 (pendiente de despliegue; 156 sigue activo), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
-- **Despliegue:** 156 realizado por el usuario y verificado directamente en Cloudflare el 2026-11-04. Código activo coincide con GitHub. Ahorro real aún NO COMPROBADO.
+- **Worker activo:** versión 157 (desplegada y cotejada con GitHub), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
+- **Despliegue:** 157 realizado por el usuario y verificado directamente en Cloudflare el 2026-11-04. Código activo coincide con GitHub. Ahorro real aún NO COMPROBADO.
 - **Pendiente para cerrar 001:** seguir la secuencia 001.1–001.6 y verificar consumos reales por ingreso completo en las tres interfaces; correlacionar una pulsación con todas las solicitudes; revisar escrituras/lecturas y operaciones facturadas; validar caché e invalidación de cumpleaños; corregir más hallazgos de la 001 si los hubiera.
 - **Dato importante:** usuario y anunciante comparten `POST /suscriptores` (`action=login`), sin marcador de origen en métricas actuales; Gran Hermano llama `POST /superadmin/session/login`, luego `GET /superadmin/dashboard` y `GET /superadmin/inbox` para cargar pantalla. Las dos últimas son funciones de la pantalla, no validación de credenciales; no representan datos duplicados idénticos.
 
@@ -150,3 +150,9 @@ Ninguna todavía.
 - Firebase ejecución `41846422607`: completed / success.
 - HTTP directo de `https://anunciantes-guialocal.web.app/plataforma/suscriptores.html`: 200; Git blob calculado `18f43ed4d409a86121dbf7ee7bf48a909bdaa976`, coincidencia exacta con entrega. Presentes reutilización de anunciantes del login y deduplicación de favoritos. Corrección frontend publicada.
 - No declarar aún ahorro de producción por ingreso: pendiente correlación de pulsación autenticada y solicitudes del código nuevo. Próximo paso: medir ese caso con la publicación comprobada; no requiere volver a desplegar frontend. Worker 157 permanece pendiente de despliegue manual.
+
+## Despliegue 157 comprobado
+- Usuario confirmó despliegue; código recuperado directamente del Worker `login` coincide completamente con GitHub, blob `3299abb9eebbcadb98aad7ebd7cd77d87531a916`, excluyendo envoltorio multipart y espacios exteriores. Identificación principal 157 confirmada.
+- Consulta de registros a 2026-11-04T14:29:23.424Z, última hora, versión 157 y ruta `/suscriptores`: sin observaciones. No confundir ausencia de registros con cero consumo o funcionamiento comprobado.
+- Frontend de Suscriptores ya publicado y verificado en intervención anterior. No se modificó código en esta verificación.
+- **Próximo paso exacto:** obtener evidencia de solicitudes autenticadas bajo 157 y frontend nuevo, distinguiendo índices de perfil antiguos/nuevos; comprobar lecturas y ausencia de solicitudes redundantes por ingreso. No cerrar 001 ni atribuir ahorro real hasta tener datos. Orden de trabajo: Usuario.
