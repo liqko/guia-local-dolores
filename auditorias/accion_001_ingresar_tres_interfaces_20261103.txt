@@ -1,0 +1,19 @@
+AUDITORÍA SECUENCIAL — ACCIÓN 001: INGRESAR
+Fecha 2026-11-03. Interfaces: usuario final, anunciante, Gran Hermano.
+FUENTE: código principal actual y Cloudflare Observability, 2026-10-28 a 2026-11-03 UTC. Los registros agrupan varias versiones del Worker (145–154); NO son pruebas controladas de la versión actual. No se introdujeron cambios en producción.
+DESCRIPCIÓN CONCRETA DE LA ACCIÓN
+A. USUARIO FINAL (plataforma/suscriptores.html): botón #login-btn -> función login() -> una petición POST /suscriptores con action=login; después saveSession(...) carga panel/favoritos/etc.
+B. ANUNCIANTE (plataforma/login.html): botón #btnLogin -> apiSuscriptores_({action:'login',mail,clave}) -> POST /suscriptores; después cargar cuenta autorizada e iniciar panel, que puede generar llamadas adicionales. Comparte el MISMO endpoint con Usuario; las trazas no identifican la interfaz de procedencia.
+C. GRAN HERMANO (plataforma/granhermano.html): botón #btnLogin -> POST /superadmin/session/login -> tras éxito GET /superadmin/dashboard y activación asincrónica ghRevisionUnificada(), que hace GET /superadmin/inbox. Tres solicitudes del Worker por acceso exitoso, antes de considerar otros componentes.
+CONSUMOS OBSERVADOS DEL PERÍODO
+POST /suscriptores action=login: 4 registros; 80 lecturas de KV en total; promedio 20 lecturas KV por registro. 0 llamadas Firestore instrumentadas (NO equivale a 0 facturado ni mide el login de todos los usuarios); no se puede separar entre Usuario y Anunciante.
+POST /superadmin/session/login: 18 registros; 72 lecturas KV (promedio 4 por registro), 0 escrituras KV y 0 llamadas Firestore instrumentadas.
+GET /superadmin/dashboard: 44 registros; 264 lecturas KV y 1175 listados KV (promedio 6 lecturas y 26,7 listados por registro, mezcla de versiones). No se puede atribuir esos promedios al Worker actual.
+GET /superadmin/inbox: 10 registros; 340 lecturas KV (34 por registro). Es ruta adicional provocada automáticamente por la apertura GH, pero los 10 registros históricos no se pueden vincular a sesiones concretas.
+RESULTADO TÉCNICO COMPROBADO
+1. El login de Gran Hermano ejecuta tres rutas una vez completado, no una sola. El refresco de pendientes es automático e independiente y potencialmente prescindible en el primer ingreso si se decide cargar bajo demanda; todavía no se debe suprimir sin verificar requisitos de la pantalla.
+2. Usuario y Anunciante comparten la solicitud de inicio de sesión, pero no se puede distinguir su cuota separadamente sin marcador de origen.
+3. El sistema de observabilidad tiene 'coverage.status=INCOMPLETO'; el código reporta 'billed_reads:null' cuando hay llamadas Firestore, y no mide recursos fuera de Worker.
+4. No se ejecutó una operación nueva con credenciales ni se alteró cuota para hacer la auditoría; no se puede declarar comprobado el coste efectivo de un click, Firebase facturado ni los costes de las pantallas que se cargan después del login.
+SIGUIENTE CONTROL SECUENCIAL: acciones de consulta de sesión en cada interfaz; requiere correlacionar un clic con request_id para evitar confundir métricas agregadas con un click individual.
+ESTADO ACCIÓN 001: código y registros analizados, CONSUMOS EXACTOS POR CLICK NO VERIFICADOS; no aprobar como auditoría de facturación.
