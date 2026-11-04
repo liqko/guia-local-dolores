@@ -1,4 +1,5 @@
 (function(){'use strict';
+const localStorage=(()=>{try{return window.parent!==window&&window.parent.GLD_ADMIN_PANEL155?window.parent.GLD_PANEL_STORAGE155:window.localStorage;}catch{return window.localStorage;}})();
 const origin='https://login.liqkoargentina.workers.dev',params=new URLSearchParams(location.search),aid=params.get('anunciante_id')||'',isAdmin=params.get('modo')==='admin',isPanel=params.get('modo')==='panel';
 const el=id=>document.getElementById(id),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const read=(key,fallback)=>{try{return JSON.parse(localStorage.getItem(key)||'null')||fallback;}catch{return fallback;}},context=read('gld_ciudad_contexto',{}),city=params.get('ciudad_id')||context.ciudad_id||'';
