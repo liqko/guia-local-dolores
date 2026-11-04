@@ -1,7 +1,8 @@
 <!doctype html>
 <html>
 <head>
-<script src="/plataforma/panel-administrativo155.js?v=155"></script>
+<script src="/plataforma/panel-administrativo155.js?v=159"></script>
+<script defer src="/plataforma/equipo-anunciante159.js?v=159"></script>
 <script src="/plataforma/publicidad-reglas147.js?v=147"></script>
 <script src="/plataforma/publicacion-pedidos.js?v=145"></script>
 <script src="/plataforma/telemetria.js?v=1"></script>
@@ -939,6 +940,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
     </div>
 
     <div id="panel-notificaciones" class="panel"><h2 id="notifications102-title">Notificaciones</h2><p>Solicitudes, respuestas y avisos de este anunciante.</p><button class="secondary" type="button" onclick="mostrarPanel('dashboard')">Volver al anunciante</button><button class="secondary" type="button" onclick="GLD_NOTIFICATIONS102.load(true)">Actualizar notificaciones</button><div id="notifications102-list" role="status"></div></div>
+    <div id="panel-acceso-administrativo" class="panel"><h2>Acceso de Gran Hermano</h2><p id="admin-access-status159" role="status">Validando el acceso al anunciante…</p></div>
     <div id="panel-dashboard" class="panel">
       <div style="font-size:1.2em;margin-bottom:4px">Hola <span id="nombre-comercio"></span>, ¿en qué vas a trabajar hoy?</div>
       <div id="dashboard-anunciante-id" class="record-id" style="margin-bottom:10px"></div>
@@ -952,6 +954,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
       </div>
 
       <button class="secondary dashboard-support-link" type="button" onclick="abrirSoporte_()">Soporte</button>
+      <details id="equipo-anunciante159" class="card" hidden><summary>Administradores y permisos</summary><div id="equipo-contenido159"></div></details>
       <details id="dashboard-navigation" class="dashboard-navigation">
         <summary id="dashboard-navigation-label">Funcionalidades</summary>
       <div id="dashboard-tabs" class="tabs" role="tablist" aria-label="Secciones">
@@ -964,7 +967,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
         <button type="button" id="tab-turnos-farma" class="tab" role="tab" aria-selected="false">Farmacias de turno</button>
         <button type="button" id="tab-gifcards" class="tab" role="tab" aria-selected="false">Gifcards</button>
         <button type="button" id="tab-menu" class="tab" role="tab" aria-selected="false">Menu</button>
-        <button type="button" id="tab-modificar-datos" class="tab" role="tab" aria-selected="false">Información del anunciante</button>
+        <button type="button" id="tab-modificar-datos" class="tab" role="tab" aria-selected="false">Información del anuncio</button>
         <button type="button" id="tab-tarjeta-nfc" class="tab" role="tab" aria-selected="false">NFC</button>
         <button type="button" id="tab-promos" class="tab" role="tab" aria-selected="false">Promos</button>
         <button type="button" id="tab-publicidad" class="tab" role="tab" aria-selected="false">Publicidad</button>
@@ -983,7 +986,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
 
         <!-- Modificar datos -->
         <div id="modificar-datos-panel" class="hidden-panel" style="margin-top:18px;border-top:1px solid #eee;padding-top:12px">
-          <h3>Información del anunciante</h3>
+          <h3>Información del anuncio</h3>
           <form id="form-datos-comercio">
             <div id="campos-datos-comercio"></div>
             <div class="data-form-actions">
@@ -1979,6 +1982,7 @@ function overlayVisibleTop_(){
 function mostrarPanel(panel){
   [
     'panel-login',
+    'panel-acceso-administrativo',
     'panel-no-autorizado',
     'panel-alta-anunciante',
     'panel-recuperar',
@@ -8229,7 +8233,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       .trim()
       .toUpperCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g,'');
+      .replace(/[\u0300-\u036f]/g,'').replace('COADMINISTRADOR','ADMINISTRADOR');
   }
 
   function esPropietarioRelacion_(rel){
@@ -8260,11 +8264,15 @@ document.addEventListener('DOMContentLoaded', ()=>{
     const rol=rolRelacion_(rel);
     if(!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(rol)) return false;
 
-    // La autorización de módulos se interpreta IGUAL para los tres roles:
+    if(rol==='PROPIETARIO'||window.GLD_ADMIN_PANEL155)return true;
+    if(modulo==='empleo'&&rel.permisos_definidos!==true)return rol==='ADMINISTRADOR';
+    if(modulo==='publicidad'&&rol==='ADMINISTRADOR'&&rel.permisos_definidos!==true)return true;
+    // Los delegados usan las funciones asignadas por el propietario:
     // siempre desde suscriptor_anunciante.permisos.
     // La lista admite coma, punto y coma, barra vertical o salto de línea.
     const permisos=permisosRelacionSet_(rel);
     const aliases={
+      empleo:['EMPLEO'],
       eventos:['EVENTOS'],
       eventos_free:['EVENTOS_FREE','EV_FREE','EVFREE'],
       promos:['PROMOS'],
@@ -8283,8 +8291,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     // Se conserva la regla de rol ya existente: MANAGER no modifica datos generales.
     if(esManagerRelacion_(rel) && modulo==='modificar_datos') return false;
 
-    // PROPIETARIO y ADMINISTRADOR sí pueden modificar datos generales.
-    if(modulo==='modificar_datos') return esPropietarioRelacion_(rel) || esAdminRelacion_(rel);
+    if(modulo==='modificar_datos') return esAdminRelacion_(rel) && (rel.permisos_definidos!==true || permisos.has('MODIFICAR_DATOS'));
 
     const opciones=aliases[modulo]||[];
     return opciones.some(x=>permisos.has(x));
@@ -8483,8 +8490,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
   }
 
   if(window.GLD_ADMIN_PANEL155){
-    mostrarPanel('login');
-    document.getElementById('login-msg').textContent='Validando acceso desde Gran Hermano...';
+    mostrarPanel('acceso-administrativo');
+    document.getElementById('login-form').addEventListener('submit',event=>{event.preventDefault();event.stopImmediatePropagation();},true);
     window.GLD_ADMIN_PANEL155.ready.then(async grant=>{
       gldSubscriberToken=grant.token;
       sesionSuscriptor={suscriptor_id:'GRAN_HERMANO',nombre:'Gran Hermano'};
@@ -8496,7 +8503,8 @@ document.addEventListener('DOMContentLoaded', ()=>{
       const note=document.createElement('p');note.className='info-banner';note.textContent='Acceso administrativo de Gran Hermano · '+sesion.nombre+' · válido durante 30 minutos. Los cambios se realizan sobre este anunciante.';
       document.getElementById('panel-dashboard').prepend(note);
       document.getElementById('tab-modificar-datos')?.click();
-    }).catch(error=>{document.getElementById('login-msg').textContent=error.message;});
+      window.opener?.postMessage({type:'gld-admin-open159',nonce:window.GLD_ADMIN_PANEL155.nonce},location.origin);
+    }).catch(error=>{mostrarPanel('acceso-administrativo');document.getElementById('admin-access-status159').textContent=error.message;window.opener?.postMessage({type:'gld-admin-error159',nonce:window.GLD_ADMIN_PANEL155.nonce,message:error.message},location.origin);});
   }else restaurarSesionSuscriptor_();
   document.getElementById('ev-add-programacion')?.addEventListener('click',addEventProgramacion_);
   renderEventProgramacion_();
@@ -9067,6 +9075,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     // El Dashboard no precarga módulos.
     // Cada pestaña consulta sus datos recién al abrirse.
     mostrarPanel('dashboard');
+    window.GLD_EQUIPO159?.mount({aid:sesion.id,role:sesion.relacion_autorizacion?.rol,administrativo:!!window.GLD_ADMIN_PANEL155,base:WORKER_ORIGIN,headers:()=>gldAuthHeaders_()});
     if(!window.GLD_ADMIN_PANEL155)window.GLD_NOTIFICATIONS102?.load(true);
 
     if(typeof window.updateDashboardModulesFromData === 'function'){
@@ -9307,7 +9316,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       { key:'reservas', label:'Reservas' },
       { key:'publicidad', label:'Publicidad' },
       { key:'tarjeta_nfc', label:'NFC' },
-      { key:'modificar_datos', label:'Información del anunciante' }
+      { key:'modificar_datos', label:'Información del anuncio' }
     ];
 
     const empleoPanel=document.getElementById('empleo-panel');
@@ -9507,7 +9516,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         efemerides:'Efemérides',
         actividades:'Actividades',
         publicidad:'Publicidad',
-        modificar_datos:'Información del anunciante'
+        modificar_datos:'Información del anuncio'
       };
       return labels[key] || 'módulo';
     }
@@ -9789,7 +9798,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         // Si el usuario ya está dentro del Panel de Anunciantes, la pestaña se muestra
         // y el backend de Publicidad decide si el anunciante está autorizado.
         if(k==='publicidad'||k==='empleo'){
-          tab.style.display='';
+          tab.style.display=window.gldRelacionPermiteModulo(k)?'':'none';
           return;
         }
 

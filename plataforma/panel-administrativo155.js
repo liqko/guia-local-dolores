@@ -2,6 +2,8 @@
 const gldPanelStorage=(()=>{
  const nonce=new URL(location.href).searchParams.get('administracion');
  if(!nonce)return window.localStorage;
+ document.documentElement.dataset.gldAdminPanel='true';
+ const style=document.createElement('style');style.textContent='html[data-gld-admin-panel] #panel-login{display:none!important}';document.head.appendChild(style);
  const values=new Map();let resolve,reject;
  const ready=new Promise((yes,no)=>{resolve=yes;reject=no;});ready.catch(()=>{});
  const state=window.GLD_ADMIN_PANEL155={nonce,ready,grant:null};
