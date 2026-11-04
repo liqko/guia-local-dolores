@@ -36,7 +36,7 @@ Este es el itinerario operativo único. No reinicia la auditoría ni autoriza ca
 ### Tablero vigente
 | Bloque / acción | Usuario | Anunciante | Gran Hermano | Entrega | Cierre |
 |---|---|---|---|---|---|
-| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 156 en GitHub; despliegue por confirmar | ABIERTA; ahorro NO COMPROBADO |
+| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 156 desplegado y cotejado con GitHub | ABIERTA; ahorro NO COMPROBADO |
 
 ### Formato fijo de cada actualización
 Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · corrección concreta · comprobación y consumo · pendiente y próximo paso exacto. Actualizar este tablero al obtener evidencia; no presentar porcentajes de avance inventados.
@@ -46,8 +46,8 @@ Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · c
 - **Estado:** ABIERTA. No comenzar la 002.
 - **Problema:** al ingresar a Gran Hermano, el resumen de cumpleaños recorría repetidamente claves KV.
 - **Corrección incorporada:** el resumen se conserva temporalmente, con invalidación al modificar cumpleaños. Comprobación aislada: segunda consulta, 0 listados adicionales; modificación de cumpleaños, 1 reconstrucción.
-- **Worker preparado:** versión 156 (pendiente de despliegue por el usuario), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
-- **Despliegue:** NO realizado. No afirmar que el ahorro esté medido en producción.
+- **Worker preparado:** versión 156 (desplegada y cotejada con GitHub), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
+- **Despliegue:** 156 realizado por el usuario y verificado directamente en Cloudflare el 2026-11-04. Código activo coincide con GitHub. Ahorro real aún NO COMPROBADO.
 - **Pendiente para cerrar 001:** desplegar y verificar consumos reales por ingreso completo en las tres interfaces; correlacionar una pulsación con todas las solicitudes; revisar escrituras/lecturas y operaciones facturadas; validar caché e invalidación de cumpleaños; corregir más hallazgos de la 001 si los hubiera.
 - **Dato importante:** usuario y anunciante comparten `POST /suscriptores` (`action=login`), sin marcador de origen en métricas actuales; Gran Hermano llama `POST /superadmin/session/login`, luego `GET /superadmin/dashboard` y `GET /superadmin/inbox` para cargar pantalla. Las dos últimas son funciones de la pantalla, no validación de credenciales; no representan datos duplicados idénticos.
 
@@ -81,3 +81,9 @@ Ninguna todavía.
 - **Control visible de Acción 001 — INGRESAR:** 1) confirmar despliegue 156; 2) comprobar ingreso completo de Usuario y sus solicitudes iniciales; 3) comprobar ingreso completo de Anunciante y sus solicitudes iniciales; 4) comprobar ingreso completo de Gran Hermano, incluida su pantalla inicial y bandeja; 5) repetir ingresos para medir reutilización y comprobar invalidación de cumpleaños; 6) registrar operaciones, cobertura y ahorro real, corregir fallos de esta acción y repetir lo afectado antes de cerrarla. Una sola interfaz bajo prueba por vez. Los puntos no constituyen acciones nuevas.
 - Nombres de interfaz para informar: “pantalla inicial de Gran Hermano” en lugar de “dashboard”. `GET /superadmin/dashboard` es su ruta técnica. No iniciar ciudades u otro módulo durante la 001.
 - **Próximo paso exacto vigente (reemplaza el del apartado anterior):** el usuario despliega la entrega 156 del enlace único; después verificar directamente código/versión activos y comenzar la comprobación controlada del ingreso de Usuario. Despliegue, funcionamiento integral y ahorro de 156: PENDIENTES / NO COMPROBADOS.
+
+## Despliegue 156 verificado — 2026-11-04
+- Usuario confirmó implementación. Se recuperó el código activo del Worker `login` desde Cloudflare y se cotejó con el archivo único de GitHub (blob `75fee43041a942316f7cdaf3e1fdaa77d8778de5`): coincidencia completa, excluyendo únicamente envoltorio multipart y espacios exteriores; 709517 caracteres en ambos códigos extraídos.
+- Confirmados en producción: caché de resumen de cumpleaños, identificación principal de métricas 156 y versión de raíz 156. No se modificó código ni producción en esta intervención.
+- **001 continúa ABIERTA.** Despliegue comprobado no equivale a ingreso funcional ni ahorro comprobado.
+- **Próximo paso exacto vigente:** prueba controlada de Usuario: partir de sesión cerrada, pulsar INGRESAR una sola vez con una cuenta real, esperar la carga inicial sin realizar otras acciones e informar resultado y hora aproximada. Consultar el intervalo en observabilidad y delimitar solicitudes/operaciones antes de repetir o pasar a Anunciante. No pedir credenciales por chat. El acceso al navegador del usuario no está disponible en esta sesión, por lo que la pulsación la realiza el usuario; las comprobaciones de código y registros las realiza el asistente.
