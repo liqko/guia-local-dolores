@@ -36,3 +36,15 @@
 - Validar comportamiento integrado del sitio y regresiones existentes antes de instalar este candidato.
 - Comparar tráfico Firebase/externos tras la instalación autorizada.
 - Reversión: mantener dominio y Jimdo en su estado actual hasta validar Hosting; descartar rama si falla.
+
+
+## Resultado de vista previa (4 de noviembre de 2026)
+- GitHub Actions ejecución `41897994876` terminada correctamente (vista previa, no canal live).
+- URL de prueba: https://anunciantes-guialocal--prueba-sin-jimdo-we5f65xw.web.app
+- El canal tiene expiración de 7 días.
+- Dos recursos gráficos originales recuperados del HAR y guardados como `plataforma/assets/marca/fondo-ciudad.jpg` y `logo-guia-local.png`; ahora se sirven desde Hosting y no desde el sitio Jimdo.
+- Identidad corporativa común `plataforma/marca-global.js` en inicio y carcasa: fondo, logo y eslogan.
+- Pie original `plataforma/pie.html` reutilizado en iframe mismo origen y altura dinámica por postMessage.
+- Comprobado con navegador conectado: la raíz de vista previa redirige a inicio; se visualiza búsqueda de ciudad, logo y eslogan; la carcasa de Dolores se abre con su nombre, módulos y pie presente.
+- El canal de producción `live` y los DNS de `guialocal.ar` no se modificaron.
+- Aún pendientes: ensayo completo de sesión real y cierre de sesión, navegación de todos los módulos con sesión, y control de estilo responsive; no conectar DNS hasta validarlos.
