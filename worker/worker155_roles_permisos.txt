@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 157 - ROLES Y PERMISOS (base 154)
+// GUÍA LOCAL - WORKER 158 - ROLES Y PERMISOS (base 154)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'157',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'158',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -8713,8 +8713,19 @@ const advertiserCollections=new Set(['anunciantes','anunciantes_administracion']
 // Login caches expose only nombre and funcionalidades; unrelated ficha edits do not invalidate them.
 const loginFieldsChanged132=(patch,before)=>['nombre','funcionalidades'].some(key=>Object.hasOwn(patch||{},key)&&(!before||!sameCacheData129(before[key],patch[key])));
 
+const LOGIN_RECORD_POOL158=new WeakMap();
 function withPrivateCacheV46(db,env){
   const kv=env.GLD_CACHE_KV;
+  const loginScope158=env.__gldCatalogScope126||kv;
+  let loginRecords158=loginScope158&&LOGIN_RECORD_POOL158.get(loginScope158);
+  if(!loginRecords158&&loginScope158){loginRecords158=new Map();LOGIN_RECORD_POOL158.set(loginScope158,loginRecords158);}
+  function rememberLogin158(key,rev,data){
+    if(!loginRecords158)return;
+    const slot=key+':'+rev;
+    loginRecords158.delete(slot);
+    while(loginRecords158.size>=256)loginRecords158.delete(loginRecords158.keys().next().value);
+    loginRecords158.set(slot,{until:Date.now()+300000,data:structuredClone(data)});
+  }
   const owners=new Map(),advertiserOwners104=new Map(),administrationAfter104=new Map();
   const dirty=new Set();
   const favoriteChanges=new Map();
@@ -8735,8 +8746,8 @@ function withPrivateCacheV46(db,env){
     if(!kv||typeof kv.get!=='function')return 'initial';
     return text(await kv.get(key+':revision',{cacheTtl:30}))||'initial';
   }
-  async function read(key){
-    const rev=await revision(key);
+  async function read(key,knownRevision){
+    const rev=knownRevision===undefined?await revision(key):knownRevision;
     if(!kv||typeof kv.get!=='function')return {packet:null,rev};
     const raw=await kv.get(key+':'+rev,{cacheTtl:30});
     if(!raw)return {packet:null,rev};
@@ -8759,6 +8770,7 @@ function withPrivateCacheV46(db,env){
     await save(key,safe,rev,{relation_limit:limit});return safe;
   }
   async function invalidate(key){
+    if(loginRecords158)for(const slot of loginRecords158.keys())if(slot.startsWith(key+':'))loginRecords158.delete(slot);
     const rev=await revision(key);
     if(kv&&typeof kv.delete==='function')await kv.delete(key+':'+rev);
     else if(kv&&(await read(key)).packet)throw Error('KV debe permitir invalidar la caché privada.');
@@ -8900,11 +8912,19 @@ function withPrivateCacheV46(db,env){
     },
     async loginAdvertiser(collection,id){
       if(!advertiserCollections.has(collection))throw Error('Colección no admitida para caché del login.');
-      const key=recordKey(collection,id),{packet:hit,rev}=await read(key);
-      if(hit&&!dirty.has(key))return hit.data;
+      const key=recordKey(collection,id),rev=await revision(key),slot=key+':'+rev;
+      const local=loginRecords158?.get(slot);
+      if(local&&Date.now()<local.until&&!dirty.has(key)){
+        const report=env.__gldRequestReport119;
+        if(report?.cache_optimization)report.cache_optimization.login_records_reused=(report.cache_optimization.login_records_reused||0)+1;
+        return structuredClone(local.data);
+      }
+      const {packet:hit}=await read(key,rev);
+      if(hit&&!dirty.has(key)){rememberLogin158(key,rev,hit.data);return structuredClone(hit.data);}
       const row=await db.get(collection,id);
       const data=row?{id:text(row.id||id),nombre:text(row.nombre),funcionalidades:row.funcionalidades}:null;
       await save(key,data,rev);
+      if(!dirty.has(key))rememberLogin158(key,rev,data);
       return data;
     }
   };
@@ -10199,7 +10219,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'157',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'158',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -10649,7 +10669,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'157',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -10660,7 +10680,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'157',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -10862,7 +10882,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'157',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -10928,11 +10948,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'157',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'158',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'157',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -10945,7 +10965,7 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
    if(receipt.action==='actualizar_activos')Object.assign(result,{publicidades:await db.queryEqual('publicidades','anunciante_id',command.aid,500),sin_cambios:false,cambios:receipt.refs.length});
   }
   report.status=200;const {totals}=finishObservationV42(report);report.consumption=consumption136(report);
-  return json(result,200,{'X-GLD-Worker-Version':'157','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
+  return json(result,200,{'X-GLD-Worker-Version':'158','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
  }finally{console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
@@ -11075,7 +11095,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'157',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -11117,7 +11137,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"157",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"158",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
