@@ -5,6 +5,42 @@ Este archivo es el punto de continuación obligatorio de la auditoría de consum
 ## Objetivo fijo
 Auditar y optimizar, una acción a la vez y de punta a punta, las tres interfaces: Usuario final, Anunciante y Gran Hermano. Medir operaciones de Cloudflare (Worker, KV, Durable Objects), Firebase/Firestore y cualquier otro servicio, con cuota y costo real por acción; identificar y corregir duplicaciones, comprobar ahorro. Sin datos medidos, marcar NO COMPROBADO.
 
+## Hoja de ruta y tablero de control
+Este es el itinerario operativo único. No reinicia la auditoría ni autoriza cambios fuera de la acción vigente. Los recorridos específicos se verifican en el código y la interfaz al abordar cada módulo; no se dan por existentes funciones no comprobadas.
+
+| Orden | Bloque | Recorrido previsto | Estado |
+|---|---|---|---|
+| 1 | Accesos | INGRESAR (001); después recuperar acceso, mantener sesión y salir, cada acción por separado | EN CURSO: 001 |
+| 2 | Guía | Consultar y buscar; gestionar ficha; revisar, publicar y administrar | Pendiente |
+| 3 | Eventos | Consultar; crear, modificar y gestionar; revisar y administrar | Pendiente |
+| 4 | Promociones | Consultar; crear, modificar y gestionar; revisar y administrar | Pendiente |
+| 5 | Actividades | Consultar; crear, modificar y gestionar; revisar y administrar | Pendiente |
+| 6 | Funciones complementarias | Cubrir las funciones existentes no incluidas antes y sus dependencias | Pendiente |
+| 7 | Publicidad | Contratación, piezas, distribución, visualización y administración | Pendiente |
+| 8 | Balance económico integral | Consolidar costos y cuotas medidos por acción, proyecciones según uso y límites de sostenibilidad | Pendiente |
+
+### Unidad de trabajo y orden de revisión
+- Dentro de cada bloque: una acción de principio a fin; comprobar Usuario → Anunciante → Gran Hermano cuando corresponda. Marcar “No aplica” con motivo cuando una interfaz no tenga esa acción.
+- Las dependencias necesarias se resuelven dentro del recorrido actual. Cuando se aborde un proceso administrativo propio, como ciudades, mantener su ciclo completo (crear, consultar, modificar y estado) antes de pasar a otro proceso.
+- Numerar la siguiente acción solo al cerrar la vigente; los pasos de prueba de 001 no son acciones nuevas.
+- El balance económico se construye con cada medición; el bloque 8 consolida los resultados, no posterga su evaluación.
+
+### Procedimiento obligatorio por acción
+1. Delimitar interfaz, botón o disparador, condiciones iniciales y resultado esperado.
+2. Ejecutar un caso controlado y correlacionar todas sus solicitudes, incluida la carga inicial que dispara.
+3. Medir operaciones de Worker, KV, Durable Objects, Firebase/Firestore y otros servicios realmente usados; separar contadores observados, operaciones facturadas y costo monetario. Marcar cobertura faltante como NO COMPROBADA.
+4. Detectar errores y consumos innecesarios; corregir solo lo relacionado con esa acción en el archivo único del Worker. Incrementar versión por modificación y entregar enlace.
+5. Tras el despliegue del usuario, verificar versión activa, resultado funcional, repeticiones, caché e invalidaciones pertinentes; comparar consumo antes/después en condiciones equivalentes.
+6. Cerrar únicamente con evidencia suficiente de funcionamiento y consumo. Si existe bloqueo, registrar estado y próximo paso exacto; no avanzar a otro módulo.
+
+### Tablero vigente
+| Bloque / acción | Usuario | Anunciante | Gran Hermano | Entrega | Cierre |
+|---|---|---|---|---|---|
+| Accesos / 001 INGRESAR | Prueba controlada pendiente | Prueba controlada pendiente | Corrección de cumpleaños preparada; prueba real pendiente | 156 en GitHub; despliegue por confirmar | ABIERTA; ahorro NO COMPROBADO |
+
+### Formato fijo de cada actualización
+Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · corrección concreta · comprobación y consumo · pendiente y próximo paso exacto. Actualizar este tablero al obtener evidencia; no presentar porcentajes de avance inventados.
+
 ## Estado actual — 2026-11-04
 - **Acción vigente:** 001 — INGRESAR, tres interfaces.
 - **Estado:** ABIERTA. No comenzar la 002.
