@@ -47,7 +47,8 @@
     const list=document.createElement('div');list.className='gld-nav-links';
     for(const [title,href] of routes){
       const a=document.createElement('a');a.href=href;a.textContent=title;
-      const active=href==='/'?location.pathname==='/'||/\\/plataforma\\/inicio(?:\\.html)?$/.test(location.pathname):location.pathname===href||location.pathname===href.replace(/\\.html$/, '');
+      const current=location.pathname;
+      const active=href==='/'?(current==='/'||current==='/plataforma/inicio.html'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
       if(active){a.setAttribute('aria-current','page');a.classList.add('active')}
       list.appendChild(a);
     }
