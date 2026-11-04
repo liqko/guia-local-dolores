@@ -2,7 +2,7 @@
 
 ## Estado y alcance
 
-Base: Worker158 descargado de Cloudflare, comparado con la fuente local completa; coincidencia exacta salvo terminador final. Frontend basado en main5dc878dd8cfddacbaeaf524192f9bbc832fd2f89. Candidato159 preparado y probado localmente. La instalación del único Worker `login` la realiza el usuario con `Worker_actual.txt`; no se cambia su fuente en GitHub. No afirmar funcionamiento159 en producción antes de instalarlo y comprobarlo.
+Base: Worker158 descargado de Cloudflare, comparado con la fuente local completa; coincidencia exacta salvo terminador final. Frontend basado en main5dc878dd8cfddacbaeaf524192f9bbc832fd2f89. Candidato159 preparado y probado localmente. Frontend publicado por PR43, merge7a15c2e20b8505ac25ae9bbc322c379b9dd93b82; Firebase run41891430363 exitoso y los cinco archivos servidos coinciden byte por byte con los probados. Evidencia: `docs/evidencias/roles159-publicacion.json`. La instalación del único Worker `login` la realiza el usuario con `Worker_actual.txt`; no se cambia su fuente en GitHub. No afirmar funcionamiento159 en producción antes de instalarlo y comprobarlo.
 
 Gran Hermano conserva la gestión comercial existente. Su bloque de acceso al anunciante muestra **Abrir panel del anunciante** y **Propietario**, con nombre, correo y teléfono cuando están registrados. Se retiraron de ese bloque la búsqueda de usuarios, edición de permisos, coadministrador y enlaces a recuperación. También se retiró la recuperación administrativa de contraseña añadida en158; el titular conserva su recuperación personal. No se devuelven contraseñas.
 
