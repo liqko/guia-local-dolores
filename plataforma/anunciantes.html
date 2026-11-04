@@ -3685,7 +3685,40 @@ iniciarAnunciantes();
  const externo=document.getElementById('gldWebExterno');
  if(!panel||!frame||!volver||!externo)return;
  let origen=null;
+ let observadorWeb=null;
+ let webOrigenPermitido='';
+ function liberarMedicion(){
+  if(observadorWeb){observadorWeb.disconnect();observadorWeb=null;}
+  webOrigenPermitido='';
+ }
+ function aplicarAlturaWeb(valor){
+  const altura=Math.ceil(Number(valor));
+  if(!Number.isFinite(altura)||altura<150||altura>100000)return;
+  frame.style.height=altura+'px';
+ }
+ function medirWebMismoOrigen(){
+  try{
+   const doc=frame.contentDocument;
+   if(!doc||!doc.documentElement)return;
+   const medir=()=>aplicarAlturaWeb(Math.max(doc.documentElement.scrollHeight,doc.body?.scrollHeight||0,doc.documentElement.offsetHeight));
+   medir();
+   if('ResizeObserver' in window){
+    observadorWeb=new ResizeObserver(medir);
+    observadorWeb.observe(doc.documentElement);
+    if(doc.body)observadorWeb.observe(doc.body);
+   }
+  }catch(_){/* Las webs de otro dominio requieren que ellas mismas comuniquen su altura. */}
+ }
+ frame.addEventListener('load',()=>{liberarMedicion();if(!panel.hidden)medirWebMismoOrigen();});
+ window.addEventListener('message',event=>{
+  if(panel.hidden||event.source!==frame.contentWindow||event.origin!==webOrigenPermitido)return;
+  const dato=event.data;
+  if(!dato||typeof dato!=='object'||dato.tipo!=='gld:altura-web')return;
+  aplicarAlturaWeb(dato.altura);
+ });
  function cerrar(){
+  liberarMedicion();
+  frame.style.height='';
   frame.removeAttribute('src');
   panel.hidden=true;
   document.body.classList.remove('gld-modo-web');
@@ -3704,6 +3737,9 @@ iniciarAnunciantes();
   e.preventDefault();
   origen=enlace;
   externo.href=u.href;
+  liberarMedicion();
+  webOrigenPermitido=u.origin;
+  frame.style.height='';
   frame.src=u.href;
   document.body.classList.add('gld-modo-web');
   panel.hidden=false;
