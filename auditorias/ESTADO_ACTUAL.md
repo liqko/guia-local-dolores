@@ -33,6 +33,22 @@ Este es el itinerario operativo único. No reinicia la auditoría ni autoriza ca
 5. Tras el despliegue del usuario, verificar versión activa, resultado funcional, repeticiones, caché e invalidaciones pertinentes; comparar consumo antes/después en condiciones equivalentes.
 6. Cerrar únicamente con evidencia suficiente de funcionamiento y consumo. Si existe bloqueo, registrar estado y próximo paso exacto; no avanzar a otro módulo.
 
+### Secuencia fija de la Acción 001
+Esta secuencia sustituye las instrucciones anteriores que pedían al usuario cerrar sesión y probar sin haber documentado primero el recorrido. No reiniciar correcciones ya realizadas.
+
+| Paso | Trabajo y condición de terminación | Estado |
+|---|---|---|
+| 001.1 | Leer el código de las pantallas y del Worker para documentar, por interfaz, pulsación INGRESAR → validación de credenciales → sesión → carga inicial. Identificar disparadores y dependencias con referencias al código. | ACTUAL: incompleto |
+| 001.2 | Establecer la medición de cada recorrido: solicitudes correlacionadas, operaciones por servicio, caso inicial y repetido, cobertura y limitaciones. Resolver cómo ejecutar sin depender de pulsaciones del usuario antes de programar pruebas; no prometer autonomía si falta acceso. | Pendiente |
+| 001.3 | Comprobar y optimizar el recorrido completo de Usuario; documentar evidencia y consumo. | Pendiente |
+| 001.4 | Comprobar y optimizar el recorrido completo de Anunciante; documentar evidencia y consumo. | Pendiente |
+| 001.5 | Comprobar y optimizar el recorrido completo de Gran Hermano; distinguir autenticación de carga del panel. Aquí verificar caché, caducidad e invalidación del resumen de cumpleaños y ahorro real del 156. | Pendiente; ajuste ya desplegado |
+| 001.6 | Consolidar evidencias de las tres interfaces y cerrar 001 únicamente con funcionamiento y consumo comprobados; registrar faltantes o bloqueos si no puede cerrarse. | Pendiente |
+
+**Posición actual:** Accesos → Acción 001 INGRESAR → paso 001.1. Hecho: corrección de cumpleaños y despliegue 156 cotejado. Falta: documentar el recorrido completo desde el código de las pantallas; no basta con leer rutas del Worker. Cumpleaños se carga al abrir el panel de Gran Hermano; no se prueba cerrando la sesión de Usuario.
+**Próxima tarea exacta del asistente:** localizar y leer en GitHub el código vigente de acceso y carga inicial de las tres interfaces, seguir sus llamadas en el Worker 156 y registrar las referencias y operaciones de 001.1 en este mismo archivo. Sin modificar Worker ni pedir pulsaciones al usuario durante este paso.
+**Control de continuidad:** informar siempre el número de paso; no cambiar el orden por un hallazgo. Resolverlo dentro del recorrido al que pertenece o documentarlo pendiente. Cualquier cambio necesario de itinerario debe explicarse y quedar actualizado aquí antes de ejecutarlo.
+
 ### Tablero vigente
 | Bloque / acción | Usuario | Anunciante | Gran Hermano | Entrega | Cierre |
 |---|---|---|---|---|---|
@@ -48,7 +64,7 @@ Bloque y acción · interfaz bajo prueba · versión preparada y desplegada · c
 - **Corrección incorporada:** el resumen se conserva temporalmente, con invalidación al modificar cumpleaños. Comprobación aislada: segunda consulta, 0 listados adicionales; modificación de cumpleaños, 1 reconstrucción.
 - **Worker preparado:** versión 156 (desplegada y cotejada con GitHub), archivo único en rama `feature/gran-hermano-roles-permisos-20261103`: `worker/worker155_roles_permisos.txt`; commit del ajuste `9c6890121d6bf5df58bd624c124a978c6acff1c9`.
 - **Despliegue:** 156 realizado por el usuario y verificado directamente en Cloudflare el 2026-11-04. Código activo coincide con GitHub. Ahorro real aún NO COMPROBADO.
-- **Pendiente para cerrar 001:** desplegar y verificar consumos reales por ingreso completo en las tres interfaces; correlacionar una pulsación con todas las solicitudes; revisar escrituras/lecturas y operaciones facturadas; validar caché e invalidación de cumpleaños; corregir más hallazgos de la 001 si los hubiera.
+- **Pendiente para cerrar 001:** seguir la secuencia 001.1–001.6 y verificar consumos reales por ingreso completo en las tres interfaces; correlacionar una pulsación con todas las solicitudes; revisar escrituras/lecturas y operaciones facturadas; validar caché e invalidación de cumpleaños; corregir más hallazgos de la 001 si los hubiera.
 - **Dato importante:** usuario y anunciante comparten `POST /suscriptores` (`action=login`), sin marcador de origen en métricas actuales; Gran Hermano llama `POST /superadmin/session/login`, luego `GET /superadmin/dashboard` y `GET /superadmin/inbox` para cargar pantalla. Las dos últimas son funciones de la pantalla, no validación de credenciales; no representan datos duplicados idénticos.
 
 ## Regla invariable de ejecución
@@ -86,4 +102,4 @@ Ninguna todavía.
 - Usuario confirmó implementación. Se recuperó el código activo del Worker `login` desde Cloudflare y se cotejó con el archivo único de GitHub (blob `75fee43041a942316f7cdaf3e1fdaa77d8778de5`): coincidencia completa, excluyendo únicamente envoltorio multipart y espacios exteriores; 709517 caracteres en ambos códigos extraídos.
 - Confirmados en producción: caché de resumen de cumpleaños, identificación principal de métricas 156 y versión de raíz 156. No se modificó código ni producción en esta intervención.
 - **001 continúa ABIERTA.** Despliegue comprobado no equivale a ingreso funcional ni ahorro comprobado.
-- **Próximo paso exacto vigente:** prueba controlada de Usuario: partir de sesión cerrada, pulsar INGRESAR una sola vez con una cuenta real, esperar la carga inicial sin realizar otras acciones e informar resultado y hora aproximada. Consultar el intervalo en observabilidad y delimitar solicitudes/operaciones antes de repetir o pasar a Anunciante. No pedir credenciales por chat. El acceso al navegador del usuario no está disponible en esta sesión, por lo que la pulsación la realiza el usuario; las comprobaciones de código y registros las realiza el asistente.
+- **Instrucción de prueba a Usuario retirada:** fue prematura. Rige la secuencia fija 001.1–001.6; no solicitar cierre de sesión ni pulsaciones durante 001.1.
