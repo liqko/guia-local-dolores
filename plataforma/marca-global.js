@@ -15,10 +15,14 @@
       #gldMarcaGlobal .gld-brand-slogan{font-family:"Courgette","Brush Script MT",cursive;font-style:italic;font-weight:700;font-size:clamp(1.15rem,2.7vw,2.15rem);line-height:1.3;color:#ff9b2d;text-shadow:0 2px 5px #18222b;margin:0}
       #gldPieGlobal{box-sizing:border-box;width:100%;max-width:100%;margin-top:24px;background:#f8fbfc;border:0;display:block;min-height:260px}
       body.gld-identidad-directa{background-color:#f8fbfc}
-      #gldNavegacionGlobal{width:100%;box-sizing:border-box;background:#fff;border-bottom:1px solid #d9e5e9;box-shadow:0 2px 8px #00344b13;position:relative;z-index:10}
+      #gldNavegacionGlobal{width:100%;box-sizing:border-box;background:#fff;border-bottom:1px solid #d9e5e9;box-shadow:0 2px 8px #00344b13;position:sticky;top:0;z-index:2147482000}
       #gldNavegacionGlobal .gld-nav-links{max-width:1260px;margin:0 auto;display:flex;justify-content:center;gap:3px;flex-wrap:wrap;padding:6px 12px}
       #gldNavegacionGlobal a{display:inline-flex;align-items:center;text-decoration:none;padding:10px 13px;border-radius:8px;font:600 14px/1.3 'Segoe UI',Arial,sans-serif;color:#245a71}
       #gldNavegacionGlobal a:hover,#gldNavegacionGlobal a:focus-visible,#gldNavegacionGlobal a.active{background:#e9f5fa;color:#005e84}
+      #gldNavegacionGlobal .gld-volver-guia{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:#006699;color:#fff!important;border-radius:8px;padding:8px 10px}
+      #gldNavegacionGlobal .gld-volver-guia:hover{background:#004d73!important;color:#fff!important}
+      @media(max-width:760px){#gldNavegacionGlobal .gld-volver-guia{right:8px;font-size:12px;padding:8px 9px}#gldNavegacionGlobal summary{max-width:55%}}
+
       #gldNavegacionGlobal summary{display:none;cursor:pointer;padding:13px 16px;font:700 15px/1.4 'Segoe UI',Arial,sans-serif;color:#005e84}
       @media(max-width:760px){#gldNavegacionGlobal summary{display:list-item;list-style:inside}#gldNavegacionGlobal .gld-nav-links{display:none;flex-direction:column;align-items:stretch;max-height:65vh;overflow:auto}#gldNavegacionGlobal details[open] .gld-nav-links{display:flex}#gldNavegacionGlobal a{min-height:40px}}
 
@@ -54,7 +58,25 @@
     }
     const drawer=document.createElement('details');drawer.className='gld-nav-drawer';
     const summary=document.createElement('summary');summary.textContent='Menú';
-    drawer.append(summary,list);navigation.append(drawer);
+    drawer.append(summary,list);
+    // Un details cerrado oculta los enlaces: mantenerlo abierto en escritorio
+    // y plegable en móviles, siempre accesible desde la barra fija.
+    const sincronizarMenu=()=>{
+      const escritorio=window.matchMedia('(min-width: 761px)').matches;
+      if(escritorio)drawer.open=true;
+      else if(!drawer.dataset.mobileInitialized){drawer.open=false;drawer.dataset.mobileInitialized='1'}
+      if(escritorio)delete drawer.dataset.mobileInitialized;
+    };
+    sincronizarMenu();
+    window.addEventListener('resize',sincronizarMenu,{passive:true});
+    navigation.append(drawer);
+    const regreso=document.createElement('a');
+    regreso.className='gld-volver-guia';
+    regreso.href='/plataforma/inicio.html';
+    regreso.textContent='← Volver a Guía';
+    if(['/plataforma/suscriptores','/plataforma/suscriptores.html','/plataforma/login','/plataforma/login.html','/plataforma/granhermano','/plataforma/granhermano.html'].includes(location.pathname)){
+      navigation.appendChild(regreso);
+    }
 
     const hero=document.createElement('section');
     hero.id='gldMarcaGlobal';
