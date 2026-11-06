@@ -3,7 +3,7 @@
 'use strict';
 if(window.GLD_CATALOGO_TERRITORIAL)return;
 const KEY='gld_territorio_publico_cache_v1';
-const TTL=60*60*1000;
+const TTL=24*60*60*1000;
 const ENDPOINT='https://login.liqkoargentina.workers.dev/territory/public';
 let pending=null;
 function valid(data){return data&&data.success===true&&Array.isArray(data.ciudades)&&Array.isArray(data.paises)&&Array.isArray(data.provincias);}
