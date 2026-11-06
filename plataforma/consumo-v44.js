@@ -13,10 +13,25 @@
   const originalFetch=window.fetch.bind(window);
   function read(){try{const x=JSON.parse(localStorage.getItem(key)||'[]');return Array.isArray(x)?x:memory}catch(_){return memory}}
   const measurementKey='gld_medicion_actual_v141';
+  // Identificación local de cada dispositivo y plano; no se envía ningún pedido extra.
+  const deviceKey='gld_diagnostico_dispositivo_v1';
+  function deviceId(){
+    try{
+      let id=localStorage.getItem(deviceKey);
+      if(!id){id='disp-'+(crypto.randomUUID?crypto.randomUUID():Math.random().toString(36).slice(2)+Date.now().toString(36));localStorage.setItem(deviceKey,id);}
+      return id;
+    }catch(_){return 'sin-identificador';}
+  }
+  function interfaz(){
+    const p=location.pathname.toLowerCase();
+    if(/(?:^|\/)administracion(?:\.html)?$/.test(p))return 'Administración general';
+    if(/(?:^|\/)login(?:\.html)?$/.test(p))return 'Panel anunciante';
+    return 'Usuario';
+  }
   function measurement(){try{return JSON.parse(localStorage.getItem(measurementKey)||'null');}catch{return null;}}
   function currentRows(rows=read()){const m=measurement();return m?rows.filter(r=>r.medicion_id===m.id&&Date.parse(r.fecha)>=m.start):[];}
   function beginMeasurement(){const m={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),start:Date.now(),active:true};try{localStorage.setItem(measurementKey,JSON.stringify(m));}catch{throw Error('No se pudo iniciar la medición en este navegador.');}render();}
-  const exportFields=['medicion_id','inicio_medicion_utc','fecha','fecha_argentina','pagina','ruta','accion','metodo','estado','resultado','vista','version','request_id','consultas','documentos','escrituras','eliminaciones','cf_worker','cf_kv_get','cf_kv_put','cf_kv_delete','cf_kv_list','cf_public_calls','cf_store_read','cf_store_write','cf_admin_calls','cf_admin_read','cf_admin_write','cf_action_calls','cf_action_read','cf_action_write','cf_alarm_set','cf_alarm_cancel','cf_marker_get','cf_marker_put','cf_cpu','cf_cobertura','cf_missing','detalle','cache_estado'];
+  const exportFields=['medicion_id','dispositivo','interfaz','inicio_medicion_utc','fecha','fecha_argentina','pagina','ruta','accion','metodo','estado','resultado','vista','version','request_id','consultas','documentos','escrituras','eliminaciones','cf_worker','cf_kv_get','cf_kv_put','cf_kv_delete','cf_kv_list','cf_public_calls','cf_store_read','cf_store_write','cf_admin_calls','cf_admin_read','cf_admin_write','cf_action_calls','cf_action_read','cf_action_write','cf_alarm_set','cf_alarm_cancel','cf_marker_get','cf_marker_put','cf_cpu','cf_cobertura','cf_missing','detalle','cache_estado'];
   function csvCell(value){let v=value==null?'':String(value);if(/^[\s]*[=+@-]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"';}
   function csvRows(rows){return '\uFEFF'+[exportFields.map(csvCell).join(','),...rows.map(saved=>{const row={...saved,...(saved.consumo_cloudflare?cloudflareMetrics(saved.consumo_cloudflare):{}),fecha_argentina:argStamp(saved)};return exportFields.map(k=>csvCell(row[k])).join(',');})].join('\r\n');}
   function downloadRows(rows,label){const blob=new Blob([csvRows(rows)],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='medicion-'+label+'-'+new Date().toISOString().replace(/[:.]/g,'-')+'.csv';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
@@ -25,7 +40,7 @@
     if(!view||!authorized())return;
     const stored=read(),m=measurement();view.textContent='';
     const intro=document.createElement('p');
-    intro.textContent='Respuestas capturadas en este navegador con las pruebas privadas activadas. No es el consumo total de la cuenta ni un monitor global en vivo. Consultas Firebase y documentos devueltos no equivalen a lecturas facturadas. Los datos ausentes se indican como sin medición. Mostrar y filtrar este historial no consulta servidores.';view.appendChild(intro);
+    intro.textContent='Respuestas capturadas en este navegador con las pruebas privadas activadas. Cada registro incluye interfaz y dispositivo de prueba, sin consultas adicionales. No es el consumo total de la cuenta ni un monitor global en vivo. Consultas Firebase y documentos devueltos no equivalen a lecturas facturadas. Los datos ausentes se indican como sin medición. Mostrar y filtrar este historial no consulta servidores.';view.appendChild(intro);
     const controls=document.createElement('div');controls.style.cssText='display:flex;flex-direction:column;gap:8px';view.appendChild(controls);
     const begin=document.createElement('button');begin.type='button';begin.textContent=m?'Empezar una nueva medición desde ahora':'Empezar medición desde ahora';begin.onclick=()=>{try{beginMeasurement();}catch(e){count.textContent=e.message;}};controls.appendChild(begin);
     const rows=currentRows(stored).map((row,index)=>({row,index})).sort((a,b)=>(Date.parse(b.row.fecha)||0)-(Date.parse(a.row.fecha)||0)||b.index-a.index).map(({row})=>row);
@@ -39,7 +54,7 @@
     const labels=['Fecha y hora Argentina','Acción / ruta','HTTP','Consultas Firebase','Documentos devueltos','Escrituras Firebase','Eliminaciones Firebase','Solicitudes Worker','Desglose'];
     const thead=document.createElement('thead'),head=document.createElement('tr');thead.appendChild(head);table.appendChild(thead);labels.forEach(label=>{const th=document.createElement('th');th.textContent=label;th.scope='col';th.style.cssText='position:sticky;top:0;z-index:1;background:#edf5f9;padding:9px;border:1px solid #ccd8df;text-align:left';head.appendChild(th);});
     const tbody=document.createElement('tbody');table.appendChild(tbody);
-    const detailFields=[['pagina','Pantalla'],['ruta','Ruta'],['metodo','Método'],['request_id','Identificador del pedido'],['version','Versión Worker'],['resultado','Respuesta'],['vista','Vista'],['cf_kv_get','KV: lecturas'],['cf_kv_put','KV: escrituras'],['cf_kv_delete','KV: eliminaciones'],['cf_kv_list','KV: listados'],['cf_public_calls','Llamadas al almacén público'],['cf_store_read','SQL público: filas leídas'],['cf_store_write','SQL público: filas escritas'],['cf_admin_calls','Llamadas al almacén administrativo'],['cf_admin_read','SQL administrativo: filas leídas'],['cf_admin_write','SQL administrativo: filas escritas'],['cf_action_calls','Llamadas al coordinador de Ciudades'],['cf_action_read','Coordinador: filas leídas'],['cf_action_write','Coordinador: filas/unidades de escritura registradas'],['cf_alarm_set','Alarmas: programación'],['cf_alarm_cancel','Alarmas: cancelación'],['cf_marker_get','Marcador durable: lecturas (incluidas en el coordinador)'],['cf_marker_put','Marcador durable: escrituras (incluidas en el coordinador)'],['cf_cpu','CPU del Worker (ms)'],['cf_cobertura','Cobertura informada'],['cf_missing','Mediciones no disponibles'],['detalle','Operaciones Firebase'],['cache_estado','Caché']];
+    const detailFields=[['interfaz','Interfaz'],['dispositivo','Dispositivo de prueba'],['pagina','Pantalla'],['ruta','Ruta'],['metodo','Método'],['request_id','Identificador del pedido'],['version','Versión Worker'],['resultado','Respuesta'],['vista','Vista'],['cf_kv_get','KV: lecturas'],['cf_kv_put','KV: escrituras'],['cf_kv_delete','KV: eliminaciones'],['cf_kv_list','KV: listados'],['cf_public_calls','Llamadas al almacén público'],['cf_store_read','SQL público: filas leídas'],['cf_store_write','SQL público: filas escritas'],['cf_admin_calls','Llamadas al almacén administrativo'],['cf_admin_read','SQL administrativo: filas leídas'],['cf_admin_write','SQL administrativo: filas escritas'],['cf_action_calls','Llamadas al coordinador de Ciudades'],['cf_action_read','Coordinador: filas leídas'],['cf_action_write','Coordinador: filas/unidades de escritura registradas'],['cf_alarm_set','Alarmas: programación'],['cf_alarm_cancel','Alarmas: cancelación'],['cf_marker_get','Marcador durable: lecturas (incluidas en el coordinador)'],['cf_marker_put','Marcador durable: escrituras (incluidas en el coordinador)'],['cf_cpu','CPU del Worker (ms)'],['cf_cobertura','Cobertura informada'],['cf_missing','Mediciones no disponibles'],['detalle','Operaciones Firebase'],['cache_estado','Caché']];
     rows.forEach(saved=>{const row={...saved,...(saved.consumo_cloudflare?cloudflareMetrics(saved.consumo_cloudflare):{})},tr=document.createElement('tr');tbody.appendChild(tr);fields.forEach(field=>{const td=document.createElement('td');td.style.cssText='padding:9px;border:1px solid #ccd8df;vertical-align:top';tr.appendChild(td);
       if(field==='details'){const details=document.createElement('details'),summary=document.createElement('summary');summary.textContent='Ver Firebase y Cloudflare';details.appendChild(summary);const dl=document.createElement('dl');for(const [key,label]of detailFields){const dt=document.createElement('dt'),dd=document.createElement('dd');dt.textContent=label;dt.style.fontWeight='bold';dd.textContent=row[key]==null?'Sin medición':String(row[key]);dl.appendChild(dt);dl.appendChild(dd);}details.appendChild(dl);td.appendChild(details);}
       else td.textContent=field==='fecha'?argStamp(row):field==='accion'?[row.accion,row.ruta].filter(Boolean).join(' · '):row[field]==null?'Sin medición':String(row[field]);
@@ -82,7 +97,7 @@
     try{if(options&&typeof options.body==='string'){const body=JSON.parse(options.body);action=body.action||body.accion||action}}catch(_){}
     action=allowed.has(String(action).toLowerCase())?String(action).toLowerCase():'';
     const m=measurement();
-    const row={medicion_id:m?.active?m.id:null,inicio_medicion_utc:m?new Date(m.start).toISOString():null,fecha:new Date().toISOString(),hora:new Date().toLocaleTimeString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}),pagina:location.pathname,ruta:url.pathname.replace(/(\/advertisers\/)[^/]+/g,'$1:id').replace(/(\/subscribers\/)[^/]+/g,'$1:id'),accion:action,metodo:String(options&&options.method||input&&input.method||'GET').toUpperCase()};
+    const row={dispositivo:deviceId(),interfaz:interfaz(),medicion_id:m?.active?m.id:null,inicio_medicion_utc:m?new Date(m.start).toISOString():null,fecha:new Date().toISOString(),hora:new Date().toLocaleTimeString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}),pagina:location.pathname,ruta:url.pathname.replace(/(\/advertisers\/)[^/]+/g,'$1:id').replace(/(\/subscribers\/)[^/]+/g,'$1:id'),accion:action,metodo:String(options&&options.method||input&&input.method||'GET').toUpperCase()};
     try{
       const response=await originalFetch(input,options);
       let resultado=response.ok?'Sin comprobar':'Error HTTP';
