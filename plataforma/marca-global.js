@@ -46,7 +46,7 @@
       ['Políticas, fuentes y privacidad','/plataforma/privacidad.html'],
       ['Suscriptores','/plataforma/suscriptores.html'],
       ['Anunciantes','/plataforma/login.html'],
-      ['Panel administrador','/plataforma/granhermano.html']
+      ['Panel administrador','/plataforma/administracion.html']
     ];
     // Regresar a la Guía conserva la ciudad que la persona eligió para esta
     // navegación, incluso si su ciudad predeterminada de perfil es distinta.
@@ -91,7 +91,7 @@
     regreso.className='gld-volver-guia';
     regreso.href=urlGuiaActual();
     regreso.textContent='← Volver a Guía';
-    if(['/plataforma/suscriptores','/plataforma/suscriptores.html','/plataforma/login','/plataforma/login.html','/plataforma/granhermano','/plataforma/granhermano.html'].includes(location.pathname)){
+    if(['/plataforma/suscriptores','/plataforma/suscriptores.html','/plataforma/login','/plataforma/login.html','/plataforma/administracion','/plataforma/administracion.html'].includes(location.pathname)){
       navigation.appendChild(regreso);
     }
 
