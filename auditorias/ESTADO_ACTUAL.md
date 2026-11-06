@@ -230,3 +230,8 @@ Ninguna todavía.
 - Referencia de script activada `?v=142` en `inicio.html`, `carcasa.html`, `anunciantes.html`, `login.html`, `administracion.html`. Solo instrumentación privada, sin transmitir identidad ni cambiar lecturas en Firestore.
 - **Distribución horaria comprobada de 24 GET /territory/public y 24 KV GET, mismo día**: 07:00–12:00 ART: 1 pedido/1 KV GET; 12:00–15:30 ART: 23 pedidos/23 KV GET. No se puede inferir de estos agregados cuántos dispositivos distintos ni quién los ejecutó.
 - **Pendiente crítico:** probar navegación con pruebas privadas autorizadas y compartir CSV/enlace para vincular pantalla/acción con consumo real. Log agregado anterior sin identificador no permite retroatribuir esos 24 pedidos. Validar despliegue GitHub Actions último commit `a39d70c3`.
+
+### 2026-11-06 — Duplicación territorial entre interfaces
+- Inspección de `inicio.html` y `carcasa.html`: ambos usan `GLD_CATALOGO_TERRITORIAL.load()` con `localStorage` 24h. **Hallazgo** en `login.html`: `gldTerritoryPublic_()` llamaba directamente `fetch('/territory/public')` pese a existir la caché compartida, pudiendo generar 1 Worker request y 1 KV GET adicional por navegador/entrada al panel anunciante.
+- Corregido `plataforma/login.html`: importa `territorio-cache.js?v=2` y reutiliza `GLD_CATALOGO_TERRITORIAL.load()` preservando transformación de campos esperados; commit `8b276fac8bea620b13094bf4d8e67ea58e61c51b`. Este cambio evita la repetición al usar la misma instancia de navegador y caché válida; no significa cero lecturas entre dispositivos ni prueba un ahorro medido antes/después.
+- Seguimiento: comprobar despliegue y medir por navegación de panel anunciante cuando haya registro autorizado. No confundir análisis estático con prueba de consumo completa.
