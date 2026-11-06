@@ -205,3 +205,22 @@ Ninguna todavía.
 - Hallazgo confirmado en `plataforma/app-prueba.html`: la versión instalada redirigía siempre a `/plataforma/inicio.html` al pulsar APP desde navegación.
 - Corregidas ambas redirecciones: con `gld_ciudad_contexto` válido, APP instalado abre `/plataforma/carcasa.html` con los parámetros de la ciudad guardada; sin ciudad, mantiene selector inicial. No agrega solicitudes a Worker ni a Firestore para elegir el destino; se lee `localStorage`.
 - Commit `c49f6dec78f264aa97af433e2dc96f6838c11eda`; workflow Firebase `42263871957`, job de despliegue completado con éxito. Aún pendiente comprobar recorrido interactivo en un dispositivo con PWA instalada y ciudad recordada. No se modificaron sesiones, permisos ni Worker.
+
+## Corte integral de auditoría — 2026-11-06, 07:00–15:30 Argentina
+- **Solicitado por usuario:** identificar todas las funciones efectivamente presentes y consumos por interfaz, pantalla y acción; no repetir auditorías ni usar supuestos de usuarios ficticios. Este corte registra exclusivamente evidencia comprobada hoy. Las cifras de registros son agregadas, no consumos por persona ni necesariamente todas las llamadas de un recorrido.
+- **Código inspeccionado:** `inicio.html` (selector), `carcasa.html` (navegación y carga general), `anunciantes.html` (vista pública y búsqueda), `login.html` (anunciante y edición), `administracion.html` (panel general), `eventos.html`, `promos.html`, `actividades.html`, `empleo.html` y `empleo.js`; `territorio-cache.js`, `entrada-recordada.js`, `consumo-v44.js`. Hay otras funciones en el repositorio por recorrer; esta enumeración NO es auditoría funcional cerrada de todos los botones.
+- **Datos reales Cloudflare Worker `login`, período 2026-11-06T10:00:00Z a 18:30:00Z, ruta exacta, contadores de la instrumentación**:
+| Ruta | Solicitudes observadas | KV GET | KV PUT | KV LIST | Firestore billed reads reportadas | Firestore billed writes reportadas |
+|---|---:|---:|---:|---:|---:|---:|
+| /territory/public | 24 | 24 | 0 | 0 | 0 | 0 |
+| /events-new | 4 | 0 | 0 | 0 | 0 | 0 |
+| /promos | 4 | 0 | 0 | 0 | 0 | 0 |
+| /actividades | 4 | 0 | 0 | 0 | 0 | 0 |
+| /farmacias | 5 | 0 | 0 | 0 | 0 | 0 |
+| /efemerides | 2 | 0 | 0 | 0 | 0 | 0 |
+| /publicidad | 5 | 15 | 0 | 0 | 0 | 0 |
+- **Sin observaciones en ese mismo período y filtro de ruta exacta:** /suscriptores, /superadmin/dashboard, /superadmin/inbox, /superadmin/territory, /login, /menu, /empleo. Cero registros NO prueba cero tráfico ni cero costo: pudo haber otras rutas, filtros, muestreo o solicitudes sin telemetría disponible.
+- **No se ha medido por usuario ni botón:** los agregados del Worker no identifican inequívocamente la pantalla ni la pulsación; rutas públicas pueden servir a varias interfaces. La medición privada en `consumo-v44.js` recoge el `pagina` y la ruta por llamada *en el navegador autorizado*, hasta 160 registros, y dispone de CSV o **Compartir registro** con URL de lectura temporal. No es un monitor global de la cuenta. Para vincular la prueba privada al análisis, hace falta que el titular comparta el enlace o CSV de esa sesión; no afirmar que se tiene acceso a su localStorage.
+- **Hallazgos estáticos verificables:** `territorio-cache.js` reutiliza el catálogo de ciudades por dispositivo durante 24 horas; el servidor mantiene catálogo público de KV y operaciones administrativas actualizan su contenido. `anunciantes.html` mantiene caché de Guía local de 2 horas y cachés de módulos de 1 hora; `carcasa.html` también tiene cachés de módulos de 1 hora. Esos plazos se han observado en código pero **no equivalen a consumos reales por persona** ni garantizan invalidación interdispositivo.
+- **Pendiente crítico:** validar funcionalidad y costo *completo*, con pruebas de botón y pantalla, de cada interfaz. Especialmente comparar ingreso, selector, guía/tarjetas, creación y modificación de anuncios, eventos, promociones, actividades, empleo, moderación y soporte. Medir campos `pagina`, `ruta`, `accion`, Firestore, KV y CPU, distinguir no medido de cero, y comparar contra contadores del proveedor; no estimar ahorro hasta tener antes/después del mismo caso.
+- **No hay cambios de código ni despliegue a producción en este corte**; únicamente se registran resultados. Mantener este documento como fuente única.
