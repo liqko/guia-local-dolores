@@ -7,7 +7,7 @@ const gldPanelStorage=(()=>{
  const values=new Map();let resolve,reject;
  const ready=new Promise((yes,no)=>{resolve=yes;reject=no;});ready.catch(()=>{});
  const state=window.GLD_ADMIN_PANEL155={nonce,ready,grant:null};
- const timeout=setTimeout(()=>reject(new Error('Volvé a abrir este panel desde Gran Hermano.')),60000);
+ const timeout=setTimeout(()=>reject(new Error('Volvé a abrir este panel desde Panel de administración general.')),60000);
  window.addEventListener('message',function receive(event){
   if(event.origin!==location.origin||event.source!==window.opener||event.data?.type!=='gld-admin-panel155'||event.data.nonce!==nonce)return;
   const grant=event.data.grant;if(!grant?.success||!grant.token||!grant.relacion?.anunciante_id)return;
