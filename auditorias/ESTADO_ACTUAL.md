@@ -235,3 +235,11 @@ Ninguna todavía.
 - Inspección de `inicio.html` y `carcasa.html`: ambos usan `GLD_CATALOGO_TERRITORIAL.load()` con `localStorage` 24h. **Hallazgo** en `login.html`: `gldTerritoryPublic_()` llamaba directamente `fetch('/territory/public')` pese a existir la caché compartida, pudiendo generar 1 Worker request y 1 KV GET adicional por navegador/entrada al panel anunciante.
 - Corregido `plataforma/login.html`: importa `territorio-cache.js?v=2` y reutiliza `GLD_CATALOGO_TERRITORIAL.load()` preservando transformación de campos esperados; commit `8b276fac8bea620b13094bf4d8e67ea58e61c51b`. Este cambio evita la repetición al usar la misma instancia de navegador y caché válida; no significa cero lecturas entre dispositivos ni prueba un ahorro medido antes/después.
 - Seguimiento: comprobar despliegue y medir por navegación de panel anunciante cuando haya registro autorizado. No confundir análisis estático con prueba de consumo completa.
+
+## Continuidad verificada — 2026-11-07
+- **Acción 001 sigue ABIERTA.** No comenzar 002.
+- **Versión activa real:** Cloudflare Worker `login` informa 159 en sus métricas. El código recuperado tiene 724357 caracteres. El archivo único de entrega en GitHub todavía identifica 158 y tiene 710944 caracteres. **NO COINCIDEN**. No sobrescribir producción ni GitHub con una versión anterior; reconciliar el código vigente antes de modificar.
+- El Worker 159 mantiene la caché del resumen de cumpleaños. No se comprobó ahorro de esa pantalla en producción con ingreso controlado.
+- Observabilidad del 6 al 7 de noviembre: `POST /suscriptores` acción `login` versión 159: 2 registros, 21 llamadas KV GET acumuladas, 0 KV PUT/LIST y 0 llamadas Firestore instrumentadas. No se atribuye ese acumulado a un único clic, ni equivale a costo de factura.
+- Navegador Ópera conectado: solo pestañas de ChatGPT y Opera; no había sesión de Guía Local disponible para realizar prueba autenticada. No se realizó ingreso artificial ni se solicitaron credenciales.
+- **Próximo paso exacto:** reconciliar código 159 activo con archivo único de entrega antes de todo cambio. Luego retomar Acción 001, una interfaz por vez, con medición de ingreso real; conservar límites de cobertura y no cerrar sin contraste de cuota/costos.
