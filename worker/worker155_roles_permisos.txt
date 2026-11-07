@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 158 - ROLES Y PERMISOS (base 154)
+// GUÍA LOCAL - WORKER 160 - ROLES Y PERMISOS (base 154)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'158',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'160',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -2707,6 +2707,7 @@ async function verifySubscriberSessionRaw143(env, request2) {
     p = JSON.parse(b64decode2(body));
   } catch (_) {
   }
+  if(p?.typ === "GLD_ADMIN_PANEL") return verifyAdminPanel155(env,request2,p);
   if (!p || p.typ !== "GLD_SUBSCRIBER" || !p.sid || (p.persistent !== true && (!p.exp || Date.now() > Number(p.exp)))) {
     return { ok: false, message: "Sesión inválida o vencida" };
   }
@@ -2716,7 +2717,7 @@ async function verifySubscriberSessionRaw143(env, request2) {
   return { ok: true, ...p };
 }
 function relationPermissions(rel, admin) {
-  const raw = text27(rel.permisos) || text27(admin && admin.funcionalidades);
+  const raw = rel.permisos_definidos===true?text27(rel.permisos):text27(rel.permisos) || text27(admin && admin.funcionalidades);
   return raw.split(/[;,|\n]/).map((x) => text27(x).toUpperCase()).filter(Boolean);
 }
 async function subscriberLogin({ env, db, body }) {
@@ -2781,12 +2782,16 @@ function sessionAllows(session2, advertiserId, moduleName, { write = false } = {
   const aid = text27(advertiserId);
   const rel = (session2.auth || []).find((x) => text27(x.anunciante_id) === aid);
   if (!rel) return false;
-  const role = text27(rel.rol).toUpperCase();
+  const role = text27(rel.rol).toUpperCase().replace("COADMINISTRADOR","ADMINISTRADOR");
   if (!["PROPIETARIO", "ADMINISTRADOR", "MANAGER"].includes(role)) return false;
+  if(session2.admin_panel)return text27(session2.aid)===aid;
   if (write && moduleName === "modificar_datos" && role === "MANAGER") return false;
-  if (moduleName === "modificar_datos") return role === "PROPIETARIO" || role === "ADMINISTRADOR";
-  if (moduleName === "publicidad" && (role === "PROPIETARIO" || role === "ADMINISTRADOR")) return rel.activo !== false;
+  if (moduleName === "modificar_datos") return role === "PROPIETARIO" || role === "ADMINISTRADOR" && (rel.permisos_definidos!==true || text27(rel.permisos).split(/[;,|\n]/).some(x=>x.trim().toUpperCase()==="MODIFICAR_DATOS"));
+  if(role==="PROPIETARIO")return rel.activo!==false;
+  if(moduleName==="empleo"&&rel.permisos_definidos!==true)return role==="ADMINISTRADOR";
+  if(moduleName==="publicidad"&&role==="ADMINISTRADOR"&&rel.permisos_definidos!==true)return rel.activo!==false;
   const aliases = {
+    empleo: ["EMPLEO"],
     promos: ["PROMOS"],
     eventos: ["EVENTOS"],
     eventos_free: ["EVENTOS_FREE", "EV_FREE", "EVFREE"],
@@ -5110,7 +5115,7 @@ async function advertiserDetailV2({ db, advertiserId }) {
     db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual("suscriptor_anunciante", "anunciante_id", aid, 500)
   ]);
   if (!advertiser && !admin) return { success: false, message: "Anunciante no encontrado" };
-  return { success: true, publicidad_reglas_version:147, revision_comercial:await commercialRevisionInternal(admin||{}), revision_perfil:await fieldRevisionInternal(advertiser||{},PROFILE_REVISION_FIELDS_INTERNAL), revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await fieldRevisionInternal(row,SEDE_REVISION_FIELDS_INTERNAL)]))), anunciante: advertiser || {}, administracion: admin || {}, sedes, relaciones: relations, uso_funcionalidades: await advertiserUsageV62(db,aid) };
+  return { success: true, publicidad_reglas_version:147, revision_comercial:await commercialRevisionInternal(admin||{}), revision_perfil:await fieldRevisionInternal(advertiser||{},PROFILE_REVISION_FIELDS_INTERNAL), revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await fieldRevisionInternal(row,SEDE_REVISION_FIELDS_INTERNAL)]))), anunciante: advertiser || {}, administracion: admin || {}, sedes, propietarios:await ownerSummaries159(db,relations), relaciones: await Promise.all(relations.map(async row=>({...publicRelation155(row),revision:await wholeRevisionInternal(row)}))), revision_vinculo_nuevo:await wholeRevisionInternal({}), uso_funcionalidades: await advertiserUsageV62(db,aid) };
 }
 async function subscriberDetailV2({ db, subscriberId }) {
   const sid=text42(subscriberId);
@@ -5119,7 +5124,7 @@ async function subscriberDetailV2({ db, subscriberId }) {
     db.subscriberRelations(sid)
   ]);
   if(!subscriber)return {success:false,message:'Suscriptor no encontrado'};
-  return {success:true,suscriptor:{...publicProfile(subscriber),email_verificado:subscriber.email_verificado,creado_en:subscriber.creado_en||subscriber.fecha_alta||'',actualizado_en:subscriber.actualizado_en||'',fecha_nacimiento_registrada_en:subscriber.fecha_nacimiento_registrada_en||''},relaciones:relations};
+  return {success:true,suscriptor:{...publicProfile(subscriber),email_verificado:subscriber.email_verificado,creado_en:subscriber.creado_en||subscriber.fecha_alta||'',actualizado_en:subscriber.actualizado_en||'',fecha_nacimiento_registrada_en:subscriber.fecha_nacimiento_registrada_en||''},relaciones:relations.map(publicRelation155),revision_acceso:await wholeRevisionInternal(publicProfile(subscriber))};
 }
 
 // reconstruccion/worker/routes/panel-v5.js
@@ -5555,7 +5560,7 @@ function publicSubscriber(s){
   };
 }
 function perms(rel,admin){
-  const raw=text(rel&&rel.permisos)||text(admin&&admin.funcionalidades);
+  const raw=rel?.permisos_definidos===true?text(rel.permisos):text(rel&&rel.permisos)||text(admin&&admin.funcionalidades);
   return raw.split(/[;,|\n]/).map(x=>text(x).toUpperCase()).filter(Boolean).join(", ");
 }
 
@@ -5583,7 +5588,7 @@ async function subscriberLoginV2({env,db,body}){
     const aid=text(rel.anunciante_id);
     const [advertiser,admin]=await Promise.all([
       text(rel.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes",aid):db.get("anunciantes",aid)),
-      text(rel.permisos)?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes_administracion",aid):db.get("anunciantes_administracion",aid))
+      text(rel.permisos)||rel.permisos_definidos===true?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes_administracion",aid):db.get("anunciantes_administracion",aid))
     ]);
     return {
       suscriptor_id:sid,
@@ -5591,6 +5596,7 @@ async function subscriberLoginV2({env,db,body}){
       anunciante_nombre:text(rel.anunciante_nombre||(advertiser&&advertiser.nombre)||(admin&&admin.nombre)),
       rol:text(rel.rol).toUpperCase(),
       permisos:perms(rel,admin),
+      permisos_definidos:rel.permisos_definidos===true,
       activo:true
     };
   }));
@@ -5602,7 +5608,8 @@ async function subscriberLoginV2({env,db,body}){
       anunciante_id:x.anunciante_id,
       anunciante_nombre:x.anunciante_nombre,
       rol:x.rol,
-      permisos:x.permisos
+      permisos:x.permisos,
+      permisos_definidos:x.permisos_definidos===true
     }))
   });
 
@@ -5805,6 +5812,7 @@ async function routePanelV8(ctx) {
           anunciante_nombre: text52(x.anunciante_nombre),
           rol: text52(x.rol),
           permisos: text52(x.permisos),
+          permisos_definidos:x.permisos_definidos===true,
           activo: true
         })),
         source: "session"
@@ -8276,7 +8284,7 @@ async function pendingAllV3({ db }) {
 function newAdvertiserId2() {
   return "ADV-" + crypto.randomUUID().replace(/-/g, "").slice(0, 16).toUpperCase();
 }
-async function resolvePendingV3({ db, cache, auth, tipo, id: id4, decision, nivel = "" }) {
+async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision, nivel = "", verificacion = "" }) {
   const kind = text82(tipo).toUpperCase();
   const itemId = text82(id4);
   const dec = text82(decision).toUpperCase();
@@ -8337,6 +8345,8 @@ async function resolvePendingV3({ db, cache, auth, tipo, id: id4, decision, nive
     if (text82(req.estado).toUpperCase() !== "PENDIENTE") throw new Error("La solicitud ya fue resuelta.");
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const sid = text82(req.suscriptor_id), modo = text82(req.modo).toUpperCase();
+    if(modo==="RECLAMAR"&&dec==="APROBAR"&&String(verificacion).trim().length<20)throw httpError("Registrá cómo verificaste la titularidad antes de aprobar el reclamo.",400);
+    if(modo==="RECLAMAR"&&!isTopAdmin(auth))throw httpError("Los reclamos de titularidad los resuelve Gran Hermano con acceso general.",403);
     if(auth.rol==="ADMIN_LOCAL" && modo==="RECLAMAR"){
       const index=await cache.get(ADMIN_ADVERTISERS_KEY)||{};
       const advertiser=(index.results||[]).find(a=>String(a.id||a.anunciante_id||"")===String(req.anunciante_id||""));
@@ -8413,10 +8423,12 @@ async function resolvePendingV3({ db, cache, auth, tipo, id: id4, decision, nive
       fecha_alta: now,
       actualizado: now
     });
+    await revokeSubscriberSessions(env,sid);
     const savedReq = await db.patch("solicitudes_anunciante", itemId, {
       estado: "APROBADA",
       anunciante_id: aid,
       moderado_por: text82(auth.sid),
+      verificacion_titularidad:modo==="RECLAMAR"?String(verificacion).trim():"",
       moderado_en: now,
       actualizado_en: now
     }, { mustExist: true });
@@ -8593,6 +8605,7 @@ async function routeAdminV11(ctx) {
     } catch (_) {
     }
     return json(await resolvePendingV3({
+      env, verificacion:String(body.verificacion||""),
       db,
       cache,
       auth,
@@ -8766,7 +8779,7 @@ function withPrivateCacheV46(db,env){
     const key=relationKey(sid),{packet:hit,rev}=await read(key),storedLimit=Number(hit?.relation_limit||100);
     if(hit&&Array.isArray(hit.data)&&!dirty.has(key)&&(storedLimit>=limit||hit.data.length<storedLimit))return remember('suscriptor_anunciante',hit.data.slice(0,limit));
     const rows=remember('suscriptor_anunciante',await db.queryEqual('suscriptor_anunciante','suscriptor_id',sid,limit));
-    const safe=rows.map(r=>({id:text(r.id||r.suscriptor_anunciante_id),suscriptor_id:text(r.suscriptor_id),anunciante_id:text(r.anunciante_id),anunciante_nombre:text(r.anunciante_nombre),rol:text(r.rol),permisos:text(r.permisos),activo:r.activo}));
+    const safe=rows.map(r=>({id:text(r.id||r.suscriptor_anunciante_id),suscriptor_id:text(r.suscriptor_id),anunciante_id:text(r.anunciante_id),anunciante_nombre:text(r.anunciante_nombre),rol:text(r.rol),permisos:text(r.permisos),permisos_definidos:r.permisos_definidos===true,activo:r.activo}));
     await save(key,safe,rev,{relation_limit:limit});return safe;
   }
   async function invalidate(key){
@@ -9520,7 +9533,7 @@ async function preparePublicationV77(ctx){
  if(!accepted||accepted.aceptada!==true||accepted.version!==expectedVersion)publicationErrorV77('Los términos de publicación cambiaron. Revisá y aceptá la versión vigente antes de guardar.',412);
  const catalogs=await ctx.cache.get('admin:catalogs:v2');
  if(collections[0]!=='suscriptores'&&(!catalogs||!Array.isArray(catalogs.moderacion_18)))publicationErrorV77('No está disponible el catálogo de moderación. Reintentá cuando se restablezca.',503);
- if(sid&&collections[0]!=='suscriptores'&&ctx.db.cachedSubscriberProjection){const account=await ctx.db.cachedSubscriberProjection(sid),prior=account?.aceptacion_terminos_anunciante;if(prior&&((account.historial_terminos_anunciante?.[expectedVersion]||prior).version!==expectedVersion))throw Object.assign(new Error('Los términos para anunciantes cambiaron. Revisalos y aceptalos desde el botón Términos y condiciones.'),{status:412,code:'TERMS_REVIEW_REQUIRED'});}
+ if(sid&&collections[0]!=='suscriptores'&&!((await verifySubscriberSession(ctx.env,ctx.request)).admin_panel)&&ctx.db.cachedSubscriberProjection){const account=await ctx.db.cachedSubscriberProjection(sid),prior=account?.aceptacion_terminos_anunciante;if(prior&&((account.historial_terminos_anunciante?.[expectedVersion]||prior).version!==expectedVersion))throw Object.assign(new Error('Los términos para anunciantes cambiaron. Revisalos y aceptalos desde el botón Términos y condiciones.'),{status:412,code:'TERMS_REVIEW_REQUIRED'});}
  const data=body.payload&&typeof body.payload==='object'?body.payload:body;
  ctx.publication={sid,collections,data,rules:catalogs?.moderacion_18||[],termsVersion:expectedVersion};ctx.db=publicationDbV77(ctx.db,ctx.publication,ctx.cache);
 }
@@ -9565,7 +9578,8 @@ async function routePublicationsV77(ctx){
  const s=await verifySubscriberSession(env,request);if(!s.ok)return json({success:false,message:s.message},401);
  if(String(body.modo).toUpperCase()==='RECLAMAR'){
   const aid=String(body.anunciante_id||'').trim(),existing=aid?await db.get('anunciantes',aid):null;if(!existing)publicationErrorV77('Seleccioná un anunciante existente.');
-  const id='REQ-'+crypto.randomUUID(),now=new Date().toISOString();await db.patch('solicitudes_anunciante',id,{solicitud_id:id,modo:'RECLAMAR',anunciante_id:aid,suscriptor_id:s.sid,nombre:existing.nombre,ciudad_id:existing.ciudad_id||'',estado:'PENDIENTE',creado_en:now,declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:s.sid,fecha:now}},{newDocument:true});return json({success:true,solicitud_id:id,message:'Reclamo enviado para verificar la titularidad. No modifica la publicación existente.'});
+  const reason=String(body.motivo||'').trim();if(reason.length<20||reason.length>2000)publicationErrorV77('Explicá tu relación con el anunciante y cómo podemos verificarla (20 a 2000 caracteres).');
+  const id='REQ-'+crypto.randomUUID(),now=new Date().toISOString();await db.patch('solicitudes_anunciante',id,{detalle:{descripcion:reason,mail:String(body.mail||''),whatsapp:String(body.whatsapp||'')},solicitud_id:id,modo:'RECLAMAR',anunciante_id:aid,suscriptor_id:s.sid,nombre:existing.nombre,ciudad_id:existing.ciudad_id||'',estado:'PENDIENTE',creado_en:now,declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:s.sid,fecha:now}},{newDocument:true});return json({success:true,solicitud_id:id,message:'Reclamo enviado para verificar la titularidad. No modifica la publicación existente.'});
  }
  if(String(body.modo).toUpperCase()!=='CREAR')publicationErrorV77('Tipo de solicitud inválido.');
  const cityPacket=await cache.get('territorio:public:v1'),needle=String(body.ciudad||'').trim().toLowerCase();
@@ -9635,6 +9649,7 @@ async function routeAdvertiserTermsV80({path,request,env,db,cache,url}){
  if(path!=='/advertiser/terms')return null;
  if(!['GET','POST'].includes(request.method))return json({success:false,message:'Método no permitido.'},405);
  const session=await verifySubscriberSession(env,request);if(!session.ok)return json({success:false,message:session.message},401);
+ if(session.admin_panel){const terms=await currentTermsV81(cache);return json({success:true,version:terms.version,hash:terms.hash,aceptada:true,administrativo:true,terms:{version:terms.version,titulo:terms.titulo,hash:terms.hash}});}
  const account=await db.cachedSubscriberProjection(session.sid);if(!account)return json({success:false,message:'Cuenta no encontrada.'},404);
  const terms=await currentTermsV81(cache),prior=account.historial_terminos_anunciante?.[terms.version]||account.aceptacion_terminos_anunciante;
  const valid=prior?.version===terms.version&&prior?.usuario_id===session.sid&&!!prior?.fecha&&(!prior.hash||prior.hash===terms.hash);
@@ -10036,7 +10051,7 @@ function empMatch109(/** @type {any} */ a,/** @type {any} */ b){
 function empRead109(/** @type {any} */ ctx){return ctx.db.panelReadDb?ctx.db.panelReadDb():ctx.db;}
 async function empOwner109(/** @type {any} */ ctx,/** @type {any} */ aid){
  const s=await verifySubscriberSession(ctx.env,ctx.request);if(!s.ok)throw httpError(s.message,401);
- if(aid&&!sessionAllows(s,aid,'modificar_datos'))throw httpError('Solo el propietario o administrador puede publicar por este anunciante.',403);
+ if(aid&&!sessionAllows(s,aid,'empleo'))throw httpError('No tenés permiso para gestionar Empleo por este anunciante.',403);
  if(aid){const read=empRead109(ctx);const admin=await read.get('anunciantes_administracion',aid);if(!admin||admin.aprobado===false||admin.activo===false)throw httpError('El anunciante no está habilitado para publicar.',403);}
  const kind=aid?'ANUNCIANTE':'PERSONA',owner=aid||s.sid,record='EMP-'+(await hmac(ctx.env,'employment:'+kind+':'+owner)).slice(0,32);
  return {session:s,kind,owner,record,aid};
@@ -10219,7 +10234,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'158',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'160',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -10669,7 +10684,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -10680,7 +10695,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -10882,7 +10897,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -10948,11 +10963,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'158',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'160',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -10965,7 +10980,7 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
    if(receipt.action==='actualizar_activos')Object.assign(result,{publicidades:await db.queryEqual('publicidades','anunciante_id',command.aid,500),sin_cambios:false,cambios:receipt.refs.length});
   }
   report.status=200;const {totals}=finishObservationV42(report);report.consumption=consumption136(report);
-  return json(result,200,{'X-GLD-Worker-Version':'158','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
+  return json(result,200,{'X-GLD-Worker-Version':'160','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
  }finally{console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
@@ -11095,7 +11110,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'158',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -11130,6 +11145,7 @@ var app_main_v35_default = {
       if(action)report.action=action;
       cache.ensureGuideBaseInternal=aid=>ensureGuideBaseFromPrivateInternal({db,cache,advertiserId:aid});
       const ctx={path,request,url,env,db,cache,request_id143:report.request_id};
+      const advertiserAccess158=await routeAdvertiserAccess155(ctx);if(advertiserAccess158)return await traced(advertiserAccess158);
       const gate155=await roleGate155(ctx);if(gate155)return await traced(gate155);
       const territorialAction=await GLD_ACTIONS138.route(ctx,report);if(territorialAction)return await traced(territorialAction);
       const businessDispatch143=await GLD_BUSINESS143.dispatch(ctx);if(businessDispatch143){report.event='gld_business_dispatch143';report.source='business-dispatch';report.status=businessDispatch143.status;return businessDispatch143;}
@@ -11137,7 +11153,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"158",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"160",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
@@ -11170,3 +11186,114 @@ var app_main_v35_default = {
   }
 };
 export {app_main_v35_default as default,GldPublicCache119};
+
+// Administrative access uses a short-lived capability for exactly one advertiser.
+const ADMIN_PANEL_PERMISSIONS155='PROMOS,EVENTOS,EVENTOS_FREE,ACTIVIDADES,PUBLICIDAD,TURNOS_FARMA,EFEMERIDES,EFEMERIDES_LOCAL,EFEMERIDES_PROVINCIAL,EFEMERIDES_GRL';
+function adminPanelRoute155(request,p){
+ const url=new URL(request.url),path=url.pathname.replace(/\/$/,'');
+ if(path==='/suscriptores')return ['GET','POST'].includes(request.method)&&['session','anunciantes_autorizados'].includes(p.action);
+ if(path==='/advertiser/terms')return request.method==='GET';
+ return ['/commerce','/promos','/events-new','/actividades','/publicidad','/farmacias','/efemerides','/empleo','/empleo/panel'].includes(path)&&['GET','POST'].includes(request.method);
+}
+async function verifyAdminPanel155(env,request,p){
+ if(!p.sid||!p.aid||!Number.isFinite(p.exp)||p.exp<=Date.now()||!['SUPERADMIN_PRINCIPAL','SUPERADMIN'].includes(p.admin_role))return {ok:false,message:'El acceso administrativo venció. Volvé a abrir el panel desde Gran Hermano.'};
+ const [policy,state]=await Promise.all([createCache(env).get('admin:access:v72:'+p.sid),subscriberSessionState(env,p.sid)]);
+ if(state.deleted||Number(p.sv||0)!==Number(state.version||0)||policy&&(!policy.activo||policy.revision!==p.access_revision))return {ok:false,message:'El acceso administrativo fue revocado.'};
+ const url=new URL(request.url),body=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
+ if(['/empleo','/empleo/panel'].includes(url.pathname)&&String(body.anunciante_id||url.searchParams.get('anunciante_id')||'')!==p.aid)return {ok:false,message:'Este acceso requiere el anunciante autorizado.'};
+ const action=String(body.action||body.accion||url.searchParams.get('action')||'').toLowerCase();
+ if(!adminPanelRoute155(request,{action}))throw httpError('Esta sesión solo permite gestionar el panel del anunciante.',401);
+ return {ok:true,sid:p.sid,admin_panel:true,admin_role:p.admin_role,aid:p.aid,exp:p.exp,auth:[{anunciante_id:p.aid,anunciante_nombre:p.nombre,rol:'ADMINISTRADOR',permisos:ADMIN_PANEL_PERMISSIONS155,activo:true}]};
+}
+function publicRelation155(row){return {id:String(row.id||row.relacion_id||row.suscriptor_anunciante_id||''),suscriptor_id:String(row.suscriptor_id||''),anunciante_id:String(row.anunciante_id||''),rol:String(row.rol||''),permisos:String(row.permisos||''),permisos_definidos:row.permisos_definidos===true,activo:truthy(row.activo)};}
+async function saveAdvertiserRelation155({db,env,auth,aid,body}){
+ const sid=String(body.suscriptor_id||'').trim(),role=String(body.rol||'').trim().toUpperCase();
+ if(!sid||sid.includes('/')||!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(role)||typeof body.activo!=='boolean')throw httpError('Indicá usuario, rol y estado válidos.',400);
+ const [subscriber,advertiser,admin,relations]=await Promise.all([db.cachedSubscriberProjection(sid),db.get('anunciantes',aid),db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid),db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500)]);
+ if(!subscriber||subscriber.activo===false||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
+ const matches=relations.filter(r=>String(r.suscriptor_id)===sid);
+ if(matches.length>1)throw httpError('Hay vínculos duplicados para este usuario. Requieren revisión antes de cambiar permisos.',409);
+ const previous=matches[0];
+ if(auth.owner&&((previous&&roleName159(previous.rol)==='PROPIETARIO')||role==='PROPIETARIO'))throw httpError('La delegación no permite modificar la titularidad del anuncio.',403);
+ const id=previous?String(previous.id||previous.relacion_id||previous.suscriptor_anunciante_id):sid+'__'+aid;
+ if(!id||id.includes('/'))throw httpError('Referencia de vínculo inválida.',409);
+ const current=await db.getVersioned('suscriptor_anunciante',id);
+ if(current.doc&&(String(current.doc.suscriptor_id)!==sid||String(current.doc.anunciante_id)!==aid))throw httpError('El vínculo no corresponde a esta persona y anunciante.',409);
+ if(auth.owner&&roleName159(current.doc?.rol)==='PROPIETARIO')throw httpError('No se puede modificar la titularidad desde la delegación.',403);
+ if(body.revision!==await wholeRevisionInternal(current.doc||{}))throw httpError('Los permisos cambiaron. Volvé a abrir la ficha.',409);
+ const normalize=v=>[...new Set((Array.isArray(v)?v:String(v||'').split(/[;,|\n]/)).map(x=>String(x).trim().toUpperCase()).filter(Boolean))].sort();
+ const allowed=normalize(admin?.funcionalidades).concat(['PUBLICIDAD','EMPLEO']),perms=role==='PROPIETARIO'?[]:normalize(body.permisos);
+ if(role==='MANAGER'&&perms.includes('MODIFICAR_DATOS'))throw httpError('El manager no puede modificar la información del anuncio.',403);
+ if(role==='ADMINISTRADOR')allowed.push('MODIFICAR_DATOS');
+ if(role==='MANAGER'&&body.activo&&!perms.length)throw httpError('Seleccioná al menos una función para el manager.',400);
+ if(perms.some(x=>!allowed.includes(x)))throw httpError('Solo se pueden delegar funciones disponibles para este anunciante.',400);
+ const next={suscriptor_id:sid,anunciante_id:aid,anunciante_nombre:String(advertiser.nombre||aid),rol:role,permisos:perms.join(', '),permisos_definidos:role!=='PROPIETARIO',activo:body.activo};
+ if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
+ // Revoke on both sides: a concurrent login cannot retain pre-change permissions.
+ await revokeSubscriberSessions(env,sid);
+ let saved;
+ try{saved=await db.patch('suscriptor_anunciante',id,{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},{...(current.doc?{mustExist:true,updateTime:current.updateTime}:{newDocument:true,mustNotExist:true}),subscriberId:sid});}
+ finally{await revokeSubscriberSessions(env,sid);}
+ return {success:true,updated:true,relacion:publicRelation155({...saved,id}),revision:await wholeRevisionInternal(saved),message:'Permisos guardados. El usuario debe volver a iniciar sesión.'};
+}
+async function routeAdvertiserAccess155(ctx){
+ const {path,request,env,db,cache}=ctx;
+ const team=await ownerTeamRoute159(ctx);if(team)return team;
+ if(path==='/advertisers/claim-options'){
+  if(request.method!=='GET')return json({success:false,message:'Método no permitido.'},405);
+  const user=await verifySubscriberSession(env,request);if(!user.ok||user.admin_panel)return json({success:false,message:'Ingresá con tu cuenta personal para reclamar.'},401);
+  const index=await cache.get(ADMIN_ADVERTISERS_KEY);if(!Array.isArray(index?.results))return json({success:false,message:'El catálogo de anuncios no está disponible. Reintentá más tarde.'},503);
+  const needle=norm6(ctx.url.searchParams.get('q')||'');
+  const rows=index.results.filter(r=>r.aprobado!==false&&(!needle||norm6([r.id,r.nombre,...r.ciudad_ids||[]].join(' ')).includes(needle)));
+  return json({success:true,results:rows.slice(0,100).map(r=>({id:String(r.id),nombre:String(r.nombre||r.id),ciudad_ids:r.ciudad_ids||[]})),hay_mas:rows.length>100});
+ }
+
+ let match=path.match(/^\/superadmin\/advertisers\/([^/]+)\/(panel-access|responsables)$/),reset=path.match(/^\/superadmin\/subscribers\/([^/]+)\/reset-access$/);
+ if(!match&&!reset)return null;
+ const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+ if(!isTopAdmin(auth))return json({success:false,message:'Solo Gran Hermano con acceso general puede realizar esta operación.'},403);
+ const id=decodeURIComponent((match||reset)[1]);if(!id||id.includes('/'))throw httpError('Identificador inválido.',400);
+ if(reset)return json({success:false,message:'La recuperación de contraseña se realiza desde la cuenta del titular.'},404);
+ if(match[2]==='responsables'){
+  if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
+  const body=await request.json();if(body.rol!=='PROPIETARIO')throw httpError('La delegación de funciones se realiza desde el panel del propietario.',403);
+  return json(await saveAdvertiserRelation155({db,env,auth,aid:id,body}));
+ }
+ if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
+ const [advertiser,admin,state]=await Promise.all([db.get('anunciantes',id),db.panelAdministration?db.panelAdministration(id):db.get('anunciantes_administracion',id),subscriberSessionState(env,auth.sid)]);
+ if(!advertiser)throw httpError('Anunciante no encontrado.',404);
+ const payload={typ:'GLD_ADMIN_PANEL',sid:auth.sid,aid:id,nombre:String(advertiser.nombre||id),admin_role:auth.rol,access_revision:auth.access_revision,sv:Number(state.version||0),iat:Date.now(),exp:Date.now()+30*60*1000};
+ const encoded=b64(JSON.stringify(payload));
+ return json({success:true,token:encoded+'.'+await hmac(env,encoded),expires_at:payload.exp,administracion:admin||{},relacion:{anunciante_id:id,anunciante_nombre:payload.nombre,rol:'ADMINISTRADOR',permisos:ADMIN_PANEL_PERMISSIONS155}});
+}
+
+function roleName159(value){return String(value||'').trim().toUpperCase().replace('COADMINISTRADOR','ADMINISTRADOR');}
+function contactSummary159(row,sid){return {suscriptor_id:String(sid),nombre:String(row?.nombre||''),mail:String(row?.mail||''),whatsapp:String(row?.whatsapp||row?.telefono||'')};}
+async function ownerSummaries159(db,relations){
+ const ids=[...new Set(relations.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)).map(r=>String(r.suscriptor_id||'')).filter(Boolean))];
+ return Promise.all(ids.map(async sid=>contactSummary159(await db.cachedSubscriberProjection(sid),sid)));
+}
+async function ownerTeamRoute159(ctx){
+ const {path,request,env,db,cache,url}=ctx;
+ if(!['/commerce/team','/commerce/team/search','/commerce/team/responsables'].includes(path))return null;
+ const body=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
+ const aid=String(body.advertiserId||url.searchParams.get('advertiserId')||'').trim();if(!aid)throw httpError('Falta el anunciante.',400);
+ const session=await verifySubscriberSession(env,request);if(!session.ok)throw httpError(session.message,401);
+ const owner=(session.auth||[]).find(r=>String(r.anunciante_id)===aid&&roleName159(r.rol)==='PROPIETARIO'&&r.activo!==false);
+ if(session.admin_panel||!owner)throw httpError('Solo el propietario puede delegar permisos desde su panel.',403);
+ if(path==='/commerce/team/responsables'){
+  if(request.method!=='POST')throw httpError('Método no permitido.',405);
+  if(!['ADMINISTRADOR','MANAGER'].includes(String(body.rol||'')))throw httpError('Elegí administrador o manager.',400);
+  return json(await saveAdvertiserRelation155({db,env,auth:{sid:session.sid,owner:true},aid,body}));
+ }
+ if(request.method!=='GET')throw httpError('Método no permitido.',405);
+ if(path==='/commerce/team/search'){
+  const q=String(url.searchParams.get('q')||'').trim().toLowerCase();if(!q)throw httpError('Escribí el correo electrónico de la persona.',400);
+  const index=await cache.get(ADMIN_SUBSCRIBERS_KEY);if(!Array.isArray(index?.results))throw httpError('El catálogo de usuarios no está disponible.',503);
+  return json({success:true,results:index.results.filter(r=>(String(r.mail||'').trim().toLowerCase()===q||String(r.suscriptor_id||r.id).toLowerCase()===q)&&r.activo!==false).slice(0,1).map(r=>({suscriptor_id:String(r.suscriptor_id||r.id),nombre:String(r.nombre||''),mail:String(r.mail||'')}))});
+ }
+ const relations=await (db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500));
+ const rows=await Promise.all(relations.map(async row=>({...publicRelation155(row),persona:contactSummary159(await db.cachedSubscriberProjection(row.suscriptor_id),row.suscriptor_id),revision:await wholeRevisionInternal(row)})));
+ const admin=await (db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid));
+ return json({success:true,results:rows,revision_nueva:await wholeRevisionInternal({}),funcionalidades:[...new Set((Array.isArray(admin?.funcionalidades)?admin.funcionalidades:String(admin?.funcionalidades||'').split(/[;,|\n]/)).concat(['PUBLICIDAD','EMPLEO']).map(x=>String(x).trim().toUpperCase()).filter(Boolean))]});
+}
