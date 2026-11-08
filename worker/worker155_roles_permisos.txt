@@ -1292,10 +1292,8 @@ async function syncPromo({ cache, current = null, next = null }) {
   const cities = [...new Set([text5(current && current.ciudad_id), text5(next && next.ciudad_id)].filter(Boolean))];
   for (const cityId of cities) {
     const key3 = promoCityKey(cityId);
-    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 1, ciudad_id: cityId, updated_at: "", promos: [] };
-    let rows = (packet2.promos || []).filter((x) => text5(x.promo_id) !== id4);
-    if (next && text5(next.ciudad_id) === cityId && visible(next)) rows.push(publicPromo(next));
-    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), promos: sort(rows) });
+    const projected=next&&text5(next.ciudad_id)===cityId&&visible(next)?publicPromo(next):null;
+    await cache.patchPublicEntity(key3,id4,projected);
   }
   await syncAdminPromoV91(cache,current,next);
   return { success: true, ciudades_actualizadas: cities };
@@ -1401,11 +1399,8 @@ async function syncEventV2({ db, cache, current = null, next = null, previousPro
   const cities = [.../* @__PURE__ */ new Set([...previous?.ciudades || [], ...eventCities(current, previousProgramacion), ...nextCities])];
   for (const cityId of cities) {
     const key3 = eventsCityKey(cityId);
-    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 2, ciudad_id: cityId, updated_at: "", events: [] };
-    const rows = (packet2.events || []).filter((x) => text7(x.evento_id || x.id) !== id4);
-    if (next && nextCities.includes(cityId) && published(next)) rows.push(cityEvent(next, programacion, cityId));
-    const sorted=sort2(rows);
-    if(!GLD_BUSINESS143.equal(packet2.events||[],sorted))await cache.put(key3,{version:2,ciudad_id:cityId,updated_at:new Date().toISOString(),events:sorted});
+    const projected=next&&nextCities.includes(cityId)&&published(next)?cityEvent(next,programacion,cityId):null;
+    await cache.patchPublicEntity(key3,id4,projected);
   }
   if(!GLD_BUSINESS143.equal(previous?.ciudades||[],nextCities))await cache.put(coverageKey(id4),{ciudades:nextCities});
   await putPreparedRelationsV1({ cache, type: "event", id: id4, next, data: programacion });
@@ -1480,13 +1475,8 @@ async function syncActivity({ db, cache, activityId, previousCities = [] }) {
   const targets = [...new Set([...(previousCities || []).map(text8), ...currentCities].filter(Boolean))];
   for (const cityId of targets) {
     const key3 = activityCityKey(cityId);
-    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 1, ciudad_id: cityId, updated_at: "", actividades: [] };
-    let rows = (packet2.actividades || []).filter((x) => text8(x.actividad_id || x.id) !== id4);
-    if (activity && isPublic(activity)) {
-      const hs = horarios.filter((h) => text8(h.ciudad_id) === cityId && (h.activo === void 0 || bool5(h.activo)));
-      if (hs.length) rows.push({ ...activity, horarios: hs });
-    }
-    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), actividades: sort3(rows) });
+    const hs=activity&&isPublic(activity)?horarios.filter(h=>text8(h.ciudad_id)===cityId&&(h.activo===void 0||bool5(h.activo))):[];
+    await cache.patchPublicEntity(key3,id4,hs.length?{...activity,horarios:hs}:null);
   }
   return { success: true, ciudades_actualizadas: targets };
 }
@@ -1516,12 +1506,8 @@ async function syncPublicity({ db, cache, publicityId, previousCities = [] }) {
   if (doc) media = await db.queryEqual("publicidad_media", "publicidad_id", id4);
   for (const cityId of targets) {
     const key3 = publicityCityKey(cityId);
-    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 1, ciudad_id: cityId, updated_at: "", publicidades: [] };
-    let rows = (packet2.publicidades || []).filter((x) => text9(x.publicidad_id || x.id) !== id4);
-    if (doc && isActive(doc) && currentCities.includes(cityId)) {
-      rows.push({ ...doc, media, segmentacion: seg.filter((x) => text9(x.ciudad_id) === cityId) });
-    }
-    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), publicidades: sort4(rows) });
+    const projected=doc&&isActive(doc)&&currentCities.includes(cityId)?{...doc,media,segmentacion:seg.filter(x=>text9(x.ciudad_id)===cityId)}:null;
+    await cache.patchPublicEntity(key3,id4,projected);
   }
   return { success: true, ciudades_actualizadas: targets };
 }
@@ -4824,11 +4810,8 @@ async function syncGuideAdvertiserV2({ db, cache, advertiserId, affectedCityIds 
   const cardMap = new Map(cards.map((c) => [text41(c.ciudad_id), c]));
   for (const cityId of targets) {
     const key3 = guideCityKey2(cityId);
-    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
     const base2 = cardMap.get(cityId);
-    let rows = (packet2.anunciantes || []).filter((x) => text41(x.id) !== aid);
-    if (base2 && publicAllowed(base2)) rows.push(base2);
-    await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), anunciantes: sortCards2(rows) });
+    await cache.patchPublicEntity(key3,aid,base2&&publicAllowed(base2)?base2:null);
   }
   await cache.put(guideAdvertiserKey(aid), {
     version: 2,
