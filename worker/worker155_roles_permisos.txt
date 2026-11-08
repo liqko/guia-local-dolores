@@ -2619,6 +2619,16 @@ var key2 = (sid) => "subscriber:session-state:v1:" + String(sid || "").trim();
 async function subscriberSessionState(env, sid) {
   const kv = env.GLD_CACHE_KV;
   if (!kv) throw new Error("Falta binding GLD_CACHE_KV.");
+  // La autorización nunca depende de propagación eventual de KV:
+  // obtener el mayor número de versión en el coordinador durable por cuenta.
+  if(env.GLD_PUBLIC_CACHE){
+    const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-auth-v162:'+sid));
+    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',
+      body:JSON.stringify({op:'auth-account-162',sid,mode:'state'})}));
+    const data=await response.json();
+    if(!response.ok||!data.ok)throw Error(data.error||'No se pudo comprobar sesión.');
+    return {version:Number(data.version||0),deleted:data.deleted===true};
+  }
   const raw = await kv.get(key2(sid));
   if (!raw) return { version: 0, deleted: false };
   return JSON.parse(raw);
@@ -10403,12 +10413,21 @@ class GldPublicCache119 {
  // El Durable Object conserva un paquete canónico; KV ofrece la copia de lectura.
  async authAccount162(body){
   const sid=String(body.sid||'').trim(),mode=body.mode;
-  if(!sid||!['hold','read','apply','seed','revoke'].includes(mode))throw Error('Invalid private bundle operation');
+  if(!sid||!['hold','read','apply','seed','revoke','state'].includes(mode))throw Error('Invalid private bundle operation');
   const key='auth:account-bundle:v161:'+encodeURIComponent(sid);
+  if(mode==='state'){
+    this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
+    const local=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
+    const raw=await this.env.GLD_CACHE_KV.get(key2(sid));
+    const remote=raw?JSON.parse(raw):{version:0,deleted:false};
+    return {ok:true,version:Math.max(Number(local?.version||0),Number(remote.version||0)),
+      deleted:local?.deleted===1||remote.deleted===true};
+  }
   if(mode==='revoke'){
    this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
    const prior=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
-   const remote=await subscriberSessionState(this.env,sid);
+   const raw=await this.env.GLD_CACHE_KV.get(key2(sid));
+   const remote=raw?JSON.parse(raw):{version:0,deleted:false};
    const version=Math.max(Number(prior?.version||0),Number(remote.version||0))+1;
    const deleted=body.deleted===true||prior?.deleted===1||remote.deleted===true;
    this.query('INSERT INTO auth_session162(slot,version,deleted) VALUES(1,?,?) ON CONFLICT(slot) DO UPDATE SET version=excluded.version,deleted=excluded.deleted',version,deleted?1:0);
@@ -10438,7 +10457,8 @@ class GldPublicCache119 {
     this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',JSON.stringify(packet));
    return {ok:true};
   }
-  const state=await subscriberSessionState(this.env,sid);
+  const rawState=await this.env.GLD_CACHE_KV.get(key2(sid));
+  const state=rawState?JSON.parse(rawState):{version:0,deleted:false};
   this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
   const durable=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
   if(state.deleted||durable?.deleted===1)throw Error('Subscriber revoked');
