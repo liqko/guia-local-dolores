@@ -8957,41 +8957,52 @@ function withPrivateCacheV46(db,env){
     async patch(collection,id,patch,options={}){
       if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null)){
         await invalidate(recordKey(collection,id));
-        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion'});
+        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion',phase:'before'});
       }
       if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       let affected=[];
       if(collection==='suscriptor_anunciante'){
         affected=[...await relationOwners(id,patch,options)];
-        for(const sid of affected){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
+        for(const sid of affected){await holdRevoke162(sid);await invalidate(relationKey(sid));}
       }
       let favKey;
       if(collection==='suscriptor_favoritos'){const sid=text(patch.suscriptor_id)||owners.get(collection+'/'+text(id));if(!sid)throw Error('Falta suscriptor del favorito.');favKey=await prepareFavorite(sid,id);}
       const oldAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const row=await db.patch(collection,id,patch,options);
-      if(collection==='suscriptor_anunciante')for(const sid of affected)await revokeAndInvalidateAccount161(sid);
+      if(collection==='suscriptor_anunciante')for(const sid of affected)await revokeSubscriberSessions(env,sid);
       if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null))
-        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion'});
+        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion',phase:'after',collection,row});
       if(collection==='anunciantes_administracion')administrationAfter104.set(panelAdminKey(id),row);
-      if(collection==='suscriptor_anunciante'){const nextAdvertiser104=text(row?.anunciante_id||patch.anunciante_id);if(oldAdvertiser104&&oldAdvertiser104!==nextAdvertiser104)await advertiserRelationDelta104(oldAdvertiser104,text(id),null);if(nextAdvertiser104)await advertiserRelationDelta104(nextAdvertiser104,text(id),{...patch,...row,id:text(id)});}
+      if(collection==='suscriptor_anunciante'){
+        const nextAdvertiser104=text(row?.anunciante_id||patch.anunciante_id),newSid=text(row?.suscriptor_id||patch.suscriptor_id);
+        if(oldAdvertiser104&&oldAdvertiser104!==nextAdvertiser104)await advertiserRelationDelta104(oldAdvertiser104,text(id),null);
+        if(nextAdvertiser104)await advertiserRelationDelta104(nextAdvertiser104,text(id),{...patch,...row,id:text(id)});
+        for(const sid of affected){
+          if(oldAdvertiser104&&(oldAdvertiser104!==nextAdvertiser104||sid!==newSid))await applyRelation162(sid,oldAdvertiser104,null,true);
+          if(sid===newSid&&nextAdvertiser104)await applyRelation162(sid,nextAdvertiser104,row);
+        }
+      }
       if(favKey)favoriteChanges.set(favKey,{sid:text(patch.suscriptor_id)||owners.get(collection+'/'+text(id)),id:text(id),deleted:false,data:{...patch,...row,id:text(id)}});
       if(row)remember(collection,[row]);
       return row;
     },
     async delete(collection,id,options={}){
-      if(advertiserCollections.has(collection)){await invalidate(recordKey(collection,id));await invalidateAffectedAdvertiser161(id,{revoke:true});}
+      if(advertiserCollections.has(collection)){await invalidate(recordKey(collection,id));await invalidateAffectedAdvertiser161(id,{revoke:true,phase:'before'});}
       if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       const removed=collection==='suscriptor_anunciante'?[...await relationOwners(id,null,options)]:[];
-      for(const sid of removed){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
+      for(const sid of removed){await holdRevoke162(sid);await invalidate(relationKey(sid));}
       let favKey;
       if(collection==='suscriptor_favoritos'){let sid=owners.get(collection+'/'+text(id))||text(options.subscriberId);if(!sid){const previous=await db.get(collection,id);if(previous){remember(collection,[previous]);sid=text(previous.suscriptor_id);}}if(sid)favKey=await prepareFavorite(sid,id);}
       if(collection==='suscriptores'){await revokeAndInvalidateAccount161(text(id));deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
       const previousAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const result=await db.delete(collection,id,options);
-      for(const sid of removed)await revokeAndInvalidateAccount161(sid);
-      if(advertiserCollections.has(collection))await invalidateAffectedAdvertiser161(id,{revoke:true});
+      for(const sid of removed)await revokeSubscriberSessions(env,sid);
+      if(advertiserCollections.has(collection))await invalidateAffectedAdvertiser161(id,{revoke:true,phase:'after',collection,row:null,remove:true});
       if(collection==='anunciantes_administracion')administrationAfter104.delete(panelAdminKey(id));
-      if(collection==='suscriptor_anunciante'&&previousAdvertiser104)await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
+      if(collection==='suscriptor_anunciante'&&previousAdvertiser104){
+        await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
+        for(const sid of removed)await applyRelation162(sid,previousAdvertiser104,null,true);
+      }
       if(favKey)favoriteChanges.set(favKey,{sid:owners.get(collection+'/'+text(id))||text(options.subscriberId),id:text(id),deleted:true});
       return result;
     },
