@@ -10128,22 +10128,19 @@ function empRecord109(/** @type {any} */ id){const value=String(id||'');if(!/^EM
 function empNormalize109(/** @type {any} */ v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();}
 function empLive109(/** @type {any} */ r,/** @type {any} */ now=Date.now()){return !!r&&!r.eliminado&&!r.pausado&&!r.revision_definitiva&&['PUBLICADO','APROBADO'].includes(r.estado_moderacion)&&(!r.contenido_adulto||r.revision_adulto==='APROBADO')&&Date.parse(r.hasta)>now;}
 function empPublic109(/** @type {any} */ r){return Object.fromEntries(['empleo_id','tipo','nombre','titulo','puesto','area','descripcion','modalidad','disponibilidad','tags','ciudad_id','ciudad_ids','desde','hasta','contacto','contenido_adulto','revision_adulto','estado_moderacion','anunciante_id','sede_id','sede_nombre','condiciones_url'].map((/** @type {any} */ k)=>[k,r[k]??'']));}
-async function empCityRows109(/** @type {any} */ cache,/** @type {any} */ env,/** @type {any} */ city){
- const generation=await cache.get('employment:revision:v109:'+city)||'empty',prepared=await cache.get('employment:prepared:v109:'+city);
- if(prepared?.generation===generation)return prepared.rows;
- const rows=[];let cursor;
- do{const page=await env.GLD_CACHE_KV.list({prefix:'employment:city:v109:'+encodeURIComponent(city)+':',limit:1000,...(cursor?{cursor}:{})});
- for(let i=0;i<page.keys.length;i+=32){const items=await Promise.all(page.keys.slice(i,i+32).map((/** @type {any} */ key)=>cache.get(key.name)));rows.push(...items.filter(Boolean));}
- cursor=page.list_complete?null:page.cursor;
- }while(cursor);if(JSON.stringify(rows).length<4000000)await cache.put('employment:prepared:v109:'+city,{generation,rows});return rows;
+async function empCityRows109(cache,env,city){
+ const packet=await cache.get('employment:city:v2:'+city);
+ return Array.isArray(packet?.rows)?packet.rows:[];
 }
-async function syncEmpleo109(/** @type {any} */ {cache,current,next}){
+async function syncEmpleo109({cache,current,next}){
  const record=String(next?.record_id||current?.record_id||empRecord109(next?.empleo_id||current?.empleo_id));
  if(!record)return;
  await cache.put('employment:record:v109:'+record,{row:next||null});
  const cities=[...new Set([...(current?.ciudad_ids||[]),...(next?.ciudad_ids||[])])];
- for(const city of cities){const key='employment:city:v109:'+encodeURIComponent(city)+':'+record;if(next&&next.ciudad_ids.includes(city)&&empLive109(next))await cache.put(key,empPublic109(next));else await cache.del(key);await cache.put('employment:revision:v109:'+city,crypto.randomUUID());}
-
+ for(const city of cities){
+  const row=next&&next.ciudad_ids.includes(city)&&empLive109(next)?empPublic109(next):null;
+  await cache.patchPublicEntity('employment:city:v2:'+city,String(next?.empleo_id||current?.empleo_id),row);
+ }
 }
 
 function empMatch109(/** @type {any} */ a,/** @type {any} */ b){
@@ -10252,9 +10249,9 @@ const RECOVERABLE119=new Set(['eventos','evento_programacion','actividades','act
 // One strongly consistent actor per module/city. Legacy KV is read only.
 // The actor merges entity changes, never replaces another request's full list.
 function cityDefinition119(key){
- const m=String(key).match(/^(guide|events|activities|promos|publicity|efemerides|farmacias):city:v([12]):(.+)$/);
+ const m=String(key).match(/^(guide|events|activities|promos|publicity|efemerides|farmacias|employment):city:v([12]):(.+)$/);
  if(!m)return null;
- const [field,id,collection]=({guide:['anunciantes','anunciante_id','anunciantes'],events:['events','evento_id','eventos'],activities:['actividades','actividad_id','actividades'],promos:['promos','promo_id','promos'],publicity:['publicidades','publicidad_id','publicidades'],efemerides:['efemerides','efemeride_id','efemerides_bis'],farmacias:['ciclos','ciclo_id','farmacias_ciclos']})[m[1]];
+ const [field,id,collection]=({guide:['anunciantes','anunciante_id','anunciantes'],events:['events','evento_id','eventos'],activities:['actividades','actividad_id','actividades'],promos:['promos','promo_id','promos'],publicity:['publicidades','publicidad_id','publicidades'],efemerides:['efemerides','efemeride_id','efemerides_bis'],farmacias:['ciclos','ciclo_id','farmacias_ciclos'],employment:['rows','empleo_id','empleos']})[m[1]];
  return {field,id,collection,module:m[1]};
 }
 function sourceStamp119(value){
@@ -10281,6 +10278,7 @@ function sortPublicCity119(key,rows){
  if(mod==='promos')return sort(rows);
  if(mod==='publicity')return sort6(rows);
  if(mod==='farmacias')return sortTurnos2(rows);
+ if(mod==='employment')return [...rows].sort((a,b)=>String(b.desde||'').localeCompare(String(a.desde||''))||String(a.empleo_id||'').localeCompare(String(b.empleo_id||'')));
  return rows;
 }
 class GldPublicCache119 {
@@ -10290,7 +10288,23 @@ class GldPublicCache119 {
   this.sql.exec('CREATE TABLE IF NOT EXISTS entities (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL, position INTEGER NOT NULL)');
  }
  query(sql,...args){const cursor=this.sql.exec(sql,...args),rows=[...cursor];this.metrics.rows_read+=cursor.rowsRead||0;this.metrics.rows_written+=cursor.rowsWritten||0;return rows;}
- async legacy(key){this.metrics.legacy_gets++;const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;}
+ async legacy(key){
+  this.metrics.legacy_gets++;
+  if(cityDefinition119(key)?.module==='employment'){
+   const city=key.slice('employment:city:v2:'.length),rows=[],prefix='employment:city:v109:'+encodeURIComponent(city)+':';
+   let cursor;
+   do{
+    const page=await this.env.GLD_CACHE_KV.list({prefix,limit:1000,...(cursor?{cursor}:{})});
+    for(let i=0;i<page.keys.length;i+=32){
+     const batch=await Promise.all(page.keys.slice(i,i+32).map(item=>this.env.GLD_CACHE_KV.get(item.name)));
+     for(const raw of batch)if(raw)rows.push(JSON.parse(raw));
+    }
+    cursor=page.list_complete?null:page.cursor;
+   }while(cursor);
+   return {version:2,ciudad_id:city,updated_at:'',rows:sortPublicCity119(key,[...new Map(rows.filter(r=>r?.empleo_id).map(r=>[String(r.empleo_id),r])).values()])};
+  }
+  const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;
+ }
  guideSnapshot135(packet,maxBytes=1500000){
   // Stay below the provider's 2 MB row limit. Larger cities retain the
   // existing entity representation rather than failing a read or a save.
@@ -10321,13 +10335,13 @@ class GldPublicCache119 {
   (this.metrics.read_paths??=[]).push(trace);
   if(this.cached!==null){trace.source='memory';return this.cached;}
   const head=this.query('SELECT value,deleted FROM packet WHERE slot=1')[0];
-  if(!head){trace.source='legacy-kv';return this.legacy(key);}
+  if(!head){trace.source='legacy-kv';const initial=await this.legacy(key);if(def.module==='employment'&&initial){this.state.storage.transactionSync(()=>this.initialize(initial,def));this.cached=initial;}return initial;}
   if(head.deleted){trace.source='deleted-packet';return null;}
   const stored=JSON.parse(head.value);
   if(def.module==='efemerides'&&stored.__efem_packet140&&stored.__efem_packet140.updated_at===(stored.updated_at||'')){
    trace.source='saved-chunked-packet';const result=this.readEfemSnapshot140(stored.__efem_packet140);if(JSON.stringify(result).length<2000000)this.cached=result;return result;
   }
-  if(['guide','efemerides','publicity','promos','events'].includes(def.module)&&Array.isArray(stored[def.field])){
+  if(['guide','efemerides','publicity','promos','events','employment'].includes(def.module)&&Array.isArray(stored[def.field])){
    trace.source='saved-packet';
    if(head.value.length<2000000)this.cached=stored;
    return stored;
@@ -10337,7 +10351,7 @@ class GldPublicCache119 {
   const result={...stored,[def.field]:sortPublicCity119(key,rows)};
   // Upgrade the old metadata-only row once per city. Subsequent cold reads
   // use the finished packet; normal saves replace the row they already wrote.
-  if(['guide','publicity','promos','events'].includes(def.module)){
+  if(['guide','publicity','promos','events','employment'].includes(def.module)){
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
@@ -10354,7 +10368,7 @@ class GldPublicCache119 {
  initialize(packet,def){
   if(this.query('SELECT slot FROM packet WHERE slot=1').length)return;
   const {[def.field]:rows=[],...meta}=packet||{};
-  const snapshot=def.module==='efemerides'?this.efemSnapshot140({...meta,[def.field]:rows}):['guide','publicity','promos','events'].includes(def.module)?this.guideSnapshot135({...meta,[def.field]:rows}):null;
+  const snapshot=def.module==='efemerides'?this.efemSnapshot140({...meta,[def.field]:rows}):['guide','publicity','promos','events','employment'].includes(def.module)?this.guideSnapshot135({...meta,[def.field]:rows}):null;
   this.query('INSERT INTO packet(slot,value,deleted) VALUES(1,?,0)',snapshot??JSON.stringify(meta));
   for(const [position,row]of rows.entries()){
    const id=String(row[def.id]||row.id||'');if(!id)throw Error('Public cache entity missing identifier');
@@ -10572,7 +10586,7 @@ class GldPublicCache119 {
    }
    nextPacket={...previous,updated_at:new Date().toISOString(),[def.field]:sortPublicCity119(key,[...rows.values()])};
    const {[def.field]:publicRows,...metaFields}=nextPacket;
-   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
+   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events','employment'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
    this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',snapshot??JSON.stringify(metaFields));
    this.query('DELETE FROM pending_public162');
    this.query('DELETE FROM pending_public_meta162');
@@ -10587,7 +10601,7 @@ class GldPublicCache119 {
   if(op==='draft-get')return {value:await this.draftRead162(key,def)};
   if(op==='delta')return this.stageDirectDelta162(body,def);
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
-  if(op==='put'&&['guide','events','promos','publicity','activities'].includes(def.module))return this.stageDaily162(body,def);
+  if(op==='put'&&['guide','events','promos','publicity','activities','employment'].includes(def.module))return this.stageDaily162(body,def);
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
   this.state.storage.transactionSync(()=>{
    this.initialize(prior,def);
@@ -10619,7 +10633,7 @@ class GldPublicCache119 {
     if(b)merged.set(id,b);else merged.delete(id);
    }
    nextPacket={...meta,[def.field]:sortPublicCity119(key,[...merged.values()])};
-   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
+   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events','employment'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
    this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',snapshot??JSON.stringify(meta));
   });
   this.cached=nextPacket&&JSON.stringify(nextPacket).length<2000000?nextPacket:null;
