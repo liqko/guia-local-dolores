@@ -976,8 +976,8 @@ function createCache(env) {
   }
   return {
     invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(env,'pending-events-invalidate'):null,
-    async get(key3) {
-      const raw = await kv.get(key3);
+    async get(key3,options) {
+      const raw = await kv.get(key3,options);
       if (!raw) return null;
       try {
         return JSON.parse(raw);
@@ -1288,7 +1288,7 @@ async function syncPromo({ cache, current = null, next = null }) {
   const cities = [...new Set([text5(current && current.ciudad_id), text5(next && next.ciudad_id)].filter(Boolean))];
   for (const cityId of cities) {
     const key3 = promoCityKey(cityId);
-    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", promos: [] };
+    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 1, ciudad_id: cityId, updated_at: "", promos: [] };
     let rows = (packet2.promos || []).filter((x) => text5(x.promo_id) !== id4);
     if (next && text5(next.ciudad_id) === cityId && visible(next)) rows.push(publicPromo(next));
     await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), promos: sort(rows) });
@@ -1397,7 +1397,7 @@ async function syncEventV2({ db, cache, current = null, next = null, previousPro
   const cities = [.../* @__PURE__ */ new Set([...previous?.ciudades || [], ...eventCities(current, previousProgramacion), ...nextCities])];
   for (const cityId of cities) {
     const key3 = eventsCityKey(cityId);
-    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", events: [] };
+    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 2, ciudad_id: cityId, updated_at: "", events: [] };
     const rows = (packet2.events || []).filter((x) => text7(x.evento_id || x.id) !== id4);
     if (next && nextCities.includes(cityId) && published(next)) rows.push(cityEvent(next, programacion, cityId));
     const sorted=sort2(rows);
@@ -1476,7 +1476,7 @@ async function syncActivity({ db, cache, activityId, previousCities = [] }) {
   const targets = [...new Set([...(previousCities || []).map(text8), ...currentCities].filter(Boolean))];
   for (const cityId of targets) {
     const key3 = activityCityKey(cityId);
-    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", actividades: [] };
+    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 1, ciudad_id: cityId, updated_at: "", actividades: [] };
     let rows = (packet2.actividades || []).filter((x) => text8(x.actividad_id || x.id) !== id4);
     if (activity && isPublic(activity)) {
       const hs = horarios.filter((h) => text8(h.ciudad_id) === cityId && (h.activo === void 0 || bool5(h.activo)));
@@ -1512,7 +1512,7 @@ async function syncPublicity({ db, cache, publicityId, previousCities = [] }) {
   if (doc) media = await db.queryEqual("publicidad_media", "publicidad_id", id4);
   for (const cityId of targets) {
     const key3 = publicityCityKey(cityId);
-    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", publicidades: [] };
+    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 1, ciudad_id: cityId, updated_at: "", publicidades: [] };
     let rows = (packet2.publicidades || []).filter((x) => text9(x.publicidad_id || x.id) !== id4);
     if (doc && isActive(doc) && currentCities.includes(cityId)) {
       rows.push({ ...doc, media, segmentacion: seg.filter((x) => text9(x.ciudad_id) === cityId) });
@@ -4800,7 +4800,7 @@ async function syncGuideAdvertiserV2({ db, cache, advertiserId, affectedCityIds 
   const cardMap = new Map(cards.map((c) => [text41(c.ciudad_id), c]));
   for (const cityId of targets) {
     const key3 = guideCityKey2(cityId);
-    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
+    const packet2 = await cache.get(key3,{gldDraft:true}) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
     const base2 = cardMap.get(cityId);
     let rows = (packet2.anunciantes || []).filter((x) => text41(x.id) !== aid);
     if (base2 && publicAllowed(base2)) rows.push(base2);
@@ -10310,6 +10310,21 @@ class GldPublicCache119 {
 
  // Publicación diferida: almacenar sólo las entidades modificadas; publicar
  // una instantánea por ciudad/módulo a la 01:00 de Argentina (04:00 UTC).
+ async draftRead162(key,def){
+  if(this.draftPacket162?.key===key)return structuredClone(this.draftPacket162.value);
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
+  const previous=await this.read(key,def)||{version:2,ciudad_id:key.split(':').pop(),updated_at:'',[def.field]:[]};
+  const pending=this.query('SELECT id,value,stamp FROM pending_public162');
+  if(!pending.length)return previous;
+  const rows=new Map((previous[def.field]||[]).map(row=>[String(row?.[def.id]||row?.id||''),row]));
+  for(const item of pending){
+   if(item.value===null)rows.delete(item.id);
+   else rows.set(item.id,JSON.parse(item.value));
+  }
+  const result={...previous,[def.field]:sortPublicCity119(key,[...rows.values()])};
+  if(JSON.stringify(result).length<2000000)this.draftPacket162={key,value:result};
+  return result;
+ }
  async stageDaily162(body,def){
   const key=String(body.key||''),field=def.field,value=body.value;
   if(!value||!Array.isArray(value[field]))throw Error('Invalid staged public packet');
@@ -10343,6 +10358,8 @@ class GldPublicCache119 {
     await this.state.storage.setAlarm(next.getTime());
    }
   }
+  if(changed&&JSON.stringify(value).length<2000000)this.draftPacket162={key,value:structuredClone(value)};
+  else if(changed)this.draftPacket162=null;
   return {ok:true,deferred:true,changed};
  }
  async alarm(){
@@ -10375,11 +10392,13 @@ class GldPublicCache119 {
    this.query('DELETE FROM pending_public_meta162');
   });
   this.cached=nextPacket&&JSON.stringify(nextPacket).length<2000000?nextPacket:null;
+  this.draftPacket162=null;
  }
 
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
   if(op==='get')return {value:await this.read(key,def)};
+  if(op==='draft-get')return {value:await this.draftRead162(key,def)};
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
   if(op==='put'&&['guide','events','promos','publicity','activities'].includes(def.module))return this.stageDaily162(body,def);
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
@@ -10455,13 +10474,13 @@ function coordinatedCities119(env,report){
   return result;
  }
  const binding=new Proxy(kv,{get(target,prop){
-  if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,'get');bases.set(key,value);return value?JSON.stringify(value):null;};
+  if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,options?.gldDraft?'draft-get':'get');bases.set(key,value);return value?JSON.stringify(value):null;};
   if(prop==='put')return async(key,value,options)=>{if(!cityDefinition119(key))return target.put(key,value,options);if(options&&Object.keys(options).length)throw Error('Public cache TTL unsupported');const packet=JSON.parse(value);
    if(!bases.has(key)){
     // A full catalog rebuild has no preceding city read. Capture the current
     // packet and apply the source revisions collected by the rebuild, so rows
     // omitted from that snapshot are removed without dropping newer additions.
-    const {value:current}=await call(key,'get');bases.set(key,current);
+    const {value:current}=await call(key,'draft-get');bases.set(key,current);
     const def=cityDefinition119(key),ids=new Set((packet?.[def.field]||[]).map(row=>String(row[def.id]||row.id||'')));
     const source=observeDbV41(createDb(env),report);
     for(const row of current?.[def.field]||[]){
@@ -10490,6 +10509,7 @@ function requestCache121(env,report,readOnly126=false){
  function invalidate(k){epochs.set(k,epoch(k)+1);values.delete(k);pending.delete(k);lists.clear();if(PUBLIC_CATALOG_KEYS126.has(k))shared.delete(k);}
  const kv=new Proxy(native,{get(target,method){
   if(method==='get')return async(key,options)=>{
+   if(options?.gldDraft)return target.get(key,options);
    if(typeof options==='string'&&options!=='text'||options?.type&&options.type!=='text')return target.get(key,options);
    if(readOnly126&&PUBLIC_CATALOG_KEYS126.has(key)){const hit=shared.get(key);if(hit&&Date.now()<hit.until){stats.catalogs_reused=(stats.catalogs_reused||0)+1;return hit.value;}}
    if(values.has(key)){stats.reads_reused++;return values.get(key);}
