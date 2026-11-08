@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 160 - ROLES Y PERMISOS (base 154)
+// GUÍA LOCAL - WORKER 161 - ROLES Y PERMISOS (base 154)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'160',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'161',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -5581,25 +5581,30 @@ async function subscriberLoginV2({env,db,body}){
   const sid=text(sus.suscriptor_id||sus.id);
   const state=await subscriberSessionState(env,sid);
   if(state.deleted)return{success:false,message:"Suscriptor no activo"};
-  const relations=(await (db.loginRelations?db.loginRelations(sid):db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100)))
-    .filter(r=>text(r.anunciante_id)&&truthy(r.activo));
-
-  const enriched=await Promise.all(relations.map(async rel=>{
-    const aid=text(rel.anunciante_id);
-    const [advertiser,admin]=await Promise.all([
-      text(rel.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes",aid):db.get("anunciantes",aid)),
-      text(rel.permisos)||rel.permisos_definidos===true?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes_administracion",aid):db.get("anunciantes_administracion",aid))
-    ]);
-    return {
-      suscriptor_id:sid,
-      anunciante_id:aid,
-      anunciante_nombre:text(rel.anunciante_nombre||(advertiser&&advertiser.nombre)||(admin&&admin.nombre)),
-      rol:text(rel.rol).toUpperCase(),
-      permisos:perms(rel,admin),
-      permisos_definidos:rel.permisos_definidos===true,
-      activo:true
-    };
-  }));
+  const buildRelations161=async()=>{
+    const relations=(await (db.loginRelations?db.loginRelations(sid):db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100)))
+      .filter(r=>text(r.anunciante_id)&&truthy(r.activo));
+  
+    const enriched=await Promise.all(relations.map(async rel=>{
+      const aid=text(rel.anunciante_id);
+      const [advertiser,admin]=await Promise.all([
+        text(rel.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes",aid):db.get("anunciantes",aid)),
+        text(rel.permisos)||rel.permisos_definidos===true?null:(db.loginAdvertiser?db.loginAdvertiser("anunciantes_administracion",aid):db.get("anunciantes_administracion",aid))
+      ]);
+      return {
+        suscriptor_id:sid,
+        anunciante_id:aid,
+        anunciante_nombre:text(rel.anunciante_nombre||(advertiser&&advertiser.nombre)||(admin&&admin.nombre)),
+        rol:text(rel.rol).toUpperCase(),
+        permisos:perms(rel,admin),
+        permisos_definidos:rel.permisos_definidos===true,
+        activo:true
+      };
+    }));
+  
+      return enriched;
+  };
+  const enriched=await (db.loginAuthorizationBundle161?db.loginAuthorizationBundle161(sid,Number(state.version||0),buildRelations161):buildRelations161());
 
   const token=await issue(env,{
     sid,
@@ -8727,6 +8732,7 @@ const advertiserCollections=new Set(['anunciantes','anunciantes_administracion']
 const loginFieldsChanged132=(patch,before)=>['nombre','funcionalidades'].some(key=>Object.hasOwn(patch||{},key)&&(!before||!sameCacheData129(before[key],patch[key])));
 
 const LOGIN_RECORD_POOL158=new WeakMap();
+const ACCOUNT_BUNDLE_PREFIX_V161='auth:account-bundle:v161:';
 function withPrivateCacheV46(db,env){
   const kv=env.GLD_CACHE_KV;
   const loginScope158=env.__gldCatalogScope126||kv;
@@ -8741,6 +8747,20 @@ function withPrivateCacheV46(db,env){
   }
   const owners=new Map(),advertiserOwners104=new Map(),administrationAfter104=new Map();
   const dirty=new Set();
+  async function revokeAndInvalidateAccount161(sid){
+    if(!sid)return;
+    await revokeSubscriberSessions(env,sid);
+    await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
+  }
+  async function invalidateAffectedAdvertiser161(aid,{revoke=false}={}){
+    if(!aid)return;
+    const relations=await cachedAdvertiserRelations104(aid);
+    const ids=[...new Set(relations.map(row=>text(row.suscriptor_id)).filter(Boolean))];
+    for(const sid of ids){
+      if(revoke)await revokeAndInvalidateAccount161(sid);
+      else await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
+    }
+  }
   const favoriteChanges=new Map();
   const deletedSubscribers=new Set();
   const favoriteDelta=(sid,id)=>favoriteKey(sid)+':delta:'+text(id);
@@ -8858,6 +8878,18 @@ function withPrivateCacheV46(db,env){
   return {
     ...db,
     flushLoginCache:flush,
+    async loginAuthorizationBundle161(sid,sv,build){
+      if(!sid||!kv?.get||!kv?.put||typeof build!=='function')throw Error('No disponible paquete de autorizaciones.');
+      const key=ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid);
+      let packet=null;
+      try{const raw=await kv.get(key,{cacheTtl:30});packet=raw?JSON.parse(raw):null;}catch(_){}
+      if(packet?.version===161&&packet?.sv===sv&&Array.isArray(packet.relations))return structuredClone(packet.relations);
+      const relations=await build();
+      const state=await subscriberSessionState(env,sid);
+      if(state.deleted||Number(state.version||0)!==sv)throw Error('Autorizaciones modificadas durante el ingreso. Reintentá.');
+      await kv.put(key,JSON.stringify({version:161,sv,relations}));
+      return relations;
+    },
     async repairPrivateGuide132(collection,id,row){
       if(advertiserCollections.has(collection))await invalidate(recordKey(collection,id));
       if(collection==='anunciantes_administracion'){await invalidate(panelAdminKey(id));if(row)administrationAfter104.set(panelAdminKey(id),row);}
@@ -8865,23 +8897,37 @@ function withPrivateCacheV46(db,env){
     async get(collection,id){const row=await db.get(collection,id);if(row)remember(collection,[row]);return row;},
     async queryEqual(...args){return remember(args[0],await db.queryEqual(...args));},
     async commitPatches(entries){
-      for(const e of entries){if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))await invalidate(recordKey(e.collection,e.id));if(e.collection==='anunciantes_administracion')await invalidate(panelAdminKey(e.id));}
+      const affected=new Set();
+      for(const e of entries){
+        if(e.collection==='suscriptor_anunciante')for(const sid of await relationOwners(e.id,e.patch||{},e.options||{}))affected.add(sid);
+        if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before))){
+          await invalidate(recordKey(e.collection,e.id));
+          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
+        }
+        if(e.collection==='anunciantes_administracion')await invalidate(panelAdminKey(e.id));
+      }
+      for(const sid of affected)await revokeAndInvalidateAccount161(sid);
       const saved=await db.commitPatches(entries);
+      for(const sid of affected)await revokeAndInvalidateAccount161(sid);
       for(let i=0;i<entries.length;i++){const e=entries[i],row=saved[i];if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}if(row)remember(e.collection,[row]);}
       return saved;
     },
     async patch(collection,id,patch,options={}){
-      if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null))await invalidate(recordKey(collection,id));
+      if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null)){
+        await invalidate(recordKey(collection,id));
+        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion'});
+      }
       if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       let affected=[];
       if(collection==='suscriptor_anunciante'){
         affected=[...await relationOwners(id,patch,options)];
-        for(const sid of affected)await invalidate(relationKey(sid));
+        for(const sid of affected){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       }
       let favKey;
       if(collection==='suscriptor_favoritos'){const sid=text(patch.suscriptor_id)||owners.get(collection+'/'+text(id));if(!sid)throw Error('Falta suscriptor del favorito.');favKey=await prepareFavorite(sid,id);}
       const oldAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const row=await db.patch(collection,id,patch,options);
+      if(collection==='suscriptor_anunciante')for(const sid of affected)await revokeAndInvalidateAccount161(sid);
       if(collection==='anunciantes_administracion')administrationAfter104.set(panelAdminKey(id),row);
       if(collection==='suscriptor_anunciante'){const nextAdvertiser104=text(row?.anunciante_id||patch.anunciante_id);if(oldAdvertiser104&&oldAdvertiser104!==nextAdvertiser104)await advertiserRelationDelta104(oldAdvertiser104,text(id),null);if(nextAdvertiser104)await advertiserRelationDelta104(nextAdvertiser104,text(id),{...patch,...row,id:text(id)});}
       if(favKey)favoriteChanges.set(favKey,{sid:text(patch.suscriptor_id)||owners.get(collection+'/'+text(id)),id:text(id),deleted:false,data:{...patch,...row,id:text(id)}});
@@ -8889,14 +8935,16 @@ function withPrivateCacheV46(db,env){
       return row;
     },
     async delete(collection,id,options={}){
-      if(advertiserCollections.has(collection))await invalidate(recordKey(collection,id));
+      if(advertiserCollections.has(collection)){await invalidate(recordKey(collection,id));await invalidateAffectedAdvertiser161(id,{revoke:true});}
       if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
-      if(collection==='suscriptor_anunciante')for(const sid of await relationOwners(id,null,options))await invalidate(relationKey(sid));
+      const removed=collection==='suscriptor_anunciante'?[...await relationOwners(id,null,options)]:[];
+      for(const sid of removed){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       let favKey;
       if(collection==='suscriptor_favoritos'){let sid=owners.get(collection+'/'+text(id))||text(options.subscriberId);if(!sid){const previous=await db.get(collection,id);if(previous){remember(collection,[previous]);sid=text(previous.suscriptor_id);}}if(sid)favKey=await prepareFavorite(sid,id);}
       if(collection==='suscriptores'){deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
       const previousAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const result=await db.delete(collection,id,options);
+      for(const sid of removed)await revokeAndInvalidateAccount161(sid);
       if(collection==='anunciantes_administracion')administrationAfter104.delete(panelAdminKey(id));
       if(collection==='suscriptor_anunciante'&&previousAdvertiser104)await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
       if(favKey)favoriteChanges.set(favKey,{sid:owners.get(collection+'/'+text(id))||text(options.subscriberId),id:text(id),deleted:true});
@@ -10234,7 +10282,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'160',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'161',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -10684,7 +10732,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -10695,7 +10743,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -10897,7 +10945,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -10963,11 +11011,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'160',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'161',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -10980,7 +11028,7 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
    if(receipt.action==='actualizar_activos')Object.assign(result,{publicidades:await db.queryEqual('publicidades','anunciante_id',command.aid,500),sin_cambios:false,cambios:receipt.refs.length});
   }
   report.status=200;const {totals}=finishObservationV42(report);report.consumption=consumption136(report);
-  return json(result,200,{'X-GLD-Worker-Version':'160','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
+  return json(result,200,{'X-GLD-Worker-Version':'161','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
  }finally{console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
@@ -11110,7 +11158,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'160',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -11153,7 +11201,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"160",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"161",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
