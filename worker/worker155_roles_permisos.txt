@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 162 (CANDIDATO A PRUEBA CONTROLADA; PRODUCCIÓN 161 HASTA VALIDACIÓN) - ROLES Y PERMISOS (base 154)
+// GUÍA LOCAL - WORKER 162 - PROTOTIPO DELTA EVENTOS BASADO EN 161; NO DESPLEGAR - ROLES Y PERMISOS (base 154)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'162',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'161',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -976,8 +976,8 @@ function createCache(env) {
   }
   return {
     invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(env,'pending-events-invalidate'):null,
-    async get(key3,options) {
-      const raw = await kv.get(key3,options);
+    async get(key3) {
+      const raw = await kv.get(key3);
       if (!raw) return null;
       try {
         return JSON.parse(raw);
@@ -989,8 +989,8 @@ function createCache(env) {
       await kv.put(key3, JSON.stringify(value), options);
     },
     async patchPublicEntity(key3,id,row) {
-      if(typeof kv.delta!=='function')throw Error('El publicador incremental no está disponible');
-      return kv.delta(key3,String(id),row??null);
+      if(typeof kv.delta!=='function')throw Error('El coordinador de cambios puntuales no está disponible');
+      await kv.delta(key3,String(id),row??null);
     },
     async del(key3) {
       if (typeof kv.delete === "function") await kv.delete(key3);
@@ -1292,8 +1292,10 @@ async function syncPromo({ cache, current = null, next = null }) {
   const cities = [...new Set([text5(current && current.ciudad_id), text5(next && next.ciudad_id)].filter(Boolean))];
   for (const cityId of cities) {
     const key3 = promoCityKey(cityId);
-    const projected=next&&text5(next.ciudad_id)===cityId&&visible(next)?publicPromo(next):null;
-    await cache.patchPublicEntity(key3,id4,projected);
+    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", promos: [] };
+    let rows = (packet2.promos || []).filter((x) => text5(x.promo_id) !== id4);
+    if (next && text5(next.ciudad_id) === cityId && visible(next)) rows.push(publicPromo(next));
+    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), promos: sort(rows) });
   }
   await syncAdminPromoV91(cache,current,next);
   return { success: true, ciudades_actualizadas: cities };
@@ -1398,9 +1400,8 @@ async function syncEventV2({ db, cache, current = null, next = null, previousPro
   const nextCities = eventCities(next, programacion);
   const cities = [.../* @__PURE__ */ new Set([...previous?.ciudades || [], ...eventCities(current, previousProgramacion), ...nextCities])];
   for (const cityId of cities) {
-    const key3 = eventsCityKey(cityId);
-    const projected=next&&nextCities.includes(cityId)&&published(next)?cityEvent(next,programacion,cityId):null;
-    await cache.patchPublicEntity(key3,id4,projected);
+    const row=next&&nextCities.includes(cityId)&&published(next)?cityEvent(next,programacion,cityId):null;
+    await cache.patchPublicEntity(eventsCityKey(cityId),id4,row);
   }
   if(!GLD_BUSINESS143.equal(previous?.ciudades||[],nextCities))await cache.put(coverageKey(id4),{ciudades:nextCities});
   await putPreparedRelationsV1({ cache, type: "event", id: id4, next, data: programacion });
@@ -1475,8 +1476,13 @@ async function syncActivity({ db, cache, activityId, previousCities = [] }) {
   const targets = [...new Set([...(previousCities || []).map(text8), ...currentCities].filter(Boolean))];
   for (const cityId of targets) {
     const key3 = activityCityKey(cityId);
-    const hs=activity&&isPublic(activity)?horarios.filter(h=>text8(h.ciudad_id)===cityId&&(h.activo===void 0||bool5(h.activo))):[];
-    await cache.patchPublicEntity(key3,id4,hs.length?{...activity,horarios:hs}:null);
+    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", actividades: [] };
+    let rows = (packet2.actividades || []).filter((x) => text8(x.actividad_id || x.id) !== id4);
+    if (activity && isPublic(activity)) {
+      const hs = horarios.filter((h) => text8(h.ciudad_id) === cityId && (h.activo === void 0 || bool5(h.activo)));
+      if (hs.length) rows.push({ ...activity, horarios: hs });
+    }
+    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), actividades: sort3(rows) });
   }
   return { success: true, ciudades_actualizadas: targets };
 }
@@ -1506,8 +1512,12 @@ async function syncPublicity({ db, cache, publicityId, previousCities = [] }) {
   if (doc) media = await db.queryEqual("publicidad_media", "publicidad_id", id4);
   for (const cityId of targets) {
     const key3 = publicityCityKey(cityId);
-    const projected=doc&&isActive(doc)&&currentCities.includes(cityId)?{...doc,media,segmentacion:seg.filter(x=>text9(x.ciudad_id)===cityId)}:null;
-    await cache.patchPublicEntity(key3,id4,projected);
+    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", publicidades: [] };
+    let rows = (packet2.publicidades || []).filter((x) => text9(x.publicidad_id || x.id) !== id4);
+    if (doc && isActive(doc) && currentCities.includes(cityId)) {
+      rows.push({ ...doc, media, segmentacion: seg.filter((x) => text9(x.ciudad_id) === cityId) });
+    }
+    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), publicidades: sort4(rows) });
   }
   return { success: true, ciudades_actualizadas: targets };
 }
@@ -1544,9 +1554,10 @@ async function syncEfemeride({ db, cache, efemerideId, previous = null }) {
     if (tipo === "GENERAL") for (const c of territory.ciudades || []) targets.add(text10(c.ciudad_id || c.id));
   }
   for (const city of [...targets].filter(Boolean)) {
-    const key3=efemCityKey(city);
-    const projected=next&&(next.activo===void 0||bool6(next.activo))&&matchesCity(next,city,territory)?next:null;
-    await cache.patchPublicEntity(key3,id4,projected);
+    const key3 = efemCityKey(city), packet2 = await cache.get(key3) || { version: 1, ciudad_id: city, updated_at: "", efemerides: [] };
+    let rows = (packet2.efemerides || []).filter((x) => text10(x.efemeride_id || x.id) !== id4);
+    if (next && (next.activo === void 0 || bool6(next.activo)) && matchesCity(next, city, territory)) rows.push(next);
+    await cache.put(key3, { version: 1, ciudad_id: city, updated_at: (/* @__PURE__ */ new Date()).toISOString(), efemerides: rows });
   }
   return { success: true, ciudades_actualizadas: [...targets] };
 }
@@ -1627,14 +1638,19 @@ async function syncFarmCycle({ db, cache, cycleId, previousCity = "" }) {
   const targets = [...new Set([text12(previousCity), nextCity].filter(Boolean))];
   for (const city of targets) {
     const key3 = farmCityKey(city);
-    let projected=null;
-    if(cycle&&nextCity===city){
-      const participantes=await db.queryEqual("farmacias_ciclo_sedes","ciclo_id",id4);
-      const sedeIds=[...new Set(participantes.map(x=>text12(x.sede_id)).filter(Boolean))];
-      const sedes=(await Promise.all(sedeIds.map(sid=>db.get("anunciantes_sedes",sid)))).filter(Boolean);
-      projected={...cycle,participantes,sedes};
+    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: city, updated_at: "", ciclos: [] };
+    let rows = (packet2.ciclos || []).filter((x) => text12(x.ciclo_id || x.id) !== id4);
+    if (cycle && nextCity === city) {
+      const participantes = await db.queryEqual("farmacias_ciclo_sedes", "ciclo_id", id4);
+      const sedeIds = [...new Set(participantes.map((x) => text12(x.sede_id)).filter(Boolean))];
+      const sedes = [];
+      for (const sid of sedeIds) {
+        const s = await db.get("anunciantes_sedes", sid);
+        if (s) sedes.push(s);
+      }
+      rows.push({ ...cycle, participantes, sedes });
     }
-    await cache.patchPublicEntity(key3,id4,projected);
+    await cache.put(key3, { version: 1, ciudad_id: city, updated_at: (/* @__PURE__ */ new Date()).toISOString(), ciclos: sortTurnos(rows) });
   }
   return { success: true, ciudades_actualizadas: targets };
 }
@@ -1925,8 +1941,13 @@ async function syncActivityPreparedV2({ cache, activityId, current = null, next 
   const targets = [...new Set([...(previousCities || []).map(text16), ...currentCities].filter(Boolean))];
   for (const cityId of targets) {
     const key3 = activityCityKeyV2(cityId);
-    const hs=next&&isPublic3(next)?(horarios||[]).filter(h=>text16(h.ciudad_id)===cityId&&(h.activo===void 0||bool8(h.activo))):[];
-    await cache.patchPublicEntity(key3,id4,hs.length?{...next,horarios:hs}:null);
+    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", actividades: [] };
+    let rows = (packet2.actividades || []).filter((x) => text16(x.actividad_id || x.id) !== id4);
+    if (next && isPublic3(next)) {
+      const hs = (horarios || []).filter((h) => text16(h.ciudad_id) === cityId && (h.activo === void 0 || bool8(h.activo)));
+      if (hs.length) rows.push({ ...next, horarios: hs });
+    }
+    await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), actividades: sort5(rows) });
   }
   await putPreparedRelationsV1({ cache, type: "activity", id: id4, next, data: horarios });
   return { success: true, ciudades_actualizadas: targets };
@@ -1941,14 +1962,14 @@ async function getActivitiesCityV2({ cache, cityId }) {
     if(previous){const schedules=new Map();for(const h of [...previous.horarios||[],...row.horarios||[]])schedules.set(text16(h.actividad_horario_id||h.id)||JSON.stringify(h),h);byId.set(id,{...previous,...row,horarios:[...schedules.values()]});}
     else byId.set(id,row);
   }
-  // La vista pública sólo combina paquetes ya publicados; nunca consulta
-  // perfiles privados ni borradores que puedan reflejar cambios antes de las 01:00.
-  const publishedGuide=await cache.get(guideCityKey2(city));
-  const publishers=new Map((publishedGuide?.anunciantes||[]).map(card=>[text16(card.anunciante_id||card.id),card]));
-  const activities=[...byId.values()].map(row=>{
-    const aid=text16(row.anunciante_id||row.id_anunciante),source=publishers.get(aid);
+  const publishers=new Map();
+  const activities=await Promise.all([...byId.values()].map(async row=>{
+    const aid=text16(row.anunciante_id||row.id_anunciante);if(!aid)return row;
+    if(!publishers.has(aid))publishers.set(aid,Promise.all([cache.get('guide:advertiser:v2:'+aid),cache.get('panel:record:v53:anunciantes:'+encodeURIComponent(aid))]));
+    const [guide,profile]=await publishers.get(aid);
+    const source=guide?.template||guide?.cards?.[0]||profile?.data;
     return source?{...row,anunciante_nombre:text16(source.nombre||row.anunciante_nombre),logo_anunciante:text16(source.logo||source.logo_url||'')}:row;
-  });
+  }));
   return {success:true,...packet,ciudad_id:city,actividades:sort5(activities),cold:!packet&&!virtual};
 }
 async function rebuildActivitiesAllV2({ db, cache }) {
@@ -2032,11 +2053,21 @@ async function syncPublicityPreparedV2({
   const targets = [...new Set([...(previousCities || []).map(text18), ...currentCities].filter(Boolean))];
   for (const cityId of targets) {
     const key3 = publicityCityKeyV2(cityId);
-    const projected=next&&isActive2(next)&&currentCities.includes(cityId)?{
-      ...next,media:[...(media||[])],
-      segmentacion:(segmentacion||[]).filter(x=>text18(x.ciudad_id)===cityId)
-    }:null;
-    await cache.patchPublicEntity(key3,id4,projected);
+    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", publicidades: [] };
+    let rows = (packet2.publicidades || []).filter((x) => text18(x.publicidad_id || x.id) !== id4);
+    if (next && isActive2(next) && currentCities.includes(cityId)) {
+      rows.push({
+        ...next,
+        media: [...media || []],
+        segmentacion: (segmentacion || []).filter((x) => text18(x.ciudad_id) === cityId)
+      });
+    }
+    await cache.put(key3, {
+      version: 2,
+      ciudad_id: cityId,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      publicidades: sort6(rows)
+    });
   }
   await putPreparedRelationsV1({ cache, type: "publicity-media", id: id4, next, data: media });
   await putPreparedRelationsV1({ cache, type: "publicity-seg", id: id4, next, data: segmentacion });
@@ -2588,31 +2619,11 @@ var key2 = (sid) => "subscriber:session-state:v1:" + String(sid || "").trim();
 async function subscriberSessionState(env, sid) {
   const kv = env.GLD_CACHE_KV;
   if (!kv) throw new Error("Falta binding GLD_CACHE_KV.");
-  // La autorización nunca depende de propagación eventual de KV:
-  // obtener el mayor número de versión en el coordinador durable por cuenta.
-  if(env.GLD_PUBLIC_CACHE){
-    const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-auth-v162:'+sid));
-    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',
-      body:JSON.stringify({op:'auth-account-162',sid,mode:'state'})}));
-    const data=await response.json();
-    if(!response.ok||!data.ok)throw Error(data.error||'No se pudo comprobar sesión.');
-    return {version:Number(data.version||0),deleted:data.deleted===true};
-  }
   const raw = await kv.get(key2(sid));
   if (!raw) return { version: 0, deleted: false };
   return JSON.parse(raw);
 }
 async function revokeSubscriberSessions(env, sid, { deleted = false } = {}) {
-  // Todas las revocaciones de una cuenta pasan por su mismo Durable Object.
-  // La asignación de versión deja de ser un read-modify-write concurrente en KV.
-  if(env.GLD_PUBLIC_CACHE){
-    const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-auth-v162:'+sid));
-    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',
-      body:JSON.stringify({op:'auth-account-162',sid,mode:'revoke',deleted})}));
-    const result=await response.json();
-    if(!response.ok||!result.ok)throw Error(result.error||'No se pudo revocar la sesión.');
-    return result;
-  }
   const current = await subscriberSessionState(env, sid);
   await env.GLD_CACHE_KV.put(key2(sid), JSON.stringify({
     version: Number(current.version || 0) + 1,
@@ -4789,8 +4800,11 @@ async function syncGuideAdvertiserV2({ db, cache, advertiserId, affectedCityIds 
   const cardMap = new Map(cards.map((c) => [text41(c.ciudad_id), c]));
   for (const cityId of targets) {
     const key3 = guideCityKey2(cityId);
+    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
     const base2 = cardMap.get(cityId);
-    await cache.patchPublicEntity(key3,aid,base2&&publicAllowed(base2)?base2:null);
+    let rows = (packet2.anunciantes || []).filter((x) => text41(x.id) !== aid);
+    if (base2 && publicAllowed(base2)) rows.push(base2);
+    await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), anunciantes: sortCards2(rows) });
   }
   await cache.put(guideAdvertiserKey(aid), {
     version: 2,
@@ -4842,9 +4856,13 @@ async function patchGuideAdminFieldsV2({ cache, advertiserId, patch }) {
   });
   for (const card of nextCards) {
     const cityId = text41(card.ciudad_id), key3 = guideCityKey2(cityId);
-    // El cambio administrativo afecta una tarjeta, no el paquete de la ciudad.
-    // El Durable Object publica el delta recién en la consolidación nocturna.
-    await cache.patchPublicEntity(key3,aid,publicAllowed(card)?card:null);
+    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
+    await cache.put(key3, {
+      version: 2,
+      ciudad_id: cityId,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      anunciantes: upsertCard(packet2.anunciantes || [], card)
+    });
   }
   await cache.put(guideAdvertiserKey(aid), {
     ...base2,
@@ -7227,6 +7245,15 @@ async function routeAdminV3({ path, request: request2, env, db, cache }) {
 
 // reconstruccion/worker/core/guide-patch-v2.js
 var text71 = (v) => String(v ?? "").trim();
+function sortCards4(rows) {
+  return [...rows].sort((a, b) => text71(a.nombre).localeCompare(text71(b.nombre), "es", { sensitivity: "base" }));
+}
+function upsert3(rows, card) {
+  const aid = text71(card.id);
+  const out2 = (rows || []).filter((x) => text71(x.id) !== aid);
+  if (card.aprobado !== false) out2.push(card);
+  return sortCards4(out2);
+}
 async function patchGuideSegmentV2({ cache, advertiserId, segmentoId }) {
   const aid = text71(advertiserId), sid = text71(segmentoId);
   const [base2, catalogs] = await Promise.all([
@@ -7244,7 +7271,13 @@ async function patchGuideSegmentV2({ cache, advertiserId, segmentoId }) {
   }));
   for (const card of nextCards) {
     const cityId = text71(card.ciudad_id);
-    await cache.patchPublicEntity(guideCityKey2(cityId),aid,card.aprobado!==false?card:null);
+    const packet2 = await cache.get(guideCityKey2(cityId)) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
+    await cache.put(guideCityKey2(cityId), {
+      version: 2,
+      ciudad_id: cityId,
+      updated_at: (/* @__PURE__ */ new Date()).toISOString(),
+      anunciantes: upsert3(packet2.anunciantes || [], card)
+    });
   }
   await cache.put(guideAdvertiserKey(aid), {
     ...base2,
@@ -8714,58 +8747,18 @@ function withPrivateCacheV46(db,env){
   }
   const owners=new Map(),advertiserOwners104=new Map(),administrationAfter104=new Map();
   const dirty=new Set();
-  async function authOp162(sid,mode,deltas=[],sv=null,packet=null){
-    const actor=env.GLD_PUBLIC_CACHE;
-    if(!actor)throw Error('Falta Durable Object para coordinar permisos privados.');
-    const stub=actor.get(actor.idFromName('private-auth-v162:'+sid));
-    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',body:JSON.stringify({op:'auth-account-162',sid,mode,deltas,sv,packet})}));
-    const data=await response.json();
-    if(!response.ok)throw Error(data.error||'Falló coordinación de autorizaciones.');
-    return data;
-  }
-  async function holdRevoke162(sid){
+  async function revokeAndInvalidateAccount161(sid){
     if(!sid)return;
-    await authOp162(sid,'hold');
     await revokeSubscriberSessions(env,sid);
     await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
   }
-  async function applyRelation162(sid,aid,row=null,remove=false){
-    const deltas=[];
-    if(aid){
-      if(remove||!row||!truthy(row.activo))deltas.push({kind:'remove',collection:'suscriptor_anunciante',aid,stamp:text(env.__gldRequestReport119?.source_versions119?.['suscriptor_anunciante/'+text(row?.id)])});
-      else{
-        const [adv,admin]=await Promise.all([
-          text(row.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser('anunciantes',aid):db.get('anunciantes',aid)),
-          text(row.permisos)||row.permisos_definidos===true?null:(db.loginAdvertiser?db.loginAdvertiser('anunciantes_administracion',aid):db.get('anunciantes_administracion',aid))
-        ]);
-        const raw=row.permisos_definidos===true?text(row.permisos):text(row.permisos)||text(admin?.funcionalidades);
-        const permissions=raw.split(/[;,|\n]/).map(x=>text(x).toUpperCase()).filter(Boolean).join(', ');
-        deltas.push({kind:'relation',collection:'suscriptor_anunciante',aid,stamp:text(env.__gldRequestReport119?.source_versions119?.['suscriptor_anunciante/'+text(row?.id)]),entry:{suscriptor_id:sid,anunciante_id:aid,
-          anunciante_nombre:text(row.anunciante_nombre||adv?.nombre||admin?.nombre),
-          rol:text(row.rol).toUpperCase(),permisos:permissions,
-          permisos_definidos:row.permisos_definidos===true,activo:true}});
-      }
-    }
-    if(deltas.length)await authOp162(sid,'apply',deltas);
-  }
-  async function revokeAndInvalidateAccount161(sid,{deleted=false}={}){
-    if(!sid)return;
-    await revokeSubscriberSessions(env,sid,{deleted});
-    await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
-  }
-  async function invalidateAffectedAdvertiser161(aid,{revoke=false,phase='after',collection='',row=null,remove=false}={}){
+  async function invalidateAffectedAdvertiser161(aid,{revoke=false}={}){
     if(!aid)return;
     const relations=await cachedAdvertiserRelations104(aid);
-    const seen=new Set();
-    for(const relation of relations){
-      const sid=text(relation.suscriptor_id);
-      if(!sid||seen.has(sid))continue;seen.add(sid);
-      if(phase==='before'){
-        if(revoke)await holdRevoke162(sid);
-      }else{
-        if(revoke)await revokeSubscriberSessions(env,sid);
-        await authOp162(sid,'apply',[{kind:'advertiser',aid,collection,row,relation,remove,stamp:text(env.__gldRequestReport119?.source_versions119?.[collection+'/'+aid])}]);
-      }
+    const ids=[...new Set(relations.map(row=>text(row.suscriptor_id)).filter(Boolean))];
+    for(const sid of ids){
+      if(revoke)await revokeAndInvalidateAccount161(sid);
+      else await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
     }
   }
   const favoriteChanges=new Map();
@@ -8891,20 +8884,10 @@ function withPrivateCacheV46(db,env){
       let packet=null;
       try{const raw=await kv.get(key,{cacheTtl:30});packet=raw?JSON.parse(raw):null;}catch(_){}
       if(packet?.version===161&&packet?.sv===sv&&Array.isArray(packet.relations))return structuredClone(packet.relations);
-      // Si KV sirve una versión anterior tras revocar permisos, recuperar
-      // la actualización puntual del coordinador, sin consultar ocho registros.
-      if(env.GLD_PUBLIC_CACHE){
-        try{
-          const current=await authOp162(sid,'read',[],sv);
-          if(current?.ok&&Array.isArray(current.packet?.relations))return structuredClone(current.packet.relations);
-        }catch(_){}
-      }
       const relations=await build();
       const state=await subscriberSessionState(env,sid);
       if(state.deleted||Number(state.version||0)!==sv)throw Error('Autorizaciones modificadas durante el ingreso. Reintentá.');
-      const fresh={version:161,sv,relations};
-      await kv.put(key,JSON.stringify(fresh));
-      if(env.GLD_PUBLIC_CACHE)await authOp162(sid,'seed',[],sv,fresh);
+      await kv.put(key,JSON.stringify({version:161,sv,relations}));
       return relations;
     },
     async repairPrivateGuide132(collection,id,row){
@@ -8914,89 +8897,61 @@ function withPrivateCacheV46(db,env){
     async get(collection,id){const row=await db.get(collection,id);if(row)remember(collection,[row]);return row;},
     async queryEqual(...args){return remember(args[0],await db.queryEqual(...args));},
     async commitPatches(entries){
-      const affected=new Set(),oldLinks=new Map();
+      const affected=new Set();
       for(const e of entries){
-        if(e.collection==='suscriptor_anunciante'){
-          const sids=await relationOwners(e.id,e.patch||{},e.options||{});
-          for(const sid of sids)affected.add(sid);
-          oldLinks.set(text(e.id),{sid:owners.get('suscriptor_anunciante/'+text(e.id))||'',aid:advertiserOwners104.get('suscriptor_anunciante/'+text(e.id))||'',sids:[...sids]});
-        }
+        if(e.collection==='suscriptor_anunciante')for(const sid of await relationOwners(e.id,e.patch||{},e.options||{}))affected.add(sid);
         if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before))){
           await invalidate(recordKey(e.collection,e.id));
-          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove,phase:'before'});
+          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
         }
         if(e.collection==='anunciantes_administracion')await invalidate(panelAdminKey(e.id));
       }
-      for(const sid of affected){await holdRevoke162(sid);await invalidate(relationKey(sid));}
+      for(const sid of affected){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       const saved=await db.commitPatches(entries);
-      for(const sid of affected)await revokeSubscriberSessions(env,sid);
-      for(let i=0;i<entries.length;i++){
-        const e=entries[i],row=saved[i];
-        if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))
-          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove,phase:'after',collection:e.collection,row,remove:!!e.remove});
-        if(e.collection==='suscriptor_anunciante'){
-          const old=oldLinks.get(text(e.id))||{},oldAid=text(old.aid),nextAid=e.remove?'':text(row?.anunciante_id||e.patch?.anunciante_id),nextSid=e.remove?'':text(row?.suscriptor_id||e.patch?.suscriptor_id);
-          if(oldAid&&(oldAid!==nextAid||e.remove))await advertiserRelationDelta104(oldAid,text(e.id),null);
-          if(nextAid)await advertiserRelationDelta104(nextAid,text(e.id),{...e.patch,...row,id:text(e.id)});
-          for(const sid of old.sids||[]){
-            if(oldAid&&(oldAid!==nextAid||sid!==nextSid||e.remove))await applyRelation162(sid,oldAid,null,true);
-            if(sid===nextSid&&nextAid)await applyRelation162(sid,nextAid,row);
-          }
-        }
-        if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}
-        if(row)remember(e.collection,[row]);
-      }
+      for(const sid of affected)await revokeAndInvalidateAccount161(sid);
+      for(const e of entries)if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))
+        await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
+      for(let i=0;i<entries.length;i++){const e=entries[i],row=saved[i];if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}if(row)remember(e.collection,[row]);}
       return saved;
     },
     async patch(collection,id,patch,options={}){
       if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null)){
         await invalidate(recordKey(collection,id));
-        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion',phase:'before'});
+        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion'});
       }
       if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       let affected=[];
       if(collection==='suscriptor_anunciante'){
         affected=[...await relationOwners(id,patch,options)];
-        for(const sid of affected){await holdRevoke162(sid);await invalidate(relationKey(sid));}
+        for(const sid of affected){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       }
       let favKey;
       if(collection==='suscriptor_favoritos'){const sid=text(patch.suscriptor_id)||owners.get(collection+'/'+text(id));if(!sid)throw Error('Falta suscriptor del favorito.');favKey=await prepareFavorite(sid,id);}
       const oldAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const row=await db.patch(collection,id,patch,options);
-      if(collection==='suscriptor_anunciante')for(const sid of affected)await revokeSubscriberSessions(env,sid);
+      if(collection==='suscriptor_anunciante')for(const sid of affected)await revokeAndInvalidateAccount161(sid);
       if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null))
-        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion',phase:'after',collection,row});
+        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion'});
       if(collection==='anunciantes_administracion')administrationAfter104.set(panelAdminKey(id),row);
-      if(collection==='suscriptor_anunciante'){
-        const nextAdvertiser104=text(row?.anunciante_id||patch.anunciante_id),newSid=text(row?.suscriptor_id||patch.suscriptor_id);
-        if(oldAdvertiser104&&oldAdvertiser104!==nextAdvertiser104)await advertiserRelationDelta104(oldAdvertiser104,text(id),null);
-        if(nextAdvertiser104)await advertiserRelationDelta104(nextAdvertiser104,text(id),{...patch,...row,id:text(id)});
-        for(const sid of affected){
-          if(oldAdvertiser104&&(oldAdvertiser104!==nextAdvertiser104||sid!==newSid))await applyRelation162(sid,oldAdvertiser104,null,true);
-          if(sid===newSid&&nextAdvertiser104)await applyRelation162(sid,nextAdvertiser104,row);
-        }
-      }
+      if(collection==='suscriptor_anunciante'){const nextAdvertiser104=text(row?.anunciante_id||patch.anunciante_id);if(oldAdvertiser104&&oldAdvertiser104!==nextAdvertiser104)await advertiserRelationDelta104(oldAdvertiser104,text(id),null);if(nextAdvertiser104)await advertiserRelationDelta104(nextAdvertiser104,text(id),{...patch,...row,id:text(id)});}
       if(favKey)favoriteChanges.set(favKey,{sid:text(patch.suscriptor_id)||owners.get(collection+'/'+text(id)),id:text(id),deleted:false,data:{...patch,...row,id:text(id)}});
       if(row)remember(collection,[row]);
       return row;
     },
     async delete(collection,id,options={}){
-      if(advertiserCollections.has(collection)){await invalidate(recordKey(collection,id));await invalidateAffectedAdvertiser161(id,{revoke:true,phase:'before'});}
+      if(advertiserCollections.has(collection)){await invalidate(recordKey(collection,id));await invalidateAffectedAdvertiser161(id,{revoke:true});}
       if(collection==='anunciantes_administracion')await invalidate(panelAdminKey(id));
       const removed=collection==='suscriptor_anunciante'?[...await relationOwners(id,null,options)]:[];
-      for(const sid of removed){await holdRevoke162(sid);await invalidate(relationKey(sid));}
+      for(const sid of removed){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       let favKey;
       if(collection==='suscriptor_favoritos'){let sid=owners.get(collection+'/'+text(id))||text(options.subscriberId);if(!sid){const previous=await db.get(collection,id);if(previous){remember(collection,[previous]);sid=text(previous.suscriptor_id);}}if(sid)favKey=await prepareFavorite(sid,id);}
-      if(collection==='suscriptores'){await revokeAndInvalidateAccount161(text(id),{deleted:true});deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
+      if(collection==='suscriptores'){await revokeAndInvalidateAccount161(text(id));deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
       const previousAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const result=await db.delete(collection,id,options);
-      for(const sid of removed)await revokeSubscriberSessions(env,sid);
-      if(advertiserCollections.has(collection))await invalidateAffectedAdvertiser161(id,{revoke:true,phase:'after',collection,row:null,remove:true});
+      for(const sid of removed)await revokeAndInvalidateAccount161(sid);
+      if(advertiserCollections.has(collection))await invalidateAffectedAdvertiser161(id,{revoke:true});
       if(collection==='anunciantes_administracion')administrationAfter104.delete(panelAdminKey(id));
-      if(collection==='suscriptor_anunciante'&&previousAdvertiser104){
-        await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
-        for(const sid of removed)await applyRelation162(sid,previousAdvertiser104,null,true);
-      }
+      if(collection==='suscriptor_anunciante'&&previousAdvertiser104)await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
       if(favKey)favoriteChanges.set(favKey,{sid:owners.get(collection+'/'+text(id))||text(options.subscriberId),id:text(id),deleted:true});
       return result;
     },
@@ -10119,19 +10074,22 @@ function empRecord109(/** @type {any} */ id){const value=String(id||'');if(!/^EM
 function empNormalize109(/** @type {any} */ v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();}
 function empLive109(/** @type {any} */ r,/** @type {any} */ now=Date.now()){return !!r&&!r.eliminado&&!r.pausado&&!r.revision_definitiva&&['PUBLICADO','APROBADO'].includes(r.estado_moderacion)&&(!r.contenido_adulto||r.revision_adulto==='APROBADO')&&Date.parse(r.hasta)>now;}
 function empPublic109(/** @type {any} */ r){return Object.fromEntries(['empleo_id','tipo','nombre','titulo','puesto','area','descripcion','modalidad','disponibilidad','tags','ciudad_id','ciudad_ids','desde','hasta','contacto','contenido_adulto','revision_adulto','estado_moderacion','anunciante_id','sede_id','sede_nombre','condiciones_url'].map((/** @type {any} */ k)=>[k,r[k]??'']));}
-async function empCityRows109(cache,env,city){
- const packet=await cache.get('employment:city:v2:'+city);
- return Array.isArray(packet?.rows)?packet.rows:[];
+async function empCityRows109(/** @type {any} */ cache,/** @type {any} */ env,/** @type {any} */ city){
+ const generation=await cache.get('employment:revision:v109:'+city)||'empty',prepared=await cache.get('employment:prepared:v109:'+city);
+ if(prepared?.generation===generation)return prepared.rows;
+ const rows=[];let cursor;
+ do{const page=await env.GLD_CACHE_KV.list({prefix:'employment:city:v109:'+encodeURIComponent(city)+':',limit:1000,...(cursor?{cursor}:{})});
+ for(let i=0;i<page.keys.length;i+=32){const items=await Promise.all(page.keys.slice(i,i+32).map((/** @type {any} */ key)=>cache.get(key.name)));rows.push(...items.filter(Boolean));}
+ cursor=page.list_complete?null:page.cursor;
+ }while(cursor);if(JSON.stringify(rows).length<4000000)await cache.put('employment:prepared:v109:'+city,{generation,rows});return rows;
 }
-async function syncEmpleo109({cache,current,next}){
+async function syncEmpleo109(/** @type {any} */ {cache,current,next}){
  const record=String(next?.record_id||current?.record_id||empRecord109(next?.empleo_id||current?.empleo_id));
  if(!record)return;
  await cache.put('employment:record:v109:'+record,{row:next||null});
  const cities=[...new Set([...(current?.ciudad_ids||[]),...(next?.ciudad_ids||[])])];
- for(const city of cities){
-  const row=next&&next.ciudad_ids.includes(city)&&empLive109(next)?empPublic109(next):null;
-  await cache.patchPublicEntity('employment:city:v2:'+city,String(next?.empleo_id||current?.empleo_id),row);
- }
+ for(const city of cities){const key='employment:city:v109:'+encodeURIComponent(city)+':'+record;if(next&&next.ciudad_ids.includes(city)&&empLive109(next))await cache.put(key,empPublic109(next));else await cache.del(key);await cache.put('employment:revision:v109:'+city,crypto.randomUUID());}
+
 }
 
 function empMatch109(/** @type {any} */ a,/** @type {any} */ b){
@@ -10240,9 +10198,9 @@ const RECOVERABLE119=new Set(['eventos','evento_programacion','actividades','act
 // One strongly consistent actor per module/city. Legacy KV is read only.
 // The actor merges entity changes, never replaces another request's full list.
 function cityDefinition119(key){
- const m=String(key).match(/^(guide|events|activities|promos|publicity|efemerides|farmacias|employment):city:v([12]):(.+)$/);
+ const m=String(key).match(/^(guide|events|activities|promos|publicity|efemerides|farmacias):city:v([12]):(.+)$/);
  if(!m)return null;
- const [field,id,collection]=({guide:['anunciantes','anunciante_id','anunciantes'],events:['events','evento_id','eventos'],activities:['actividades','actividad_id','actividades'],promos:['promos','promo_id','promos'],publicity:['publicidades','publicidad_id','publicidades'],efemerides:['efemerides','efemeride_id','efemerides_bis'],farmacias:['ciclos','ciclo_id','farmacias_ciclos'],employment:['rows','empleo_id','empleos']})[m[1]];
+ const [field,id,collection]=({guide:['anunciantes','anunciante_id','anunciantes'],events:['events','evento_id','eventos'],activities:['actividades','actividad_id','actividades'],promos:['promos','promo_id','promos'],publicity:['publicidades','publicidad_id','publicidades'],efemerides:['efemerides','efemeride_id','efemerides_bis'],farmacias:['ciclos','ciclo_id','farmacias_ciclos']})[m[1]];
  return {field,id,collection,module:m[1]};
 }
 function sourceStamp119(value){
@@ -10269,7 +10227,6 @@ function sortPublicCity119(key,rows){
  if(mod==='promos')return sort(rows);
  if(mod==='publicity')return sort6(rows);
  if(mod==='farmacias')return sortTurnos2(rows);
- if(mod==='employment')return [...rows].sort((a,b)=>String(b.desde||'').localeCompare(String(a.desde||''))||String(a.empleo_id||'').localeCompare(String(b.empleo_id||'')));
  return rows;
 }
 class GldPublicCache119 {
@@ -10279,23 +10236,7 @@ class GldPublicCache119 {
   this.sql.exec('CREATE TABLE IF NOT EXISTS entities (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL, position INTEGER NOT NULL)');
  }
  query(sql,...args){const cursor=this.sql.exec(sql,...args),rows=[...cursor];this.metrics.rows_read+=cursor.rowsRead||0;this.metrics.rows_written+=cursor.rowsWritten||0;return rows;}
- async legacy(key){
-  this.metrics.legacy_gets++;
-  if(cityDefinition119(key)?.module==='employment'){
-   const city=key.slice('employment:city:v2:'.length),rows=[],prefix='employment:city:v109:'+encodeURIComponent(city)+':';
-   let cursor;
-   do{
-    const page=await this.env.GLD_CACHE_KV.list({prefix,limit:1000,...(cursor?{cursor}:{})});
-    for(let i=0;i<page.keys.length;i+=32){
-     const batch=await Promise.all(page.keys.slice(i,i+32).map(item=>this.env.GLD_CACHE_KV.get(item.name)));
-     for(const raw of batch)if(raw)rows.push(JSON.parse(raw));
-    }
-    cursor=page.list_complete?null:page.cursor;
-   }while(cursor);
-   return {version:2,ciudad_id:city,updated_at:'',rows:sortPublicCity119(key,[...new Map(rows.filter(r=>r?.empleo_id).map(r=>[String(r.empleo_id),r])).values()])};
-  }
-  const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;
- }
+ async legacy(key){this.metrics.legacy_gets++;const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;}
  guideSnapshot135(packet,maxBytes=1500000){
   // Stay below the provider's 2 MB row limit. Larger cities retain the
   // existing entity representation rather than failing a read or a save.
@@ -10326,13 +10267,13 @@ class GldPublicCache119 {
   (this.metrics.read_paths??=[]).push(trace);
   if(this.cached!==null){trace.source='memory';return this.cached;}
   const head=this.query('SELECT value,deleted FROM packet WHERE slot=1')[0];
-  if(!head){trace.source='legacy-kv';const initial=await this.legacy(key);if(def.module==='employment'&&initial){this.state.storage.transactionSync(()=>this.initialize(initial,def));this.cached=initial;}return initial;}
+  if(!head){trace.source='legacy-kv';return this.legacy(key);}
   if(head.deleted){trace.source='deleted-packet';return null;}
   const stored=JSON.parse(head.value);
   if(def.module==='efemerides'&&stored.__efem_packet140&&stored.__efem_packet140.updated_at===(stored.updated_at||'')){
    trace.source='saved-chunked-packet';const result=this.readEfemSnapshot140(stored.__efem_packet140);if(JSON.stringify(result).length<2000000)this.cached=result;return result;
   }
-  if(['guide','efemerides','publicity','promos','events','employment'].includes(def.module)&&Array.isArray(stored[def.field])){
+  if(['guide','efemerides','publicity','promos','events'].includes(def.module)&&Array.isArray(stored[def.field])){
    trace.source='saved-packet';
    if(head.value.length<2000000)this.cached=stored;
    return stored;
@@ -10342,11 +10283,11 @@ class GldPublicCache119 {
   const result={...stored,[def.field]:sortPublicCity119(key,rows)};
   // Upgrade the old metadata-only row once per city. Subsequent cold reads
   // use the finished packet; normal saves replace the row they already wrote.
-  if(['guide','publicity','promos','events','employment'].includes(def.module)){
+  if(['guide','publicity','promos','events'].includes(def.module)){
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'162',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'161',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -10359,240 +10300,27 @@ class GldPublicCache119 {
  initialize(packet,def){
   if(this.query('SELECT slot FROM packet WHERE slot=1').length)return;
   const {[def.field]:rows=[],...meta}=packet||{};
-  const snapshot=def.module==='efemerides'?this.efemSnapshot140({...meta,[def.field]:rows}):['guide','publicity','promos','events','employment'].includes(def.module)?this.guideSnapshot135({...meta,[def.field]:rows}):null;
+  const snapshot=def.module==='efemerides'?this.efemSnapshot140({...meta,[def.field]:rows}):['guide','publicity','promos','events'].includes(def.module)?this.guideSnapshot135({...meta,[def.field]:rows}):null;
   this.query('INSERT INTO packet(slot,value,deleted) VALUES(1,?,0)',snapshot??JSON.stringify(meta));
   for(const [position,row]of rows.entries()){
    const id=String(row[def.id]||row.id||'');if(!id)throw Error('Public cache entity missing identifier');
    this.query('INSERT OR REPLACE INTO entities(id,value,stamp,position) VALUES(?,?,?,?)',id,JSON.stringify(row),'',position);
   }
  }
-
- // Publicación diferida: almacenar sólo las entidades modificadas; publicar
- // una instantánea por ciudad/módulo a la 01:00 de Argentina (04:00 UTC).
-
- // Paquete privado de autorizaciones: operaciones serializadas por suscriptor.
- // El Durable Object conserva un paquete canónico; KV ofrece la copia de lectura.
- async authAccount162(body){
-  const sid=String(body.sid||'').trim(),mode=body.mode;
-  if(!sid||!['hold','read','apply','seed','revoke','state'].includes(mode))throw Error('Invalid private bundle operation');
-  const key='auth:account-bundle:v161:'+encodeURIComponent(sid);
-  if(mode==='state'){
-    this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
-    const local=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
-    const raw=await this.env.GLD_CACHE_KV.get(key2(sid));
-    const remote=raw?JSON.parse(raw):{version:0,deleted:false};
-    return {ok:true,version:Math.max(Number(local?.version||0),Number(remote.version||0)),
-      deleted:local?.deleted===1||remote.deleted===true};
-  }
-  if(mode==='revoke'){
-   this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
-   const prior=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
-   const raw=await this.env.GLD_CACHE_KV.get(key2(sid));
-   const remote=raw?JSON.parse(raw):{version:0,deleted:false};
-   const version=Math.max(Number(prior?.version||0),Number(remote.version||0))+1;
-   const deleted=body.deleted===true||prior?.deleted===1||remote.deleted===true;
-   this.query('INSERT INTO auth_session162(slot,version,deleted) VALUES(1,?,?) ON CONFLICT(slot) DO UPDATE SET version=excluded.version,deleted=excluded.deleted',version,deleted?1:0);
-   await this.env.GLD_CACHE_KV.put(key2(sid),JSON.stringify({version,deleted}));
-   return {ok:true,version,deleted};
-  }
-  this.sql.exec('CREATE TABLE IF NOT EXISTS auth_account162 (slot INTEGER PRIMARY KEY, packet TEXT NOT NULL)');
-  const existing=this.query('SELECT packet FROM auth_account162 WHERE slot=1')[0];
-  const kvRaw=await this.env.GLD_CACHE_KV.get(key);
-  const local=existing?.packet?JSON.parse(existing.packet):null;
-  const remote=kvRaw?JSON.parse(kvRaw):null;
-  let packet=local&&(!remote||Number(local.sv||0)>=Number(remote.sv||0))?local:remote;
-  if(mode!=='seed'&&(!packet||packet.version!==161||!Array.isArray(packet.relations)))return {ok:false,missing:true};
-  if(mode==='seed'){
-   const candidate=body.packet;
-   if(!candidate||candidate.version!==161||!Array.isArray(candidate.relations)||Number(candidate.sv||0)!==Number(body.sv||0))throw Error('Invalid account bundle seed');
-   if(!local||Number(local.sv||0)<Number(candidate.sv||0))
-    this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',JSON.stringify(candidate));
-   return {ok:true,seeded:true};
-  }
-  if(mode==='read'){
-   if(Number(packet.sv||0)!==Number(body.sv||0))return {ok:false,stale:true};
-   return {ok:true,packet};
-  }
-  if(mode==='hold'){
-   if(!existing||Number(local?.sv||0)<Number(packet.sv||0))
-    this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',JSON.stringify(packet));
-   return {ok:true};
-  }
-  const rawState=await this.env.GLD_CACHE_KV.get(key2(sid));
-  const state=rawState?JSON.parse(rawState):{version:0,deleted:false};
-  this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
-  const durable=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
-  if(state.deleted||durable?.deleted===1)throw Error('Subscriber revoked');
-  const latestVersion=Math.max(Number(state.version||0),Number(durable?.version||0));
-  const byAid=new Map(packet.relations.map(row=>[String(row.anunciante_id),row]));
-  const stamps={...(packet.stamps||{})};
-  const normalized=v=>String(v??'').split(/[;,|\n]/).map(x=>x.trim().toUpperCase()).filter(Boolean).join(', ');
-  for(const delta of body.deltas||[]){
-   const aid=String(delta.aid||'').trim();
-   if(!aid)throw Error('Missing advertiser in bundle mutation');
-   const previous=byAid.get(aid);
-   const source=String(delta.collection||delta.kind),stampKey=source+':'+aid;
-   const newer=String(delta.stamp||''),last=String(stamps[stampKey]||'');
-   if(newer&&last&&newer<last)continue; // no sobrescribir una confirmación posterior de Firestore
-   if(newer)stamps[stampKey]=newer;
-   if(delta.kind==='remove'){byAid.delete(aid);continue;}
-   if(delta.kind==='relation'){
-    const row=delta.entry;
-    if(!row||row.activo===false){byAid.delete(aid);continue;}
-    byAid.set(aid,{...row,suscriptor_id:sid,anunciante_id:aid,activo:true});
-    continue;
-   }
-   if(delta.kind!=='advertiser')throw Error('Invalid bundle delta');
-   if(delta.remove){byAid.delete(aid);continue;}
-   if(!previous)continue;
-   const row=delta.row||{},link=delta.relation||{};
-   const patched={...previous};
-   if(Object.hasOwn(row,'nombre')&&!String(link.anunciante_nombre||'').trim())patched.anunciante_nombre=String(row.nombre||'').trim();
-   if(delta.collection==='anunciantes_administracion'&&Object.hasOwn(row,'funcionalidades')
-     &&link.permisos_definidos!==true&&!String(link.permisos||'').trim())patched.permisos=normalized(row.funcionalidades);
-   byAid.set(aid,patched);
-  }
-  const fresh={...packet,sv:latestVersion,stamps,relations:[...byAid.values()]};
-  const data=JSON.stringify(fresh);
-  // El estado durable se escribe antes de KV: un fallo KV no pierde cambios
-  // y un login con versión antigua consulta aquí sin reconstruir ocho fichas.
-  this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',data);
-  await this.env.GLD_CACHE_KV.put(key,data);
-  return {ok:true,updated:(body.deltas||[]).length,sv:fresh.sv};
- }
-
- async stageDirectDelta162(body,def){
-  const key=String(body.key||''),id=String(body.value?.id||'');
-  if(!id||!body.value||!Object.hasOwn(body.value,'row'))throw Error('Invalid entity delta');
-  const row=body.value.row,stamp=sourceStamp119(body.stamps?.[id]),encoded=row===null?null:JSON.stringify(row);
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public_meta162 (slot INTEGER PRIMARY KEY, key TEXT NOT NULL)');
-  let changed=0;
-  this.state.storage.transactionSync(()=>{
-   const prior=this.query('SELECT value,stamp FROM pending_public162 WHERE id=?',id)[0];
-   if(prior?.stamp&&(!stamp||stamp<prior.stamp))return;
-   if(prior&&prior.value===encoded)return;
-   if(!prior){
-    const old=this.query('SELECT value,stamp FROM entities WHERE id=?',id)[0];
-    if(old?.stamp&&(!stamp||stamp<old.stamp))return;
-    if((old?.value??null)===encoded)return;
-   }
-   this.query('INSERT INTO pending_public162(id,value,stamp) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,encoded,stamp||prior?.stamp||'');
-   this.query('INSERT OR IGNORE INTO pending_public_meta162(slot,key) VALUES(1,?)',key);
-   changed=1;
-  });
-  if(changed){
-   this.draftPacket162=null;
-   const alarm=await this.state.storage.getAlarm();
-   if(alarm===null){
-    const next=new Date();next.setUTCHours(4,0,0,0);
-    if(next.getTime()<=Date.now())next.setUTCDate(next.getUTCDate()+1);
-    await this.state.storage.setAlarm(next.getTime());
-   }
-  }
-  return {ok:true,deferred:true,changed};
- }
- async draftRead162(key,def){
-  if(this.draftPacket162?.key===key)return structuredClone(this.draftPacket162.value);
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
-  const previous=await this.read(key,def)||{version:2,ciudad_id:key.split(':').pop(),updated_at:'',[def.field]:[]};
-  const pending=this.query('SELECT id,value,stamp FROM pending_public162');
-  if(!pending.length)return previous;
-  const rows=new Map((previous[def.field]||[]).map(row=>[String(row?.[def.id]||row?.id||''),row]));
-  for(const item of pending){
-   if(item.value===null)rows.delete(item.id);
-   else rows.set(item.id,JSON.parse(item.value));
-  }
-  const result={...previous,[def.field]:sortPublicCity119(key,[...rows.values()])};
-  if(JSON.stringify(result).length<2000000)this.draftPacket162={key,value:result};
-  return result;
- }
- async stageDaily162(body,def){
-  const key=String(body.key||''),field=def.field,value=body.value;
-  if(!value||!Array.isArray(value[field]))throw Error('Invalid staged public packet');
-  const base=body.base||await this.read(key,def)||{[field]:[]};
-  const identify=row=>String(row?.[def.id]||row?.id||'');
-  const before=new Map((base[field]||[]).map(row=>[identify(row),row]));
-  const after=new Map(value[field].map(row=>[identify(row),row]));
-  if(after.has('')||after.size!==value[field].length)throw Error('Invalid public entity IDs');
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public_meta162 (slot INTEGER PRIMARY KEY, key TEXT NOT NULL)');
-  let changed=0;
-  this.state.storage.transactionSync(()=>{
-   for(const id of new Set([...before.keys(),...after.keys()])){
-    const old=before.get(id),next=after.get(id);
-    if(JSON.stringify(old)===JSON.stringify(next))continue;
-    const stamp=sourceStamp119(body.stamps?.[id]);
-    const prior=this.query('SELECT value,stamp FROM pending_public162 WHERE id=?',id)[0];
-    if(prior?.stamp&&(!stamp||stamp<prior.stamp))continue;
-    const encoded=next===undefined?null:JSON.stringify(next);
-    if(prior&&prior.value===encoded)continue;
-    this.query('INSERT INTO pending_public162(id,value,stamp) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,encoded,stamp||prior?.stamp||'');
-    changed++;
-   }
-   if(changed)this.query('INSERT OR IGNORE INTO pending_public_meta162(slot,key) VALUES(1,?)',key);
-  });
-  // Un fallo de setAlarm nunca deja cambios pendientes sin un nuevo intento.
-  const hasPending=changed||this.query('SELECT id FROM pending_public162 LIMIT 1').length;
-  if(hasPending){
-   const alarm=await this.state.storage.getAlarm();
-   if(alarm===null){
-    const next=new Date();next.setUTCHours(4,0,0,0);
-    if(next.getTime()<=Date.now())next.setUTCDate(next.getUTCDate()+1);
-    await this.state.storage.setAlarm(next.getTime());
-   }
-  }
-  if(changed&&JSON.stringify(value).length<2000000)this.draftPacket162={key,value:structuredClone(value)};
-  else if(changed)this.draftPacket162=null;
-  return {ok:true,deferred:true,changed};
- }
- async alarm(){
-  const previous=this.requestTail127||Promise.resolve();
-  let release=()=>{};
-  this.requestTail127=new Promise(resolve=>{release=resolve;});
-  await previous;
-  try{await this.flushDaily162();}finally{release();}
- }
- async flushDaily162(){
-  this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
-  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public_meta162 (slot INTEGER PRIMARY KEY, key TEXT NOT NULL)');
-  const meta=this.query('SELECT key FROM pending_public_meta162 WHERE slot=1')[0];
-  if(!meta)return;
-  const key=meta.key,def=cityDefinition119(key);
-  if(!def)throw Error('Unknown deferred public cache key');
-  const pending=this.query('SELECT id,value,stamp FROM pending_public162');
-  if(!pending.length){this.query('DELETE FROM pending_public_meta162');return;}
-  const previous=await this.read(key,def)||{version:2,ciudad_id:key.split(':').pop(),updated_at:'',[def.field]:[]};
-  let nextPacket=null;
-  this.state.storage.transactionSync(()=>{
-   this.initialize(previous,def);
-   const rows=new Map((previous[def.field]||[]).map(row=>[String(row?.[def.id]||row?.id||''),row]));
-   for(const change of pending){
-    const old=this.query('SELECT value,stamp,position FROM entities WHERE id=?',change.id)[0];
-    if(old?.stamp&&(!change.stamp||change.stamp<old.stamp))continue;
-    const next=change.value===null?null:JSON.parse(change.value);
-    this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',change.id,change.value,change.stamp||old?.stamp||'',old?.position??Date.now());
-    if(next)rows.set(change.id,next);else rows.delete(change.id);
-   }
-   nextPacket={...previous,updated_at:new Date().toISOString(),[def.field]:sortPublicCity119(key,[...rows.values()])};
-   const {[def.field]:publicRows,...metaFields}=nextPacket;
-   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events','employment'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
-   this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',snapshot??JSON.stringify(metaFields));
-   this.query('DELETE FROM pending_public162');
-   this.query('DELETE FROM pending_public_meta162');
-  });
-  this.cached=nextPacket&&JSON.stringify(nextPacket).length<2000000?nextPacket:null;
-  this.draftPacket162=null;
- }
-
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
   if(op==='get')return {value:await this.read(key,def)};
-  if(op==='draft-get')return {value:await this.draftRead162(key,def)};
-  if(op==='delta')return this.stageDirectDelta162(body,def);
+  if(op==='delta'){
+   const id=String(body.value?.id||'');
+   if(!id||!body.value||!Object.hasOwn(body.value,'row'))throw Error('Invalid public delta');
+   const prior=await this.read(key,def);
+   const current=prior||{version:2,ciudad_id:key.split(':').slice(3).join(':'),updated_at:'',[def.field]:[]};
+   const rows=new Map((current[def.field]||[]).map(row=>[String(row[def.id]||row.id),row]));
+   if(body.value.row===null)rows.delete(id);else rows.set(id,body.value.row);
+   const next={...current,updated_at:new Date().toISOString(),[def.field]:sortPublicCity119(key,[...rows.values()])};
+   return this.handle({key,op:'put',value:next,base:current,stamps:body.stamps||{}});
+  }
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
-  if(op==='put')return this.stageDaily162(body,def);
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
   this.state.storage.transactionSync(()=>{
    this.initialize(prior,def);
@@ -10624,7 +10352,7 @@ class GldPublicCache119 {
     if(b)merged.set(id,b);else merged.delete(id);
    }
    nextPacket={...meta,[def.field]:sortPublicCity119(key,[...merged.values()])};
-   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events','employment'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
+   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
    this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',snapshot??JSON.stringify(meta));
   });
   this.cached=nextPacket&&JSON.stringify(nextPacket).length<2000000?nextPacket:null;
@@ -10642,7 +10370,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='auth-account-162')return Response.json({...await this.authAccount162(body),metrics:this.metrics});if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -10653,10 +10381,10 @@ function coordinatedCities119(env,report){
  const kv=env.GLD_CACHE_KV,bases=new Map();
  async function call(key,op,value){
   const def=cityDefinition119(key),stamps={};
-  if(op==='delta'&&value?.id)stamps[String(value.id)]=report.source_versions119?.[def.collection+'/'+String(value.id)]||'';
   for(const row of [...(bases.get(key)?.[def.field]||[]),...(value?.[def.field]||[])]){
    const id=String(row[def.id]||row.id||'');stamps[id]=report.source_versions119?.[def.collection+'/'+id]||'';
   }
+  if(op==='delta'&&value?.id)stamps[String(value.id)]=report.source_versions119?.[def.collection+'/'+value.id]||'';
   const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('public-city-v119:'+key));
   const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base:bases.get(key)||null,stamps})}));
   const result=await response.json(),stats=report.public_store??={calls:0,rows_read:0,rows_written:0,legacy_gets:0,legacy_lists:0};stats.calls++;
@@ -10667,14 +10395,14 @@ function coordinatedCities119(env,report){
   return result;
  }
  const binding=new Proxy(kv,{get(target,prop){
-  if(prop==='delta')return async(key,id,row)=>call(key,'delta',{id,row});
-  if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,options?.gldDraft?'draft-get':'get');bases.set(key,value);return value?JSON.stringify(value):null;};
+  if(prop==='delta')return async(key,id,row)=>{if(!cityDefinition119(key))throw Error('Unknown public entity packet');await call(key,'delta',{id,row});bases.delete(key);};
+  if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,'get');bases.set(key,value);return value?JSON.stringify(value):null;};
   if(prop==='put')return async(key,value,options)=>{if(!cityDefinition119(key))return target.put(key,value,options);if(options&&Object.keys(options).length)throw Error('Public cache TTL unsupported');const packet=JSON.parse(value);
    if(!bases.has(key)){
     // A full catalog rebuild has no preceding city read. Capture the current
     // packet and apply the source revisions collected by the rebuild, so rows
     // omitted from that snapshot are removed without dropping newer additions.
-    const {value:current}=await call(key,'draft-get');bases.set(key,current);
+    const {value:current}=await call(key,'get');bases.set(key,current);
     const def=cityDefinition119(key),ids=new Set((packet?.[def.field]||[]).map(row=>String(row[def.id]||row.id||'')));
     const source=observeDbV41(createDb(env),report);
     for(const row of current?.[def.field]||[]){
@@ -10703,7 +10431,6 @@ function requestCache121(env,report,readOnly126=false){
  function invalidate(k){epochs.set(k,epoch(k)+1);values.delete(k);pending.delete(k);lists.clear();if(PUBLIC_CATALOG_KEYS126.has(k))shared.delete(k);}
  const kv=new Proxy(native,{get(target,method){
   if(method==='get')return async(key,options)=>{
-   if(options?.gldDraft)return target.get(key,options);
    if(typeof options==='string'&&options!=='text'||options?.type&&options.type!=='text')return target.get(key,options);
    if(readOnly126&&PUBLIC_CATALOG_KEYS126.has(key)){const hit=shared.get(key);if(hit&&Date.now()<hit.until){stats.catalogs_reused=(stats.catalogs_reused||0)+1;return hit.value;}}
    if(values.has(key)){stats.reads_reused++;return values.get(key);}
@@ -11022,7 +10749,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -11033,7 +10760,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -11235,7 +10962,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -11301,11 +11028,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'162',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'161',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -11318,7 +11045,7 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
    if(receipt.action==='actualizar_activos')Object.assign(result,{publicidades:await db.queryEqual('publicidades','anunciante_id',command.aid,500),sin_cambios:false,cambios:receipt.refs.length});
   }
   report.status=200;const {totals}=finishObservationV42(report);report.consumption=consumption136(report);
-  return json(result,200,{'X-GLD-Worker-Version':'162','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
+  return json(result,200,{'X-GLD-Worker-Version':'161','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
  }finally{console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
@@ -11448,7 +11175,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -11491,7 +11218,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"162",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"161",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
