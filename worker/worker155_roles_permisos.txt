@@ -8747,18 +8747,58 @@ function withPrivateCacheV46(db,env){
   }
   const owners=new Map(),advertiserOwners104=new Map(),administrationAfter104=new Map();
   const dirty=new Set();
+  async function authOp162(sid,mode,deltas=[],sv=null){
+    const actor=env.GLD_PUBLIC_CACHE;
+    if(!actor)throw Error('Falta Durable Object para coordinar permisos privados.');
+    const stub=actor.get(actor.idFromName('private-auth-v162:'+sid));
+    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',body:JSON.stringify({op:'auth-account-162',sid,mode,deltas,sv})}));
+    const data=await response.json();
+    if(!response.ok)throw Error(data.error||'Falló coordinación de autorizaciones.');
+    return data;
+  }
+  async function holdRevoke162(sid){
+    if(!sid)return;
+    await authOp162(sid,'hold');
+    await revokeSubscriberSessions(env,sid);
+    await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
+  }
+  async function applyRelation162(sid,aid,row=null,remove=false){
+    const deltas=[];
+    if(aid){
+      if(remove||!row||!truthy(row.activo))deltas.push({kind:'remove',aid});
+      else{
+        const [adv,admin]=await Promise.all([
+          text(row.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser('anunciantes',aid):db.get('anunciantes',aid)),
+          text(row.permisos)||row.permisos_definidos===true?null:(db.loginAdvertiser?db.loginAdvertiser('anunciantes_administracion',aid):db.get('anunciantes_administracion',aid))
+        ]);
+        const raw=row.permisos_definidos===true?text(row.permisos):text(row.permisos)||text(admin?.funcionalidades);
+        const permissions=raw.split(/[;,|\n]/).map(x=>text(x).toUpperCase()).filter(Boolean).join(', ');
+        deltas.push({kind:'relation',aid,entry:{suscriptor_id:sid,anunciante_id:aid,
+          anunciante_nombre:text(row.anunciante_nombre||adv?.nombre||admin?.nombre),
+          rol:text(row.rol).toUpperCase(),permisos:permissions,
+          permisos_definidos:row.permisos_definidos===true,activo:true}});
+      }
+    }
+    if(deltas.length)await authOp162(sid,'apply',deltas);
+  }
   async function revokeAndInvalidateAccount161(sid){
     if(!sid)return;
     await revokeSubscriberSessions(env,sid);
     await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
   }
-  async function invalidateAffectedAdvertiser161(aid,{revoke=false}={}){
+  async function invalidateAffectedAdvertiser161(aid,{revoke=false,phase='after',collection='',row=null,remove=false}={}){
     if(!aid)return;
     const relations=await cachedAdvertiserRelations104(aid);
-    const ids=[...new Set(relations.map(row=>text(row.suscriptor_id)).filter(Boolean))];
-    for(const sid of ids){
-      if(revoke)await revokeAndInvalidateAccount161(sid);
-      else await kv.delete(ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid));
+    const seen=new Set();
+    for(const relation of relations){
+      const sid=text(relation.suscriptor_id);
+      if(!sid||seen.has(sid))continue;seen.add(sid);
+      if(phase==='before'){
+        if(revoke)await holdRevoke162(sid);
+      }else{
+        if(revoke)await revokeSubscriberSessions(env,sid);
+        await authOp162(sid,'apply',[{kind:'advertiser',aid,collection,row,relation,remove}]);
+      }
     }
   }
   const favoriteChanges=new Map();
