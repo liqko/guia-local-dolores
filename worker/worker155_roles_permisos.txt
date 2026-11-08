@@ -10310,6 +10310,63 @@ class GldPublicCache119 {
 
  // Publicación diferida: almacenar sólo las entidades modificadas; publicar
  // una instantánea por ciudad/módulo a la 01:00 de Argentina (04:00 UTC).
+
+ // Paquete privado de autorizaciones: operaciones serializadas por suscriptor.
+ // El Durable Object conserva un paquete canónico; KV ofrece la copia de lectura.
+ async authAccount162(body){
+  const sid=String(body.sid||'').trim(),mode=body.mode;
+  if(!sid||!['hold','read','apply'].includes(mode))throw Error('Invalid private bundle operation');
+  const key='auth:account-bundle:v161:'+encodeURIComponent(sid);
+  this.sql.exec('CREATE TABLE IF NOT EXISTS auth_account162 (slot INTEGER PRIMARY KEY, packet TEXT NOT NULL)');
+  const existing=this.query('SELECT packet FROM auth_account162 WHERE slot=1')[0];
+  const kvRaw=await this.env.GLD_CACHE_KV.get(key);
+  const local=existing?.packet?JSON.parse(existing.packet):null;
+  const remote=kvRaw?JSON.parse(kvRaw):null;
+  let packet=local&&(!remote||Number(local.sv||0)>=Number(remote.sv||0))?local:remote;
+  if(!packet||packet.version!==161||!Array.isArray(packet.relations))return {ok:false,missing:true};
+  if(mode==='read'){
+   if(Number(packet.sv||0)!==Number(body.sv||0))return {ok:false,stale:true};
+   return {ok:true,packet};
+  }
+  if(mode==='hold'){
+   if(!existing||Number(local?.sv||0)<Number(packet.sv||0))
+    this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',JSON.stringify(packet));
+   return {ok:true};
+  }
+  const state=await subscriberSessionState(this.env,sid);
+  if(state.deleted)throw Error('Subscriber revoked');
+  const byAid=new Map(packet.relations.map(row=>[String(row.anunciante_id),row]));
+  const normalized=v=>String(v??'').split(/[;,|\n]/).map(x=>x.trim().toUpperCase()).filter(Boolean).join(', ');
+  for(const delta of body.deltas||[]){
+   const aid=String(delta.aid||'').trim();
+   if(!aid)throw Error('Missing advertiser in bundle mutation');
+   const previous=byAid.get(aid);
+   if(delta.kind==='remove'){byAid.delete(aid);continue;}
+   if(delta.kind==='relation'){
+    const row=delta.entry;
+    if(!row||row.activo===false){byAid.delete(aid);continue;}
+    byAid.set(aid,{...row,suscriptor_id:sid,anunciante_id:aid,activo:true});
+    continue;
+   }
+   if(delta.kind!=='advertiser')throw Error('Invalid bundle delta');
+   if(delta.remove){byAid.delete(aid);continue;}
+   if(!previous)continue;
+   const row=delta.row||{},link=delta.relation||{};
+   const patched={...previous};
+   if(Object.hasOwn(row,'nombre')&&!String(link.anunciante_nombre||'').trim())patched.anunciante_nombre=String(row.nombre||'').trim();
+   if(delta.collection==='anunciantes_administracion'&&Object.hasOwn(row,'funcionalidades')
+     &&link.permisos_definidos!==true&&!String(link.permisos||'').trim())patched.permisos=normalized(row.funcionalidades);
+   byAid.set(aid,patched);
+  }
+  const fresh={...packet,sv:Number(state.version||0),relations:[...byAid.values()]};
+  const data=JSON.stringify(fresh);
+  // El estado durable se escribe antes de KV: un fallo KV no pierde cambios
+  // y un login con versión antigua consulta aquí sin reconstruir ocho fichas.
+  this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',data);
+  await this.env.GLD_CACHE_KV.put(key,data);
+  return {ok:true,updated:(body.deltas||[]).length,sv:fresh.sv};
+ }
+
  async draftRead162(key,def){
   if(this.draftPacket162?.key===key)return structuredClone(this.draftPacket162.value);
   this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
@@ -10452,7 +10509,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='auth-account-162')return Response.json({...await this.authAccount162(body),metrics:this.metrics});if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
