@@ -8937,21 +8937,38 @@ function withPrivateCacheV46(db,env){
     async get(collection,id){const row=await db.get(collection,id);if(row)remember(collection,[row]);return row;},
     async queryEqual(...args){return remember(args[0],await db.queryEqual(...args));},
     async commitPatches(entries){
-      const affected=new Set();
+      const affected=new Set(),oldLinks=new Map();
       for(const e of entries){
-        if(e.collection==='suscriptor_anunciante')for(const sid of await relationOwners(e.id,e.patch||{},e.options||{}))affected.add(sid);
+        if(e.collection==='suscriptor_anunciante'){
+          const sids=await relationOwners(e.id,e.patch||{},e.options||{});
+          for(const sid of sids)affected.add(sid);
+          oldLinks.set(text(e.id),{sid:owners.get('suscriptor_anunciante/'+text(e.id))||'',aid:advertiserOwners104.get('suscriptor_anunciante/'+text(e.id))||'',sids:[...sids]});
+        }
         if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before))){
           await invalidate(recordKey(e.collection,e.id));
-          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
+          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove,phase:'before'});
         }
         if(e.collection==='anunciantes_administracion')await invalidate(panelAdminKey(e.id));
       }
-      for(const sid of affected){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
+      for(const sid of affected){await holdRevoke162(sid);await invalidate(relationKey(sid));}
       const saved=await db.commitPatches(entries);
-      for(const sid of affected)await revokeAndInvalidateAccount161(sid);
-      for(const e of entries)if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))
-        await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
-      for(let i=0;i<entries.length;i++){const e=entries[i],row=saved[i];if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}if(row)remember(e.collection,[row]);}
+      for(const sid of affected)await revokeSubscriberSessions(env,sid);
+      for(let i=0;i<entries.length;i++){
+        const e=entries[i],row=saved[i];
+        if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))
+          await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove,phase:'after',collection:e.collection,row,remove:!!e.remove});
+        if(e.collection==='suscriptor_anunciante'){
+          const old=oldLinks.get(text(e.id))||{},oldAid=text(old.aid),nextAid=e.remove?'':text(row?.anunciante_id||e.patch?.anunciante_id),nextSid=e.remove?'':text(row?.suscriptor_id||e.patch?.suscriptor_id);
+          if(oldAid&&(oldAid!==nextAid||e.remove))await advertiserRelationDelta104(oldAid,text(e.id),null);
+          if(nextAid)await advertiserRelationDelta104(nextAid,text(e.id),{...e.patch,...row,id:text(e.id)});
+          for(const sid of old.sids||[]){
+            if(oldAid&&(oldAid!==nextAid||sid!==nextSid||e.remove))await applyRelation162(sid,oldAid,null,true);
+            if(sid===nextSid&&nextAid)await applyRelation162(sid,nextAid,row);
+          }
+        }
+        if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}
+        if(row)remember(e.collection,[row]);
+      }
       return saved;
     },
     async patch(collection,id,patch,options={}){
