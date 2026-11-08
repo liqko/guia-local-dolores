@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 161 - ROLES Y PERMISOS (base 154)
+// GUÍA LOCAL - WORKER 162 - ROLES Y PERMISOS (base 154)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'161',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'162',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -10287,7 +10287,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'161',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'162',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -10307,10 +10307,81 @@ class GldPublicCache119 {
    this.query('INSERT OR REPLACE INTO entities(id,value,stamp,position) VALUES(?,?,?,?)',id,JSON.stringify(row),'',position);
   }
  }
+
+ // Publicación diferida: almacenar sólo las entidades modificadas; publicar
+ // una instantánea por ciudad/módulo a la 01:00 de Argentina (04:00 UTC).
+ async stageDaily162(body,def){
+  const key=String(body.key||''),field=def.field,value=body.value;
+  if(!value||!Array.isArray(value[field]))throw Error('Invalid staged public packet');
+  const base=body.base||await this.read(key,def)||{[field]:[]};
+  const identify=row=>String(row?.[def.id]||row?.id||'');
+  const before=new Map((base[field]||[]).map(row=>[identify(row),row]));
+  const after=new Map(value[field].map(row=>[identify(row),row]));
+  if(after.has('')||after.size!==value[field].length)throw Error('Invalid public entity IDs');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public_meta162 (slot INTEGER PRIMARY KEY, key TEXT NOT NULL)');
+  let changed=0;
+  this.state.storage.transactionSync(()=>{
+   for(const id of new Set([...before.keys(),...after.keys()])){
+    const old=before.get(id),next=after.get(id);
+    if(JSON.stringify(old)===JSON.stringify(next))continue;
+    const stamp=sourceStamp119(body.stamps?.[id]);
+    const prior=this.query('SELECT value,stamp FROM pending_public162 WHERE id=?',id)[0];
+    if(prior?.stamp&&(!stamp||stamp<prior.stamp))continue;
+    const encoded=next===undefined?null:JSON.stringify(next);
+    if(prior&&prior.value===encoded)continue;
+    this.query('INSERT INTO pending_public162(id,value,stamp) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,encoded,stamp||prior?.stamp||'');
+    changed++;
+   }
+   if(changed)this.query('INSERT OR IGNORE INTO pending_public_meta162(slot,key) VALUES(1,?)',key);
+  });
+  if(changed){
+   const alarm=await this.state.storage.getAlarm();
+   if(alarm===null){
+    const next=new Date();next.setUTCHours(4,0,0,0);
+    if(next.getTime()<=Date.now())next.setUTCDate(next.getUTCDate()+1);
+    await this.state.storage.setAlarm(next.getTime());
+   }
+  }
+  return {ok:true,deferred:true,changed};
+ }
+ async alarm(){
+  this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public_meta162 (slot INTEGER PRIMARY KEY, key TEXT NOT NULL)');
+  const meta=this.query('SELECT key FROM pending_public_meta162 WHERE slot=1')[0];
+  if(!meta)return;
+  const key=meta.key,def=cityDefinition119(key);
+  if(!def)throw Error('Unknown deferred public cache key');
+  const pending=this.query('SELECT id,value,stamp FROM pending_public162');
+  if(!pending.length){this.query('DELETE FROM pending_public_meta162');return;}
+  const previous=await this.read(key,def)||{version:2,ciudad_id:key.split(':').pop(),updated_at:'',[def.field]:[]};
+  let nextPacket=null;
+  this.state.storage.transactionSync(()=>{
+   this.initialize(previous,def);
+   const rows=new Map((previous[def.field]||[]).map(row=>[String(row?.[def.id]||row?.id||''),row]));
+   for(const change of pending){
+    const old=this.query('SELECT value,stamp,position FROM entities WHERE id=?',change.id)[0];
+    if(old?.stamp&&(!change.stamp||change.stamp<old.stamp))continue;
+    const next=change.value===null?null:JSON.parse(change.value);
+    this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',change.id,change.value,change.stamp||old?.stamp||'',old?.position??Date.now());
+    if(next)rows.set(change.id,next);else rows.delete(change.id);
+   }
+   nextPacket={...previous,updated_at:new Date().toISOString(),[def.field]:sortPublicCity119(key,[...rows.values()])};
+   const {[def.field]:publicRows,...metaFields}=nextPacket;
+   const snapshot=def.module==='efemerides'?this.efemSnapshot140(nextPacket):['guide','publicity','promos','events'].includes(def.module)?this.guideSnapshot135(nextPacket):null;
+   this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',snapshot??JSON.stringify(metaFields));
+   this.query('DELETE FROM pending_public162');
+   this.query('DELETE FROM pending_public_meta162');
+  });
+  this.cached=nextPacket&&JSON.stringify(nextPacket).length<2000000?nextPacket:null;
+ }
+
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
   if(op==='get')return {value:await this.read(key,def)};
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
+  if(op==='put'&&['guide','events','promos','publicity','activities'].includes(def.module))return this.stageDaily162(body,def);
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
   this.state.storage.transactionSync(()=>{
    this.initialize(prior,def);
@@ -10737,7 +10808,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -10748,7 +10819,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -10950,7 +11021,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -11016,11 +11087,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'161',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'162',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -11033,7 +11104,7 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
    if(receipt.action==='actualizar_activos')Object.assign(result,{publicidades:await db.queryEqual('publicidades','anunciante_id',command.aid,500),sin_cambios:false,cambios:receipt.refs.length});
   }
   report.status=200;const {totals}=finishObservationV42(report);report.consumption=consumption136(report);
-  return json(result,200,{'X-GLD-Worker-Version':'161','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
+  return json(result,200,{'X-GLD-Worker-Version':'162','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
  }finally{console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
@@ -11163,7 +11234,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'161',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -11206,7 +11277,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"161",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"162",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
