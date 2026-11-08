@@ -1941,14 +1941,14 @@ async function getActivitiesCityV2({ cache, cityId }) {
     if(previous){const schedules=new Map();for(const h of [...previous.horarios||[],...row.horarios||[]])schedules.set(text16(h.actividad_horario_id||h.id)||JSON.stringify(h),h);byId.set(id,{...previous,...row,horarios:[...schedules.values()]});}
     else byId.set(id,row);
   }
-  const publishers=new Map();
-  const activities=await Promise.all([...byId.values()].map(async row=>{
-    const aid=text16(row.anunciante_id||row.id_anunciante);if(!aid)return row;
-    if(!publishers.has(aid))publishers.set(aid,Promise.all([cache.get('guide:advertiser:v2:'+aid),cache.get('panel:record:v53:anunciantes:'+encodeURIComponent(aid))]));
-    const [guide,profile]=await publishers.get(aid);
-    const source=guide?.template||guide?.cards?.[0]||profile?.data;
+  // La vista pública sólo combina paquetes ya publicados; nunca consulta
+  // perfiles privados ni borradores que puedan reflejar cambios antes de las 01:00.
+  const publishedGuide=await cache.get(guideCityKey2(city));
+  const publishers=new Map((publishedGuide?.anunciantes||[]).map(card=>[text16(card.anunciante_id||card.id),card]));
+  const activities=[...byId.values()].map(row=>{
+    const aid=text16(row.anunciante_id||row.id_anunciante),source=publishers.get(aid);
     return source?{...row,anunciante_nombre:text16(source.nombre||row.anunciante_nombre),logo_anunciante:text16(source.logo||source.logo_url||'')}:row;
-  }));
+  });
   return {success:true,...packet,ciudad_id:city,actividades:sort5(activities),cold:!packet&&!virtual};
 }
 async function rebuildActivitiesAllV2({ db, cache }) {
@@ -7253,13 +7253,7 @@ async function patchGuideSegmentV2({ cache, advertiserId, segmentoId }) {
   }));
   for (const card of nextCards) {
     const cityId = text71(card.ciudad_id);
-    const packet2 = await cache.get(guideCityKey2(cityId)) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
-    await cache.put(guideCityKey2(cityId), {
-      version: 2,
-      ciudad_id: cityId,
-      updated_at: (/* @__PURE__ */ new Date()).toISOString(),
-      anunciantes: upsert3(packet2.anunciantes || [], card)
-    });
+    await cache.patchPublicEntity(guideCityKey2(cityId),aid,card.aprobado!==false?card:null);
   }
   await cache.put(guideAdvertiserKey(aid), {
     ...base2,
