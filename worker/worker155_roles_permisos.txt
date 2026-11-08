@@ -8765,7 +8765,7 @@ function withPrivateCacheV46(db,env){
   async function applyRelation162(sid,aid,row=null,remove=false){
     const deltas=[];
     if(aid){
-      if(remove||!row||!truthy(row.activo))deltas.push({kind:'remove',aid});
+      if(remove||!row||!truthy(row.activo))deltas.push({kind:'remove',collection:'suscriptor_anunciante',aid,stamp:text(env.__gldRequestReport119?.source_versions119?.['suscriptor_anunciante/'+text(row?.id)])});
       else{
         const [adv,admin]=await Promise.all([
           text(row.anunciante_nombre)?null:(db.loginAdvertiser?db.loginAdvertiser('anunciantes',aid):db.get('anunciantes',aid)),
@@ -8773,7 +8773,7 @@ function withPrivateCacheV46(db,env){
         ]);
         const raw=row.permisos_definidos===true?text(row.permisos):text(row.permisos)||text(admin?.funcionalidades);
         const permissions=raw.split(/[;,|\n]/).map(x=>text(x).toUpperCase()).filter(Boolean).join(', ');
-        deltas.push({kind:'relation',aid,entry:{suscriptor_id:sid,anunciante_id:aid,
+        deltas.push({kind:'relation',collection:'suscriptor_anunciante',aid,stamp:text(env.__gldRequestReport119?.source_versions119?.['suscriptor_anunciante/'+text(row?.id)]),entry:{suscriptor_id:sid,anunciante_id:aid,
           anunciante_nombre:text(row.anunciante_nombre||adv?.nombre||admin?.nombre),
           rol:text(row.rol).toUpperCase(),permisos:permissions,
           permisos_definidos:row.permisos_definidos===true,activo:true}});
@@ -8797,7 +8797,7 @@ function withPrivateCacheV46(db,env){
         if(revoke)await holdRevoke162(sid);
       }else{
         if(revoke)await revokeSubscriberSessions(env,sid);
-        await authOp162(sid,'apply',[{kind:'advertiser',aid,collection,row,relation,remove}]);
+        await authOp162(sid,'apply',[{kind:'advertiser',aid,collection,row,relation,remove,stamp:text(env.__gldRequestReport119?.source_versions119?.[collection+'/'+aid])}]);
       }
     }
   }
@@ -10421,11 +10421,16 @@ class GldPublicCache119 {
   const state=await subscriberSessionState(this.env,sid);
   if(state.deleted)throw Error('Subscriber revoked');
   const byAid=new Map(packet.relations.map(row=>[String(row.anunciante_id),row]));
+  const stamps={...(packet.stamps||{})};
   const normalized=v=>String(v??'').split(/[;,|\n]/).map(x=>x.trim().toUpperCase()).filter(Boolean).join(', ');
   for(const delta of body.deltas||[]){
    const aid=String(delta.aid||'').trim();
    if(!aid)throw Error('Missing advertiser in bundle mutation');
    const previous=byAid.get(aid);
+   const source=String(delta.collection||delta.kind),stampKey=source+':'+aid;
+   const newer=String(delta.stamp||''),last=String(stamps[stampKey]||'');
+   if(newer&&last&&newer<last)continue; // no sobrescribir una confirmación posterior de Firestore
+   if(newer)stamps[stampKey]=newer;
    if(delta.kind==='remove'){byAid.delete(aid);continue;}
    if(delta.kind==='relation'){
     const row=delta.entry;
@@ -10443,7 +10448,7 @@ class GldPublicCache119 {
      &&link.permisos_definidos!==true&&!String(link.permisos||'').trim())patched.permisos=normalized(row.funcionalidades);
    byAid.set(aid,patched);
   }
-  const fresh={...packet,sv:Number(state.version||0),relations:[...byAid.values()]};
+  const fresh={...packet,sv:Number(state.version||0),stamps,relations:[...byAid.values()]};
   const data=JSON.stringify(fresh);
   // El estado durable se escribe antes de KV: un fallo KV no pierde cambios
   // y un login con versión antigua consulta aquí sin reconstruir ocho fichas.
