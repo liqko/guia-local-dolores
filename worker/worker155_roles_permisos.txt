@@ -8747,11 +8747,11 @@ function withPrivateCacheV46(db,env){
   }
   const owners=new Map(),advertiserOwners104=new Map(),administrationAfter104=new Map();
   const dirty=new Set();
-  async function authOp162(sid,mode,deltas=[],sv=null){
+  async function authOp162(sid,mode,deltas=[],sv=null,packet=null){
     const actor=env.GLD_PUBLIC_CACHE;
     if(!actor)throw Error('Falta Durable Object para coordinar permisos privados.');
     const stub=actor.get(actor.idFromName('private-auth-v162:'+sid));
-    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',body:JSON.stringify({op:'auth-account-162',sid,mode,deltas,sv})}));
+    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',body:JSON.stringify({op:'auth-account-162',sid,mode,deltas,sv,packet})}));
     const data=await response.json();
     if(!response.ok)throw Error(data.error||'Falló coordinación de autorizaciones.');
     return data;
@@ -8924,10 +8924,20 @@ function withPrivateCacheV46(db,env){
       let packet=null;
       try{const raw=await kv.get(key,{cacheTtl:30});packet=raw?JSON.parse(raw):null;}catch(_){}
       if(packet?.version===161&&packet?.sv===sv&&Array.isArray(packet.relations))return structuredClone(packet.relations);
+      // Si KV sirve una versión anterior tras revocar permisos, recuperar
+      // la actualización puntual del coordinador, sin consultar ocho registros.
+      if(env.GLD_PUBLIC_CACHE){
+        try{
+          const current=await authOp162(sid,'read',[],sv);
+          if(current?.ok&&Array.isArray(current.packet?.relations))return structuredClone(current.packet.relations);
+        }catch(_){}
+      }
       const relations=await build();
       const state=await subscriberSessionState(env,sid);
       if(state.deleted||Number(state.version||0)!==sv)throw Error('Autorizaciones modificadas durante el ingreso. Reintentá.');
-      await kv.put(key,JSON.stringify({version:161,sv,relations}));
+      const fresh={version:161,sv,relations};
+      await kv.put(key,JSON.stringify(fresh));
+      if(env.GLD_PUBLIC_CACHE)await authOp162(sid,'seed',[],sv,fresh);
       return relations;
     },
     async repairPrivateGuide132(collection,id,row){
@@ -10383,7 +10393,7 @@ class GldPublicCache119 {
  // El Durable Object conserva un paquete canónico; KV ofrece la copia de lectura.
  async authAccount162(body){
   const sid=String(body.sid||'').trim(),mode=body.mode;
-  if(!sid||!['hold','read','apply'].includes(mode))throw Error('Invalid private bundle operation');
+  if(!sid||!['hold','read','apply','seed'].includes(mode))throw Error('Invalid private bundle operation');
   const key='auth:account-bundle:v161:'+encodeURIComponent(sid);
   this.sql.exec('CREATE TABLE IF NOT EXISTS auth_account162 (slot INTEGER PRIMARY KEY, packet TEXT NOT NULL)');
   const existing=this.query('SELECT packet FROM auth_account162 WHERE slot=1')[0];
@@ -10392,6 +10402,13 @@ class GldPublicCache119 {
   const remote=kvRaw?JSON.parse(kvRaw):null;
   let packet=local&&(!remote||Number(local.sv||0)>=Number(remote.sv||0))?local:remote;
   if(!packet||packet.version!==161||!Array.isArray(packet.relations))return {ok:false,missing:true};
+  if(mode==='seed'){
+   const candidate=body.packet;
+   if(!candidate||candidate.version!==161||!Array.isArray(candidate.relations)||Number(candidate.sv||0)!==Number(body.sv||0))throw Error('Invalid account bundle seed');
+   if(!local||Number(local.sv||0)<=Number(candidate.sv||0))
+    this.query('INSERT INTO auth_account162(slot,packet) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET packet=excluded.packet',JSON.stringify(candidate));
+   return {ok:true,seeded:true};
+  }
   if(mode==='read'){
    if(Number(packet.sv||0)!==Number(body.sv||0))return {ok:false,stale:true};
    return {ok:true,packet};
