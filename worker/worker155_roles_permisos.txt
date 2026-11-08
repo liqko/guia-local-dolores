@@ -2624,6 +2624,16 @@ async function subscriberSessionState(env, sid) {
   return JSON.parse(raw);
 }
 async function revokeSubscriberSessions(env, sid, { deleted = false } = {}) {
+  // Todas las revocaciones de una cuenta pasan por su mismo Durable Object.
+  // La asignación de versión deja de ser un read-modify-write concurrente en KV.
+  if(env.GLD_PUBLIC_CACHE){
+    const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-auth-v162:'+sid));
+    const response=await stub.fetch(new Request('https://auth.internal/',{method:'POST',
+      body:JSON.stringify({op:'auth-account-162',sid,mode:'revoke',deleted})}));
+    const result=await response.json();
+    if(!response.ok||!result.ok)throw Error(result.error||'No se pudo revocar la sesión.');
+    return result;
+  }
   const current = await subscriberSessionState(env, sid);
   await env.GLD_CACHE_KV.put(key2(sid), JSON.stringify({
     version: Number(current.version || 0) + 1,
@@ -10393,8 +10403,18 @@ class GldPublicCache119 {
  // El Durable Object conserva un paquete canónico; KV ofrece la copia de lectura.
  async authAccount162(body){
   const sid=String(body.sid||'').trim(),mode=body.mode;
-  if(!sid||!['hold','read','apply','seed'].includes(mode))throw Error('Invalid private bundle operation');
+  if(!sid||!['hold','read','apply','seed','revoke'].includes(mode))throw Error('Invalid private bundle operation');
   const key='auth:account-bundle:v161:'+encodeURIComponent(sid);
+  if(mode==='revoke'){
+   this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
+   const prior=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
+   const remote=await subscriberSessionState(this.env,sid);
+   const version=Math.max(Number(prior?.version||0),Number(remote.version||0))+1;
+   const deleted=body.deleted===true||prior?.deleted===1||remote.deleted===true;
+   this.query('INSERT INTO auth_session162(slot,version,deleted) VALUES(1,?,?) ON CONFLICT(slot) DO UPDATE SET version=excluded.version,deleted=excluded.deleted',version,deleted?1:0);
+   await this.env.GLD_CACHE_KV.put(key2(sid),JSON.stringify({version,deleted}));
+   return {ok:true,version,deleted};
+  }
   this.sql.exec('CREATE TABLE IF NOT EXISTS auth_account162 (slot INTEGER PRIMARY KEY, packet TEXT NOT NULL)');
   const existing=this.query('SELECT packet FROM auth_account162 WHERE slot=1')[0];
   const kvRaw=await this.env.GLD_CACHE_KV.get(key);
@@ -10419,7 +10439,10 @@ class GldPublicCache119 {
    return {ok:true};
   }
   const state=await subscriberSessionState(this.env,sid);
-  if(state.deleted)throw Error('Subscriber revoked');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS auth_session162 (slot INTEGER PRIMARY KEY, version INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
+  const durable=this.query('SELECT version,deleted FROM auth_session162 WHERE slot=1')[0];
+  if(state.deleted||durable?.deleted===1)throw Error('Subscriber revoked');
+  const latestVersion=Math.max(Number(state.version||0),Number(durable?.version||0));
   const byAid=new Map(packet.relations.map(row=>[String(row.anunciante_id),row]));
   const stamps={...(packet.stamps||{})};
   const normalized=v=>String(v??'').split(/[;,|\n]/).map(x=>x.trim().toUpperCase()).filter(Boolean).join(', ');
@@ -10448,7 +10471,7 @@ class GldPublicCache119 {
      &&link.permisos_definidos!==true&&!String(link.permisos||'').trim())patched.permisos=normalized(row.funcionalidades);
    byAid.set(aid,patched);
   }
-  const fresh={...packet,sv:Number(state.version||0),stamps,relations:[...byAid.values()]};
+  const fresh={...packet,sv:latestVersion,stamps,relations:[...byAid.values()]};
   const data=JSON.stringify(fresh);
   // El estado durable se escribe antes de KV: un fallo KV no pierde cambios
   // y un login con versión antigua consulta aquí sin reconstruir ocho fichas.
