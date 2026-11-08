@@ -988,6 +988,10 @@ function createCache(env) {
     async put(key3, value, options) {
       await kv.put(key3, JSON.stringify(value), options);
     },
+    async patchPublicEntity(key3,id,row) {
+      if(typeof kv.delta!=='function')throw Error('El publicador incremental no está disponible');
+      return kv.delta(key3,String(id),row??null);
+    },
     async del(key3) {
       if (typeof kv.delete === "function") await kv.delete(key3);
     }
@@ -10500,6 +10504,37 @@ class GldPublicCache119 {
   return {ok:true,updated:(body.deltas||[]).length,sv:fresh.sv};
  }
 
+ async stageDirectDelta162(body,def){
+  const key=String(body.key||''),id=String(body.value?.id||'');
+  if(!id||!body.value||!Object.hasOwn(body.value,'row'))throw Error('Invalid entity delta');
+  const row=body.value.row,stamp=sourceStamp119(body.stamps?.[id]),encoded=row===null?null:JSON.stringify(row);
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public_meta162 (slot INTEGER PRIMARY KEY, key TEXT NOT NULL)');
+  let changed=0;
+  this.state.storage.transactionSync(()=>{
+   const prior=this.query('SELECT value,stamp FROM pending_public162 WHERE id=?',id)[0];
+   if(prior?.stamp&&(!stamp||stamp<prior.stamp))return;
+   if(prior&&prior.value===encoded)return;
+   if(!prior){
+    const old=this.query('SELECT value,stamp FROM entities WHERE id=?',id)[0];
+    if(old?.stamp&&(!stamp||stamp<old.stamp))return;
+    if((old?.value??null)===encoded)return;
+   }
+   this.query('INSERT INTO pending_public162(id,value,stamp) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,encoded,stamp||prior?.stamp||'');
+   this.query('INSERT OR IGNORE INTO pending_public_meta162(slot,key) VALUES(1,?)',key);
+   changed=1;
+  });
+  if(changed){
+   this.draftPacket162=null;
+   const alarm=await this.state.storage.getAlarm();
+   if(alarm===null){
+    const next=new Date();next.setUTCHours(4,0,0,0);
+    if(next.getTime()<=Date.now())next.setUTCDate(next.getUTCDate()+1);
+    await this.state.storage.setAlarm(next.getTime());
+   }
+  }
+  return {ok:true,deferred:true,changed};
+ }
  async draftRead162(key,def){
   if(this.draftPacket162?.key===key)return structuredClone(this.draftPacket162.value);
   this.sql.exec('CREATE TABLE IF NOT EXISTS pending_public162 (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL)');
@@ -10598,6 +10633,7 @@ class GldPublicCache119 {
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
   if(op==='get')return {value:await this.read(key,def)};
   if(op==='draft-get')return {value:await this.draftRead162(key,def)};
+  if(op==='delta')return this.stageDirectDelta162(body,def);
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
   if(op==='put'&&['guide','events','promos','publicity','activities'].includes(def.module))return this.stageDaily162(body,def);
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
@@ -10660,6 +10696,7 @@ function coordinatedCities119(env,report){
  const kv=env.GLD_CACHE_KV,bases=new Map();
  async function call(key,op,value){
   const def=cityDefinition119(key),stamps={};
+  if(op==='delta'&&value?.id)stamps[String(value.id)]=report.source_versions119?.[def.collection+'/'+String(value.id)]||'';
   for(const row of [...(bases.get(key)?.[def.field]||[]),...(value?.[def.field]||[])]){
    const id=String(row[def.id]||row.id||'');stamps[id]=report.source_versions119?.[def.collection+'/'+id]||'';
   }
@@ -10673,6 +10710,7 @@ function coordinatedCities119(env,report){
   return result;
  }
  const binding=new Proxy(kv,{get(target,prop){
+  if(prop==='delta')return async(key,id,row)=>call(key,'delta',{id,row});
   if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,options?.gldDraft?'draft-get':'get');bases.set(key,value);return value?JSON.stringify(value):null;};
   if(prop==='put')return async(key,value,options)=>{if(!cityDefinition119(key))return target.put(key,value,options);if(options&&Object.keys(options).length)throw Error('Public cache TTL unsupported');const packet=JSON.parse(value);
    if(!bases.has(key)){
