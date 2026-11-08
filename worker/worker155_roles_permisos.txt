@@ -8906,9 +8906,11 @@ function withPrivateCacheV46(db,env){
         }
         if(e.collection==='anunciantes_administracion')await invalidate(panelAdminKey(e.id));
       }
-      for(const sid of affected)await revokeAndInvalidateAccount161(sid);
+      for(const sid of affected){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       const saved=await db.commitPatches(entries);
       for(const sid of affected)await revokeAndInvalidateAccount161(sid);
+      for(const e of entries)if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))
+        await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
       for(let i=0;i<entries.length;i++){const e=entries[i],row=saved[i];if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}if(row)remember(e.collection,[row]);}
       return saved;
     },
@@ -8928,6 +8930,8 @@ function withPrivateCacheV46(db,env){
       const oldAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const row=await db.patch(collection,id,patch,options);
       if(collection==='suscriptor_anunciante')for(const sid of affected)await revokeAndInvalidateAccount161(sid);
+      if(advertiserCollections.has(collection)&&loginFieldsChanged132(patch,null))
+        await invalidateAffectedAdvertiser161(id,{revoke:collection==='anunciantes_administracion'});
       if(collection==='anunciantes_administracion')administrationAfter104.set(panelAdminKey(id),row);
       if(collection==='suscriptor_anunciante'){const nextAdvertiser104=text(row?.anunciante_id||patch.anunciante_id);if(oldAdvertiser104&&oldAdvertiser104!==nextAdvertiser104)await advertiserRelationDelta104(oldAdvertiser104,text(id),null);if(nextAdvertiser104)await advertiserRelationDelta104(nextAdvertiser104,text(id),{...patch,...row,id:text(id)});}
       if(favKey)favoriteChanges.set(favKey,{sid:text(patch.suscriptor_id)||owners.get(collection+'/'+text(id)),id:text(id),deleted:false,data:{...patch,...row,id:text(id)}});
@@ -8941,10 +8945,11 @@ function withPrivateCacheV46(db,env){
       for(const sid of removed){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       let favKey;
       if(collection==='suscriptor_favoritos'){let sid=owners.get(collection+'/'+text(id))||text(options.subscriberId);if(!sid){const previous=await db.get(collection,id);if(previous){remember(collection,[previous]);sid=text(previous.suscriptor_id);}}if(sid)favKey=await prepareFavorite(sid,id);}
-      if(collection==='suscriptores'){deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
+      if(collection==='suscriptores'){await revokeAndInvalidateAccount161(text(id));deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
       const previousAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const result=await db.delete(collection,id,options);
       for(const sid of removed)await revokeAndInvalidateAccount161(sid);
+      if(advertiserCollections.has(collection))await invalidateAffectedAdvertiser161(id,{revoke:true});
       if(collection==='anunciantes_administracion')administrationAfter104.delete(panelAdminKey(id));
       if(collection==='suscriptor_anunciante'&&previousAdvertiser104)await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
       if(favKey)favoriteChanges.set(favKey,{sid:owners.get(collection+'/'+text(id))||text(options.subscriberId),id:text(id),deleted:true});
@@ -11277,11 +11282,8 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(perms.some(x=>!allowed.includes(x)))throw httpError('Solo se pueden delegar funciones disponibles para este anunciante.',400);
  const next={suscriptor_id:sid,anunciante_id:aid,anunciante_nombre:String(advertiser.nombre||aid),rol:role,permisos:perms.join(', '),permisos_definidos:role!=='PROPIETARIO',activo:body.activo};
  if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
- // Revoke on both sides: a concurrent login cannot retain pre-change permissions.
- await revokeSubscriberSessions(env,sid);
- let saved;
- try{saved=await db.patch('suscriptor_anunciante',id,{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},{...(current.doc?{mustExist:true,updateTime:current.updateTime}:{newDocument:true,mustNotExist:true}),subscriberId:sid});}
- finally{await revokeSubscriberSessions(env,sid);}
+ // The centralized relation mutation now revokes before and after its write.
+ const saved=await db.patch('suscriptor_anunciante',id,{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},{...(current.doc?{mustExist:true,updateTime:current.updateTime}:{newDocument:true,mustNotExist:true}),subscriberId:sid});
  return {success:true,updated:true,relacion:publicRelation155({...saved,id}),revision:await wholeRevisionInternal(saved),message:'Permisos guardados. El usuario debe volver a iniciar sesión.'};
 }
 async function routeAdvertiserAccess155(ctx){
