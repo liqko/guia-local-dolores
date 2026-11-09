@@ -23,9 +23,9 @@ for(const path of ['plataforma/inicio.html','plataforma/carcasa.html','plataform
   assert.match(read(path),/marca-global\.js/,path+' branding');
 }
 assert.match(brand,/Panel administrador/);
-assert.match(brand,/\/plataforma\/granhermano\.html/);
-assert.match(brand,/\/plataforma\/login\.html/);
-assert.match(brand,/\/plataforma\/suscriptores\.html/);
+assert.match(brand,/\/administracion/);
+assert.match(brand,/\/anunciantes/);
+assert.match(brand,/\/mi-guia/);
 assert.match(brand,/\/plataforma\/pie\.html/);
 assert.match(inicio,/gld-city-pin/);
 assert.match(carcasa,/gld-city-pin/);
@@ -63,3 +63,17 @@ for(const [source,destination] of [['/elegi-tu-ciudad','/plataforma/inicio.html'
 assert.ok(!hosting.redirects.some(r=>r.source==='/'));
 assert.ok(!existsSync('index.html'), 'index.html no debe interceptar la ruta raíz');
 console.log('PASS rutas públicas amigables y acceso directo por Firebase Hosting');
+
+for(const [source,destination,label] of [
+ ['/ecosistema','/plataforma/nosotros.html','Nuestro ecosistema'],
+ ['/app','/plataforma/app-prueba.html','App'],
+ ['/politicas-y-privacidad','/plataforma/privacidad.html','Políticas, fuentes y privacidad'],
+ ['/mi-guia','/plataforma/suscriptores.html','Suscriptores'],
+ ['/anunciantes','/plataforma/login.html','Anunciantes'],
+ ['/administracion','/plataforma/administracion.html','Panel administrador']
+]){
+ assert.ok(hosting.rewrites.some(r=>r.source===source&&r.destination===destination),`Falta rewrite ${source}`);
+ assert.ok(brand.includes(`['${label}','${source}']`),`Falta menú ${label}`);
+ assert.ok(!hosting.redirects.some(r=>r.source===source),`Redirect inesperado ${source}`);
+}
+console.log('PASS navegación pública del menú completo');
