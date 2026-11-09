@@ -3369,6 +3369,10 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   if(!unlimited&&free)max=Number.isSafeInteger(policy.activas_max)?policy.activas_max:Number(max||0);
   if(!unlimited&&!free&&!(vipAllowed166&&vipOverride166.excepcion_cupo===true)&&Number.isSafeInteger(vipSettings166.activas_max))max=vipSettings166.activas_max;
   if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);}
+  else {
+    const maxDescripcion=gldValorParticular168(vipSettings166,vipOverride166,'descripcion_max',null);
+    if(Number.isSafeInteger(maxDescripcion)&&String(data.descripcion??'').length>maxDescripcion)throw httpError('La descripción de Eventos VIP admite hasta '+maxDescripcion+' caracteres.',400);
+  }
   if (!unlimited && Number(max || 0) <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
   await validateEvent({ db, cache, advertiserId, data, level });
@@ -3474,6 +3478,14 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   };
   let editVersion=null,policy=null;
   const scheduleChanged=hasProgramacion&&!sameValueV1(data.programacion,previousProgramacion);
+  if(level==='VIP'&&(hasDataChanges||scheduleChanged)){
+    const [adminVip,packetVip]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,false)]);
+    const globalVip=gldFuncRules166(packetVip,'EVENTOS'),cfgVip=adminVip?.funcionalidades_config?.EVENTOS||{};
+    const maxDesc=gldValorParticular168(globalVip,cfgVip,'descripcion_max',null);
+    if(Number.isSafeInteger(maxDesc)&&String(next.descripcion??'').length>maxDesc)throw httpError('La descripción de Eventos VIP admite hasta '+maxDesc+' caracteres.',400);
+    const maxEdiciones=gldValorParticular168(globalVip,cfgVip,'ediciones_max',null);
+    if(Number.isSafeInteger(maxEdiciones)&&Number(current.ediciones_vip_contador||0)>=maxEdiciones)throw httpError('Se alcanzó la cantidad de ediciones permitidas para este evento VIP.',409);
+  }
   if(level==='FREE'&&(hasDataChanges||scheduleChanged)){
     policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId),await gldFuncPacket166(cache,db,false));
     gldValidarDescripcionFree167(next.descripcion,policy);
@@ -3503,6 +3515,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   const fields = [...Object.keys(data).filter((k) => !["evento_id", "anunciante_id", "id_anunciante", "nivel", "programacion", "programacion_version", "id"].includes(k)), "estado_moderacion", "estado", ...(Number(current.programacion_version)===2?["programacion"]:[])];
   const patch = changedFieldsV1(current, next, { touch: !!programacion.changed, fields });
   if(level==='FREE'&&Object.keys(patch).length){patch.ultima_edicion_free=new Date().toISOString();patch.ediciones_free_contador=Number(current.ediciones_free_contador||0)+1;}
+  if(level==='VIP'&&Object.keys(patch).length)patch.ediciones_vip_contador=Number(current.ediciones_vip_contador||0)+1;
   const saved = Object.keys(patch).length ? await db.patch("eventos", eventId, patch, { mustExist: true,...((editVersion?.updateTime||eventVersion145.updateTime)?{updateTime:editVersion?.updateTime||eventVersion145.updateTime}:{}) }) : current;
   await syncEventV2({ db, cache, current, next: saved, previousProgramacion, programacion });
   return {
