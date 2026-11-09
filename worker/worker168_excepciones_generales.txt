@@ -7910,8 +7910,6 @@ async function routeAdminV6(ctx) {
 
 // reconstruccion/worker/maintenance/rebuild-all-v2.js
 async function rebuildAllReadModelsV2({ env, request: request2, db, cache }) {
-  const sourceDb116=db,snapshots116=new Map();
-  db={...db,async listCollection(/** @type {string} */ collection,/** @type {any[]} */ ...args){const rows=await sourceDb116.listCollection(collection,...args);snapshots116.set(collection,rows);return rows;}};
   const started = (/* @__PURE__ */ new Date()).toISOString();
   const territoryResponse = await rebuildTerritory({ env, request: request2, db, cache });
   const territory = await territoryResponse.clone().json().catch(() => ({ success: false }));
@@ -7939,9 +7937,7 @@ async function rebuildAllReadModelsV2({ env, request: request2, db, cache }) {
     guideReady.then(() => rebuildFarmAllV2({ db, cache })),
     rebuildAdminIndexesV2({ db, cache })
   ]);
-  const paneles_privados=await startPanelPreparation116(cache,snapshots116);
   return {
-    paneles_privados,
     success: true,
     started_at: started,
     finished_at: (/* @__PURE__ */ new Date()).toISOString(),
@@ -7956,32 +7952,6 @@ async function rebuildAllReadModelsV2({ env, request: request2, db, cache }) {
     pharmacies,
     adminIndexes
   };
-}
-
-const panelPreparationCollections116=['anunciantes','anunciantes_administracion','anunciantes_sedes','eventos','actividades','promos','publicidades','farmacias_ciclos','evento_programacion','actividad_horarios','publicidad_media','publicidad_segmentacion','farmacias_ciclo_sedes'];
-async function startPanelPreparation116(/** @type {any} */ cache,/** @type {Map<string,any[]>} */ snapshots){
- const id=crypto.randomUUID(),entries=panelPreparationCollections116.filter(c=>snapshots.has(c)).map(c=>[c,snapshots.get(c)]);
- if(entries.some(([,rows])=>JSON.stringify(rows).length>2000000))throw httpError('La preparación supera el tamaño de este lote. No se reemplazó ninguna copia existente.',409);
- for(const [c,rows]of entries)await cache.put('panel:prepare:v116:'+id+':'+c,rows,{expirationTtl:86400});
- const state={id,creado_en:Date.now(),collections:entries.map(([c])=>c),cursor:0,completo:false,preparadas:0,existentes:0,omitidas:0,procesados:0,anunciantes:new Set([...(snapshots.get('anunciantes')||[]),...(snapshots.get('anunciantes_administracion')||[])].map(r=>String(r.id||r.anunciante_id))).size};
- await cache.put('panel:prepare:v116:state',state);return state;
-}
-async function routePanelPreparation116(/** @type {any} */ ctx){
- const {path,request,env,db,cache}=ctx;if(path!=='/superadmin/panel-cache/prepare')return null;
- const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);if(!isTopAdmin(auth))return json({success:false,message:'La preparación general corresponde a Gran Hermano.'},403);
- if(!['GET','POST'].includes(request.method))return json({success:false,message:'Método inválido.'},405);
- let state=await cache.get('panel:prepare:v116:state');if(request.method==='GET')return json({success:true,estado:state});
- const body=await request.json().catch(()=>({}));
- if(body.action==='iniciar'){
-  if(state&&(state.completo||Date.now()-Number(state.creado_en||0)<23*3600000))return json({success:true,estado:state});
-  const snapshots=new Map();for(const c of panelPreparationCollections116)snapshots.set(c,await db.listCollection(c));
-  state=await startPanelPreparation116(cache,snapshots);return json({success:true,estado:state});
- }
- if(!state)return json({success:false,message:'Primero iniciá la preparación general.'},409);
- if(state.completo)return json({success:true,estado:state});
- const snapshots=new Map();for(const c of state.collections){const rows=await cache.get('panel:prepare:v116:'+state.id+':'+c);if(!Array.isArray(rows))throw httpError('La preparación quedó incompleta. Volvé a iniciarla.',409);snapshots.set(c,rows);}
- const batch=await db.primePanelSnapshots116(snapshots,state.cursor);state={...state,cursor:batch.next_cursor??batch.procesados,completo:batch.completo,procesados:batch.procesados,preparadas:state.preparadas+batch.preparadas,existentes:state.existentes+batch.existentes,omitidas:state.omitidas+batch.omitidas};
- await cache.put('panel:prepare:v116:state',state);return json({success:true,estado:state});
 }
 
 // reconstruccion/worker/routes/admin-v7.js
@@ -9383,35 +9353,6 @@ function withPanelCacheV48(db,env,report){
     id=text(id);if(!id||initialized116.has(id))return;initialized116.add(id);
     for(const c of advertiserLists116){const key=queryKey(c,id,'anunciante_id');if(!await read(key))await requiredSave(key,{version:48,data:[],revision:''});}
   }
-  async function primePanelSnapshots116(/** @type {Map<string,any[]>} */ snapshots,cursor=0){
-    const advertisers=snapshots.get('anunciantes')||[],admins=snapshots.get('anunciantes_administracion')||[];
-    const owners=new Set([...advertisers,...admins].map(r=>text(r.id||r.anunciante_id)).filter(Boolean));
-    const allOwners=[...owners].sort(),batch=new Set(allOwners.slice(cursor,cursor+5));
-    let preparadas=0,existentes=0,omitidas=0;
-    async function prime(/** @type {string} */ key,/** @type {any} */ data){if(await read(key)){existentes++;return;}if(JSON.stringify(data).length>2000000){omitidas++;return;}await requiredSave(key,{version:48,data,revision:''});preparadas++;}
-    if(cursor===0){
-      /** @type {Array<[string, string, string | boolean]>} */
-      const initialQueries=[['anunciantes','revision_adulto','PENDIENTE'],['eventos','revision_adulto','PENDIENTE'],['actividades','revision_adulto','PENDIENTE'],['promos','revision_adulto','PENDIENTE'],['publicidades','revision_adulto','PENDIENTE'],['anunciantes','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','REVISION'],['promos','estado_moderacion','PENDIENTE'],['publicidades','estado_moderacion','PENDIENTE'],['actividades','aprobado',false]];
-      for(const [c,field,value]of initialQueries){
-        if(snapshots.has(c))await prime(queryKey(c,value,field),(snapshots.get(c)||[]).filter(row=>row[field]===value));
-      }
-    }
-    const advertiserMap=new Map(advertisers.map(r=>[text(r.id||r.anunciante_id),r]));for(const id of batch)await prime(advertiserKey(id),advertiserMap.get(id)||null);
-    for(const c of advertiserLists116){
-      if(!snapshots.has(c))continue;
-      const groups=new Map([...batch].map(id=>[id,[]]));
-      for(const row of snapshots.get(c)){const id=text(row.anunciante_id);if(!batch.has(id))continue;groups.get(id).push(row);}
-      for(const [id,rows]of groups){if(rows.length>500){omitidas++;continue;}await prime(queryKey(c,id,'anunciante_id'),rows);}
-    }
-    const cache116=createCache(env),relations116=[['eventos','event','evento_id','evento_programacion','programacion_version'],['actividades','activity','actividad_id','actividad_horarios','horarios_version'],['publicidades','publicity-media','publicidad_id','publicidad_media','relaciones_version'],['publicidades','publicity-seg','publicidad_id','publicidad_segmentacion','relaciones_version']];
-    for(const [parents,type,idField,children,embedded]of relations116){
-      const legacy=(snapshots.get(parents)||[]).filter(r=>batch.has(text(r.anunciante_id))&&Number(r[embedded])!==2);
-      if(legacy.length>200){omitidas++;continue;}
-      for(const row of legacy){const id=text(row[idField]||row.id),relationKey='relations:prepared:v1:'+type+':'+id;if(await cache116.get(relationKey)){existentes++;continue;}const data=(snapshots.get(children)||[]).filter(r=>text(r[idField])===id);await putPreparedRelationsV1({cache:cache116,type,id,next:row,data});preparadas++;}
-    }
-    if(db.primePanelAdministration116)preparadas+=await db.primePanelAdministration116(admins.filter(r=>batch.has(text(r.id||r.anunciante_id))));
-    return {anunciantes:owners.size,procesados:Math.min(cursor+5,allOwners.length),completo:cursor+5>=allOwners.length,next_cursor:cursor+5<allOwners.length?cursor+5:null,preparadas,existentes,omitidas,lecturas_adicionales_firestore:0,escrituras_firestore:0};
-  }
   async function beforeMutation(c,id,options){
     if(!fields[c])return null;
     const k=c+'/'+text(id);
@@ -9453,7 +9394,6 @@ function withPanelCacheV48(db,env,report){
     if(db.flushLoginCache)await db.flushLoginCache();
   }
   return {...db,
-    primePanelSnapshots116,
     prepareNewAdvertiserPanels116,
     repairPanelGuide132(c,id,before,row){
       queue(c,id,before,row);
@@ -11527,7 +11467,6 @@ var app_main_v35_default = {
       const adult=await routeAdult(ctx);if(adult)return await traced(adult);
       const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){report.source='public-kv';return await traced(await adultPublicResponse(pub,env,request));}
       const panel=await routePanelV15(ctx);if(panel)return await traced(panel);
-      const panelPreparation=await routePanelPreparation116(ctx);if(panelPreparation)return await traced(panelPreparation);
       const access155=await roleRoutes155(ctx);if(access155)return await traced(access155);
       const moderators=await routeModeratorsV72(ctx);if(moderators)return await traced(moderators);
       const admin=await routeAdminV11(ctx);if(admin)return await traced(admin);
