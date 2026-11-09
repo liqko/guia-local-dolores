@@ -41,12 +41,12 @@
     navigation.setAttribute('aria-label','Navegación general de Guía Local');
     const routes=[
       ['Inicio','/'],
-      ['Nuestro ecosistema','/plataforma/nosotros.html'],
-      ['App','/plataforma/app-prueba.html'],
-      ['Políticas, fuentes y privacidad','/plataforma/privacidad.html'],
-      ['Suscriptores','/plataforma/suscriptores.html'],
-      ['Anunciantes','/plataforma/login.html'],
-      ['Panel administrador','/plataforma/administracion.html']
+      ['Nuestro ecosistema','/ecosistema'],
+      ['App','/app'],
+      ['Políticas, fuentes y privacidad','/politicas-y-privacidad'],
+      ['Suscriptores','/mi-guia'],
+      ['Anunciantes','/anunciantes'],
+      ['Panel administrador','/administracion']
     ];
     // Regresar a la Guía conserva la ciudad que la persona eligió para esta
     // navegación, incluso si su ciudad predeterminada de perfil es distinta.
@@ -69,7 +69,7 @@
     for(const [title,href] of routes){
       const a=document.createElement('a');a.href=href==='/'?urlGuiaActual():href;a.textContent=title;
       const current=location.pathname;
-      const active=href==='/'?(current==='/'||current==='/elegi-tu-ciudad'||current==='/plataforma/inicio.html'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
+      const active=href==='/'?(['/', '/descubrir', '/elegi-tu-ciudad', '/plataforma/inicio.html', '/plataforma/inicio','/plataforma/carcasa.html','/plataforma/carcasa'].includes(current)):(current===href);
       if(active){a.setAttribute('aria-current','page');a.classList.add('active')}
       list.appendChild(a);
     }
@@ -91,7 +91,7 @@
     regreso.className='gld-volver-guia';
     regreso.href=urlGuiaActual();
     regreso.textContent='← Volver a Guía';
-    if(['/plataforma/suscriptores','/plataforma/suscriptores.html','/plataforma/login','/plataforma/login.html','/plataforma/administracion','/plataforma/administracion.html'].includes(location.pathname)){
+    if(['/mi-guia','/anunciantes','/administracion','/plataforma/suscriptores','/plataforma/suscriptores.html','/plataforma/login','/plataforma/login.html','/plataforma/administracion','/plataforma/administracion.html'].includes(location.pathname)){
       navigation.appendChild(regreso);
     }
 
