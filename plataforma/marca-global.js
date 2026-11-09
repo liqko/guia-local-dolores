@@ -69,7 +69,7 @@
     for(const [title,href] of routes){
       const a=document.createElement('a');a.href=href==='/'?urlGuiaActual():href;a.textContent=title;
       const current=location.pathname;
-      const active=href==='/'?(current==='/'||current==='/elegi-tu-ciudad'||current==='/elegi-tu-ciudad'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
+      const active=href==='/'?(current==='/'||current==='/elegi-tu-ciudad'||current==='/plataforma/inicio.html'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
       if(active){a.setAttribute('aria-current','page');a.classList.add('active')}
       list.appendChild(a);
     }
