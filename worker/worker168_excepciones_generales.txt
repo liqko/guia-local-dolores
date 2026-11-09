@@ -6608,6 +6608,8 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   const originalMax=quota4(admin);
   const globalCfg=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES');
   const generalMax=globalCfg.activas_max;
+  const maxDescripcionActividad=gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'descripcion_max',null);
+  if(Number.isSafeInteger(maxDescripcionActividad)&&String(payload.descripcion??'').length>maxDescripcionActividad)throw httpError('La descripción de la actividad admite hasta '+maxDescripcionActividad+' caracteres.',400);
   const allowed=globalCfg.admite_excepciones===true&&admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true;
   const max=allowed||!Number.isSafeInteger(generalMax)?originalMax:generalMax;
   const totalMax = gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'guardadas_max',cupoGuardado(max));
@@ -6624,6 +6626,11 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   }
   const embedded = !current || Number(current.horarios_version)===2;
   const oldSchedules = current ? await getPreparedRelationsV1({ cache, type: "activity", id: activityId, current, load: () => db.queryEqual("actividad_horarios", "actividad_id", activityId, 500) }) : [];
+  const maxEdicionesActividad=gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'ediciones_max',null);
+  const modificacionSolicitada=!!current&&(Object.entries(payload).some(([k,v])=>!['actividad_id','horarios','ediciones_actividad_contador'].includes(k)&&!sameValueV1(v,current[k]))||
+    (Array.isArray(payload.horarios)&&!sameValueV1(payload.horarios,oldSchedules)));
+  if(modificacionSolicitada&&Number.isSafeInteger(maxEdicionesActividad)&&Number(current.ediciones_actividad_contador||0)>=maxEdicionesActividad)throw httpError('Se alcanzó la cantidad de ediciones permitidas para esta actividad.',409);
+  delete payload.ediciones_actividad_contador;
   const horarios = Array.isArray(payload.horarios) ? payload.horarios : [];
   const scheduleIds = horarios.map((h) => text61(h?.actividad_horario_id || h?.id)).filter(Boolean);
   if (new Set(scheduleIds).size !== scheduleIds.length) throw new Error("Horario repetido en la operación.");
@@ -6673,6 +6680,7 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   if(embedded)fields.push("horarios","horarios_version");
   const patch = changedFieldsV1(current, doc, { touch: !!savedHorarios.changed, fields: current ? fields : null });
   const changed = Object.keys(patch).length > 0;
+  if(current&&changed&&modificacionSolicitada)patch.ediciones_actividad_contador=Number(current.ediciones_actividad_contador||0)+1;
   const saved = changed ? await db.patch("actividades", activityId, patch, { mustExist: !!current, newDocument: !current }) : current;
   await syncActivityPreparedV2({
     cache,
