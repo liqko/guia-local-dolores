@@ -1524,8 +1524,103 @@ function ghNivelPatchV86(previous,get){
  return patch;
 }
 
+
+/* Reglas globales de funcionalidades. Una solicitud de guardado y un documento Firestore. */
+let GH_FUNC_GLOBAL166=null;
+const GH_FUNC_DEFAULT166={
+ EVENTOS_FREE:{altas_mensuales_max:4,altas_semanales_max:1,activas_max:2,ediciones_max:1},
+ EVENTOS:{activas_max:null,secciones_habilitadas:null},
+ ACTIVIDADES:{activas_max:null},PROMOS:{activas_max:null},PUBLICIDAD:{activas_max:null,posiciones_max:null}
+};
+function ghFuncParametros166(id,original){
+ const v=GH_FUNC_GLOBAL166?.reglas?.[id]||{};
+ return {...(GH_FUNC_DEFAULT166[id]||{}),...original,...v};
+}
+function ghFuncNum166(id,key,value,label){
+ return '<label>'+esc(label)+'<input type="number" min="0" step="1" data-func-regla="'+esc(id)+'" data-func-key="'+esc(key)+'" value="'+esc(value===undefined||value===null?'':value)+'" placeholder="Sin definir"></label>';
+}
+function ghFuncReglasHtml166(id,config){
+ const parts=[];
+ if(id==='EVENTOS_FREE'){
+  parts.push(ghFuncNum166(id,'altas_mensuales_max',config.altas_mensuales_max,'Eventos nuevos por mes'));
+  parts.push(ghFuncNum166(id,'altas_semanales_max',config.altas_semanales_max,'Eventos nuevos por semana'));
+  parts.push(ghFuncNum166(id,'activas_max',config.activas_max,'Eventos simultáneos activos'));
+  parts.push(ghFuncNum166(id,'ediciones_max',config.ediciones_max,'Ediciones permitidas por evento'));
+ }else if(id==='EVENTOS'){
+  parts.push(ghFuncNum166(id,'activas_max',config.activas_max,'Eventos VIP simultáneos (límite general)'));
+  parts.push('<label style="display:flex;align-items:center;gap:9px"><input type="checkbox" style="width:auto;margin:0" data-func-regla="'+esc(id)+'" data-func-key="secciones_habilitadas" '+(config.secciones_habilitadas===true?'checked':'')+'> Admite secciones</label>');
+ }else if(['ACTIVIDADES','PROMOS','PUBLICIDAD'].includes(id)){
+  parts.push(ghFuncNum166(id,'activas_max',config.activas_max,'Cupo máximo general de publicaciones activas'));
+  if(id==='PUBLICIDAD')parts.push(ghFuncNum166(id,'posiciones_max',config.posiciones_max,'Posiciones máximas de publicidad'));
+ }
+ if(!parts.length)return '<p class="muted">Sin parámetros de cupo general en esta funcionalidad.</p>';
+ return '<fieldset style="margin-top:14px;border:1px solid #45515a;border-radius:9px;padding:16px"><legend>Parámetros generales</legend><div style="display:grid;gap:12px">'+parts.join('')+'</div></fieldset>';
+}
+function ghRenderFuncionesUnificadas166(box,rows){
+ const value=GH_FUNC_GLOBAL166?.reglas||{};
+ const defs=[...rows].sort((x,y)=>String(x.nombre||'').localeCompare(String(y.nombre||''),'es'));
+ box.innerHTML='<div class="toolbar"><button type="button" onclick="ghNuevoFunc166()">+ Agregar funcionalidad</button></div>'+
+ defs.map(x=>{
+  const id=String(x.funcionalidad_id||x.id||'');
+  const actual=value[id]||{},nombre=actual.nombre??GLD_CLASSIFICATION.name(x),activo=actual.activo??GLD_CLASSIFICATION.active(x);
+  const params=ghFuncParametros166(id);
+  return '<details class="item" data-func-item="'+esc(id)+'"><summary><b>'+esc(nombre||id)+'</b> · '+(activo?'Activo':'Inactivo')+'</summary>'+
+   '<div style="display:grid;gap:14px;margin-top:18px">'+
+   '<label>Nombre<input data-func-name="'+esc(id)+'" value="'+esc(nombre)+'"></label>'+
+   '<label>ID<input value="'+esc(id)+'" disabled></label>'+
+   '<label style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:auto;margin:0" data-func-active="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label>'+
+   ghFuncReglasHtml166(id,params)+'</div></details>';
+ }).join('')+
+ '<div class="card" style="margin-top:18px"><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166?'disabled':'')+'>Guardar todas las funcionalidades</button> <span id="ghFuncEstado166" role="status">'+(GH_FUNC_GLOBAL166?'Una sola operación de guardado.':'Requiere el Worker con configuración general habilitada.')+'</span></div>';
+}
+function ghNuevoFunc166(){
+ const id=prompt('ID de la nueva funcionalidad (letras y guiones bajos):');
+ if(!id)return;
+ const key=id.trim().toUpperCase();
+ if(!/^[A-Z][A-Z0-9_]{1,50}$/.test(key)){alert('ID inválido.');return;}
+ const list=GH_CATALOG_CACHE.funcionalidades||[];
+ if(list.some(x=>String(x.funcionalidad_id||x.id).toUpperCase()===key)){alert('La funcionalidad ya existe.');return;}
+ list.push({funcionalidad_id:key,nombre:key,activo:false});
+ ghRenderCatalogo(GH_CATALOGOS.find(x=>x.tipo==='funcionalidades'),list);
+}
+async function ghCargarFuncionesGlobal166(){
+ const response=await ghAdminRequest_('/catalogs/functional-settings');
+ if(!response?.success||!response?.reglas)throw Error('Falta el soporte del Worker para guardar reglas generales.');
+ GH_FUNC_GLOBAL166={revision:response.revision,reglas:response.reglas};
+}
+async function ghGuardarFunciones166(){
+ const btn=document.getElementById('ghGuardarFunciones166'),msg=document.getElementById('ghFuncEstado166');
+ if(!GH_FUNC_GLOBAL166||!btn||!msg)return;
+ let reglas={};
+ try{
+  for(const el of document.querySelectorAll('#cfgFuncionalidades [data-func-item]')){
+   const id=el.dataset.funcItem,nom=el.querySelector('[data-func-name]'),act=el.querySelector('[data-func-active]');
+   if(!nom?.value.trim())throw Error('Falta el nombre de '+id);
+   const item={nombre:nom.value.trim(),activo:!!act?.checked};
+   for(const input of el.querySelectorAll('[data-func-regla]')){
+    const key=input.dataset.funcKey;
+    if(input.type==='checkbox'){item[key]=input.checked;continue;}
+    const raw=input.value.trim();
+    if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw))))throw Error('Parámetro inválido: '+key+' en '+id);
+    item[key]=raw===''?null:Number(raw);
+   }
+   reglas[id]=item;
+  }
+ }catch(e){msg.textContent=String(e.message||e);return;}
+ btn.disabled=true;msg.textContent='Guardando configuración completa…';
+ try{
+  const result=await ghAdminRequest_('/catalogs/functional-settings',{revision:GH_FUNC_GLOBAL166.revision,reglas},'POST');
+  if(!result?.success)throw Error('Guardado no confirmado');
+  GH_FUNC_GLOBAL166={revision:result.revision,reglas};
+  GH_CATALOG_CACHE.funcionalidades=Object.entries(reglas).map(([funcionalidad_id,x])=>({funcionalidad_id,nombre:x.nombre,activo:x.activo}));
+  ghRenderCatalogo(GH_CATALOGOS.find(d=>d.tipo==='funcionalidades'),GH_CATALOG_CACHE.funcionalidades);
+  const status=document.getElementById('ghFuncEstado166');if(status)status.textContent=result.updated?'Configuración guardada en un único documento.':'Sin cambios: ninguna escritura.';
+ }catch(e){msg.textContent='No se guardó: '+String(e.message||e)}
+ finally{btn.disabled=false}
+}
 function ghRenderCatalogo(def,rows){
  const box=document.getElementById(def.box);if(!box)return;
+ if(def.tipo==='funcionalidades'){ghRenderFuncionesUnificadas166(box,rows||[]);return;}
  const listado=def.tipo==='niveles_anunciante'?[...(rows||[])].filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true).sort((a,b)=>Number(b.prioridad??b.orden??0)-Number(a.prioridad??a.orden??0)): (rows||[]);
  if(def.tipo!=='niveles_anunciante'){
   const items=listado.map(x=>{const id=String(x[def.idField]||x.id||''),nombre=GLD_CLASSIFICATION.name(x),activo=GLD_CLASSIFICATION.active(x);
@@ -1623,7 +1718,7 @@ async function ghEliminarNivel(id){
 }
 async function ghCargarCatalogo(def){
   const box=document.getElementById(def.box);if(box)box.innerHTML='<div class="muted">Cargando...</div>';
-  try{const j=await api('listar_catalogo',{tipo:def.tipo});GH_CATALOG_CACHE[def.tipo]=j.results||[];ghRenderCatalogo(def,j.results||[]);if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(j.results||[]);ghRenderResumenNiveles108();}}
+  try{const j=await api('listar_catalogo',{tipo:def.tipo});GH_CATALOG_CACHE[def.tipo]=j.results||[];if(def.tipo==='funcionalidades'){try{await ghCargarFuncionesGlobal166();}catch(e){GH_FUNC_GLOBAL166=null;}}ghRenderCatalogo(def,j.results||[]);if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(j.results||[]);ghRenderResumenNiveles108();}}
   catch(e){if(box)box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
 async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
