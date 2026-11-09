@@ -207,6 +207,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
           <p>El <strong>anuncio</strong> es la ficha del anunciante en la guía. La <strong>publicidad</strong> es una pieza que aparece entre los resultados. Son dos cosas distintas.</p>
           <p>Los límites de las fichas se muestran según el catálogo vigente. Eventos, actividades, promociones y publicidad se habilitan y tienen sus propios cupos en la contratación de cada anunciante. Cambiar el nivel no asigna esos cupos por sí solo.</p>
           <div id="ghResumenNiveles" aria-live="polite"></div>
+          <div class="card" id="ghPreciosFuncionalidades"><h3>Valores de las funcionalidades</h3><p>Importes configurables para la propuesta comercial. No se muestran públicamente hasta autorizarlos.</p><div id="ghPreciosFuncionalidadesCampos"></div></div>
         </div>
         <div class="card plan-overview">
           <h2>Cómo se decide qué aparece</h2>
@@ -1701,6 +1702,55 @@ async function ghGuardarNodo(id){
 
 document.getElementById('ghTabs').addEventListener('click',function(e){const b=e.target.closest('[data-view]');if(b)ghGoView(b.dataset.view);});
 
+
+const GH_FUNCIONALIDADES_COMERCIALES=[
+ ['eventos_free','Eventos Free'],
+ ['eventos_vip','Eventos VIP'],
+ ['actividades','Actividades'],
+ ['promociones','Promociones'],
+ ['publicidad','Publicidad']
+];
+function ghRenderValoresFuncionalidades_(){
+ const host=document.getElementById('ghPreciosFuncionalidadesCampos');if(!host)return;
+ const cfg=GH_CARGA_GENERAL_BASE||{};
+ const fmt=window.GLD_PLANES_RESUMEN;
+ host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.map(([key,label])=>{
+  const field='precio_func_'+key,show='precio_func_visible_'+key;
+  const raw=cfg[field];
+  const price=raw===null||raw===undefined?'':String(raw);
+  return '<div class="item"><h4>'+esc(label)+'</h4>'+
+   '<label>Valor en pesos argentinos<input type="number" min="0" step="1" data-func-precio="'+esc(key)+'" value="'+esc(price)+'" placeholder="Sin definir"></label>'+
+   '<label style="display:flex;align-items:center;gap:9px"><input type="checkbox" style="width:auto" data-func-visible="'+esc(key)+'" '+(fmt.flag(cfg[show])===true?'checked':'')+'> Publicar valor en Planes y servicios</label>'+
+   '<button type="button" onclick="ghGuardarValorFuncionalidad_(\''+key+'\')">Guardar importe</button> <span data-func-msg="'+key+'" role="status"></span></div>';
+ }).join('');
+}
+async function ghGuardarValorFuncionalidad_(key){
+ if(!GH_FUNCIONALIDADES_COMERCIALES.some(f=>f[0]===key))return;
+ const inp=document.querySelector('[data-func-precio="'+key+'"]');
+ const check=document.querySelector('[data-func-visible="'+key+'"]');
+ const msg=document.querySelector('[data-func-msg="'+key+'"]');
+ if(!inp||!check||!msg)return;
+ const raw=inp.value.trim();
+ if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw)))){msg.textContent='Importe inválido';return;}
+ if(check.checked&&raw===''){msg.textContent='Ingresá el importe antes de publicarlo';return;}
+ const field='precio_func_'+key,visible='precio_func_visible_'+key;
+ const price=raw===''?null:Number(raw);
+ if(GH_CARGA_GENERAL_BASE?.[field]===price&&window.GLD_PLANES_RESUMEN.flag(GH_CARGA_GENERAL_BASE?.[visible])===check.checked){msg.textContent='Sin cambios';return;}
+ const item={nivel_id:GH_CARGA_GENERAL_ID,[field]:price,[visible]:check.checked};
+ if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
+ inp.disabled=check.disabled=true;msg.textContent='Guardando…';
+ try{
+  const result=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  if(!result?.success)throw Error('Servidor no confirmó el guardado');
+  const verified=await api('listar_catalogo',{tipo:'niveles_anunciante'});
+  const row=(verified.results||[]).find(x=>String(x.nivel_id||x.id)===GH_CARGA_GENERAL_ID);
+  if(!row||row[field]!==price||window.GLD_PLANES_RESUMEN.flag(row[visible])!==check.checked)throw Error('Persistencia no verificada');
+  GH_CATALOG_CACHE.niveles_anunciante=verified.results;
+  GH_CARGA_GENERAL_BASE=row;
+  msg.textContent='Guardado verificado';
+ }catch(e){msg.textContent='Error: '+String(e.message||e)}
+ finally{inp.disabled=check.disabled=false;}
+}
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
  const fmt=window.GLD_PLANES_RESUMEN;
@@ -1725,6 +1775,7 @@ function ghRenderResumenNiveles108(){
    '<p class="muted">Sin definir no significa gratuito. El precio solo se muestra cuando lo autorizás expresamente.</p>'+
    '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar condiciones comerciales</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></article>';
  }).join('')+'</div>';
+ ghRenderValoresFuncionalidades_();
  informarAltura();
 }
 async function ghGuardarPrecioPublico_(id){
