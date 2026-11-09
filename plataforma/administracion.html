@@ -536,7 +536,7 @@ async function abrirApp(){
 
     ghRevisionUnificada().catch(e=>console.warn('Pendientes:',e));
     ghRenderTodo();
-    ghGoView('inicio');
+    ghRestaurarNavegacion();
   }catch(e){
     window.gldConsumoAdminV68?.('');
     if(e.status===401||e.status===403){
@@ -549,7 +549,7 @@ async function abrirApp(){
       document.getElementById('app').style.display='block';
       ghApplyAccessV72();
       document.getElementById('ghSesionConexionEstado').textContent='No se pudo actualizar el resumen. Tu sesión sigue abierta.';
-      ghGoView('inicio');
+      ghRestaurarNavegacion();
     }
   }
 }
@@ -842,8 +842,22 @@ async function ghFarmaciasConsultar(){
  informarAltura();
 }
 
+/* Restauración local de navegación: cero llamadas a Worker, Firebase o Firestore. */
+const GH_NAV_STATE_KEY='gld_gh_navegacion_v1';
+function ghNavRead(){
+ try{const value=JSON.parse(sessionStorage.getItem(GH_NAV_STATE_KEY)||'{}');return value&&typeof value==='object'?value:{}}catch(_){return {}}
+}
+function ghNavWrite(update){
+ try{sessionStorage.setItem(GH_NAV_STATE_KEY,JSON.stringify({...ghNavRead(),...update}))}catch(_){}
+}
+function ghRestaurarNavegacion(){
+ const saved=ghNavRead(),selected=String(saved.view||'inicio'),tab=document.querySelector('#ghTabs .tab[data-view="'+selected+'"]');
+ const allowed=tab&&!tab.hidden&&tab.style.display!=='none';
+ ghGoView(allowed?selected:'inicio');
+}
 function ghGoView(name,{pendingOnly=false}={}){
   if(name==='ciudades'){ghGoView('configuracion');ghSelectConfig('territorio');return;}
+  ghNavWrite({view:name});
   document.querySelectorAll('#ghTabs .tab').forEach(function(x){x.classList.toggle('active',x.dataset.view===name);});
   document.querySelectorAll('.view').forEach(function(x){const on=x.id==='view-'+name;x.classList.toggle('active',on);x.style.display=on?'block':'none';});
   window.scrollTo({top:0,behavior:'auto'});
@@ -864,7 +878,7 @@ function ghGoView(name,{pendingOnly=false}={}){
   if(name==='ciudades'){
     ghCargarCiudades().then(ghRenderCiudades);
   }
-  if(name==='configuracion'){const current=document.querySelector('#cfgTabs .active');ghSelectConfig(current?.dataset.cfg||'territorio');}
+  if(name==='configuracion'){const current=document.querySelector('#cfgTabs .active'),saved=ghNavRead();ghSelectConfig(saved.cfg||current?.dataset.cfg||'territorio');}
   if(name==='anunciantes'){
     ghRenderTodo();
     if(!GH_CITIES.length)ghCargarCiudades();
@@ -2094,6 +2108,8 @@ async function ghCargarResumenNiveles(){
 }
 
 function ghSelectConfig(name){
+  if(!document.querySelector('#cfgTabs [data-cfg="'+name+'"]'))name='territorio';
+  ghNavWrite({cfg:name});
   document.querySelectorAll('#cfgTabs [data-cfg]').forEach(x=>x.classList.toggle('active',x.dataset.cfg===name));
   document.querySelectorAll('[data-cfgpane]').forEach(x=>x.classList.toggle('hidden',x.getAttribute('data-cfgpane')!==name));
   if(name==='resumen_planes')ghCargarResumenNiveles();
@@ -2132,6 +2148,7 @@ document.getElementById('btnSalir').onclick=()=>{
   window.gldConsumoAdminV68?.('');
     TOKEN='';
   localStorage.removeItem('gld_superadmin_token');
+  try{sessionStorage.removeItem(GH_NAV_STATE_KEY)}catch(_){}
   location.reload();
 };
 
