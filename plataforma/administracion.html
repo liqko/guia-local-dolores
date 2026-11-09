@@ -1131,7 +1131,8 @@ function ghPublicidadFormatsChanged_(input){
 }
 
 function ghCupoExcepcionUI168(id,base,config,global,usage){
- const allowed=global?.admite_excepciones===true,hasGlobal=Number.isSafeInteger(global?.activas_max)||Number.isSafeInteger(global?.altas_mensuales_max);
+ const settingsAvailable=!!GH_FUNC_GLOBAL166;
+ const allowed=settingsAvailable&&global?.admite_excepciones===true,hasGlobal=Number.isSafeInteger(global?.activas_max)||Number.isSafeInteger(global?.altas_mensuales_max);
  const g=id==='EVENTOS_FREE'?global?.altas_mensuales_max:global?.activas_max;
  const general=Number.isSafeInteger(g)?g:base;
  const hasLegacy=config?.excepcion_cupo===true;
@@ -1139,13 +1140,13 @@ function ghCupoExcepcionUI168(id,base,config,global,usage){
  const historic=Number.isSafeInteger(Number(config?.cantidad))?Number(config.cantidad):base;
  const mode=['x2','x3','x4','fijo','ilimitado'].includes(config?.cupo_excepcion_modo)?config.cupo_excepcion_modo:config?.sin_limites===true?'ilimitado':'fijo';
  const selector='<label>Modalidad de excepción<select data-gh-override-mode="'+esc(id)+'" onchange="ghActualizarCupo168(\''+esc(id)+'\')"><option value="x2" '+(mode==='x2'?'selected':'')+'>Por 2</option><option value="x3" '+(mode==='x3'?'selected':'')+'>Por 3</option><option value="x4" '+(mode==='x4'?'selected':'')+'>Por 4</option><option value="fijo" '+(mode==='fijo'?'selected':'')+'>Otro valor</option><option value="ilimitado" '+(mode==='ilimitado'?'selected':'')+'>Sin límites</option></select></label>';
- return '<div class="quota-settings" data-gh-quota-168="'+esc(id)+'" data-gh-global="'+general+'" data-gh-allowed="'+(allowed?'1':'0')+'" data-gh-current="'+historic+'">'+
+ return '<div class="quota-settings" data-gh-quota-168="'+esc(id)+'" data-gh-global="'+general+'" data-gh-allowed="'+(allowed?'1':'0')+'" data-gh-current="'+historic+'" data-gh-settings-available="'+(settingsAvailable?'1':'0')+'">'+
   '<label>Cupo general<input type="number" readonly value="'+general+'"></label>'+
   '<label><input type="checkbox" data-gh-override-enable="'+esc(id)+'" '+(selected?'checked':'')+' '+(!allowed?'disabled':'')+' onchange="ghActualizarCupo168(\''+esc(id)+'\')"> Habilitar excepción para este anunciante</label>'+
   '<div data-gh-override-fields="'+esc(id)+'" '+(!selected?'hidden':'')+'>'+selector+
   '<label data-gh-override-custom="'+esc(id)+'">Cupo particular<input type="number" min="0" step="1" data-gh-override-value="'+esc(id)+'" value="'+historic+'" oninput="ghActualizarCupo168(\''+esc(id)+'\')"></label></div>'+
   '<label>Cupo efectivo<input type="text" readonly data-gh-effective="'+esc(id)+'"></label>'+
-  (!allowed?'<p class="muted">Las excepciones están bloqueadas por la configuración general.</p>':'')+
+  (!settingsAvailable?'<p class="muted">Las reglas generales no están disponibles: se conservan los cupos actuales y no se permite modificar excepciones.</p>':!allowed?'<p class="muted">Las excepciones están bloqueadas por la configuración general.</p>':'')+
  '</div>';
 }
 function ghActualizarCupo168(id){
@@ -1159,7 +1160,8 @@ function ghActualizarCupo168(id){
  const custom=box.querySelector('[data-gh-override-custom]');
  if(custom)custom.hidden=mode!=='fijo';
  const general=Number(box.dataset.ghGlobal||0),input=box.querySelector('[data-gh-override-value]');
- const n=active?(mode==='ilimitado'?null:mode==='fijo'?Number(input?.value||0):general*Number(mode.slice(1))):general;
+ const unavailable=box.dataset.ghSettingsAvailable==='0';
+ const n=unavailable?Number(box.dataset.ghCurrent||0):active?(mode==='ilimitado'?null:mode==='fijo'?Number(input?.value||0):general*Number(mode.slice(1))):general;
  const field=box.querySelector('[data-gh-effective]');
  if(field)field.value=n===null?'Sin límites':String(n);
  const actual=document.querySelector('[data-gh-limit="'+id+'"]');
@@ -1256,7 +1258,7 @@ function ghFunctionPayload_(){
  for(const d of GH_FUNCTION_DEFS)if(d.quota||d.id==='PUBLICIDAD')for(const key of [d.id,...d.aliases||[]])if(root[key]){delete root[key].guardadas_max;delete root[key].max_guardadas;delete root[key].guardadas;}
  for(const d of GH_FUNCTION_DEFS){let cfg={...(root[d.id]||(d.id==='TURNOS_FARMA'?root.FARMACIAS:undefined)||{})},changed=false;
   const box=document.querySelector('[data-gh-quota-168="'+d.id+'"]');
-  if(box){
+  if(box&&box.dataset.ghSettingsAvailable==='1'){
    const allowed=box.dataset.ghAllowed==='1',requested=allowed&&box.querySelector('[data-gh-override-enable]')?.checked;
    const general=Number(box.dataset.ghGlobal),mode=box.querySelector('[data-gh-override-mode]')?.value||'fijo';
    const custom=box.querySelector('[data-gh-override-value]')?.value.trim()||'';
@@ -1337,7 +1339,8 @@ async function detalleAnu(id){
     const nivelOpts=(nivJ.results||[]).filter(x=>x.activo!==false).sort((x,y)=>Number(x.orden??x.numero)-Number(y.orden??y.numero)).map(x=>{const v=GLD_CLASSIFICATION.ids(x).includes(nivel)?nivel:String(x.numero??x.nivel_id??x.id??'');return '<option value="'+esc(v)+'" '+(nivel===v?'selected':'')+'>'+esc(GLD_CLASSIFICATION.levelLabel(x))+'</option>';}).join('');
     const segActual=String(a.segmento_id||''); const segOpts='<option value="">Sin segmento</option>'+(segJ.results||[]).filter(x=>x.activo!==false).map(x=>{const v=String(x.segmento_id||x.id||'');return '<option value="'+esc(v)+'" '+(segActual===v?'selected':'')+'>'+esc(x.nombre||v)+'</option>';}).join('');
     const catsActual=new Set(Array.isArray(a.categoria_ids)?a.categoria_ids.map(String):[]); const cats=(catJ.results||[]).filter(x=>x.activo!==false).map(x=>{const v=String(x.categoria_id||x.id||'');return '<label><input type="checkbox" data-anu-cat="'+esc(v)+'" '+(catsActual.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');
-    if(!GH_FUNC_GLOBAL166)await ghCargarFuncionesGlobal166();
+    // El Worker viejo no debe impedir abrir una ficha ya existente.
+    if(!GH_FUNC_GLOBAL166){try{await ghCargarFuncionesGlobal166();}catch(_){GH_FUNC_GLOBAL166=null;}}
     const funcs=ghFunctionEditor_(adm,funJ.results||[],j.uso_funcionalidades);
     const actCat=actJ.results||[], accCat=accJ.results||[], nodoCat=nodoJ.results||[];
     const sedes=(j.sedes||[]).map(s=>ghSedeEditor_(s,actCat,accCat,nodoCat,a.redes_web_comunes)).join('');
