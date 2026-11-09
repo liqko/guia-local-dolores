@@ -3008,7 +3008,7 @@ async function quota({ db, cache, advertiserId, cupoFromAdmin, excludeId = "" })
   const general=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PROMOS');
   const limit=general.activas_max;
   const allow=general.admite_excepciones===true&&admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true;
-  const max=allow||!Number.isSafeInteger(limit)?originalMax:Math.min(originalMax,limit);
+  const max=allow||!Number.isSafeInteger(limit)?originalMax:limit;
   const active4 = promos.filter((p) => text29(p.promo_id || p.id) !== text29(excludeId) && !paused(p)).length;
   return { max, active: active4, total:promos.length, totalMax:cupoGuardado(max) };
 }
@@ -3318,7 +3318,7 @@ function freeEventPolicyV95(admin,packet=null){
  const own=freeEventAssignedQuota114(admin);
  const allow=global.admite_excepciones===true;
  const overridden=allow&&cfg.excepcion_cupo===true;
- const monthly=overridden?own:Math.min(own,Number.isSafeInteger(global.altas_mensuales_max)?global.altas_mensuales_max:4);
+ const monthly=overridden?own:(Number.isSafeInteger(global.altas_mensuales_max)?global.altas_mensuales_max:4);
  return {sin_limites:allow&&cfg.sin_limites===true,altas_mensuales_max:monthly,
   descripcion_max:allow&&cfg.descripcion_excepcion===true&&Number.isSafeInteger(cfg.descripcion_max)?cfg.descripcion_max:(Number.isSafeInteger(global.descripcion_max)?global.descripcion_max:200),
   descripcion_sin_limites:allow&&cfg.descripcion_sin_limites===true,
@@ -3357,8 +3357,8 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const vipOverride166=admin166?.funcionalidades_config?.EVENTOS||{};
   const vipAllowed166=vipSettings166.admite_excepciones===true;
   const unlimited=free?!!policy?.sin_limites:vipAllowed166&&vipOverride166.sin_limites===true;
-  if(!unlimited&&free&&!policy.excepcion_cupo)max=Math.min(Number(max||0),policy.activas_max);
-  if(!unlimited&&!free&&!(vipAllowed166&&vipOverride166.excepcion_cupo===true)&&Number.isSafeInteger(vipSettings166.activas_max))max=Math.min(Number(max||0),vipSettings166.activas_max);
+  if(!unlimited&&free)max=Number.isSafeInteger(policy.activas_max)?policy.activas_max:Number(max||0);
+  if(!unlimited&&!free&&!(vipAllowed166&&vipOverride166.excepcion_cupo===true)&&Number.isSafeInteger(vipSettings166.activas_max))max=vipSettings166.activas_max;
   if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);}
   if (!unlimited && Number(max || 0) <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
@@ -3518,9 +3518,10 @@ async function pauseEventV3({ db, cache, advertiserId, payload, max, level = "VI
     const packet=await gldFuncPacket166(cache,db,false);
     const cfg=admin?.funcionalidades_config?.[level==='FREE'?'EVENTOS_FREE':'EVENTOS']||{};
     const global=gldFuncRules166(packet,level==='FREE'?'EVENTOS_FREE':'EVENTOS');
-    const unlimited=cfg.sin_limites===true;
+    const allowed=global.admite_excepciones===true;
+    const unlimited=allowed&&cfg.sin_limites===true;
     let cap=typeof max==='function'?await max():max;
-    if(!unlimited&&!cfg.excepcion_cupo&&Number.isSafeInteger(global.activas_max))cap=Math.min(Number(cap||0),global.activas_max);
+    if(!unlimited&&!(allowed&&cfg.excepcion_cupo===true)&&Number.isSafeInteger(global.activas_max))cap=global.activas_max;
     const q=await quota2({db,advertiserId,max:cap,free:level==='FREE',exclude:eventId});
     if(!unlimited&&q.active>=q.max)throw new Error('Alcanzaste el máximo de eventos activos.');
   }
@@ -6586,7 +6587,7 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   const globalCfg=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES');
   const generalMax=globalCfg.activas_max;
   const allowed=globalCfg.admite_excepciones===true&&admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true;
-  const max=allowed||!Number.isSafeInteger(generalMax)?originalMax:Math.min(originalMax,generalMax);
+  const max=allowed||!Number.isSafeInteger(generalMax)?originalMax:generalMax;
   const totalMax = cupoGuardado(max);
   if (activityId) {
     current = await db.get("actividades", activityId);
@@ -6676,7 +6677,9 @@ async function activityActionV3({ db, cache, advertiserId, action, activityId })
     if (!admin || !enabled2(admin)) throw new Error("No tenés habilitado el módulo Actividades.");
     const own = await db.queryEqual("actividades", "anunciante_id", advertiserId, 500);
     const active4 = own.filter((a) => text61(a.actividad_id || a.id) !== text61(activityId) && bool16(a.activo) && text61(a.estado).toUpperCase() !== "PAUSADA").length;
-    const max = quota4(admin);
+    const settings=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES');
+    const cfg=admin?.funcionalidades_config?.ACTIVIDADES||{};
+    const max=settings.admite_excepciones===true&&cfg.excepcion_cupo===true?quota4(admin):(Number.isSafeInteger(settings.activas_max)?settings.activas_max:quota4(admin));
     if (max <= 0 || active4 >= max) throw new Error("actividades_cupo_activo_completo");
   }
   const hs = action === "eliminar" && Number(current.horarios_version)!==2 ? await db.queryEqual("actividad_horarios", "actividad_id", activityId, 500) : await getPreparedRelationsV1({ cache, type: "activity", id: activityId, current, load: () => db.queryEqual("actividad_horarios", "actividad_id", activityId, 500) });
