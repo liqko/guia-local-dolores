@@ -31,7 +31,7 @@ assert.match(inicio,/gld-city-pin/);
 assert.match(carcasa,/gld-city-pin/);
 const manifest=JSON.parse(read('manifest.webmanifest'));
 assert.equal(manifest.display,'standalone');
-assert.equal(manifest.start_url,'/plataforma/inicio.html?app_prueba=1');
+assert.equal(manifest.start_url,'/elegi-tu-ciudad?app_prueba=1');
 assert.ok(users.includes('<h3>Ciudad predeterminada</h3>'));
 assert.ok(!carcasa.includes('id="banner-inicio"'));
 assert.ok(carcasa.includes('id="topBtn"'));
@@ -45,7 +45,7 @@ console.log('PASS ciudad predeterminada, sin casita, botón subir, instalación 
 assert.ok(brand.includes('position:sticky;top:0'),'navegación visible al desplazarse');
 assert.ok(brand.includes("drawer.open=true"),'enlaces visibles en escritorio');
 assert.ok(brand.includes('gld-volver-guia'),'regreso disponible desde paneles');
-assert.ok(app.includes("window.location.replace('/plataforma/inicio.html')"),'la app instalada no debe mostrar pantalla intermedia');
+assert.ok(app.includes("window.location.replace('/elegi-tu-ciudad')"),'la app instalada no debe mostrar pantalla intermedia');
 console.log('PASS menú navegable, regreso a Guía y entrada directa app');
 assert.ok(brand.includes('function urlGuiaActual()'),'la navegación debe conservar ciudad elegida');
 assert.ok(brand.includes("a.href=href==='/'?urlGuiaActual():href"),'Inicio no debe volver a predeterminada');
