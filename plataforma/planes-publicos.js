@@ -6,6 +6,12 @@ const list=document.querySelector('.plans');if(!list||!window.GLD_PLANES_RESUMEN
 const fmt=window.GLD_PLANES_RESUMEN;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const wa='https://wa.me/5491150972086?text='+encodeURIComponent('Hola, quisiera consultar los planes y servicios de Guía Local.');
+
+const gloss=document.getElementById('glosarioPlanes');
+if(gloss&&Array.isArray(fmt.glossary)){
+ gloss.innerHTML=fmt.glossary.map(g=>'<article class="glossary-item"><h3>'+esc(g.term)+'</h3><p>'+esc(g.meaning)+'</p></article>').join('');
+}
+
 function render(rows){
  const usable=Array.isArray(rows)?rows.filter(r=>r&&r.eliminado!==true):[];
  const cfg=(rows||[]).find(r=>String(r.nivel_id||r.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
