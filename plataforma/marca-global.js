@@ -55,9 +55,9 @@
       try{contexto=JSON.parse(localStorage.getItem('gld_ciudad_contexto')||'null')}catch(_){}
       const urlParams=new URLSearchParams(window.location.search);
       const cid=String(urlParams.get('ciudad_id')||contexto?.ciudad_id||'').trim();
-      if(!cid)return '/plataforma/inicio.html?cambiar_ciudad=1';
+      if(!cid)return '/elegi-tu-ciudad?cambiar_ciudad=1';
       if(urlParams.get('ciudad_id') && cid!==String(contexto?.ciudad_id||'').trim())contexto=null;
-      const url=new URL('/plataforma/carcasa.html',window.location.origin);
+      const url=new URL('/descubrir',window.location.origin);
       url.searchParams.set('ciudad_id',cid);
       for(const k of ['pais_id','provincia_id','pais','provincia','ciudad']){
         const v=String(urlParams.get(k)||contexto?.[k]||'').trim();
@@ -69,7 +69,7 @@
     for(const [title,href] of routes){
       const a=document.createElement('a');a.href=href==='/'?urlGuiaActual():href;a.textContent=title;
       const current=location.pathname;
-      const active=href==='/'?(current==='/'||current==='/plataforma/inicio.html'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
+      const active=href==='/'?(current==='/'||current==='/elegi-tu-ciudad'||current==='/plataforma/inicio.html'||current==='/plataforma/inicio'):(current===href||(href.endsWith('.html')&&current===href.slice(0,-5)));
       if(active){a.setAttribute('aria-current','page');a.classList.add('active')}
       list.appendChild(a);
     }
