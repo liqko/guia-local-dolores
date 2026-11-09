@@ -9,11 +9,11 @@ for(const [file,source] of [['marca-global.js',brand],['visor-web-global.js',vis
   new Script(source,{filename:file});
   console.log('PASS sintaxis '+file);
 }
-assert.match(root,/location\.replace\('\/plataforma\/inicio\.html'/);
+assert.match(root,/location\.replace\('\/elegi-tu-ciudad'/);
 assert.match(entry,/if\(!sid\)\{[\s\S]*?recordada:false/);
-assert.match(inicio,/new URL\('\/plataforma\/carcasa\.html',window\.location\.origin\)/);
-assert.match(users,/window\.location\.replace\('\/plataforma\/inicio\.html\?cambiar_ciudad=1'\)/);
-assert.match(carcasa,/window\.location\.assign\('\/plataforma\/inicio\.html\?cambiar_ciudad=1'\)/);
+assert.match(inicio,/new URL\('\/descubrir',window\.location\.origin\)/);
+assert.match(users,/window\.location\.replace\('\/elegi-tu-ciudad\?cambiar_ciudad=1'\)/);
+assert.match(carcasa,/window\.location\.assign\('\/elegi-tu-ciudad\?cambiar_ciudad=1'\)/);
 assert.match(carcasa,/plataforma\/visor-web-global\.js/);
 assert.match(guide,/puenteWebDisponible/);
 assert.match(guide,/tipo:'gld:visor-web:abrir'/);
@@ -55,3 +55,11 @@ assert.ok(carcasa.includes("if(explicitCity && String(ctx?.ciudad_id||'').trim()
 assert.ok(guide.includes("if(ciudadUrl&&String(ctx?.ciudad_id||'').trim()!==ciudadUrl)ctx=null"),'anuncios deben aislar ciudades');
 console.log('PASS ciudad explícita aislada de contexto anterior y retorno a ciudad elegida');
 console.log('PASS integración de raíz, ciudades, menú, visor, 3 interfaces, pie y app de prueba');
+
+// Las rutas públicas son independientes de la estructura de archivos.
+const hosting=JSON.parse(read('firebase.json')).hosting;
+for(const [source,destination] of [['/elegi-tu-ciudad','/plataforma/inicio.html'],['/descubrir','/plataforma/carcasa.html']]){
+  assert.ok(hosting.rewrites.some(r=>r.source===source&&r.destination===destination),`Falta rewrite ${source}`);
+}
+assert.ok(hosting.redirects.some(r=>r.source==='/'&&r.destination==='/elegi-tu-ciudad'));
+console.log('PASS rutas públicas amigables y acceso directo por Firebase Hosting');
