@@ -1714,7 +1714,7 @@ let GH_PRECIOS_ESTADO162=null;
 const GH_PRECIOS_ESQUEMA162=['eventos_free','eventos_vip','actividades','promociones','publicidad'];
 function ghValorMonetario162(key,kind){
  const item=GH_PRECIOS_ESTADO162?.precios?.[kind]?.[String(key)];
- return {importe:item?.importe??null,publico:item?.publico===true};
+ return {importe:item?.importe??null,publico:item?.publico===true,descuento_porcentaje:item?.descuento_porcentaje??null,descuento_texto:item?.descuento_texto??''};
 }
 function ghRenderValoresFuncionalidades_(){
  const host=document.getElementById('ghPreciosFuncionalidadesCampos');if(!host)return;
@@ -1722,16 +1722,26 @@ function ghRenderValoresFuncionalidades_(){
   const info=ghValorMonetario162(key,'funcionalidades');
   return '<div class="item"><h4>'+esc(label)+'</h4>'+
    '<label>Precio en pesos argentinos ($ ARS)<input type="number" inputmode="numeric" min="0" step="1" data-func-precio="'+esc(key)+'" value="'+esc(info.importe===null?'':info.importe)+'" placeholder="Ingresar valor"></label>'+
+   '<label>Descuento (%)<input type="number" inputmode="numeric" min="0" max="100" step="1" data-func-descuento="'+esc(key)+'" value="'+esc(info.descuento_porcentaje===null?'':info.descuento_porcentaje)+'" placeholder="Sin descuento"></label>'+
+   '<label>Texto del descuento<input type="text" maxlength="120" data-func-descuento-texto="'+esc(key)+'" value="'+esc(info.descuento_texto)+'" placeholder="Ej.: Promo lanzamiento"></label>'+
    '<label style="display:flex;align-items:center;gap:9px"><input type="checkbox" style="width:auto" data-func-visible="'+esc(key)+'" '+(info.publico?'checked':'')+'> Mostrar importe públicamente</label></div>';
  }).join('');
 }
-function ghLeerPrecioCampo162(selector,visibleSelector){
+function ghLeerPrecioCampo162(selector,visibleSelector,discountSelector,textSelector){
  const inp=document.querySelector(selector),checkbox=document.querySelector(visibleSelector);
+ const discount=document.querySelector(discountSelector),discountText=document.querySelector(textSelector);
+ if(!discount||!discountText)throw Error('Faltan campos del descuento.');
  if(!inp||!checkbox)throw Error('No se encuentran todos los campos de importes.');
  const v=inp.value.trim();
  if(v!==''&&(!/^[0-9]+$/.test(v)||!Number.isSafeInteger(Number(v))))throw Error('Importe en pesos inválido.');
  if(checkbox.checked&&v==='')throw Error('No se puede publicar un importe vacío.');
- return {importe:v===''?null:Number(v),publico:checkbox.checked};
+ const d=discount.value.trim(),t=discountText.value.trim();
+ if(d!==''&&(!/^\d+$/.test(d)||!Number.isInteger(Number(d))||Number(d)<0||Number(d)>100))
+  throw Error('El descuento debe estar entre 0 y 100%.');
+ if(d!==''&&Number(d)>0&&(v===''||Number(v)===0))
+  throw Error('Para aplicar un descuento ingresá un precio mayor que cero.');
+ if(t.length>120)throw Error('El texto del descuento supera los 120 caracteres.');
+ return {importe:v===''?null:Number(v),publico:checkbox.checked,descuento_porcentaje:d===''?null:Number(d),descuento_texto:t};
 }
 async function ghGuardarTodosPrecios162(){
  const boton=document.getElementById('ghGuardarTodosPrecios162');
@@ -1741,13 +1751,15 @@ async function ghGuardarTodosPrecios162(){
  try{
   precios={niveles:{},funcionalidades:{}};
   for(let n=1;n<=6;n++)precios.niveles[String(n)]=ghLeerPrecioCampo162(
-   '[data-precio-nivel-num="'+n+'"]','[data-precio-visible-num="'+n+'"]'
+   '[data-precio-nivel-num="'+n+'"]','[data-precio-visible-num="'+n+'"]',
+   '[data-precio-descuento-num="'+n+'"]','[data-precio-descuento-texto-num="'+n+'"]'
   );
   for(const key of GH_PRECIOS_ESQUEMA162)precios.funcionalidades[key]=ghLeerPrecioCampo162(
-   '[data-func-precio="'+key+'"]','[data-func-visible="'+key+'"]'
+   '[data-func-precio="'+key+'"]','[data-func-visible="'+key+'"]',
+   '[data-func-descuento="'+key+'"]','[data-func-descuento-texto="'+key+'"]'
   );
  }catch(e){status.textContent=String(e.message||e);return;}
- boton.disabled=true;status.textContent='Guardando los once importes en una sola operación…';
+ boton.disabled=true;status.textContent='Guardando importes y descuentos en una sola operación…';
  try{
   const j=await ghAdminRequest_('/catalogs/prices',{precios,revision:GH_PRECIOS_ESTADO162.revision},'POST');
   if(!j.success)throw Error('El servidor no confirmó el guardado.');
@@ -1799,6 +1811,8 @@ function ghRenderResumenNiveles108(){
    ruleContent+
    '<fieldset style="margin-top:15px;padding:15px;border:1px solid #cfd8dc;border-radius:10px"><legend><strong>Valor del nivel · pesos argentinos (ARS)</strong></legend>'+
    '<label>Importe en $ ARS<input type="number" inputmode="numeric" min="0" step="1" data-precio-nivel-num="'+n+'" value="'+esc(importe===null?'':importe)+'" placeholder="Ingresar valor en pesos"></label>'+
+   '<label>Descuento (%)<input type="number" inputmode="numeric" min="0" max="100" step="1" data-precio-descuento-num="'+n+'" value="'+esc(priceInfo.descuento_porcentaje===null?'':priceInfo.descuento_porcentaje)+'" placeholder="Sin descuento"></label>'+
+   '<label>Texto del descuento<input type="text" maxlength="120" data-precio-descuento-texto-num="'+n+'" value="'+esc(priceInfo.descuento_texto)+'" placeholder="Ej.: Promo lanzamiento"></label>'+
    '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:auto" data-precio-visible-num="'+n+'" '+(visible?'checked':'')+'> Autorizar publicación del precio</label>'+
    '<p class="muted">Un campo vacío significa precio no definido. $0 indica gratuidad expresa.</p>'+
    '</fieldset></article>';
