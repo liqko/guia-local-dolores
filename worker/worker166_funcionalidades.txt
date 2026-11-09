@@ -3303,9 +3303,17 @@ function freeEventAssignedQuota114(admin){
  return 5;
 }
 /** @param {any} admin */
-function freeEventPolicyV95(admin){
+function freeEventPolicyV95(admin,packet=null){
  const cfg=admin?.funcionalidades_config?.EVENTOS_FREE||{};
- return {sin_limites:cfg.sin_limites===true,altas_mensuales_max:freeEventAssignedQuota114(admin),dias_entre_ediciones:7};
+ const global=gldFuncRules166(packet,'EVENTOS_FREE');
+ const own=freeEventAssignedQuota114(admin);
+ const overridden=cfg.excepcion_cupo===true;
+ const monthly=overridden?own:Math.min(own,Number.isSafeInteger(global.altas_mensuales_max)?global.altas_mensuales_max:4);
+ return {sin_limites:cfg.sin_limites===true,altas_mensuales_max:monthly,
+  altas_semanales_max:Number.isSafeInteger(global.altas_semanales_max)?global.altas_semanales_max:1,
+  activas_max:Number.isSafeInteger(global.activas_max)?global.activas_max:2,
+  ediciones_max:Number.isSafeInteger(global.ediciones_max)?global.ediciones_max:1,
+  excepcion_cupo:overridden,dias_entre_ediciones:0};
 }
 /** @param {any} value */
 function freeEventMonthV95(value=Date.now()){
@@ -3331,8 +3339,14 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const operation145=/^[a-f0-9-]{36}$/i.test(String(payload?.__operation_id145||''))?String(payload.__operation_id145):'';
   delete data.operation_id145;delete data.operation_fingerprint145;
   const fingerprint145=operation145?await fieldRevisionInternal({level,data},['level','data']):'';
-  const policy=free?freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId)):null;
-  const unlimited=!!policy?.sin_limites;
+  const settings166=await gldFuncPacket166(cache,db,false);
+  const admin166=await db.get("anunciantes_administracion",advertiserId);
+  const policy=free?freeEventPolicyV95(admin166,settings166):null;
+  const vipSettings166=gldFuncRules166(settings166,'EVENTOS');
+  const vipOverride166=admin166?.funcionalidades_config?.EVENTOS||{};
+  const unlimited=free?!!policy?.sin_limites:vipOverride166.sin_limites===true;
+  if(!unlimited&&free&&!policy.excepcion_cupo)max=Math.min(Number(max||0),policy.activas_max);
+  if(!unlimited&&!free&&!vipOverride166.excepcion_cupo&&Number.isSafeInteger(vipSettings166.activas_max))max=Math.min(Number(max||0),vipSettings166.activas_max);
   if(free)removeFreeEventLinks(data);
   if (!unlimited && Number(max || 0) <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
@@ -3351,6 +3365,12 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const monthly=freeEventMonthlyRowsV95(own,month);
   const legacy=monthly.filter(e=>!e.cupo_slot);
   if(free&&!unlimited&&monthly.length>=policy.altas_mensuales_max)throw new Error("Alcanzaste el cupo de "+policy.altas_mensuales_max+" altas de Eventos Free de este mes. Borrar un evento no recupera el cupo.");
+  if(free&&!unlimited&&!policy.excepcion_cupo&&policy.altas_semanales_max>0){
+   const weekStart=t=>{const d=new Date(t);if(!Number.isFinite(d.getTime()))return '';d.setUTCHours(3,0,0,0);const day=(d.getUTCDay()+6)%7;d.setUTCDate(d.getUTCDate()-day);return d.toISOString().slice(0,10)};
+   const nowWeek=weekStart(Date.now());
+   if(monthly.filter(e=>weekStart(e.fecha_carga||e.creado)===nowWeek).length>=policy.altas_semanales_max)
+    throw new Error('Alcanzaste el cupo semanal de Eventos Free.');
+  }
   const now = (/* @__PURE__ */ new Date()).toISOString(), eventId = operation145?(free?"free-":"vip-")+operation145:id(free ? "free" : "vip");
   const doc = {
     ...data,
@@ -3434,8 +3454,9 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   let editVersion=null,policy=null;
   const scheduleChanged=hasProgramacion&&!sameValueV1(data.programacion,previousProgramacion);
   if(level==='FREE'&&(hasDataChanges||scheduleChanged)){
-    policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId));
+    policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId),await gldFuncPacket166(cache,db,false));
     if(!policy.sin_limites){
+      if(Number(current.ediciones_free_contador||0)>=policy.ediciones_max)throw httpError('Se alcanzó la cantidad de ediciones permitidas para este evento Free.',409);
       const cachedAvailable=freeEventEditDateV95(current,policy);
       if(cachedAvailable&&Date.parse(cachedAvailable)>Date.now())throw httpError("Podés volver a modificar este evento el "+new Date(cachedAvailable).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'})+".",409);
       editVersion=await db.getVersioned("eventos",eventId);
@@ -3459,7 +3480,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   if(Number(current.programacion_version)===2)next.programacion=programacion;
   const fields = [...Object.keys(data).filter((k) => !["evento_id", "anunciante_id", "id_anunciante", "nivel", "programacion", "programacion_version", "id"].includes(k)), "estado_moderacion", "estado", ...(Number(current.programacion_version)===2?["programacion"]:[])];
   const patch = changedFieldsV1(current, next, { touch: !!programacion.changed, fields });
-  if(level==='FREE'&&Object.keys(patch).length)patch.ultima_edicion_free=new Date().toISOString();
+  if(level==='FREE'&&Object.keys(patch).length){patch.ultima_edicion_free=new Date().toISOString();patch.ediciones_free_contador=Number(current.ediciones_free_contador||0)+1;}
   const saved = Object.keys(patch).length ? await db.patch("eventos", eventId, patch, { mustExist: true,...((editVersion?.updateTime||eventVersion145.updateTime)?{updateTime:editVersion?.updateTime||eventVersion145.updateTime}:{}) }) : current;
   await syncEventV2({ db, cache, current, next: saved, previousProgramacion, programacion });
   return {
