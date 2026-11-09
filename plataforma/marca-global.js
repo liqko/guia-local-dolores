@@ -42,6 +42,7 @@
     const routes=[
       ['Inicio','/'],
       ['Nuestro ecosistema','/ecosistema'],
+      ['Planes y servicios','/plataforma/planes-servicios.html'],
       ['App','/app'],
       ['Políticas, fuentes y privacidad','/politicas-y-privacidad'],
       ['Suscriptores','/mi-guia'],
