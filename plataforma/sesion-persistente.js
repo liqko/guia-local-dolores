@@ -16,6 +16,11 @@
     ((p.persistent===true&&p.exp===null)||Number(p.exp)>Date.now()));
   });
  };
+ window.gldEntradaSessionStampV163=function(){
+  const token=read(keys.subscriber),p=payload(token);
+  return token.split('.').length===2&&p?.typ==='GLD_SUBSCRIBER'&&p.sid&&Number.isFinite(p.iat)
+    ? JSON.stringify([String(p.sid),p.iat,Number(p.sv||0)]) : '';
+ };
  window.addEventListener('storage',e=>{if(Object.values(keys).includes(e.key)&&e.oldValue)known.add(e.oldValue);});
  window.fetch=async function(input,options){
   let url;try{url=new URL(typeof input==='string'||input instanceof URL?String(input):input.url,location.href);}catch{return nativeFetch(input,options);}
