@@ -3501,8 +3501,15 @@ async function pauseEventV3({ db, cache, advertiserId, payload, max, level = "VI
   if (!current || current.eliminado || text30(current.anunciante_id || current.id_anunciante) !== text30(advertiserId) || !wanted) throw new Error("El evento no pertenece al anunciante.");
   const pause = bool12(payload && (payload.pause !== void 0 ? payload.pause : payload.pausado));
   if (!pause && bool12(current.pausado)) {
-    const q = await quota2({ db, advertiserId, max: typeof max === "function" ? await max() : max, free: level === "FREE", exclude: eventId });
-    if (level!=="FREE"||!freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId)).sin_limites)if (q.active >= q.max) throw new Error("Alcanzaste el máximo de eventos activos.");
+    const admin=await db.get('anunciantes_administracion',advertiserId);
+    const packet=await gldFuncPacket166(cache,db,false);
+    const cfg=admin?.funcionalidades_config?.[level==='FREE'?'EVENTOS_FREE':'EVENTOS']||{};
+    const global=gldFuncRules166(packet,level==='FREE'?'EVENTOS_FREE':'EVENTOS');
+    const unlimited=cfg.sin_limites===true;
+    let cap=typeof max==='function'?await max():max;
+    if(!unlimited&&!cfg.excepcion_cupo&&Number.isSafeInteger(global.activas_max))cap=Math.min(Number(cap||0),global.activas_max);
+    const q=await quota2({db,advertiserId,max:cap,free:level==='FREE',exclude:eventId});
+    if(!unlimited&&q.active>=q.max)throw new Error('Alcanzaste el máximo de eventos activos.');
   }
   const patch = changedFieldsV1(current, { pausado: pause, actualizado: (/* @__PURE__ */ new Date()).toISOString() });
   if (!Object.keys(patch).length) return { success: true, updated: false, evento_id: eventId, evento: await GLD_EVENTS145.result(current) };
@@ -8174,7 +8181,7 @@ async function gldFuncPacket166(cache,db,withFallback=false){
  if(!withFallback)return {revision:0,reglas:{}};
  const record=await db.get('configuracion_plataforma','FUNCIONALIDADES');
  const result={revision:Number.isSafeInteger(record?.revision)?record.revision:0,reglas:record?.reglas&&typeof record.reglas==='object'?record.reglas:{}};
- if(record?.reglas)await cache.put(GLD_FUNC_KEY166,result);
+ await cache.put(GLD_FUNC_KEY166,result);
  return result;
 }
 function gldFuncRules166(packet,id){
