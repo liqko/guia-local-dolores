@@ -46,8 +46,9 @@ self.addEventListener('fetch',event=>{
    })());
    return;
  }
- if(request.method!=='GET'||url.origin!==self.location.origin||
-    !url.pathname.startsWith('/plataforma/'))return;
+ if(request.method!=='GET'||url.origin!==self.location.origin)return;
+ const immutableBrand=!url.search&&/^\/recursos\/marca\/(?:logo-guia-local\.[a-f0-9]{12}\.png|fondo-ciudad\.[a-f0-9]{12}\.jpg)$/.test(url.pathname);
+ if(!immutableBrand&&!url.pathname.startsWith('/plataforma/'))return;
  if(request.mode==='navigate'){
    event.respondWith((async()=>{
      const cache=await caches.open(SHELL_CACHE);
@@ -66,6 +67,10 @@ self.addEventListener('fetch',event=>{
  if(/\.(js|css|woff2?|svg|png|jpe?g|webp)$/i.test(url.pathname)){
    event.respondWith((async()=>{
      const cache=await caches.open(SHELL_CACHE);
+     if(immutableBrand){
+       const saved=await cache.match(request);
+       if(saved)return saved;
+     }
      try{
        const response=await fetch(request);
        if(response.ok&&response.type!=='opaque')event.waitUntil(cache.put(request,response.clone()).catch(()=>{}));

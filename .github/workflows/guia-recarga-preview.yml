@@ -1,0 +1,108 @@
+name: Vista aislada de recarga de Guía
+on:
+  pull_request:
+    branches: [main]
+    types: [synchronize]
+permissions:
+  contents: read
+jobs:
+  preview:
+    if: ${{ github.event.pull_request.number == 50 && github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'fix/guia-publica-recarga-hosting' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verificar recarga
+        run: |
+          node tests/publication-integrity.mjs
+          node tests/guia/recarga-publica.mjs
+      - name: Preparar vista de prueba
+        run: |
+          mkdir -p hosting-public
+          cp -a plataforma hosting-public/plataforma
+          mkdir -p hosting-public/recursos/marca
+          cp recursos/marca/logo-guia-local.22471714566e.png recursos/marca/fondo-ciudad.c6bd6e1cc99b.jpg hosting-public/recursos/marca/
+      - name: Publicar vista aislada
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+          projectId: anunciantes-guialocal
+          channelId: guia-recarga-50
+          expires: 1d
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install --no-save --package-lock=false playwright
+      - name: Medir apertura y recarga
+        run: |
+          node --input-type=module <<'JS'
+          import {chromium} from 'playwright';
+          const preview = 'https://anunciantes-guialocal--guia-recarga-50-ceq6ruku.web.app';
+          const worker = 'login.liqkoargentina.workers.dev';
+          const query = new URLSearchParams({ciudad_id:'DOL (BUE - ARG)',pais_id:'ARG',provincia_id:'BUE',pais:'ARGENTINA',provincia:'BUENOS AIRES',ciudad:'DOLORES'});
+          const browser = await chromium.launch({executablePath:'/usr/bin/google-chrome'});
+          const counts = {
+            worker:['cloudflare.worker_requests'], do:['cloudflare.public_store.calls'],
+            sql:['cloudflare.public_store.rows_read','cloudflare.admin_store.rows_read'],
+            sqlWrites:['cloudflare.public_store.rows_written','cloudflare.admin_store.rows_written'],
+            kv:['cloudflare.kv.get_calls','cloudflare.public_store.legacy_gets'],
+            kvWrites:['cloudflare.kv.put_calls'],
+            fsReads:['firestore.read_calls'], fsWrites:['firestore.write_calls'], fsDeletes:['firestore.delete_calls']
+          };
+          try {
+            for (const origin of ['https://www.guialocal.ar', preview]) {
+              const context = await browser.newContext();
+              const page = await context.newPage();
+              let responses = [];
+              const ids = new Set();
+              page.on('response', response => {
+                const url = new URL(response.url());
+                if (url.hostname !== worker && url.hostname !== 'firestore.googleapis.com') return;
+                responses.push({host:url.hostname,path:url.pathname,status:response.status(),method:response.request().method(),headers:response.headers()});
+              });
+              try {
+                for (const action of ['apertura','recarga']) {
+                  responses = [];
+                  const main = action === 'apertura'
+                    ? await page.goto(origin+'/descubrir?'+query,{waitUntil:'domcontentloaded',timeout:20000})
+                    : await page.reload({waitUntil:'domcontentloaded',timeout:20000});
+                  const guide = page.frameLocator('#moduloCentralFrame').locator('#contenedor');
+                  await guide.waitFor({state:'attached',timeout:20000});
+                  await new Promise(resolve => setTimeout(resolve,10000));
+                  const text = (await guide.textContent({timeout:3000})).trim();
+                  const framePath = await page.locator('#moduloCentralFrame').getAttribute('src');
+                  const items = await Promise.all(page.frames().filter(f => f.url().startsWith(origin+'/')).map(frame =>
+                    frame.evaluate(isMain => [...(isMain?performance.getEntriesByType('navigation'):[]),...performance.getEntriesByType('resource')].map(e=>({url:e.name,bytes:e.transferSize,body:e.encodedBodySize,type:e.initiatorType})),frame === page.mainFrame())));
+                  const hosting = items.flat().filter(x=>new URL(x.url).origin===origin);
+                  const assets = hosting.filter(x=>/\/(?:logo-guia-local|fondo-ciudad)(?:\.[a-f0-9]{12})?\.(?:png|jpg)$/.test(new URL(x.url).pathname))
+                    .map(x=>({path:new URL(x.url).pathname,bytes:x.bytes,body:x.body}));
+                  const totals = Object.fromEntries(Object.keys(counts).map(k=>[k,{known:0,unknown:0}]));
+                  const workerPaths = [];
+                  for (const r of responses.filter(r=>r.host===worker)) {
+                    const id=r.headers['x-gld-request-id'];
+                    if (id && ids.has(id)) continue;
+                    if (id) ids.add(id);
+                    let metrics;
+                    try { metrics=JSON.parse(decodeURIComponent(r.headers['x-gld-consumption'])); } catch {}
+                    workerPaths.push({path:r.path,status:r.status,method:r.method,version:r.headers['x-gld-worker-version']??null,instrumented:!!metrics});
+                    for (const [key,fields] of Object.entries(counts)) {
+                      const values=fields.map(field=>field.split('.').reduce((value,k)=>value?.[k],metrics));
+                      if (values.every(Number.isFinite)) totals[key].known+=values.reduce((sum,n)=>sum+n,0);
+                      else totals[key].unknown++;
+                    }
+                  }
+                  console.log('GLD_RESULT '+JSON.stringify({origin,action,status:main?.status(),guideTextLength:text.length,framePath,hostingBytes:hosting.reduce((sum,x)=>sum+(x.bytes??0),0),assets,workerPaths,totals,firestoreDirect:responses.filter(x=>x.host==='firestore.googleapis.com').length}));
+                }
+              } catch (error) { console.log('GLD_BLOCKER '+JSON.stringify({origin,message:error.message.slice(0,700)})); }
+              await context.close();
+            }
+            const request = await browser.newContext();
+            for (const path of ['/recursos/marca/logo-guia-local.22471714566e.png','/recursos/marca/fondo-ciudad.c6bd6e1cc99b.jpg','/plataforma/assets/marca/logo-guia-local.png','/plataforma/assets/marca/fondo-ciudad.jpg']) {
+              const response = await request.request.get(preview+path);
+              console.log('GLD_ASSET '+JSON.stringify({path,status:response.status(),cache:response.headers()['cache-control'],type:response.headers()['content-type'],bytes:(await response.body()).length}));
+            }
+            await request.close();
+          } finally { await browser.close(); }
+          JS

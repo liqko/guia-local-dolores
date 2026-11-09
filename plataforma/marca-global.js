@@ -1,8 +1,8 @@
 /* Identidad compartida de la plataforma, sin dependencia de contenedores Jimdo. */
 (function(){
   'use strict';
-  const BACKGROUND='/plataforma/assets/marca/fondo-ciudad.jpg';
-  const LOGO='/plataforma/assets/marca/logo-guia-local.png';
+  const BACKGROUND='/recursos/marca/fondo-ciudad.c6bd6e1cc99b.jpg';
+  const LOGO='/recursos/marca/logo-guia-local.22471714566e.png';
 
   function montar(){
     if(document.getElementById('gldMarcaGlobal')) return;
