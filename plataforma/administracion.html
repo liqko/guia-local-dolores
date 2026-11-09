@@ -207,7 +207,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
           <p>El <strong>anuncio</strong> es la ficha del anunciante en la guía. La <strong>publicidad</strong> es una pieza que aparece entre los resultados. Son dos cosas distintas.</p>
           <p>Los límites de las fichas se muestran según el catálogo vigente. Eventos, actividades, promociones y publicidad se habilitan y tienen sus propios cupos en la contratación de cada anunciante. Cambiar el nivel no asigna esos cupos por sí solo.</p>
           <div id="ghResumenNiveles" aria-live="polite"></div>
-          <div class="card" id="ghPreciosFuncionalidades"><h3>Valores de las funcionalidades</h3><p>Importes configurables para la propuesta comercial. No se muestran públicamente hasta autorizarlos.</p><div id="ghPreciosFuncionalidadesCampos"></div></div>
+          <div class="card" id="ghPreciosFuncionalidades"><h3>Valores de las funcionalidades</h3><p>Importes configurables para la propuesta comercial. No se muestran públicamente hasta autorizarlos.</p><div id="ghPreciosFuncionalidadesCampos"></div></div><div class="card"><button id="ghGuardarTodosPrecios162" type="button" onclick="ghGuardarTodosPrecios162()" disabled>Guardar todos los importes</button> <span id="ghTodosPreciosStatus162" role="status">Cargando…</span></div>
         </div>
         <div class="card plan-overview">
           <h2>Cómo se decide qué aparece</h2>
@@ -1710,46 +1710,56 @@ const GH_FUNCIONALIDADES_COMERCIALES=[
  ['promociones','Promociones'],
  ['publicidad','Publicidad']
 ];
+let GH_PRECIOS_ESTADO162=null;
+const GH_PRECIOS_ESQUEMA162=['eventos_free','eventos_vip','actividades','promociones','publicidad'];
+function ghValorMonetario162(key,kind){
+ const item=GH_PRECIOS_ESTADO162?.precios?.[kind]?.[String(key)];
+ return {importe:item?.importe??null,publico:item?.publico===true};
+}
 function ghRenderValoresFuncionalidades_(){
  const host=document.getElementById('ghPreciosFuncionalidadesCampos');if(!host)return;
- const cfg=GH_CARGA_GENERAL_BASE||{};
- const fmt=window.GLD_PLANES_RESUMEN;
  host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.map(([key,label])=>{
-  const field='precio_func_'+key,show='precio_func_visible_'+key;
-  const raw=cfg[field];
-  const price=raw===null||raw===undefined?'':String(raw);
+  const info=ghValorMonetario162(key,'funcionalidades');
   return '<div class="item"><h4>'+esc(label)+'</h4>'+
-   '<label>Valor en pesos argentinos<input type="number" min="0" step="1" data-func-precio="'+esc(key)+'" value="'+esc(price)+'" placeholder="Sin definir"></label>'+
-   '<label style="display:flex;align-items:center;gap:9px"><input type="checkbox" style="width:auto" data-func-visible="'+esc(key)+'" '+(fmt.flag(cfg[show])===true?'checked':'')+'> Publicar valor en Planes y servicios</label>'+
-   '<button type="button" onclick="ghGuardarValorFuncionalidad_(\''+key+'\')">Guardar importe</button> <span data-func-msg="'+key+'" role="status"></span></div>';
+   '<label>Precio en pesos argentinos ($ ARS)<input type="number" inputmode="numeric" min="0" step="1" data-func-precio="'+esc(key)+'" value="'+esc(info.importe===null?'':info.importe)+'" placeholder="Ingresar valor"></label>'+
+   '<label style="display:flex;align-items:center;gap:9px"><input type="checkbox" style="width:auto" data-func-visible="'+esc(key)+'" '+(info.publico?'checked':'')+'> Mostrar importe públicamente</label></div>';
  }).join('');
 }
-async function ghGuardarValorFuncionalidad_(key){
- if(!GH_FUNCIONALIDADES_COMERCIALES.some(f=>f[0]===key))return;
- const inp=document.querySelector('[data-func-precio="'+key+'"]');
- const check=document.querySelector('[data-func-visible="'+key+'"]');
- const msg=document.querySelector('[data-func-msg="'+key+'"]');
- if(!inp||!check||!msg)return;
- const raw=inp.value.trim();
- if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw)))){msg.textContent='Importe inválido';return;}
- if(check.checked&&raw===''){msg.textContent='Ingresá el importe antes de publicarlo';return;}
- const field='precio_func_'+key,visible='precio_func_visible_'+key;
- const price=raw===''?null:Number(raw);
- if(GH_CARGA_GENERAL_BASE?.[field]===price&&window.GLD_PLANES_RESUMEN.flag(GH_CARGA_GENERAL_BASE?.[visible])===check.checked){msg.textContent='Sin cambios';return;}
- const item={nivel_id:GH_CARGA_GENERAL_ID,[field]:price,[visible]:check.checked};
- if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
- inp.disabled=check.disabled=true;msg.textContent='Guardando…';
+function ghLeerPrecioCampo162(selector,visibleSelector){
+ const inp=document.querySelector(selector),checkbox=document.querySelector(visibleSelector);
+ if(!inp||!checkbox)throw Error('No se encuentran todos los campos de importes.');
+ const v=inp.value.trim();
+ if(v!==''&&(!/^[0-9]+$/.test(v)||!Number.isSafeInteger(Number(v))))throw Error('Importe en pesos inválido.');
+ if(checkbox.checked&&v==='')throw Error('No se puede publicar un importe vacío.');
+ return {importe:v===''?null:Number(v),publico:checkbox.checked};
+}
+async function ghGuardarTodosPrecios162(){
+ const boton=document.getElementById('ghGuardarTodosPrecios162');
+ const status=document.getElementById('ghTodosPreciosStatus162');
+ if(!boton||!status||!GH_PRECIOS_ESTADO162){if(status)status.textContent='Cargá primero los importes vigentes.';return;}
+ let precios;
  try{
-  const result=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-  if(!result?.success)throw Error('Servidor no confirmó el guardado');
-  const verified=await api('listar_catalogo',{tipo:'niveles_anunciante'});
-  const row=(verified.results||[]).find(x=>String(x.nivel_id||x.id)===GH_CARGA_GENERAL_ID);
-  if(!row||row[field]!==price||window.GLD_PLANES_RESUMEN.flag(row[visible])!==check.checked)throw Error('Persistencia no verificada');
-  GH_CATALOG_CACHE.niveles_anunciante=verified.results;
-  GH_CARGA_GENERAL_BASE=row;
-  msg.textContent='Guardado verificado';
- }catch(e){msg.textContent='Error: '+String(e.message||e)}
- finally{inp.disabled=check.disabled=false;}
+  precios={niveles:{},funcionalidades:{}};
+  for(let n=1;n<=6;n++)precios.niveles[String(n)]=ghLeerPrecioCampo162(
+   '[data-precio-nivel-num="'+n+'"]','[data-precio-visible-num="'+n+'"]'
+  );
+  for(const key of GH_PRECIOS_ESQUEMA162)precios.funcionalidades[key]=ghLeerPrecioCampo162(
+   '[data-func-precio="'+key+'"]','[data-func-visible="'+key+'"]'
+  );
+ }catch(e){status.textContent=String(e.message||e);return;}
+ boton.disabled=true;status.textContent='Guardando los once importes en una sola operación…';
+ try{
+  const j=await ghAdminRequest_('/catalogs/prices',{precios,revision:GH_PRECIOS_ESTADO162.revision},'POST');
+  if(!j.success)throw Error('El servidor no confirmó el guardado.');
+  GH_PRECIOS_ESTADO162={precios,revision:j.revision};
+  status.textContent=j.updated?'Guardado confirmado: una escritura Firestore y una actualización de caché.':'No hubo modificaciones; ninguna escritura.';
+ }catch(e){status.textContent='No se confirmó el guardado: '+String(e.message||e);}
+ finally{boton.disabled=false;}
+}
+async function ghCargarPrecios162(){
+ const j=await ghAdminRequest_('/catalogs/prices');
+ if(!j.success||!j.precios)throw Error('El catálogo de precios no está disponible.');
+ GH_PRECIOS_ESTADO162={precios:j.precios,revision:j.revision};
 }
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
@@ -1781,55 +1791,41 @@ function ghRenderResumenNiveles108(){
  GH_CARGA_GENERAL_FIELDS.map(([key,label,def])=>'<li>'+esc(label)+': institucional '+esc(general['carga_institucional_'+key]??general['carga_'+key]??def)+' · comercial '+esc(general['carga_comercial_'+key]??general['carga_'+key]??def)+'</li>').join('')+'</ul></details>'+
  '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(290px,1fr))">'+Array.from({length:6},(_,i)=>{
   const n=i+1,row=rows.find(x=>fmt.number(x)===n);
-  if(!row)return '<article class="item"><h3>Nivel '+n+'</h3><p>Sin configuración de este nivel en Niveles.</p></article>';
-  const id=String(row.nivel_id||row.id||'');
-  const importe=fmt.price(row),visible=fmt.publishPrice(row);
-  return '<article class="item"><h3>Nivel '+n+(fmt.name(row)?' · '+esc(fmt.name(row)):'')+'</h3>'+
-   '<p class="muted">'+(n<=2?'Institucional':'Comercial')+' · '+(fmt.active(row)?'Activo':'Inactivo')+'</p>'+
-   detalles(row)+
+  const ruleContent=row?detalles(row):'<p class="muted">No hay configuración publicada para este nivel.</p>';
+  const priceInfo=ghValorMonetario162(n,'niveles');
+  const importe=priceInfo.importe,visible=priceInfo.publico;
+  return '<article class="item"><h3>Nivel '+n+(row&&fmt.name(row)?' · '+esc(fmt.name(row)):'')+'</h3>'+
+   '<p class="muted">'+(n<=2?'Institucional':'Comercial')+' · '+(row&&fmt.active(row)?'Activo':'Inactivo')+'</p>'+
+   ruleContent+
    '<fieldset style="margin-top:15px;padding:15px;border:1px solid #cfd8dc;border-radius:10px"><legend><strong>Valor del nivel · pesos argentinos (ARS)</strong></legend>'+
-   '<label>Importe en $ ARS<input type="number" inputmode="numeric" min="0" step="1" data-precio-nivel="'+esc(id)+'" value="'+esc(importe===null?'':importe)+'" placeholder="Ingresar valor en pesos"></label>'+
-   '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:auto" data-precio-visible="'+esc(id)+'" '+(visible?'checked':'')+'> Autorizar publicación del precio</label>'+
+   '<label>Importe en $ ARS<input type="number" inputmode="numeric" min="0" step="1" data-precio-nivel-num="'+n+'" value="'+esc(importe===null?'':importe)+'" placeholder="Ingresar valor en pesos"></label>'+
+   '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:auto" data-precio-visible-num="'+n+'" '+(visible?'checked':'')+'> Autorizar publicación del precio</label>'+
    '<p class="muted">Un campo vacío significa precio no definido. $0 indica gratuidad expresa.</p>'+
-   '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar valor en pesos</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></fieldset></article>';
+   '</fieldset></article>';
  }).join('')+'</div>';
  ghRenderValoresFuncionalidades_();
  informarAltura();
 }
-async function ghGuardarPrecioPublico_(id){
- const fmt=window.GLD_PLANES_RESUMEN;
- const el=document.querySelector('[data-precio-nivel="'+CSS.escape(id)+'"]');
- const check=document.querySelector('[data-precio-visible="'+CSS.escape(id)+'"]');
- const status=document.querySelector('[data-precio-estado="'+CSS.escape(id)+'"]');
- if(!el||!check||!status)return;
- const raw=el.value.trim();
- if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw)))){status.textContent='Importe inválido';return;}
- if(check.checked&&raw===''){status.textContent='Para publicar el importe primero ingresá una cifra.';return;}
- const prev=(GH_CATALOG_CACHE.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)===id);
- if(!prev){status.textContent='Nivel inexistente';return;}
- const price=raw===''?null:Number(raw);
- const visible=check.checked;
- const oldPrice=fmt.price(prev);
- if(price===oldPrice&&visible===fmt.publishPrice(prev)){status.textContent='Sin cambios';return;}
- const item={nivel_id:id,precio_publico_ars:price,precio_visible_publico:visible};
- el.disabled=check.disabled=true;status.textContent='Guardando…';
- try{
-  const saved=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-  if(!saved?.success)throw Error('Guardado no confirmado');
-  const verify=await api('listar_catalogo',{tipo:'niveles_anunciante'});
-  const current=(verify.results||[]).find(x=>String(x.nivel_id||x.id)===id);
-  if(!current||fmt.price(current)!==price||fmt.flag(current.precio_visible_publico)!==visible)throw Error('La persistencia no pudo verificarse');
-  GH_CATALOG_CACHE.niveles_anunciante=verify.results;
-  status.textContent='Guardado verificado';
- }catch(err){status.textContent='Error: '+String(err.message||err);}
- finally{el.disabled=check.disabled=false;}
-}
 async function ghCargarResumenNiveles(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
- if(Array.isArray(GH_CATALOG_CACHE.niveles_anunciante)){ghRenderResumenNiveles108();return;}
- box.textContent='Cargando los niveles vigentes…';
- try{await ghCargarCatalogo(GH_CATALOGOS.find(def=>def.tipo==='niveles_anunciante'));if(!Array.isArray(GH_CATALOG_CACHE.niveles_anunciante))throw Error('No se pudo cargar el catálogo de niveles.');ghRenderResumenNiveles108();}
- catch(error){box.innerHTML='<p class="error">'+esc(error.message)+'</p><button type="button" onclick="ghCargarResumenNiveles()">Reintentar</button>';informarAltura();}
+ const status=document.getElementById('ghTodosPreciosStatus162');
+ const button=document.getElementById('ghGuardarTodosPrecios162');
+ if(button)button.disabled=true;
+ if(status)status.textContent='Cargando importes vigentes…';
+ try{
+  if(!Array.isArray(GH_CATALOG_CACHE.niveles_anunciante)){
+   await ghCargarCatalogo(GH_CATALOGOS.find(def=>def.tipo==='niveles_anunciante'));
+   if(!Array.isArray(GH_CATALOG_CACHE.niveles_anunciante))throw Error('No se pudo cargar el catálogo de niveles.');
+  }
+  await ghCargarPrecios162();
+  ghRenderResumenNiveles108();
+  if(button)button.disabled=false;
+  if(status)status.textContent='Editá los importes y guardalos juntos.';
+ }catch(error){
+  if(status)status.textContent='No se pudieron cargar los importes: '+String(error.message||error);
+  if(button)button.disabled=true;
+  GH_PRECIOS_ESTADO162=null;
+ }
 }
 
 function ghSelectConfig(name){
