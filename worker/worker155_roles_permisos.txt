@@ -1,4 +1,4 @@
-// GUÍA LOCAL - WORKER 162 - ENSAYO NOCTURNO EVENTOS - ROLES Y PERMISOS (base 154)
+// GUÍA LOCAL - WORKER 163 - REGRESO DE USUARIO (base activa 161)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -94,7 +94,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'162',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'163',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -976,9 +976,6 @@ function createCache(env) {
   }
   return {
     invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(env,'pending-events-invalidate'):null,
-    ...(env.GLD_EVENTS_NIGHTLY_PUBLICATION==='1'&&env.GLD_PUBLIC_CACHE?{
-      stageEventPublication:(key,id,row)=>kv.stageEventPublication(key,id,row)
-    }:{}),
     async get(key3) {
       const raw = await kv.get(key3);
       if (!raw) return null;
@@ -1400,14 +1397,9 @@ async function syncEventV2({ db, cache, current = null, next = null, previousPro
   const cities = [.../* @__PURE__ */ new Set([...previous?.ciudades || [], ...eventCities(current, previousProgramacion), ...nextCities])];
   for (const cityId of cities) {
     const key3 = eventsCityKey(cityId);
-    const row=next&&nextCities.includes(cityId)&&published(next)?cityEvent(next,programacion,cityId):null;
-    if(cache.stageEventPublication){
-      await cache.stageEventPublication(key3,id4,row);
-      continue;
-    }
     const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", events: [] };
     const rows = (packet2.events || []).filter((x) => text7(x.evento_id || x.id) !== id4);
-    if(row)rows.push(row);
+    if (next && nextCities.includes(cityId) && published(next)) rows.push(cityEvent(next, programacion, cityId));
     const sorted=sort2(rows);
     if(!GLD_BUSINESS143.equal(packet2.events||[],sorted))await cache.put(key3,{version:2,ciudad_id:cityId,updated_at:new Date().toISOString(),events:sorted});
   }
@@ -1424,7 +1416,6 @@ async function getEventsCityV2({ cache, cityId }) {
   return {success:true,...packet,ciudad_id:city,events:sort2(await GLD_EVENTS145.publicRows([...byId.values()],city,cache)),cold:!packet&&!virtual};
 }
 async function rebuildEventsAllV2({ db, cache }) {
-  if(cache.stageEventPublication)throw httpError('La reconstrucción de Eventos está deshabilitada durante el ensayo nocturno.',409);
   const [events, programas] = await Promise.all([
     db.listCollection("eventos"),
     db.listCollection("evento_programacion")
@@ -5507,6 +5498,20 @@ async function routePanelV7(ctx) {
   const { path, request: request2, url, env, db, cache } = ctx;
   if (path === "/suscriptores" && request2.method === "GET") {
     const action = text47(url.searchParams.get("action")).toLowerCase();
+    if (action === "entrada") {
+      const auth = await verifySubscriberSession(env, request2);
+      if(!auth.ok)return json({success:false,message:auth.message},401);
+      const doc=await db.cachedSubscriberProjection(text46(auth.sid));
+      if(!doc||(doc.activo!==void 0&&!truthy4(doc.activo)))return json({success:false,message:"Suscriptor no activo."},403);
+      const result={success:true,suscriptor:publicProfile(doc)};
+      try{
+        const favorites=await db.subscriberFavoritesForEntry(text46(auth.sid),url.searchParams.get("favoritos_revision"));
+        if(favorites.revision)result.favoritos_revision=favorites.revision;
+        if(favorites.unchanged)result.favoritos_sin_cambios=true;
+        else result.favoritos_ids=favorites.rows.filter(row=>(row.activo===undefined||row.activo===true)&&text46(row.tipo).toUpperCase()==="ANUNCIANTE").map(row=>text46(row.referencia_id)).filter(Boolean);
+      }catch(_){}
+      return json(result);
+    }
     if (action === "perfil" || action === "suscriptor") {
       return json(await getSubscriberProfileV2({ env, request: request2, db }));
     }
@@ -8686,6 +8691,7 @@ async function observationActionV43(request2, url) {
     "login",
     "session",
     "favoritos",
+    "entrada",
     "anunciantes_autorizados",
     "perfil",
     "suscriptor",
@@ -8963,6 +8969,20 @@ function withPrivateCacheV46(db,env){
       if(collection==='suscriptor_anunciante'&&previousAdvertiser104)await advertiserRelationDelta104(previousAdvertiser104,text(id),null);
       if(favKey)favoriteChanges.set(favKey,{sid:owners.get(collection+'/'+text(id))||text(options.subscriberId),id:text(id),deleted:true});
       return result;
+    },
+    async subscriberFavoritesForEntry(sid,knownRevision){
+      const key=favoriteKey(sid);
+      const rev=await revision(key);
+      const raw=await kv.get(key+':changes',{cacheTtl:30});
+      const marker=raw?JSON.parse(raw):null;
+      const tag=JSON.stringify([rev,marker?.revision||'']);
+      if(knownRevision===tag)return {revision:tag,unchanged:true};
+
+      const rows=await this.subscriberFavorites(sid);
+      // Only issue a tag for a settled copy. During propagation the existing
+      // merge continues to reconcile each delta before clients can reuse it.
+      const {packet}=await read(key,rev);
+      return {rows,revision:packet&&(!marker||packet.delta_revision===marker.revision)?tag:''};
     },
     async subscriberFavorites(sid){
       const key=favoriteKey(sid);
@@ -10238,16 +10258,6 @@ function sortPublicCity119(key,rows){
  if(mod==='farmacias')return sortTurnos2(rows);
  return rows;
 }
-function eventPublicationCutoff162(now){
- const date=new Date(now);
- date.setUTCHours(4,0,0,0);
- if(date.getTime()<=now)date.setUTCDate(date.getUTCDate()+1);
- return date.getTime();
-}
-function eventPublicationActorKey162(state){
- const name=state.id?.name||'',prefix='public-city-v119:events:city:v2:';
- return name.startsWith(prefix)&&name.length>prefix.length?name.slice('public-city-v119:'.length):null;
-}
 class GldPublicCache119 {
  constructor(state,env){
   this.state=state;this.env=env;this.sql=state.storage.sql;this.cached=null;
@@ -10306,7 +10316,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'162',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'163',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -10326,88 +10336,8 @@ class GldPublicCache119 {
    this.query('INSERT OR REPLACE INTO entities(id,value,stamp,position) VALUES(?,?,?,?)',id,JSON.stringify(row),'',position);
   }
  }
- eventQueue162(){
-  if(this.eventQueueReady162)return;
-  this.sql.exec('CREATE TABLE IF NOT EXISTS event_pending162 (cutoff INTEGER NOT NULL,id TEXT NOT NULL,value TEXT,stamp TEXT NOT NULL,PRIMARY KEY(cutoff,id)) WITHOUT ROWID');
-  this.eventQueueReady162=true;
- }
- async stageEvent162({key,value,stamps}){
-  if(key!==eventPublicationActorKey162(this.state))throw Error('Invalid event publication actor');
-  const id=value?.id,row=value?.row,stamp=sourceStamp119(stamps?.[id]);
-  if(typeof id!=='string'||!id||!stamp||(row!==null&&String(row?.evento_id||row?.id||'')!==id))throw Error('Invalid event publication delta or revision');
-  const encoded=row===null?null:JSON.stringify(row),cutoff=eventPublicationCutoff162(Date.now());
-  this.eventQueue162();
-  const prior=this.query('SELECT value,stamp FROM event_pending162 WHERE cutoff=? AND id=?',cutoff,id)[0];
-  if(prior?.stamp===stamp&&!samePublicValueInternal(prior.value===null?null:JSON.parse(prior.value),row))throw Error('Public cache conflict');
-  // Confirm scheduling before accepting a durable delta. An alarm without
-  // a delta is harmless; a committed delta without an alarm is not.
-  const alarm=this.eventAlarm162??await this.state.storage.getAlarm();
-  if(alarm===null||alarm>cutoff){
-   const oldest=alarm===null?this.query('SELECT cutoff FROM event_pending162 ORDER BY cutoff LIMIT 1')[0]?.cutoff:undefined;
-   const next=Math.min(cutoff,oldest??cutoff);
-   await this.state.storage.setAlarm(next);
-   this.eventAlarm162=next;
-   this.metrics.alarm_set_calls=(this.metrics.alarm_set_calls||0)+1;
-  }else this.eventAlarm162=alarm;
-  if(prior&&prior.stamp>=stamp)return {ok:true,queued:false,cutoff};
-  this.query('INSERT INTO event_pending162(cutoff,id,value,stamp) VALUES(?,?,?,?) ON CONFLICT(cutoff,id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',cutoff,id,encoded,stamp);
-  return {ok:true,queued:true,cutoff};
- }
- async publishEvents162(key){
-  this.eventAlarm162=null;
-  this.eventQueue162();
-  const now=Date.now(),def=cityDefinition119(key);
-  const due=this.query('SELECT cutoff,id,value,stamp FROM event_pending162 WHERE cutoff<=? ORDER BY cutoff,id',now);
-  const latest=new Map();
-  for(const delta of due){
-   const prior=latest.get(delta.id);
-   if(!prior||prior.stamp<delta.stamp)latest.set(delta.id,delta);
-  }
-  if(latest.size){
-   const head=this.query('SELECT value,deleted FROM packet WHERE slot=1')[0];
-   const legacy=head?null:await this.legacy(key);
-   this.state.storage.transactionSync(()=>{
-    if(!head)this.initialize(legacy,def);
-    const stored=head?JSON.parse(head.value):legacy||{};
-    const {events,...meta}=stored;
-    const snapshotRows=head?.deleted?new Map():Array.isArray(events)?new Map(events.map(row=>[String(row.evento_id||row.id),row])):null;
-    let changed=false;
-    for(const {id,value,stamp} of latest.values()){
-     const previous=this.query('SELECT value,stamp,position FROM entities WHERE id=?',id)[0];
-     if(previous?.stamp>=stamp)continue;
-     const oldRow=previous?.value==null?null:JSON.parse(previous.value);
-     const newRow=value===null?null:JSON.parse(value);
-     changed ||= !samePublicValueInternal(oldRow,newRow);
-     this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,value,stamp,previous?.position??now);
-     if(snapshotRows){
-      if(newRow===null)snapshotRows.delete(id);
-      else snapshotRows.set(id,newRow);
-     }
-    }
-    if(changed){
-     const rows=snapshotRows?[...snapshotRows.values()]:this.query('SELECT value FROM entities WHERE value IS NOT NULL ORDER BY position,id').map(x=>JSON.parse(x.value));
-     const metadata={version:2,ciudad_id:key.slice('events:city:v2:'.length),...meta,updated_at:new Date(now).toISOString()};
-     const next={...metadata,events:sortPublicCity119(key,rows)};
-     this.query('UPDATE packet SET value=?,deleted=0 WHERE slot=1',this.guideSnapshot135(next)??JSON.stringify(metadata));
-     this.metrics.publications=1;
-    }
-    this.query('DELETE FROM event_pending162 WHERE cutoff<=?',now);
-   });
-   if(this.metrics.publications)this.cached=null;
-  }
-  const next=this.query('SELECT cutoff FROM event_pending162 ORDER BY cutoff LIMIT 1')[0]?.cutoff;
-  if(next!==undefined){
-   await this.state.storage.setAlarm(next);
-   this.eventAlarm162=next;
-   this.metrics.alarm_set_calls=(this.metrics.alarm_set_calls||0)+1;
-  }
- }
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
-  if(this.env.GLD_EVENTS_NIGHTLY_PUBLICATION==='1'&&def.module==='events'){
-   if(op==='event-stage')return this.stageEvent162(body);
-   if(op==='put'||op==='delete')throw Error('Public cache conflict: event packet maintenance is disabled during the nightly publication trial');
-  }
   if(op==='get')return {value:await this.read(key,def)};
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
@@ -10459,7 +10389,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(!(this.env.GLD_EVENTS_NIGHTLY_PUBLICATION==='1'&&cityDefinition119(body.key)?.module==='events'))await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -10469,22 +10399,20 @@ function coordinatedCities119(env,report){
  report.public_cache_backend='coordinated-sqlite';
  const kv=env.GLD_CACHE_KV,bases=new Map();
  async function call(key,op,value){
-  const def=cityDefinition119(key),stamps={},stage=op==='event-stage',base=stage?null:bases.get(key)||null;
-  if(stage)stamps[value.id]=report.source_versions119?.[def.collection+'/'+value.id]||'';
-  else for(const row of [...(base?.[def.field]||[]),...(value?.[def.field]||[])]){
+  const def=cityDefinition119(key),stamps={};
+  for(const row of [...(bases.get(key)?.[def.field]||[]),...(value?.[def.field]||[])]){
    const id=String(row[def.id]||row.id||'');stamps[id]=report.source_versions119?.[def.collection+'/'+id]||'';
   }
   const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('public-city-v119:'+key));
-  const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base,stamps})}));
+  const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base:bases.get(key)||null,stamps})}));
   const result=await response.json(),stats=report.public_store??={calls:0,rows_read:0,rows_written:0,legacy_gets:0,legacy_lists:0};stats.calls++;
-  (stats.components??=[]).push({module:def.module,operation:op,rows_read:result.metrics?.rows_read??null,rows_written:result.metrics?.rows_written??null,legacy_gets:result.metrics?.legacy_gets??null,reads:result.metrics?.read_paths??null,...(op==='event-stage'?{queued:result.queued??null,cutoff:result.cutoff??null,alarm_set_calls:result.metrics?.alarm_set_calls||0}:{}),status:response.status});
+  (stats.components??=[]).push({module:def.module,operation:op,rows_read:result.metrics?.rows_read??null,rows_written:result.metrics?.rows_written??null,legacy_gets:result.metrics?.legacy_gets??null,reads:result.metrics?.read_paths??null,status:response.status});
   for(const k of ['rows_read','rows_written','legacy_gets','legacy_lists'])stats[k]+=Number(result.metrics?.[k]||0);
   for(const [key,entry]of Object.entries(result.metrics?.source_operations||{})){const target=report.operations[key]??={operation:entry.operation,collection:entry.collection,field:entry.field||'',calls:0,documents_returned:0,failures:0};for(const field of ['calls','documents_returned','failures'])target[field]+=Number(entry[field]||0);}
   if(!response.ok)throw Object.assign(Error(result.error||'Public cache unavailable'),{cacheRecoverable:true});
   return result;
  }
  const binding=new Proxy(kv,{get(target,prop){
-  if(prop==='stageEventPublication')return (key,id,row)=>call(key,'event-stage',{id,row});
   if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,'get');bases.set(key,value);return value?JSON.stringify(value):null;};
   if(prop==='put')return async(key,value,options)=>{if(!cityDefinition119(key))return target.put(key,value,options);if(options&&Object.keys(options).length)throw Error('Public cache TTL unsupported');const packet=JSON.parse(value);
    if(!bases.has(key)){
@@ -10838,7 +10766,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'163',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -10849,7 +10777,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'163',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -10891,21 +10819,9 @@ GldPublicCache119.prototype.guideSave132=async function(body){
 };
 GldPublicCache119.prototype.alarm=async function(){
  if(this.actions138)return this.actions138.alarm();
- const eventKey=eventPublicationActorKey162(this.state);
  const previous=this.requestTail127||Promise.resolve();let release=()=>{};
  this.requestTail127=new Promise(resolve=>{release=()=>resolve(undefined);});await previous;
  try{
-  if(eventKey&&this.env.GLD_EVENTS_NIGHTLY_PUBLICATION==='1'){
-   this.metrics={rows_read:0,rows_written:0,legacy_gets:0,publications:0,alarm_set_calls:0};
-   try{
-    await this.publishEvents162(eventKey);
-    console.log(JSON.stringify({event:'gld_event_publication162',worker_version:'162',status:200,...this.metrics}));
-   }catch(error){
-    console.error(JSON.stringify({event:'gld_event_publication162',worker_version:'162',status:503,...this.metrics}));
-    throw error;
-   }
-   return;
-  }
   const markerRead=this.guidePending132===undefined?1:0;
   await this.guideJob132();
   if(this.guideState132?.action_kind138){this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.alarm(markerRead);}
@@ -10913,7 +10829,6 @@ GldPublicCache119.prototype.alarm=async function(){
   if((await this.businessState143()).pending){try{await this.repairBusiness143();}catch(error){await this.retryBusiness143(error);}return;}
  }
  catch(error){
-  if(eventKey&&this.env.GLD_EVENTS_NIGHTLY_PUBLICATION==='1')throw error;
   const job=await this.guideJob132();if(!job)throw error;
   job.attempts=(job.attempts||0)+1;
   this.guideState132.pending=job;
@@ -11064,7 +10979,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'163',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -11130,11 +11045,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'162',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'163',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'163',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -11147,7 +11062,7 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
    if(receipt.action==='actualizar_activos')Object.assign(result,{publicidades:await db.queryEqual('publicidades','anunciante_id',command.aid,500),sin_cambios:false,cambios:receipt.refs.length});
   }
   report.status=200;const {totals}=finishObservationV42(report);report.consumption=consumption136(report);
-  return json(result,200,{'X-GLD-Worker-Version':'162','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
+  return json(result,200,{'X-GLD-Worker-Version':'163','X-GLD-Request-Id':report.request_id,'X-GLD-Read-Calls':String(totals.read_calls),'X-GLD-Write-Calls':'0','X-GLD-Delete-Calls':'0','X-GLD-Source':'business-replay','X-GLD-Consumption':encodeURIComponent(JSON.stringify(report.consumption))});
  }finally{console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
@@ -11277,7 +11192,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'162',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'163',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -11320,7 +11235,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"162",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"163",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
