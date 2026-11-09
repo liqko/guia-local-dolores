@@ -2998,13 +2998,15 @@ async function validateContext({ db, cache, advertiserId, data }) {
     logo_categoria: text29(cat.logo)
   };
 }
-async function quota({ db, advertiserId, cupoFromAdmin, excludeId = "" }) {
+async function quota({ db, cache, advertiserId, cupoFromAdmin, excludeId = "" }) {
   if(db.panelReadDb)db=db.panelReadDb();
   const [admin, promos] = await Promise.all([
     db.get("anunciantes_administracion", advertiserId),
     db.queryEqual("promos", "anunciante_id", advertiserId,500)
   ]);
-  const max = Number(cupoFromAdmin(admin || {}) || 0);
+  const originalMax=Number(cupoFromAdmin(admin || {}) || 0);
+  const limit=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PROMOS').activas_max;
+  const max=admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true||!Number.isSafeInteger(limit)?originalMax:Math.min(originalMax,limit);
   const active4 = promos.filter((p) => text29(p.promo_id || p.id) !== text29(excludeId) && !paused(p)).length;
   return { max, active: active4, total:promos.length, totalMax:cupoGuardado(max) };
 }
@@ -3018,7 +3020,7 @@ async function promoCreateV2({ db, cache, advertiserId, body, cupoFromAdmin }) {
   const stableId143=operation143?'PRO-'+operation143:'';
   if(stableId143){const prior143=await db.get('promos',stableId143);if(prior143){if(String(prior143.anunciante_id)!==String(advertiserId)||prior143.operation_fingerprint143!==fingerprint143)throw httpError('Ese identificador ya corresponde a otra promoción.',409);return {success:true,operation_recovered:true,promo:prior143,promo_id:stableId143};}}
   const ctx = await validateContext({ db, cache, advertiserId, data });
-  const q = await quota({ db, advertiserId, cupoFromAdmin });
+  const q = await quota({ db, cache, advertiserId, cupoFromAdmin });
   if (q.max <= 0 || q.active >= q.max) throw new Error("Alcanzaste el máximo de promos activas.");
   if(q.total>=q.totalMax)throw new Error("Alcanzaste el máximo de promociones guardadas.");
   const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -6570,7 +6572,10 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   const payload = body && body.payload && typeof body.payload === "object" ? body.payload : {};
   let activityId = text61(payload.actividad_id);
   let current = null;
-  const max = quota4(admin), totalMax = cupoGuardado(max);
+  const originalMax=quota4(admin);
+  const generalMax=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES').activas_max;
+  const max=admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true||!Number.isSafeInteger(generalMax)?originalMax:Math.min(originalMax,generalMax);
+  const totalMax = cupoGuardado(max);
   if (activityId) {
     current = await db.get("actividades", activityId);
     if (!current || text61(current.anunciante_id) !== text61(advertiserId)) throw new Error("Actividad no encontrada.");
