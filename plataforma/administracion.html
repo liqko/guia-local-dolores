@@ -1754,26 +1754,48 @@ async function ghGuardarValorFuncionalidad_(key){
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
  const fmt=window.GLD_PLANES_RESUMEN;
- const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&!x.eliminado);
+ if(!fmt){box.textContent='No se pudo cargar el resumen de niveles.';return;}
+ const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true);
  const general=GH_CARGA_GENERAL_BASE||{};
- box.innerHTML='<p class="muted">Las prestaciones provienen de las reglas originales en Niveles. No se editan aquí. Los importes y su visibilidad pública se administran por separado.</p>'+
+ function detalles(row){
+  const incluidos=[],noIncluidos=[],sinDefinir=[];
+  for(const regla of GH_REGLAS_OPCIONES){
+   const raw=row[regla.key],label=esc(regla.label);
+   if(regla.kind==='bool'){
+    const v=fmt.flag(raw);
+    (v===true?incluidos:v===false?noIncluidos:sinDefinir).push(label);
+   }else if(regla.kind==='number'){
+    if(raw===undefined||raw===null||raw===''){sinDefinir.push(label);continue;}
+    const n=Number(raw);
+    if(!Number.isSafeInteger(n)||n<0){sinDefinir.push(label);continue;}
+    const sinLimite=n===0&&['sedes_publicadas_max','contactos_visibles_max'].includes(regla.key);
+    const value=label+': '+(sinLimite?'sin límite configurado':esc(n));
+    (n>0||sinLimite?incluidos:noIncluidos).push(value);
+   }else if(regla.kind==='mode'){
+    if(raw==='direccion_o_alternativa')incluidos.push(label+': dirección o contacto alternativo');
+    else if(raw==='libre')incluidos.push(label+': contactos permitidos por nivel');
+    else sinDefinir.push(label);
+   }
+  }
+  const list=(title,items)=>items.length?'<details><summary>'+title+' ('+items.length+')</summary><ul>'+items.map(t=>'<li>'+t+'</li>').join('')+'</ul></details>':'';
+  return list('Incluye y límites',incluidos)+list('No incluye',noIncluidos)+list('Reglas sin configurar',sinDefinir);
+ }
+ box.innerHTML='<p class="muted">Cada resumen refleja los valores guardados en la pestaña Niveles. Si una regla no fue configurada, se indica expresamente. Los importes en pesos se administran en cada nivel.</p>'+
  '<details class="card"><summary><strong>Parámetros generales de carga</strong></summary><ul>'+
  GH_CARGA_GENERAL_FIELDS.map(([key,label,def])=>'<li>'+esc(label)+': institucional '+esc(general['carga_institucional_'+key]??general['carga_'+key]??def)+' · comercial '+esc(general['carga_comercial_'+key]??general['carga_'+key]??def)+'</li>').join('')+'</ul></details>'+
- '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(270px,1fr))">'+Array.from({length:6},(_,i)=>{
+ '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(290px,1fr))">'+Array.from({length:6},(_,i)=>{
   const n=i+1,row=rows.find(x=>fmt.number(x)===n);
-  if(!row)return '<article class="item"><h3>Nivel '+n+'</h3><p>Falta la configuración de este nivel.</p></article>';
+  if(!row)return '<article class="item"><h3>Nivel '+n+'</h3><p>Sin configuración de este nivel en Niveles.</p></article>';
   const id=String(row.nivel_id||row.id||'');
-  const rules=fmt.summary(row);
   const importe=fmt.price(row),visible=fmt.publishPrice(row);
   return '<article class="item"><h3>Nivel '+n+(fmt.name(row)?' · '+esc(fmt.name(row)):'')+'</h3>'+
-   '<p class="muted">'+(fmt.active(row)?'Activo':'Inactivo')+'</p>'+
-   '<details><summary><strong>Qué incluye y sus límites</strong></summary><ul>'+
-   (rules.length?rules.map(f=>'<li>'+esc(f.label)+': <strong>'+esc(f.value)+'</strong></li>').join(''):'<li>Sin reglas configuradas</li>')+
-   '</ul></details>'+
-   '<label>Importe de referencia (ARS)<input type="number" min="0" step="1" data-precio-nivel="'+esc(id)+'" value="'+esc(importe===null?'':importe)+'" placeholder="Sin definir"></label>'+
-   '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:auto" data-precio-visible="'+esc(id)+'" '+(visible?'checked':'')+'> Mostrar importe en la página pública</label>'+
-   '<p class="muted">Sin definir no significa gratuito. El precio solo se muestra cuando lo autorizás expresamente.</p>'+
-   '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar condiciones comerciales</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></article>';
+   '<p class="muted">'+(n<=2?'Institucional':'Comercial')+' · '+(fmt.active(row)?'Activo':'Inactivo')+'</p>'+
+   detalles(row)+
+   '<fieldset style="margin-top:15px;padding:15px;border:1px solid #cfd8dc;border-radius:10px"><legend><strong>Valor del nivel · pesos argentinos (ARS)</strong></legend>'+
+   '<label>Importe en $ ARS<input type="number" inputmode="numeric" min="0" step="1" data-precio-nivel="'+esc(id)+'" value="'+esc(importe===null?'':importe)+'" placeholder="Ingresar valor en pesos"></label>'+
+   '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:auto" data-precio-visible="'+esc(id)+'" '+(visible?'checked':'')+'> Autorizar publicación del precio</label>'+
+   '<p class="muted">Un campo vacío significa precio no definido. $0 indica gratuidad expresa.</p>'+
+   '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar valor en pesos</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></fieldset></article>';
  }).join('')+'</div>';
  ghRenderValoresFuncionalidades_();
  informarAltura();
