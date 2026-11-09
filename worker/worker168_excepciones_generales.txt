@@ -3005,8 +3005,10 @@ async function quota({ db, cache, advertiserId, cupoFromAdmin, excludeId = "" })
     db.queryEqual("promos", "anunciante_id", advertiserId,500)
   ]);
   const originalMax=Number(cupoFromAdmin(admin || {}) || 0);
-  const limit=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PROMOS').activas_max;
-  const max=admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true||!Number.isSafeInteger(limit)?originalMax:Math.min(originalMax,limit);
+  const general=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PROMOS');
+  const limit=general.activas_max;
+  const allow=general.admite_excepciones===true&&admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true;
+  const max=allow||!Number.isSafeInteger(limit)?originalMax:Math.min(originalMax,limit);
   const active4 = promos.filter((p) => text29(p.promo_id || p.id) !== text29(excludeId) && !paused(p)).length;
   return { max, active: active4, total:promos.length, totalMax:cupoGuardado(max) };
 }
@@ -3353,15 +3355,22 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const policy=free?freeEventPolicyV95(admin166,settings166):null;
   const vipSettings166=gldFuncRules166(settings166,'EVENTOS');
   const vipOverride166=admin166?.funcionalidades_config?.EVENTOS||{};
-  const unlimited=free?!!policy?.sin_limites:vipOverride166.sin_limites===true;
+  const vipAllowed166=vipSettings166.admite_excepciones===true;
+  const unlimited=free?!!policy?.sin_limites:vipAllowed166&&vipOverride166.sin_limites===true;
   if(!unlimited&&free&&!policy.excepcion_cupo)max=Math.min(Number(max||0),policy.activas_max);
-  if(!unlimited&&!free&&!vipOverride166.excepcion_cupo&&Number.isSafeInteger(vipSettings166.activas_max))max=Math.min(Number(max||0),vipSettings166.activas_max);
+  if(!unlimited&&!free&&!(vipAllowed166&&vipOverride166.excepcion_cupo===true)&&Number.isSafeInteger(vipSettings166.activas_max))max=Math.min(Number(max||0),vipSettings166.activas_max);
   if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);}
   if (!unlimited && Number(max || 0) <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
   await validateEvent({ db, cache, advertiserId, data, level });
   const q = await quota2({ db, advertiserId, max, free });
   if(operation145){const prior=q.own.find(e=>e.operation_id145===operation145);if(prior){if(prior.operation_fingerprint145!==fingerprint145)throw httpError('Ese identificador corresponde a otro evento.',409);if(prior.eliminado)throw httpError('Ese evento fue borrado. Actualizá el listado antes de crear otro.',409);return {success:true,operation_recovered:true,evento_id:prior.evento_id,evento:prior};}}
+  if(!free&&!unlimited){
+    const globalMonthly=Number.isSafeInteger(vipSettings166.altas_mensuales_max)?vipSettings166.altas_mensuales_max:5;
+    const cap=vipAllowed166&&vipOverride166.excepcion_cupo===true?Number(max||0):Math.min(Number(max||0),globalMonthly);
+    const monthlyVip=q.own.filter(e=>isVip(e)&&freeEventMonthV95(e.cupo_mes||e.fecha_carga||e.creado)===freeEventMonthV95());
+    if(monthlyVip.length>=cap)throw new Error('Alcanzaste el cupo mensual de Eventos VIP.');
+  }
   if (!unlimited && q.max <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   if (!unlimited && q.active >= q.max) throw new Error("Alcanzaste el máximo de eventos activos.");
   if (!unlimited && q.total >= q.totalMax) throw new Error("Alcanzaste el máximo de eventos guardados.");
@@ -6574,8 +6583,10 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   let activityId = text61(payload.actividad_id);
   let current = null;
   const originalMax=quota4(admin);
-  const generalMax=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES').activas_max;
-  const max=admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true||!Number.isSafeInteger(generalMax)?originalMax:Math.min(originalMax,generalMax);
+  const globalCfg=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES');
+  const generalMax=globalCfg.activas_max;
+  const allowed=globalCfg.admite_excepciones===true&&admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true;
+  const max=allowed||!Number.isSafeInteger(generalMax)?originalMax:Math.min(originalMax,generalMax);
   const totalMax = cupoGuardado(max);
   if (activityId) {
     current = await db.get("actividades", activityId);
@@ -8192,7 +8203,7 @@ async function gldRutaPreciosAdmin162(ctx){
 const GLD_FUNC_KEY166='admin:functional-settings:v1';
 const GLD_FUNC_DEFAULT166={
  EVENTOS_FREE:{altas_mensuales_max:4,activas_max:2,ediciones_max:1,descripcion_max:200},
- EVENTOS:{activas_max:null,secciones_habilitadas:false},
+ EVENTOS:{altas_mensuales_max:5,activas_max:5,secciones_habilitadas:false},
  ACTIVIDADES:{activas_max:null},PROMOS:{activas_max:null},PUBLICIDAD:{activas_max:null,posiciones_max:null}
 };
 async function gldFuncPacket166(cache,db,withFallback=false){
@@ -8216,7 +8227,7 @@ function gldFuncValidate166(reglas){
   if(!nombre||nombre.length>120||typeof row.activo!=='boolean')throw Error('Nombre o estado inválido en '+id);
   if(row.admite_excepciones!==undefined&&typeof row.admite_excepciones!=='boolean')throw Error('Admite excepciones debe ser Sí o No: '+id);
   const out={nombre,activo:row.activo,admite_excepciones:row.admite_excepciones===true};
-  const allowed=id==='EVENTOS_FREE'?['altas_mensuales_max','activas_max','ediciones_max','descripcion_max']:id==='EVENTOS'?['activas_max','secciones_habilitadas']:id==='PUBLICIDAD'?['activas_max','posiciones_max']:['PROMOS','ACTIVIDADES'].includes(id)?['activas_max']:[];
+  const allowed=id==='EVENTOS_FREE'?['altas_mensuales_max','activas_max','ediciones_max','descripcion_max']:id==='EVENTOS'?['altas_mensuales_max','activas_max','secciones_habilitadas']:id==='PUBLICIDAD'?['activas_max','posiciones_max']:['PROMOS','ACTIVIDADES'].includes(id)?['activas_max']:[];
   for(const field of allowed){
    const val=row[field];
    if(field==='secciones_habilitadas'){out[field]=val===true;continue;}
