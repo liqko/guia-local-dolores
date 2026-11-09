@@ -3010,12 +3010,19 @@ async function quota({ db, cache, advertiserId, cupoFromAdmin, excludeId = "" })
   const allow=general.admite_excepciones===true&&admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true;
   const max=allow||!Number.isSafeInteger(limit)?originalMax:limit;
   const active4 = promos.filter((p) => text29(p.promo_id || p.id) !== text29(excludeId) && !paused(p)).length;
-  return { max, active: active4, total:promos.length, totalMax:cupoGuardado(max) };
+  const cfg=admin?.funcionalidades_config?.PROMOS||{};
+  return { max, active: active4, total:promos.length, totalMax:gldValorParticular168(general,cfg,'guardadas_max',cupoGuardado(max)),general,admin };
+}
+function gldValidarPromo168(data,general,admin){
+ const cfg=admin?.funcionalidades_config?.PROMOS||{};
+ const maxPromo=gldValorParticular168(general,cfg,'descripcion_max',300);
+ const maxOtros=gldValorParticular168(general,cfg,'condiciones_max',120);
+ if(Object.hasOwn(data,'promo')&&Number.isSafeInteger(maxPromo)&&String(data.promo??'').length>maxPromo)throw httpError('El texto de la promo admite hasta '+maxPromo+' caracteres.',400);
+ if(Object.hasOwn(data,'otros')&&Number.isSafeInteger(maxOtros)&&String(data.otros??'').length>maxOtros)throw httpError('La aclaración adicional admite hasta '+maxOtros+' caracteres.',400);
 }
 async function promoCreateV2({ db, cache, advertiserId, body, cupoFromAdmin }) {
   const data = body && body.payload && typeof body.payload === "object" ? body.payload : body || {};
-  if(Object.hasOwn(data,'promo')&&String(data.promo??'').length>300)throw httpError('El texto de la promo admite hasta 300 caracteres.',400);
-  if(Object.hasOwn(data,'otros')&&String(data.otros??'').length>120)throw httpError('La aclaración adicional admite hasta 120 caracteres.',400);
+
   if (text29(data.promo_id)) throw new Error("El alta de una promo no admite promo_id; usá editar para una promo existente.");
   const operation143=/^[a-f0-9-]{36}$/i.test(String(body.operation_id||''))?String(body.operation_id):'';
   const fingerprint143=operation143?await fieldRevisionInternal(data,Object.keys(data)):'';
@@ -3023,6 +3030,7 @@ async function promoCreateV2({ db, cache, advertiserId, body, cupoFromAdmin }) {
   if(stableId143){const prior143=await db.get('promos',stableId143);if(prior143){if(String(prior143.anunciante_id)!==String(advertiserId)||prior143.operation_fingerprint143!==fingerprint143)throw httpError('Ese identificador ya corresponde a otra promoción.',409);return {success:true,operation_recovered:true,promo:prior143,promo_id:stableId143};}}
   const ctx = await validateContext({ db, cache, advertiserId, data });
   const q = await quota({ db, cache, advertiserId, cupoFromAdmin });
+  gldValidarPromo168(data,q.general,q.admin);
   if (q.max <= 0 || q.active >= q.max) throw new Error("Alcanzaste el máximo de promos activas.");
   if(q.total>=q.totalMax)throw new Error("Alcanzaste el máximo de promociones guardadas.");
   const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -3045,12 +3053,13 @@ async function promoCreateV2({ db, cache, advertiserId, body, cupoFromAdmin }) {
 }
 async function promoUpdateV2({ db, cache, advertiserId, body, cupoFromAdmin }) {
   const data = body && body.payload && typeof body.payload === "object" ? body.payload : body || {};
-  if(Object.hasOwn(data,'promo')&&String(data.promo??'').length>300)throw httpError('El texto de la promo admite hasta 300 caracteres.',400);
-  if(Object.hasOwn(data,'otros')&&String(data.otros??'').length>120)throw httpError('La aclaración adicional admite hasta 120 caracteres.',400);
+
   const id4 = text29(data.promo_id);
   if (!id4) throw new Error("Falta promo_id.");
   const current = await db.get("promos", id4);
   if (!current || text29(current.anunciante_id || current.id_comercio) !== text29(advertiserId)) throw new Error("La promo no pertenece al anunciante.");
+  const [adminConfig,promoGlobalPacket]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,false)]);
+  gldValidarPromo168(data,gldFuncRules166(promoGlobalPacket,'PROMOS'),adminConfig);
   const allowed = [
     "contenido_adulto",
     "promo",
