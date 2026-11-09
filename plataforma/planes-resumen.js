@@ -105,9 +105,8 @@ function sections(row,general={}){
    let value=f.value==='Sí'?'':f.value;
    let description=publicDescriptions[key]||'';
    if(key==='descripcion_habilitada'){
-    const max=positiveInt(general?.carga_comercial_descripcion_max??general?.carga_institucional_descripcion_max??general?.carga_descripcion_max);
     const perGroup=positiveInt(general?.['carga_'+(number(row)<=2?'institucional':'comercial')+'_descripcion_max']);
-    const limit=perGroup??max;
+    const limit=perGroup??positiveInt(general?.carga_descripcion_max);
     if(limit!==null)description+=' Hasta '+limit+' caracteres.';
    }
    if(key==='actividad_habilitada'){
