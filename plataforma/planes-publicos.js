@@ -8,13 +8,16 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const wa='https://wa.me/5491150972086?text='+encodeURIComponent('Hola, quisiera consultar los planes y servicios de Guía Local.');
 function render(rows){
  const usable=Array.isArray(rows)?rows.filter(r=>r&&r.eliminado!==true):[];
+ const cfg=(rows||[]).find(r=>String(r.nivel_id||r.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
  if(!usable.length){list.innerHTML='<p class="notice">Consultanos por WhatsApp para conocer nuestros planes.</p>';return;}
  list.innerHTML=Array.from({length:6},(_,i)=>{
  const n=i+1,row=usable.find(r=>fmt.number(r)===n);
  if(!row)return '<article class="plan"><div class="plan-head"><span class="index">0'+n+'</span></div><h3>Nivel '+n+'</h3><p class="plan-desc">Consultanos por las condiciones de este nivel.</p><a class="plan-link" target="_blank" rel="noopener noreferrer" href="'+wa+'">Consultar ↗</a></article>';
- const features=fmt.summary(row);
- const offers=features.filter(x=>x.enabled);
- const hasRules=features.length>0;
+ const groups=fmt.sections(row,cfg);
+ const hasRules=groups.length>0;
+ const benefits=groups.map(group=>'<section class="plan-benefit-group"><h4>'+esc(group.title)+'</h4><dl>'+
+  group.items.map(item=>'<div class="benefit"><dt><strong>'+esc(item.label)+(item.value?': '+esc(item.value):'')+'</strong></dt>'+
+   (item.description?'<dd>'+esc(item.description)+'</dd>':'')+'</div>').join('')+'</dl></section>').join('');
  const price=fmt.publishPrice(row)?fmt.price(row):null;
  const name=fmt.name(row);
  const active=fmt.active(row);
@@ -22,11 +25,11 @@ function render(rows){
  return '<article class="plan"><div class="plan-head"><span class="index">0'+n+'</span><span class="type">'+(n<=2?'Institucional':'Comercial')+'</span></div>'+
  '<h3>Nivel '+n+'</h3>'+(name?'<p class="plan-desc">'+esc(name)+'</p>':'')+
  '<p class="plan-price">'+(active?esc(value):'No disponible actualmente')+'</p>'+
- (hasRules?'<details><summary><strong>Qué incluye</strong></summary><ul>'+offers.map(f=>'<li>'+esc(f.label)+(f.value==='Sí'?'':': '+esc(f.value))+'</li>').join('')+'</ul><p class="muted" style="font-size:12px"></p></details>':'<p class="muted">Prestaciones sujetas a configuración.</p>')+
+ (hasRules?'<details class="plan-detail"><summary><strong>Qué incluye este nivel</strong></summary>'+benefits+'</details>':'<p class="muted">Consultá qué prestaciones están habilitadas.</p>')+
  '<a class="plan-link" target="_blank" rel="noopener noreferrer" href="'+wa+'">Consultar este nivel <span aria-hidden="true">↗</span></a></article>';
  }).join('');
 
- const cfg=(rows||[]).find(r=>String(r.nivel_id||r.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
+
  const funcKeys=['eventos_free','eventos_vip','actividades','promociones','publicidad'];
  document.querySelectorAll('[data-gld-funcionalidades-resumen] .plan-module').forEach((node,i)=>{
   const key=funcKeys[i];if(!key)return;
