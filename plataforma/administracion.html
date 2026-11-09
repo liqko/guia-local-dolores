@@ -179,7 +179,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
           <button class="tab" data-cfg="acciones">Acciones</button>
           <button class="tab" data-cfg="cat_eventos">Categorías eventos</button>
           <button class="tab" data-cfg="cat_actividades">Categorías actividades</button>
-          <button class="tab" data-cfg="adultos">Moderación y contenido +18</button><button class="tab" data-cfg="terminos">Términos para anunciantes</button><button class="tab" data-cfg="resumen_planes">Resumen de niveles y publicaciones</button>
+          <button class="tab" data-cfg="adultos">Moderación y contenido +18</button><button class="tab" data-cfg="terminos">Términos para anunciantes</button><button class="tab" data-cfg="resumen_planes">Resumen de niveles y funcionalidades</button>
         </div>
       </div>
       <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
@@ -201,7 +201,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 
       <div class="cfgpane hidden" data-cfgpane="resumen_planes">
         <div class="card plan-overview">
-          <h2>Qué incluye cada nivel</h2>
+          <h2>Resumen de niveles y funcionalidades</h2>
           <p>El <strong>anuncio</strong> es la ficha del anunciante en la guía. La <strong>publicidad</strong> es una pieza que aparece entre los resultados. Son dos cosas distintas.</p>
           <p>Los límites de las fichas se muestran según el catálogo vigente. Eventos, actividades, promociones y publicidad se habilitan y tienen sus propios cupos en la contratación de cada anunciante. Cambiar el nivel no asigna esos cupos por sí solo.</p>
           <div id="ghResumenNiveles" aria-live="polite"></div>
@@ -1725,22 +1725,46 @@ document.getElementById('ghTabs').addEventListener('click',function(e){const b=e
 
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
- const catalog=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID);
- const general=GH_CARGA_GENERAL_BASE;
- const defaults=GH_CARGA_GENERAL_FIELDS.map(([key,label,n])=>'<li>'+esc(label)+': '+esc(general?.['carga_'+key]??n)+'</li>').join('');
+ const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true);
  const flag=(row,key)=>{const v=GLD_CLASSIFICATION.flag(row[key]);return v===null?'Sin configurar':v?'Sí':'No';};
- box.innerHTML='<div class="card"><h3>Parámetros generales de carga (iguales para todos)</h3><ul>'+defaults+'</ul></div>'+
- Array.from({length:6},(_,i)=>{
-  const n=i+1,row=GLD_CLASSIFICATION.findLevel(catalog,n),known=Object.keys(row).length>0;
-  if(!known)return '<details class="plan-level"><summary><strong>Nivel '+n+'</strong></summary><p>Sin configuración cargada.</p></details>';
-  const r=GLD_CLASSIFICATION.rules(row,n),v=row.redes_visibles_max??(n===3||n===4?1:6),l=row.redes_enlaces_max??(n===3?0:n===4?1:6);
-  return '<details class="plan-level"><summary><strong>Nivel '+n+' · '+esc(GLD_CLASSIFICATION.name(row))+'</strong><span>'+(GLD_CLASSIFICATION.active(row)?'Activo':'Inactivo')+'</span></summary>'+
-  '<ul><li>Logo: '+flag(row,'logo_habilitado')+'</li><li>Descripción: '+flag(row,'descripcion_habilitada')+'</li>'+
-  '<li>Información adicional: '+flag(row,'adicionales_habilitados')+'</li><li>Tags: '+flag(row,'tags_habilitados')+'</li>'+
-  '<li>Imágenes publicadas: '+esc(r.imagenes_max)+'</li><li>Redes publicadas: '+esc(v)+'; con enlace: '+esc(l)+'</li>'+
-  '<li>Teléfono: '+flag(row,'telefono_habilitado')+'; WhatsApp: '+flag(row,'whatsapp_habilitado')+'; correo: '+flag(row,'mail_habilitado')+'</li></ul></details>';
- }).join('');
+ const campos=GH_REGLAS_OPCIONES.filter(x=>x.kind==='bool'||x.kind==='number');
+ const group=(n)=>n<=2?'institucional':'comercial';
+ box.innerHTML='<p class="muted">Vista comercial derivada automáticamente de Configuración de plataforma → Niveles. Las reglas se editan únicamente allí. Los importes se administran aquí y no se publican hasta su aprobación.</p>'+
+ '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">'+Array.from({length:6},(_,i)=>{
+  const n=i+1,row=GLD_CLASSIFICATION.findLevel(rows,n),found=Object.keys(row).length>0;
+  if(!found)return '<div class="item"><h3>Nivel '+n+'</h3><p>No se encontró configuración vigente.</p></div>';
+  const id=String(row.nivel_id||row.id||'');
+  const rules=GLD_CLASSIFICATION.rules(row,n);
+  const reglas=campos.map(opt=>{let val=opt.kind==='bool'?flag(row,opt.key):row[opt.key];if(opt.key==='imagenes_max')val=rules.imagenes_max;if(val===undefined||val===null||val==='')val='Sin configurar';return '<li><strong>'+esc(opt.label)+':</strong> '+esc(val)+'</li>';}).join('');
+  const importe=row.precio_publico_ars===undefined||row.precio_publico_ars===null?'':String(row.precio_publico_ars);
+  return '<div class="item" style="align-self:start"><h3>Nivel '+n+' · '+esc(GLD_CLASSIFICATION.name(row))+'</h3>'+
+   '<p class="muted">'+(GLD_CLASSIFICATION.active(row)?'Activo':'Inactivo')+' · '+(n<=2?'Institucional':'Comercial')+'</p>'+
+   '<details><summary>Prestaciones y reglas de publicación</summary><ul>'+reglas+'</ul></details>'+
+   '<label>Importe mensual de referencia (ARS) · editable en Gran Hermano<input type="number" min="0" step="1" data-precio-nivel="'+esc(id)+'" value="'+esc(importe)+'" placeholder="Sin definir"></label>'+
+   '<p class="muted">Sin definir no significa gratis. Para declarar un nivel gratuito, ingresar 0 expresamente.</p>'+
+   '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar importe</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></div>';
+ }).join('')+'</div>';
  informarAltura();
+}
+async function ghGuardarPrecioPublico_(id){
+ const el=document.querySelector('[data-precio-nivel="'+CSS.escape(id)+'"]');
+ const status=document.querySelector('[data-precio-estado="'+CSS.escape(id)+'"]');
+ const raw=(el?.value||'').trim();
+ if(!el||!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw))){status.textContent='Ingresá un importe válido, incluido 0 si es gratuito.';return;}
+ const prev=(GH_CATALOG_CACHE.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)===id);
+ if(!prev){status.textContent='Nivel no encontrado.';return;}
+ el.disabled=true;status.textContent='Guardando y verificando…';
+ try{
+  const item={nivel_id:id,precio_publico_ars:Number(raw)};
+  const saved=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  if(!saved?.success)throw Error('El servidor no confirmó el guardado');
+  const check=await api('listar_catalogo',{tipo:'niveles_anunciante'});
+  const current=(check.results||[]).find(x=>String(x.nivel_id||x.id)===id);
+  if(!current||Number(current.precio_publico_ars)!==Number(raw))throw Error('El campo todavía no tiene persistencia confirmada en el servidor. No se anuncia como guardado.');
+  GH_CATALOG_CACHE.niveles_anunciante=check.results;
+  status.textContent='Importe verificado';
+ }catch(err){status.textContent='No confirmado: '+String(err.message||err);}
+ finally{el.disabled=false;}
 }
 async function ghCargarResumenNiveles(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
