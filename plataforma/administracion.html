@@ -2,6 +2,7 @@
 <html lang="es">
 <head>
 <script src="/plataforma/accesos155.js?v=159"></script>
+<script src="/plataforma/planes-resumen.js?v=1"></script>
 <script src="/plataforma/publicacion-pedidos.js?v=145"></script>
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
@@ -1725,46 +1726,57 @@ document.getElementById('ghTabs').addEventListener('click',function(e){const b=e
 
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
- const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true);
- const flag=(row,key)=>{const v=GLD_CLASSIFICATION.flag(row[key]);return v===null?'Sin configurar':v?'Sí':'No';};
- const campos=GH_REGLAS_OPCIONES.filter(x=>x.kind==='bool'||x.kind==='number');
- const group=(n)=>n<=2?'institucional':'comercial';
- box.innerHTML='<p class="muted">Vista comercial derivada automáticamente de Configuración de plataforma → Niveles. Las reglas se editan únicamente allí. Los importes se administran aquí y no se publican hasta su aprobación.</p>'+
- '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">'+Array.from({length:6},(_,i)=>{
-  const n=i+1,row=GLD_CLASSIFICATION.findLevel(rows,n),found=Object.keys(row).length>0;
-  if(!found)return '<div class="item"><h3>Nivel '+n+'</h3><p>No se encontró configuración vigente.</p></div>';
+ const fmt=window.GLD_PLANES_RESUMEN;
+ const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&!x.eliminado);
+ const general=GH_CARGA_GENERAL_BASE||{};
+ box.innerHTML='<p class="muted">Las prestaciones provienen de las reglas originales en Niveles. No se editan aquí. Los importes y su visibilidad pública se administran por separado.</p>'+
+ '<details class="card"><summary><strong>Parámetros generales de carga</strong></summary><ul>'+
+ GH_CARGA_GENERAL_FIELDS.map(([key,label,def])=>'<li>'+esc(label)+': institucional '+esc(general['carga_institucional_'+key]??general['carga_'+key]??def)+' · comercial '+esc(general['carga_comercial_'+key]??general['carga_'+key]??def)+'</li>').join('')+'</ul></details>'+
+ '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(270px,1fr))">'+Array.from({length:6},(_,i)=>{
+  const n=i+1,row=rows.find(x=>fmt.number(x)===n);
+  if(!row)return '<article class="item"><h3>Nivel '+n+'</h3><p>Falta la configuración de este nivel.</p></article>';
   const id=String(row.nivel_id||row.id||'');
-  const rules=GLD_CLASSIFICATION.rules(row,n);
-  const reglas=campos.map(opt=>{let val=opt.kind==='bool'?flag(row,opt.key):row[opt.key];if(opt.key==='imagenes_max')val=rules.imagenes_max;if(val===undefined||val===null||val==='')val='Sin configurar';return '<li><strong>'+esc(opt.label)+':</strong> '+esc(val)+'</li>';}).join('');
-  const importe=row.precio_publico_ars===undefined||row.precio_publico_ars===null?'':String(row.precio_publico_ars);
-  return '<div class="item" style="align-self:start"><h3>Nivel '+n+' · '+esc(GLD_CLASSIFICATION.name(row))+'</h3>'+
-   '<p class="muted">'+(GLD_CLASSIFICATION.active(row)?'Activo':'Inactivo')+' · '+(n<=2?'Institucional':'Comercial')+'</p>'+
-   '<details><summary>Prestaciones y reglas de publicación</summary><ul>'+reglas+'</ul></details>'+
-   '<label>Importe mensual de referencia (ARS) · editable en Gran Hermano<input type="number" min="0" step="1" data-precio-nivel="'+esc(id)+'" value="'+esc(importe)+'" placeholder="Sin definir"></label>'+
-   '<p class="muted">Sin definir no significa gratis. Para declarar un nivel gratuito, ingresar 0 expresamente.</p>'+
-   '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar importe</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></div>';
+  const rules=fmt.summary(row);
+  const importe=fmt.price(row),visible=fmt.publishPrice(row);
+  return '<article class="item"><h3>Nivel '+n+(fmt.name(row)?' · '+esc(fmt.name(row)):'')+'</h3>'+
+   '<p class="muted">'+(fmt.active(row)?'Activo':'Inactivo')+'</p>'+
+   '<details><summary><strong>Qué incluye y sus límites</strong></summary><ul>'+
+   (rules.length?rules.map(f=>'<li>'+esc(f.label)+': <strong>'+esc(f.value)+'</strong></li>').join(''):'<li>Sin reglas configuradas</li>')+
+   '</ul></details>'+
+   '<label>Importe de referencia (ARS)<input type="number" min="0" step="1" data-precio-nivel="'+esc(id)+'" value="'+esc(importe===null?'':importe)+'" placeholder="Sin definir"></label>'+
+   '<label style="display:flex;align-items:center;gap:8px"><input type="checkbox" style="width:auto" data-precio-visible="'+esc(id)+'" '+(visible?'checked':'')+'> Mostrar importe en la página pública</label>'+
+   '<p class="muted">Sin definir no significa gratuito. El precio solo se muestra cuando lo autorizás expresamente.</p>'+
+   '<button type="button" onclick="ghGuardarPrecioPublico_(\''+esc(id)+'\')">Guardar condiciones comerciales</button> <span role="status" data-precio-estado="'+esc(id)+'"></span></article>';
  }).join('')+'</div>';
  informarAltura();
 }
 async function ghGuardarPrecioPublico_(id){
+ const fmt=window.GLD_PLANES_RESUMEN;
  const el=document.querySelector('[data-precio-nivel="'+CSS.escape(id)+'"]');
+ const check=document.querySelector('[data-precio-visible="'+CSS.escape(id)+'"]');
  const status=document.querySelector('[data-precio-estado="'+CSS.escape(id)+'"]');
- const raw=(el?.value||'').trim();
- if(!el||!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw))){status.textContent='Ingresá un importe válido, incluido 0 si es gratuito.';return;}
+ if(!el||!check||!status)return;
+ const raw=el.value.trim();
+ if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw)))){status.textContent='Importe inválido';return;}
+ if(check.checked&&raw===''){status.textContent='Para publicar el importe primero ingresá una cifra.';return;}
  const prev=(GH_CATALOG_CACHE.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)===id);
- if(!prev){status.textContent='Nivel no encontrado.';return;}
- el.disabled=true;status.textContent='Guardando y verificando…';
+ if(!prev){status.textContent='Nivel inexistente';return;}
+ const price=raw===''?null:Number(raw);
+ const visible=check.checked;
+ const oldPrice=fmt.price(prev);
+ if(price===oldPrice&&visible===fmt.publishPrice(prev)){status.textContent='Sin cambios';return;}
+ const item={nivel_id:id,precio_publico_ars:price,precio_visible_publico:visible};
+ el.disabled=check.disabled=true;status.textContent='Guardando…';
  try{
-  const item={nivel_id:id,precio_publico_ars:Number(raw)};
   const saved=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-  if(!saved?.success)throw Error('El servidor no confirmó el guardado');
-  const check=await api('listar_catalogo',{tipo:'niveles_anunciante'});
-  const current=(check.results||[]).find(x=>String(x.nivel_id||x.id)===id);
-  if(!current||Number(current.precio_publico_ars)!==Number(raw))throw Error('El campo todavía no tiene persistencia confirmada en el servidor. No se anuncia como guardado.');
-  GH_CATALOG_CACHE.niveles_anunciante=check.results;
-  status.textContent='Importe verificado';
- }catch(err){status.textContent='No confirmado: '+String(err.message||err);}
- finally{el.disabled=false;}
+  if(!saved?.success)throw Error('Guardado no confirmado');
+  const verify=await api('listar_catalogo',{tipo:'niveles_anunciante'});
+  const current=(verify.results||[]).find(x=>String(x.nivel_id||x.id)===id);
+  if(!current||fmt.price(current)!==price||fmt.flag(current.precio_visible_publico)!==visible)throw Error('La persistencia no pudo verificarse');
+  GH_CATALOG_CACHE.niveles_anunciante=verify.results;
+  status.textContent='Guardado verificado';
+ }catch(err){status.textContent='Error: '+String(err.message||err);}
+ finally{el.disabled=check.disabled=false;}
 }
 async function ghCargarResumenNiveles(){
  const box=document.getElementById('ghResumenNiveles');if(!box)return;
