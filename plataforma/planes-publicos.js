@@ -25,6 +25,18 @@ function render(rows){
  (hasRules?'<details><summary><strong>Qué incluye</strong></summary><ul>'+offers.map(f=>'<li>'+esc(f.label)+(f.value==='Sí'?'':': '+esc(f.value))+'</li>').join('')+'</ul><p class="muted" style="font-size:12px"></p></details>':'<p class="muted">Prestaciones sujetas a configuración.</p>')+
  '<a class="plan-link" target="_blank" rel="noopener noreferrer" href="'+wa+'">Consultar este nivel <span aria-hidden="true">↗</span></a></article>';
  }).join('');
+
+ const cfg=(rows||[]).find(r=>String(r.nivel_id||r.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
+ const funcKeys=['eventos_free','eventos_vip','actividades','promociones','publicidad'];
+ document.querySelectorAll('[data-gld-funcionalidades-resumen] .plan-module').forEach((node,i)=>{
+  const key=funcKeys[i];if(!key)return;
+  node.querySelector('[data-func-importe]')?.remove();
+  const raw=cfg['precio_func_'+key];
+  if(fmt.flag(cfg['precio_func_visible_'+key])!==true||raw===null||raw===undefined||raw===''||!Number.isSafeInteger(Number(raw))||Number(raw)<0)return;
+  const p=document.createElement('p');p.dataset.funcImporte=key;p.className='plan-price';
+  p.textContent=Number(raw)===0?'Gratuito':new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(Number(raw));
+  node.appendChild(p);
+ });
  const notice=document.querySelector('#catalogStatus');if(notice){notice.textContent='';notice.hidden=true;}
 }
 function fromStorage(){try{const c=JSON.parse(sessionStorage.getItem(KEY)||'null');if(c&&Date.now()-c.at<MAX_AGE&&Array.isArray(c.rows))return c.rows;}catch(_){}return null;}
