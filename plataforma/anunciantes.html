@@ -1075,6 +1075,10 @@ body.gld-modo-web #paginador-abajo{display:none!important}
 .gld-search-panel .gld-unified-controls .selector-bar:not(:focus-within) select{font-size:0!important;color:transparent!important;background:transparent!important}
 .gld-search-panel .gld-unified-controls .selector-bar:after{content:'☷';pointer-events:none;position:absolute;left:12px;top:50%;transform:translateY(-50%);font-size:20px;color:#175c60}
 .gld-search-panel .gld-unified-controls .selector-bar:focus-within:after{display:none}
+.gld-search-panel .gld-hidden-search-select{display:none!important}
+.gld-search-panel .gld-unified-controls{display:block!important;padding:8px!important}
+.gld-search-panel .gld-unified-controls .buscador-global{width:100%!important;display:block!important}
+.gld-search-panel .gld-unified-controls .buscador-global input{width:100%!important;padding-right:12px!important}
 </style>
 </head>
 <body><script src="/plataforma/contenido-adulto.js?v=91"></script>
@@ -1090,7 +1094,7 @@ body.gld-modo-web #paginador-abajo{display:none!important}
     <label class="gld-filter-title" for="buscadorGlobal">BUSCADOR GENERAL · NOMBRE, PALABRA CLAVE, TAG, SEGMENTO O CATEGORÍA</label>
     <div class="gld-unified-controls">
       <div class="buscador-global"><input id="buscadorGlobal" placeholder="¿Qué estás buscando? Nombre, palabra, tag, segmento o categoría" type="search" aria-label="Buscar en toda la guía"></div>
-      <div class="selector-bar"><select id="selectSegmentoCategoria" aria-label="Elegir segmento o categoría"><option value="">Todos los segmentos y categorías</option></select></div>
+      <select id="selectSegmentoCategoria" class="gld-hidden-search-select" tabindex="-1" aria-hidden="true"><option value="">Todos los segmentos y categorías</option></select>
     </div>
   </div>
   <div class="gld-original-filter" aria-hidden="true"><select id="selectSegmento" tabindex="-1"></select><select id="selectCategoria" tabindex="-1"></select></div>
@@ -3091,16 +3095,32 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
         function textoGlobalItem(item){
           const meta = metaPorIdGlobal[String(item && item.id || '').trim()] || {};
+          const catalogoNombres=(tipo,ids,campo)=> {
+            const catalogo=Array.isArray(catalogosGlobales[tipo])?catalogosGlobales[tipo]:[];
+            const elegidos=new Set((ids||[]).map(String));
+            return catalogo.filter(x=>elegidos.has(String(x[campo]||''))).map(x=>x.nombre||'');
+          };
+          const segmentoIds=canonicalSegmentoIds(item);
+          const categoriaIds=canonicalCategoriaIds(item);
+          const sedes=Array.isArray(item.sedes)?item.sedes:[];
+          const actividadesIds=[...new Set(sedes.flatMap(s=>sedeActIds(s)))];
+          const accionesIds=[...new Set(sedes.flatMap(s=>sedeAccIds(s)))];
           return [
-            item.nombre,item.segmento,item.categoria,item.actividad,
+            item.nombre,item.nombre_comercial,item.razon_social,item.segmento,item.categoria,item.actividad,
+            item.palabras_clave,item.keywords,item.etiquetas,
             textoTags(item.tags),textoTags(meta.tags),
             item.descripcion,item.link,
+            ...catalogoNombres('segmentos',segmentoIds,'segmento_id'),
+            ...catalogoNombres('segmentosPublicos',segmentoIds,'segmento_id'),
+            ...catalogoNombres('categorias',categoriaIds,'categoria_id'),
+            ...catalogoNombres('actividades',actividadesIds,'actividad_id'),
+            ...catalogoNombres('acciones',accionesIds,'accion_id'),
             ...(item.actividades_clave||[]).map(x=>x&&x.nombre),
             ...(item.acciones||[]).map(x=>x&&x.nombre),
             ...(item.nodos||[]).map(x=>x&&x.nombre),
-            ...(item.sedes||[]).flatMap(s=>[
+            ...sedes.flatMap(s=>[
               s&&s.nombre_sede,s&&s.direccion,s&&s.ciudad,s&&s.provincia,s&&s.pais,
-              textoTags(s&&s.tags)
+              s&&s.palabras_clave,s&&s.keywords,textoTags(s&&s.tags)
             ])
           ].filter(Boolean).join(' ');
         }
