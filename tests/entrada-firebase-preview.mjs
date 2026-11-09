@@ -1,15 +1,15 @@
-import {readFileSync} from 'node:fs';
+import {readFileSync,existsSync} from 'node:fs';
 import assert from 'node:assert/strict';
 import {Script} from 'node:vm';
 const read=p=>readFileSync(p,'utf8');
 const entry=read('plataforma/entrada-recordada.js'),inicio=read('plataforma/inicio.html'),carcasa=read('plataforma/carcasa.html'),users=read('plataforma/suscriptores.html');
 const brand=read('plataforma/marca-global.js'),visor=read('plataforma/visor-web-global.js'),guide=read('plataforma/anunciantes.html');
-const root=read('index.html');
+const hosting=JSON.parse(read('firebase.json')).hosting;
 for(const [file,source] of [['marca-global.js',brand],['visor-web-global.js',visor],['entrada-recordada.js',entry]]){
   new Script(source,{filename:file});
   console.log('PASS sintaxis '+file);
 }
-assert.match(root,/location\.replace\('\/elegi-tu-ciudad'/);
+assert.ok(hosting.rewrites.some(r=>r.source==='/'&&r.destination==='/plataforma/inicio.html'));
 assert.match(entry,/if\(!sid\)\{[\s\S]*?recordada:false/);
 assert.match(inicio,/new URL\('\/descubrir',window\.location\.origin\)/);
 assert.match(users,/window\.location\.replace\('\/elegi-tu-ciudad\?cambiar_ciudad=1'\)/);
@@ -57,9 +57,9 @@ console.log('PASS ciudad explícita aislada de contexto anterior y retorno a ciu
 console.log('PASS integración de raíz, ciudades, menú, visor, 3 interfaces, pie y app de prueba');
 
 // Las rutas públicas son independientes de la estructura de archivos.
-const hosting=JSON.parse(read('firebase.json')).hosting;
 for(const [source,destination] of [['/elegi-tu-ciudad','/plataforma/inicio.html'],['/descubrir','/plataforma/carcasa.html']]){
   assert.ok(hosting.rewrites.some(r=>r.source===source&&r.destination===destination),`Falta rewrite ${source}`);
 }
-assert.ok(hosting.redirects.some(r=>r.source==='/'&&r.destination==='/elegi-tu-ciudad'));
+assert.ok(!hosting.redirects.some(r=>r.source==='/'));
+assert.ok(!existsSync('index.html'), 'index.html no debe interceptar la ruta raíz');
 console.log('PASS rutas públicas amigables y acceso directo por Firebase Hosting');
