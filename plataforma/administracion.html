@@ -1169,6 +1169,25 @@ function ghActualizarCupo168(id){
  const storage=document.querySelector('[data-gh-storage="'+id+'"]');
  if(storage)storage.value=n===null?'':String(GLD_CUPOS.guardado(n));
 }
+function ghParametrosParticulares168(id,cfg,global){
+ const all=GH_FUNC_FIELDS168[id]||[];
+ const main=id==='EVENTOS_FREE'?'altas_mensuales_max':'activas_max';
+ const extras=all.filter(([field])=>field!==main&&!(id==='EVENTOS_FREE'&&field==='descripcion_max'));
+ if(!extras.length)return '';
+ const permitted=global?.admite_excepciones===true&&!!GH_FUNC_GLOBAL166;
+ const selected=cfg.parametros_especiales||{};
+ return '<details class="free-exception" '+(!permitted?'data-gh-extras-locked="1"':'')+'><summary>Excepciones de otros parámetros</summary>'+
+  (!permitted?'<p class="muted">La configuración general no admite excepciones.</p>':'<p class="muted">Cada parámetro es independiente del cupo de publicaciones.</p>')+
+  extras.map(([field,label])=>{
+   const value=global?.[field],baseline=Number.isSafeInteger(value)?value:null,spec=selected[field]||{},mode=spec.modo||'fijo';
+   const n=Number.isSafeInteger(spec.valor)?spec.valor:(baseline??0);
+   return '<div class="quota-settings" data-gh-extra-168="'+esc(id)+'" data-gh-extra-field="'+esc(field)+'">'+
+    '<label>'+esc(label)+' · valor general<input readonly value="'+esc(baseline===null?'Sin tope configurado':baseline)+'"></label>'+
+    '<label><input type="checkbox" data-gh-extra-on '+(spec.habilitado===true&&permitted?'checked':'')+' '+(!permitted?'disabled':'')+'> Habilitar excepción de este parámetro</label>'+
+    '<label>Tipo de excepción<select data-gh-extra-mode '+(!permitted?'disabled':'')+'><option value="x2" '+(mode==='x2'?'selected':'')+'>×2</option><option value="x3" '+(mode==='x3'?'selected':'')+'>×3</option><option value="x4" '+(mode==='x4'?'selected':'')+'>×4</option><option value="fijo" '+(mode==='fijo'?'selected':'')+'>Otro valor</option><option value="ilimitado" '+(mode==='ilimitado'?'selected':'')+'>Sin límites</option></select></label>'+
+    '<label>Otro valor<input type="number" min="0" step="1" data-gh-extra-value value="'+esc(n)+'" '+(!permitted?'disabled':'')+'></label></div>';
+  }).join('')+'</details>';
+}
 function ghFunctionEditor_(adm,catalog,usage){
  GH_AD_EDITED147=false;
  GH_FUNCTION_USAGE=usage||{};
@@ -1201,6 +1220,7 @@ function ghFunctionEditor_(adm,catalog,usage){
    if(!available)inputs+='<p class="muted">Uso sin datos en la copia del panel. No se consultó Firestore para completar estos contadores.</p>';
    if(d.id==='EVENTOS_FREE')inputs+='<p class="muted">Regla general: 4 eventos nuevos por mes, máximo 2 simultáneos, una edición por evento y 200 caracteres de descripción (configurables). No existe límite semanal. Los valores generales pueden modificarse en Configuración de plataforma → Funcionalidades. El cupo particular sólo puede superar esos límites mediante una excepción autorizada.</p>';
    if(d.id==='EVENTOS_FREE')inputs+='<details class="free-exception"><summary>Excepción en caracteres de Eventos Free</summary><p>Se habilita únicamente cuando la configuración general admite excepciones.</p>'+    (d.id==='EVENTOS_FREE'?'<div class="quota-settings"><label><input type="checkbox" data-gh-free-description-exception '+(cfg.descripcion_excepcion===true?'checked':'')+'> Excepción: caracteres especiales para este anunciante</label><label>Máximo de caracteres de descripción<input type="number" min="0" step="1" data-gh-free-description-max value="'+esc(cfg.descripcion_max??200)+'"></label><label><input type="checkbox" data-gh-free-description-unlimited '+(cfg.descripcion_sin_limites===true?'checked':'')+'> Descripción sin límite de caracteres</label></div>':'')+'</details>';
+   inputs+=ghParametrosParticulares168(d.id,cfg,rule);
    if(d.id==='PUBLICIDAD'){
     const locations=(GH_CATALOG_CACHE.publicidad_ubicaciones||[]).filter(x=>GLD_AD_RULES147.section(x));
     const scopeCfg=Object.keys(cfg).length?cfg:{...cfg,cobertura_tipo:'CIUDADES',ciudades_ids:ANUNCIANTE_CIUDADES.slice(0,1),ubicaciones_ids:locations.filter(x=>GLD_AD_RULES147.section(x)==='Guía').slice(0,1).map(x=>String(x.ubicacion_id||x.id))};
@@ -1270,6 +1290,20 @@ function ghFunctionPayload_(){
    cfg.sin_limites=!!requested&&mode==='ilimitado';
    cfg.cupo_excepcion_modo=requested?mode:null;
    changed=true;
+  }
+  const extras=document.querySelectorAll('[data-gh-extra-168="'+d.id+'"]');
+  if(extras.length){
+   const old={...(cfg.parametros_especiales||{})};
+   const permitted=GH_FUNC_GLOBAL166?.reglas?.[d.id]?.admite_excepciones===true;
+   for(const el of extras){
+    const field=el.dataset.ghExtraField,enabled=permitted&&el.querySelector('[data-gh-extra-on]')?.checked;
+    if(!enabled){delete old[field];continue;}
+    const mode=el.querySelector('[data-gh-extra-mode]')?.value||'fijo';
+    const raw=el.querySelector('[data-gh-extra-value]')?.value.trim()||'';
+    if(mode==='fijo'&&(!/^\\d+$/.test(raw)||!Number.isSafeInteger(Number(raw))))throw Error('Excepción inválida en '+d.name+': '+field);
+    old[field]={habilitado:true,modo:mode,valor:mode==='fijo'?Number(raw):null};
+   }
+   cfg.parametros_especiales=old;changed=true;
   }
   if(d.territory){const all=document.querySelector('[data-gh-all="'+d.id+'"]'),sel=document.querySelector('[data-gh-territory="'+d.id+'"]');cfg[d.all]=!!all?.checked;cfg[d.territory]=sel?[...sel.selectedOptions].map(o=>o.value):[];changed=true;}
   if(d.id==='PUBLICIDAD'){if((!GH_AD_EDITED147||!document.querySelector('[data-anu-fun="PUBLICIDAD"]')?.checked)&&GH_FUNCTION_CONFIG.PUBLICIDAD?.reglas_version!==147){if(GH_FUNCTION_CONFIG.PUBLICIDAD)root.PUBLICIDAD=structuredClone(GH_FUNCTION_CONFIG.PUBLICIDAD);else delete root.PUBLICIDAD;continue;}for(const box of document.querySelectorAll('[data-gh-picker]'))cfg[box.dataset.ghPicker]=ghContractValues_(box);for(const el of document.querySelectorAll('[data-gh-ad-flag]'))cfg[el.dataset.ghAdFlag]=el.checked;for(const el of document.querySelectorAll('[data-gh-ad-date]'))cfg[el.dataset.ghAdDate]=el.value;for(const el of document.querySelectorAll('[data-gh-ad-value]'))cfg[el.dataset.ghAdValue]=el.value;
