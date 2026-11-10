@@ -244,6 +244,16 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <div class="card">
    <h3>Configuración comercial · Gran Hermano</h3>
    <p class="muted">Acceso reservado a administración principal. Las secciones están preparadas para conectar con una configuración persistente y permisos del servidor.</p>
+   <details class="item" open id="ghNivelesFunc174"><summary><strong>Funcionalidades habilitadas por nivel</strong></summary>
+     <p>Regla general inicial: Eventos VIP, Actividades, Promociones, Publicidad y Empleo habilitados en niveles 5 y 6. Los niveles inferiores se habilitan únicamente mediante autorizaciones excepcionales registradas por anunciante. <strong>Eventos Free es gratuito y no forma parte de la contratación.</strong></p>
+     <div id="ghMatrizNivel174" style="overflow-x:auto">Consultá la configuración vigente para editarla.</div>
+     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:12px">
+       <button type="button" id="ghMatrizGuardar174" onclick="ghMatrizGuardar174()" disabled>Guardar habilitaciones por nivel</button>
+       <button type="button" class="sec" onclick="ghMatrizCargar174(true)">Actualizar matriz</button>
+       <span id="ghMatrizEstado174" role="status">Sin consultar.</span>
+     </div>
+     <p class="muted">Esta matriz prepara la política comercial; no revoca habilitaciones ya concedidas ni activa derechos en los paneles. La aplicación obligatoria y las excepciones individuales deben resolverse en el servidor antes de habilitarlas.</p>
+   </details>
    <details class="item" open><summary><strong>Coeficientes de paquetes</strong></summary>
     <p>Matriz provisional: descuento sobre el subtotal de niveles y funcionalidades base. Las columnas cuentan funcionalidades distintas, no sus adicionales. Antes de usar esta tabla como precio final de una contratación que incluya rotación, formatos o cobertura adicional, hay que incorporar sus tarifas y coeficientes específicos.</p>
     <p class="muted">Dejá vacío un coeficiente que todavía no definiste. El vendedor no podrá presupuestar esa combinación como importe definitivo.</p>
@@ -2497,6 +2507,7 @@ function ghVentasSelect172(tab){
  const valid=['calculadora','niveles','funcionalidades','valores','configuracion_comercial'];
  if(tab==='configuracion_comercial'&&GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')tab='calculadora';
  if(tab==='configuracion_comercial')ghCoefCargar173();
+ if(tab==='configuracion_comercial')ghMatrizCargar174();
  if(!valid.includes(tab))tab='calculadora';
  document.querySelectorAll('#ghVentasTabs [data-venta-tab]').forEach(el=>{const active=el.dataset.ventaTab===tab;el.classList.toggle('active',active);el.setAttribute('aria-current',active?'page':'false')});
  document.querySelectorAll('#view-ventas [data-venta-pane]').forEach(el=>{el.hidden=el.dataset.ventaPane!==tab;el.style.display=el.hidden?'none':'block'});
@@ -2519,6 +2530,56 @@ function ghCotizarArmar171(){
  if(prev)sel.value=prev;
  host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
  ghCotizarRecalcular171();
+}
+let GH_MATRIZ_NIVEL174=null;
+const GH_MATRIZ_ITEMS174=[['EVENTOS','Eventos VIP'],['ACTIVIDADES','Actividades'],['PROMOS','Promociones'],['PUBLICIDAD','Publicidad'],['EMPLEO','Empleo']];
+async function ghMatrizCargar174(force=false){
+ if(GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
+ if(GH_MATRIZ_NIVEL174&&!force)return;
+ const box=document.getElementById('ghMatrizNivel174'),status=document.getElementById('ghMatrizEstado174'),save=document.getElementById('ghMatrizGuardar174');
+ if(!box||!status)return;
+ status.textContent='Consultando habilitaciones…';save.disabled=true;
+ try{
+  const j=await ghAdminRequest_('/sales/level-access');
+  if(!j.success||!j.levels||!Number.isSafeInteger(j.revision))throw Error('Respuesta incompleta.');
+  GH_MATRIZ_NIVEL174={revision:j.revision,levels:j.levels};
+  const head=Array.from({length:6},(_,i)=>'<th>Nivel '+(i+1)+'</th>').join('');
+  const rows=GH_MATRIZ_ITEMS174.map(([key,name])=>{
+   const cols=Array.from({length:6},(_,i)=>{
+    const n=String(i+1),on=j.levels[key]?.[n]===true;
+    return '<td><label style="display:flex;justify-content:center"><input type="checkbox" style="width:auto" data-gh-matriz-func="'+key+'" data-gh-matriz-nivel="'+n+'" '+(on?'checked':'')+' aria-label="'+esc(name)+' nivel '+n+'"></label></td>';
+   }).join('');
+   return '<tr><th scope="row">'+esc(name)+'</th>'+cols+'</tr>';
+  }).join('');
+  box.innerHTML='<table><thead><tr><th>Funcionalidad</th>'+head+'</tr></thead><tbody>'+rows+'</tbody></table><p class="muted">Eventos Free: gratuito, gestionado fuera de esta matriz.</p>';
+  status.textContent=j.configured?'Configuración guardada cargada.':'Se muestra la regla general 5 y 6; guardala si querés dejarla registrada.';
+  save.disabled=false;
+ }catch(e){
+  GH_MATRIZ_NIVEL174=null;box.textContent='No se pudo confirmar la matriz vigente.';
+  status.textContent=String(e.message||e)+' · Requiere Worker 174.';
+  save.disabled=true;
+ }
+ informarAltura();
+}
+async function ghMatrizGuardar174(){
+ const status=document.getElementById('ghMatrizEstado174'),btn=document.getElementById('ghMatrizGuardar174');
+ if(!GH_MATRIZ_NIVEL174||GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
+ const levels={};
+ for(const [key] of GH_MATRIZ_ITEMS174){
+  levels[key]={};
+  for(let n=1;n<=6;n++){
+   const el=document.querySelector('[data-gh-matriz-func="'+key+'"][data-gh-matriz-nivel="'+n+'"]');
+   if(!el){status.textContent='La matriz está incompleta. No se guardó.';return;}
+   levels[key][String(n)]=el.checked;
+  }
+ }
+ btn.disabled=true;status.textContent='Guardando matriz…';
+ try{
+  const j=await ghAdminRequest_('/sales/level-access',{revision:GH_MATRIZ_NIVEL174.revision,levels},'POST');
+  GH_MATRIZ_NIVEL174={revision:j.revision,levels};
+  status.textContent=j.updated?'Habilitaciones guardadas.':'Sin cambios; no se realizaron escrituras.';
+ }catch(e){status.textContent='No se guardó: '+String(e.message||e);}
+ finally{btn.disabled=false;}
 }
 let GH_COTIZA_SEQ173=0;
 let GH_COTIZA_TIMER173=0;
