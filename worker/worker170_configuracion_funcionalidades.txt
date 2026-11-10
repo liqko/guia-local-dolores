@@ -686,7 +686,7 @@ async function publicitySaveMonthlyV101(/** @type {any} */ {db,cache,advertiserI
   if(doc.estado==='ACTIVA')state.activas.push(id);
  }else{
   const edits=Number(state.ediciones[id]||0);
-  if(edits>=2)throw httpError('Esta pieza ya utilizó la renovación y la rectificación de este mes.',409);
+  if(edits>=2&&!['ediciones_dia_max','ediciones_semana_max','ediciones_mes_max'].some(k=>Number.isSafeInteger(general170[k])))throw httpError('Esta pieza ya utilizó la renovación y la rectificación de este mes.',409);
   if(edits===1&&(current.formato!==formato||JSON.stringify(relationValue(oldSeg))!==JSON.stringify(relationValue(segmentacion))))throw httpError('La rectificación adicional permite corregir texto, contenido o destino; la cobertura y el formato se renuevan el próximo mes.',409);
   if(!edits)publicityRenewV101(state,id,cfg);
   state.ediciones[id]=edits+1;
@@ -3362,6 +3362,7 @@ function freeEventMonthlyRowsV95(rows,month){
 }
 /** @param {any} row @param {any} policy */
 function freeEventEditDateV95(row,policy){
+ if(policy.ediciones_max===null||policy.ediciones_max===undefined)return '';
  if(policy.sin_limites||!row?.ultima_edicion_free)return '';
  const time=Date.parse(row.ultima_edicion_free);return Number.isFinite(time)?new Date(time+7*86400000).toISOString():'';
 }
@@ -3507,7 +3508,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
     policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId),await gldFuncPacket166(cache,db,false));
     gldValidarDescripcionFree167(next.descripcion,policy);
     if(!policy.sin_limites){
-      if(Number(current.ediciones_free_contador||0)>=policy.ediciones_max)throw httpError('Se alcanzó la cantidad de ediciones permitidas para este evento Free.',409);
+      if(Number.isSafeInteger(policy.ediciones_max)&&Number(current.ediciones_free_contador||0)>=policy.ediciones_max)throw httpError('Se alcanzó la cantidad de ediciones permitidas para este evento Free.',409);
       const cachedAvailable=freeEventEditDateV95(current,policy);
       if(cachedAvailable&&Date.parse(cachedAvailable)>Date.now())throw httpError("Podés volver a modificar este evento el "+new Date(cachedAvailable).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'})+".",409);
       editVersion=await db.getVersioned("eventos",eventId);
@@ -8304,7 +8305,10 @@ async function gldFuncPacket166(cache,db,withFallback=false){
  return result;
 }
 function gldFuncRules166(packet,id){
- return {...(GLD_FUNC_DEFAULT166[id]||{}),...(packet?.reglas?.[id]||{})};
+ const row={...(GLD_FUNC_DEFAULT166[id]||{}),...(packet?.reglas?.[id]||{})};
+ // Los cupos por día/semana/mes reemplazan el contador histórico único de ediciones.
+ if(['ediciones_dia_max','ediciones_semana_max','ediciones_mes_max'].some(k=>Number.isSafeInteger(row[k])))row.ediciones_max=null;
+ return row;
 }
 function gldValorParticular168(global,cfg,field,fallback=null){
  const base=Number.isSafeInteger(global?.[field])?global[field]:fallback;
@@ -10521,7 +10525,7 @@ async function routeEmpleo109(/** @type {any} */ ctx){
   if(Number.isSafeInteger(maxDescripcion170)&&maxDescripcion170>=0&&fields.descripcion.length>maxDescripcion170)throw httpError('La descripción supera el límite configurado.',400);
   if(!fields.nombre||!fields.puesto||!fields.descripcion||!EMP_AREAS109.includes(fields.area)||!['PRESENCIAL','REMOTO','MIXTO'].includes(fields.modalidad)||!['COMPLETA','PARCIAL','POR_HORAS','A_CONVENIR'].includes(fields.disponibilidad))throw httpError('Completá nombre público, puesto, rubro, descripción, modalidad y disponibilidad.',400);
   const same=current&&Object.entries(fields).every((/** @type {any} */ [k,v])=>JSON.stringify(v)===JSON.stringify(current[k]));if(same&&action==='guardar')return json({success:true,sin_cambios:true,publicacion:current});
-  if(current&&action==='guardar'&&current.ediciones>=1)throw httpError('Ya utilizaste la única modificación de este período de 30 días.',409);
+  if(current&&action==='guardar'&&!['ediciones_dia_max','ediciones_semana_max','ediciones_mes_max'].some(k=>Number.isSafeInteger(empleoGeneral170[k]))&&current.ediciones>=1)throw httpError('Ya utilizaste la única modificación de este período de 30 días.',409);
   const newCycle=!current||action==='renovar',policy=publicationPolicyV77({...fields,nombre:fields.nombre+' '+fields.puesto},catalogs.moderacion_18);
   const employmentDuration170=gldValorParticular168(empleoGeneral170,empleoCfg170,'vigencia_dias',30);
   next={...(current||{}),...fields,record_id:owner.record,empleo_id:newCycle?owner.record+'__'+crypto.randomUUID():current.empleo_id,owner_type:owner.kind,owner_id:owner.owner,suscriptor_id:owner.session.sid,anunciante_id:owner.aid,desde:newCycle?iso:current.desde,hasta:newCycle?new Date(now+employmentDuration170*86400000).toISOString():current.hasta,ediciones:newCycle?0:current.ediciones+1,eliminado:false,pausado:newCycle?false:current.pausado,revision_definitiva:false,...policy,aprobado:policy.estado_moderacion!=='PENDIENTE',declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:owner.session.sid,fecha:iso}};
