@@ -38,6 +38,7 @@ function render(payload){
   '<a class="plan-link" target="_blank" rel="noopener noreferrer" href="'+wa+'">Consultar este nivel <span aria-hidden="true">↗</span></a></article>';
  }).join('');
  if(window.GLD_FUNCIONALIDADES_RESUMEN?.render)window.GLD_FUNCIONALIDADES_RESUMEN.render(payload.funcionalidades_parametros);
+ if(window.GLD_SIMULADOR_PUBLICO?.render)window.GLD_SIMULADOR_PUBLICO.render(payload);
  const priceBox=document.getElementById('preciosFuncPublicos');
  if(priceBox){
    const mapped=[['eventos_free','Eventos Free'],['eventos_vip','Eventos VIP'],['actividades','Actividades'],['promociones','Promociones'],['publicidad','Publicidad']];
@@ -64,6 +65,7 @@ async function load(){
   if(notice){notice.hidden=false;notice.textContent='No se pudo actualizar la información de planes. Consultanos para conocer los valores vigentes.';}
   list.innerHTML='<p class="notice">Los planes no están disponibles en este momento.</p>';
   window.GLD_FUNCIONALIDADES_RESUMEN?.render(null);
+  window.GLD_SIMULADOR_PUBLICO?.render(null);
  }
 }
 load();
