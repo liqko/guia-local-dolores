@@ -8122,6 +8122,7 @@ async function saveAdminCatalogV2({ db, cache, tipo, item, cityId = "" }) {
       [def.moduleField]: sortRows(rows)
     });
   }
+  if(GH_FIXED_CATALOGS169.includes(t))await cache.del(GH_FIXED_PACKET_KEY169);
   return {
     success: true,
     tipo: t,
@@ -8198,6 +8199,7 @@ async function gldRutaPreciosAdmin162(ctx){
  // Un único PATCH Firestore sobre un único documento, independientemente de los 11 importes.
  await db.patch('planes_precios','CATALOGO',packet,{});
  await cache.put(GLD_PRECIOS_CLAVE162,packet);
+ await cache.del(GH_FIXED_PACKET_KEY169);
  return json({success:true,updated:true,revision:packet.revision,firestore_writes:1,kv_puts:1});
 }
 
@@ -8324,7 +8326,32 @@ async function gldFuncEndpoint166(ctx){
  if(Array.isArray(commerce.funcionalidades)||Object.keys(commerce).length)
   await cache.put(KEYS.commerce,{...commerce,funcionalidades:[...merged.values()]});
  }
+ await cache.del(GH_FIXED_PACKET_KEY169);
  return json({success:true,updated:true,revision:next.revision,firestore_writes:1});
+}
+
+// Paquete FIJO de Gran Hermano, sin datos dinamicos ni personales.
+const GH_FIXED_PACKET_KEY169='admin:gh:fixed:v169';
+const GH_FIXED_CATALOGS169=['segmentos','niveles_anunciante','funcionalidades','categorias','actividades_clave','acciones','eventos_categorias','actividades_categorias','moderacion_18'];
+async function ghFixedPacket169({cache,db}){
+ const hot=await cache.get(GH_FIXED_PACKET_KEY169);
+ if(hot?.version===169&&hot.catalogos&&hot.reglas&&hot.precios)return hot;
+ const [entries,func,prices]=await Promise.all([
+  Promise.all(GH_FIXED_CATALOGS169.map(async tipo=>[tipo,(await listAdminCatalogV2({cache,tipo})).results||[]])),
+  gldFuncPacket166(cache,db,true),
+  gldLeerPrecios162({cache,db,reconstruir:true})
+ ]);
+ const packet={version:169,catalogos:Object.fromEntries(entries),reglas:{revision:func.revision,reglas:func.reglas},precios:{revision:prices.revision,precios:prices.precios}};
+ await cache.put(GH_FIXED_PACKET_KEY169,packet);
+ return packet;
+}
+async function ghFixedEndpoint169(ctx){
+ const {request,env,cache,db}=ctx;
+ if(request.method!=='GET')return json({success:false,message:'Metodo no permitido'},405);
+ const auth=await verifyAdmin(env,request);
+ if(!auth.ok)return json({success:false,message:auth.message},401);
+ const packet=await ghFixedPacket169({cache,db});
+ return json({success:true,...packet,source:'kv',dynamic_included:false});
 }
 
 // reconstruccion/worker/routes/admin-v9.js
@@ -8335,6 +8362,7 @@ function canManageCatalogs(auth) {
 async function routeAdminV9(ctx) {
   const { path, request: request2, url, env, db, cache } = ctx;
   if(path==="/superadmin/catalogs/prices")return gldRutaPreciosAdmin162(ctx);
+  if(path==='/superadmin/gh/fixed')return ghFixedEndpoint169(ctx);
   if(path==='/superadmin/catalogs/functional-settings')return gldFuncEndpoint166(ctx);
   let m = path.match(/^\/superadmin\/catalogs\/([^/]+)$/);
   if(m&&!defs[decodeURIComponent(m[1])])return routeAdminV8(ctx);
