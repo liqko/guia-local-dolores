@@ -19,6 +19,41 @@ function priceHtml(item){
  return '<p class="plan-price"><span style="text-decoration:line-through;color:var(--muted);font-weight:400">'+esc(normal)+'</span> <strong>'+esc(final===0?'Gratuito':ars(final))+'</strong></p>'+
  '<p class="plan-discount">'+d+'% de descuento'+(reason?' · '+esc(reason):'')+'</p>';
 }
+function cantidad(rule,key){
+ const n=rule?.[key];
+ return Number.isSafeInteger(n)&&n>=0?n:null;
+}
+function resumenFuncionalidad(id,rule){
+ const simultaneos=cantidad(rule,'activas_max'),mes=cantidad(rule,'altas_mensuales_max');
+ const total=(num,singular,plural)=>num===1?num+' '+singular:num+' '+plural;
+ if(id==='EVENTOS_FREE'||id==='EVENTOS'){
+  const parts=[];
+  if(simultaneos!==null)parts.push('hasta '+total(simultaneos,'evento simultáneo','eventos simultáneos'));
+  if(mes!==null)parts.push(total(mes,'alta mensual','altas mensuales'));
+  return parts.length?parts.join(' · '):'Publicación de eventos con los cupos establecidos';
+ }
+ if(id==='ACTIVIDADES'||id==='PROMOS'){
+  const noun=id==='ACTIVIDADES'?['actividad simultánea','actividades simultáneas']:['promoción simultánea','promociones simultáneas'];
+  return simultaneos!==null?'Hasta '+total(simultaneos,...noun):id==='ACTIVIDADES'?'Publicación de actividades':'Publicación de promociones y descuentos';
+ }
+ if(id==='PUBLICIDAD')return 'Elegí entre imagen individual, carrusel propio o Short';
+ if(id==='EMPLEO'){
+  const offers=cantidad(rule,'ofertas_activas_max');
+  return offers!==null?'Hasta '+total(offers,'oferta activa','ofertas activas'):'Publicación de ofertas y búsquedas laborales';
+ }
+ return 'Consultá las condiciones de esta prestación';
+}
+function detalleFuncionalidad(id,rule){
+ const fields=window.GLD_FUNCIONALIDADES_RESUMEN?.fields?.[id]||[];
+ const rows=fields.filter(([key])=>Number.isSafeInteger(rule?.[key])).map(([key,label])=>{
+  const n=rule[key];return '<li><strong>'+esc(label)+':</strong> '+esc(n===-1?'Ilimitado':String(n))+'</li>';
+ });
+ return rows.length?'<ul>'+rows.join('')+'</ul>':'<p class="muted">Consultá las condiciones particulares de esta funcionalidad.</p>';
+}
+function cardFuncionalidad(title,summary,price,details){
+ return '<article class="service"><h3>'+esc(title)+'</h3><p class="plan-desc">'+esc(summary)+'</p>'+
+  price+'<details class="plan-detail"><summary><strong>Detalle</strong></summary>'+details+'</details></article>';
+}
 function render(payload){
  const rows=Array.isArray(payload.niveles_anunciante)?payload.niveles_anunciante:[];
  const usable=rows.filter(r=>r&&r.eliminado!==true);
@@ -41,11 +76,31 @@ function render(payload){
  if(window.GLD_SIMULADOR_PUBLICO?.render)window.GLD_SIMULADOR_PUBLICO.render(payload);
  const priceBox=document.getElementById('preciosFuncPublicos');
  if(priceBox){
-   const mapped=[['eventos_free','Eventos Free'],['eventos_vip','Eventos VIP'],['actividades','Actividades'],['promociones','Promociones'],['publicidad','Publicidad']];
-   const rules=payload.funcionalidades_parametros;
-   const code={eventos_free:'EVENTOS_FREE',eventos_vip:'EVENTOS',actividades:'ACTIVIDADES',promociones:'PROMOS',publicidad:'PUBLICIDAD'};
-   priceBox.innerHTML=mapped.filter(([k])=>rules?.[code[k]]?.activo!==false).map(([k,title])=>
-    '<article class="service"><h3>'+esc(title)+'</h3>'+priceHtml(details.funcionalidades?.[k])+'</article>').join('');
+  const rules=payload.funcionalidades_parametros||{};
+  const configured=details.funcionalidades||{};
+  const mapped=[
+   ['eventos_free','Eventos Free','EVENTOS_FREE'],
+   ['eventos_vip','Eventos VIP','EVENTOS'],
+   ['actividades','Actividades','ACTIVIDADES'],
+   ['promociones','Promociones','PROMOS'],
+   ['publicidad','Publicidad','PUBLICIDAD'],
+   ['empleo','Empleo','EMPLEO']
+  ];
+  priceBox.innerHTML=mapped.filter(([, ,id])=>rules[id]?.activo!==false).map(([key,title,id])=>{
+   const rule=rules[id]||{};
+   const detail=detalleFuncionalidad(id,rule);
+   if(id==='PUBLICIDAD'){
+    const formats=[
+     ['publicidad_imagen','Imagen individual','Una imagen dentro de un carrusel compartido de hasta tres piezas, una por anunciante.'],
+     ['publicidad_carrusel','Carrusel propio','Una pieza con 3 a 5 imágenes del mismo anunciante.'],
+     ['publicidad_short','Short','Una pieza audiovisual en formato YouTube Shorts.']
+    ];
+    const pricing=formats.map(([format,label,description])=>'<section class="plan-benefit-group"><h4>'+esc(label)+'</h4><p class="muted">'+esc(description)+'</p>'+priceHtml(configured[format])+'</section>').join('');
+    return cardFuncionalidad(title,resumenFuncionalidad(id,rule),pricing,detail);
+   }
+   const price=id==='EVENTOS_FREE'?'<p class="plan-price">Gratuito</p>':priceHtml(configured[key]);
+   return cardFuncionalidad(title,resumenFuncionalidad(id,rule),price,detail);
+  }).join('');
  }
  const notice=document.getElementById('catalogStatus');
  if(notice){notice.hidden=true;notice.textContent='';}
