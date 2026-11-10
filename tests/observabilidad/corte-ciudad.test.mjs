@@ -335,3 +335,33 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
   assert.deepEqual(expiry.cities.find(x=>x.city==='DOL').replacements.activities.actividades,[]);
 
 });
+
+test('reanudar promociones usa la configuración tanto en panel como en Gran Hermano', async () => {
+  const { createHmac } = await import('node:crypto');
+  const testSource = source + '\nexport {promoUpdateV2,routeAdminPromosV91};';
+  const {promoUpdateV2,routeAdminPromosV91} = await import('data:text/javascript;base64,' + Buffer.from(testSource).toString('base64'));
+  const initial={promo_id:'promo-test',anunciante_id:'anunciante-test',promo:'Promoción',ciudad_id:'DOL',pausado:true};
+  const admin={funcionalidades_config:{PROMOS:{cantidad:1}}};
+  let promo=initial,patches=0;
+  const db={
+    get:async collection=>collection==='promos'?promo:admin,
+    queryEqual:async()=>[promo],
+    patch:async (collection,id,patch)=>{assert.equal(collection,'promos');assert.equal(id,initial.promo_id);patches++;return promo={...promo,...patch};},
+  };
+  const cache={get:async()=>null,put:async()=>{}};
+  const fromPanel=await promoUpdateV2({db,cache,advertiserId:initial.anunciante_id,
+    body:{promo_id:initial.promo_id,pausado:false},cupoFromAdmin:()=>1});
+  assert.equal(fromPanel.promo.pausado,false);
+  promo=initial;
+  const secret='fixture-de-prueba-de-promociones';
+  const body=Buffer.from(JSON.stringify({sid:'admin-test',rol:'SUPERADMIN_PRINCIPAL',persistent:true})).toString('base64url');
+  const sig=createHmac('sha256',secret).update(body).digest('base64url');
+  const url=new URL('https://example.invalid/superadmin/promos');
+  const request=new Request(url,{method:'POST',headers:{Authorization:'Bearer '+body+'.'+sig},
+    body:JSON.stringify({promo_id:initial.promo_id,action:'reanudar'})});
+  const env={SERVER_SECRET:secret,GLD_CACHE_KV:{get:async()=>null,put:async()=>{}}};
+  const fromAdmin=await routeAdminPromosV91({path:url.pathname,request,env,db,cache,url});
+  assert.equal(fromAdmin.status,200);
+  assert.equal((await fromAdmin.json()).promo.pausado,false);
+  assert.equal(patches,2);
+});
