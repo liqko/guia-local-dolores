@@ -170,16 +170,17 @@ En **Planes y servicios**, sumar una síntesis legible, alimentada por **los par
 - **Código:** panel de administración actualizado y archivo de Worker **179** preparado como continuidad de 178. Ningún cambio se considera desplegado por el solo hecho de estar en GitHub.
 
 
-## Adicionales de cobertura: módulos, ciudades y categorías · 10/11/2026
+## Adicionales de cobertura: funcionalidades de la plataforma y ciudades · 10/11/2026
 
-**Decisión de diseño comercial:** no alcanza con contratar el formato de publicidad (imagen individual, carrusel propio o Short) y, eventualmente, su rotación. Hay que definir también **dónde** aparece el anuncio y **en qué ámbito geográfico y temático** participa de la distribución. La aparición en la **Guía** es el punto de partida mencionado en esta conversación; la cobertura ampliada constituye una prestación diferenciada. No confundir los siguientes ejes:
+**Corrección expresa:** la **cobertura por categorías NO es un adicional**. La selección de publicidad por relevancia, tanto ante búsquedas específicas como por categoría relacionada, forma parte de la **distribución publicitaria general**. No tiene precio independiente ni requiere contratar categorías. Esta regla prevalece sobre menciones anteriores a una eventual contratación por categorías.
 
-1. **Cobertura por sección o módulo:** posibilidad de extender la exhibición desde la **Guía** a otros entornos de la plataforma, especialmente **Eventos, Promociones y Actividades**. Cada entorno debe poder seleccionarse explícitamente en la contratación. Se deberá evaluar cómo se facturan una o varias secciones y si hay paquetes combinados; **sin tarifas todavía**.
-2. **Cobertura geográfica:** selección de **una o varias ciudades** en las que el anunciante solicita que se distribuya su publicidad. Una contratación para una ciudad no equivale a cobertura automática en todas las ciudades. Deben definirse el punto de partida, el valor de ciudades adicionales y los eventuales paquetes de alcance; **no se fijaron cifras ni máximos**.
-3. **Cobertura por categorías / afinidad temática:** definir en qué **categorías y búsquedas relacionadas** puede resultar elegible la publicidad. **No confundir pagar por categoría con comprar prioridad absoluta en una búsqueda:** prevalece la regla de relevancia ya acordada; ampliar categorías no debe forzar anuncios ajenos a lo buscado ni desplazar a los más pertinentes. Pendiente delimitar categorías de actividad, posibilidad de varias categorías y precios correspondientes.
+Los **dos ejes de ampliación de cobertura** por definir comercialmente son:
 
-**Modelo conceptual del presupuesto:** **formato y cantidad de unidades** + **adicional de rotación de creatividades, si se contrata** + **cobertura por módulos** + **cobertura por ciudades** + **cobertura/segmentación por categorías**. Las tres últimas dimensiones son distintas entre sí y no deberían fusionarse en un único adicional genérico sin criterios claros. Debe poderse cotizar una combinación y comunicar con precisión los derechos contratados, sin garantizar impresiones ni posiciones.
+1. **Cobertura por funcionalidades o secciones de la plataforma:** además de la exhibición en la **Guía**, el anunciante puede contratar exhibición en otras funcionalidades, como **Eventos, Promociones y Actividades**. Determinar qué funcionalidades se pueden seleccionar, si cada una tiene importe independiente y cómo se cotizan las combinaciones. No confundir esta cobertura con el formato de anuncio.
+2. **Cobertura geográfica:** selección del alcance de exhibición en **una o varias ciudades**. Definir el alcance base, precio de ciudades adicionales y posibles paquetes, sin inventar valores ni límites no acordados.
 
-**No aprobados todavía:** tarifas de cada cobertura, cantidad de ciudades o categorías incluidas en precio base, descuentos por combinaciones, topes, condiciones de entrada a cada módulo y mecánica exacta de vinculación de anuncios con categorías. La propuesta de venta de tres posiciones privilegiadas queda **en pausa** por decisión expresa; no se presenta ahora como adicional activo.
+**Modelo comercial conceptual:** formato y cantidad de unidades publicitarias + rotación de creatividades (opcional) + ampliación de cobertura por funcionalidades + ampliación geográfica por ciudades. La distribución por **relevancia y categoría está incluida en la publicidad general** y NO aparece como producto, adicional, opción pagada ni cargo independiente.
 
-**Estado:** registrado para su definición paso a paso. No se modificaron pantallas, catálogos de precios, contratos ni Worker por esta incorporación.
+**Pendientes de definición:** valores y combinaciones de módulos/funcionalidades y ciudades, qué se considera alcance base y condiciones comerciales. La posible comercialización de las tres primeras posiciones continúa **en pausa**, sin aprobarse como producto.
+
+**Estado:** decisiones documentadas, sin cambios de pantallas, tarifas, contratos o Worker.
