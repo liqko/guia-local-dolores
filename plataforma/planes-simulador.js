@@ -51,10 +51,10 @@ function quote(){
   units+=qty;
  }
  for(const [id,item,qty] of selectedExtras){
-  const value=Number.isSafeInteger(item.importe)&&item.importe>=0?item.importe:null;
+  const value=cost(item);
   const label='Adicional · '+item.nombre;
   lines.push(label+' x '+qty);
-  details.push(label+' × '+qty+': '+(value===null?'consultar precio':ars(value*qty)));
+  details.push(label+' × '+qty+': '+(value===null?'consultar precio':ars(value*qty))+(item.descuento_porcentaje>0?' ('+(item.descuento_texto||item.descuento_porcentaje+'% de descuento')+')':''));
   if(value===null)missing=true;else total+=value*qty;
   units+=qty;
  }
@@ -113,7 +113,7 @@ function render(data){
    const info=document.createElement('span');
    const title=document.createElement('strong');title.textContent=item.nombre;info.append(title);
    const description=document.createElement('small');description.className='muted';description.style.display='block';description.textContent=item.descripcion||'';info.append(description);
-   const price=document.createElement('small');price.style.display='block';price.textContent=Number.isSafeInteger(item.importe)?ars(item.importe)+' por unidad':'Precio a consultar';info.append(price);
+   const price=document.createElement('small');price.style.display='block';price.textContent=Number.isSafeInteger(item.importe)?(item.descuento_porcentaje>0?ars(cost(item))+' por unidad · '+item.descuento_porcentaje+'% de descuento'+(item.descuento_texto?' · '+item.descuento_texto:''):ars(item.importe)+' por unidad'):'Precio a consultar';info.append(price);
    const input=document.createElement('input');input.type='number';input.min='0';input.max='100';input.step='1';input.value='0';input.dataset.simExtra=key;
    input.setAttribute('aria-label','Cantidad de '+item.nombre);input.style.cssText='width:85px;padding:9px;border:1px solid #dae3e7;border-radius:8px;flex-shrink:0;';
    holder.append(info,input);group.append(holder);
