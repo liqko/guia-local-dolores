@@ -158,3 +158,13 @@ En **Planes y servicios**, sumar una síntesis legible, alimentada por **los par
 - La implementación de esta síntesis corresponde a una tarea posterior: **no modificar ahora Planes y servicios mientras se cargan los valores**.
 
 **Estado:** definiciones registradas para ventas y desarrollo; sin cambios de Worker, HTML, importes ni contratos.
+
+
+### Estado de implementación de Valores: tres formatos publicitarios
+
+- **Preparado en GitHub, pendiente de desplegar y probar en producción:** dentro de **Resumen comercial y valores → Valores → Funcionalidades → Publicidad** se reemplaza el precio general único por tres formatos: **1. Imagen individual en carrusel compartido (máximo tres piezas, una por anunciante); 2. Carrusel propio de 3 a 5 imágenes; 3. Short**.
+- **Cada formato** contiene los cuatro campos existentes: **precio en ARS, descuento general %, texto del descuento y mostrar importe públicamente**. No son adicionales; pertenecen a la única funcionalidad Publicidad.
+- Los importes del resto de niveles y funcionalidades se mantienen. El antiguo precio general de Publicidad deja de usarse al guardar bajo el nuevo esquema, por decisión expresa del responsable; los tres importes nuevos requieren carga manual, sin asignar valores inventados ni copiar automáticamente el importe antiguo.
+- Los adicionales siguen relacionados con la funcionalidad **Publicidad** en su conjunto. **Rotación automática de creatividades** sigue siendo un adicional diferente del precio del formato.
+- La calculadora comercial **no puede cotizar Publicidad con un precio genérico**: antes de habilitar esas cotizaciones debe admitir selección de formato y precio correspondiente. Hasta entonces se bloquea la cotización de Publicidad para no entregar importes incorrectos.
+- **Código:** panel de administración actualizado y archivo de Worker **179** preparado como continuidad de 178. Ningún cambio se considera desplegado por el solo hecho de estar en GitHub.
