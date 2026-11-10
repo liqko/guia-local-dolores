@@ -44,11 +44,11 @@ function quote(){
  detail.replaceChildren();
  const p=document.createElement('p');
  const b=document.createElement('strong');
- b.textContent=units?(missing?'Estimación incompleta · algunos precios requieren consulta':'Total orientativo de lista: '+ars(total)):'Elegí un nivel o servicios para comenzar.';
+ b.textContent=units?(missing?'Estimación incompleta · algunos precios requieren consulta':'Suma matemática orientativa de precios de lista: '+ars(total)):'Elegí un nivel o servicios para comenzar.';
  p.append(b);
  detail.append(p);
  for(const line of details){const lineEl=document.createElement('div');lineEl.textContent=line;detail.append(lineEl);}
- const note=document.createElement('p');note.style.marginBottom='0';note.textContent='No incluye beneficios comerciales adicionales ni constituye presupuesto definitivo.';detail.append(note);
+ const note=document.createElement('p');note.style.marginBottom='0';note.textContent='La combinación de opciones puede mejorar estas condiciones. Consultá por WhatsApp para obtener una propuesta personalizada; este total no es el precio final.';detail.append(note);
  const text='Hola, quisiera consultar una propuesta de Guía Local.\n'+
   (lines.length?lines.map(x=>'- '+x).join('\n'):'Quiero conocer los planes disponibles.')+
   (units&&!missing?'\nReferencia de lista: '+ars(total):'')+
