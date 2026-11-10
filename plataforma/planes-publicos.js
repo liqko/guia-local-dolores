@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 const API='https://login.liqkoargentina.workers.dev/catalogs/public/guide';
-const KEY='gld_planes_publicos_catalogo_v4',MAX_AGE=5*60*1000;
+const KEY='gld_planes_publicos_catalogo_v5',MAX_AGE=5*60*1000;
 const list=document.querySelector('.plans');if(!list||!window.GLD_PLANES_RESUMEN)return;
 const fmt=window.GLD_PLANES_RESUMEN;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
