@@ -184,3 +184,18 @@ Los **dos ejes de ampliación de cobertura** por definir comercialmente son:
 **Pendientes de definición:** valores y combinaciones de módulos/funcionalidades y ciudades, qué se considera alcance base y condiciones comerciales. La posible comercialización de las tres primeras posiciones continúa **en pausa**, sin aprobarse como producto.
 
 **Estado:** decisiones documentadas, sin cambios de pantallas, tarifas, contratos o Worker.
+
+
+### Textos comerciales para cargar los dos adicionales de cobertura
+
+**Adicional 2 — Ampliación de cobertura por funcionalidades**
+- **Asociación:** funcionalidad Publicidad.
+- **Descripción aprobada para carga:** «Permite ampliar la exhibición de la publicidad contratada a otras secciones de Guía Local, como Eventos, Promociones y Actividades, además de la Guía general. La cobertura se establece según las funcionalidades seleccionadas en la contratación.»
+- **Importe:** a definir.
+
+**Adicional 3 — Ampliación de cobertura geográfica**
+- **Asociación:** funcionalidad Publicidad.
+- **Descripción aprobada para carga:** «Permite ampliar la exhibición de la publicidad contratada a otras ciudades dentro de Guía Local. El alcance se determina según las ciudades seleccionadas en la contratación, respetando las reglas generales de distribución publicitaria.»
+- **Importe:** a definir.
+
+**No crear adicional por categorías:** la distribución por relevancia de búsqueda o categoría forma parte de la publicidad general. **No se establecieron todavía** tarifas por funcionalidad ni por ciudad, ni se implementó selección granular de cobertura en contratos: una descripción comercial guardada en el catálogo de adicionales no equivale a una asignación técnica de cobertura.
