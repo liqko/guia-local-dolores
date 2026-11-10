@@ -205,12 +205,15 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <button type="button" class="tab" id="ghVentaConfigTab" data-venta-tab="configuracion_comercial" onclick="ghVentasSelect172('configuracion_comercial')" hidden>Configuración comercial</button>
  </nav>
  <div data-venta-pane="calculadora" class="card">
-  <h3>Calculadora de presupuestos</h3>
-  <p class="muted">Los importes provienen de los valores generales. Simular no guarda una contratación ni habilita permisos.</p>
+  <h3>Calculadora comercial · Presupuesto o contratación</h3>
+  <p class="muted">Presupuesto no modifica habilitaciones. Cerrar contratación actualiza funcionalidades y cupos del anunciante seleccionado.</p>
+  <div class="toolbar"><label><input type="radio" name="ghCotizarModo185" value="presupuesto" checked onchange="ghCotizarModo185()"> Presupuesto</label><label><input type="radio" name="ghCotizarModo185" value="contratacion" onchange="ghCotizarModo185()"> Cerrar contratación</label></div>
   <label>Buscar anunciante por nombre<input id="ghCotizarBuscar" placeholder="Buscar por nombre"></label>
   <button type="button" class="sec" onclick="ghCotizarBuscarAnunciante171()">Buscar</button><div id="ghCotizarResultados"></div>
   <label>Anunciante o interesado<input id="ghCotizarNombre" placeholder="Nombre del anunciante o interesado"></label>
   <input id="ghCotizarAnuncianteId" type="hidden">
+  <label>WhatsApp del interesado (opcional)<input id="ghCotizarTelefono185" type="tel" inputmode="tel" autocomplete="tel" placeholder="5492245..."></label>
+  <p id="ghCotizarModoEstado185" class="muted">Podés presupuestar a un interesado que aún no esté registrado.</p>
   <label>Nivel<select id="ghCotizarNivel" onchange="ghCotizarRecalcular171()"></select></label>
   <div id="ghCotizarFunciones"></div>
   <details class="item" id="ghCotizarAdicionales174" open><summary><strong>Adicionales disponibles</strong></summary>
@@ -219,6 +222,9 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <div id="ghCotizarResultado" role="status"></div>
   <div class="card" style="background:#f6f8fa;box-shadow:none"><strong>Comisión del vendedor</strong><p id="ghCotizarComisionEstado" class="muted">Sin porcentaje autorizado. Pendiente de configurar por perfil o rol del vendedor. No se calcula ni se incluye en el presupuesto.</p></div>
   <button type="button" class="sec" onclick="ghCotizarCopiar171()">Copiar presupuesto</button>
+  <button type="button" class="sec" onclick="ghCotizarEnviar185()">Enviar por WhatsApp</button>
+  <button type="button" id="ghCotizarCerrar185" onclick="ghCotizarCerrar185()" hidden disabled>Confirmar contratación y habilitar funcionalidades</button>
+  <p id="ghCotizarCierreEstado185" role="status" aria-live="polite" class="muted"></p>
  </div>
  <div data-venta-pane="niveles" hidden>
   <div class="card"><h3>Niveles</h3><div id="ghResumenNiveles" aria-live="polite"></div>
@@ -2574,6 +2580,35 @@ async function ghCargarPrecios162(){
  GH_COBERTURA_DESTINOS183=Array.isArray(j.cobertura_publicidad_destinos)?j.cobertura_publicidad_destinos:[];
 }
 let GH_COTIZACION171='';
+let GH_COTIZA_CIERRE185=null,GH_COTIZA_OPERACION185=null;
+function ghCotizarModo185(){
+ const close=document.querySelector('[name="ghCotizarModo185"]:checked')?.value==='contratacion';
+ const b=document.getElementById('ghCotizarCerrar185'),st=document.getElementById('ghCotizarModoEstado185');
+ if(b){b.hidden=!close;b.disabled=!close||!GH_COTIZA_CIERRE185||!document.getElementById('ghCotizarAnuncianteId')?.value;}
+ if(st)st.textContent=close?'Seleccioná un anunciante existente. La venta confirmada habilitará lo contratado en su ficha.':'Podés enviar esta propuesta por WhatsApp, aunque el interesado aún no esté registrado.';
+ informarAltura();
+}
+function ghCotizarEnviar185(){
+ if(!GH_COTIZACION171){alert('Primero completá el presupuesto.');return;}
+ const number=(document.getElementById('ghCotizarTelefono185')?.value||'').replace(/\\D/g,'');
+ if(number&&number.length<8){alert('Revisá el WhatsApp ingresado.');return;}
+ window.open('https://wa.me/'+number+'?text='+encodeURIComponent(GH_COTIZACION171),'_blank','noopener,noreferrer');
+}
+async function ghCotizarCerrar185(){
+ const button=document.getElementById('ghCotizarCerrar185'),msg=document.getElementById('ghCotizarCierreEstado185');
+ const aid=document.getElementById('ghCotizarAnuncianteId')?.value;
+ if(!GH_COTIZA_CIERRE185||!aid){msg.textContent='Seleccioná un anunciante registrado y calculá un presupuesto válido.';return;}
+ if(!confirm('¿Confirmás la venta para este anunciante? Se habilitarán sus funcionalidades y cupos contratados.'))return;
+ const op=GH_COTIZA_OPERACION185||(GH_COTIZA_OPERACION185='CT_'+crypto.randomUUID().replace(/-/g,''));
+ button.disabled=true;msg.textContent='Registrando contratación…';
+ try{
+  const data=await ghAdminRequest_('/sales/contracts/close',{...GH_COTIZA_CIERRE185,anunciante_id:aid,operacion_id:op},'POST');
+  msg.textContent='Contratación '+op+' confirmada. Importe: '+new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(data.importe)+'. Funcionalidades y cupos reflejados en la ficha de Anunciantes.';
+  GH_COTIZA_CIERRE185=null;GH_COTIZA_OPERACION185=null;
+ }catch(e){msg.textContent='No se confirmó el cierre: '+String(e.message||e);button.disabled=false;}
+ informarAltura();
+}
+
 let GH_COTIZACION_BUSQUEDA171=0;
 function ghVentasSelect172(tab){
  const valid=['calculadora','niveles','funcionalidades','valores','configuracion_comercial'];
@@ -2710,7 +2745,7 @@ function ghCotizarRecalcular171(){
  if(!level&&!count){host.textContent='Elegí un nivel y los servicios para cotizar.';GH_COTIZACION171='';return;}
  if(!level&&count){host.textContent='Seleccioná un nivel para aplicar la tabla comercial.';GH_COTIZACION171='';return;}
  const seq=++GH_COTIZA_SEQ173;
- GH_COTIZACION171='';
+ GH_COTIZACION171='';GH_COTIZA_CIERRE185=null;GH_COTIZA_OPERACION185=null;ghCotizarModo185();
  host.textContent='Calculando condiciones comerciales…';
  GH_COTIZA_TIMER173=setTimeout(async()=>{
   try{
@@ -2732,6 +2767,8 @@ function ghCotizarRecalcular171(){
    const discount='Beneficio del paquete: '+amount.format(result.descuento_aplicado);
    const total='Precio final: '+amount.format(result.total);
    GH_COTIZACION171=[headline,...details,discount,total,'Presupuesto orientativo; no habilita prestaciones ni confirma la contratación.'].join('\n');
+   GH_COTIZA_CIERRE185={nivel:level,funcionalidades:{...values},formatos_publicidad:{...formatos},adicionales:{...adicionales},cobertura_funcionalidades:structuredClone(cobertura_funcionalidades)};
+   ghCotizarModo185();
    host.innerHTML='<p><strong>'+esc(headline)+'</strong></p>'+details.map(x=>'<p>'+esc(x)+'</p>').join('')+
     '<p><strong>'+esc(discount)+'</strong></p><p><strong>'+esc(total)+'</strong></p>';
   }catch(e){
@@ -2758,7 +2795,7 @@ async function ghCotizarBuscarAnunciante171(){
    btn.addEventListener('click',()=>{
     document.getElementById('ghCotizarNombre').value=a.nombre||a.id;
     document.getElementById('ghCotizarAnuncianteId').value=a.id;
-    host.replaceChildren();ghCotizarRecalcular171();
+    host.replaceChildren();ghCotizarModo185();ghCotizarRecalcular171();
    });host.appendChild(btn);
   }
  }catch(e){host.textContent=String(e.message||e)}
