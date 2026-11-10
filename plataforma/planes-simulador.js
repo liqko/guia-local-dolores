@@ -129,4 +129,5 @@ select.addEventListener('change',quote);
 additional.addEventListener('input',quote);
 reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key],[data-sim-extra]').forEach(el=>el.value='0');quote();});
 window.GLD_SIMULADOR_PUBLICO={render};
+if(window.GLD_PLANES_PUBLIC_PACKET)render(window.GLD_PLANES_PUBLIC_PACKET);
 })();
