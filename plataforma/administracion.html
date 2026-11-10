@@ -279,6 +279,13 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
       <div class="cfgpane hidden" data-cfgpane="roles_internos">
  <div class="card"><h2>Definición de roles · Funciones, alcances y límites</h2>
+ <div class="card" style="border:1px solid #d5e2e8;box-shadow:none;background:#f9fbfc">
+  <h3>Permisos generales de los perfiles operativos</h3>
+  <p class="muted">Configuración real del servidor. Los permisos no operativos no pueden habilitarse desde aquí. Los cambios no asignan roles a personas.</p>
+  <div id="ghRolesReglas183" role="region" aria-label="Reglas de perfiles internos">Abrí esta sección para consultar los permisos vigentes.</div>
+  <div class="toolbar"><button type="button" id="ghRolesGuardar183" onclick="ghRolesGuardar183()" disabled>Guardar reglas de roles</button><button type="button" class="sec" onclick="ghRolesCargar183(true)">Actualizar reglas</button></div>
+  <p id="ghRolesEstado183" role="status" class="muted"></p>
+ </div>
  <p class="muted">Esta sección reúne las reglas generales de cada rol. La asignación a personas se realiza por separado en Administración → Roles internos. Los permisos efectivos se controlan en el servidor, no desde la presentación de esta pantalla.</p>
  <div class="glossary-list" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px">
   <article class="item"><h3>Moderador</h3><p>Revisa y resuelve contenidos delegados. Actualmente puede tener permisos para Eventos (Free y VIP), Actividades y altas o reclamos de anunciantes, con ciudades asignadas y posibilidad de suspender el acceso.</p><p class="muted">Publicidad, Promociones, Empleo y contenidos +18 continúan reservados a superadministración en la implementación actual.</p></article>
@@ -2800,6 +2807,60 @@ async function ghCargarResumenNiveles(){
  }
 }
 
+
+/* Definición de roles V183: utiliza /superadmin/roles ya existente, sin crear otro catálogo. */
+let GH_ROLES_PACK183=null;
+function ghRolesLabel183(key){return ({
+ 'Eventos.aprobar':'Aprobar eventos','Eventos.rechazar':'Rechazar eventos',
+ 'Actividades.aprobar':'Aprobar actividades','Actividades.rechazar':'Rechazar actividades',
+ 'Anunciantes.aprobar':'Aprobar anunciantes','Anunciantes.rechazar':'Rechazar anunciantes',
+ 'Personal.asignar moderadores':'Asignar moderadores','Personal.asignar vendedores':'Asignar vendedores'
+})[key]||key;}
+async function ghRolesCargar183(force=false){
+ const out=document.getElementById('ghRolesReglas183'),status=document.getElementById('ghRolesEstado183'),btn=document.getElementById('ghRolesGuardar183');
+ if(!out||!status||!btn)return;
+ if(GH_ROLES_PACK183&&!force)return;
+ btn.disabled=true;status.textContent='Consultando permisos vigentes…';
+ try{
+  const data=await ghAdminRequest_('/roles');
+  if(!data.roles||!Array.isArray(data.operativos))throw Error('El servidor no entregó el catálogo de permisos.');
+  GH_ROLES_PACK183={roles:data.roles,operativos:data.operativos};
+  const roles=[['MODERADOR','Moderador'],['VENDEDOR','Vendedor']];
+  const available=new Set(data.operativos);
+  out.innerHTML=roles.map(([id,label])=>{
+   const saved=new Set(data.roles[id]||[]);
+   const actions=data.operativos.filter(x=>!x.startsWith('Personal.')||id==='VENDEDOR');
+   return '<fieldset class="item" style="margin:10px 0"><legend><strong>'+esc(label)+'</strong></legend>'+
+    (actions.length?actions.map(k=>'<label class="gh-mod-check"><input type="checkbox" data-gh-rule-role183="'+esc(id)+'" data-gh-rule-action183="'+esc(k)+'" '+(saved.has(k)?'checked':'')+'><span>'+esc(ghRolesLabel183(k))+'</span></label>').join(''):'<p class="muted">Sin permisos operativos configurables.</p>')+
+    '<p class="muted">Solo se muestran acciones soportadas actualmente por el servidor.</p></fieldset>';
+  }).join('')+'<p class="muted"><strong>Supervisor:</strong> coordina vendedores a cargo; permisos y operaciones de supervisión pendientes de implementar. No se inventan permisos.</p>';
+  btn.disabled=GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL';
+  status.textContent=btn.disabled?'Consulta disponible; solo Gran Hermano principal modifica reglas.':'Reglas actuales cargadas. Podés cambiar los permisos habilitados y guardarlos.';
+ }catch(e){GH_ROLES_PACK183=null;out.textContent='No se pudieron cargar las reglas.';status.textContent=String(e.message||e);}
+ informarAltura();
+}
+async function ghRolesGuardar183(){
+ const status=document.getElementById('ghRolesEstado183'),btn=document.getElementById('ghRolesGuardar183');
+ if(!GH_ROLES_PACK183||GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
+ const roles=structuredClone(GH_ROLES_PACK183.roles);
+ for(const role of ['MODERADOR','VENDEDOR']){
+  const old=Array.isArray(roles[role])?roles[role]:[];
+  const changed=new Set([...document.querySelectorAll('[data-gh-rule-role183="'+role+'"]:checked')].map(x=>x.dataset.ghRuleAction183));
+  const editable=new Set([...document.querySelectorAll('[data-gh-rule-role183="'+role+'"]')].map(x=>x.dataset.ghRuleAction183));
+  roles[role]=[...old.filter(x=>!editable.has(x)),...changed];
+ }
+ btn.disabled=true;status.textContent='Comprobando reglas antes de guardar…';
+ try{
+  const latest=await ghAdminRequest_('/roles');
+  if(JSON.stringify(latest.roles)!==JSON.stringify(GH_ROLES_PACK183.roles))throw Error('Las reglas cambiaron en otra sesión. Actualizá antes de guardar.');
+  const result=await ghAdminRequest_('/roles',{roles},'POST');
+  if(!result.success)throw Error('El servidor no confirmó el guardado.');
+  GH_ROLES_PACK183.roles=result.roles;
+  status.textContent='Reglas guardadas. El acceso de cada persona sigue sujeto a su asignación individual y a los permisos operativos del servidor.';
+ }catch(e){status.textContent='No se confirmaron los cambios: '+String(e.message||e);}
+ finally{btn.disabled=GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL';}
+}
+
 function ghSelectConfig(name){
   if(name==='resumen_planes')name='funcionalidades';
   if(!document.querySelector('#cfgTabs [data-cfg="'+name+'"]'))name='territorio';
@@ -2807,7 +2868,7 @@ function ghSelectConfig(name){
   document.querySelectorAll('#cfgTabs [data-cfg]').forEach(x=>x.classList.toggle('active',x.dataset.cfg===name));
   document.querySelectorAll('[data-cfgpane]').forEach(x=>x.classList.toggle('hidden',x.getAttribute('data-cfgpane')!==name));
   if(name==='terminos')ghCargarTerminos();
-  else if(name==='roles_internos'){} // Reglas de roles: consulta local sin operaciones ni lecturas nuevas.
+  else if(name==='roles_internos')ghRolesCargar183();
   else if(name==='nodos')ghCargarNodos();
   else if(name==='territorio')ghCargarCiudades().then(ghRenderCiudades);
   else {const def=GH_CATALOGOS.find(x=>x.box===({segmentos:'cfgSegmentos',niveles:'cfgNivelesAnunciante',funcionalidades:'cfgFuncionalidades',categorias:'cfgCategoriasAnunciantes',actividades:'cfgActividadesClave',acciones:'cfgAcciones',cat_eventos:'cfgCategoriasEventos',cat_actividades:'cfgCategoriasActividades',adultos:'cfgModeracion18'})[name]);if(def){const alreadyLoaded=name==='funcionalidades'&&Array.isArray(GH_CATALOG_CACHE.funcionalidades)&&GH_FUNC_GLOBAL166&&!!document.querySelector('#cfgFuncionalidades [data-func-item]');if(!alreadyLoaded)ghCargarCatalogo(def);}}
