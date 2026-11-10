@@ -3028,7 +3028,7 @@ async function quota({ db, cache, advertiserId, cupoFromAdmin, excludeId = "" })
   const general=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PROMOS');
   const limit=general.activas_max;
   const allow=general.admite_excepciones===true&&admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true;
-  const max=allow||!Number.isSafeInteger(limit)?originalMax:limit;
+  const max=Number.isSafeInteger(originalMax)?originalMax:limit;
   const active4 = promos.filter((p) => text29(p.promo_id || p.id) !== text29(excludeId) && !paused(p)).length;
   const cfg=admin?.funcionalidades_config?.PROMOS||{};
   return { max, active: active4, total:promos.length, totalMax:gldValorParticular168(general,cfg,'guardadas_max',cupoGuardado(max)),general,admin };
@@ -3396,7 +3396,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const vipAllowed166=vipSettings166.admite_excepciones===true;
   const unlimited=free?!!policy?.sin_limites:vipAllowed166&&vipOverride166.sin_limites===true;
   if(!unlimited&&free)max=Number.isSafeInteger(policy.activas_max)?policy.activas_max:Number(max||0);
-  if(!unlimited&&!free&&!(vipAllowed166&&vipOverride166.excepcion_cupo===true)&&Number.isSafeInteger(vipSettings166.activas_max))max=vipSettings166.activas_max;
+  if(!unlimited&&!free&&!Number.isSafeInteger(Number(max))&&Number.isSafeInteger(vipSettings166.activas_max))max=vipSettings166.activas_max;
   if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);}
   else {
     const maxDescripcion=gldValorParticular168(vipSettings166,vipOverride166,'descripcion_max',null);
@@ -3577,7 +3577,7 @@ async function pauseEventV3({ db, cache, advertiserId, payload, max, level = "VI
     const allowed=global.admite_excepciones===true;
     const unlimited=allowed&&cfg.sin_limites===true;
     let cap=typeof max==='function'?await max():max;
-    if(!unlimited&&!(allowed&&cfg.excepcion_cupo===true)&&Number.isSafeInteger(global.activas_max))cap=global.activas_max;
+    if(!unlimited&&!Number.isSafeInteger(Number(cap))&&Number.isSafeInteger(global.activas_max))cap=global.activas_max;
     const q=await quota2({db,advertiserId,max:cap,free:level==='FREE',exclude:eventId});
     if(!unlimited&&q.active>=q.max)throw new Error('Alcanzaste el máximo de eventos activos.');
   }
@@ -6661,7 +6661,7 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   const maxDescripcionActividad=gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'descripcion_max',null);
   if(Number.isSafeInteger(maxDescripcionActividad)&&String(payload.descripcion??'').length>maxDescripcionActividad)throw httpError('La descripción de la actividad admite hasta '+maxDescripcionActividad+' caracteres.',400);
   const allowed=globalCfg.admite_excepciones===true&&admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true;
-  const max=allowed||!Number.isSafeInteger(generalMax)?originalMax:generalMax;
+  const max=Number.isSafeInteger(originalMax)?originalMax:generalMax;
   const totalMax = gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'guardadas_max',cupoGuardado(max));
   if (activityId) {
     current = await db.get("actividades", activityId);
@@ -6761,7 +6761,7 @@ async function activityActionV3({ db, cache, advertiserId, action, activityId })
     const active4 = own.filter((a) => text61(a.actividad_id || a.id) !== text61(activityId) && bool16(a.activo) && text61(a.estado).toUpperCase() !== "PAUSADA").length;
     const settings=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES');
     const cfg=admin?.funcionalidades_config?.ACTIVIDADES||{};
-    const max=settings.admite_excepciones===true&&cfg.excepcion_cupo===true?quota4(admin):(Number.isSafeInteger(settings.activas_max)?settings.activas_max:quota4(admin));
+    const max=quota4(admin);
     if (max <= 0 || active4 >= max) throw new Error("actividades_cupo_activo_completo");
   }
   const hs = action === "eliminar" && Number(current.horarios_version)!==2 ? await db.queryEqual("actividad_horarios", "actividad_id", activityId, 500) : await getPreparedRelationsV1({ cache, type: "activity", id: activityId, current, load: () => db.queryEqual("actividad_horarios", "actividad_id", activityId, 500) });
@@ -6864,7 +6864,7 @@ async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
  const global=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PUBLICIDAD');
  const special=global.admite_excepciones===true&&config?.excepcion_cupo===true;
  const cfg={...config};
- if(!special&&Number.isSafeInteger(global.activas_max))cfg.activas_max=Math.min(Number(cfg.activas_max||0),global.activas_max);
+ // La cantidad de piezas activas proviene de la habilitación individual; el paquete general es su unidad base.
  if(!special&&Number.isSafeInteger(global.posiciones_max)&&Number(cfg.posiciones||0)>global.posiciones_max)
   throw httpError('Las posiciones contratadas superan el máximo general configurado para Publicidad.',409);
  return publicitySaveMonthlyV101({db,cache,advertiserId,body,config:cfg});
@@ -6872,8 +6872,7 @@ async function publicitySaveV4({db,cache,advertiserId,body,config={}}){
 async function publicityActiveChangeV4({db,cache,advertiserId,ids,admin}){
  const global=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PUBLICIDAD');
  const special=global.admite_excepciones===true&&admin?.funcionalidades_config?.PUBLICIDAD?.excepcion_cupo===true;
- if(!special&&Number.isSafeInteger(global.activas_max)&&(ids||[]).length>global.activas_max)
-  throw httpError('Supera el máximo general de publicidad activa.',409);
+ // El contrato determina los espacios activos; el motor mensual valida su cantidad.
  return publicityActiveMonthlyV101({db,cache,advertiserId,ids});
 }
 
