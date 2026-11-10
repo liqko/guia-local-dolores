@@ -203,7 +203,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <div id="ghResumenNiveles" aria-live="polite"></div>
   <details class="card"><summary><strong>Términos utilizados</strong></summary><div id="ghGlosarioNiveles"></div></details>
   <h3>Funcionalidades</h3>
-  <details class="card"><summary><strong>Conceptos comunes: activas, guardadas, ediciones y estados</strong></summary><p>Activas: publicaciones habilitadas simultáneamente. Guardadas: publicaciones conservadas, incluidas las activas. Los límites se configuran por funcionalidad; no se calcula automáticamente el doble. Las ediciones y los cambios de estado tienen cupos independientes.</p></details>
+  <details class="card"><summary><strong>Términos utilizados en funcionalidades</strong></summary><p>Activas: publicaciones que ocupan cupo activo. Guardadas: publicaciones conservadas, activas o no. Ediciones: cambios de contenido. Cambios de estado: activar o pausar. Los cupos concretos se muestran dentro de cada funcionalidad.</p></details>
   <div id="ghResumenFuncionesVentas" aria-live="polite"></div>
  </details>
  <details class="card" id="ghVentasValores" open><summary><strong>2. Valores</strong></summary>
@@ -2321,17 +2321,31 @@ function ghValorMonetario162(key,kind){
 }
 function ghRenderResumenFuncionesVentas(){
  const host=document.getElementById('ghResumenFuncionesVentas');if(!host)return;
- const reglas=GH_FUNC_GLOBAL166?.reglas||{};
- const backup=typeof GH_FUNC_BACKUP170!=='undefined'?GH_FUNC_BACKUP170:{};
- const names={EVENTOS_FREE:'Eventos Free',EVENTOS:'Eventos VIP',ACTIVIDADES:'Actividades',PROMOS:'Promociones y descuentos',PUBLICIDAD:'Publicidad',EMPLEO:'Empleo'};
- host.innerHTML=Object.entries(names).map(([id,label])=>{
-  const saved=reglas[id]||{},fallback=GH_FUNC_BACKUP_APPLY170?backup[id]||{}:{};
+ const reglas=GH_FUNC_GLOBAL166?.reglas;
+ if(!reglas){host.textContent='No se pudieron consultar los parámetros guardados. No se muestran valores supuestos.';return;}
+ const modules=[['EVENTOS_FREE','Eventos Free'],['EVENTOS','Eventos VIP'],['ACTIVIDADES','Actividades'],['PROMOS','Promociones y descuentos'],['PUBLICIDAD','Publicidad'],['EMPLEO','Empleo']];
+ const groups=[
+ ['Capacidad y vigencia',['activas_max','guardadas_max','ofertas_activas_max','busquedas_activas_max','altas_mensuales_max','vigencia_dias']],
+ ['Ediciones y cambios de estado',['ediciones_dia_max','ediciones_semana_max','ediciones_mes_max','ediciones_max','cambios_estado_semana_max']],
+ ['Contenido y formatos',['titulo_max','nombre_max','nombre_evento_max','descripcion_max','condiciones_max','imagenes_max','enlaces_max','cta_texto_max','carrusel_imagenes_min','carrusel_imagenes_max']]
+ ];
+ host.innerHTML=modules.map(([id,label])=>{
+  const rule=reglas[id];
+  if(!rule)return '<details class="item"><summary><strong>'+esc(label)+'</strong> · Sin configuración guardada</summary><p>No se encontraron parámetros para esta funcionalidad.</p></details>';
   const fields=GH_FUNC_FIELDS168[id]||[];
-  const items=fields.map(([key,desc])=>{
-    const val=saved[key]??fallback[key];
-    return '<tr><th scope="row">'+esc(desc)+'</th><td>'+esc(val===undefined||val===null?'Sin definir':val===-1?'Ilimitado':String(val))+'</td></tr>';
+  const used=new Set();
+  const sections=groups.map(([title,keys])=>{
+   const items=fields.filter(([key])=>keys.includes(key)&&rule[key]!==undefined&&rule[key]!==null).map(([key,description])=>{
+    used.add(key);
+    const v=rule[key];
+    return '<tr><th scope="row">'+esc(description)+'</th><td>'+esc(v===-1?'Ilimitado':String(v))+'</td></tr>';
+   });
+   return items.length?'<section class="plan-group"><h4>'+esc(title)+'</h4><table><tbody>'+items.join('')+'</tbody></table></section>':'';
   }).join('');
-  return '<details class="item"><summary><strong>'+esc(label)+'</strong> · '+(saved.activo===false?'Inactiva':'Activa')+'</summary><table><tbody>'+items+'</tbody></table></details>';
+  const misc=fields.filter(([key])=>!used.has(key)&&rule[key]!==undefined&&rule[key]!==null).map(([key,description])=>'<tr><th scope="row">'+esc(description)+'</th><td>'+esc(String(rule[key]))+'</td></tr>').join('');
+  return '<details class="item"><summary><strong>'+esc(label)+'</strong> · '+(rule.activo===false?'Inactiva':'Activa')+'</summary>'+
+    (sections||misc?sections+(misc?'<section class="plan-group"><h4>Otros parámetros</h4><table><tbody>'+misc+'</tbody></table></section>':''):'<p>Sin límites definidos.</p>')+
+    '<p class="muted">Excepciones particulares: '+(rule.admite_excepciones===false?'no admitidas':'admitidas')+'</p></details>';
  }).join('');
 }
 function ghRenderValoresFuncionalidades_(){
@@ -2473,7 +2487,7 @@ function ghRenderResumenNiveles108(){
  const rows=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true);
  const general=GH_CARGA_GENERAL_BASE||{};
  box.innerHTML='<details class="item"><summary><strong>Parámetros generales de carga</strong></summary><ul>'+
- GH_CARGA_GENERAL_FIELDS.map(([key,label,def])=>'<li>'+esc(label)+': institucional '+esc(general['carga_institucional_'+key]??general['carga_'+key]??def)+' · comercial '+esc(general['carga_comercial_'+key]??general['carga_'+key]??def)+'</li>').join('')+'</ul></details>'+
+ GH_CARGA_GENERAL_FIELDS.map(([key,label])=>'<li>'+esc(label)+': institucional '+esc(general['carga_institucional_'+key]??general['carga_'+key]??'Sin definir')+' · comercial '+esc(general['carga_comercial_'+key]??general['carga_'+key]??'Sin definir')+'</li>').join('')+'</ul></details>'+
  Array.from({length:6},(_,i)=>{
   const n=i+1,row=rows.find(x=>fmt.number(x)===n);
   const groups=row?fmt.sections(row,general):[];
