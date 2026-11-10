@@ -2460,6 +2460,19 @@ async function ghGuardarTodosPrecios162(){
    '[data-func-descuento="'+key+'"]','[data-func-descuento-texto="'+key+'"]'
   );
  }catch(e){status.textContent=String(e.message||e);return;}
+ // Protección: una pantalla vacía o desactualizada no debe borrar importes
+ // previamente cargados. La eliminación deliberada requiere una operación separada.
+ const anteriores=GH_PRECIOS_ESTADO162.precios||{};
+ const borrados=[];
+ for(const tipo of ['niveles','funcionalidades'])for(const [clave,actual] of Object.entries(precios[tipo])){
+   const previo=anteriores[tipo]?.[clave];
+   if(previo?.importe!==null&&previo?.importe!==undefined&&actual.importe===null)
+    borrados.push((tipo==='niveles'?'Nivel ':'Funcionalidad ')+clave);
+ }
+ if(borrados.length){
+  status.textContent='Guardado bloqueado: faltan importes que ya estaban registrados ('+borrados.join(', ')+'). No se sobrescribió ningún precio.';
+  return;
+ }
  boton.disabled=true;status.textContent='Guardando importes y descuentos en una sola operación…';
  try{
   const j=await ghAdminRequest_('/catalogs/prices',{precios,revision:GH_PRECIOS_ESTADO162.revision},'POST');
@@ -2471,11 +2484,11 @@ async function ghGuardarTodosPrecios162(){
  finally{boton.disabled=false;}
 }
 async function ghCargarPrecios162(){
- if(GH_PRECIOS_ESTADO162)return;
- if(GH_FIXED_SUPPORTED169)await ghFixedLoad169();
- if(GH_PRECIOS_ESTADO162)return;
+ // Valores es editable: el paquete fijo puede quedar desactualizado. Leer la fuente
+ // autorizada antes de permitir guardar; nunca sustituir una falla por importes vacíos.
  const j=await ghAdminRequest_('/catalogs/prices');
- if(!j.success||!j.precios)throw Error('El catálogo de precios no está disponible.');
+ if(!j.success||!j.precios||!Number.isSafeInteger(j.revision))
+  throw Error('No se pudieron confirmar los precios guardados. No se habilita el guardado.');
  GH_PRECIOS_ESTADO162={precios:j.precios,revision:j.revision};
 }
 let GH_COTIZACION171='';
