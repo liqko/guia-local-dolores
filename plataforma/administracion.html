@@ -213,9 +213,8 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <input id="ghCotizarAnuncianteId" type="hidden">
   <label>Nivel<select id="ghCotizarNivel" onchange="ghCotizarRecalcular171()"></select></label>
   <div id="ghCotizarFunciones"></div>
-  <details class="item" id="ghCotizarAdicionales174"><summary><strong>Adicionales de funcionalidades</strong> · Pendientes de cotización</summary>
-   <p>Los formatos de Publicidad (imagen individual, carrusel propio y Short) se cotizan arriba, dentro de Publicidad. En esta sección quedan solamente los adicionales opcionales, como rotación automática o cobertura adicional.</p>
-   <p class="muted">Aún no se pueden seleccionar ni presupuestar: faltan tarifas y coeficientes aprobados. No se sumarán importes ficticios.</p>
+  <details class="item" id="ghCotizarAdicionales174" open><summary><strong>Adicionales disponibles</strong></summary>
+   <div id="ghCotizarAdicionalesItems181"><p class="muted">Cargando adicionales del catálogo de Valores…</p></div>
   </details>
   <div id="ghCotizarResultado" role="status"></div>
   <div class="card" style="background:#f6f8fa;box-shadow:none"><strong>Comisión del vendedor</strong><p id="ghCotizarComisionEstado" class="muted">Sin porcentaje autorizado. Pendiente de configurar por perfil o rol del vendedor. No se calcula ni se incluye en el presupuesto.</p></div>
@@ -2530,6 +2529,7 @@ async function ghGuardarTodosPrecios162(){
   const j=await ghAdminRequest_('/catalogs/prices',{precios,revision:GH_PRECIOS_ESTADO162.revision},'POST');
   if(!j.success)throw Error('El servidor no confirmó el guardado.');
   GH_PRECIOS_ESTADO162={precios,revision:j.revision};
+  ghCotizarAdicionalesArmar181();
   if(GH_FIXED_PACKET169)GH_FIXED_PACKET169.precios=GH_PRECIOS_ESTADO162;
   status.textContent=j.updated?'Guardado confirmado: una escritura Firestore y una actualización de caché.':'No hubo modificaciones; ninguna escritura.';
  }catch(e){status.textContent='No se confirmó el guardado: '+String(e.message||e);}
@@ -2573,7 +2573,13 @@ function ghCotizarArmar171(){
  const formats=[['publicidad_imagen','Imagen individual · carrusel compartido (máx. 3 piezas)'],['publicidad_carrusel','Carrusel propio · 3 a 5 imágenes'],['publicidad_short','Short']];
  host.innerHTML=regular+'<fieldset class="item"><legend><strong>Publicidad · formatos contratados</strong></legend>'+
  formats.map(([key,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:240px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-formato="'+esc(key)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('')+'</fieldset>';
+ ghCotizarAdicionalesArmar181();
  ghCotizarRecalcular171();
+}
+function ghCotizarAdicionalesArmar181(){
+ const host=document.getElementById('ghCotizarAdicionalesItems181');if(!host)return;
+ const extras=Object.entries(GH_PRECIOS_ESTADO162?.precios?.adicionales||{}).filter(([,x])=>x.activo!==false);
+ host.innerHTML=extras.length?extras.map(([id,item])=>'<label class="item" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:200px"><strong>'+esc(item.nombre)+'</strong><small style="display:block">'+esc(item.descripcion||'')+'</small><small>'+esc(item.importe===null||item.importe===undefined?'Importe pendiente de definir':new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(item.importe)+' por unidad')+'</small></span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:110px" data-gh-adicional181="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(item.nombre)+'"></label>').join(''):'<p class="muted">No hay adicionales activos en Valores.</p>';
 }
 let GH_COTIZA_SEQ173=0;
 let GH_COTIZA_TIMER173=0;
@@ -2651,6 +2657,12 @@ function ghCotizarRecalcular171(){
   if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
   formatos[key]=v;count+=v;
  }
+ const adicionales={};
+ for(const field of document.querySelectorAll('[data-gh-adicional181]')){
+  const n=Number(field.value);
+  if(!Number.isSafeInteger(n)||n<0||n>1000){host.textContent='Cantidad de adicional inválida.';GH_COTIZACION171='';return;}
+  adicionales[field.dataset.ghAdicional181]=n;count+=n;
+ }
  if(!level&&!count){host.textContent='Elegí un nivel y los servicios para cotizar.';GH_COTIZACION171='';return;}
  if(!level&&count){host.textContent='Seleccioná un nivel para aplicar la tabla comercial.';GH_COTIZACION171='';return;}
  const seq=++GH_COTIZA_SEQ173;
@@ -2658,7 +2670,7 @@ function ghCotizarRecalcular171(){
  host.textContent='Calculando condiciones comerciales…';
  GH_COTIZA_TIMER173=setTimeout(async()=>{
   try{
-   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values,formatos_publicidad:formatos},'POST');
+   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values,formatos_publicidad:formatos,adicionales},'POST');
    if(seq!==GH_COTIZA_SEQ173)return;
    const name=document.getElementById('ghCotizarNombre')?.value.trim()||'Sin identificar';
    const id=document.getElementById('ghCotizarAnuncianteId')?.value||'';
@@ -2760,6 +2772,7 @@ async function ghCargarResumenNiveles(){
   try{await ghCargarFuncionesGlobal166();}catch(e){console.warn('No se pudieron consultar parámetros generales:',e)}
   ghRenderResumenNiveles108();
   ghAdRender176();
+  ghCotizarAdicionalesArmar181();
   ghRenderResumenFuncionesVentas();
   if(button)button.disabled=false;
   if(status)status.textContent='Editá los importes y guardalos juntos.';
