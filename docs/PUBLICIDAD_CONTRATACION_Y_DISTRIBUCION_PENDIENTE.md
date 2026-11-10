@@ -132,3 +132,29 @@ Definir en conversación Promociones, Actividades, Eventos VIP, Eventos Free, Pu
 6. **Documentación para ventas:** antes de comercializar, redactar una ficha clara con casos de búsqueda específica, categoría relacionada y Guía general, límites y condiciones de las excepciones. Sin garantías implícitas de primera posición.
 
 **Alcance de esta actualización:** registro de decisiones y proyectos. No se modificaron reglas ejecutables, contratos, anuncios, pantallas ni Worker. La integración técnica requiere pruebas de relevancia, distribución, paginación, caché, seguridad de datos y ausencia de escrituras por impresión.
+
+
+## Formatos de contratación y síntesis para Planes y servicios · 10/11/2026
+
+### Decisiones comerciales acordadas
+
+- **La publicidad tiene tres formatos de contratación diferenciados y con importes propios** (todavía no se fijan aquí los valores):
+  1. **Imagen individual:** una imagen del anunciante en un **carrusel compartido** con publicidad de otros anunciantes. El carrusel compartido conserva el máximo acordado de **tres piezas y una pieza por anunciante**.
+  2. **Carrusel propio:** una pieza del anunciante compuesta por **3 a 5 imágenes** del mismo anunciante. Es diferente del carrusel compartido.
+  3. **Short:** una pieza audiovisual del anunciante en formato Short; se contrata como formato independiente.
+- **No valen lo mismo:** cada formato requiere precio comercial independiente en **Resumen comercial y valores → Valores**. No inventar importes ni tratarlos como productos equivalentes.
+- **Rotación automática de creatividades** es un **adicional** al formato contratado y **no sustituye** el precio de imagen, carrusel propio ni Short. Se mantienen las condiciones acordadas para rotar 2–3 imágenes individuales o 2–3 carruseles propios; no extrapolar aún al Short sin definirlo expresamente.
+- **Unidad publicitaria / módulo contratado:** se contrata una unidad de un formato (imagen individual, carrusel propio o Short), y pueden adquirirse varias unidades; por ejemplo, dos unidades duplican la cantidad de ese componente contratado. Los tres formatos pueden combinarse según contratación. **No convertir una cantidad de unidades en una garantía de espacios simultáneos, posiciones fijas ni impresiones:** la exhibición respeta las reglas de relevancia, nivel, espacios disponibles y rotación ordinaria ya documentadas.
+- **Límites máximos de unidades contratables:** todavía no acordados; no establecer un máximo arbitrario.
+
+### Cambio posterior de presentación pública (pendiente de implementar)
+
+En **Planes y servicios**, sumar una síntesis legible, alimentada por **los parámetros reales vigentes de las funcionalidades** y sus valores comerciales, sin duplicar otro catálogo de cupos ni fijar cantidades manuales desactualizables:
+
+- **Eventos Free:** indicar que es **gratuito** y sintetizar los límites existentes, por ejemplo **hasta 2 eventos simultáneos y 4 altas por mes**, si esos siguen siendo los valores configurados.
+- **Eventos VIP:** mostrar cupo de eventos simultáneos y, si existe una cuota mensual definida en parámetros, esa cuota. **No inventar una cuota mensual cuando no esté parametrizada**.
+- **Actividades y Promociones:** mostrar cupos simultáneos y demás límites comerciales pertinentes (y mensuales solamente si existen como parámetros efectivos).
+- **Publicidad:** explicar la unidad publicitaria y los tres formatos diferenciados: **una imagen individual en carrusel compartido**, **un carrusel propio de 3 a 5 imágenes** o **un Short**; aclarar que la cantidad de unidades contratadas escala lo adquirido, mientras la exhibición se rige por distribución. No prometer un lugar fijo.
+- La implementación de esta síntesis corresponde a una tarea posterior: **no modificar ahora Planes y servicios mientras se cargan los valores**.
+
+**Estado:** definiciones registradas para ventas y desarrollo; sin cambios de Worker, HTML, importes ni contratos.
