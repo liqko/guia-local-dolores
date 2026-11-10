@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareCityBooks } from '../../scripts/preparar-paquete-ciudad.mjs';
+import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-ciudad.mjs';
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
 const source = await readFile(new URL('../../worker/worker169_paquete_gran_hermano.txt', import.meta.url), 'utf8');
@@ -148,7 +149,21 @@ test('un solo lote por ciudad combina las seis familias y conserva la separació
     initial.push({city,revision:1,modules});
     batches.push({city,from:1,revision:2,changes});
   }
-  const manifest=await prepareCityBooks({initial,batches},stage);
+  const published = await mkdtemp(join(tmpdir(),'corte-publicado-'));
+  t.after(() => rm(published,{recursive:true,force:true}));
+  await mkdir(join(published,'plataforma'));
+  await writeFile(join(published,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
+  const oldManifest = await prepareCityBooks({initial,batches:[]},published);
+  const previous = {cutoff:ultimoCorte(beforeCut),manifest:oldManifest};
+  const readAt = root => async path => JSON.parse(await readFile(join(root,path)));
+  const {changed,manifest,cutoff} = await aplicarCorte({
+    previous,
+    source:{after:previous.cutoff,cutoff:ultimoCorte(afterCut),complete:true,cities:batches},
+    readPublished:readAt(published),
+    stage,
+  });
+  assert.equal(changed,true);
+  assert.equal(cutoff,Date.parse('2026-11-11T04:00:00Z'));
   for(const [city,expected] of [
     ['DOLORES',Object.keys(sources)],
     ['BALCARCE',['events','activities']],
@@ -160,4 +175,33 @@ test('un solo lote por ciudad combina las seis familias y conserva la separació
     assert.equal(Object.keys(full.modules).length,6);
     assert.ok(Object.values(delta.changes).every(change=>change.upsert[0].nombre===city+' actualizado'));
   }
+
+  const nextDay = ultimoCorte(afterCut + 86400000);
+  const previousCut = {cutoff,manifest};
+  const noFetch = async () => assert.fail('Un corte sin cambios no debe leer paquetes');
+  const empty = await aplicarCorte({
+    previous:previousCut,source:{after:cutoff,cutoff:nextDay,complete:true,cities:[]},
+    readPublished:noFetch,stage,
+  });
+  assert.equal(empty.changed,false);
+  assert.equal(empty.cutoff,nextDay);
+  await assert.rejects(aplicarCorte({
+    previous:previousCut,source:{after:cutoff,cutoff:nextDay,complete:false,cities:[]},
+    readPublished:noFetch,stage,
+  }),/Corte incompleto/);
+
+  const later = await mkdtemp(join(tmpdir(),'corte-siguiente-'));
+  t.after(() => rm(later,{recursive:true,force:true}));
+  await mkdir(join(later,'plataforma'));
+  await writeFile(join(later,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
+  const nextSource = {after:cutoff,cutoff:nextDay,complete:true,cities:[
+    {city:'BALCARCE',changes:{events:{upsert:[],remove:['compartido']}}},
+  ]};
+  const result = await aplicarCorte({previous:previousCut,source:nextSource,readPublished:readAt(stage),stage:later});
+  assert.equal(result.manifest.DOLORES.revision,2);
+  assert.equal(result.manifest.BALCARCE.revision,3);
+  const prefix = join(later,'plataforma','paquetes-ciudad',result.manifest.BALCARCE.key);
+  const combined = JSON.parse(await readFile(join(prefix,'cambios-1-3.json')));
+  assert.deepEqual(combined.changes.events.remove,['compartido']);
+  assert.equal(combined.changes.activities.upsert[0].nombre,'BALCARCE actualizado');
 });
