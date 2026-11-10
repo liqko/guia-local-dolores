@@ -30,12 +30,29 @@ function quote(){
   if(value===null)missing=true;else total+=value;
   units++;
  }
+ const addOns=packet?.precios_detalle?.adicionales||{};
+ const selectedExtras=[];
+ for(const [id,item] of Object.entries(addOns)){
+  const field=additional.querySelector('[data-sim-extra="'+id+'"]');
+  if(!field)continue;
+  const qty=Number(field.value||0);
+  if(!Number.isSafeInteger(qty)||qty<0||qty>100){missing=true;continue;}
+  if(qty>0)selectedExtras.push([id,item,qty]);
+ }
  for(const [key,label] of [...labels,...publicityFormats.map(([id,title])=>[id,'Publicidad · '+title])]){
   const el=additional.querySelector('[data-sim-key="'+key+'"]');
   const qty=Number(el?.value||0);
   if(!Number.isSafeInteger(qty)||qty<0||qty>100){missing=true;continue;}
   if(!qty)continue;
   const item=packet?.precios_detalle?.funcionalidades?.[key],value=cost(item);
+  lines.push(label+' x '+qty);
+  details.push(label+' × '+qty+': '+(value===null?'consultar precio':ars(value*qty)));
+  if(value===null)missing=true;else total+=value*qty;
+  units+=qty;
+ }
+ for(const [id,item,qty] of selectedExtras){
+  const value=Number.isSafeInteger(item.importe)&&item.importe>=0?item.importe:null;
+  const label='Adicional · '+item.nombre;
   lines.push(label+' x '+qty);
   details.push(label+' × '+qty+': '+(value===null?'consultar precio':ars(value*qty)));
   if(value===null)missing=true;else total+=value*qty;
@@ -87,6 +104,22 @@ function render(data){
   for(const [key,label,description] of publicityFormats)addQuantity(key,label,group,description);
   additional.append(group);
  }
+ const extras=Object.entries(packet?.precios_detalle?.adicionales||{});
+ if(extras.length){
+  const group=document.createElement('fieldset');group.style.cssText='border:1px solid #dae3e7;border-radius:10px;margin:12px 0;padding:12px;min-width:0;';
+  const legend=document.createElement('legend');legend.textContent='Adicionales opcionales';legend.style.fontWeight='800';group.append(legend);
+  for(const [key,item] of extras){
+   const holder=document.createElement('label');holder.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:14px;margin:8px 0;';
+   const info=document.createElement('span');
+   const title=document.createElement('strong');title.textContent=item.nombre;info.append(title);
+   const description=document.createElement('small');description.className='muted';description.style.display='block';description.textContent=item.descripcion||'';info.append(description);
+   const price=document.createElement('small');price.style.display='block';price.textContent=Number.isSafeInteger(item.importe)?ars(item.importe)+' por unidad':'Precio a consultar';info.append(price);
+   const input=document.createElement('input');input.type='number';input.min='0';input.max='100';input.step='1';input.value='0';input.dataset.simExtra=key;
+   input.setAttribute('aria-label','Cantidad de '+item.nombre);input.style.cssText='width:85px;padding:9px;border:1px solid #dae3e7;border-radius:8px;flex-shrink:0;';
+   holder.append(info,input);group.append(holder);
+  }
+  additional.append(group);
+ }
  if(!packet?.precios_detalle){
   const alert=document.createElement('p');alert.className='muted';alert.textContent='Aún no están disponibles los importes públicos para estimar el costo completo.';additional.append(alert);
  }
@@ -94,6 +127,6 @@ function render(data){
 }
 select.addEventListener('change',quote);
 additional.addEventListener('input',quote);
-reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key]').forEach(el=>el.value='0');quote();});
+reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key],[data-sim-extra]').forEach(el=>el.value='0');quote();});
 window.GLD_SIMULADOR_PUBLICO={render};
 })();
