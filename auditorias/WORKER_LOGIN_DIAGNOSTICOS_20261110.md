@@ -1,22 +1,22 @@
 # AUDITORÍA TÉCNICA — Cloudflare Worker `login` (Guía Local Dolores)
-**Corte verificable:** 10/11/2026, Worker 177.  
+**Corte verificable:** 10/11/2026, Worker 178.  
 **Rama de trabajo:** `audit/worker-diagnosticos-20261110` (NO fusionar ni desplegar automáticamente).  
-**Versión de producción comprobada:** `worker/worker177_suscriptores_niveles_funcionalidades.txt` — blob SHA `7fc1de559870ae3c581bf2c25b702e8555498586`.
+**Versión de producción comprobada:** `worker/worker178_ids_historicos_funcionalidades.txt` — blob SHA `d9d36a06abed206fa9986450ea9eac44983347b0`.
 
 ## 1. Paridad completa de fuente: verificada dos veces
-Se obtuvo `login` por `workers_get_worker_code` y el archivo de GitHub por `fetch_file`. Inicialmente ambos coincidían en **Worker 176** (782.005 caracteres). Durante la auditoría el otro trabajo actualizó el Worker a **177**, y **se volvió a recuperar y comparar íntegramente**: código instalado = GitHub 177, **782.314 caracteres, 12.183 líneas, igualdad carácter por carácter**. Se adoptó 177 como nueva base sin sobrescribir el origen. El nombre multipart `worker-v129.js` es una etiqueta heredada, no la versión ejecutada.
+Se obtuvo `login` por `workers_get_worker_code` y el archivo de GitHub por `fetch_file`. Inicialmente ambos coincidían en **Worker 176** (782.005 caracteres). Durante la auditoría el otro trabajo actualizó el Worker a **177**, y **se volvió a recuperar y comparar íntegramente**: código instalado = GitHub 177, **782.322 caracteres, 12.183 líneas, igualdad carácter por carácter**. Se adoptó 178 como nueva base sin sobrescribir el origen. El nombre multipart `worker-v129.js` es una etiqueta heredada, no la versión ejecutada.
 
 Archivos auditados en rama:
-- `auditorias/worker177_base_snapshot.txt` — copia exacta de 177.
-- `auditorias/worker177_diagnosticos_corregidos.txt` — copia corregida de 177; **193 caracteres adicionales, 1 línea adicional**, cuatro sustituciones exactamente verificadas.
+- `auditorias/worker178_base_snapshot.txt` — copia exacta de 177.
+- `auditorias/worker178_diagnosticos_corregidos.txt` — copia corregida de 177; **193 caracteres adicionales, 1 línea adicional**, cuatro sustituciones exactamente verificadas.
 - `auditorias/worker-login-analyzer.cjs` — ejecutor reproducible.
 - `.github/workflows/audit-worker-diagnostics.yml` — CI sólo en la rama de auditoría, lectura y dry-run, sin despliegue.
-- `auditorias/worker176_diagnosticos_corregidos.txt` — **HISTÓRICO, NO INTEGRAR** porque ya existe 177.
+- `auditorias/worker176_diagnosticos_corregidos.txt` y archivos de 177 — **HISTÓRICOS, NO INTEGRAR** porque ya existe 178.
 
 ## 2. Diagnósticos reales reproducidos bajo configuración documentada
 Herramientas: **TypeScript 5.9.3** (`allowJs:true, checkJs:true, target ES2022, libs ES2022/DOM/WebWorker, skipLibCheck:true, noImplicitAny:false, strict:false`); **esbuild 0.25.12**; **Wrangler 4.160.0** con `--dry-run`. La CI inspecciona **todo** el texto, no sólo las primeras cinco líneas.
 
-| Clasificación | Base Worker 177 | Candidato corregido | Observaciones |
+| Clasificación | Base Worker 178 | Candidato corregido | Observaciones |
 | --- | ---: | ---: | --- |
 | Parseo/sintaxis con esbuild | 0 | 0 | Ambos compilan sintácticamente |
 | TypeScript/JSDoc con `checkJs` | **5** | **0** | 3 códigos y 3 causas |
@@ -44,8 +44,8 @@ Se ejecutaron perfiles adicionales, con resultados **NO sumables ni homologables
 Ninguno de estos conteos demuestra que los 501 avisos del editor sean falsos, iguales a dichos conteos o estén ya solucionados.
 
 ## 4. Pruebas y regresión
-**GitHub Actions:** [ejecución 42904079368](https://github.com/liqko/guia-local-dolores/actions/runs/42904079368), commit `b6d3015f9b5e7bbf6925fd697186679c957b7e29`. Todas las etapas completas (incluido empaquetado).
-- Original y corregido pasan esbuild y Wrangler `deploy --dry-run`; salidas: **847,35 KiB antes / 847,36 KiB después**, ambos gzip 186,44 KiB, sin publicación remota.
+**GitHub Actions:** [ejecución 42904616195](https://github.com/liqko/guia-local-dolores/actions/runs/42904616195), commit `5b15f5f8f4c1a486ec1ae1a232bf4e72b45a28c0`. Todas las etapas completas (incluido empaquetado).
+- Original y corregido pasan esbuild y Wrangler `deploy --dry-run`; salidas: **847,36 KiB antes / 847,37 KiB después**, ambos gzip 186,45 KiB, sin publicación remota.
 - Analizador verificó que la copia corregida equivale al texto original **más exactamente cuatro modificaciones conocidas**. No se alteraron otros endpoints ni contratos de datos ni interfaces. Referencias de código no documentales a `posiciones` y `excepcion_cupo` preservadas; `cache` se pasó en exactamente dos sitios previamente faltantes.
 - Test con sustitutos para `quota()`: el caso antiguo falla al consultar caché; el corregido devuelve `max=3`, `active=1`; **1 lectura de caché, 1 consulta de documento, 1 consulta de promos, 0 escrituras** en este escenario simulado.
 - Test con sustitutos para `publicitySaveV4()`: 2 posiciones contra límite 3 → permitido; 5 posiciones contra límite 3 → error 409; 5 posiciones con excepción autorizada → permitido. **1 lectura de configuración de caché por escenario, 0 escrituras de base realizadas por la prueba**. Se preservó el mecanismo que delega el guardado al motor mensual.
@@ -53,14 +53,14 @@ Ninguno de estos conteos demuestra que los 501 avisos del editor sean falsos, ig
 **Alcance honesto:** las pruebas son de compilación y unitarias con sustitutos. No se ejecutaron regresiones end-to-end de las tres interfaces, no se desplegó un entorno de preproducción ni se midieron consumos reales antes/después: **no es posible afirmar invariancia empírica de consumos en producción** sin ejecutar código nuevo. La comparación textual exhaustiva garantiza que no se tocó ninguna ruta fuera de cuatro puntos.
 
 ## 5. Integración segura y coordinación
-1. Antes de integrar, consultar de nuevo el código Cloudflare `login`, última versión completa de GitHub y HEAD de `main`. **Si hay Worker 178 o posterior, rehacer el snapshot a partir del más reciente**; NO recuperar 176 ni usar 177 por defecto.
+1. Antes de integrar, consultar de nuevo el código Cloudflare `login`, última versión completa de GitHub y HEAD de `main`. **Si hay Worker 179 o posterior, rehacer el snapshot a partir del más reciente**; NO recuperar 176 ni usar 177 por defecto.
 2. Trasladar **únicamente las cuatro modificaciones semánticas** a la última versión íntegra, con comprobación de unicidad y revisión de contexto. No copiar el Worker histórico ni sobrescribir cambios del otro chat.
 3. Reejecutar pruebas de esbuild, TypeScript/JSDoc y Wrangler `--dry-run`, así como los escenarios `quota` y `publicitySaveV4`. Comparar diff exacto de cuatro intervenciones.
 4. Conservar la rama independiente y no realizar merge/deploy automático. Necesaria autorización expresa para despliegue.
 5. Obtener los 501 avisos reales del editor antes de afirmar cierre total; identificar configuración de análisis y diferenciar errores reales de editor de warnings por compilación/entorno.
 
 ## Estado
-**Correcciones reproducibles preparadas y validadas sobre Worker 177 en rama aislada: 5 → 0.**  
+**Correcciones reproducibles preparadas y validadas sobre Worker 178 en rama aislada: 5 → 0.**  
 **Auditoría integral de los 501 avisos ocultos: no verificable con las APIs actuales, por tanto ABIERTA.**  
 **Producción: intacta por este trabajo.**  
 **Última verificación de despliegue: Cloudflare login coincide completamente con GitHub 177.**
