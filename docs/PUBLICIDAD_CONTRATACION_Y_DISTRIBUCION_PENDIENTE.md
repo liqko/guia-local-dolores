@@ -201,3 +201,12 @@ Los **dos ejes de ampliación de cobertura** por definir comercialmente son:
 - **Importes ilustrativos, NO aprobados:** $1.000 por ciudad; dos adicionales $2.000, tres $3.000; una región de veinte ciudades podría negociarse en $10.000. Estos ejemplos explican la modalidad, **no son tarifas fijadas**.
 
 **No crear adicional por categorías:** la distribución por relevancia de búsqueda o categoría forma parte de la publicidad general. **No se establecieron todavía** tarifas por funcionalidad ni por ciudad, ni se implementó selección granular de cobertura en contratos: una descripción comercial guardada en el catálogo de adicionales no equivale a una asignación técnica de cobertura.
+
+
+## Cobertura publicitaria por funcionalidades de exhibición · 10/11/2026
+
+**Decisión expresa más reciente:** la **Guía** es el entorno base de la publicidad contratada. A noviembre de 2026, los únicos destinos adicionales contratables son **Eventos** y **Actividades**. **Promociones queda excluida**: no se vende exhibición publicitaria en Promociones. La relevancia en categorías/búsquedas está incluida en publicidad general, sin costo extra.
+
+**Facturación:** el adicional «Ampliación de cobertura por funcionalidades» tiene un **precio unitario por funcionalidad de exhibición agregada**. Se deben elegir destinos concretos y calcular el cargo como cantidad de destinos seleccionados × precio unitario, aplicando el descuento propio del adicional si existe. No permitir ingresar cantidades arbitrarias desligadas de destinos. Elegir Eventos y Actividades son dos unidades. Se requiere la contratación de al menos un formato de publicidad.
+
+**Implementación preparada:** en Valores → Adicionales, marcar la **modalidad de cobro «Por funcionalidad de exhibición adicional»** en el adicional de cobertura existente, asociado a Publicidad. Las dos calculadoras despliegan los destinos elegibles suministrados por el Worker. El catálogo central en Worker 183 ofrece Eventos y Actividades, lo que evita duplicar opciones entre calculadoras; en futuras versiones deberá integrarse con la configuración de habilitación general de funcionalidades, sin permitir automáticamente destinos incompatibles. **No asumir que está desplegado**: es imprescindible instalar Worker 183 antes de guardar la nueva modalidad en Valores, ya que Workers anteriores no conocen ese campo. No se inventan importes.
