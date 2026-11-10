@@ -10486,6 +10486,9 @@ async function routeEmpleo109(/** @type {any} */ ctx){
  }
  if(path!=='/empleo'||request.method!=='POST')throw httpError('Operación no disponible.',405);
  const action=String(body.action||''),data=body.payload||{},version=await db.getVersioned('empleos',owner.record),current=version.doc,now=Date.now(),iso=new Date(now).toISOString();
+ const empleoGeneral170=gldFuncRules166(await gldFuncPacket166(cache,db,false),'EMPLEO');
+ const empleoAdmin170=owner.aid?await db.get('anunciantes_administracion',owner.aid):null;
+ const empleoCfg170=empleoAdmin170?.funcionalidades_config?.EMPLEO||{};
  if(!['guardar','renovar','pausar','eliminar'].includes(action))throw httpError('Acción inválida.',400);
  if(current?.revision_definitiva&&action!=='eliminar'&&!(action==='renovar'&&Date.parse(current.hasta)<=now))throw httpError('Esta publicación quedó bloqueada definitivamente.',403);
  let next;
@@ -10495,6 +10498,7 @@ async function routeEmpleo109(/** @type {any} */ ctx){
   if(current.eliminado&&action==='pausar')throw httpError('La publicación está eliminada.',409);
   if(!next.pausado&&Date.parse(current.hasta)<=now)throw httpError('La publicación venció. Renovala para volver a mostrarla.',409);
   if(next.pausado===current.pausado&&next.eliminado===current.eliminado)return json({success:true,sin_cambios:true,publicacion:current});
+  if(action==='pausar'&&next.pausado!==current.pausado)next.control_cambios170=gldControlEdicion170(current,empleoGeneral170,empleoCfg170,true);
  }else{
   if(body.declaracion_publicacion?.aceptada!==true||body.declaracion_publicacion.version!==PUBLICATION_TERMS_V77)throw httpError('Aceptá los términos y la declaración de responsabilidad.',400);
   const catalogs=await cache.get('admin:catalogs:v2');if(!Array.isArray(catalogs?.moderacion_18))throw httpError('Las reglas de moderación no están disponibles. Reintentá más tarde.',503);
@@ -10511,11 +10515,17 @@ async function routeEmpleo109(/** @type {any} */ ctx){
   const sedeId=text('sede_id',180);let sede=null;if(sedeId){if(!aid)throw httpError('La selección de sede corresponde a un anunciante.',400);sede=await empRead109(ctx).get('anunciantes_sedes',sedeId);if(!sede||String(sede.anunciante_id)!==aid)throw httpError('La sede no pertenece a este anunciante.',403);}
   const conditions=text('condiciones_url',1000);if(conditions){let u;try{u=new URL(conditions);}catch{throw httpError('Indicá un enlace válido al PDF de condiciones en Drive.',400);}if(type!=='CONCESION'||u.protocol!=='https:'||u.hostname!=='drive.google.com'||u.username||u.password||u.port||!/^\/(?:file\/d\/[^/]+|open|uc)(?:\/|$)/.test(u.pathname))throw httpError('Usá un enlace de archivo de Google Drive, solo para concesiones.',400);}
   const fields={sede_id:sedeId,sede_nombre:sede?String(sede.nombre_sede||''):'',condiciones_url:conditions,tipo:type,nombre:text('nombre',100),puesto:text('puesto',80),titulo:text('puesto',80),area:text('area',60),descripcion:text('descripcion',1000),modalidad:text('modalidad',20),disponibilidad:text('disponibilidad',30),tags,ciudad_id:city,ciudad_ids:coverage,contacto:contact,contenido_adulto:adultFlag(data.contenido_adulto)};
+  const maxTitulo170=gldValorParticular168(empleoGeneral170,empleoCfg170,'titulo_max',null);
+  const maxDescripcion170=gldValorParticular168(empleoGeneral170,empleoCfg170,'descripcion_max',null);
+  if(Number.isSafeInteger(maxTitulo170)&&maxTitulo170>=0&&fields.puesto.length>maxTitulo170)throw httpError('El título supera el límite configurado.',400);
+  if(Number.isSafeInteger(maxDescripcion170)&&maxDescripcion170>=0&&fields.descripcion.length>maxDescripcion170)throw httpError('La descripción supera el límite configurado.',400);
   if(!fields.nombre||!fields.puesto||!fields.descripcion||!EMP_AREAS109.includes(fields.area)||!['PRESENCIAL','REMOTO','MIXTO'].includes(fields.modalidad)||!['COMPLETA','PARCIAL','POR_HORAS','A_CONVENIR'].includes(fields.disponibilidad))throw httpError('Completá nombre público, puesto, rubro, descripción, modalidad y disponibilidad.',400);
   const same=current&&Object.entries(fields).every((/** @type {any} */ [k,v])=>JSON.stringify(v)===JSON.stringify(current[k]));if(same&&action==='guardar')return json({success:true,sin_cambios:true,publicacion:current});
   if(current&&action==='guardar'&&current.ediciones>=1)throw httpError('Ya utilizaste la única modificación de este período de 30 días.',409);
   const newCycle=!current||action==='renovar',policy=publicationPolicyV77({...fields,nombre:fields.nombre+' '+fields.puesto},catalogs.moderacion_18);
-  next={...(current||{}),...fields,record_id:owner.record,empleo_id:newCycle?owner.record+'__'+crypto.randomUUID():current.empleo_id,owner_type:owner.kind,owner_id:owner.owner,suscriptor_id:owner.session.sid,anunciante_id:owner.aid,desde:newCycle?iso:current.desde,hasta:newCycle?new Date(now+30*86400000).toISOString():current.hasta,ediciones:newCycle?0:current.ediciones+1,eliminado:false,pausado:newCycle?false:current.pausado,revision_definitiva:false,...policy,aprobado:policy.estado_moderacion!=='PENDIENTE',declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:owner.session.sid,fecha:iso}};
+  const employmentDuration170=gldValorParticular168(empleoGeneral170,empleoCfg170,'vigencia_dias',30);
+  next={...(current||{}),...fields,record_id:owner.record,empleo_id:newCycle?owner.record+'__'+crypto.randomUUID():current.empleo_id,owner_type:owner.kind,owner_id:owner.owner,suscriptor_id:owner.session.sid,anunciante_id:owner.aid,desde:newCycle?iso:current.desde,hasta:newCycle?new Date(now+employmentDuration170*86400000).toISOString():current.hasta,ediciones:newCycle?0:current.ediciones+1,eliminado:false,pausado:newCycle?false:current.pausado,revision_definitiva:false,...policy,aprobado:policy.estado_moderacion!=='PENDIENTE',declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:owner.session.sid,fecha:iso}};
+  if(current&&action==='guardar')next.control_cambios170=gldControlEdicion170(current,empleoGeneral170,empleoCfg170,false);
  }
  next.actualizado_en=iso;
  const [saved]=await db.commitPatches([{collection:'empleos',id:owner.record,before:current,patch:next,options:current?{updateTime:version.updateTime}:{mustNotExist:true}}]);
