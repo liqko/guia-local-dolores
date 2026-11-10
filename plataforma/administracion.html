@@ -244,16 +244,6 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <div class="card">
    <h3>Configuración comercial · Gran Hermano</h3>
    <p class="muted">Acceso reservado a administración principal. Las secciones están preparadas para conectar con una configuración persistente y permisos del servidor.</p>
-   <details class="item" open id="ghNivelesFunc174"><summary><strong>Funcionalidades habilitadas por nivel</strong></summary>
-     <p>Regla general inicial: Eventos VIP, Actividades, Promociones, Publicidad y Empleo habilitados en niveles 5 y 6. Los niveles inferiores se habilitan únicamente mediante autorizaciones excepcionales registradas por anunciante. <strong>Eventos Free es gratuito y no forma parte de la contratación.</strong></p>
-     <div id="ghMatrizNivel174" style="overflow-x:auto">Consultá la configuración vigente para editarla.</div>
-     <div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-top:12px">
-       <button type="button" id="ghMatrizGuardar174" onclick="ghMatrizGuardar174()" disabled>Guardar habilitaciones por nivel</button>
-       <button type="button" class="sec" onclick="ghMatrizCargar174(true)">Actualizar matriz</button>
-       <span id="ghMatrizEstado174" role="status">Sin consultar.</span>
-     </div>
-     <p class="muted">Esta matriz prepara la política comercial; no revoca habilitaciones ya concedidas ni activa derechos en los paneles. La aplicación obligatoria y las excepciones individuales deben resolverse en el servidor antes de habilitarlas.</p>
-   </details>
    <details class="item" open><summary><strong>Coeficientes de paquetes</strong></summary>
     <p>Matriz provisional: descuento sobre el subtotal de niveles y funcionalidades base. Las columnas cuentan funcionalidades distintas, no sus adicionales. Antes de usar esta tabla como precio final de una contratación que incluya rotación, formatos o cobertura adicional, hay que incorporar sus tarifas y coeficientes específicos.</p>
     <p class="muted">Dejá vacío un coeficiente que todavía no definiste. El vendedor no podrá presupuestar esa combinación como importe definitivo.</p>
@@ -2034,7 +2024,11 @@ function ghFuncReglasHtml166(id,config){
  if(config.ediciones_max!==undefined&&config.ediciones_max!==null)parts.push('<input type="hidden" data-func-regla="'+esc(id)+'" data-func-key="ediciones_max" value="'+esc(config.ediciones_max)+'">');
  const base=parts.length?'<fieldset style="margin-top:10px;border:1px solid #45515a;border-radius:9px;padding:14px"><legend>Parámetros</legend><div style="display:grid;gap:12px">'+parts.join('')+'</div></fieldset>':'';
  const checked=config.admite_excepciones!==false?'checked':'';
- return base+'<label style="display:inline-flex!important;align-items:center!important;flex-direction:row!important;gap:8px;margin-top:12px"><input type="checkbox" style="width:18px!important;height:18px!important;min-width:18px!important;margin:0!important;flex:0 0 auto" data-func-exceptions="'+esc(id)+'" '+checked+'> Admite excepciones</label>';
+ const selected=Array.isArray(config.niveles_habilitados)?config.niveles_habilitados.map(Number):id==='EVENTOS_FREE'?[1,2,3,4,5,6]:[5,6];
+ const levels='<fieldset style="margin-top:10px;border:1px solid #45515a;border-radius:9px;padding:14px"><legend>Niveles habilitados</legend><div style="display:flex;flex-wrap:wrap;gap:14px">'+
+  Array.from({length:6},(_,i)=>{const n=i+1;return '<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" style="width:18px" data-func-nivel="'+esc(id)+'" value="'+n+'" '+(selected.includes(n)?'checked':'')+'> '+n+'</label>';}).join('')+
+  '</div><small>Regla general. Las excepciones se autorizan por anunciante y no modifican estos niveles.</small></fieldset>';
+ return levels+base+'<label style="display:inline-flex!important;align-items:center!important;flex-direction:row!important;gap:8px;margin-top:12px"><input type="checkbox" style="width:18px!important;height:18px!important;min-width:18px!important;margin:0!important;flex:0 0 auto" data-func-exceptions="'+esc(id)+'" '+checked+'> Admite excepciones</label>';
 }
 function ghRenderFuncionesUnificadas166(box,rows){
  const value=GH_FUNC_GLOBAL166?.reglas||{};
@@ -2119,6 +2113,7 @@ async function ghRestaurarFunciones170(input){
    const name=el.querySelector('[data-func-name]');if(name&&typeof item.nombre==='string')name.value=item.nombre;
    const active=el.querySelector('[data-func-active]');if(active&&typeof item.activo==='boolean')active.checked=item.activo;
    const exceptions=el.querySelector('[data-func-exceptions]');if(exceptions&&typeof item.admite_excepciones==='boolean')exceptions.checked=item.admite_excepciones;
+   if(Array.isArray(item.niveles_habilitados))for(const cb of el.querySelectorAll('[data-func-nivel]'))cb.checked=item.niveles_habilitados.includes(Number(cb.value));
    for(const field of el.querySelectorAll('[data-func-key]')){
     if(!Object.prototype.hasOwnProperty.call(item.parametros,field.dataset.funcKey))continue;
     const v=item.parametros[field.dataset.funcKey];
@@ -2143,7 +2138,9 @@ async function ghGuardarFunciones166(){
    const id=el.dataset.funcItem,nom=el.querySelector('[data-func-name]'),act=el.querySelector('[data-func-active]');
    if(!['EVENTOS_FREE','EVENTOS','ACTIVIDADES','PROMOS','PUBLICIDAD','EMPLEO'].includes(id))continue;
    const originalName=String(GH_FUNC_GLOBAL166?.reglas?.[id]?.nombre||GH_CATALOG_CACHE.funcionalidades?.find(x=>['EVENTOS_FREE','EVENTOS','ACTIVIDADES','PROMOS','PUBLICIDAD','EMPLEO'].includes(id)&&String(x.funcionalidad_id||x.id||'')===id)?.nombre||({EVENTOS_FREE:'Eventos Free',EVENTOS:'Eventos VIP',ACTIVIDADES:'Actividades',PROMOS:'Promociones y descuentos',PUBLICIDAD:'Publicidad',EMPLEO:'Empleo'})[id]||id).trim();
-   const item={nombre:String(nom?.value||'').trim()||originalName,activo:!!act?.checked,admite_excepciones:!!el.querySelector('[data-func-exceptions]')?.checked};
+   const niveles=[...el.querySelectorAll('[data-func-nivel]:checked')].map(input=>Number(input.value)).sort((a,b)=>a-b);
+   if(niveles.some(n=>!Number.isInteger(n)||n<1||n>6)||new Set(niveles).size!==niveles.length)throw Error('Niveles inválidos en '+id);
+   const item={nombre:String(nom?.value||'').trim()||originalName,activo:!!act?.checked,admite_excepciones:!!el.querySelector('[data-func-exceptions]')?.checked,niveles_habilitados:niveles};
    for(const input of el.querySelectorAll('[data-func-regla]')){
     const key=input.dataset.funcKey;
     if(input.type==='checkbox'){item[key]=input.checked;continue;}
@@ -2507,7 +2504,6 @@ function ghVentasSelect172(tab){
  const valid=['calculadora','niveles','funcionalidades','valores','configuracion_comercial'];
  if(tab==='configuracion_comercial'&&GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')tab='calculadora';
  if(tab==='configuracion_comercial')ghCoefCargar173();
- if(tab==='configuracion_comercial')ghMatrizCargar174();
  if(!valid.includes(tab))tab='calculadora';
  document.querySelectorAll('#ghVentasTabs [data-venta-tab]').forEach(el=>{const active=el.dataset.ventaTab===tab;el.classList.toggle('active',active);el.setAttribute('aria-current',active?'page':'false')});
  document.querySelectorAll('#view-ventas [data-venta-pane]').forEach(el=>{el.hidden=el.dataset.ventaPane!==tab;el.style.display=el.hidden?'none':'block'});
@@ -2530,56 +2526,6 @@ function ghCotizarArmar171(){
  if(prev)sel.value=prev;
  host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
  ghCotizarRecalcular171();
-}
-let GH_MATRIZ_NIVEL174=null;
-const GH_MATRIZ_ITEMS174=[['EVENTOS','Eventos VIP'],['ACTIVIDADES','Actividades'],['PROMOS','Promociones'],['PUBLICIDAD','Publicidad'],['EMPLEO','Empleo']];
-async function ghMatrizCargar174(force=false){
- if(GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
- if(GH_MATRIZ_NIVEL174&&!force)return;
- const box=document.getElementById('ghMatrizNivel174'),status=document.getElementById('ghMatrizEstado174'),save=document.getElementById('ghMatrizGuardar174');
- if(!box||!status)return;
- status.textContent='Consultando habilitaciones…';save.disabled=true;
- try{
-  const j=await ghAdminRequest_('/sales/level-access');
-  if(!j.success||!j.levels||!Number.isSafeInteger(j.revision))throw Error('Respuesta incompleta.');
-  GH_MATRIZ_NIVEL174={revision:j.revision,levels:j.levels};
-  const head=Array.from({length:6},(_,i)=>'<th>Nivel '+(i+1)+'</th>').join('');
-  const rows=GH_MATRIZ_ITEMS174.map(([key,name])=>{
-   const cols=Array.from({length:6},(_,i)=>{
-    const n=String(i+1),on=j.levels[key]?.[n]===true;
-    return '<td><label style="display:flex;justify-content:center"><input type="checkbox" style="width:auto" data-gh-matriz-func="'+key+'" data-gh-matriz-nivel="'+n+'" '+(on?'checked':'')+' aria-label="'+esc(name)+' nivel '+n+'"></label></td>';
-   }).join('');
-   return '<tr><th scope="row">'+esc(name)+'</th>'+cols+'</tr>';
-  }).join('');
-  box.innerHTML='<table><thead><tr><th>Funcionalidad</th>'+head+'</tr></thead><tbody>'+rows+'</tbody></table><p class="muted">Eventos Free: gratuito, gestionado fuera de esta matriz.</p>';
-  status.textContent=j.configured?'Configuración guardada cargada.':'Se muestra la regla general 5 y 6; guardala si querés dejarla registrada.';
-  save.disabled=false;
- }catch(e){
-  GH_MATRIZ_NIVEL174=null;box.textContent='No se pudo confirmar la matriz vigente.';
-  status.textContent=String(e.message||e)+' · Requiere Worker 174.';
-  save.disabled=true;
- }
- informarAltura();
-}
-async function ghMatrizGuardar174(){
- const status=document.getElementById('ghMatrizEstado174'),btn=document.getElementById('ghMatrizGuardar174');
- if(!GH_MATRIZ_NIVEL174||GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
- const levels={};
- for(const [key] of GH_MATRIZ_ITEMS174){
-  levels[key]={};
-  for(let n=1;n<=6;n++){
-   const el=document.querySelector('[data-gh-matriz-func="'+key+'"][data-gh-matriz-nivel="'+n+'"]');
-   if(!el){status.textContent='La matriz está incompleta. No se guardó.';return;}
-   levels[key][String(n)]=el.checked;
-  }
- }
- btn.disabled=true;status.textContent='Guardando matriz…';
- try{
-  const j=await ghAdminRequest_('/sales/level-access',{revision:GH_MATRIZ_NIVEL174.revision,levels},'POST');
-  GH_MATRIZ_NIVEL174={revision:j.revision,levels};
-  status.textContent=j.updated?'Habilitaciones guardadas.':'Sin cambios; no se realizaron escrituras.';
- }catch(e){status.textContent='No se guardó: '+String(e.message||e);}
- finally{btn.disabled=false;}
 }
 let GH_COTIZA_SEQ173=0;
 let GH_COTIZA_TIMER173=0;
