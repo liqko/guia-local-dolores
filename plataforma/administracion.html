@@ -2016,7 +2016,7 @@ function ghRenderFuncionesUnificadas166(box,rows){
    '<label style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:auto;margin:0" data-func-active="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label>'+
    ghFuncReglasHtml166(id,params)+'</div></details>';
  }).join('')+
- '<div class="card" style="margin-top:18px"><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166?'disabled':'')+'>Guardar todas las funcionalidades</button> <span id="ghFuncEstado166" role="status">'+(GH_FUNC_GLOBAL166?'Una sola operación de guardado.':'Requiere el Worker con configuración general habilitada.')+'</span></div>';
+ '<div class="card" style="margin-top:18px"><label>Recuperar valores ya cargados (respaldo JSON)<input type="file" accept=".json,application/json" onchange="ghRestaurarFunciones170(this)"></label><p class="muted">Recupera los valores en esta pantalla; no escribe en el servidor hasta pulsar Guardar.</p><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166?'disabled':'')+'>Guardar todas las funcionalidades</button> <span id="ghFuncEstado166" role="status">'+(GH_FUNC_GLOBAL166?'Una sola operación de guardado.':'Requiere el Worker con configuración general habilitada.')+'</span></div>';
 }
 function ghNuevoFunc166(){
  const id=prompt('ID de la nueva funcionalidad (letras y guiones bajos):');
@@ -2035,6 +2035,34 @@ async function ghCargarFuncionesGlobal166(){
  const response=await ghAdminRequest_('/catalogs/functional-settings');
  if(!response?.success||!response?.reglas)throw Error('Falta el soporte del Worker para guardar reglas generales.');
  GH_FUNC_GLOBAL166={revision:response.revision,reglas:response.reglas};
+}
+async function ghRestaurarFunciones170(input){
+ const msg=document.getElementById('ghFuncEstado166');
+ const file=input?.files?.[0];if(!file)return;
+ try{
+  const data=JSON.parse(await file.text());
+  if(!Array.isArray(data)||data.length<1||data.length>150)throw Error('El archivo no contiene el respaldo esperado.');
+  const byId=new Map([...document.querySelectorAll('#cfgFuncionalidades [data-func-item]')].map(el=>[el.dataset.funcItem,el]));
+  let restored=0,values=0;
+  for(const item of data){
+   const id=String(item?.id||''),el=byId.get(id);
+   if(!el||!item.parametros||typeof item.parametros!=='object')continue;
+   const name=el.querySelector('[data-func-name]');if(name&&typeof item.nombre==='string')name.value=item.nombre;
+   const active=el.querySelector('[data-func-active]');if(active&&typeof item.activo==='boolean')active.checked=item.activo;
+   const exceptions=el.querySelector('[data-func-exceptions]');if(exceptions&&typeof item.admite_excepciones==='boolean')exceptions.checked=item.admite_excepciones;
+   for(const field of el.querySelectorAll('[data-func-key]')){
+    if(!Object.prototype.hasOwnProperty.call(item.parametros,field.dataset.funcKey))continue;
+    const v=item.parametros[field.dataset.funcKey];
+    if(field.type==='checkbox')field.checked=v===true||v==='true';
+    else if(v===null||v===undefined||v===''||Number.isSafeInteger(Number(v)))field.value=v??'';
+    values++;
+   }
+   restored++;
+  }
+  if(!restored)throw Error('No se encontraron funcionalidades coincidentes.');
+  if(msg)msg.textContent='Respaldo recuperado: '+restored+' funcionalidades, '+values+' parámetros. Revisá y guardá cuando el Worker sea compatible.';
+ }catch(e){if(msg)msg.textContent='No se importó: '+String(e.message||e)}
+ finally{input.value=''}
 }
 async function ghGuardarFunciones166(){
  const btn=document.getElementById('ghGuardarFunciones166'),msg=document.getElementById('ghFuncEstado166');
