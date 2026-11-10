@@ -609,12 +609,18 @@ async function publicitySaveMonthlyV101(/** @type {any} */ {db,cache,advertiserI
  const formato=text(data.formato??current?.formato).toUpperCase();
  if(!({IMAGEN:cfg.permite_imagen,CARRUSEL:cfg.permite_carrusel,SHORT:cfg.permite_short})[formato])throw httpError('El formato no está habilitado en tu contratación.',403);
  const media=Array.isArray(data.media)?data.media.map((/** @type {any} */ m,/** @type {number} */ i)=>({publicidad_id:id,media_id:id+':'+i,tipo_media:formato,url:text(m.url),poster:text(m.poster),orden:i+1,activo:true})):oldMedia;
- if(formato==='CARRUSEL'?(media.length<2||media.length>5):media.length!==1)throw httpError('Cargá una imagen o Short, o entre dos y cinco imágenes para un carrusel.',400);
+ const general170=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PUBLICIDAD');
+ const min170=gldValorParticular168(general170,cfg,'carrusel_imagenes_min',3),max170=gldValorParticular168(general170,cfg,'carrusel_imagenes_max',5);
+ if(formato==='CARRUSEL'?(media.length<min170||media.length>max170):media.length!==1)throw httpError('Cargá una imagen o Short, o entre '+min170+' y '+max170+' imágenes para un carrusel.',400);
  if(Array.isArray(data.media)||data.formato&&data.formato!==current?.formato)for(const m of media){let u;try{u=new URL(m.url);}catch{throw httpError('Ingresá un enlace válido para el contenido.',400);}if(!['https:','http:'].includes(u.protocol))throw httpError('El contenido debe usar un enlace http o https.',400);if(formato==='SHORT'){const vid=u.hostname==='youtu.be'?u.pathname.slice(1):u.searchParams.get('v')||u.pathname.match(/\/(?:shorts|embed)\/([^/?]+)/)?.[1];if(!['youtube.com','www.youtube.com','m.youtube.com','youtu.be'].includes(u.hostname)||!/^[A-Za-z0-9_-]{11}$/.test(vid||''))throw httpError('Ingresá un enlace de YouTube válido para el Short.',400);}}
  const segmentacion=await publicityScopeV101(cache,data,{segmentacion:oldSeg},cfg,id);
  const fields=['nombre_interno','titulo','cta_texto','cta_tipo','cta_destino','contenido_id'];
  const doc={...(current||{}),...(cfg.reglas_version===147?{contrato_version147:147}:{}),publicidad_id:id,anunciante_id:aid,formato,media,segmentacion,relaciones_version:2,legacy_children:!!current&&(current.legacy_children===true||current.relaciones_version!==2),nivel:cfg.nivel};
  for(const field of fields)doc[field]=text(data[field]??current?.[field]);
+ for(const [field,value]of [['titulo',doc.titulo],['cta_texto',doc.cta_texto]]){
+  const fieldKey=field==='titulo'?'titulo_max':'cta_texto_max',max=gldValorParticular168(general170,cfg,fieldKey,null);
+  if(Number.isSafeInteger(max)&&max>=0&&value.length>max)throw httpError('Supera el máximo de caracteres para '+field+'.',400);
+ }
  const locations150=(await cache.get(KEYS.publicidad))?.ubicaciones||[];
  const sections150=new Map(locations150.map(row=>[text(row.ubicacion_id||row.id),globalThis.GLD_AD_RULES147.section(row)]));
  if(segmentacion.some(row=>!advertisingPlacementAllowed154(sections150.get(row.ubicacion_id),doc.cta_tipo,cfg.nivel)))throw httpError('Elegí contenido propio de la funcionalidad contratada. La presencia general en Eventos y Actividades requiere nivel 6.',403);
@@ -685,6 +691,7 @@ async function publicitySaveMonthlyV101(/** @type {any} */ {db,cache,advertiserI
   if(!edits)publicityRenewV101(state,id,cfg);
   state.ediciones[id]=edits+1;
  }
+ if(current)doc.control_cambios170=gldControlEdicion170(current,general170,cfg,false);
  const now=new Date().toISOString();doc.creado=current?.creado||now;doc.actualizado=now;
  const context=db.publicationContext;
  if(!context)throw httpError('Confirmá los términos y la declaración de responsabilidad.',400);
@@ -715,7 +722,9 @@ async function publicityActiveMonthlyV101(/** @type {any} */ {db,cache,advertise
    if(!state.ediciones[id])publicityRenewV101(state,id,cfg);
    state.reactivaciones.push(id);
   }
-  changes.push({collection:'publicidades',id,before:p,patch:{...p,estado:active?'ACTIVA':'INACTIVA',actualizado:new Date().toISOString()},options:{updateTime:version.updateTime}});
+  const global170=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PUBLICIDAD');
+  const control170=gldControlEdicion170(p,global170,cfg,true);
+  changes.push({collection:'publicidades',id,before:p,patch:{...p,estado:active?'ACTIVA':'INACTIVA',control_cambios170:control170,actualizado:new Date().toISOString()},options:{updateTime:version.updateTime}});
  }
  if(!changes.length)return {success:true,sin_cambios:true,publicidades:own};
  state.activas=selected;
