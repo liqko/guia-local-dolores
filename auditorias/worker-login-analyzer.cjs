@@ -25,8 +25,8 @@ function exactPatches(){
 const flags={allowJs:true,checkJs:true,noEmit:true,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,
  moduleResolution:ts.ModuleResolutionKind.Node10,lib:['lib.es2022.d.ts','lib.dom.d.ts','lib.webworker.d.ts'],
  skipLibCheck:true,noImplicitAny:false,strict:false};
-function diagnose(file,checkJs){
- const prog=ts.createProgram([file],{...flags,checkJs});
+function diagnose(file,checkJs,extra={}){
+ const prog=ts.createProgram([file],{...flags,checkJs,...extra});
  return ts.getPreEmitDiagnostics(prog).map(d=>{
   const pos=d.file&&d.start!=null?d.file.getLineAndCharacterOfPosition(d.start):null;
   return {code:d.code,category:ts.DiagnosticCategory[d.category],line:pos?pos.line+1:null,
@@ -70,16 +70,26 @@ async function main(){
   const check=diagnose(file,true),noCheck=diagnose(file,false);
   report.diagnostics[name]={checkJsCount:check.length,noCheckJsCount:noCheck.length,groups:groups(check),all:check};
  }
+ report.additionalProfiles={};
+ for(const [label,opts] of [
+  ['noUnused',{noUnusedLocals:true,noUnusedParameters:true}],
+  ['strict',{strict:true}],
+  ['legacyTarget',{target:ts.ScriptTarget.ES5,lib:['lib.es5.d.ts','lib.dom.d.ts']}],
+  ['noSkipLibCheck',{skipLibCheck:false}]
+ ]){
+  const f='/tmp/gld-audit-before.js';const diagnostics=diagnose(f,true,opts);
+  report.additionalProfiles[label]={count:diagnostics.length,groups:groups(diagnostics),first20:diagnostics.slice(0,20)};
+ }
  report.regression={quotaCache:await mockQuota(),
    quotaCallsitesCorrect:fixed.includes('quota({ db, cache, advertiserId, cupoFromAdmin, excludeId: id4 })')&&fixed.includes("advertiserId:aid,cache,cupoFromAdmin:a=>cupo(a,'PROMOS'),excludeId:id});"),
    apiCodePreserved:report.exactFourPatches,
-   protectedReferenceCountsEqual:Object.keys(report.original.protected).every(k=>report.original.protected[k]===report.fixed.protected[k])
+   protectedReferencesExpected:report.original.protected.posiciones===report.fixed.protected.posiciones&&report.original.protected.excepcion_cupo===report.fixed.protected.excepcion_cupo&&report.fixed.protected.cache===report.original.protected.cache+2
  };
  fs.writeFileSync('worker-diagnostics.json',JSON.stringify(report,null,2));
- for(const key of ['source','exactFourPatches','original','fixed','syntax','diagnostics','regression']){
-  const val=key==='diagnostics'?Object.fromEntries(Object.entries(report.diagnostics).map(([k,v])=>[k,{checkJsCount:v.checkJsCount,noCheckJsCount:v.noCheckJsCount,groups:v.groups,all:v.all}])):report[key];
+ for(const key of ['source','exactFourPatches','original','fixed','syntax','diagnostics','additionalProfiles','regression']){
+  const val=key==='additionalProfiles'?Object.fromEntries(Object.entries(report.additionalProfiles).map(([k,v])=>[k,{count:v.count,groups:v.groups.slice(0,15),first20:v.first20.slice(0,5)}])):key==='diagnostics'?Object.fromEntries(Object.entries(report.diagnostics).map(([k,v])=>[k,{checkJsCount:v.checkJsCount,noCheckJsCount:v.noCheckJsCount,groups:v.groups,all:v.all}])):report[key];
   console.log(key.toUpperCase(),JSON.stringify(val));
  }
- if(!report.syntax.original.ok||!report.syntax.fixed.ok||report.diagnostics.after.checkJsCount||!report.regression.protectedReferenceCountsEqual)throw Error('Audit gate failed');
+ if(!report.syntax.original.ok||!report.syntax.fixed.ok||report.diagnostics.after.checkJsCount||!report.regression.protectedReferencesExpected)throw Error('Audit gate failed');
 }
 main().catch(e=>{console.error('AUDIT_FAILURE',e.stack||String(e));process.exitCode=1;});
