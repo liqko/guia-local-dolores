@@ -314,6 +314,27 @@ let GH_COUNTRIES=[];
 let GH_PROVINCES=[];
 let GH_CITY_STATS={};
 let GH_CATALOG_CACHE={};
+// Configuracion estable de Gran Hermano: un solo paquete en memoria por sesion.
+// El soporte se anuncia desde /superadmin/dashboard; Worker antiguo: sin solicitud extra.
+let GH_FIXED_SUPPORTED169=false,GH_FIXED_PACKET169=null,GH_FIXED_PROMISE169=null;
+function ghFixedLoad169(){
+ if(!GH_FIXED_SUPPORTED169)return Promise.resolve(null);
+ if(GH_FIXED_PACKET169)return Promise.resolve(GH_FIXED_PACKET169);
+ if(GH_FIXED_PROMISE169)return GH_FIXED_PROMISE169;
+ GH_FIXED_PROMISE169=ghAdminRequest_('/gh/fixed').then(j=>{
+  if(!j?.success||j.version!==169||!j.catalogos||!j.reglas)throw Error('Paquete de configuracion incompatible');
+  GH_FIXED_PACKET169=j;
+  for(const [tipo,rows] of Object.entries(j.catalogos))if(Array.isArray(rows))GH_CATALOG_CACHE[tipo]=rows;
+  GH_FUNC_GLOBAL166=j.reglas;
+  if(j.precios?.precios)GH_PRECIOS_ESTADO162=j.precios;
+  return j;
+ }).catch(e=>{
+  console.warn('Paquete fijo de Gran Hermano no disponible, se usa consulta individual:',e);
+  GH_FIXED_SUPPORTED169=false;
+  return null;
+ }).finally(()=>{GH_FIXED_PROMISE169=null;});
+ return GH_FIXED_PROMISE169;
+}
 
 function esc(v){
   return String(v??'').replace(/[&<>"']/g,c=>({
@@ -534,6 +555,8 @@ async function abrirApp(){
     if(!r.ok||!j.success) throw Object.assign(new Error(j.message||'No se pudo recuperar la cuenta.'),{status:r.status});
 
     ghApplyAccessV72();
+    GH_FIXED_SUPPORTED169=j.gh_fixed_packet_version===169;
+    if(GH_FIXED_SUPPORTED169)ghFixedLoad169();
     document.getElementById('ghSesionConexionEstado').textContent='';
     window.ghCalendarDashboardV83?.(j.cumpleanos);
     window.gldConsumoAdminV68?.(TOKEN);
@@ -1955,6 +1978,9 @@ function ghNuevoFunc166(){
  ghRenderCatalogo(GH_CATALOGOS.find(x=>x.tipo==='funcionalidades'),list);
 }
 async function ghCargarFuncionesGlobal166(){
+ if(GH_FUNC_GLOBAL166)return;
+ if(GH_FIXED_SUPPORTED169)await ghFixedLoad169();
+ if(GH_FUNC_GLOBAL166)return;
  const response=await ghAdminRequest_('/catalogs/functional-settings');
  if(!response?.success||!response?.reglas)throw Error('Falta el soporte del Worker para guardar reglas generales.');
  GH_FUNC_GLOBAL166={revision:response.revision,reglas:response.reglas};
@@ -1983,7 +2009,9 @@ async function ghGuardarFunciones166(){
   const result=await ghAdminRequest_('/catalogs/functional-settings',{revision:GH_FUNC_GLOBAL166.revision,reglas},'POST');
   if(!result?.success)throw Error('Guardado no confirmado');
   GH_FUNC_GLOBAL166={revision:result.revision,reglas};
+  if(GH_FIXED_PACKET169)GH_FIXED_PACKET169.reglas=GH_FUNC_GLOBAL166;
   GH_CATALOG_CACHE.funcionalidades=Object.entries(reglas).map(([funcionalidad_id,x])=>({funcionalidad_id,nombre:x.nombre,activo:x.activo}));
+  if(GH_FIXED_PACKET169?.catalogos)GH_FIXED_PACKET169.catalogos.funcionalidades=GH_CATALOG_CACHE.funcionalidades;
   ghRenderCatalogo(GH_CATALOGOS.find(d=>d.tipo==='funcionalidades'),GH_CATALOG_CACHE.funcionalidades);
   const status=document.getElementById('ghFuncEstado166');if(status)status.textContent=result.updated?'Configuración guardada en un único documento.':'Sin cambios: ninguna escritura.';
  }catch(e){msg.textContent='No se guardó: '+String(e.message||e)}
@@ -2084,13 +2112,27 @@ async function ghEliminarNivel(id){
   const r=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
   if(!r||r.success!==true)throw Error('Guardado no confirmado');
   GH_CATALOG_CACHE.niveles_anunciante=rows.map(x=>String(x.nivel_id||x.id||'')===String(id)?{...x,...item}:x);
+  if(GH_FIXED_PACKET169?.catalogos)GH_FIXED_PACKET169.catalogos.niveles_anunciante=GH_CATALOG_CACHE.niveles_anunciante;
   ghRenderCatalogo(GH_CATALOGOS.find(x=>x.tipo==='niveles_anunciante'),GH_CATALOG_CACHE.niveles_anunciante);
  }catch(e){alert('Error al eliminar: '+String(e.message||e));}
 }
 async function ghCargarCatalogo(def){
-  const box=document.getElementById(def.box);if(box)box.innerHTML='<div class="muted">Cargando...</div>';
-  try{const j=await api('listar_catalogo',{tipo:def.tipo});GH_CATALOG_CACHE[def.tipo]=j.results||[];if(def.tipo==='funcionalidades'){try{await ghCargarFuncionesGlobal166();}catch(e){GH_FUNC_GLOBAL166=null;}}ghRenderCatalogo(def,j.results||[]);if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(j.results||[]);ghRenderResumenNiveles108();}}
-  catch(e){if(box)box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
+ const box=document.getElementById(def.box);if(!box)return;
+ // No reconstruir formularios ya abiertos: preserva los cambios sin guardar.
+ if(Array.isArray(GH_CATALOG_CACHE[def.tipo])&&box.querySelector('.item'))return;
+ box.innerHTML='<div class="muted">Cargando...</div>';
+ try{
+  if(GH_FIXED_SUPPORTED169)await ghFixedLoad169();
+  if(!Array.isArray(GH_CATALOG_CACHE[def.tipo])){
+   const j=await api('listar_catalogo',{tipo:def.tipo});
+   GH_CATALOG_CACHE[def.tipo]=j.results||[];
+  }
+  if(def.tipo==='funcionalidades'&&!GH_FUNC_GLOBAL166){
+   try{await ghCargarFuncionesGlobal166()}catch(e){GH_FUNC_GLOBAL166=null}
+  }
+  ghRenderCatalogo(def,GH_CATALOG_CACHE[def.tipo]);
+  if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(GH_CATALOG_CACHE[def.tipo]);ghRenderResumenNiveles108();}
+ }catch(e){box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
 async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
 function ghNuevoCatalogo(tipo){
@@ -2115,6 +2157,7 @@ async function ghGuardarCatalogo(tipo,id){
     if(!result.success)throw Error('No se confirmó el guardado.');
     const updated={...(previous||{}),...item};
     GH_CATALOG_CACHE[tipo]=previous?(GH_CATALOG_CACHE[tipo]||[]).map(x=>String(x[def.idField]||x.id||'')===id?updated:x):[...(GH_CATALOG_CACHE[tipo]||[]),updated];
+    if(GH_FIXED_PACKET169?.catalogos)GH_FIXED_PACKET169.catalogos[tipo]=GH_CATALOG_CACHE[tipo];
     ghRenderCatalogo(def,GH_CATALOG_CACHE[tipo]);
     if(tipo==='niveles_anunciante'){ghCargaGeneralRender(GH_CATALOG_CACHE[tipo]);ghRenderResumenNiveles108();}
   }
@@ -2234,11 +2277,15 @@ async function ghGuardarTodosPrecios162(){
   const j=await ghAdminRequest_('/catalogs/prices',{precios,revision:GH_PRECIOS_ESTADO162.revision},'POST');
   if(!j.success)throw Error('El servidor no confirmó el guardado.');
   GH_PRECIOS_ESTADO162={precios,revision:j.revision};
+  if(GH_FIXED_PACKET169)GH_FIXED_PACKET169.precios=GH_PRECIOS_ESTADO162;
   status.textContent=j.updated?'Guardado confirmado: una escritura Firestore y una actualización de caché.':'No hubo modificaciones; ninguna escritura.';
  }catch(e){status.textContent='No se confirmó el guardado: '+String(e.message||e);}
  finally{boton.disabled=false;}
 }
 async function ghCargarPrecios162(){
+ if(GH_PRECIOS_ESTADO162)return;
+ if(GH_FIXED_SUPPORTED169)await ghFixedLoad169();
+ if(GH_PRECIOS_ESTADO162)return;
  const j=await ghAdminRequest_('/catalogs/prices');
  if(!j.success||!j.precios)throw Error('El catálogo de precios no está disponible.');
  GH_PRECIOS_ESTADO162={precios:j.precios,revision:j.revision};
