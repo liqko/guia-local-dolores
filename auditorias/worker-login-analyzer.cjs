@@ -61,6 +61,29 @@ async function mockQuota(){
  if(fixedCall.max!==3||fixedCall.active!==1||calls.cacheReads!==1||calls.dbGets!==1||calls.dbQueries!==1||calls.dbWrites!==0)throw Error('Mock quota regression failed');
  return {missingCacheError,fixedCall:{max:fixedCall.max,active:fixedCall.active},calls};
 }
+async function publicityRegression(){
+ const source=extractFunction(original,'publicitySaveV4');
+ const results=[];
+ for(const [label,positions,exceptionAllowed,shouldReject] of [
+  ['withinLimit',2,false,false],['overLimit',5,false,true],['exceptionAllowed',5,true,false]
+ ]){
+  const counts={packetReads:0,saveCalls:0,dbWrites:0};
+  const packet={reglas:{PUBLICIDAD:{admite_excepciones:true,posiciones_max:3}}};
+  const fakeCache={get:async()=>{counts.packetReads++;return packet;}};
+  const db={};
+  const ctx={gldFuncPacket166:async cache=>cache.get('func'),gldFuncRules166:p=>p.reglas.PUBLICIDAD,
+   publicitySaveMonthlyV101:async args=>{counts.saveCalls++;return {success:true,positions:args.config.posiciones};},
+   httpError:(msg,status)=>Object.assign(new Error(msg),{status})};
+  vm.runInNewContext(source+'\\nthis.fn=publicitySaveV4;',ctx);
+  let code=0,result;
+  try{result=await ctx.fn({db,cache:fakeCache,advertiserId:'TEST',body:{},config:{posiciones:positions,excepcion_cupo:exceptionAllowed}});}
+  catch(e){code=e.status||500;}
+  if(shouldReject ? !(code===409&&counts.saveCalls===0):!(code===0&&counts.saveCalls===1&&result.success))throw Error('Publicidad regression failed '+label);
+  if(counts.packetReads!==1||counts.dbWrites!==0)throw Error('Publicidad consumption regression failed '+label);
+  results.push({label,expectedReject:shouldReject,actualStatus:code||200,counts});
+ }
+ return results;
+}
 async function main(){
  const report={source:{original:originalPath,fixed:fixedPath},exactFourPatches:exactPatches(),
   original:lineStats(original),fixed:lineStats(fixed),syntax:{original:await syntax(original),fixed:await syntax(fixed)}};
@@ -80,7 +103,7 @@ async function main(){
   const f='/tmp/gld-audit-before.js';const diagnostics=diagnose(f,true,opts);
   report.additionalProfiles[label]={count:diagnostics.length,groups:groups(diagnostics),first20:diagnostics.slice(0,20)};
  }
- report.regression={quotaCache:await mockQuota(),
+ report.regression={quotaCache:await mockQuota(),publicity:await publicityRegression(),
    quotaCallsitesCorrect:fixed.includes('quota({ db, cache, advertiserId, cupoFromAdmin, excludeId: id4 })')&&fixed.includes("advertiserId:aid,cache,cupoFromAdmin:a=>cupo(a,'PROMOS'),excludeId:id});"),
    apiCodePreserved:report.exactFourPatches,
    protectedReferencesExpected:report.original.protected.posiciones===report.fixed.protected.posiciones&&report.original.protected.excepcion_cupo===report.fixed.protected.excepcion_cupo&&report.fixed.protected.cache===report.original.protected.cache+2
