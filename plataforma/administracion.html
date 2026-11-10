@@ -2376,6 +2376,7 @@ const GH_FUNCIONALIDADES_COMERCIALES=[
  ['publicidad','Publicidad']
 ];
 let GH_PRECIOS_ESTADO162=null;
+let GH_COBERTURA_DESTINOS183=[];
 const GH_PRECIOS_ESQUEMA162=['eventos_free','eventos_vip','actividades','promociones','publicidad_imagen','publicidad_carrusel','publicidad_short'];
 function ghValorMonetario162(key,kind){
  const item=GH_PRECIOS_ESTADO162?.precios?.[kind]?.[String(key)];
@@ -2443,11 +2444,23 @@ function ghAdRow176(id,row={}){
  '<label>Asociación<select data-ad-campo176="tipo" onchange="ghAdTipo176(this)"><option value="funcionalidad" '+(tipo==='funcionalidad'?'selected':'')+'>Funcionalidad</option><option value="nivel" '+(tipo==='nivel'?'selected':'')+'>Nivel</option></select></label>'+
  '<label>Corresponde a<select data-ad-campo176="asociacion">'+ghAdOpc176(tipo,String(row.asociacion_id||''))+'</select></label>'+
  '<label>Descripción<textarea data-ad-campo176="descripcion" maxlength="1500" rows="3">'+esc(row.descripcion||'')+'</textarea></label>'+
+ '<label>Modalidad de cobro<select data-ad-campo176="modalidad_cobro" onchange="ghAdModo183(this)"><option value="unidad" '+(row.modalidad_cobro!=='funcionalidad_destino'?'selected':'')+'>Por unidad contratada</option><option value="funcionalidad_destino" '+(row.modalidad_cobro==='funcionalidad_destino'?'selected':'')+'>Por funcionalidad de exhibición adicional</option></select></label>'+
+ '<p class="muted" data-gh-ad-modo-ayuda183>'+ (row.modalidad_cobro==='funcionalidad_destino'?'Cada destino seleccionado (Eventos o Actividades) suma una unidad. La Guía es la cobertura base; Promociones no admite esta ampliación.':'Cantidad de unidades contratadas.')+'</p>'+
  '<label>Importe ($ ARS)<input data-ad-campo176="importe" type="number" step="1" min="0" value="'+esc(row.importe??'')+'" placeholder="Sin definir"></label>'+
  '<label>Descuento opcional (%)<input data-ad-campo176="descuento_porcentaje" type="number" min="0" max="100" step="1" value="'+esc(row.descuento_porcentaje??'')+'" placeholder="Sin descuento"></label>'+
  '<label>Texto del descuento<input data-ad-campo176="descuento_texto" maxlength="120" value="'+esc(row.descuento_texto||'')+'" placeholder="Ej.: Promoción de lanzamiento"></label>'+
  '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:auto" data-ad-campo176="activo" '+(row.activo!==false?'checked':'')+'> Activo</label>'+
  '<p class="muted">Para retirarlo de la oferta, desactivá este adicional. No es necesario borrar su precio.</p></details>';
+}
+function ghAdModo183(field){
+ const row=field.closest('[data-adicional-id176]');if(!row)return;
+ const help=row.querySelector('[data-gh-ad-modo-ayuda183]');
+ if(help)help.textContent=field.value==='funcionalidad_destino'?'Cada destino seleccionado (Eventos o Actividades) suma una unidad. Guía es la cobertura base; Promociones no admite esta ampliación.':'Cantidad de unidades contratadas.';
+ if(field.value==='funcionalidad_destino'){
+  const tipo=row.querySelector('[data-ad-campo176="tipo"]'),assoc=row.querySelector('[data-ad-campo176="asociacion"]');
+  if(tipo){tipo.value='funcionalidad';ghAdTipo176(tipo);}
+  if(assoc)assoc.value='publicidad';
+ }
 }
 function ghAdTipo176(field){
  const row=field.closest('[data-adicional-id176]'),sel=row?.querySelector('[data-ad-campo176="asociacion"]');
@@ -2481,8 +2494,9 @@ function ghAdLeer176(){
   if(d!==''&&(!/^\d+$/.test(d)||Number(d)>100))throw Error('El descuento de '+nombre+' debe ser entero entre 0 y 100%.');
   if(d!==''&&Number(d)>0&&(raw===''||Number(raw)===0))throw Error('El adicional '+nombre+' requiere importe positivo para aplicar un descuento.');
   if(t.length>120)throw Error('El texto del descuento de '+nombre+' supera 120 caracteres.');
+  if(field('modalidad_cobro')?.value==='funcionalidad_destino'&&(tipo!=='funcionalidad'||asociacion!=='publicidad'))throw Error('La cobertura por funcionalidades debe asociarse a Publicidad.');
   result[id]={nombre,descripcion,asociacion_tipo:tipo,asociacion_id:asociacion,
-   importe:raw===''?null:Number(raw),descuento_porcentaje:d===''?null:Number(d),descuento_texto:t,activo:field('activo')?.checked===true};
+   importe:raw===''?null:Number(raw),descuento_porcentaje:d===''?null:Number(d),descuento_texto:t,modalidad_cobro:field('modalidad_cobro')?.value||'unidad',activo:field('activo')?.checked===true};
  }
  return result;
 }
@@ -2557,6 +2571,7 @@ async function ghCargarPrecios162(){
  if(!j.success||!j.precios||!Number.isSafeInteger(j.revision))
   throw Error('No se pudieron confirmar los precios guardados. No se habilita el guardado.');
  GH_PRECIOS_ESTADO162={precios:j.precios,revision:j.revision};
+ GH_COBERTURA_DESTINOS183=Array.isArray(j.cobertura_publicidad_destinos)?j.cobertura_publicidad_destinos:[];
 }
 let GH_COTIZACION171='';
 let GH_COTIZACION_BUSQUEDA171=0;
@@ -2594,8 +2609,17 @@ function ghCotizarArmar171(){
 function ghCotizarAdicionalesArmar181(){
  const host=document.getElementById('ghCotizarAdicionalesItems181');if(!host)return;
  const extras=Object.entries(GH_PRECIOS_ESTADO162?.precios?.adicionales||{}).filter(([,x])=>x.activo!==false);
- host.innerHTML=extras.length?extras.map(([id,item])=>'<label class="item" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="flex:1;min-width:200px"><strong>'+esc(item.nombre)+'</strong><small style="display:block">'+esc(item.descripcion||'')+'</small><small>'+esc(item.importe===null||item.importe===undefined?'Importe pendiente de definir':new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(item.importe)+' por unidad'+(item.descuento_porcentaje>0?' · '+item.descuento_porcentaje+'% de descuento'+(item.descuento_texto?' · '+item.descuento_texto:''):''))+'</small></span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:110px" data-gh-adicional181="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(item.nombre)+'"></label>').join(''):'<p class="muted">No hay adicionales activos en Valores.</p>';
+ const ars=v=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(v);
+ host.innerHTML=extras.length?extras.map(([id,item])=>{
+  const p='<span style="flex:1;min-width:200px"><strong>'+esc(item.nombre)+'</strong><small style="display:block">'+esc(item.descripcion||'')+'</small><small>'+esc(item.importe===null||item.importe===undefined?'Importe pendiente de definir':ars(item.importe)+' por unidad'+(item.descuento_porcentaje>0?' · '+item.descuento_porcentaje+'% de descuento'+(item.descuento_texto?' · '+item.descuento_texto:''):''))+'</small></span>';
+  if(item.modalidad_cobro==='funcionalidad_destino'){
+   const options=GH_COBERTURA_DESTINOS183.map(dest=>'<label class="gh-mod-check"><input type="checkbox" data-gh-cobertura183="'+esc(id)+'" value="'+esc(dest.id)+'" onchange="ghCotizarRecalcular171()"><span>'+esc(dest.nombre)+'</span></label>').join('');
+   return '<fieldset class="item"><legend><strong>Cobertura publicitaria · por funcionalidad</strong></legend>'+p+'<p class="muted">Guía incluida. Seleccioná dónde mostrar la publicidad adicional:</p>'+(options||'<p class="muted">Instalá el Worker 183 para cargar los destinos permitidos.</p>')+'</fieldset>';
+  }
+  return '<label class="item" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'+p+'<input type="number" min="0" max="1000" step="1" value="0" style="max-width:110px" data-gh-adicional181="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(item.nombre)+'"></label>';
+ }).join(''):'<p class="muted">No hay adicionales activos en Valores.</p>';
 }
+
 let GH_COTIZA_SEQ173=0;
 let GH_COTIZA_TIMER173=0;
 let GH_COEF_PACK173=null;
@@ -2672,6 +2696,11 @@ function ghCotizarRecalcular171(){
   if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
   formatos[key]=v;count+=v;
  }
+ const cobertura_funcionalidades={};
+ for(const field of document.querySelectorAll('[data-gh-cobertura183]:checked')){
+  const id=field.dataset.ghCobertura183;
+  (cobertura_funcionalidades[id]??=[]).push(field.value);count++;
+ }
  const adicionales={};
  for(const field of document.querySelectorAll('[data-gh-adicional181]')){
   const n=Number(field.value);
@@ -2685,7 +2714,7 @@ function ghCotizarRecalcular171(){
  host.textContent='Calculando condiciones comerciales…';
  GH_COTIZA_TIMER173=setTimeout(async()=>{
   try{
-   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values,formatos_publicidad:formatos,adicionales},'POST');
+   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values,formatos_publicidad:formatos,adicionales,cobertura_funcionalidades},'POST');
    if(seq!==GH_COTIZA_SEQ173)return;
    const name=document.getElementById('ghCotizarNombre')?.value.trim()||'Sin identificar';
    const id=document.getElementById('ghCotizarAnuncianteId')?.value||'';
