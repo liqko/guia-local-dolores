@@ -2569,7 +2569,10 @@ function ghCotizarArmar171(){
  const prev=sel.value;
  sel.innerHTML='<option value="">Seleccionar nivel</option>'+Array.from({length:6},(_,i)=>'<option value="'+(i+1)+'">Nivel '+(i+1)+'</option>').join('');
  if(prev)sel.value=prev;
- host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
+ const regular=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free'&&id!=='publicidad').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
+ const formats=[['publicidad_imagen','Imagen individual · carrusel compartido (máx. 3 piezas)'],['publicidad_carrusel','Carrusel propio · 3 a 5 imágenes'],['publicidad_short','Short']];
+ host.innerHTML=regular+'<fieldset class="item"><legend><strong>Publicidad · formatos contratados</strong></legend>'+
+ formats.map(([key,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:240px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-formato="'+esc(key)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('')+'</fieldset>';
  ghCotizarRecalcular171();
 }
 let GH_COTIZA_SEQ173=0;
@@ -2635,12 +2638,19 @@ function ghCotizarRecalcular171(){
  if(!host)return;
  const values={};
  let count=0;
- for(const [key,label] of GH_FUNCIONALIDADES_COMERCIALES.filter(([key])=>key!=='eventos_free')){
-  const v=Number(document.querySelector('[data-gh-cotizar-cantidad="'+key+'"]')?.value||0);
+ for(const [key,label] of GH_FUNCIONALIDADES_COMERCIALES.filter(([key])=>key!=='eventos_free'&&key!=='publicidad')){
+  const field=document.querySelector('[data-gh-cotizar-cantidad="'+key+'"]');
+  const v=Number(field?.value||0);
   if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
   values[key]=v;count+=v;
  }
- if(values.publicidad>0){host.textContent='Para cotizar Publicidad es necesario seleccionar el formato (imagen, carrusel propio o Short). Esta selección todavía no está integrada a la calculadora; no se emitirá un importe general incorrecto.';GH_COTIZACION171='';return;}
+ const formatos={};
+ for(const [key,label] of [['publicidad_imagen','Imagen individual'],['publicidad_carrusel','Carrusel propio'],['publicidad_short','Short']]){
+  const field=document.querySelector('[data-gh-cotizar-formato="'+key+'"]');
+  const v=Number(field?.value||0);
+  if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
+  formatos[key]=v;count+=v;
+ }
  if(!level&&!count){host.textContent='Elegí un nivel y los servicios para cotizar.';GH_COTIZACION171='';return;}
  if(!level&&count){host.textContent='Seleccioná un nivel para aplicar la tabla comercial.';GH_COTIZACION171='';return;}
  const seq=++GH_COTIZA_SEQ173;
@@ -2648,7 +2658,7 @@ function ghCotizarRecalcular171(){
  host.textContent='Calculando condiciones comerciales…';
  GH_COTIZA_TIMER173=setTimeout(async()=>{
   try{
-   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values},'POST');
+   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values,formatos_publicidad:formatos},'POST');
    if(seq!==GH_COTIZA_SEQ173)return;
    const name=document.getElementById('ghCotizarNombre')?.value.trim()||'Sin identificar';
    const id=document.getElementById('ghCotizarAnuncianteId')?.value||'';
