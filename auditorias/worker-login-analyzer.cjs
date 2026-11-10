@@ -1,61 +1,85 @@
 'use strict';
-const fs = require('node:fs');
-const path = require('node:path');
-const ts = require('typescript');
-const esbuild = require('esbuild');
-const source = 'worker/worker176_adicionales_valores.txt';
-const text = fs.readFileSync(source, 'utf8');
-const tmp = '/tmp/guialocal-worker176-audit.js';
-fs.writeFileSync(tmp, text);
-const baseOptions = {
-  allowJs: true, checkJs: false, noEmit: true,
-  target: ts.ScriptTarget.ES2022,
-  module: ts.ModuleKind.None,
-  moduleResolution: ts.ModuleResolutionKind.Node10,
-  lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.webworker.d.ts'],
-  skipLibCheck: true,
-  noImplicitAny: false, strict: false,
-  allowSyntheticDefaultImports: true
-};
-function runTS(checkJs) {
- const opts = {...baseOptions,checkJs};
- const program = ts.createProgram([tmp], opts);
- const all = ts.getPreEmitDiagnostics(program);
- return all.map(d => {
-  const pos=d.file && d.start != null ? d.file.getLineAndCharacterOfPosition(d.start) : null;
-  return {code:d.code,category:ts.DiagnosticCategory[d.category],line:pos?pos.line+1:null,col:pos?pos.character+1:null,
-          message:ts.flattenDiagnosticMessageText(d.messageText,' ')};
+const fs=require('node:fs');
+const ts=require('typescript');
+const esbuild=require('esbuild');
+const vm=require('node:vm');
+const originalPath='worker/worker176_adicionales_valores.txt';
+const fixedPath='auditorias/worker176_diagnosticos_corregidos.txt';
+const original=fs.readFileSync(originalPath,'utf8');
+const fixed=fs.readFileSync(fixedPath,'utf8');
+const changes=[
+ ['quota({ db, advertiserId, cupoFromAdmin, excludeId: id4 })','quota({ db, cache, advertiserId, cupoFromAdmin, excludeId: id4 })'],
+ ['/** @param {any} admin */\nfunction gldValidarDescripcionFree167(descripcion,policy){','/** @param {any} descripcion @param {any} policy */\nfunction gldValidarDescripcionFree167(descripcion,policy){'],
+ ['async function publicitySaveV4({db,cache,advertiserId,body,config={}}){','/** @param {{db: any, cache: any, advertiserId: any, body: any, config?: {excepcion_cupo?: boolean, posiciones?: number, [key: string]: any}}} options */\nasync function publicitySaveV4({db,cache,advertiserId,body,config={}}){'],
+ ["advertiserId:aid,cupoFromAdmin:a=>cupo(a,'PROMOS'),excludeId:id});","advertiserId:aid,cache,cupoFromAdmin:a=>cupo(a,'PROMOS'),excludeId:id});"]
+];
+function exactPatches(){
+ let simulated=original;
+ for(const [from,to] of changes){
+  if(simulated.split(from).length!==2)throw Error('Expected exactly one occurrence of patch source '+from);
+  simulated=simulated.replace(from,to);
+ }
+ if(simulated!==fixed)throw Error('Unexpected differences beyond the four surgical patches');
+ return true;
+}
+const flags={allowJs:true,checkJs:true,noEmit:true,target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.None,
+ moduleResolution:ts.ModuleResolutionKind.Node10,lib:['lib.es2022.d.ts','lib.dom.d.ts','lib.webworker.d.ts'],
+ skipLibCheck:true,noImplicitAny:false,strict:false};
+function diagnose(file,checkJs){
+ const prog=ts.createProgram([file],{...flags,checkJs});
+ return ts.getPreEmitDiagnostics(prog).map(d=>{
+  const pos=d.file&&d.start!=null?d.file.getLineAndCharacterOfPosition(d.start):null;
+  return {code:d.code,category:ts.DiagnosticCategory[d.category],line:pos?pos.line+1:null,
+   col:pos?pos.character+1:null,message:ts.flattenDiagnosticMessageText(d.messageText,' ')};
  });
 }
-function grouped(diagnostics) {
- const m=new Map();
- for(const d of diagnostics) {const key=d.category+':TS'+d.code;let x=m.get(key);if(!x)m.set(key,x={code:d.code,category:d.category,count:0,exampleLines:[],example:''});x.count++;if(x.exampleLines.length<8)x.exampleLines.push(d.line);if(!x.example)x.example=d.message.slice(0,260);}
- return [...m.values()].sort((a,b)=>b.count-a.count||a.code-b.code);
+function groups(diags){const map=new Map();for(const d of diags){const k=d.category+':TS'+d.code;
+ const g=map.get(k)||{code:d.code,category:d.category,count:0,lines:[],sample:d.message};
+ g.count++;if(g.lines.length<12)g.lines.push(d.line);map.set(k,g);}return [...map.values()].sort((a,b)=>b.count-a.count);}
+function occurrences(s,phrase){return s.split(phrase).length-1;}
+function lineStats(s){return {chars:s.length,bytes:Buffer.byteLength(s),lines:s.split('\n').length,
+ protected:{posiciones:occurrences(s,'posiciones'),excepcion_cupo:occurrences(s,'excepcion_cupo'),cache:occurrences(s,'cache')}};}
+async function syntax(s){try{await esbuild.transform(s,{loader:'js',target:'es2022',format:'iife',logLevel:'silent'});return {ok:true};}
+ catch(e){return {ok:false,errors:e.errors||String(e)};}}
+function extractFunction(s,name){const src=ts.createSourceFile('worker.js',s,ts.ScriptTarget.ES2022,true,ts.ScriptKind.JS);
+ let found;function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text===name){found=s.slice(n.getStart(src),n.end);return;}ts.forEachChild(n,visit);}visit(src);
+ if(!found)throw Error('Function not found '+name);return found;}
+async function mockQuota(){
+ const src=extractFunction(original,'quota');
+ const calls={cacheReads:0,dbGets:0,dbQueries:0,dbWrites:0};
+ const fakeCache={get:async()=>{calls.cacheReads++;return {reglas:{}};}};
+ const db={get:async()=>{calls.dbGets++;return {funcionalidades_config:{PROMOS:{}}};},
+ queryEqual:async()=>{calls.dbQueries++;return [{id:'one',pausado:false}]}};
+ const ctx={gldFuncPacket166:async cache=>cache.get('config'),gldFuncRules166:()=>({activas_max:3}),gldValorParticular168:()=>6,cupoGuardado:n=>n*2,text29:x=>String(x||''),paused:x=>!!x.pausado};
+ vm.runInNewContext(src+'\nthis.quotaTest=quota;',ctx);
+ let missingCacheError='';
+ try{await ctx.quotaTest({db,advertiserId:'sample',cupoFromAdmin:()=>3,excludeId:'other'});}
+ catch(e){missingCacheError=String(e.message);}
+ if(!missingCacheError.includes('get'))throw Error('Missing cache unexpectedly did not fail');
+ calls.cacheReads=0;calls.dbGets=0;calls.dbQueries=0;
+ const fixedCall=await ctx.quotaTest({db,cache:fakeCache,advertiserId:'sample',cupoFromAdmin:()=>3,excludeId:'other'});
+ if(fixedCall.max!==3||fixedCall.active!==1||calls.cacheReads!==1||calls.dbGets!==1||calls.dbQueries!==1||calls.dbWrites!==0)throw Error('Mock quota regression failed');
+ return {missingCacheError,fixedCall:{max:fixedCall.max,active:fixedCall.active},calls};
 }
-async function go(){
- const output={generatedAt:new Date().toISOString(),source,bytes:Buffer.byteLength(text),lines:text.split('\n').length};
- output.syntax={};
- try {await esbuild.transform(text,{loader:'js',target:'es2022',format:'iife',logLevel:'silent'});output.syntax.esbuild='OK';}
- catch(e){output.syntax.esbuild=e.errors||String(e);}
- output.noCheckJs=runTS(false);
- output.checkJs=runTS(true);
- output.summary={
-   noCheckJs:{count:output.noCheckJs.length,groups:grouped(output.noCheckJs)},
-   checkJs:{count:output.checkJs.length,groups:grouped(output.checkJs)}
+async function main(){
+ const report={source:{original:originalPath,fixed:fixedPath},exactFourPatches:exactPatches(),
+  original:lineStats(original),fixed:lineStats(fixed),syntax:{original:await syntax(original),fixed:await syntax(fixed)}};
+ report.diagnostics={};
+ for(const [name,contents] of [['before',original],['after',fixed]]){
+  const file='/tmp/gld-audit-'+name+'.js';fs.writeFileSync(file,contents);
+  const check=diagnose(file,true),noCheck=diagnose(file,false);
+  report.diagnostics[name]={checkJsCount:check.length,noCheckJsCount:noCheck.length,groups:groups(check),all:check};
+ }
+ report.regression={quotaCache:await mockQuota(),
+   quotaCallsitesCorrect:fixed.includes('quota({ db, cache, advertiserId, cupoFromAdmin, excludeId: id4 })')&&fixed.includes("advertiserId:aid,cache,cupoFromAdmin:a=>cupo(a,'PROMOS'),excludeId:id});"),
+   apiCodePreserved:report.exactFourPatches,
+   protectedReferenceCountsEqual:Object.keys(report.original.protected).every(k=>report.original.protected[k]===report.fixed.protected[k])
  };
- output.protected={
-  posiciones:(text.match(/\\bposiciones\\b/g)||[]).length,
-  excepcion_cupo:(text.match(/\\bexcepcion_cupo\\b/g)||[]).length,
-  cache:(text.match(/\\bcache\\b/gi)||[]).length
- };
- fs.writeFileSync('worker-diagnostics.json',JSON.stringify(output,null,2));
- console.log('SOURCE',JSON.stringify({bytes:output.bytes,lines:output.lines,protected:output.protected}));
- console.log('ESBUILD',JSON.stringify(output.syntax));
- console.log('NO_CHECK_JS_COUNT',output.noCheckJs.length);
- console.log('CHECK_JS_COUNT',output.checkJs.length);
- console.log('CHECK_JS_GROUPS',JSON.stringify(output.summary.checkJs.groups));
- console.log('NO_CHECK_JS_GROUPS',JSON.stringify(output.summary.noCheckJs.groups));
- console.log('CHECK_JS_FIRST_60',JSON.stringify(output.checkJs.slice(0,60)));
- console.log('REPORT: worker-diagnostics.json');
+ if(!report.syntax.original.ok||!report.syntax.fixed.ok||report.diagnostics.after.checkJsCount||!report.regression.protectedReferenceCountsEqual)throw Error('Audit gate failed');
+ fs.writeFileSync('worker-diagnostics.json',JSON.stringify(report,null,2));
+ for(const key of ['source','exactFourPatches','original','fixed','syntax','diagnostics','regression']){
+  const val=key==='diagnostics'?Object.fromEntries(Object.entries(report.diagnostics).map(([k,v])=>[k,{checkJsCount:v.checkJsCount,noCheckJsCount:v.noCheckJsCount,groups:v.groups,all:v.all}])):report[key];
+  console.log(key.toUpperCase(),JSON.stringify(val));
+ }
 }
-go().catch(e=>{console.error(e);process.exitCode=1;});
+main().catch(e=>{console.error('AUDIT_FAILURE',e.stack||String(e));process.exitCode=1;});
