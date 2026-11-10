@@ -2395,6 +2395,77 @@ async function ghCargarPrecios162(){
  if(!j.success||!j.precios)throw Error('El catálogo de precios no está disponible.');
  GH_PRECIOS_ESTADO162={precios:j.precios,revision:j.revision};
 }
+let GH_COTIZACION171='';
+let GH_COTIZACION_BUSQUEDA171=0;
+function ghCotizarArmar171(){
+ const sel=document.getElementById('ghCotizarNivel'),host=document.getElementById('ghCotizarFunciones');
+ if(!sel||!host)return;
+ const prev=sel.value;
+ sel.innerHTML='<option value="">Seleccionar nivel</option>'+Array.from({length:6},(_,i)=>'<option value="'+(i+1)+'">Nivel '+(i+1)+'</option>').join('');
+ if(prev)sel.value=prev;
+ host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
+ ghCotizarRecalcular171();
+}
+function ghCotizarRecalcular171(){
+ const nivel=document.getElementById('ghCotizarNivel')?.value||'';
+ const host=document.getElementById('ghCotizarResultado');if(!host)return;
+ let suma=0,incompleto=false;
+ const lineas=[];
+ if(nivel){
+  const v=ghValorMonetario162(nivel,'niveles');
+  if(v.importe===null)incompleto=true;
+  const porcentaje=v.descuento_porcentaje||0;
+  const importe=v.importe===null?null:Math.round(v.importe*(100-porcentaje))/100;
+  if(importe!==null)suma+=importe;
+  lineas.push('Nivel '+nivel+': '+(importe===null?'precio no definido':'$ '+importe.toLocaleString('es-AR')));
+ }
+ for(const [id,label]of GH_FUNCIONALIDADES_COMERCIALES){
+  const input=document.querySelector('[data-gh-cotizar-cantidad="'+id+'"]');
+  const cant=Number(input?.value||0);
+  if(!Number.isSafeInteger(cant)||cant<0||cant>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
+  if(!cant)continue;
+  const v=ghValorMonetario162(id,'funcionalidades');
+  const total=v.importe===null?null:Math.round(cant*v.importe*(100-(v.descuento_porcentaje||0)))/100;
+  if(total===null)incompleto=true;else suma+=total;
+  lineas.push(label+' × '+cant+': '+(total===null?'precio no definido':'$ '+total.toLocaleString('es-AR')));
+ }
+ const nombre=document.getElementById('ghCotizarNombre')?.value.trim()||'Sin identificar';
+ const id=document.getElementById('ghCotizarAnuncianteId')?.value||'';
+ const headline='Presupuesto orientativo · '+nombre+(id?' (ID '+id+')':'');
+ const total='Total estimado: '+(incompleto?'incompleto (faltan precios)':'$ '+suma.toLocaleString('es-AR'));
+ GH_COTIZACION171=headline+'\n'+lineas.join('\n')+'\n'+total+'\nNo constituye una contratación ni habilita prestaciones.';
+ host.innerHTML='<p><strong>'+esc(headline)+'</strong></p>'+lineas.map(x=>'<p>'+esc(x)+'</p>').join('')+'<p><strong>'+esc(total)+'</strong></p>';
+}
+async function ghCotizarBuscarAnunciante171(){
+ const q=document.getElementById('ghCotizarBuscar')?.value.trim(),host=document.getElementById('ghCotizarResultados');
+ if(!host)return;
+ if(!q||q.length<2){host.textContent='Escribí al menos dos caracteres.';return;}
+ const token=++GH_COTIZACION_BUSQUEDA171;
+ host.textContent='Buscando…';
+ try{
+  const j=await api('buscar_anunciantes',{q,limit:20});
+  if(token!==GH_COTIZACION_BUSQUEDA171)return;
+  const list=(j.results||[]);
+  host.replaceChildren();
+  if(!list.length){host.textContent='Sin resultados. Podés escribir el nombre manualmente.';return;}
+  for(const a of list){
+   const btn=document.createElement('button');btn.type='button';btn.className='sec';
+   btn.style.margin='4px';btn.textContent=(a.nombre||a.id)+' · '+a.id;
+   btn.addEventListener('click',()=>{
+    document.getElementById('ghCotizarNombre').value=a.nombre||a.id;
+    document.getElementById('ghCotizarAnuncianteId').value=a.id;
+    host.replaceChildren();ghCotizarRecalcular171();
+   });host.appendChild(btn);
+  }
+ }catch(e){host.textContent=String(e.message||e)}
+}
+function ghCotizarCopiar171(){
+ ghCotizarRecalcular171();
+ if(!GH_COTIZACION171)return;
+ const text=GH_COTIZACION171;
+ if(navigator.clipboard?.writeText)navigator.clipboard.writeText(text).catch(()=>window.prompt('Copiá el presupuesto:',text));
+ else window.prompt('Copiá el presupuesto:',text);
+}
 function ghRenderResumenNiveles108(){
  const box=document.getElementById('ghResumenNiveles'),prices=document.getElementById('ghVentasPreciosNiveles');if(!box||!prices)return;
  const fmt=window.GLD_PLANES_RESUMEN;
@@ -2436,6 +2507,7 @@ async function ghCargarResumenNiveles(){
    if(!Array.isArray(GH_CATALOG_CACHE.niveles_anunciante))throw Error('No se pudo cargar el catálogo de niveles.');
   }
   await ghCargarPrecios162();
+  try{await ghCargarFuncionesGlobal166();}catch(e){console.warn('No se pudieron consultar parámetros generales:',e)}
   ghRenderResumenNiveles108();
   ghRenderResumenFuncionesVentas();
   if(button)button.disabled=false;
@@ -2459,6 +2531,8 @@ function ghSelectConfig(name){
   else {const def=GH_CATALOGOS.find(x=>x.box===({segmentos:'cfgSegmentos',niveles:'cfgNivelesAnunciante',funcionalidades:'cfgFuncionalidades',categorias:'cfgCategoriasAnunciantes',actividades:'cfgActividadesClave',acciones:'cfgAcciones',cat_eventos:'cfgCategoriasEventos',cat_actividades:'cfgCategoriasActividades',adultos:'cfgModeracion18'})[name]);if(def){const alreadyLoaded=name==='funcionalidades'&&Array.isArray(GH_CATALOG_CACHE.funcionalidades)&&GH_FUNC_GLOBAL166&&!!document.querySelector('#cfgFuncionalidades [data-func-item]');if(!alreadyLoaded)ghCargarCatalogo(def);}}
   informarAltura();
 }
+document.getElementById('ghCotizarNombre').addEventListener('input',ghCotizarRecalcular171);
+document.getElementById('ghVentasValores').addEventListener('input',ghCotizarRecalcular171);
 document.getElementById('cfgTabs').addEventListener('click',function(e){const b=e.target.closest('[data-cfg]');if(b)ghSelectConfig(b.dataset.cfg);});
 /* El resumen comparte pestaña con Funcionalidades, pero su carga es diferida
    para no consultar niveles y precios al entrar sólo a editar reglas. */
