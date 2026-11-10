@@ -4218,7 +4218,18 @@ async function routePanelV3({ path, request: request2, url, env, db, cache }) {
     if (auth.response) return auth.response;
     if (action === "permisos_panel") {
       const admin = await (db.panelAdministration ? db.panelAdministration(aid) : db.get("anunciantes_administracion", aid));
-      return json({ success: !!admin, id: aid, administracion: admin || {} }, admin ? 200 : 404);
+      // Los parámetros generales viajan junto a permisos; no se genera otra consulta en Login.
+      const packet=await gldFuncPacket166(cache,db,false);
+      const configuracion=Object.fromEntries(['PROMOS','ACTIVIDADES','EVENTOS','EVENTOS_FREE','PUBLICIDAD','EMPLEO'].map(fid=>{
+        const global=gldFuncRules166(packet,fid),cfg=admin?.funcionalidades_config?.[fid]||{};
+        const effective={};
+        for(const [key,value]of Object.entries(global)){
+          if(key==='admite_excepciones'||key==='nombre'||key==='activo')continue;
+          effective[key]=typeof value==='number'?gldValorParticular168(global,cfg,key,value):value;
+        }
+        return [fid,{activo:global.activo!==false,parametros:effective,admite_excepciones:global.admite_excepciones!==false}];
+      }));
+      return json({ success: !!admin, id: aid, administracion: admin || {}, configuracion_funcionalidades:configuracion, configuracion_revision:packet.revision }, admin ? 200 : 404);
     }
     if (action === "anunciante") return json(await commercePanelData({ db, advertiserId: aid, catalogs: await getCommerceCatalogs(cache) }));
     return null;
@@ -8247,7 +8258,7 @@ const GLD_FUNC_DEFAULT166={
   "descripcion_max": null
  }
 };
-const GLD_FUNC_NUMERIC_FIELDS168={"EVENTOS_FREE":["altas_mensuales_max","activas_max","ediciones_max","descripcion_max","guardadas_max","nombre_evento_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max","imagenes_max","enlaces_max"],"EVENTOS":["altas_mensuales_max","activas_max","ediciones_max","descripcion_max","imagenes_max","guardadas_max","nombre_evento_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max","enlaces_max"],"ACTIVIDADES":["activas_max","guardadas_max","ediciones_max","descripcion_max","imagenes_max","nombre_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"],"PROMOS":["activas_max","guardadas_max","descripcion_max","condiciones_max","imagenes_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"],"PUBLICIDAD":["activas_max","posiciones_max","guardadas_max","titulo_max","descripcion_max","cta_texto_max","carrusel_imagenes_min","carrusel_imagenes_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"],"EMPLEO":["ofertas_activas_max","busquedas_activas_max","vigencia_dias","ediciones_max","descripcion_max","guardadas_max","titulo_max","enlaces_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"]};
+const GLD_FUNC_NUMERIC_FIELDS168={"EVENTOS_FREE":["altas_mensuales_max","activas_max","ediciones_max","descripcion_max","guardadas_max","nombre_evento_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max","imagenes_max","enlaces_max"],"EVENTOS":["altas_mensuales_max","activas_max","ediciones_max","descripcion_max","imagenes_max","guardadas_max","nombre_evento_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max","enlaces_max"],"ACTIVIDADES":["activas_max","guardadas_max","ediciones_max","descripcion_max","imagenes_max","nombre_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"],"PROMOS":["titulo_max","activas_max","guardadas_max","descripcion_max","condiciones_max","imagenes_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"],"PUBLICIDAD":["activas_max","posiciones_max","guardadas_max","titulo_max","descripcion_max","cta_texto_max","carrusel_imagenes_min","carrusel_imagenes_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"],"EMPLEO":["ofertas_activas_max","busquedas_activas_max","vigencia_dias","ediciones_max","descripcion_max","guardadas_max","titulo_max","enlaces_max","ediciones_dia_max","ediciones_semana_max","ediciones_mes_max","cambios_estado_semana_max"]};
 
 async function gldFuncPacket166(cache,db,withFallback=false){
  const packet=await cache.get(GLD_FUNC_KEY166);
@@ -8289,6 +8300,9 @@ function gldFuncValidate166(reglas){
    if(val===-1&&!(/^(ediciones_(dia|semana|mes)_max|cambios_estado_semana_max|guardadas_max|enlaces_max|altas_mensuales_max|activas_max|ofertas_activas_max|busquedas_activas_max)$/.test(field)))throw Error('No admite ilimitado en '+id+': '+field);
    out[field]=val??null;
   }
+  if(id==='EVENTOS')delete out.secciones_habilitadas;
+  if(id==='EVENTOS')delete out.altas_mensuales_max;
+  if(id==='PUBLICIDAD')delete out.posiciones_max;
   if(id==='PUBLICIDAD'&&Number.isInteger(out.carrusel_imagenes_min)&&Number.isInteger(out.carrusel_imagenes_max)&&out.carrusel_imagenes_max<out.carrusel_imagenes_min)throw Error('Carrusel: máximo menor que mínimo.');
   result[id]=out;
  }
