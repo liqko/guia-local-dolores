@@ -59,8 +59,14 @@ function quote(){
   const textDest=selected.map(x=>destinations.find(d=>d.id===x)?.nombre||x).join(' y ');
   const value=cost(item);
   lines.push('Cobertura publicitaria · '+textDest);
-  details.push('Cobertura · '+textDest+': '+(value===null?'consultar precio':ars(value*selected.length))+(item.descuento_porcentaje>0?' ('+(item.descuento_texto||item.descuento_porcentaje+'% de descuento')+')':''));
-  if(value===null)missing=true;else total+=value*selected.length;
+  const coverageTotal=value===null?null:Math.round(item.importe*selected.length*(100-(item.descuento_porcentaje||0))/100);
+  details.push('Cobertura · '+textDest+': '+(coverageTotal===null?'consultar precio':ars(coverageTotal))+(item.descuento_porcentaje>0?' ('+(item.descuento_texto||item.descuento_porcentaje+'% de descuento')+')':''));
+  if(value===null)missing=true;else{
+   const pct=Number.isInteger(item.descuento_porcentaje)?item.descuento_porcentaje:0;
+   total+=Math.round(item.importe*selected.length*(100-pct)/100);
+  }
+  const hasPublicity=publicityFormats.some(([format])=>Number(additional.querySelector('[data-sim-key="'+format+'"]')?.value||0)>0);
+  if(!hasPublicity){missing=true;details.push('La cobertura adicional requiere contratar al menos un formato publicitario.');}
   units+=selected.length;
  }
  for(const [id,item,qty] of selectedExtras){
