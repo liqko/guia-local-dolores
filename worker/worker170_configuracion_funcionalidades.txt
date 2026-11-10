@@ -2753,6 +2753,8 @@ async function subscriberLogin({ env, db, body }) {
   }
   const sid = text27(sus.suscriptor_id || sus.id);
   const relations = (await db.queryEqual(C2.relaciones, "suscriptor_id", sid, 100)).filter((r) => text27(r.anunciante_id) && truthy(r.activo));
+  // Recuperar reglas generales una sola vez, sin repetir la lectura por anunciante.
+  const globalPacket170=await gldFuncPacket166(createCache(env),db,false);
   const enriched = await Promise.all(relations.map(async (rel) => {
     const aid = text27(rel.anunciante_id);
     const [advertiser, admin] = await Promise.all([
@@ -2766,6 +2768,15 @@ async function subscriberLogin({ env, db, body }) {
       rol: text27(rel.rol).toUpperCase(),
       permisos: relationPermissions(rel, admin).join(", "),
       administracion: admin || {},
+      configuracion_funcionalidades:Object.fromEntries(['PROMOS','ACTIVIDADES','EVENTOS','EVENTOS_FREE','PUBLICIDAD','EMPLEO'].map(fid=>{
+        const global=gldFuncRules166(globalPacket170,fid),cfg=admin?.funcionalidades_config?.[fid]||{};
+        const parametros={};
+        for(const [key,value]of Object.entries(global)){
+          if(['nombre','activo','admite_excepciones'].includes(key))continue;
+          parametros[key]=typeof value==='number'?gldValorParticular168(global,cfg,key,value):value;
+        }
+        return [fid,{activo:global.activo!==false,parametros,admite_excepciones:global.admite_excepciones!==false}];
+      })),
       activo: true
     };
   }));
