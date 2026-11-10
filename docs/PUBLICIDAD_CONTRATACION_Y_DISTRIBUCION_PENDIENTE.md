@@ -195,7 +195,9 @@ Los **dos ejes de ampliación de cobertura** por definir comercialmente son:
 
 **Adicional 3 — Ampliación de cobertura geográfica**
 - **Asociación:** funcionalidad Publicidad.
-- **Descripción aprobada para carga:** «Permite ampliar la exhibición de la publicidad contratada a otras ciudades dentro de Guía Local. El alcance se determina según las ciudades seleccionadas en la contratación, respetando las reglas generales de distribución publicitaria.»
-- **Importe:** a definir.
+- **Descripción aprobada para carga:** «Permite ampliar la exhibición de la publicidad contratada a otras ciudades de Guía Local. El importe indicado corresponde a cada ciudad adicional y se multiplica por la cantidad de ciudades contratadas. Para coberturas por región, provincia o todo el país, consultá por paquetes y condiciones comerciales especiales.»
+- **Precio de lista:** importe unitario **por cada ciudad adicional** (monto a cargar en Valores). La cotización individual multiplica ese importe por el número de ciudades adicionales contratadas.
+- **Coberturas extensas:** las regiones, provincias o el país completo pueden tener paquetes con precios particulares, que se presupuestan por consulta y no se deducen automáticamente del precio unitario.
+- **Importes ilustrativos, NO aprobados:** $1.000 por ciudad; dos adicionales $2.000, tres $3.000; una región de veinte ciudades podría negociarse en $10.000. Estos ejemplos explican la modalidad, **no son tarifas fijadas**.
 
 **No crear adicional por categorías:** la distribución por relevancia de búsqueda o categoría forma parte de la publicidad general. **No se establecieron todavía** tarifas por funcionalidad ni por ciudad, ni se implementó selección granular de cobertura en contratos: una descripción comercial guardada en el catálogo de adicionales no equivale a una asignación técnica de cobertura.
