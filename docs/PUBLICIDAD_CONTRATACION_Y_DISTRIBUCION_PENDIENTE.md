@@ -59,3 +59,17 @@ Definir en conversación Promociones, Actividades, Eventos VIP, Eventos Free, Pu
 **Propuesta futura, no implementada:** interfaz de vendedor para generar presupuestos/contrataciones, vincularlos mediante ID del anunciante y reflejar sus derechos y capacidades en su ficha de Gran Hermano y en su panel de login. No confundir propuesta con funcionalidad existente.
 
 **Proceso:** continuar diseño funcional aquí, sin más modificaciones al HTML ni al Worker 169 hasta la revisión integral acordada.
+
+
+## Regla única de habilitaciones y contratación · 10/11/2026
+
+**Corrección acordada/propuesta para revisión integral:**
+
+- Separar tres capas: **parámetro general** (capacidad base por unidad del servicio en Gran Hermano), **contratación específica** (cantidad de unidades, formato y beneficios asignados al ID del anunciante) y **habilitación efectiva** (resultado único aplicado por Worker y mostrado en Gran Hermano y panel anunciante). No ejecutar cálculos paralelos diferentes en cada interfaz.
+- El criterio general declarado por el usuario para servicios de publicaciones es **capacidad de guardado igual al doble de la cantidad contratada**, incluidos activos y pausados. No confundir «guardados» con una cifra absoluta global ajena al contrato. Revisar el tratamiento específico de Eventos Free, que no son un producto comercial, y de Publicidad por formato antes de implementar.
+- Ejemplo: Eventos VIP con 10 eventos por unidad y 5 paquetes adquiridos → 50 eventos de capacidad contratada, 100 guardados si aplica la proporción 2×. Ejemplo ilustrativo, no cuota de producción.
+- Publicidad: **retirar como criterio general indiferenciado «piezas publicitarias por paquete»**. Unidad básica por formato: imagen individual = 1 imagen; carrusel contratado = 1 pieza de varias imágenes (propuesta de 3 a 5); Short = 1 pieza por enlace de YouTube Shorts. La contratación decide cantidades de cada formato y combinaciones; no son sustituciones automáticas entre formatos.
+- La **rotación automática** es un derecho adicional de contratación: una pieza activa de imagen podría alternar 3 creatividades ya cargadas sin convertirse en 3 piezas simultáneamente activas; «3» es ejemplo, no límite acordado. No confundir con «posiciones publicitarias» de distribución de anuncios ni con carruseles de anuncios de diferentes anunciantes.
+- Casilla «Admite excepciones» marcada de manera predeterminada para todas las funcionalidades; desmarcarla impide habilitaciones particulares fuera de la regla. Las excepciones son por anunciante, no cambios del catálogo general.
+- La **calculadora de vendedor y el circuito de presupuesto → contratación confirmada → habilitación en ficha del anunciante por ID** son prioritarios para esta semana según solicitud del usuario; no existen todavía como sistema de contratación integrado. La fecha objetivo no es evidencia de implementación.
+- Pendientes antes del HTML y Worker: fórmula precisa del doble de guardados según servicios, jerarquía de excepciones y derechos comerciales, definición de reglas técnicas específicas de Publicidad, y contrato registrado sin escrituras repetidas. No tocar Worker 169 durante esta etapa de definición.
