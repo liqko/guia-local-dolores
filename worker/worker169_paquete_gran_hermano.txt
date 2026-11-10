@@ -10501,11 +10501,47 @@ function sortPublicCity119(key,rows){
  if(mod==='farmacias')return sortTurnos2(rows);
  return rows;
 }
+// Cutoff at 04:00 UTC (01:00 Argentina). Entries are kept inside the
+// existing public entity row, including tombstones. No source DB is reread.
+const CITY_BOOK_DAY_MS = 86400000;
+const CITY_BOOK_HORIZON = 14;
+const CITY_BOOK_MODULES = new Set(['guide','events','activities','promos','publicity','farmacias']);
+function cityBookDay(now) { return Math.floor((now - 4 * 3600000) / CITY_BOOK_DAY_MS); }
+function cityBookHistory(previous, day, value) {
+ const history = JSON.parse(previous || '[]').filter(([date]) => date >= day - CITY_BOOK_HORIZON);
+ if(history.at(-1)?.[0] === day) history.pop();
+ history.push([day,value]);
+ return JSON.stringify(history);
+}
 class GldPublicCache119 {
  constructor(state,env){
   this.state=state;this.env=env;this.sql=state.storage.sql;this.cached=null;
   this.sql.exec('CREATE TABLE IF NOT EXISTS packet (slot INTEGER PRIMARY KEY, value TEXT NOT NULL, deleted INTEGER NOT NULL DEFAULT 0)');
   this.sql.exec('CREATE TABLE IF NOT EXISTS entities (id TEXT PRIMARY KEY, value TEXT, stamp TEXT NOT NULL, position INTEGER NOT NULL)');
+ }
+ ensureCityBookColumns(){
+  if(this.cityBookColumnsReady)return;
+  this.state.storage.transactionSync(()=>{
+   const columns=new Set(this.query('PRAGMA table_info(entities)').map(column=>column.name));
+   if(!columns.has('book_day'))this.query("ALTER TABLE entities ADD COLUMN book_day INTEGER");
+   if(!columns.has('book_history'))this.query("ALTER TABLE entities ADD COLUMN book_history TEXT NOT NULL DEFAULT '[]'");
+   this.query('CREATE INDEX IF NOT EXISTS entities_book_day ON entities(book_day) WHERE book_day IS NOT NULL');
+  });
+  this.cityBookColumnsReady=true;
+ }
+ cityBookChanges(key,def,from,to){
+  const currentDay=cityBookDay(Date.now());
+  if(this.env.GLD_CITY_BOOK_CAPTURE!=='1'||!CITY_BOOK_MODULES.has(def.module)||!Number.isSafeInteger(from)||!Number.isSafeInteger(to)||
+     from<currentDay-CITY_BOOK_HORIZON||to>currentDay||from>=to)throw Error('Invalid publication window');
+  this.ensureCityBookColumns();
+  const rows=this.query('SELECT id,book_history FROM entities WHERE book_day>=? ORDER BY book_day,id',from);
+  const changes=[];
+  for(const {id,book_history:history} of rows){
+   const selected=JSON.parse(history).findLast(([day])=>day>=from&&day<to);
+   if(selected)changes.push({id,value:selected[1]});
+  }
+  // This operation is available only through the internal DO binding.
+  return {key,from,to,changes};
  }
  query(sql,...args){const cursor=this.sql.exec(sql,...args),rows=[...cursor];this.metrics.rows_read+=cursor.rowsRead||0;this.metrics.rows_written+=cursor.rowsWritten||0;return rows;}
  async legacy(key){this.metrics.legacy_gets++;const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;}
@@ -10581,15 +10617,24 @@ class GldPublicCache119 {
  }
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
+  if(op==='city-book-changes')return this.cityBookChanges(key,def,body.from,body.to);
   if(op==='get')return {value:await this.read(key,def)};
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
+  const bookTracked=this.env.GLD_CITY_BOOK_CAPTURE==='1'&&CITY_BOOK_MODULES.has(def.module);
+  const bookDay=bookTracked?cityBookDay(Date.now()):null;
+  if(bookTracked)this.ensureCityBookColumns();
   const prior=await this.read(key,def),merged=new Map((prior?.[def.field]||[]).map(row=>[String(row[def.id]||row.id||''),row]));let nextPacket=null;
   this.state.storage.transactionSync(()=>{
    this.initialize(prior,def);
    if(op==='delete'){
     // Maintenance must compare its observed packet before removing a city.
     if(JSON.stringify(body.base)!==JSON.stringify(prior))throw Error('Public cache conflict');
-    this.query('UPDATE entities SET value=NULL');if(def.module==='efemerides'&&this.efemHadChunks140){this.efemChunks140();this.query('DELETE FROM efem_chunks140');}this.query('UPDATE packet SET deleted=1 WHERE slot=1');return;
+    if(bookTracked){
+     for(const {id,book_history:history} of this.query('SELECT id,book_history FROM entities WHERE value IS NOT NULL')){
+      this.query('UPDATE entities SET value=NULL,book_day=?,book_history=? WHERE id=?',bookDay,cityBookHistory(history,bookDay,null),id);
+     }
+    }else this.query('UPDATE entities SET value=NULL');
+    if(def.module==='efemerides'&&this.efemHadChunks140){this.efemChunks140();this.query('DELETE FROM efem_chunks140');}this.query('UPDATE packet SET deleted=1 WHERE slot=1');return;
    }
    const {[def.field]:incoming=[],...meta}=body.value||{};
    if(!Array.isArray(incoming))throw Error('Invalid public cache packet');
@@ -10599,7 +10644,7 @@ class GldPublicCache119 {
    if(after.has('')||after.size!==incoming.length)throw Error('Invalid public cache entity identifiers');
    for(const id of new Set([...before.keys(),...after.keys()])){
     const a=before.get(id),b=after.get(id);if(JSON.stringify(a)===JSON.stringify(b))continue;
-    const current=this.query('SELECT value,stamp,position FROM entities WHERE id=?',id)[0];
+    const current=this.query(bookTracked?'SELECT value,stamp,position,book_history FROM entities WHERE id=?':'SELECT value,stamp,position FROM entities WHERE id=?',id)[0];
     const stamp=sourceStamp119(body.stamps?.[id]);
     // A late projection cannot revive an entity deleted by a newer source write.
     if(current?.stamp&&(!stamp||stamp<current.stamp))continue;
@@ -10610,7 +10655,10 @@ class GldPublicCache119 {
      throw Error('Public cache conflict');
     }
     if(!stamp&&!samePublicValueInternal(currentRow,a)&&!samePublicValueInternal(currentRow,b))throw Error('Public cache conflict');
-    this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,b?JSON.stringify(b):null,stamp||current?.stamp||'',current?.position??Date.now());
+    const value=b?JSON.stringify(b):null,source=stamp||current?.stamp||'',position=current?.position??Date.now();
+    if(bookTracked){
+     this.query('INSERT INTO entities(id,value,stamp,position,book_day,book_history) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp,book_day=excluded.book_day,book_history=excluded.book_history',id,value,source,position,bookDay,cityBookHistory(current?.book_history,bookDay,b??null));
+    }else this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,value,source,position);
     if(b)merged.set(id,b);else merged.delete(id);
    }
    nextPacket={...meta,[def.field]:sortPublicCity119(key,[...merged.values()])};
@@ -10632,7 +10680,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(body.op==='city-book-changes')return Response.json({...await this.handle(body),metrics:this.metrics});await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
