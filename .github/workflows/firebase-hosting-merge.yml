@@ -9,6 +9,7 @@ on:
       - "worker/**"
       - ".github/workflows/firebase-hosting-cleanup.yml"
       - "**/*.md"
+  workflow_dispatch:
   schedule:
     - cron: "0 4 * * *"
 concurrency:
@@ -16,15 +17,22 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build_and_deploy:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - name: Verificar integridad de las páginas antes de publicar
         run: |
           node tests/publication-integrity.mjs
-          node --test tests/public-territory.test.mjs
+          node --test tests/public-territory.test.mjs tests/paquete-ciudad.test.mjs tests/observabilidad/corte-ciudad.test.mjs
       - name: Preparar exclusivamente archivos de plataforma para Hosting
         run: |
           set -euo pipefail
@@ -38,15 +46,30 @@ jobs:
       - name: Preparar el catálogo público
         id: catalogo
         run: |
-          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
-            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --scheduled
+          if [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --scheduled --stage-unchanged
           else
             node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js
           fi
+      - name: Preparar paquetes de ciudad
+        id: paquetes
+        env:
+          GLD_STAGE_UNCHANGED: ${{ steps.catalogo.outputs.changed == 'true' && '1' || '0' }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            node scripts/publicar-paquetes-ciudad.mjs preserve hosting-public
+          else
+            node scripts/publicar-paquetes-ciudad.mjs cut hosting-public
+          fi
       - uses: FirebaseExtended/action-hosting-deploy@v0
-        if: steps.catalogo.outputs.changed == 'true'
+        if: steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true'
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
           channelId: live
           projectId: anunciantes-guialocal
+      - name: Confirmar el corte publicado
+        if: github.event_name != 'push' && steps.paquetes.outputs.cutoff != ''
+        env:
+          CORTE: ${{ steps.paquetes.outputs.cutoff }}
+        run: node scripts/publicar-paquetes-ciudad.mjs commit hosting-public "$CORTE"
