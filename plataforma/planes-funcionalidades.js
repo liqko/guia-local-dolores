@@ -20,5 +20,5 @@ function render(data){
    }).join('')||'<p class="muted">Consultá las funcionalidades y condiciones disponibles.</p>';
  });
 }
-root.GLD_FUNCIONALIDADES_RESUMEN={render};
+root.GLD_FUNCIONALIDADES_RESUMEN={render,fields};
 })(globalThis);
