@@ -1616,11 +1616,18 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       const city=String(ciudadSeleccionada||'').trim();
       const bytes=new TextEncoder().encode(city);
       const key=btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      const storageKey='gld_guia_enlaces_v1:'+city;
+      const valid=packet=>packet?.version===1&&packet.city===city&&['events','promos','activities'].every(k=>Array.isArray(packet[k]));
+      let stored=null;
+      try{stored=localStorage.getItem(storageKey);}catch(_){}
       try{
         const {data}=await gldFetchJson('/plataforma/guia-enlaces/'+key+'.json',{}, {timeoutMs:3000,retries:0});
-        if(data?.version!==1||data.city!==city||!['events','promos','activities'].every(k=>Array.isArray(data[k])))throw Error('Enlaces de Guía inválidos');
+        if(!valid(data))throw Error('Enlaces de Guía inválidos');
+        const json=JSON.stringify(data);
+        if(json!==stored){try{localStorage.setItem(storageKey,json);}catch(_){}}
         return data;
       }catch(_){
+        try{const previous=JSON.parse(stored);if(valid(previous))return previous;}catch(_){}
         const [events,promos,activities]=await Promise.allSettled([obtenerEventosPromise(city),obtenerPromosPromise(city),obtenerActividadesPromise(city)]);
         const eventsData=events.status==='fulfilled'?events.value:null;
         const promosData=promos.status==='fulfilled'?promos.value:null;

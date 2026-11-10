@@ -23,10 +23,11 @@ test('la Guía lee el índice de su ciudad y vuelve a las rutas normales si el �
  const html=readFileSync(new URL('../plataforma/anunciantes.html',import.meta.url),'utf8');
  const script=html.slice(html.indexOf('    async function obtenerEnlacesGuia(){'),html.indexOf('    function obtenerBannersPromise(){'));
  const links=projectGuideLinks(city,input);
- let published=links;
+ let published=links, stored=null;
  const calls=[];
  const run=runInNewContext(script+'\nobtenerEnlacesGuia;',{
   ciudadSeleccionada:city,TextEncoder,btoa,
+  localStorage:{getItem:()=>stored,setItem:(_,value)=>{stored=value;}},
   gldFetchJson:async url=>{calls.push(url);return {data:published};},
   obtenerEventosPromise:async requested=>{calls.push('events:'+requested);return input.events;},
   obtenerPromosPromise:async requested=>{calls.push('promos:'+requested);return input.promos;},
@@ -35,6 +36,9 @@ test('la Guía lee el índice de su ciudad y vuelve a las rutas normales si el �
  assert.equal(await run(),links);
  assert.deepEqual(calls,['/plataforma/guia-enlaces/'+Buffer.from(city).toString('base64url')+'.json']);
  published={...links,city:'OTRA'};
+ assert.equal((await run()).city,city);
+ assert.equal(calls.length,2);
+ stored=null;
  const backup=await run();
  assert.equal(backup.events[0].nombre_evento,'Fiesta');
  assert.equal(backup.promos[0].promo_id,'P1');
