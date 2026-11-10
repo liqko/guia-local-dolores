@@ -37,8 +37,8 @@ function groups(diags){const map=new Map();for(const d of diags){const k=d.categ
  const g=map.get(k)||{code:d.code,category:d.category,count:0,lines:[],sample:d.message};
  g.count++;if(g.lines.length<12)g.lines.push(d.line);map.set(k,g);}return [...map.values()].sort((a,b)=>b.count-a.count);}
 function occurrences(s,phrase){return s.split(phrase).length-1;}
-function lineStats(s){return {chars:s.length,bytes:Buffer.byteLength(s),lines:s.split('\n').length,
- protected:{posiciones:occurrences(s,'posiciones'),excepcion_cupo:occurrences(s,'excepcion_cupo'),cache:occurrences(s,'cache')}};}
+function lineStats(s){const code=s.replace(/\/\*[\s\S]*?\*\//g,'');return {chars:s.length,bytes:Buffer.byteLength(s),lines:s.split('\n').length,
+ protected:{posiciones:occurrences(code,'posiciones'),excepcion_cupo:occurrences(code,'excepcion_cupo'),cache:occurrences(code,'cache')}};}
 async function syntax(s){try{await esbuild.transform(s,{loader:'js',target:'es2022',format:'iife',logLevel:'silent'});return {ok:true};}
  catch(e){return {ok:false,errors:e.errors||String(e)};}}
 function extractFunction(s,name){const src=ts.createSourceFile('worker.js',s,ts.ScriptTarget.ES2022,true,ts.ScriptKind.JS);
@@ -75,11 +75,11 @@ async function main(){
    apiCodePreserved:report.exactFourPatches,
    protectedReferenceCountsEqual:Object.keys(report.original.protected).every(k=>report.original.protected[k]===report.fixed.protected[k])
  };
- if(!report.syntax.original.ok||!report.syntax.fixed.ok||report.diagnostics.after.checkJsCount||!report.regression.protectedReferenceCountsEqual)throw Error('Audit gate failed');
  fs.writeFileSync('worker-diagnostics.json',JSON.stringify(report,null,2));
  for(const key of ['source','exactFourPatches','original','fixed','syntax','diagnostics','regression']){
   const val=key==='diagnostics'?Object.fromEntries(Object.entries(report.diagnostics).map(([k,v])=>[k,{checkJsCount:v.checkJsCount,noCheckJsCount:v.noCheckJsCount,groups:v.groups,all:v.all}])):report[key];
   console.log(key.toUpperCase(),JSON.stringify(val));
  }
+ if(!report.syntax.original.ok||!report.syntax.fixed.ok||report.diagnostics.after.checkJsCount||!report.regression.protectedReferenceCountsEqual)throw Error('Audit gate failed');
 }
 main().catch(e=>{console.error('AUDIT_FAILURE',e.stack||String(e));process.exitCode=1;});
