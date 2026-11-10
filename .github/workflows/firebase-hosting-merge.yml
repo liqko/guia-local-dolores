@@ -8,13 +8,22 @@ on:
       - "docs/**"
       - "worker/**"
       - "**/*.md"
+  schedule:
+    - cron: "0 4 * * *"
+concurrency:
+  group: firebase-hosting-live
+  cancel-in-progress: false
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - name: Verificar integridad de las páginas antes de publicar
-        run: node tests/publication-integrity.mjs
+        run: |
+          node tests/publication-integrity.mjs
+          node --test tests/public-territory.test.mjs
       - name: Preparar exclusivamente archivos de plataforma para Hosting
         run: |
           set -euo pipefail
@@ -25,7 +34,16 @@ jobs:
           test -f hosting-public/plataforma/carcasa.html
           test -f hosting-public/plataforma/administracion.html
           test "$(find hosting-public -mindepth 1 -maxdepth 1 | wc -l)" -eq 1
+      - name: Preparar el catálogo público
+        id: catalogo
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ]; then
+            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --scheduled
+          else
+            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js
+          fi
       - uses: FirebaseExtended/action-hosting-deploy@v0
+        if: steps.catalogo.outputs.changed == 'true'
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
