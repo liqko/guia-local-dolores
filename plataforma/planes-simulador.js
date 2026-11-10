@@ -8,8 +8,9 @@ const additional=document.getElementById('simAdicionales');
 const detail=document.getElementById('simDetalle');
 const send=document.getElementById('simEnviar');
 const reset=document.getElementById('simLimpiar');
-const labels=[['eventos_vip','Eventos VIP'],['actividades','Actividades'],['promociones','Promociones'],['publicidad','Publicidad']];
-const ids={eventos_vip:'EVENTOS',actividades:'ACTIVIDADES',promociones:'PROMOS',publicidad:'PUBLICIDAD'};
+const labels=[['eventos_vip','Eventos VIP'],['actividades','Actividades'],['promociones','Promociones']];
+const publicityFormats=[['publicidad_imagen','Imagen individual','En carrusel compartido, hasta 3 piezas y una por anunciante'],['publicidad_carrusel','Carrusel propio','De 3 a 5 imágenes del mismo anunciante'],['publicidad_short','Short','Una pieza audiovisual en YouTube Shorts']];
+const ids={eventos_vip:'EVENTOS',actividades:'ACTIVIDADES',promociones:'PROMOS'};
 const ars=v=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(v);
 let packet=null;
 const selectable=(p)=>p&&Number.isSafeInteger(p.importe)&&p.importe>=0;
@@ -29,7 +30,7 @@ function quote(){
   if(value===null)missing=true;else total+=value;
   units++;
  }
- for(const [key,label] of labels){
+ for(const [key,label] of [...labels,...publicityFormats.map(([id,title])=>[id,'Publicidad · '+title])]){
   const el=additional.querySelector('[data-sim-key="'+key+'"]');
   const qty=Number(el?.value||0);
   if(!Number.isSafeInteger(qty)||qty<0||qty>100){missing=true;continue;}
@@ -67,13 +68,24 @@ function render(data){
  }
  if([...select.options].some(x=>x.value===current))select.value=current;
  additional.replaceChildren();
+ function addQuantity(key,label,parent,description=''){
+  const holder=document.createElement('label');holder.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:14px;margin:8px 0;';
+  const info=document.createElement('span');
+  const title=document.createElement('strong');title.textContent=label;info.append(title);
+  if(description){const note=document.createElement('small');note.className='muted';note.style.display='block';note.textContent=description;info.append(note);}
+  const input=document.createElement('input');input.type='number';input.min='0';input.max='100';input.step='1';input.value='0';input.dataset.simKey=key;
+  input.setAttribute('aria-label','Cantidad de '+label);input.style.cssText='width:85px;padding:9px;border:1px solid #dae3e7;border-radius:8px;flex-shrink:0;';
+  holder.append(info,input);parent.append(holder);
+ }
  for(const [key,label] of labels){
   if(packet?.funcionalidades_parametros?.[ids[key]]?.activo===false)continue;
-  const holder=document.createElement('label');holder.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:14px;margin:8px 0;';
-  const span=document.createElement('span');span.textContent=label;
-  const input=document.createElement('input');input.type='number';input.min='0';input.max='100';input.step='1';input.value='0';input.dataset.simKey=key;
-  input.setAttribute('aria-label','Cantidad de '+label);input.style.cssText='width:85px;padding:9px;border:1px solid #dae3e7;border-radius:8px;';
-  holder.append(span,input);additional.append(holder);
+  addQuantity(key,label,additional);
+ }
+ if(packet?.funcionalidades_parametros?.PUBLICIDAD?.activo!==false){
+  const group=document.createElement('fieldset');group.style.cssText='border:1px solid #dae3e7;border-radius:10px;margin:12px 0;padding:12px;min-width:0;';
+  const legend=document.createElement('legend');legend.textContent='Publicidad · elegí el formato';legend.style.fontWeight='800';group.append(legend);
+  for(const [key,label,description] of publicityFormats)addQuantity(key,label,group,description);
+  additional.append(group);
  }
  if(!packet?.precios_detalle){
   const alert=document.createElement('p');alert.className='muted';alert.textContent='Aún no están disponibles los importes públicos para estimar el costo completo.';additional.append(alert);
