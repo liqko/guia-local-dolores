@@ -2409,6 +2409,56 @@ function ghRenderValoresFuncionalidades_(){
    '<label style="display:flex;align-items:center;gap:9px"><input type="checkbox" style="width:auto" data-func-visible="'+esc(key)+'" '+(info.publico?'checked':'')+'> Mostrar importe públicamente</label></div>';
  }).join('');
 }
+
+const GH_AD_OPC176=[['eventos_free','Eventos Free'],['eventos_vip','Eventos VIP'],['actividades','Actividades'],['promociones','Promociones'],['publicidad','Publicidad']];
+function ghAdOpc176(tipo,seleccion){
+ const items=tipo==='nivel'?Array.from({length:6},(_,i)=>[String(i+1),'Nivel '+(i+1)]):GH_AD_OPC176;
+ return items.map(([id,nombre])=>'<option value="'+esc(id)+'" '+(seleccion===id?'selected':'')+'>'+esc(nombre)+'</option>').join('');
+}
+function ghAdRow176(id,row={}){
+ const tipo=row.asociacion_tipo==='nivel'?'nivel':'funcionalidad';
+ return '<details class="item" open data-adicional-id176="'+esc(id)+'"><summary><strong>'+esc(row.nombre||'Nuevo adicional')+'</strong></summary>'+
+ '<label>Nombre<input data-ad-campo176="nombre" maxlength="100" value="'+esc(row.nombre||'')+'"></label>'+
+ '<label>Asociación<select data-ad-campo176="tipo" onchange="ghAdTipo176(this)"><option value="funcionalidad" '+(tipo==='funcionalidad'?'selected':'')+'>Funcionalidad</option><option value="nivel" '+(tipo==='nivel'?'selected':'')+'>Nivel</option></select></label>'+
+ '<label>Corresponde a<select data-ad-campo176="asociacion">'+ghAdOpc176(tipo,String(row.asociacion_id||''))+'</select></label>'+
+ '<label>Descripción<textarea data-ad-campo176="descripcion" maxlength="1500" rows="3">'+esc(row.descripcion||'')+'</textarea></label>'+
+ '<label>Importe ($ ARS)<input data-ad-campo176="importe" type="number" step="1" min="0" value="'+esc(row.importe??'')+'" placeholder="Sin definir"></label>'+
+ '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:auto" data-ad-campo176="activo" '+(row.activo!==false?'checked':'')+'> Activo</label>'+
+ '<p class="muted">Para retirarlo de la oferta, desactivá este adicional. No es necesario borrar su precio.</p></details>';
+}
+function ghAdTipo176(field){
+ const row=field.closest('[data-adicional-id176]'),sel=row?.querySelector('[data-ad-campo176="asociacion"]');
+ if(!sel)return;
+ const entries=field.value==='nivel'?Array.from({length:6},(_,i)=>[String(i+1),'Nivel '+(i+1)]):GH_AD_OPC176;
+ sel.replaceChildren(...entries.map(([id,name])=>{const el=document.createElement('option');el.value=id;el.textContent=name;return el}));
+}
+function ghAdRender176(){
+ const host=document.getElementById('ghPreciosAdicionales176');if(!host)return;
+ const entries=Object.entries(GH_PRECIOS_ESTADO162?.precios?.adicionales||{});
+ host.innerHTML=entries.length?entries.map(([id,row])=>ghAdRow176(id,row)).join(''):'<p class="muted">No hay adicionales registrados.</p>';
+}
+function ghAdicionalCrear176(){
+ if(!GH_PRECIOS_ESTADO162){alert('Primero hay que cargar los valores vigentes.');return;}
+ const host=document.getElementById('ghPreciosAdicionales176');if(!host)return;
+ if(!host.querySelector('[data-adicional-id176]'))host.replaceChildren();
+ const id='AD_'+(globalThis.crypto?.randomUUID?.().replace(/-/g,'').slice(0,20).toUpperCase()||String(Date.now())+'000000');
+ host.insertAdjacentHTML('beforeend',ghAdRow176(id,{asociacion_tipo:'funcionalidad',asociacion_id:'publicidad'}));
+ host.lastElementChild?.querySelector('[data-ad-campo176="nombre"]')?.focus();
+}
+function ghAdLeer176(){
+ const result={};
+ for(const row of document.querySelectorAll('#ghPreciosAdicionales176 [data-adicional-id176]')){
+  const field=key=>row.querySelector('[data-ad-campo176="'+key+'"]');
+  const id=row.dataset.adicionalId176,nombre=field('nombre')?.value.trim()||'';
+  const descripcion=field('descripcion')?.value.trim()||'',tipo=field('tipo')?.value||'';
+  const asociacion=field('asociacion')?.value||'',raw=field('importe')?.value.trim()||'';
+  if(!nombre||nombre.length>100||descripcion.length>1500||!tipo||!asociacion)throw Error('Completá correctamente el adicional '+(nombre||id));
+  if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw))))throw Error('Importe inválido para '+nombre);
+  result[id]={nombre,descripcion,asociacion_tipo:tipo,asociacion_id:asociacion,
+   importe:raw===''?null:Number(raw),activo:field('activo')?.checked===true};
+ }
+ return result;
+}
 function ghLeerPrecioCampo162(selector,visibleSelector,discountSelector,textSelector){
  const inp=document.querySelector(selector),checkbox=document.querySelector(visibleSelector);
  const discount=document.querySelector(discountSelector),discountText=document.querySelector(textSelector);
@@ -2431,7 +2481,7 @@ async function ghGuardarTodosPrecios162(){
  if(!boton||!status||!GH_PRECIOS_ESTADO162){if(status)status.textContent='Cargá primero los importes vigentes.';return;}
  let precios;
  try{
-  precios={niveles:{},funcionalidades:{}};
+  precios={niveles:{},funcionalidades:{},adicionales:{}};
   for(let n=1;n<=6;n++)precios.niveles[String(n)]=ghLeerPrecioCampo162(
    '[data-precio-nivel-num="'+n+'"]','[data-precio-visible-num="'+n+'"]',
    '[data-precio-descuento-num="'+n+'"]','[data-precio-descuento-texto-num="'+n+'"]'
@@ -2440,6 +2490,7 @@ async function ghGuardarTodosPrecios162(){
    '[data-func-precio="'+key+'"]','[data-func-visible="'+key+'"]',
    '[data-func-descuento="'+key+'"]','[data-func-descuento-texto="'+key+'"]'
   );
+  precios.adicionales=ghAdLeer176();
  }catch(e){status.textContent=String(e.message||e);return;}
  // Protección: una pantalla vacía o desactualizada no debe borrar importes
  // previamente cargados. La eliminación deliberada requiere una operación separada.
@@ -2453,6 +2504,13 @@ async function ghGuardarTodosPrecios162(){
  if(borrados.length){
   status.textContent='Guardado bloqueado: faltan importes que ya estaban registrados ('+borrados.join(', ')+'). No se sobrescribió ningún precio.';
   return;
+ }
+ for(const [id,prior] of Object.entries(anteriores.adicionales||{})){
+  const latest=precios.adicionales[id];
+  if(!latest||(prior.importe!==null&&prior.importe!==undefined&&latest.importe===null)){
+   status.textContent='Guardado bloqueado: no se permite borrar el adicional '+String(prior.nombre||id)+' ni su importe registrado.';
+   return;
+  }
  }
  boton.disabled=true;status.textContent='Guardando importes y descuentos en una sola operación…';
  try{
@@ -2674,6 +2732,7 @@ async function ghCargarResumenNiveles(){
   await ghCargarPrecios162();
   try{await ghCargarFuncionesGlobal166();}catch(e){console.warn('No se pudieron consultar parámetros generales:',e)}
   ghRenderResumenNiveles108();
+  ghAdRender176();
   ghRenderResumenFuncionesVentas();
   if(button)button.disabled=false;
   if(status)status.textContent='Editá los importes y guardalos juntos.';
