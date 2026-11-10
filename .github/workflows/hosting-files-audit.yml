@@ -1,0 +1,84 @@
+name: Auditoria solo lectura de archivos Firebase Hosting
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/hosting-files-audit.yml"
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar cliente autenticado
+        run: python -m pip install --quiet google-auth requests
+      - name: Comparar GitHub plataforma con Firebase Hosting real
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+        run: |
+          python - <<'PY'
+          import os, json, pathlib, requests, collections
+          from google.oauth2 import service_account
+          from google.auth.transport.requests import Request
+          site='anunciantes-guialocal'
+          info=json.loads(os.environ['FIREBASE_SERVICE_ACCOUNT'])
+          c=service_account.Credentials.from_service_account_info(info,scopes=['https://www.googleapis.com/auth/firebase.hosting.readonly'])
+          c.refresh(Request())
+          s=requests.Session()
+          s.headers.update({'Authorization':'Bearer '+c.token})
+          base='https://firebasehosting.googleapis.com/v1beta1/sites/'+site
+          def get(path,params=None):
+            r=s.get(base+path,params=params,timeout=45)
+            if not r.ok: raise RuntimeError(str(r.status_code)+' '+path+': '+r.text[:300])
+            return r.json()
+          def paged(path,key,params=None):
+            ans=[]; token=None
+            for i in range(100):
+              p=dict(params or {})
+              if token:p['pageToken']=token
+              j=get(path,p)
+              ans+=j.get(key,[])
+              token=j.get('nextPageToken')
+              if not token:return ans
+            raise RuntimeError('Paginacion excedida en '+path)
+          repo_files={('/'+p.as_posix()) for p in pathlib.Path('plataforma').rglob('*') if p.is_file()}
+          live=get('/channels/live')
+          name=live.get('release',{}).get('version',{}).get('name')
+          if not name:raise RuntimeError('No hay version live')
+          vid=name.rsplit('/',1)[-1]
+          active=get('/versions/'+vid)
+          fs=paged('/versions/'+vid+'/files','files',{'pageSize':1000})
+          live_files={f['path'] for f in fs}
+          extra=sorted(live_files-repo_files)
+          missing=sorted(repo_files-live_files)
+          same=sorted(live_files&repo_files)
+          print('HOSTING_ACTIVO_VERSION',name)
+          print('HOSTING_ACTIVO_FILE_COUNT_API',active.get('fileCount'))
+          print('HOSTING_ACTIVO_BYTES_API',active.get('versionBytes'))
+          print('GITHUB_PLATAFORMA_FILE_COUNT',len(repo_files))
+          print('HOSTING_ACTIVO_FILE_COUNT',len(live_files))
+          print('COINCIDEN_RUTAS',len(same))
+          print('SOLO_HOSTING_ACTIVO',len(extra),json.dumps(extra,ensure_ascii=False))
+          print('SOLO_GITHUB_PLATAFORMA',len(missing),json.dumps(missing,ensure_ascii=False))
+          print('ARCHIVOS_ACTIVOS',json.dumps(sorted(live_files),ensure_ascii=False))
+          versions=paged('/versions','versions',{'pageSize':1000})
+          counts=collections.Counter(v.get('status','?') for v in versions)
+          print('VERSIONES_TOTALES',len(versions),'ESTADOS',dict(counts))
+          print('VERSIONES_PRIMERAS_15',json.dumps([{'name':v.get('name'),'status':v.get('status'),'versionBytes':v.get('versionBytes'),'fileCount':v.get('fileCount'),'createTime':v.get('createTime')} for v in versions[:15]],ensure_ascii=False))
+          print('VERSIONES_BYTES_SUMA',sum(int(v.get('versionBytes') or 0) for v in versions))
+          channels=paged('/channels','channels',{'pageSize':1000})
+          print('CANALES_EXISTENTES',json.dumps([x.get('name') for x in channels],ensure_ascii=False))
+          pathlib.Path('hosting-audit.json').write_text(json.dumps({
+             'live_version':name,'live_version_bytes':active.get('versionBytes'),
+             'github_files':sorted(repo_files),'hosting_active_files':sorted(live_files),
+             'matching_paths':same,'only_hosting_active':extra,'only_github':missing,
+             'versions':versions,'channels':[x.get('name') for x in channels]
+          },ensure_ascii=False,indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hosting-files-audit
+          path: hosting-audit.json
+          retention-days: 5
