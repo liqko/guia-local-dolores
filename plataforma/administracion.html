@@ -241,13 +241,14 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
    <h3>Configuración comercial · Gran Hermano</h3>
    <p class="muted">Acceso reservado a administración principal. Las secciones están preparadas para conectar con una configuración persistente y permisos del servidor.</p>
    <details class="item" open><summary><strong>Coeficientes de paquetes</strong></summary>
-    <p>Se aplicarán sobre las combinaciones de niveles y funcionalidades. Los descuentos progresivos serán definidos aquí, no en la calculadora del vendedor.</p>
-    <div class="formgrid">
-     <label>Nivel de referencia<select disabled><option>Seleccionar nivel</option></select></label>
-     <label>Combinación de funcionalidades<select disabled><option>Seleccionar combinación</option></select></label>
-     <label>Coeficiente comercial (%)<input type="number" min="0" max="100" step="0.01" disabled placeholder="Sin configurar"></label>
-     <label>Vigencia desde<input type="date" disabled></label>
-    </div><p class="muted">Sin editor activo ni guardado hasta incorporar el endpoint autorizado.</p>
+    <p>Descuento adicional sobre el subtotal con precios generales y sus descuentos. Cada columna indica cuántas funcionalidades distintas se contratan junto a un nivel; aumentar la cantidad de una misma funcionalidad no agrega otra columna.</p>
+    <p class="muted">Dejá vacío un coeficiente que todavía no definiste. El vendedor no podrá presupuestar esa combinación como importe definitivo.</p>
+    <div id="ghCoefMatriz173" style="overflow:auto">Abrí esta pestaña para consultar la matriz vigente.</div>
+    <div style="display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:12px">
+      <button type="button" id="ghCoefGuardar173" onclick="ghCoefGuardar173()" disabled>Guardar coeficientes</button>
+      <button type="button" class="sec" onclick="ghCoefCargar173(true)">Actualizar tabla</button>
+      <span id="ghCoefEstado173" role="status">Sin consultar.</span>
+    </div>
    </details>
    <details class="item"><summary><strong>Comisiones de vendedores</strong></summary>
     <p>La comisión se asignará a cada vendedor o perfil autorizado desde Gran Hermano, con su porcentaje y vigencia.</p>
@@ -2464,6 +2465,7 @@ let GH_COTIZACION_BUSQUEDA171=0;
 function ghVentasSelect172(tab){
  const valid=['calculadora','niveles','funcionalidades','valores','configuracion_comercial'];
  if(tab==='configuracion_comercial'&&GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')tab='calculadora';
+ if(tab==='configuracion_comercial')ghCoefCargar173();
  if(!valid.includes(tab))tab='calculadora';
  document.querySelectorAll('#ghVentasTabs [data-venta-tab]').forEach(el=>{const active=el.dataset.ventaTab===tab;el.classList.toggle('active',active);el.setAttribute('aria-current',active?'page':'false')});
  document.querySelectorAll('#view-ventas [data-venta-pane]').forEach(el=>{el.hidden=el.dataset.ventaPane!==tab;el.style.display=el.hidden?'none':'block'});
@@ -2487,35 +2489,106 @@ function ghCotizarArmar171(){
  host.innerHTML=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
  ghCotizarRecalcular171();
 }
+let GH_COTIZA_SEQ173=0;
+let GH_COTIZA_TIMER173=0;
+let GH_COEF_PACK173=null;
+async function ghCoefCargar173(force=false){
+ if(GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
+ const host=document.getElementById('ghCoefMatriz173'),status=document.getElementById('ghCoefEstado173'),save=document.getElementById('ghCoefGuardar173');
+ if(!host||!status)return;
+ if(GH_COEF_PACK173&&!force)return;
+ status.textContent='Consultando coeficientes…';
+ try{
+  const data=await ghAdminRequest_('/sales/coefficients');
+  GH_COEF_PACK173={revision:data.revision,levels:data.levels};
+  const rows=Array.from({length:6},(_,i)=>{
+   const n=String(i+1);
+   const cells=Array.from({length:4},(_,j)=>{
+    const count=String(j+1),v=data.levels?.[n]?.[count];
+    return '<td style="min-width:110px"><input type="number" min="0" max="100" step="0.01" style="width:105px" data-gh-coef-nivel="'+n+'" data-gh-coef-cantidad="'+count+'" value="'+(v===null||v===undefined?'':esc(v))+'" aria-label="Nivel '+n+', '+count+' adicionales"></td>';
+   }).join('');
+   return '<tr><th scope="row">Nivel '+n+'</th>'+cells+'</tr>';
+  }).join('');
+  host.innerHTML='<table><thead><tr><th>Nivel</th><th>1 adicional (%)</th><th>2 adicionales (%)</th><th>3 adicionales (%)</th><th>4 adicionales (%)</th></tr></thead><tbody>'+rows+'</tbody></table>';
+  status.textContent='Tabla consultada. Los cambios se aplicarán al guardarlos.';
+  save.disabled=false;
+ }catch(e){
+  GH_COEF_PACK173=null;host.textContent='No se pudo consultar la configuración.';
+  status.textContent=String(e.message||e)+' · Se requiere el Worker 173.';
+  save.disabled=true;
+ }
+ informarAltura();
+}
+async function ghCoefGuardar173(){
+ const status=document.getElementById('ghCoefEstado173'),btn=document.getElementById('ghCoefGuardar173');
+ if(!GH_COEF_PACK173||GH_ADMIN_ACCESS.rol!=='SUPERADMIN_PRINCIPAL')return;
+ const levels={};
+ try{
+  for(let n=1;n<=6;n++){
+   levels[String(n)]={};let last=0;
+   for(let c=1;c<=4;c++){
+    const field=document.querySelector('[data-gh-coef-nivel="'+n+'"][data-gh-coef-cantidad="'+c+'"]');
+    if(!field)throw Error('Falta un campo de coeficiente.');
+    const raw=field.value.trim();
+    if(raw===''){levels[String(n)][String(c)]=null;continue;}
+    const v=Number(raw);
+    if(!Number.isFinite(v)||v<0||v>100||Math.abs(v*100-Math.round(v*100))>1e-7)throw Error('Coeficiente inválido en nivel '+n+', '+c+' adicionales.');
+    levels[String(n)][String(c)]=v;
+   }
+  }
+ }catch(e){status.textContent=String(e.message||e);return;}
+ btn.disabled=true;status.textContent='Guardando tabla…';
+ try{
+  const r=await ghAdminRequest_('/sales/coefficients',{revision:GH_COEF_PACK173.revision,levels},'POST');
+  GH_COEF_PACK173={revision:r.revision,levels};
+  status.textContent=r.updated?'Coeficientes guardados.':'Sin modificaciones.';
+  ghCotizarRecalcular171();
+ }catch(e){status.textContent='No se guardó: '+String(e.message||e);}
+ finally{btn.disabled=false;}
+}
 function ghCotizarRecalcular171(){
- const nivel=document.getElementById('ghCotizarNivel')?.value||'';
- const host=document.getElementById('ghCotizarResultado');if(!host)return;
- let suma=0,incompleto=false;
- const lineas=[];
- if(nivel){
-  const v=ghValorMonetario162(nivel,'niveles');
-  if(v.importe===null)incompleto=true;
-  const porcentaje=v.descuento_porcentaje||0;
-  const importe=v.importe===null?null:Math.round(v.importe*(100-porcentaje))/100;
-  if(importe!==null)suma+=importe;
-  lineas.push('Nivel '+nivel+': '+(importe===null?'precio no definido':'$ '+importe.toLocaleString('es-AR')));
+ clearTimeout(GH_COTIZA_TIMER173);
+ const host=document.getElementById('ghCotizarResultado'),level=document.getElementById('ghCotizarNivel')?.value||'';
+ if(!host)return;
+ const values={};
+ let count=0;
+ for(const [key,label] of GH_FUNCIONALIDADES_COMERCIALES.filter(([key])=>key!=='eventos_free')){
+  const v=Number(document.querySelector('[data-gh-cotizar-cantidad="'+key+'"]')?.value||0);
+  if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
+  values[key]=v;count+=v;
  }
- for(const [id,label]of GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free')){
-  const input=document.querySelector('[data-gh-cotizar-cantidad="'+id+'"]');
-  const cant=Number(input?.value||0);
-  if(!Number.isSafeInteger(cant)||cant<0||cant>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
-  if(!cant)continue;
-  const v=ghValorMonetario162(id,'funcionalidades');
-  const total=v.importe===null?null:Math.round(cant*v.importe*(100-(v.descuento_porcentaje||0)))/100;
-  if(total===null)incompleto=true;else suma+=total;
-  lineas.push(label+' × '+cant+': '+(total===null?'precio no definido':'$ '+total.toLocaleString('es-AR')));
- }
- const nombre=document.getElementById('ghCotizarNombre')?.value.trim()||'Sin identificar';
- const id=document.getElementById('ghCotizarAnuncianteId')?.value||'';
- const headline='Presupuesto orientativo · '+nombre+(id?' (ID '+id+')':'');
- const total='Total estimado: '+(incompleto?'incompleto (faltan precios)':'$ '+suma.toLocaleString('es-AR'));
- GH_COTIZACION171=headline+'\n'+lineas.join('\n')+'\n'+total+'\nNo constituye una contratación ni habilita prestaciones.';
- host.innerHTML='<p><strong>'+esc(headline)+'</strong></p>'+lineas.map(x=>'<p>'+esc(x)+'</p>').join('')+'<p><strong>'+esc(total)+'</strong></p>';
+ if(!level&&!count){host.textContent='Elegí un nivel y los servicios para cotizar.';GH_COTIZACION171='';return;}
+ if(!level&&count){host.textContent='Seleccioná un nivel para aplicar la tabla comercial.';GH_COTIZACION171='';return;}
+ const seq=++GH_COTIZA_SEQ173;
+ GH_COTIZACION171='';
+ host.textContent='Calculando condiciones comerciales…';
+ GH_COTIZA_TIMER173=setTimeout(async()=>{
+  try{
+   const result=await ghAdminRequest_('/sales/quote',{nivel:level,funcionalidades:values},'POST');
+   if(seq!==GH_COTIZA_SEQ173)return;
+   const name=document.getElementById('ghCotizarNombre')?.value.trim()||'Sin identificar';
+   const id=document.getElementById('ghCotizarAnuncianteId')?.value||'';
+   const headline='Presupuesto orientativo · '+name+(id?' (ID '+id+')':'');
+   if(result.precios_pendientes){
+    host.textContent='Faltan importes configurados para esta combinación. No se puede emitir presupuesto.';
+    return;
+   }
+   if(result.configuracion_pendiente){
+    host.textContent='La combinación todavía no tiene coeficiente aprobado por Gran Hermano. No se puede emitir un precio final.';
+    return;
+   }
+   const amount=new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0});
+   const details=(result.detalle||[]).map(x=>x.nombre+' × '+x.cantidad+': '+amount.format(x.importe));
+   const discount='Beneficio del paquete: '+amount.format(result.descuento_aplicado);
+   const total='Precio final: '+amount.format(result.total);
+   GH_COTIZACION171=[headline,...details,discount,total,'Presupuesto orientativo; no habilita prestaciones ni confirma la contratación.'].join('\n');
+   host.innerHTML='<p><strong>'+esc(headline)+'</strong></p>'+details.map(x=>'<p>'+esc(x)+'</p>').join('')+
+    '<p><strong>'+esc(discount)+'</strong></p><p><strong>'+esc(total)+'</strong></p>';
+  }catch(e){
+   if(seq!==GH_COTIZA_SEQ173)return;
+   host.textContent='No se pudo calcular el paquete: '+String(e.message||e)+'. La cotización requiere Worker 173.';
+  }
+ },350);
 }
 async function ghCotizarBuscarAnunciante171(){
  const q=document.getElementById('ghCotizarBuscar')?.value.trim(),host=document.getElementById('ghCotizarResultados');
@@ -2541,8 +2614,7 @@ async function ghCotizarBuscarAnunciante171(){
  }catch(e){host.textContent=String(e.message||e)}
 }
 function ghCotizarCopiar171(){
- ghCotizarRecalcular171();
- if(!GH_COTIZACION171)return;
+ if(!GH_COTIZACION171){alert('Primero completá una cotización con coeficientes aprobados.');return;}
  const text=GH_COTIZACION171;
  if(navigator.clipboard?.writeText)navigator.clipboard.writeText(text).catch(()=>window.prompt('Copiá el presupuesto:',text));
  else window.prompt('Copiá el presupuesto:',text);
