@@ -74,7 +74,7 @@ async function publicityRegression(){
   const ctx={gldFuncPacket166:async cache=>cache.get('func'),gldFuncRules166:p=>p.reglas.PUBLICIDAD,
    publicitySaveMonthlyV101:async args=>{counts.saveCalls++;return {success:true,positions:args.config.posiciones};},
    httpError:(msg,status)=>Object.assign(new Error(msg),{status})};
-  vm.runInNewContext(source+'\\nthis.fn=publicitySaveV4;',ctx);
+  vm.runInNewContext(source+'\nthis.fn=publicitySaveV4;',ctx);
   let code=0,result;
   try{result=await ctx.fn({db,cache:fakeCache,advertiserId:'TEST',body:{},config:{posiciones:positions,excepcion_cupo:exceptionAllowed}});}
   catch(e){code=e.status||500;}
