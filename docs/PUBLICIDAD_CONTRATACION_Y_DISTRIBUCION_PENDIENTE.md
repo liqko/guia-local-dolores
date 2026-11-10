@@ -44,3 +44,18 @@
 
 ## Proceso convenido
 Definir en conversación Promociones, Actividades, Eventos VIP, Eventos Free, Publicidad y Empleo. Una vez acordadas todas las tablas y reglas transversales, hacer **una única revisión integral del HTML de Gran Hermano**, comprobar la interfaz, después adaptar Worker y por último panel del anunciante. **Worker 169 instalado: no modificar aún por esta discusión.**
+
+## Corrección transversal acordada · 10/11/2026
+
+**Separación obligatoria para todas las funcionalidades:** Gran Hermano define parámetros y topes generales *por paquete* (cuando se trate de productos contratables), no cuántos paquetes adquirió un anunciante. La cantidad contratada (×1, ×2, ×3, ×4, cantidad personalizada, etc.) se asigna de manera individual en la contratación, **no** en el catálogo de parámetros generales. La posibilidad de una excepción particular se conserva mediante «Admite excepciones», marcado por defecto, sin modificar las reglas generales.
+
+- **Promociones:** cantidad base por paquete, guardadas, ediciones, cambios de estado, caracteres e imágenes en la configuración general. Número de paquetes adquiridos y condiciones particulares en contrato.
+- **Actividades:** mismo criterio, con sus límites específicos.
+- **Eventos VIP:** eventos por paquete y demás límites generales; cantidad de paquetes en contratación.
+- **Eventos Free:** límites de cupo mensual, activos simultáneos, guardados y demás reglas generales, sin multiplicadores comerciales de paquetes.
+- **Publicidad:** parámetros generales de piezas/capacidades técnicas y formatos posibles; no establecer desde configuración general la mezcla de formatos contratados. Imagen simple es una imagen; se propone carrusel del anunciante de **3 a 5 imágenes** (valores a confirmar como topes generales), y Short con parámetros técnicos aún por definir. Paquetes mixtos, cantidad por formato, rotación como beneficio, cobertura, vigencia y precio van en la contratación individual. Las posiciones publicitarias son parte de reglas de distribución separadas.
+- **Empleo:** pendiente de definición con este mismo criterio.
+
+**Propuesta futura, no implementada:** interfaz de vendedor para generar presupuestos/contrataciones, vincularlos mediante ID del anunciante y reflejar sus derechos y capacidades en su ficha de Gran Hermano y en su panel de login. No confundir propuesta con funcionalidad existente.
+
+**Proceso:** continuar diseño funcional aquí, sin más modificaciones al HTML ni al Worker 169 hasta la revisión integral acordada.
