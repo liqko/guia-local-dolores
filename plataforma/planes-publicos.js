@@ -55,6 +55,7 @@ function cardFuncionalidad(title,summary,price,details){
   price+'<details class="plan-detail"><summary><strong>Detalle</strong></summary>'+details+'</details></article>';
 }
 function render(payload){
+ window.GLD_PLANES_PUBLIC_PACKET=payload;
  const rows=Array.isArray(payload.niveles_anunciante)?payload.niveles_anunciante:[];
  const usable=rows.filter(r=>r&&r.eliminado!==true);
  const cfg=rows.find(r=>String(r.nivel_id||r.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
