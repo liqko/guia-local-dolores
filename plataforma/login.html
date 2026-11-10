@@ -946,6 +946,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
     <div id="panel-dashboard" class="panel">
       <div style="font-size:1.2em;margin-bottom:4px">Hola <span id="nombre-comercio"></span>, ¿en qué vas a trabajar hoy?</div>
       <div id="dashboard-anunciante-id" class="record-id" style="margin-bottom:10px"></div>
+      <div id="dashboard-limites-funcionalidades170" class="small-muted" style="margin-bottom:10px"></div>
 
       <div class="dashboard-top-actions"><button type="button" class="secondary" data-notifications102>Notificaciones</button>
         <button id="btn-cambiar-anunciante" class="secondary" type="button" style="margin-bottom:0;display:none">Cambiar anunciante</button>
@@ -8381,14 +8382,16 @@ document.addEventListener('DOMContentLoaded', ()=>{
     showGlobalBlocking_('Cargando anunciante...','Preparando permisos y módulos.',document.activeElement);
     try{
       let administracion=(rel&&rel.administracion&&typeof rel.administracion==='object') ? rel.administracion : null;
-      if(!administracion){
+      let parametrosFuncionales170=(rel&&rel.configuracion_funcionalidades&&typeof rel.configuracion_funcionalidades==='object')?rel.configuracion_funcionalidades:null;
+      if(!administracion||!parametrosFuncionales170){
         const url=`${WORKER_ORIGIN}/commerce?action=permisos_panel&id=${encodeURIComponent(id)}`;
         const r=await fetch(url,{method:'GET',mode:'cors',cache:'no-store',headers:gldAuthHeaders_()});
         const j=await r.json().catch(()=>null);
         if(!r.ok || !j || j.success!==true || !j.administracion || typeof j.administracion!=='object'){
           throw new Error((j&&(j.message||j.error))||'No se pudieron validar los permisos del anunciante.');
         }
-        administracion=j.administracion||{};
+        administracion=j.administracion||administracion||{};
+        parametrosFuncionales170=j.configuracion_funcionalidades||parametrosFuncionales170;
       }
       sesion={
         id:id,
@@ -8398,6 +8401,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         eventos_cant:Number(administracion.eventos_cant||0),
         turnos_farma:administracion.turnos_farma||'',
         administracion:administracion,
+        configuracion_funcionalidades:parametrosFuncionales170,
         relacion_autorizacion:rel
       };
       gldPanelStorage.setItem('comercio_id',id);
@@ -8417,6 +8421,24 @@ document.addEventListener('DOMContentLoaded', ()=>{
       }
 
       await mostrarPanelDashboard();
+      const resumen170=document.getElementById('dashboard-limites-funcionalidades170');
+      if(resumen170){
+       resumen170.textContent='';
+       if(parametrosFuncionales170&&typeof parametrosFuncionales170==='object'){
+        const names170={PROMOS:'Promociones',ACTIVIDADES:'Actividades',EVENTOS:'Eventos VIP',EVENTOS_FREE:'Eventos Free',PUBLICIDAD:'Publicidad',EMPLEO:'Empleo'};
+        const box170=document.createElement('details'),summary170=document.createElement('summary');
+        summary170.textContent='Mis límites y habilitaciones';box170.append(summary170);
+        for(const [key,name]of Object.entries(names170)){
+         const entry=parametrosFuncionales170[key];if(!entry)continue;
+         const params=entry.parametros||{},row=document.createElement('p');
+         const quota=key==='EMPLEO'?params.ofertas_activas_max:params.activas_max;
+         const edit=params.ediciones_mes_max;
+         row.textContent=name+': '+(entry.activo?'habilitado':'inhabilitado')+(quota===null||quota===undefined?'':' · activas: '+(quota===-1?'ilimitadas':quota))+(edit===null||edit===undefined?'':' · ediciones/mes: '+(edit===-1?'ilimitadas':edit));
+         box170.append(row);
+        }
+        resumen170.append(box170);
+       }
+      }
     }finally{
       hideGlobalBlocking_();
     }
