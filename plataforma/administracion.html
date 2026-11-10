@@ -1999,8 +1999,10 @@ function ghFuncReglasHtml166(id,config){
  const base=parts.length?'<fieldset style="margin-top:10px;border:1px solid #45515a;border-radius:9px;padding:14px"><legend>Parámetros</legend><div style="display:grid;gap:12px">'+parts.join('')+'</div></fieldset>':'';
  const checked=config.admite_excepciones!==false?'checked':'';
  const selected=Array.isArray(config.niveles_habilitados)?config.niveles_habilitados.map(Number):id==='EVENTOS_FREE'?[1,2,3,4,5,6]:[5,6];
+ const subscribers=config.suscriptores_habilitados===true||config.suscriptores_habilitados===undefined&&['EVENTOS_FREE','EMPLEO'].includes(id);
  const levels='<fieldset style="margin-top:10px;border:1px solid #45515a;border-radius:9px;padding:14px"><legend>Niveles habilitados</legend><div style="display:flex;flex-wrap:wrap;gap:14px">'+
   Array.from({length:6},(_,i)=>{const n=i+1;return '<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" style="width:18px" data-func-nivel="'+esc(id)+'" value="'+n+'" '+(selected.includes(n)?'checked':'')+'> '+n+'</label>';}).join('')+
+  '<label style="display:inline-flex;gap:6px;align-items:center"><input type="checkbox" style="width:18px" data-func-suscriptores="'+esc(id)+'" '+(subscribers?'checked':'')+'> Suscriptores</label>'+
   '</div><small>Regla general. Las excepciones se autorizan por anunciante y no modifican estos niveles.</small></fieldset>';
  return levels+base+'<label style="display:inline-flex!important;align-items:center!important;flex-direction:row!important;gap:8px;margin-top:12px"><input type="checkbox" style="width:18px!important;height:18px!important;min-width:18px!important;margin:0!important;flex:0 0 auto" data-func-exceptions="'+esc(id)+'" '+checked+'> Admite excepciones</label>';
 }
@@ -2040,10 +2042,6 @@ function ghRenderFuncionesUnificadas166(box,rows){
  ''+
  defs.map(x=>{
   const id=String(x.funcionalidad_id||x.id||'');
-  if(!x._general){
-   const name=String(GLD_CLASSIFICATION.name(x)||x.nombre||x.titulo||id).trim()||id,active=GLD_CLASSIFICATION.active(x);
-   return '<details class="item" data-cat-extra="'+esc(id)+'"><summary><b>'+esc(name||id)+'</b> · '+(active?'Activo':'Inactivo')+'</summary><div class="formgrid"><label>Nombre<input data-cat-nombre="'+esc(id)+'" value="'+esc(name||id)+'"></label><label>ID<input disabled value="'+esc(id)+'"></label></div><label style="display:inline-flex!important;align-items:center!important;flex-direction:row!important;gap:8px"><input type="checkbox" style="width:18px!important;height:18px!important;min-width:18px!important;margin:0!important;flex:0 0 auto" data-cat-activo="'+esc(id)+'" '+(active?'checked':'')+'> Activo</label></details>';
-  }
   const actual=value[id]||{},nombre=String(actual.nombre||GLD_CLASSIFICATION.name(x)||standard.find(([k])=>k===id)?.[1]||id).trim()||id,activo=actual.activo??GLD_CLASSIFICATION.active(x);
   const params=ghFuncParametros166(id);
   return '<details class="item" data-func-item="'+esc(id)+'"><summary><b>'+esc(nombre||id)+'</b> · '+(activo?'Activo':'Inactivo')+'</summary>'+
@@ -2088,6 +2086,8 @@ async function ghRestaurarFunciones170(input){
    const active=el.querySelector('[data-func-active]');if(active&&typeof item.activo==='boolean')active.checked=item.activo;
    const exceptions=el.querySelector('[data-func-exceptions]');if(exceptions&&typeof item.admite_excepciones==='boolean')exceptions.checked=item.admite_excepciones;
    if(Array.isArray(item.niveles_habilitados))for(const cb of el.querySelectorAll('[data-func-nivel]'))cb.checked=item.niveles_habilitados.includes(Number(cb.value));
+   const subscriber=el.querySelector('[data-func-suscriptores]');
+   if(subscriber&&typeof item.suscriptores_habilitados==='boolean')subscriber.checked=item.suscriptores_habilitados;
    for(const field of el.querySelectorAll('[data-func-key]')){
     if(!Object.prototype.hasOwnProperty.call(item.parametros,field.dataset.funcKey))continue;
     const v=item.parametros[field.dataset.funcKey];
@@ -2110,11 +2110,15 @@ async function ghGuardarFunciones166(){
  try{
   for(const el of document.querySelectorAll('#cfgFuncionalidades [data-func-item]')){
    const id=el.dataset.funcItem,nom=el.querySelector('[data-func-name]'),act=el.querySelector('[data-func-active]');
-   if(!['EVENTOS_FREE','EVENTOS','ACTIVIDADES','PROMOS','PUBLICIDAD','EMPLEO'].includes(id))continue;
+
    const originalName=String(GH_FUNC_GLOBAL166?.reglas?.[id]?.nombre||GH_CATALOG_CACHE.funcionalidades?.find(x=>['EVENTOS_FREE','EVENTOS','ACTIVIDADES','PROMOS','PUBLICIDAD','EMPLEO'].includes(id)&&String(x.funcionalidad_id||x.id||'')===id)?.nombre||({EVENTOS_FREE:'Eventos Free',EVENTOS:'Eventos VIP',ACTIVIDADES:'Actividades',PROMOS:'Promociones y descuentos',PUBLICIDAD:'Publicidad',EMPLEO:'Empleo'})[id]||id).trim();
    const niveles=[...el.querySelectorAll('[data-func-nivel]:checked')].map(input=>Number(input.value)).sort((a,b)=>a-b);
    if(niveles.some(n=>!Number.isInteger(n)||n<1||n>6)||new Set(niveles).size!==niveles.length)throw Error('Niveles inválidos en '+id);
-   const item={nombre:String(nom?.value||'').trim()||originalName,activo:!!act?.checked,admite_excepciones:!!el.querySelector('[data-func-exceptions]')?.checked,niveles_habilitados:niveles};
+   const subscriber=el.querySelector('[data-func-suscriptores]');
+   if(!subscriber)throw Error('Falta autorización de suscriptores en '+id);
+   const item={nombre:String(nom?.value||'').trim()||originalName,activo:!!act?.checked,
+     admite_excepciones:!!el.querySelector('[data-func-exceptions]')?.checked,
+     niveles_habilitados:niveles,suscriptores_habilitados:subscriber.checked};
    for(const input of el.querySelectorAll('[data-func-regla]')){
     const key=input.dataset.funcKey;
     if(input.type==='checkbox'){item[key]=input.checked;continue;}
