@@ -9,7 +9,7 @@ import { prepareCityBooks } from '../../scripts/preparar-paquete-ciudad.mjs';
 import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-ciudad.mjs';
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
-const source = await readFile(new URL('../../worker/worker171_publicacion_ciudades.txt', import.meta.url), 'utf8');
+const source = await readFile(new URL('../../worker/worker172_publicacion_ciudades.txt', import.meta.url), 'utf8');
 const { GldPublicCache119 } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const { lists } = bookTools;
 const key = 'guide:city:v1:DOLORES';
