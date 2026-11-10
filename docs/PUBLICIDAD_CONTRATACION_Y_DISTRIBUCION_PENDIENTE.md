@@ -73,3 +73,16 @@ Definir en conversación Promociones, Actividades, Eventos VIP, Eventos Free, Pu
 - Casilla «Admite excepciones» marcada de manera predeterminada para todas las funcionalidades; desmarcarla impide habilitaciones particulares fuera de la regla. Las excepciones son por anunciante, no cambios del catálogo general.
 - La **calculadora de vendedor y el circuito de presupuesto → contratación confirmada → habilitación en ficha del anunciante por ID** son prioritarios para esta semana según solicitud del usuario; no existen todavía como sistema de contratación integrado. La fecha objetivo no es evidencia de implementación.
 - Pendientes antes del HTML y Worker: fórmula precisa del doble de guardados según servicios, jerarquía de excepciones y derechos comerciales, definición de reglas técnicas específicas de Publicidad, y contrato registrado sin escrituras repetidas. No tocar Worker 169 durante esta etapa de definición.
+
+
+## Información del anunciante y límites por nivel · 10/11/2026
+
+**Nueva necesidad transversal (todavía no implementada):**
+
+- El ítem «Modificar» que el usuario ve dentro del catálogo de Funcionalidades **no corresponde a un producto/funcionalidad comercial**. Revisar su origen en el catálogo real antes de renombrarlo, y presentarlo como **«Información del anunciante»** o **«Edición de la ficha del anunciante»**; conservar el permiso de edición habilitado.
+- Definir para la ficha del anunciante límites de modificaciones **por día, semana calendario de lunes a domingo y mes**, ajustables **según nivel** (en particular, no permitir ediciones ilimitadas por defecto en nivel gratuito). Convención −1 ilimitado, 0 ninguno, entero positivo máximo. Valores orientativos mencionados: 1/día, 2/semana, 4 o 5/mes, **no aprobados como valores definitivos**.
+- Una edición consiste en **un guardado efectivo** con modificaciones; cambiar varios campos en un solo guardado se contabiliza como una edición. Guardar datos idénticos o simplemente visualizar la ficha **no debe consumir cuota de edición ni generar escrituras**.
+- El mecanismo debe distinguir permisos y límites por nivel, excepciones individuales (si se admiten), derechos efectivos de contrato y escrituras reales. No duplicar reglas contradictorias entre GH, vendedor, panel anunciante y Worker.
+- Precaución: una limitación comercial de cambios no debe impedir correcciones urgentes de datos falsos, protección o cumplimiento; permitir vía administrativa si procede.
+- **Publicidad:** el criterio general de biblioteca guardada 2× no necesariamente basta para una rotación comercial de creatividades. Capacidad de rotación, número de creatividades y periodicidad deben ser derechos derivados del contrato y resueltos sin una escritura por cada presentación. Evitar confundir rotación automática con edición manual o estado.
+- **Pendiente:** auditar en detalle parámetros de todos los niveles y el catálogo actual «Modificar», luego completar todas las definiciones y efectuar una sola implementación integral de HTML, después Worker y panel.
