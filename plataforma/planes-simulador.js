@@ -37,6 +37,7 @@ function quote(){
   if(!field)continue;
   const qty=Number(field.value||0);
   if(!Number.isSafeInteger(qty)||qty<0||qty>100){missing=true;continue;}
+  if(item.modalidad_cobro==='funcionalidad_destino')continue;
   if(qty>0)selectedExtras.push([id,item,qty]);
  }
  for(const [key,label] of [...labels,...publicityFormats.map(([id,title])=>[id,'Publicidad · '+title])]){
@@ -49,6 +50,18 @@ function quote(){
   details.push(label+' × '+qty+': '+(value===null?'consultar precio':ars(value*qty)));
   if(value===null)missing=true;else total+=value*qty;
   units+=qty;
+ }
+ for(const [id,item] of Object.entries(addOns)){
+  if(item.modalidad_cobro!=='funcionalidad_destino')continue;
+  const selected=[...additional.querySelectorAll('[data-sim-cobertura="'+id+'"]:checked')].map(el=>el.value);
+  if(!selected.length)continue;
+  const destinations=packet?.cobertura_publicidad_destinos||[];
+  const textDest=selected.map(x=>destinations.find(d=>d.id===x)?.nombre||x).join(' y ');
+  const value=cost(item);
+  lines.push('Cobertura publicitaria · '+textDest);
+  details.push('Cobertura · '+textDest+': '+(value===null?'consultar precio':ars(value*selected.length))+(item.descuento_porcentaje>0?' ('+(item.descuento_texto||item.descuento_porcentaje+'% de descuento')+')':''));
+  if(value===null)missing=true;else total+=value*selected.length;
+  units+=selected.length;
  }
  for(const [id,item,qty] of selectedExtras){
   const value=cost(item);
@@ -109,6 +122,21 @@ function render(data){
   const group=document.createElement('fieldset');group.style.cssText='border:1px solid #dae3e7;border-radius:10px;margin:12px 0;padding:12px;min-width:0;';
   const legend=document.createElement('legend');legend.textContent='Adicionales opcionales';legend.style.fontWeight='800';group.append(legend);
   for(const [key,item] of extras){
+   if(item.modalidad_cobro==='funcionalidad_destino'){
+    const block=document.createElement('div');block.className='sim-cobertura-opciones';
+    const title=document.createElement('strong');title.textContent=item.nombre;block.append(title);
+    const description=document.createElement('p');description.className='muted';description.textContent='Guía incluida. Elegí las funcionalidades adicionales donde querés que aparezca tu publicidad.';block.append(description);
+    const unit=document.createElement('small');unit.className='muted';unit.textContent=Number.isSafeInteger(item.importe)?'Precio por funcionalidad: '+ars(cost(item))+(item.descuento_porcentaje>0?' ('+(item.descuento_texto||item.descuento_porcentaje+'% de descuento')+')':''):'Precio a consultar';block.append(unit);
+    const destinations=packet?.cobertura_publicidad_destinos||[];
+    for(const dest of destinations){
+     const label=document.createElement('label');label.style.cssText='display:flex;align-items:center;gap:10px;margin:10px 0;padding:8px;border:1px solid #e1e8eb;border-radius:10px;';
+     const check=document.createElement('input');check.type='checkbox';check.value=dest.id;check.dataset.simCobertura=key;check.setAttribute('aria-label','Cobertura publicitaria en '+dest.nombre);
+     const span=document.createElement('span');span.textContent=dest.nombre;
+     label.append(check,span);block.append(label);
+    }
+    if(!destinations.length){const alert=document.createElement('p');alert.className='muted';alert.textContent='Selección de destinos no disponible: requiere actualizar el servicio de catálogo.';block.append(alert);}
+    group.append(block);continue;
+   }
    const holder=document.createElement('label');holder.style.cssText='display:flex;align-items:center;justify-content:space-between;gap:14px;margin:8px 0;';
    const info=document.createElement('span');
    const title=document.createElement('strong');title.textContent=item.nombre;info.append(title);
@@ -127,7 +155,7 @@ function render(data){
 }
 select.addEventListener('change',quote);
 additional.addEventListener('input',quote);
-reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key],[data-sim-extra]').forEach(el=>el.value='0');quote();});
+reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key],[data-sim-extra]').forEach(el=>el.value='0');additional.querySelectorAll('[data-sim-cobertura]').forEach(el=>el.checked=false);quote();});
 window.GLD_SIMULADOR_PUBLICO={render};
 if(window.GLD_PLANES_PUBLIC_PACKET)render(window.GLD_PLANES_PUBLIC_PACKET);
 })();
