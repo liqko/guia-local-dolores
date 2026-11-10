@@ -555,7 +555,7 @@ async function abrirApp(){
     if(!r.ok||!j.success) throw Object.assign(new Error(j.message||'No se pudo recuperar la cuenta.'),{status:r.status});
 
     ghApplyAccessV72();
-    GH_FIXED_SUPPORTED169=j.gh_fixed_packet_version===169;
+    GH_FIXED_SUPPORTED169=j.gh_fixed_packet_version===169;GH_FUNC_SAVE_READY170=Number(j.functional_settings_version)>=170;
     if(GH_FIXED_SUPPORTED169)ghFixedLoad169();
     document.getElementById('ghSesionConexionEstado').textContent='';
     window.ghCalendarDashboardV83?.(j.cumpleanos);
@@ -1953,16 +1953,13 @@ function ghFuncParametros166(id,original){
  const v=GH_FUNC_GLOBAL166?.reglas?.[id]||{};
  return {...(GH_FUNC_DEFAULT166[id]||{}),...original,...v};
 }
-const GH_FUNC_WORKER169_FIELDS={"EVENTOS_FREE":["altas_mensuales_max","activas_max","ediciones_max","descripcion_max"],"EVENTOS":["activas_max","ediciones_max","descripcion_max","imagenes_max"],"ACTIVIDADES":["activas_max","guardadas_max","ediciones_max","descripcion_max","imagenes_max"],"PROMOS":["activas_max","guardadas_max","descripcion_max","condiciones_max"],"PUBLICIDAD":["activas_max","guardadas_max"],"EMPLEO":["ofertas_activas_max","busquedas_activas_max","vigencia_dias","ediciones_max","descripcion_max"]};
+let GH_FUNC_SAVE_READY170=false;
 function ghFuncNum166(id,key,value,label){
- const edicion=/^ediciones_(dia|semana|mes)_max$/.test(key), estado=key==='cambios_estado_semana_max';
- const reconocido=(GH_FUNC_WORKER169_FIELDS[id]||[]).includes(key);
- const limit=edicion||estado||key==='guardadas_max'||key==='enlaces_max';
- const nota=limit?' <small style="font-weight:400">(−1: ilimitado · 0: ninguno)</small>':'';
- const msg= !reconocido?' <small class="muted">Parámetro definido; guardado pendiente de actualizar el Worker 169.</small>':(limit?' <small class="muted">El Worker 169 admite 0 o positivo; −1 se habilitará en la actualización.</small>':'');
+ const edit=/^ediciones_(dia|semana|mes)_max$/.test(key),estado=key==='cambios_estado_semana_max';
+ const allowUnlimited=edit||estado||/^(guardadas_max|enlaces_max|altas_mensuales_max|activas_max|ofertas_activas_max|busquedas_activas_max)$/.test(key);
+ const nota=allowUnlimited?' <small style="font-weight:400">(−1: ilimitado · 0: ninguno)</small>':'';
  const val=value===undefined||value===null?'':value;
- const prop=reconocido?'data-func-regla="'+esc(id)+'" data-func-key="'+esc(key)+'"':'data-func-propuesta="'+esc(id)+'" data-func-key="'+esc(key)+'"';
- return '<label>'+esc(label)+nota+'<input type="number" min="'+(reconocido?'0':'-1')+'" step="1" '+prop+' value="'+esc(val)+'" placeholder="Sin definir">'+msg+'</label>';
+ return '<label>'+esc(label)+nota+'<input type="number" min="'+(allowUnlimited?'-1':'0')+'" step="1" data-func-regla="'+esc(id)+'" data-func-key="'+esc(key)+'" value="'+esc(val)+'" placeholder="Sin definir"></label>';
 }
 function ghFuncReglasHtml166(id,config){
  const parts=(GH_FUNC_FIELDS168[id]||[]).map(([field,label])=>ghFuncNum166(id,field,config[field],label));
@@ -2016,7 +2013,7 @@ function ghRenderFuncionesUnificadas166(box,rows){
    '<label style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:auto;margin:0" data-func-active="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label>'+
    ghFuncReglasHtml166(id,params)+'</div></details>';
  }).join('')+
- '<div class="card" style="margin-top:18px"><label>Recuperar valores ya cargados (respaldo JSON)<input type="file" accept=".json,application/json" onchange="ghRestaurarFunciones170(this)"></label><p class="muted">Recupera los valores en esta pantalla; no escribe en el servidor hasta pulsar Guardar.</p><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166?'disabled':'')+'>Guardar todas las funcionalidades</button> <span id="ghFuncEstado166" role="status">'+(GH_FUNC_GLOBAL166?'Una sola operación de guardado.':'Requiere el Worker con configuración general habilitada.')+'</span></div>';
+ '<div class="card" style="margin-top:18px"><label>Recuperar valores ya cargados (respaldo JSON)<input type="file" accept=".json,application/json" onchange="ghRestaurarFunciones170(this)"></label><p class="muted">Recupera los valores en esta pantalla; no escribe en el servidor hasta pulsar Guardar.</p><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166||!GH_FUNC_SAVE_READY170?'disabled':'')+'>Guardar todas las funcionalidades</button> <span id="ghFuncEstado166" role="status">'+(GH_FUNC_SAVE_READY170?'Guardar todos los parámetros en una sola operación.':'Para guardar estos parámetros se necesita instalar la versión de servidor compatible.')+'</span></div>';
 }
 function ghNuevoFunc166(){
  const id=prompt('ID de la nueva funcionalidad (letras y guiones bajos):');
@@ -2065,6 +2062,7 @@ async function ghRestaurarFunciones170(input){
  finally{input.value=''}
 }
 async function ghGuardarFunciones166(){
+ if(!GH_FUNC_SAVE_READY170){alert('Esta configuración requiere la versión completa de servidor antes de guardar.');return;}
  const btn=document.getElementById('ghGuardarFunciones166'),msg=document.getElementById('ghFuncEstado166');
  if(!GH_FUNC_GLOBAL166||!btn||!msg)return;
  let reglas={};
@@ -2078,7 +2076,7 @@ async function ghGuardarFunciones166(){
     const key=input.dataset.funcKey;
     if(input.type==='checkbox'){item[key]=input.checked;continue;}
     const raw=input.value.trim();
-    if(raw!==''&&(!/^[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw))))throw Error('Parámetro inválido: '+key+' en '+id);
+    if(raw!==''&&(!/^-?[0-9]+$/.test(raw)||!Number.isSafeInteger(Number(raw))||Number(raw)<-1))throw Error('Parámetro inválido: '+key+' en '+id);
     item[key]=raw===''?null:Number(raw);
    }
    reglas[id]=item;
