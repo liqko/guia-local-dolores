@@ -1612,6 +1612,26 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       return obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId);
     }
 
+    async function obtenerEnlacesGuia(){
+      const city=String(ciudadSeleccionada||'').trim();
+      const bytes=new TextEncoder().encode(city);
+      const key=btoa(String.fromCharCode(...bytes)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+      try{
+        const {data}=await gldFetchJson('/plataforma/guia-enlaces/'+key+'.json',{}, {timeoutMs:3000,retries:0});
+        if(data?.version!==1||data.city!==city||!['events','promos','activities'].every(k=>Array.isArray(data[k])))throw Error('Enlaces de Guía inválidos');
+        return data;
+      }catch(_){
+        const [events,promos,activities]=await Promise.allSettled([obtenerEventosPromise(city),obtenerPromosPromise(city),obtenerActividadesPromise(city)]);
+        const eventsData=events.status==='fulfilled'?events.value:null;
+        const promosData=promos.status==='fulfilled'?promos.value:null;
+        return {
+          events:Array.isArray(eventsData)?eventsData:eventsData?.events||eventsData?.data||[],
+          promos:Array.isArray(promosData)?promosData:promosData?.promos||promosData?.data||promosData?.rows||[],
+          activities:activities.status==='fulfilled'?activities.value?.actividades||[]:[]
+        };
+      }
+    }
+
     function obtenerBannersPromise(){
       if(!bannersPromise){
         const ciudadId=String(ciudadSeleccionada||'').trim();
@@ -3352,32 +3372,16 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         // Los módulos secundarios se cargan DESPUÉS y nunca bloquean la Guía.
         Promise.allSettled([
           obtenerBannersPromise(),
-          obtenerEventosPromise(),
-          obtenerPromosPromise(),
-          obtenerActividadesPromise()
+          obtenerEnlacesGuia()
         ]).then(resultados=>{
           publicidadLoaded = resultados[0].status==='fulfilled' ? resultados[0].value : {publicidades:[]};
-          eventsLoaded = resultados[1].status==='fulfilled' ? resultados[1].value : [];
-          promosLoaded = resultados[2].status==='fulfilled' ? resultados[2].value : [];
-          actividadesLoaded = resultados[3].status==='fulfilled' ? resultados[3].value : {actividades:[]};
-
+          const enlaces = resultados[1].status==='fulfilled' ? resultados[1].value : {events:[],promos:[],activities:[]};
           rawBanners = (publicidadLoaded && Array.isArray(publicidadLoaded.publicidades)) ? publicidadLoaded.publicidades : [];
-          rawEventsResponse = eventsLoaded || [];
-          rawPromosResponse = promosLoaded || [];
-
-          rawEventsList = Array.isArray(rawEventsResponse)
-            ? rawEventsResponse
-            : ((rawEventsResponse && (rawEventsResponse.data || rawEventsResponse.events)) || []);
+          rawEventsList = enlaces.events;
           activeEvents = rawEventsList.filter(eventIsActive);
-
-          rawPromosList = Array.isArray(rawPromosResponse)
-            ? rawPromosResponse
-            : ((rawPromosResponse && (rawPromosResponse.promos || rawPromosResponse.data || rawPromosResponse.rows)) || []);
+          rawPromosList = enlaces.promos;
           activePromos = rawPromosList.filter(p => promoIsActive(p) && promoMatchesCurrentCity(p));
-
-          activeActivities=(actividadesLoaded && Array.isArray(actividadesLoaded.actividades))
-            ? actividadesLoaded.actividades
-            : [];
+          activeActivities = enlaces.activities;
 
           banners = rawBanners.map(p=>({
             contenido_adulto:p.contenido_adulto===true,bloqueado18:p.bloqueado18===true,

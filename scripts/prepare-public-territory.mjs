@@ -48,10 +48,10 @@ export async function preparePublicTerritory({file,read=fetch,scheduled=false}){
   console.warn('Catálogo de origen temporalmente inaccesible. Se conserva el publicado.');
  }
  const {data,revision}=prepared;
- if(scheduled&&revisionLine.exec(await readPublished(read))?.[1]===revision)return {changed:false,revision};
+ const changed=!scheduled||revisionLine.exec(await readPublished(read))?.[1]!==revision;
  const payload=JSON.stringify({revision,data}).replaceAll('<','\\u003c');
  await writeFile(file,'// GLD_TERRITORY_REVISION '+revision+'\n'+source.replace(MARKER,()=>payload+';'));
- return {changed:true,revision};
+ return {changed,revision};
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
