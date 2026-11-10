@@ -204,4 +204,24 @@ test('un solo lote por ciudad combina las seis familias y conserva la separació
   const combined = JSON.parse(await readFile(join(prefix,'cambios-1-3.json')));
   assert.deepEqual(combined.changes.events.remove,['compartido']);
   assert.equal(combined.changes.activities.upsert[0].nombre,'BALCARCE actualizado');
+
+  const restored = await mkdtemp(join(tmpdir(),'corte-reincorporado-'));
+  t.after(() => rm(restored,{recursive:true,force:true}));
+  await mkdir(join(restored,'plataforma'));
+  await writeFile(join(restored,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
+  const restoreRow = {evento_id:'compartido',nombre:'Evento reincorporado'};
+  const final = await aplicarCorte({
+    previous:{cutoff:nextDay,manifest:result.manifest},
+    source:{after:nextDay,cutoff:nextDay+86400000,complete:true,cities:[
+      {city:'BALCARCE',changes:{events:{upsert:[restoreRow],remove:[]}}},
+    ]},
+    readPublished:readAt(later),
+    stage:restored,
+  });
+  const folder = 'plataforma/paquetes-ciudad/' + final.manifest.BALCARCE.key + '/';
+  const restoredDelta = await readAt(restored)(folder+'cambios-1-4.json');
+  const restoredBook = await readAt(restored)(folder+'completo-4.json');
+  const originalBook = await readAt(published)(folder+'completo-1.json');
+  assert.deepEqual(restoredDelta.changes.events.remove,['compartido']);
+  assert.deepEqual(bookTools.applyDelta(originalBook,restoredDelta),restoredBook);
 });

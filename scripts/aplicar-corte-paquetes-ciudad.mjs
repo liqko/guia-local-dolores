@@ -83,7 +83,7 @@ function combineChanges(earlier, latest) {
     for (const row of change.upsert) {
       const id = idOf(row,idField);
       upsert.set(id,row);
-      remove.delete(id);
+      // Keep a prior deletion so the browser reinserts the row at its new position.
     }
     result[name] = {upsert:[...upsert.values()],remove:[...remove],metadata:change.metadata};
   }
