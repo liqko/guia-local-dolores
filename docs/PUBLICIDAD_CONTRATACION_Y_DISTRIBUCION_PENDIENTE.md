@@ -114,10 +114,18 @@ Definir en conversación Promociones, Actividades, Eventos VIP, Eventos Free, Pu
 - **Edición y carga:** el beneficio de rotación no amplía la cantidad de ediciones, cambios de estado o guardados manuales permitidos. La compra debe informar al anunciante cuántas piezas debe preparar y subir antes de agotar sus oportunidades de edición.
 - **No confundir:** rotación de creatividades del mismo anunciante, circulación de anunciantes por los espacios, carrusel compartido y venta de posiciones destacadas son cuatro cuestiones distintas.
 
+### B.1. Rotación ordinaria entre anunciantes del mismo nivel (regla general acordada)
+
+- **El orden dentro de un mismo nivel no es fijo.** Si hay cinco anunciantes de Nivel 6 elegibles para un contexto, cada uno participa de la rotación de posiciones: uno que hoy se presentó primero puede aparecer en quinto lugar en otra presentación, y quien estaba quinto puede presentarse primero. Se aplica independientemente del formato contratado (imagen, carrusel propio o Short), dentro de los espacios y condiciones de elegibilidad.
+- Esta rotación es **automática y forma parte de la distribución general**: **no requiere contratar el adicional «Rotación automática de creatividades»**, que tiene otra finalidad (alternar piezas del mismo anunciante).
+- En búsquedas específicas, **la rotación solo reordena anuncios comparables por relevancia y nivel**. Nunca debe adelantar una publicidad no relacionada por delante de otra directamente relevante solo porque «le toca» rotar.
+- El ejemplo «hoy primero, mañana quinto» explica el cambio de posiciones, **no establece una frecuencia diaria**. La frecuencia, el método de alternancia y la forma de evitar escrituras por cada exhibición serán objeto de especificación técnica.
+- **Excepción futura por evaluar:** se podría comercializar la reserva de **las tres primeras posiciones publicitarias**, asociadas especialmente a la primera página de resultados (diez tarjetas, cinco espacios de publicidad). Esa reserva **no está aprobada**, ni se debe prometer al vendedor/anunciante, y habría que resolver cómo convive con la relevancia de una búsqueda y la rotación del resto.
+
 ### C. Decisiones comerciales y proyectos aún NO aprobados
 
 1. **Posiciones publicitarias privilegiadas:** evaluar si en el futuro se podrán vender, por ejemplo, **tres primeras posiciones** en distintas páginas de diez tarjetas; no están aprobadas como producto ni pueden prometerse. Evaluar también si la contratación de rotación sería obligatoria para tal producto. La relevancia debe seguir siendo prioritaria en búsquedas específicas.
-2. **Criterio exacto de desempate y ciclo:** dentro de relevancia equivalente y mismo nivel, alternancia equitativa y eventual peso de posiciones contratadas, sin garantizar impresiones o permanencia que no puedan sostenerse. Comprobar cómo impedir que siempre aparezcan los mismos anunciantes.
+2. **Método técnico de la rotación ordinaria:** la alternancia de posiciones entre anunciantes del mismo nivel **ya está acordada**; falta definir el algoritmo, sus garantías de equilibrio, su comportamiento entre páginas y la posible ponderación de posiciones adicionales, sin escrituras por impresión ni promesas de impresiones no verificadas.
 3. **Exposición de Nivel 6 no pertinente:** concretar cómo presentar una pieza general de Nivel 6 después de anuncios relevantes, cuándo queda fuera de un carrusel y cómo no desplazar anuncios de categorías próximas.
 4. **Unificación de Short, imagen y carrusel propio en espacios de pantalla:** definir elección de pieza, reproducción, representación en carrusel compartido y límites visuales; no inventar una equivalencia entre un carrusel propio y un Short.
 5. **Cobertura y excepciones por contrato:** revisar combinaciones de ciudades, módulos, cantidad contratada y derechos especiales. La calculadora debe leer el catálogo central, no recrearlo.
