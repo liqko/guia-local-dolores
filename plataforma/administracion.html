@@ -1953,9 +1953,13 @@ const GH_FUNC_FIELDS168={
     ]
   ]
 };
+const GH_FUNC_BACKUP170={"PUBLICIDAD":{"activas_max":1,"guardadas_max":3,"ediciones_dia_max":1,"ediciones_semana_max":2,"ediciones_mes_max":5,"cambios_estado_semana_max":2,"titulo_max":100,"descripcion_max":200,"cta_texto_max":100,"carrusel_imagenes_min":3,"carrusel_imagenes_max":5},"ACTIVIDADES":{"activas_max":5,"guardadas_max":10,"ediciones_dia_max":1,"ediciones_semana_max":2,"ediciones_mes_max":5,"cambios_estado_semana_max":2,"nombre_max":150,"descripcion_max":300,"imagenes_max":3},"EMPLEO":{"ofertas_activas_max":5,"busquedas_activas_max":1,"guardadas_max":5,"ediciones_dia_max":1,"ediciones_semana_max":2,"ediciones_mes_max":5,"cambios_estado_semana_max":2,"vigencia_dias":30,"titulo_max":200,"descripcion_max":500,"enlaces_max":1,"ediciones_max":1},"EVENTOS_FREE":{"altas_mensuales_max":4,"activas_max":2,"guardadas_max":4,"ediciones_dia_max":1,"ediciones_semana_max":2,"ediciones_mes_max":2,"cambios_estado_semana_max":2,"nombre_evento_max":100,"descripcion_max":200,"imagenes_max":0,"enlaces_max":0,"ediciones_max":1},"EVENTOS":{"activas_max":5,"guardadas_max":10,"ediciones_dia_max":1,"ediciones_semana_max":2,"ediciones_mes_max":5,"cambios_estado_semana_max":2,"nombre_evento_max":200,"descripcion_max":500,"imagenes_max":3,"enlaces_max":1},"PROMOS":{"activas_max":5,"guardadas_max":10,"ediciones_dia_max":1,"ediciones_semana_max":2,"ediciones_mes_max":5,"cambios_estado_semana_max":2,"descripcion_max":300,"condiciones_max":120,"imagenes_max":1}};
+let GH_FUNC_BACKUP_APPLY170=false;
 function ghFuncParametros166(id,original){
  const v=GH_FUNC_GLOBAL166?.reglas?.[id]||{};
- return {...(GH_FUNC_DEFAULT166[id]||{}),...original,...v};
+ // Recuperar sólo cuando falta la configuración moderna completa en el servidor.
+ const backup=GH_FUNC_BACKUP_APPLY170?(GH_FUNC_BACKUP170[id]||{}):{};
+ return {...(GH_FUNC_DEFAULT166[id]||{}),...original,...v,...backup};
 }
 let GH_FUNC_SAVE_READY170=false;
 function ghFuncNum166(id,key,value,label){
@@ -1977,6 +1981,7 @@ function ghFuncReglasHtml166(id,config){
 }
 function ghRenderFuncionesUnificadas166(box,rows){
  const value=GH_FUNC_GLOBAL166?.reglas||{};
+ GH_FUNC_BACKUP_APPLY170=Object.keys(GH_FUNC_BACKUP170).every(id=>value[id]?.ediciones_dia_max==null);
  const catalog=[...rows];
  const standard=[['EVENTOS_FREE','Eventos Free'],['EVENTOS','Eventos VIP'],['ACTIVIDADES','Actividades'],['PROMOS','Promociones y descuentos'],['PUBLICIDAD','Publicidad'],['EMPLEO','Empleo']];
  const canonical=id=>{const k=String(id||'').trim().toUpperCase().replace(/\s+/g,'_');return ['EV_FREE','EVFREE'].includes(k)?'EVENTOS_FREE':['EVENTOS_VIP'].includes(k)?'EVENTOS':['PROMOCIONES','PROMOCIONES_Y_DESCUENTOS'].includes(k)?'PROMOS':['PUBLI'].includes(k)?'PUBLICIDAD':k};
@@ -1996,7 +2001,7 @@ function ghRenderFuncionesUnificadas166(box,rows){
   if(!existing||legacyId===id&&existing.legacy_id!==id)normalized.set(id,candidate);
  }
  const others=catalog.filter(row=>!standard.some(([key])=>key===canonical(row.funcionalidad_id||row.id)));
- const defs=[...normalized.values()].sort((x,y)=>{
+ const defs=[...normalized.values()].map(x=>({...x,_general:true})).concat(others.map(x=>({...x,_general:false}))).sort((x,y)=>{
   const aId=x.funcionalidad_id,bId=y.funcionalidad_id;
   const aRow=value[aId]||{},bRow=value[bId]||{};
   const aActive=aRow.activo??GLD_CLASSIFICATION.active(x),bActive=bRow.activo??GLD_CLASSIFICATION.active(y);
@@ -2005,9 +2010,14 @@ function ghRenderFuncionesUnificadas166(box,rows){
   const bName=String(bRow.nombre??GLD_CLASSIFICATION.name(y)??bId);
   return aName.localeCompare(bName,'es',{sensitivity:'base'});
  });
- box.innerHTML='<div class="toolbar"><button type="button" onclick="ghNuevoFunc166()">+ Agregar funcionalidad</button></div><p class="muted">Parámetros generales de seis módulos. Las demás funcionalidades se conservan y administran en el catálogo inferior.</p>'+
+ box.innerHTML='<div class="toolbar"><button type="button" onclick="ghNuevoFunc166()">+ Agregar funcionalidad</button></div>'+
+ (GH_FUNC_BACKUP_APPLY170?'<p class="muted"><strong>Recuperé automáticamente los valores que habías cargado.</strong> Todavía no están guardados en el servidor: usá Guardar todo.</p>':'')+
  defs.map(x=>{
   const id=String(x.funcionalidad_id||x.id||'');
+  if(!x._general){
+   const name=GLD_CLASSIFICATION.name(x),active=GLD_CLASSIFICATION.active(x);
+   return '<details class="item" data-cat-extra="'+esc(id)+'"><summary><b>'+esc(name||id)+'</b> · '+(active?'Activo':'Inactivo')+'</summary><div class="formgrid"><label>Nombre<input data-cat-nombre="'+esc(id)+'" value="'+esc(name||id)+'"></label><label>ID<input disabled value="'+esc(id)+'"></label></div><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(active?'checked':'')+'> Activo</label></details>';
+  }
   const actual=value[id]||{},nombre=actual.nombre??GLD_CLASSIFICATION.name(x),activo=actual.activo??GLD_CLASSIFICATION.active(x);
   const params=ghFuncParametros166(id);
   return '<details class="item" data-func-item="'+esc(id)+'"><summary><b>'+esc(nombre||id)+'</b> · '+(activo?'Activo':'Inactivo')+'</summary>'+
@@ -2017,12 +2027,7 @@ function ghRenderFuncionesUnificadas166(box,rows){
    '<label style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:auto;margin:0" data-func-active="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label>'+
    ghFuncReglasHtml166(id,params)+'</div></details>';
  }).join('')+
- '<div class="card" style="margin-top:18px"><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166||!GH_FUNC_SAVE_READY170?'disabled':'')+'>Guardar parámetros de los seis módulos</button> <span id="ghFuncEstado166" role="status">'+(GH_FUNC_SAVE_READY170?'Guarda sólo las reglas generales de los seis módulos.':'Para guardar estos parámetros se necesita una versión compatible del servidor.')+'</span></div>'+
- '<h3 style="margin-top:24px">Otras funcionalidades del catálogo</h3>'+
- (others.length?others.map(row=>{
- const id=String(row.funcionalidad_id||row.id||''),nombre=GLD_CLASSIFICATION.name(row),activo=GLD_CLASSIFICATION.active(row);
- return '<details class="item"><summary><b>'+esc(nombre||id)+'</b> · '+(activo?'Activo':'Inactivo')+'</summary><div class="formgrid"><label>Nombre<input data-cat-nombre="'+esc(id)+'" value="'+esc(nombre||id)+'"></label><label>ID<input disabled value="'+esc(id)+'"></label></div><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(activo?'checked':'')+'> Activo</label><button type="button" onclick="ghGuardarCatalogo(\'funcionalidades\',\''+esc(id)+'\')">Guardar funcionalidad</button></details>';
- }).join(''):'<p class="muted">No hay otras funcionalidades en el catálogo.</p>');
+ '<div class="card" style="margin-top:18px"><button type="button" id="ghGuardarFunciones166" onclick="ghGuardarFunciones166()" '+(!GH_FUNC_GLOBAL166||!GH_FUNC_SAVE_READY170?'disabled':'')+'>Guardar todo</button> <span id="ghFuncEstado166" role="status">Se guardan sólo los cambios; las reglas generales comparten un documento y el catálogo conserva sus registros.</span></div>';
 }
 function ghNuevoFunc166(){
  const id=prompt('ID de la nueva funcionalidad (letras y guiones bajos):');
@@ -2091,15 +2096,35 @@ async function ghGuardarFunciones166(){
    reglas[id]=item;
   }
  }catch(e){msg.textContent=String(e.message||e);return;}
- btn.disabled=true;msg.textContent='Guardando configuración completa…';
+ const historicas=[];
+ try{
+  const def=GH_CATALOGOS.find(x=>x.tipo==='funcionalidades');
+  for(const el of document.querySelectorAll('#cfgFuncionalidades [data-cat-extra]')){
+   const id=el.dataset.catExtra,old=(GH_CATALOG_CACHE.funcionalidades||[]).find(x=>String(x[def.idField]||x.id)===id);
+   const name=el.querySelector('[data-cat-nombre]')?.value.trim(),active=!!el.querySelector('[data-cat-activo]')?.checked;
+   if(!name)throw Error('Falta el nombre de '+id);
+   if(!old||name!==GLD_CLASSIFICATION.name(old)||active!==GLD_CLASSIFICATION.active(old))historicas.push({id,item:{[def.idField]:id,nombre:name,activo:active},old});
+  }
+ }catch(e){msg.textContent=String(e.message||e);return;}
+ btn.disabled=true;msg.textContent='Guardando cambios…';
  try{
   const result=await ghAdminRequest_('/catalogs/functional-settings',{revision:GH_FUNC_GLOBAL166.revision,reglas},'POST');
   if(!result?.success)throw Error('Guardado no confirmado');
   GH_FUNC_GLOBAL166={revision:result.revision,reglas};
+  GH_FUNC_BACKUP_APPLY170=false;
   if(GH_FIXED_PACKET169)GH_FIXED_PACKET169.reglas=GH_FUNC_GLOBAL166;
-  // El guardado de parámetros NO modifica ni sustituye el catálogo histórico.
+  // Catálogo separado físicamente: sólo se escriben las filas efectivamente modificadas.
+  let savedExtra=0;
+  for(const row of historicas){
+   const answer=await api('guardar_catalogo',{tipo:'funcionalidades',item:row.item},'POST');
+   if(!answer?.success)throw Error('No se guardó '+row.id);
+   const cacheRows=GH_CATALOG_CACHE.funcionalidades||[];
+   GH_CATALOG_CACHE.funcionalidades=row.old?cacheRows.map(x=>String(x.funcionalidad_id||x.id)===row.id?{...x,...row.item}:x):[...cacheRows,row.item];
+   savedExtra++;
+  }
   ghRenderCatalogo(GH_CATALOGOS.find(d=>d.tipo==='funcionalidades'),GH_CATALOG_CACHE.funcionalidades);
-  const status=document.getElementById('ghFuncEstado166');if(status)status.textContent=result.updated?'Configuración guardada en un único documento.':'Sin cambios: ninguna escritura.';
+  const status=document.getElementById('ghFuncEstado166');
+  if(status)status.textContent='Guardado completo. Reglas: '+(result.updated?'1 escritura':'sin escritura')+'; otras funcionalidades: '+savedExtra+' cambios.';
  }catch(e){msg.textContent='No se guardó: '+String(e.message||e)}
  finally{btn.disabled=false}
 }
