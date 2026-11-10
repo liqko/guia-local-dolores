@@ -5,6 +5,7 @@ if(window.GLD_CATALOGO_TERRITORIAL)return;
 const KEY='gld_territorio_publico_cache_v1';
 const ENDPOINT='https://login.liqkoargentina.workers.dev/territory/public';
 const published = /* GLD_TERRITORY_SNAPSHOT */ null;
+const paquetes = /* GLD_CITY_BOOKS */ {};
 let pending=null;
 function valid(data){return data?.success===true&&Array.isArray(data.ciudades)&&Array.isArray(data.paises)&&Array.isArray(data.provincias);}
 function cached(){
@@ -38,5 +39,5 @@ async function load(timeoutMs=20000){
  })();
  try{return await pending;}finally{pending=null;}
 }
-window.GLD_CATALOGO_TERRITORIAL={load};
+window.GLD_CATALOGO_TERRITORIAL={load,paqueteCiudad:city=>Object.hasOwn(paquetes,city)?paquetes[city]:null};
 })();
