@@ -8,7 +8,9 @@ on:
       - "docs/**"
       - "worker/**"
       - ".github/workflows/firebase-hosting-cleanup.yml"
+      - ".github/workflows/firebase-hosting-merge.yml"
       - "**/*.md"
+  workflow_dispatch:
   schedule:
     - cron: "0 4 * * *"
 concurrency:
@@ -16,6 +18,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   build_and_deploy:
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -50,3 +53,63 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
           channelId: live
           projectId: anunciantes-guialocal
+
+  trial_city_cut:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 2afec4a6aa0d0e2abaa93079564bc122d1161250
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Preparar el corte real en un canal de prueba
+        run: |
+          set -euo pipefail
+          mkdir -p hosting-public
+          cp -a plataforma hosting-public/plataforma
+          node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js
+          node scripts/publicar-paquetes-ciudad.mjs cut hosting-public
+          test -f hosting-public/plataforma/paquetes-ciudad/publicacion.json
+          node --check hosting-public/plataforma/territorio-cache.js
+      - uses: FirebaseExtended/action-hosting-deploy@v0
+        id: preview
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+          channelId: prueba-corte-171
+          expires: 7d
+          projectId: anunciantes-guialocal
+      - name: Verificar que Hosting entrega los paquetes reales
+        env:
+          PREVIEW: ${{ steps.preview.outputs.details_url }}
+        run: |
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict';
+          import { readFile } from 'node:fs/promises';
+          const root = 'plataforma/paquetes-ciudad/';
+          const base = new URL(process.env.PREVIEW);
+          const local = JSON.parse(await readFile('hosting-public/'+root+'publicacion.json'));
+          async function get(path) {
+            const r = await fetch(new URL(root+path,base),{signal:AbortSignal.timeout(20000)});
+            assert.equal(r.status,200);
+            return r.json();
+          }
+          const live = await get('publicacion.json');
+          assert.deepEqual(live,local);
+          const cities = Object.entries(live.manifest);
+          assert(cities.length>0);
+          for (const [city,{key,revision}] of cities) {
+            const file = key+'/completo-'+revision+'.json';
+            const remote = await get(file);
+            assert.equal(remote.city,city);
+            assert.equal(remote.revision,revision);
+            assert.equal(Object.keys(remote.modules).length,6);
+            assert.deepEqual(remote,JSON.parse(await readFile('hosting-public/'+root+file)));
+          }
+          console.log('Corte verificado en '+cities.length+' ciudades y seis módulos.');
+          JS
