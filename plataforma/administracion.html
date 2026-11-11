@@ -254,14 +254,15 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
    <div id="ghComercialVendedorBox188">
     <label>Supervisor asignado (ID del suscriptor)<input id="ghComercialSupervisor186" placeholder="Sin supervisor"></label>
    </div>
-   <fieldset class="item"><legend><strong>Ciudades asignadas</strong></legend>
-    <div class="toolbar" style="display:flex;flex-wrap:wrap;gap:8px">
-     <label>País<select id="ghComercialPais188" onchange="ghComercialProvincia188()"><option value="">Seleccionar país</option></select></label>
-     <label>Provincia<select id="ghComercialProvincia188" onchange="ghComercialCiudad188()"><option value="">Seleccionar provincia</option></select></label>
-     <label>Ciudad<select id="ghComercialCiudad188"><option value="">Seleccionar ciudad</option></select></label>
-     <button type="button" class="sec" onclick="ghComercialAgregarCiudad188()">Agregar ciudad</button>
+   <fieldset class="item" id="ghComercialGeo191"><legend><strong>Ciudades asignadas · alcance territorial</strong></legend>
+    <p class="muted">Elegí países completos, provincias completas o ciudades individuales, igual que para Moderadores. Solo se guardan las ciudades marcadas.</p>
+    <div class="gh-mod-toolbar">
+     <label class="gh-mod-check"><input type="checkbox" id="ghComercialTodas191"><span>Seleccionar todas las ciudades</span></label>
+     <button type="button" class="sec" id="ghComercialQuitarTodas191">Quitar todas</button>
+     <span class="gh-mod-count" id="ghComercialCantidad191" role="status"></span>
     </div>
-    <div id="ghComercialCiudades188" class="muted"></div>
+    <div id="ghComercialTerritorio191" class="gh-mod-choices"></div>
+    <div id="ghComercialCiudades188" class="muted" role="status"></div>
    </fieldset>
    <p class="muted">Las comisiones son individuales. Un supervisor tiene vendedores a cargo; un vendedor puede tener un supervisor asignado.</p>
    <div id="ghComercialEquipo186" class="muted"></div>
@@ -637,41 +638,82 @@ function ghRolesSeleccionar188(){
  }
 }
 function ghComercialGeoInicializar188(){
- const g=GH_ROLES_GEO188;if(!g)return;
- ghRolesOptions188('ghComercialPais188',g.countries,'Seleccionar país');
- ghComercialProvincia188();
- ghComercialRenderCiudades188();
-}
-function ghComercialProvincia188(){
- const g=GH_ROLES_GEO188;if(!g)return;
- const p=document.getElementById('ghComercialPais188').value;
- ghRolesOptions188('ghComercialProvincia188',g.provinces.filter(x=>!p||x.country===p),'Seleccionar provincia');
- ghComercialCiudad188();
-}
-function ghComercialCiudad188(){
- const g=GH_ROLES_GEO188;if(!g)return;
- const p=document.getElementById('ghComercialPais188').value,z=document.getElementById('ghComercialProvincia188').value;
- ghRolesOptions188('ghComercialCiudad188',g.cities.filter(x=>(!p||x.country===p)&&(!z||x.province===z)),'Seleccionar ciudad');
-}
-function ghComercialAgregarCiudad188(){
- const id=document.getElementById('ghComercialCiudad188').value;
- if(id&&!GH_COMERCIAL_CIUDADES188.includes(id))GH_COMERCIAL_CIUDADES188.push(id);
- ghComercialRenderCiudades188();
-}
-function ghComercialQuitarCiudad188(id){
- GH_COMERCIAL_CIUDADES188=GH_COMERCIAL_CIUDADES188.filter(x=>x!==id);
- ghComercialRenderCiudades188();
+ const g=GH_ROLES_GEO188,host=document.getElementById('ghComercialTerritorio191');
+ if(!g||!host)return;
+ const countries=new Map(),names=new Map(),provinceNames=new Map();
+ for(const c of g.countries)names.set(c.id,c.name);
+ for(const p of g.provinces)provinceNames.set(p.id,p.name);
+ for(const city of g.cities){
+  const country=city.country||'SIN_PAIS',province=city.province||'SIN_PROVINCIA';
+  if(!countries.has(country))countries.set(country,new Map());
+  const provinces=countries.get(country);
+  if(!provinces.has(province))provinces.set(province,[]);
+  provinces.get(province).push(city);
+ }
+ const make=(tag,cls,txt)=>{const el=document.createElement(tag);if(cls)el.className=cls;if(txt!=null)el.textContent=txt;return el;};
+ const check=(type,city,group,label)=>{
+  const l=make('label','gh-mod-check'),input=document.createElement('input');
+  input.type='checkbox';input.dataset.comGeo=type;
+  if(city)input.dataset.cityId=city;
+  if(group?.country)input.dataset.country=group.country;
+  if(group?.province)input.dataset.province=group.province;
+  if(city)input.checked=GH_COMERCIAL_CIUDADES188.includes(city);
+  l.append(input,make('span','',label));return l;
+ };
+ host.replaceChildren();
+ const sorter=(a,b)=>String(a).localeCompare(String(b),'es');
+ for(const [country,provinces] of [...countries].sort((a,b)=>sorter(names.get(a[0])||a[0],names.get(b[0])||b[0]))){
+  const countryBox=make('details','gh-mod-group');
+  countryBox.append(make('summary','',names.get(country)||country));
+  const content=make('div','gh-mod-choices');
+  content.append(check('country',null,{country},'Seleccionar todas las ciudades de este país'));
+  for(const [province,cities] of [...provinces].sort((a,b)=>sorter(provinceNames.get(a[0])||a[0],provinceNames.get(b[0])||b[0]))){
+   const provinceBox=make('details','gh-mod-group');
+   provinceBox.append(make('summary','',provinceNames.get(province)||province));
+   const cityBox=make('div','gh-mod-choices');
+   cityBox.append(check('province',null,{country,province},'Seleccionar todas las ciudades de esta provincia'));
+   for(const city of cities.sort((a,b)=>sorter(a.name,b.name)))
+    cityBox.append(check('city',city.id,{country,province},city.name||city.id));
+   provinceBox.append(cityBox);content.append(provinceBox);
+  }
+  countryBox.append(content);host.append(countryBox);
+ }
+ const all=[...host.querySelectorAll('input[data-com-geo="city"]')];
+ const matching=input=>all.filter(x=>(!input.dataset.country||x.dataset.country===input.dataset.country)&&(!input.dataset.province||x.dataset.province===input.dataset.province));
+ const refresh=()=>{
+  GH_COMERCIAL_CIUDADES188=all.filter(x=>x.checked).map(x=>x.dataset.cityId);
+  for(const input of host.querySelectorAll('input[data-com-geo="country"],input[data-com-geo="province"]')){
+   const group=matching(input),n=group.filter(x=>x.checked).length;
+   input.checked=group.length>0&&n===group.length;
+   input.indeterminate=n>0&&n<group.length;
+  }
+  const toggle=document.getElementById('ghComercialTodas191');
+  if(toggle){toggle.checked=all.length>0&&GH_COMERCIAL_CIUDADES188.length===all.length;toggle.indeterminate=GH_COMERCIAL_CIUDADES188.length>0&&GH_COMERCIAL_CIUDADES188.length<all.length;}
+  const count=document.getElementById('ghComercialCantidad191');
+  if(count)count.textContent=GH_COMERCIAL_CIUDADES188.length+' de '+all.length+' ciudades seleccionadas';
+  ghComercialRenderCiudades188();
+ };
+ host.onchange=event=>{
+  const input=event.target;
+  if(input.dataset.comGeo==='country'||input.dataset.comGeo==='province')
+   for(const city of matching(input))city.checked=input.checked;
+  refresh();
+ };
+ document.getElementById('ghComercialTodas191').onchange=event=>{
+  for(const city of all)city.checked=event.target.checked;
+  refresh();
+ };
+ document.getElementById('ghComercialQuitarTodas191').onclick=()=>{
+  for(const city of all)city.checked=false;
+  refresh();
+ };
+ refresh();
 }
 function ghComercialRenderCiudades188(){
  const host=document.getElementById('ghComercialCiudades188');if(!host)return;
- host.replaceChildren();
- if(!GH_COMERCIAL_CIUDADES188.length){host.textContent='Sin ciudades asignadas.';return;}
- for(const id of GH_COMERCIAL_CIUDADES188){
-  const city=GH_ROLES_GEO188?.cities.find(x=>x.id===id);
-  const b=document.createElement('button');b.type='button';b.className='sec';
-  b.style.margin='4px';b.textContent=(city?.name||id)+' ×';b.title='Quitar ciudad';
-  b.onclick=()=>ghComercialQuitarCiudad188(id);host.append(b);
- }
+ host.textContent=GH_COMERCIAL_CIUDADES188.length
+  ?'Al guardar se asignarán '+GH_COMERCIAL_CIUDADES188.length+' ciudades.'
+  :'No hay ciudades seleccionadas.';
 }
 
 function ghComercialRolCambio188(){
