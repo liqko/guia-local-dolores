@@ -19,9 +19,9 @@
       #gldNavegacionGlobal .gld-nav-links{max-width:1260px;margin:0 auto;display:flex;justify-content:center;gap:3px;flex-wrap:wrap;padding:6px 12px}
       #gldNavegacionGlobal a{display:inline-flex;align-items:center;text-decoration:none;padding:10px 13px;border-radius:8px;font:600 14px/1.3 'Segoe UI',Arial,sans-serif;color:#245a71}
       #gldNavegacionGlobal a:hover,#gldNavegacionGlobal a:focus-visible,#gldNavegacionGlobal a.active{background:#e9f5fa;color:#005e84}
-      #gldNavegacionGlobal .gld-volver-guia{position:absolute;right:14px;top:50%;transform:translateY(-50%);background:#006699;color:#fff!important;border-radius:8px;padding:8px 10px}
+      #gldNavegacionGlobal .gld-volver-guia{position:static;display:flex;width:max-content;max-width:calc(100% - 24px);box-sizing:border-box;justify-content:center;margin:4px auto 8px;transform:none;background:#006699;color:#fff!important;border-radius:8px;padding:8px 12px;text-align:center}
       #gldNavegacionGlobal .gld-volver-guia:hover{background:#004d73!important;color:#fff!important}
-      @media(max-width:760px){#gldNavegacionGlobal .gld-volver-guia{right:8px;font-size:12px;padding:8px 9px}#gldNavegacionGlobal summary{max-width:55%}}
+      @media(max-width:760px){#gldNavegacionGlobal .gld-volver-guia{font-size:12px;padding:8px 12px;margin:4px auto 8px}#gldNavegacionGlobal summary{max-width:100%}}
 
       #gldNavegacionGlobal summary{display:none;cursor:pointer;padding:13px 16px;font:700 15px/1.4 'Segoe UI',Arial,sans-serif;color:#005e84}
       @media(max-width:760px){#gldNavegacionGlobal summary{display:list-item;list-style:inside}#gldNavegacionGlobal .gld-nav-links{display:none;flex-direction:column;align-items:stretch;max-height:65vh;overflow:auto}#gldNavegacionGlobal details[open] .gld-nav-links{display:flex}#gldNavegacionGlobal a{min-height:40px}}
