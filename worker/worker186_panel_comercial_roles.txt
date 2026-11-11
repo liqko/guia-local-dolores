@@ -8681,6 +8681,11 @@ async function gldCerrarContrato185(ctx){
  if(!quoteResponse.ok||calculated.success!==true)return json(calculated,quoteResponse.status);
  if(calculated.precios_pendientes||calculated.configuracion_pendiente||!Number.isSafeInteger(calculated.total))
   return json({success:false,message:'No hay un precio final autorizado para cerrar esta combinación.'},409);
+ const existingSale=await db.get('contrataciones',op);
+ if(existingSale){
+  if(String(existingSale.anunciante_id)!==aid)return json({success:false,message:'El identificador de contratación pertenece a otro anunciante.'},409);
+  return json({success:true,updated:false,contratacion:existingSale,importe:existingSale.importe,firestore_writes:0});
+ }
  const version=await db.getVersioned('anunciantes_administracion',aid);
  const previous=version.doc;
  if(!previous)return json({success:false,message:'El anunciante no tiene ficha de administración. Abrí su ficha antes de contratar.'},404);
@@ -8745,8 +8750,13 @@ async function gldCerrarContrato185(ctx){
  const patch={nivel:String(body.nivel),funcionalidades:enabled,funcionalidades_config:settings,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
  let saved;
- try{saved=await db.patch('anunciantes_administracion',aid,patch,{mustExist:true,updateTime:version.updateTime})}
- catch(e){return json({success:false,message:'No se confirmó la contratación. La ficha pudo cambiar: '+String(e.message||e)},409)}
+ try{
+  const result=await db.commitPatches([
+   {collection:'anunciantes_administracion',id:aid,before:previous,patch,options:{updateTime:version.updateTime,mustExist:true}},
+   {collection:'contrataciones',id:op,before:null,patch:{...contracted,contratacion_id:op},options:{mustNotExist:true}}
+  ]);
+  saved=result[0];
+ }catch(e){return json({success:false,message:'No se confirmó la contratación. La ficha pudo cambiar: '+String(e.message||e)},409)}
  // Mantener proyecciones existentes; no repetir escrituras Firestore.
  await Promise.allSettled([
   patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:{nivel:patch.nivel}}),
@@ -8755,7 +8765,7 @@ async function gldCerrarContrato185(ctx){
  if(purchased.PUBLICIDAD>0)await cache.put('publicity:contract:v101:'+aid,
   {...publicityContractV101(saved),habilitada:true});
  return json({success:true,updated:true,contratacion:contracted,importe:contracted.importe,
-  revision_comercial:await commercialRevisionInternal(saved),firestore_writes:1});
+  revision_comercial:await commercialRevisionInternal(saved),firestore_writes:2});
 }
 
 
