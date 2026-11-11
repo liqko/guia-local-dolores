@@ -47,7 +47,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
       readPublished,stage,forceStage:true});
   }
 
-  const source = await call({op:'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest)},!previous);
+  const source = await call({op:'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
   if (!source) return {changed:false};
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');

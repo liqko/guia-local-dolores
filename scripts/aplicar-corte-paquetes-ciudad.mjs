@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import bookTools from '../plataforma/paquete-ciudad.js';
 
-const { applyDelta, idOf, lists, validBook } = bookTools;
+const { applyDelta, idOf, schemaOf, validBook } = bookTools;
 const marker = '/* GLD_CITY_BOOKS */ {}';
 const publicPath = 'plataforma/paquetes-ciudad';
 const dayMs = 86400000;
@@ -30,8 +30,8 @@ function validateManifest(manifest) {
 }
 
 function moduleChange(before, after, name) {
-  const [field, idField] = lists[name];
-  const { [field]: oldRows, ...oldMetadata } = before.modules[name];
+  const {field,id:idField}=schemaOf(after)[name];
+  const { [field]: oldRows, ...oldMetadata } = (before.modules[name]??{success:true,[field]:[]});
   const { [field]: newRows, ...metadata } = after.modules[name];
   const oldIds = new Map(oldRows.map(row => [idOf(row, idField), row]));
   const newIds = new Set(newRows.map(row => idOf(row, idField)));
@@ -47,8 +47,8 @@ function moduleChange(before, after, name) {
 
 function publicChanges(before, batch) {
   for (const [name, change] of Object.entries(batch.changes ?? {})) {
-    if (!Object.hasOwn(lists,name)) throw Error('Módulo de publicación inválido');
-    const allowedMetadata = name === 'pharmacy' ? ['version','updated_at','ciudad_id'] : [];
+    if (!Object.hasOwn(schemaOf(batch.schema?{schema:batch.schema}:before),name)) throw Error('Módulo de publicación inválido');
+    const allowedMetadata = schemaOf(batch.schema?{schema:batch.schema}:before)[name].metadata;
     if (Object.keys(change?.metadata ?? {}).some(key => !allowedMetadata.includes(key))) {
       throw Error('Metadatos ajenos a la Guía pública');
     }
@@ -65,10 +65,10 @@ function publicChanges(before, batch) {
   return {next,changes};
 }
 
-function combineChanges(earlier, latest) {
+function combineChanges(earlier, latest, schema) {
   const result = {...earlier};
   for (const [name, change] of Object.entries(latest)) {
-    const idField = lists[name][1];
+    const idField = schema[name].id;
     const prior = earlier[name];
     if (!prior) {
       result[name] = change;
@@ -132,10 +132,14 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
     const book = await readPublished(prefix + 'completo-' + old.revision + '.json');
     if (!validBook(book,city) || book.revision !== old.revision) throw Error('Paquete publicado inválido');
     const revision = old.revision + 1;
+    const targetSchema=source.schema??book.schema;
+    const descriptors=schemaOf(targetSchema?{schema:targetSchema}:book);
     const changesInput={...input.changes};
     for (const [name,replacement] of Object.entries(input.replacements??{})) {
-      if (!Object.hasOwn(lists,name)||Object.hasOwn(changesInput,name)) throw Error('Módulo público duplicado o inválido');
-      const replaced={...book,modules:{...book.modules,[name]:replacement}};
+      if (!Object.hasOwn(descriptors,name)||Object.hasOwn(changesInput,name)) throw Error('Módulo público duplicado o inválido');
+      const modules={...book.modules};
+      for(const [key,{field}] of Object.entries(descriptors))if(!modules[key])modules[key]={success:true,[field]:[]};
+      const replaced={...book,...(targetSchema?{schema:targetSchema}:{}),modules:{...modules,[name]:replacement}};
       if (!validBook(replaced,city)) throw Error('Reemplazo público inválido');
       const delta=moduleChange(book,replaced,name);
       if (delta) {
@@ -143,8 +147,9 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
         changesInput[name]=delta;
       }
     }
-    const {next,changes} = publicChanges(book,{city,from:old.revision,revision,changes:changesInput});
-    if (!Object.keys(changes).length) continue;
+    const {next,changes} = publicChanges(book,{city,from:old.revision,revision,changes:changesInput,...(targetSchema?{schema:targetSchema}:{})});
+    const schemaChanged=!isDeepStrictEqual(book.schema,next.schema);
+    if (!Object.keys(changes).length&&!schemaChanged) continue;
 
     const keep = [...old.deltas,old.revision].sort((a,b)=>a-b).slice(-historyLimit);
     files.set(prefix + 'completo-' + revision + '.json',next);
@@ -155,9 +160,9 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
         if (delta?.city !== city || delta.from !== from || delta.revision !== old.revision || !delta.changes) {
           throw Error('Diferencia publicada inválida');
         }
-        combined = combineChanges(delta.changes,changes);
+        combined = combineChanges(delta.changes,changes,descriptors);
       }
-      files.set(prefix + 'cambios-' + from + '-' + revision + '.json',{city,from,revision,changes:combined});
+      files.set(prefix + 'cambios-' + from + '-' + revision + '.json',{city,from,revision,changes:combined,...(next.schema?{schema:next.schema}:{})});
     }
     old.revision = revision;
     old.deltas = keep;
@@ -180,7 +185,7 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
     const expression = 'JSON.parse(' + JSON.stringify(JSON.stringify(manifest)) + ')';
     await writeFile(catalogPath,catalog.replace(marker,()=> '/* GLD_CITY_BOOKS */ ' + expression));
     await mkdir(join(stage,publicPath),{recursive:true});
-    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest}));
+    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{})}));
   }
   return {changed,cutoff:source.cutoff,manifest};
 }

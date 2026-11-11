@@ -11,6 +11,8 @@ const CITY='DOL (BUE - ARG)';
 const query='?pais_id=ARG&provincia_id=BUE&ciudad_id='+encodeURIComponent(CITY)+'&ciudad=Dolores';
 const mode=process.argv[2]||'public';
 const candidate=mode==='candidate';
+const generic=process.argv.includes('--generic');
+let fixture;
 const report={mode,started:new Date().toISOString(),scope:'Carcasa y Eventos públicos sin sesión, Chrome aislado, service worker habilitado. No mide autenticación ni facturación.',steps:[]};
 const remote=new Map();
 async function fromLive(p){
@@ -27,6 +29,7 @@ async function fromLive(p){
   stage=await mkdtemp(path.join(tmpdir(),'gld-assets-'));
   await cp('plataforma',path.join(stage,'plataforma'),{recursive:true});
   await writeFile(path.join(stage,'plataforma/territorio-cache.js'),(await fromLive('/plataforma/territorio-cache.js')).body);
+  if(generic){fixture=await require('./preparar-publicacion-generica.cjs')(stage,fromLive,CITY);report.fixture={...fixture,old:undefined};}
   const {versionarRecursos}=await import('../../scripts/versionar-recursos-publicos.mjs');
   report.assets=await versionarRecursos(stage);
   // El servidor usa archivos candidatos y la publicación real, sin fichas ficticias.
@@ -35,7 +38,7 @@ async function fromLive(p){
     let p=new URL(req.url,'http://localhost').pathname;
     if(p==='/descubrir')p='/plataforma/carcasa.html';
     let body,type;
-    if(p==='/plataforma/territorio-cache.js'||p.startsWith('/plataforma/paquetes-ciudad/')){
+    if(!generic&&(p==='/plataforma/territorio-cache.js'||p.startsWith('/plataforma/paquetes-ciudad/'))){
      ({body,type}=await fromLive(p));
     }else{
      body=await readFile(path.join(stage,p));
@@ -88,7 +91,8 @@ async function fromLive(p){
   }
   await page.goto(origin+'/descubrir'+query,{waitUntil:'load',timeout:60000});
   const book=await guideReady();report.revision=book.revision;
-  await finish('carcasa: primera apertura sin copia');
+  const first=await finish('carcasa: primera apertura sin copia');
+  if(generic)assert.equal(first.workerRequests,0,'Carcasa obtiene Efemérides del libro');
   await page.reload({waitUntil:'load'});await guideReady();
   const reload=await finish('carcasa: recarga con copia vigente');
   if(mode!=='baseline'){
@@ -111,6 +115,7 @@ async function fromLive(p){
   await frame.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'),{timeout:20000});
   const count=await frame.evaluate(()=>eventosData.length);report.eventsShown=count;
   const events=await finish('eventos: abrir documento público en carcasa (sin login sintético)');
+  if(generic)assert.equal(events.workerRequests,0,'Publicidad de Eventos en el libro');
   if(mode!=='baseline'){
    assert(!events.workerPaths.includes('/events-new'),'Eventos usa el libro');
    assert(!events.rows.some(r=>r.url.includes('/paquetes-ciudad/')),'Comparte el libro de Carcasa');
@@ -125,6 +130,18 @@ async function fromLive(p){
   await frame.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'));
   const again=await finish('eventos: volver a abrir');
   if(mode!=='baseline')assert(!again.workerPaths.includes('/events-new'));
+  if(generic){
+   assert.equal(again.workerRequests,0);
+   await frame.goto(origin+'/plataforma/actividades.html'+query,{waitUntil:'load'});
+   await frame.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'));
+   assert.equal((await finish('actividades: datos y publicidad del libro')).workerRequests,0);
+   await frame.goto(origin+'/plataforma/empleo.html'+query,{waitUntil:'load'});
+   await frame.waitForFunction(()=>!!document.querySelector('#public-list')?.textContent.trim()&&!document.querySelector('#public-list').textContent.includes('Cargando'));
+   assert.equal((await finish('empleo: abrir listado público')).workerRequests,0);
+   await frame.locator('#f-q').fill('administración');await frame.locator('#buscar').click();
+   await frame.locator('#f-q').fill('');await frame.locator('#buscar').click();
+   assert.equal((await finish('empleo: buscar desde copia local')).workerRequests,0);
+  }
   // Apertura directa con almacenamiento vacío, fuera de la carcasa.
   await context.close();
   const direct=await browser.newContext({serviceWorkers:'block'});const dp=await direct.newPage();let eventReads=0,books=0;
@@ -155,6 +172,18 @@ async function fromLive(p){
    report.historical.filtersWithoutEventRequests=true;
   }
   await direct.close();
+  if(generic){
+   const upgrade=await browser.newContext({serviceWorkers:'block'}),up=await upgrade.newPage();let fetched=[];
+   upgrade.on('request',r=>{if(r.url().includes('/paquetes-ciudad/'))fetched.push(r.url());});
+   await up.goto(origin+'/plataforma/offline.html');
+   await up.evaluate(book=>new Promise((resolve,reject)=>{const req=indexedDB.open('gld-paquetes-ciudad',1);req.onupgradeneeded=()=>req.result.createObjectStore('ciudades',{keyPath:'city'});req.onsuccess=()=>{const db=req.result,tx=db.transaction('ciudades','readwrite');tx.objectStore('ciudades').put(book);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=reject;};req.onerror=reject;}),fixture.old);
+   await up.goto(origin+'/descubrir'+query,{waitUntil:'load'});
+   await up.waitForFunction(()=>!!window.GLD_PAQUETE_CIUDAD);
+   const updated=await up.evaluate(city=>window.GLD_PAQUETE_CIUDAD.get(city),CITY);
+   assert(updated.modules.employment);assert(updated.modules.ephemerides);assert.equal(fetched.length,1);assert(fetched[0].includes('/cambios-'));
+   report.legacyUpgrade={requests:1,delta:true,modules:Object.keys(updated.modules).length};
+   await upgrade.close();
+  }
  }finally{
   await browser.close();server?.close();if(stage)await rm(stage,{recursive:true,force:true});
   report.finished=new Date().toISOString();

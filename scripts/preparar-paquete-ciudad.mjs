@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import bookTools from '../plataforma/paquete-ciudad.js';
 
-const { applyDelta, idOf, lists, validBook } = bookTools;
+const { applyDelta, idOf, schemaOf, validBook } = bookTools;
 const marker = '/* GLD_CITY_BOOKS */ {}';
 
 function index(rows, field) {
@@ -14,20 +14,16 @@ function index(rows, field) {
 }
 
 function publicBook(book) {
-  const modules = Object.fromEntries(Object.entries(lists).map(([name, [field]]) => [
-    name, { success: true, [field]: book.modules[name][field] },
-  ]));
-  const { version, updated_at } = book.modules.pharmacy;
-  modules.pharmacy.ciudad_id = book.city;
-  if (version !== undefined) modules.pharmacy.version = version;
-  if (updated_at !== undefined) modules.pharmacy.updated_at = updated_at;
-  return { city: book.city, revision: book.revision, modules };
+  const modules=Object.fromEntries(Object.entries(schemaOf(book)).map(([name,{field,metadata}])=>[name,{success:true,[field]:book.modules[name][field],...Object.fromEntries(metadata.filter(k=>book.modules[name][k]!==undefined).map(k=>[k,book.modules[name][k]]))}]));
+  const out={city:book.city,revision:book.revision,modules,...(book.schema?{schema:book.schema}:{})};
+  if(!validBook(out,out.city))throw Error('Libro público inválido');
+  return out;
 }
 
 function changesBetween(previous, book) {
   const changes = {};
-  for (const [name, [field, idField]] of Object.entries(lists)) {
-    const { [field]: before, ...beforeMeta } = previous.modules[name];
+  for (const [name, {field,id:idField}] of Object.entries(schemaOf(book))) {
+    const { [field]: before, ...beforeMeta } = (previous.modules[name]??{success:true,[field]:[]});
     const { [field]: after, ...metadata } = book.modules[name];
     const oldRows = index(before, idField);
     const newRows = index(after, idField);
@@ -51,8 +47,8 @@ export async function prepareCityBooks({ initial, batches }, hostingDir) {
   for (const book of initial) {
     const city = book.city;
     if (typeof city !== 'string' || !city.trim() || history.has(city) ||
-        !validBook(book, city)) throw Error('Paquete inicial inválido');
-    for (const [name, [field, idField]] of Object.entries(lists)) {
+        !validBook(publicBook(book), city)) throw Error('Paquete inicial inválido');
+    for (const [name, {field,id:idField}] of Object.entries(schemaOf(book))) {
       index(book.modules[name][field], idField);
     }
     const projected = publicBook(book);
@@ -77,7 +73,7 @@ export async function prepareCityBooks({ initial, batches }, hostingDir) {
     const prior = versions.slice(0, -1);
     for (const previous of prior) {
       const delta = { city, from: previous.revision, revision: book.revision,
-        changes: changesBetween(previous, book) };
+        changes: changesBetween(previous, book),...(book.schema?{schema:book.schema}:{}) };
       await writeFile(join(dir, 'cambios-' + previous.revision + '-' + book.revision + '.json'), JSON.stringify(delta));
     }
     entries.push([city, { key, revision: book.revision, deltas: prior.map(value => value.revision) }]);

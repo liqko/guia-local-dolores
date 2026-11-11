@@ -1,6 +1,6 @@
 // Publicación de recursos inmutables: la revisión viaja en la URL del propio archivo.
 import {createHash} from 'node:crypto';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,readdir} from 'node:fs/promises';
 import {join,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 
@@ -18,7 +18,12 @@ export async function versionarRecursos(stage){
  }
  // Estos archivos forman la identidad de la carcasa. El contenido no se altera.
  for(const asset of ['/plataforma/assets/marca/logo-guia-local.png','/plataforma/assets/marca/fondo-ciudad.jpg'])await publish(asset);
- const pages=['carcasa.html','anunciantes.html','eventos.html'];
+ const pages=[];
+ for(const name of await readdir(join(stage,'plataforma'))){
+  if(!name.endsWith('.html'))continue;
+  const html=await readFile(join(stage,'plataforma',name),'utf8');
+  if(/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
+ }
  for(const page of pages){
   const file=join(stage,'plataforma',page);
   let html=await readFile(file,'utf8');

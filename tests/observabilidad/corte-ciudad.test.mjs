@@ -9,7 +9,7 @@ import { prepareCityBooks } from '../../scripts/preparar-paquete-ciudad.mjs';
 import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-ciudad.mjs';
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
-const source = await readFile(new URL('../../worker/worker187_corregir_parametro_jsdoc_sobre_186.txt', import.meta.url), 'utf8');
+const source = await readFile(new URL(process.env.GLD_WORKER||'../../worker/worker187_corregir_parametro_jsdoc_sobre_186.txt', import.meta.url), 'utf8');
 const { GldPublicCache119 } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const { lists } = bookTools;
 const key = 'guide:city:v1:DOLORES';
@@ -253,7 +253,7 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
 
   const raw = new Map([['territorio:public:v1',{ciudades:[{ciudad_id:'DOL'},{ciudad_id:'BAL'}]}]]);
   const actors = new Map(),calls=[];
-  const env={GLD_CITY_BOOK_CAPTURE:'1',GLD_CACHE_KV:{get:async key=>raw.has(key)?JSON.stringify(raw.get(key)):null,put:async(key,value)=>raw.set(key,JSON.parse(value))}};
+  const env={GLD_CITY_BOOK_CAPTURE:'1',GLD_CACHE_KV:{get:async key=>raw.has(key)?JSON.stringify(raw.get(key)):null,put:async(key,value)=>raw.set(key,JSON.parse(value)),list:async({prefix})=>({keys:[...raw.keys()].filter(name=>name.startsWith(prefix)).map(name=>({name})),list_complete:true})}};
   env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){
     if(!actors.has(name)){
       const db=new DatabaseSync(':memory:');
