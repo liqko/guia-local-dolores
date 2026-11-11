@@ -10935,7 +10935,8 @@ async function syncEmpleo109(/** @type {any} */ {cache,current,next}){
  if(!record)return;
  const cities=[...new Set([...(current?.ciudad_ids||[]),...(next?.ciudad_ids||[])])];
  // Capturar la base antes de alterar los índices legados permite fusionar cambios concurrentes.
- const prior=new Map(await Promise.all(cities.map(async city=>[city,await cache.get('employment:city:v1:'+city)])));
+ const prior=new Map();
+ await Promise.all(cities.map(async city=>{prior.set(city,await cache.get('employment:city:v1:'+city));}));
  await cache.put('employment:record:v109:'+record,{row:next||null});
  for(const city of cities){
   const key='employment:city:v109:'+encodeURIComponent(city)+':'+record;
@@ -11065,7 +11066,7 @@ const RECOVERABLE119=new Set(['eventos','evento_programacion','actividades','act
 function cityDefinition119(key){
  for(const spec of Object.values(PUBLIC_FEATURES191)){
   const store=spec.store;
-  if(store&&String(key).startsWith(store.prefix)&&String(key).length>store.prefix.length)return {...store,legacyMigration:store.legacyMigration??['guide','events','activities','promos','publicity','efemerides','farmacias'].includes(store.module)};
+  if(store&&String(key).startsWith(store.prefix)&&String(key).length>store.prefix.length)return {...store,sourceId:store.sourceId||((id)=>id),legacyMigration:store.legacyMigration??['guide','events','activities','promos','publicity','efemerides','farmacias'].includes(store.module)};
  }
  return null;
 }
@@ -11365,6 +11366,7 @@ class GldPublicCache119 {
 }
 // Un único registro en el origen. Publicador y navegador reciben su contrato en cada libro.
 // Cada funcionalidad declara su proyección pública y su almacén; no se añade un caso al transporte.
+/** @type {Record<string,any>} */
 const PUBLIC_FEATURES191 = {
  guide:{store:{prefix:'guide:city:v1:',module:'guide',field:'anunciantes',id:'anunciante_id',collection:'anunciantes'},path:'/guide',query:{compact:'1'},field:'results',id:'anunciante_id',metadata:[]},
  events:{store:{prefix:'events:city:v2:',module:'events',field:'events',id:'evento_id',collection:'eventos'},path:'/events-new',field:'events',id:'evento_id',metadata:[],virtual:true,watchShared:['territory']},
@@ -11373,7 +11375,7 @@ const PUBLIC_FEATURES191 = {
  ads:{store:{prefix:'publicity:city:v2:',module:'publicity',field:'publicidades',id:'publicidad_id',collection:'publicidades'},path:'/publicidad',query:{action:'publicas',modulo:'GUIA'},field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'GUIA',sharedKeys:[{key:KEYS.publicidad},{prefix:'publicity:contract:v101:'}],watchShared:['ads','territory'],watch:['events','activities','guide'],validity:true},
  pharmacy:{store:{prefix:'farmacias:city:v2:',module:'farmacias',field:'ciclos',id:'ciclo_id',collection:'farmacias_ciclos'},path:'/farmacias',query:{action:'ciclo'},field:'ciclos',id:'ciclo_id',metadata:['version','updated_at','ciudad_id'],emptyStatus:503},
  ephemerides:{store:{prefix:'efemerides:city:v2:',module:'efemerides',field:'efemerides',id:'efemeride_id',collection:'efemerides_bis'},field:'efemerides',id:'efemeride_id',metadata:[],project:async({cache,city})=>({success:true,efemerides:(await getEfemCityV2({cache,cityId:city})).efemerides||[]})},
- employment:{store:{prefix:'employment:city:v1:',module:'employment',field:'rows',id:'empleo_id',collection:'empleos'},field:'rows',id:'empleo_id',metadata:['areas','ciudad_id'],validity:true,project:async({cache,city,cutoff})=>({success:true,ciudad_id:city,areas:EMP_AREAS109,rows:((await cache.get('employment:city:v1:'+city))?.rows||[]).filter(row=>empLive109(row,cutoff)).map(empPublic109)})}
+ employment:{store:{prefix:'employment:city:v1:',module:'employment',field:'rows',id:'empleo_id',collection:'empleos',sourceId:empRecord109},field:'rows',id:'empleo_id',metadata:['areas','ciudad_id'],validity:true,project:async({cache,city,cutoff})=>({success:true,ciudad_id:city,areas:EMP_AREAS109,rows:((await cache.get('employment:city:v1:'+city))?.rows||[]).filter(row=>empLive109(row,cutoff)).map(empPublic109)})}
 };
 async function publicFeatures191(cache){
  const features={...PUBLIC_FEATURES191};
@@ -11601,7 +11603,7 @@ function coordinatedCities119(env,report){
  async function call(key,op,value){
   const def=cityDefinition119(key),stamps={};
   for(const row of [...(bases.get(key)?.[def.field]||[]),...(value?.[def.field]||[])]){
-   const id=String(row[def.id]||row.id||'');stamps[id]=report.source_versions119?.[def.collection+'/'+id]||'';
+   const id=String(row[def.id]||row.id||'');stamps[id]=report.source_versions119?.[def.collection+'/'+def.sourceId(id)]||'';
   }
   const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('public-city-v119:'+key));
   const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base:bases.get(key)||null,stamps})}));
@@ -12436,7 +12438,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"166",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"191",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
