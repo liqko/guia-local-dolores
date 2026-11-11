@@ -242,12 +242,12 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <h2>Roles asignados</h2>
   <p class="muted">Consulta de roles existentes. Los filtros territoriales deben respetar el país, provincia y ciudad asignados a cada persona.</p>
   <div class="toolbar" style="display:flex;gap:10px;flex-wrap:wrap;align-items:end">
-   <label>Nombre o correo<input id="ghRolesListaNombre188" placeholder="Filtrar por persona"></label>
-   <label>Rol<select id="ghRolesListaRol188"><option value="">Todos</option><option value="MODERADOR">Moderador</option><option value="SUPERVISOR">Supervisor</option><option value="VENDEDOR">Vendedor</option></select></label>
-   <label>Estado<select id="ghRolesListaEstado188"><option value="">Todos</option><option value="ACTIVO">Activo</option><option value="PAUSADO">Pausado</option></select></label>
-   <label>País<select id="ghRolesListaPais188"><option value="">Todos los países</option></select></label>
-   <label>Provincia<select id="ghRolesListaProvincia188"><option value="">Todas las provincias</option></select></label>
-   <label>Ciudad<select id="ghRolesListaCiudad188"><option value="">Todas las ciudades</option></select></label>
+   <label>Nombre o correo<input id="ghRolesListaNombre188" oninput="ghRolesFiltrar188()" placeholder="Filtrar por persona"></label>
+   <label>Rol<select id="ghRolesListaRol188" onchange="ghRolesFiltrar188()"><option value="">Todos</option><option value="MODERADOR">Moderador</option><option value="SUPERVISOR">Supervisor</option><option value="VENDEDOR">Vendedor</option></select></label>
+   <label>Estado<select id="ghRolesListaEstado188" onchange="ghRolesFiltrar188()"><option value="">Todos</option><option value="ACTIVO">Activo</option><option value="PAUSADO">Pausado</option></select></label>
+   <label>País<select id="ghRolesListaPais188" onchange="ghRolesProvincia188();ghRolesFiltrar188()"><option value="">Todos los países</option></select></label>
+   <label>Provincia<select id="ghRolesListaProvincia188" onchange="ghRolesCiudad188();ghRolesFiltrar188()"><option value="">Todas las provincias</option></select></label>
+   <label>Ciudad<select id="ghRolesListaCiudad188" onchange="ghRolesFiltrar188()"><option value="">Todas las ciudades</option></select></label>
    <button type="button" class="sec" onclick="ghRolesListar188()">Buscar roles</button>
   </div>
   <div id="ghRolesListaResultados188" role="status">Seleccioná los filtros y buscá roles asignados.</div>
@@ -566,9 +566,64 @@ function ghComercialRolCambio188(){
  if(commission)commission.hidden=!supervisor;
  const type=document.getElementById('ghRolesTipo188');if(type&&['VENDEDOR','SUPERVISOR'].includes(role))type.value=role;
 }
-async function ghRolesListar188(){
+let GH_ROLES_LIST188=null,GH_ROLES_GEO188=null;
+function ghRolesOptions188(id,rows,empty){
+ const el=document.getElementById(id),current=el.value;el.replaceChildren();
+ const blank=document.createElement('option');blank.value='';blank.textContent=empty;el.append(blank);
+ for(const x of rows){const o=document.createElement('option');o.value=x.id;o.textContent=x.name;el.append(o);}
+ el.value=current;if(el.selectedIndex<0)el.value='';
+}
+async function ghRolesGeoCargar188(){
+ if(!GH_ROLES_GEO188){
+  const t=await window.GLD_CATALOGO_TERRITORIAL.load();
+  const id=x=>String(x||'');
+  GH_ROLES_GEO188={
+   countries:(t.paises||t.paises_activos||[]).map(x=>({id:id(x.pais_id||x.id),name:String(x.nombre||x.pais_visible||x.pais||x.id)})),
+   provinces:(t.provincias||[]).map(x=>({id:id(x.provincia_id||x.id),country:id(x.pais_id),name:String(x.nombre||x.provincia_visible||x.provincia||x.id)})),
+   cities:(t.ciudades||[]).map(x=>({id:id(x.ciudad_id||x.id),country:id(x.pais_id),province:id(x.provincia_id),name:String(x.ciudad_visible||x.nombre||x.ciudad||x.id)}))
+  };
+ }
+ ghRolesOptions188('ghRolesListaPais188',GH_ROLES_GEO188.countries,'Todos los países');
+ ghRolesProvincia188();
+}
+function ghRolesProvincia188(){
+ const g=GH_ROLES_GEO188;if(!g)return;
+ const p=document.getElementById('ghRolesListaPais188').value;
+ ghRolesOptions188('ghRolesListaProvincia188',g.provinces.filter(x=>!p||x.country===p),'Todas las provincias');
+ ghRolesCiudad188();
+}
+function ghRolesCiudad188(){
+ const g=GH_ROLES_GEO188;if(!g)return;
+ const p=document.getElementById('ghRolesListaPais188').value,z=document.getElementById('ghRolesListaProvincia188').value;
+ ghRolesOptions188('ghRolesListaCiudad188',g.cities.filter(x=>(!p||x.country===p)&&(!z||x.province===z)),'Todas las ciudades');
+}
+function ghRolesFiltrar188(){
+ if(!GH_ROLES_LIST188)return;
  const host=document.getElementById('ghRolesListaResultados188');
- host.textContent='El listado consolidado necesita la consulta autorizada del servidor. No se muestran personas ficticias ni estados de solicitudes.';
+ const q=document.getElementById('ghRolesListaNombre188').value.trim().toLowerCase();
+ const role=document.getElementById('ghRolesListaRol188').value,st=document.getElementById('ghRolesListaEstado188').value;
+ const country=document.getElementById('ghRolesListaPais188').value,province=document.getElementById('ghRolesListaProvincia188').value,city=document.getElementById('ghRolesListaCiudad188').value;
+ const catalog=GH_ROLES_GEO188?.cities||[];
+ const rows=GH_ROLES_LIST188.filter(r=>(!q||(r.nombre+' '+r.mail+' '+r.suscriptor_id).toLowerCase().includes(q))&&
+   (!role||r.rol===role)&&(!st||(r.activo?'ACTIVO':'PAUSADO')===st)&&
+   (!(country||province||city)||catalog.some(x=>(r.ciudades||[]).includes(x.id)&&(!country||x.country===country)&&(!province||x.province===province)&&(!city||x.id===city))));
+ host.replaceChildren();
+ const count=document.createElement('p');count.textContent=rows.length+' asignación(es) encontrada(s).';host.append(count);
+ for(const r of rows){
+  const btn=document.createElement('button');btn.className='sec';btn.type='button';btn.style.cssText='display:block;width:100%;text-align:left;margin:6px 0';
+  btn.textContent=(r.nombre||r.suscriptor_id)+' · '+r.rol+' · '+(r.activo?'Activo':'Pausado')+(r.mail?' · '+r.mail:'');
+  btn.onclick=()=>{GH_ROLES_PERSONA188={suscriptor_id:r.suscriptor_id,nombre:r.nombre,mail:r.mail};
+   document.getElementById('ghRolesPersona188').hidden=false;
+   document.getElementById('ghRolesNombre188').textContent=(r.nombre||r.suscriptor_id)+' · '+(r.mail||'');
+   document.getElementById('ghRolesTipo188').value=r.rol;ghRolesSeleccionar188();};
+  host.append(btn);
+ }
+ informarAltura();
+}
+async function ghRolesListar188(){
+ const host=document.getElementById('ghRolesListaResultados188');host.textContent='Consultando roles asignados…';
+ try{await ghRolesGeoCargar188();const data=await ghAdminRequest_('/internal-roles/list');GH_ROLES_LIST188=data.results||[];ghRolesFiltrar188();}
+ catch(e){host.textContent='No se pudo consultar el listado: '+String(e.message||e);}
 }
 
 async function ghBuscarModeradores(){
@@ -2989,6 +3044,7 @@ async function ghCargarResumenNiveles(){
 let GH_ROLES_PACK183=null;
 
 let GH_COMERCIAL_PERSONA186=null;
+let GH_COMERCIAL_CIUDADES188=[];
 async function ghComercialBuscar186(){
  const q=document.getElementById('ghComercialBuscar186').value.trim(),host=document.getElementById('ghComercialResultados186');
  if(q.length<2){host.textContent='Indicá al menos dos caracteres.';return;}
@@ -3014,6 +3070,7 @@ async function ghComercialEditar186(row,selectedRole=null){
  try{
   const result=await ghAdminRequest_('/commercial/personnel',{suscriptor_id:sid});
   const p=result.personal||{};
+  GH_COMERCIAL_CIUDADES188=Array.isArray(p.ciudades)?p.ciudades:[];
   document.getElementById('ghComercialRol186').value=selectedRole|| (p.rol==='SUPERVISOR'?'SUPERVISOR':'VENDEDOR');ghComercialRolCambio188();
   document.getElementById('ghComercialActivo186').checked=p.activo===true;
   document.getElementById('ghComercialComision186').value=p.comision_porcentaje??0;
@@ -3042,8 +3099,8 @@ async function ghComercialGuardar186(){
  msg.textContent='Guardando…';
  try{
   await ghAdminRequest_('/commercial/personnel',{suscriptor_id:p.id,rol:role,activo:document.getElementById('ghComercialActivo186').checked,
-   comision_porcentaje:n,comision_supervision_porcentaje:k,supervisor_id:supervisor,ciudades:[]},'POST');
-  msg.textContent='Rol comercial guardado. El usuario podrá ingresar al panel comercial si su acceso está activo.';
+   comision_porcentaje:n,comision_supervision_porcentaje:role==='SUPERVISOR'?k:0,supervisor_id:role==='VENDEDOR'?supervisor:'',ciudades:GH_COMERCIAL_CIUDADES188},'POST');
+  msg.textContent='Rol comercial guardado. El usuario podrá ingresar al panel comercial si su acceso está activo.';GH_ROLES_LIST188=null;
  }catch(e){msg.textContent='No se guardó: '+String(e.message||e);}
 }
 
