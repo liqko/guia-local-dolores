@@ -8716,13 +8716,29 @@ async function gldCerrarContrato185(ctx){
     cobertura_tipo:current.cobertura_tipo||'CIUDADES'};
   }else settings[key]={...current,activas_max:0,posiciones:0};
  }
+ let comisiones=null;
+ if(auth.comercial_exclusivo){
+  const seller=await db.get('personal_comercial',auth.sid);
+  if(!seller||seller.activo!==true||seller.rol!==auth.perfil)return json({success:false,message:'El rol comercial ya no está autorizado'},403);
+  const pct=seller.comision_porcentaje,supervisorId=seller.rol==='VENDEDOR'?String(seller.supervisor_id||''):'';
+  let supervisor=null;
+  if(supervisorId){
+   supervisor=await db.get('personal_comercial',supervisorId);
+   if(!supervisor||supervisor.activo!==true||supervisor.rol!=='SUPERVISOR')return json({success:false,message:'La relación de supervisión requiere actualización antes de cerrar'},409);
+  }
+  const rate=supervisor?.comision_supervision_porcentaje||0;
+  comisiones={vendedor_id:auth.sid,vendedor_porcentaje:pct,vendedor_estimado:Math.round(calculated.total*pct/100),
+   supervisor_id:supervisorId,supervisor_porcentaje:rate,supervisor_estimado:Math.round(calculated.total*rate/100),
+   base_calculo:calculated.total,estado:'A LIQUIDAR'};
+ }
  const contracted={operacion_id:op,anunciante_id:aid,nivel:String(body.nivel),funcionalidades:{...purchased},
   cantidades:{...units},formatos_publicidad:{...formats},adicionales:{...(quoteBody.adicionales||{})},
   cobertura_funcionalidades:{...(quoteBody.cobertura_funcionalidades||{})},
   subtotal:calculated.subtotal,importe:calculated.total,detalle:calculated.detalle,
   descuento_aplicado:calculated.descuento_aplicado,
   revision_tarifaria:calculated.revision_comercial,
-  cerrado_en:new Date().toISOString(),cerrado_por:auth.sid,estado:'CONFIRMADA',vendedor_id:auth.comercial_exclusivo?auth.sid:null};
+  cerrado_en:new Date().toISOString(),cerrado_por:auth.sid,estado:'CONFIRMADA',vendedor_id:auth.comercial_exclusivo?auth.sid:null,
+  ...(comisiones?{comisiones}:{} )};
  const patch={nivel:String(body.nivel),funcionalidades:enabled,funcionalidades_config:settings,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
  let saved;
@@ -8754,6 +8770,8 @@ async function gldComercial186(ctx){
   const sid=String(sus.suscriptor_id||sus.id||'');
   const record=await db.get('personal_comercial',sid);
   if(!record||record.activo!==true||!['VENDEDOR','SUPERVISOR'].includes(record.rol))return out('No tenés un rol comercial activo',403);
+  const access=await createCache(env).get('admin:commercial:access:v186:'+sid);
+  if(!access||access.revision!==record.revision||access.activo!==true)return out('La habilitación comercial no está sincronizada. Volvé a solicitar acceso.',403);
   const session=await subscriberSessionState(env,sid);
   if(session.deleted)return out('Usuario inactivo',403);
   const token=await issue2(env,{sid,sv:Number(session.version||0),rol:'ADMIN_LOCAL',perfil:record.rol,
@@ -8771,6 +8789,7 @@ async function gldComercial186(ctx){
   if(request.method==='GET')return json({success:true,personal:await db.get('personal_comercial',sid)});
   if(request.method!=='POST')return out('Método no permitido',405);
   if(!['VENDEDOR','SUPERVISOR'].includes(body.rol)||typeof body.activo!=='boolean')return out('Rol y estado inválidos');
+  if(body.rol==='VENDEDOR'&&Number(body.comision_supervision_porcentaje)>0)return out('La comisión por supervisión corresponde únicamente a supervisores');
   const p=body.comision_porcentaje,q=body.comision_supervision_porcentaje;
   if(![p,q].every(v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=100))return out('Las comisiones deben estar entre 0 y 100');
   const sup=String(body.supervisor_id||'').trim();
