@@ -41,7 +41,7 @@ function resumenFuncionalidad(id,rule){
   const offers=cantidad(rule,'ofertas_activas_max');
   return offers!==null?'Hasta '+total(offers,'oferta activa','ofertas activas'):'Publicación de ofertas y búsquedas laborales';
  }
- return 'Consultá las condiciones de esta prestación';
+ return 'Consultá las condiciones de esta funcionalidad';
 }
 function detalleFuncionalidad(id,rule){
  const fields=window.GLD_FUNCIONALIDADES_RESUMEN?.fields?.[id]||[];
@@ -49,6 +49,10 @@ function detalleFuncionalidad(id,rule){
   const n=rule[key];return '<li><strong>'+esc(label)+':</strong> '+esc(n===-1?'Ilimitado':String(n))+'</li>';
  });
  return rows.length?'<ul>'+rows.join('')+'</ul>':'<p class="muted">Consultá las condiciones particulares de esta funcionalidad.</p>';
+}
+function nivelesFuncionalidad(id,rule){
+ const levels=Array.isArray(rule?.niveles_habilitados)?rule.niveles_habilitados.map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=6):(id==='EVENTOS_FREE'?[1,2,3,4,5,6]:[5,6]);
+ return levels.length?'Habilitado para niveles '+levels.join(', '):'No habilitado para ningún nivel';
 }
 function cardFuncionalidad(title,summary,price,details){
  return '<article class="service"><h3>'+esc(title)+'</h3><p class="plan-desc">'+esc(summary)+'</p>'+
@@ -89,7 +93,7 @@ function render(payload){
   ];
   priceBox.innerHTML=mapped.filter(([, ,id])=>rules[id]?.activo!==false).map(([key,title,id])=>{
    const rule=rules[id]||{};
-   const detail=detalleFuncionalidad(id,rule);
+   const detail='<p><strong>'+esc(nivelesFuncionalidad(id,rule))+'</strong></p>'+detalleFuncionalidad(id,rule);
    if(id==='PUBLICIDAD'){
     const formats=[
      ['publicidad_imagen','Imagen individual','Una imagen dentro de un carrusel compartido de hasta tres piezas, una por anunciante.'],
@@ -97,10 +101,10 @@ function render(payload){
      ['publicidad_short','Short','Una pieza audiovisual en formato YouTube Shorts.']
     ];
     const pricing=formats.map(([format,label,description])=>'<section class="plan-benefit-group"><h4>'+esc(label)+'</h4><p class="muted">'+esc(description)+'</p>'+priceHtml(configured[format])+'</section>').join('');
-    return cardFuncionalidad(title,resumenFuncionalidad(id,rule),pricing,detail);
+    return cardFuncionalidad(title+' · '+nivelesFuncionalidad(id,rule),resumenFuncionalidad(id,rule),pricing,detail);
    }
    const price=id==='EVENTOS_FREE'?'<p class="plan-price">Gratuito</p>':priceHtml(configured[key]);
-   return cardFuncionalidad(title,resumenFuncionalidad(id,rule),price,detail);
+   return cardFuncionalidad(title+' · '+nivelesFuncionalidad(id,rule),resumenFuncionalidad(id,rule),price,detail);
   }).join('');
  }
  const notice=document.getElementById('catalogStatus');
