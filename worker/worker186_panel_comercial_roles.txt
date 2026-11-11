@@ -8759,7 +8759,7 @@ async function gldCerrarContrato185(ctx){
 /* Comercial 186: roles separados de la moderación, acceso dedicado y comisiones personales. */
 async function gldComercial186(ctx){
  const {path,request,env,db,cache,url}=ctx;
- if(!['/commercial/login','/commercial/session','/commercial/catalog','/commercial/search','/commercial/quote','/commercial/close','/superadmin/commercial/personnel'].includes(path))return null;
+ if(!['/commercial/login','/commercial/session','/commercial/catalog','/commercial/search','/commercial/quote','/commercial/close','/commercial/team','/superadmin/commercial/personnel'].includes(path))return null;
  const out=(message,status=400)=>json({success:false,message},status);
  if(path==='/commercial/login'){
   if(request.method!=='POST')return out('Método no permitido',405);
@@ -8786,7 +8786,11 @@ async function gldComercial186(ctx){
   const body=request.method==='POST'?await request.json().catch(()=>({})):{};
   const sid=String((request.method==='GET'?url.searchParams.get('suscriptor_id'):body.suscriptor_id)||'').trim();
   if(!sid||sid.includes('/')||sid.length>180)return out('Suscriptor inválido');
-  if(request.method==='GET')return json({success:true,personal:await db.get('personal_comercial',sid)});
+  if(request.method==='GET'){
+   const personal=await db.get('personal_comercial',sid);
+   const team=personal?.rol==='SUPERVISOR'?(await db.queryEqual('personal_comercial','supervisor_id',sid,100)).filter(x=>x.rol==='VENDEDOR').map(x=>({suscriptor_id:x.suscriptor_id,activo:x.activo===true})):[];
+   return json({success:true,personal,team});
+  }
   if(request.method!=='POST')return out('Método no permitido',405);
   if(!['VENDEDOR','SUPERVISOR'].includes(body.rol)||typeof body.activo!=='boolean')return out('Rol y estado inválidos');
   if(body.rol==='VENDEDOR'&&Number(body.comision_supervision_porcentaje)>0)return out('La comisión por supervisión corresponde únicamente a supervisores');
@@ -8807,6 +8811,13 @@ async function gldComercial186(ctx){
  if(!auth.ok)return out(auth.message,401);
  if(!auth.comercial_exclusivo||!['VENDEDOR','SUPERVISOR'].includes(auth.perfil))return out('Acceso comercial requerido',403);
  if(path==='/commercial/session')return request.method==='GET'?json({success:true,perfil:auth.perfil}):out('Método no permitido',405);
+ if(path==='/commercial/team'){
+  if(request.method!=='GET')return out('Método no permitido',405);
+  if(auth.perfil!=='SUPERVISOR')return out('Reservado para supervisores',403);
+  const read=db.panelReadDb?db.panelReadDb():db;
+  const sellers=await read.queryEqual('personal_comercial','supervisor_id',auth.sid,100);
+  return json({success:true,results:sellers.filter(x=>x.rol==='VENDEDOR').map(x=>({suscriptor_id:x.suscriptor_id,activo:x.activo===true,comision_porcentaje:x.comision_porcentaje}))});
+ }
  if(path==='/commercial/catalog'){
   if(request.method!=='GET')return out('Método no permitido',405);
   const [levels,prices]=await Promise.all([listAdminCatalogV2({cache,tipo:'niveles_anunciante'}),gldLeerPrecios162({cache,db,reconstruir:false})]);
