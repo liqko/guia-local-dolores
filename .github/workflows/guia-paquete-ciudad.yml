@@ -1,0 +1,52 @@
+name: Comprobar copia por ciudad
+on:
+  pull_request:
+    paths:
+      - "plataforma/anunciantes.html"
+      - "plataforma/carcasa.html"
+      - "plataforma/paquete-ciudad.js"
+      - "plataforma/territorio-cache.js"
+      - "scripts/preparar-paquete-ciudad.mjs"
+      - "tests/paquete-ciudad.test.mjs"
+      - "tests/browser/paquete-ciudad.cjs"
+      - ".github/workflows/guia-paquete-ciudad.yml"
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --test tests/paquete-ciudad.test.mjs tests/public-territory.test.mjs
+      - run: node tests/publication-integrity.mjs
+      - run: npm install --no-save --package-lock=false playwright@1.55.0
+      - run: GLD_CHROME="$(command -v google-chrome)" node tests/browser/paquete-ciudad.cjs
+  preview:
+    needs: browser
+    if: github.event.pull_request.number == 57 && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Preparar una copia de prueba con datos públicos
+        run: |
+          mkdir -p hosting-public
+          cp -a plataforma hosting-public/plataforma
+          node scripts/preparar-vista-previa-guia.mjs hosting-public
+      - name: Abrir un canal de prueba de la Guía
+        id: hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+          projectId: anunciantes-guialocal
+          channelId: prueba-paquete-ciudad
+          expires: 7d
+      - name: Registrar dirección de la vista previa
+        env:
+          PREVIEW_URL: ${{ steps.hosting.outputs.details_url }}
+        run: printf '%s\n' "$PREVIEW_URL" >> "$GITHUB_STEP_SUMMARY"
