@@ -29,7 +29,7 @@ async function readPublished(read){
  return response.text();
 }
 
-export async function preparePublicTerritory({file,read=fetch,scheduled=false}){
+export async function preparePublicTerritory({file,read=fetch,scheduled=false,stageUnchanged=false}){
  const source=await readFile(file,'utf8');
  if(source.split(MARKER).length!==2)throw Error('Marcador de catálogo público ausente o duplicado.');
  let prepared;
@@ -48,14 +48,15 @@ export async function preparePublicTerritory({file,read=fetch,scheduled=false}){
   console.warn('Catálogo de origen temporalmente inaccesible. Se conserva el publicado.');
  }
  const {data,revision}=prepared;
- if(scheduled&&revisionLine.exec(await readPublished(read))?.[1]===revision)return {changed:false,revision};
+ const changed=!scheduled||revisionLine.exec(await readPublished(read))?.[1]!==revision;
+ if(!changed&&!stageUnchanged)return {changed:false,revision};
  const payload=JSON.stringify({revision,data}).replaceAll('<','\\u003c');
  await writeFile(file,'// GLD_TERRITORY_REVISION '+revision+'\n'+source.replace(MARKER,()=>payload+';'));
- return {changed:true,revision};
+ return {changed,revision};
 }
 
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
- const {changed,revision}=await preparePublicTerritory({file:process.argv[2],scheduled:process.argv.includes('--scheduled')});
+ const {changed,revision}=await preparePublicTerritory({file:process.argv[2],scheduled:process.argv.includes('--scheduled'),stageUnchanged:process.argv.includes('--stage-unchanged')});
  if(process.env.GITHUB_OUTPUT)await appendFile(process.env.GITHUB_OUTPUT,'changed='+changed+'\n');
  console.log(changed?'Catálogo preparado: '+revision:'El catálogo publicado sigue igual.');
 }

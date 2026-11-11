@@ -801,3 +801,11 @@ Conversaciones recuperadas: [chat original](https://chatgpt.com/g/g-p-6aeb230677
 - **Login anunciante:** sus servicios efectivos consultan los mismos registros `anunciantes_administracion` y sus cupos; la ruta de publicación usa `featureEnabled2`/`cupo2` para funcionalidades. La escritura contractual invalida la proyección del panel existente.
 - **Pruebas realizadas:** sintaxis del JS y Worker; asignación de Supervisor y Vendedor sin cambiar `superadmins`; inicio de sesión comercial simulado; cierre simulado con tarifa, comisiones y supervisor; acumulación de una contratación anterior y preservación de Eventos Free y excepciones; batch atómico simulado de dos escrituras.
 - **No comprobado en producción:** despliegue del Worker 186, login real del usuario comercial, validación visual de la página alojada, ni cierre real con Firestore. La candidata requiere instalación antes de habilitar su uso real. No se publicaron operaciones reales en este trabajo.
+
+
+### Continuación de publicación por ciudad · 11/11/2026
+
+- Ensayo real aprobado: ejecución 42921797956; Hosting de prueba entregó los paquetes de nueve ciudades con seis módulos. Esto no equivalía a activación pública.
+- Worker activo consultado: 187, idéntico al archivo de main `worker/worker187_corregir_parametro_jsdoc_sobre_186.txt`; conserva autenticación corregida. No se requiere sustituirlo.
+- Integración sobre main dbeaccafaabd2a14c46e9665e142209c4994c261: conserva filtros y agrupación de sedes de Guía y cambios comerciales recientes. Siete pruebas locales e integridad aprobadas sobre Worker187. Candidata `fix/activar-paquetes-ciudad`.
+- Próximo paso exacto: comprobar navegador en CI, publicar cliente y corte inicial público; verificar los nueve paquetes y recarga sin nuevo pedido de paquete. No declarar consumo total cero ni ahorro facturado.
