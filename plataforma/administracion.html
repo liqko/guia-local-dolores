@@ -294,7 +294,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <input id="ghCotizarAnuncianteId" type="hidden">
   <label>WhatsApp del interesado (opcional)<input id="ghCotizarTelefono185" type="tel" inputmode="tel" autocomplete="tel" placeholder="5492245..."></label>
   <p id="ghCotizarModoEstado185" class="muted">Podés presupuestar a un interesado que aún no esté registrado.</p>
-  <label>Nivel<select id="ghCotizarNivel" onchange="ghCotizarRecalcular171()"></select></label>
+  <label>Nivel<select id="ghCotizarNivel" onchange="ghCotizarNivelCambio189()"></select></label>
   <div id="ghCotizarFunciones"></div>
   <details class="item" id="ghCotizarAdicionales174" open><summary><strong>Adicionales disponibles</strong></summary>
    <div id="ghCotizarAdicionalesItems181"><p class="muted">Cargando adicionales del catálogo de Valores…</p></div>
@@ -2864,17 +2864,37 @@ function ghVentasCargar172(){
    if(st)st.textContent='No se pudo cargar la información de Ventas: '+String(e?.message||e);
  }).finally(()=>{delete section.dataset.loading});
 }
+const GH_COTIZAR_FUNC_ID189={eventos_vip:'EVENTOS',actividades:'ACTIVIDADES',promociones:'PROMOS',publicidad_imagen:'PUBLICIDAD',publicidad_carrusel:'PUBLICIDAD',publicidad_short:'PUBLICIDAD'};
+function ghCotizarNiveles189(id){
+ const cfg=GH_FUNC_GLOBAL166?.reglas?.[id]||{};
+ if(cfg.activo===false)return [];
+ return Array.isArray(cfg.niveles_habilitados)?cfg.niveles_habilitados.map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=6):(id==='EVENTOS_FREE'?[1,2,3,4,5,6]:[5,6]);
+}
+function ghCotizarActualizarPermisos189(){
+ const level=Number(document.getElementById('ghCotizarNivel')?.value||0);
+ document.querySelectorAll('[data-gh-cotizar-cantidad],[data-gh-cotizar-formato]').forEach(field=>{
+  const key=field.dataset.ghCotizarCantidad||field.dataset.ghCotizarFormato,id=GH_COTIZAR_FUNC_ID189[key];
+  const allowed=!!level&&ghCotizarNiveles189(id).includes(level);
+  field.disabled=!allowed;if(!allowed)field.value='0';
+  const note=field.closest('label')?.querySelector('[data-gh-cotizar-niveles]');
+  if(note)note.textContent='Niveles habilitados: '+(ghCotizarNiveles189(id).join(', ')||'ninguno')+(level&&!allowed?' · No disponible para este nivel':'');
+ });
+ const pub=!!level&&ghCotizarNiveles189('PUBLICIDAD').includes(level);
+ document.querySelectorAll('[data-gh-cobertura183]').forEach(field=>{field.disabled=!pub;if(!pub)field.checked=false;});
+}
+function ghCotizarNivelCambio189(){ghCotizarActualizarPermisos189();ghCotizarRecalcular171();}
 function ghCotizarArmar171(){
  const sel=document.getElementById('ghCotizarNivel'),host=document.getElementById('ghCotizarFunciones');
  if(!sel||!host)return;
  const prev=sel.value;
  sel.innerHTML='<option value="">Seleccionar nivel</option>'+Array.from({length:6},(_,i)=>'<option value="'+(i+1)+'">Nivel '+(i+1)+'</option>').join('');
  if(prev)sel.value=prev;
- const regular=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free'&&id!=='publicidad').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
+ const regular=GH_FUNCIONALIDADES_COMERCIALES.filter(([id])=>id!=='eventos_free'&&id!=='publicidad').map(([id,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:160px">'+esc(label)+'</span><small class="muted" data-gh-cotizar-niveles></small><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-cantidad="'+esc(id)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('');
  const formats=[['publicidad_imagen','Imagen individual · carrusel compartido (máx. 3 piezas)'],['publicidad_carrusel','Carrusel propio · 3 a 5 imágenes'],['publicidad_short','Short']];
  host.innerHTML=regular+'<fieldset class="item"><legend><strong>Publicidad · formatos contratados</strong></legend>'+
  formats.map(([key,label])=>'<label style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><span style="min-width:240px">'+esc(label)+'</span><input type="number" min="0" max="1000" step="1" value="0" style="max-width:120px" data-gh-cotizar-formato="'+esc(key)+'" oninput="ghCotizarRecalcular171()" aria-label="Cantidad de '+esc(label)+'"></label>').join('')+'</fieldset>';
  ghCotizarAdicionalesArmar181();
+ ghCotizarActualizarPermisos189();
  ghCotizarRecalcular171();
 }
 function ghCotizarAdicionalesArmar181(){
@@ -2952,12 +2972,14 @@ function ghCotizarRecalcular171(){
  clearTimeout(GH_COTIZA_TIMER173);
  const host=document.getElementById('ghCotizarResultado'),level=document.getElementById('ghCotizarNivel')?.value||'';
  if(!host)return;
+ ghCotizarActualizarPermisos189();
  const values={};
  let count=0;
  for(const [key,label] of GH_FUNCIONALIDADES_COMERCIALES.filter(([key])=>key!=='eventos_free'&&key!=='publicidad')){
   const field=document.querySelector('[data-gh-cotizar-cantidad="'+key+'"]');
   const v=Number(field?.value||0);
   if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
+  if(v>0&&!ghCotizarNiveles189(GH_COTIZAR_FUNC_ID189[key]).includes(Number(level))){host.textContent=label+' no está habilitado para el nivel '+level;GH_COTIZACION171='';return;}
   values[key]=v;count+=v;
  }
  const formatos={};
@@ -2965,10 +2987,12 @@ function ghCotizarRecalcular171(){
   const field=document.querySelector('[data-gh-cotizar-formato="'+key+'"]');
   const v=Number(field?.value||0);
   if(!Number.isSafeInteger(v)||v<0||v>1000){host.textContent='Cantidad inválida para '+label;GH_COTIZACION171='';return;}
+  if(v>0&&!ghCotizarNiveles189('PUBLICIDAD').includes(Number(level))){host.textContent='Publicidad no está habilitada para el nivel '+level;GH_COTIZACION171='';return;}
   formatos[key]=v;count+=v;
  }
  const cobertura_funcionalidades={};
  for(const field of document.querySelectorAll('[data-gh-cobertura183]:checked')){
+  if(!ghCotizarNiveles189('PUBLICIDAD').includes(Number(level))){host.textContent='Publicidad no habilitada para este nivel';GH_COTIZACION171='';return;}
   const id=field.dataset.ghCobertura183;
   (cobertura_funcionalidades[id]??=[]).push(field.value);count++;
  }
