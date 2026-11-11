@@ -9407,7 +9407,16 @@ async function routeAdminV11(ctx) {
     const read=db.panelReadDb?db.panelReadDb():db;
     const top=isTopAdmin2(auth);
     const pendingPromise=pendingAllV3({db}).then(x=>filterAdminPendingV71(x,auth));
-    const blockedPromise=top?Promise.all(Object.entries({ANUNCIANTE:'anunciantes',PUBLICIDAD:'publicidades',PROMO:'promos',EMPLEO:'empleos'}).map(async([tipo,c])=>(await read.queryEqual(c,'estado_moderacion','PENDIENTE',500)).filter(x=>!rejectedActivity(x)).map(x=>({...x,tipo,id:tipo==='EMPLEO'?x.empleo_id:x.id||x.publicidad_id})))).then(x=>x.flat()):Promise.resolve([]);
+    const blockedDefs189=top?{ANUNCIANTE:'anunciantes',PUBLICIDAD:'publicidades',PROMO:'promos',EMPLEO:'empleos'}:
+      Object.fromEntries(Object.entries({ANUNCIANTE:'anunciantes',PUBLICIDAD:'publicidades',PROMO:'promos'})
+       .filter(([tipo])=>gldReviewAllowed189(auth,GLD_REVIEW_KIND189[tipo])));
+    const blockedPromise=Object.keys(blockedDefs189).length?
+      Promise.all(Object.entries(blockedDefs189).map(async([tipo,c])=>
+        (await read.queryEqual(c,'estado_moderacion','PENDIENTE',500))
+          .filter(x=>!rejectedActivity(x)&&String(x.revision_adulto||'')!=='PENDIENTE')
+          .filter(x=>top||gldReviewVisible189(auth,GLD_REVIEW_KIND189[tipo],x))
+          .map(x=>({...x,tipo,id:tipo==='EMPLEO'?x.empleo_id:x.id||x.publicidad_id}))
+      )).then(groups=>groups.flat()):Promise.resolve([]);
     const adultPromise=top?Promise.all(Object.entries({EMPLEO:['empleos','empleo_id'],PROMO:['promos','promo_id'],ANUNCIO:['anunciantes','anunciante_id'],EVENTO:['eventos','evento_id'],ACTIVIDAD:['actividades','actividad_id'],PUBLICIDAD:['publicidades','publicidad_id']}).map(async([tipo,[c,idField]])=>(await read.queryEqual(c,'revision_adulto','PENDIENTE',500)).filter(x=>!rejectedActivity(x)).map(x=>({...x,tipo,id:String(x[idField]||x.id)})))).then(x=>x.flat()):Promise.resolve([]);
     const supportPromise=top?Promise.all(['PENDIENTE','EN_ATENCION'].map(x=>read.queryEqual('solicitudes_soporte','estado',x,500))).then(x=>x.flat().sort((a,b)=>String(a.creado_en).localeCompare(String(b.creado_en)))):Promise.resolve([]);
     const [moderation,blocked,adult,supportRows]=await Promise.all([pendingPromise,blockedPromise,adultPromise,supportPromise]);
@@ -10400,14 +10409,37 @@ async function routePublicationsV77(ctx){
  const {path,request,env,cache,db}=ctx;
  if(path==='/superadmin/publications/blocked'){
   const auth=await requireAdmin(env,request);if(!auth)return json({success:false,message:'Sesión administrativa requerida'},401);
-  if(!isTopAdmin2(auth))return json({success:false,message:'Esta revisión global corresponde a superadministración'},403);
-  const defs={ANUNCIANTE:'anunciantes',PUBLICIDAD:'publicidades',PROMO:'promos',EMPLEO:'empleos'},read=db.panelReadDb?db.panelReadDb():db;
-  if(request.method==='GET'){const groups=await Promise.all(Object.entries(defs).map(async([tipo,c])=>(await read.queryEqual(c,'estado_moderacion','PENDIENTE',500)).filter(r=>!rejectedActivity(r)).map(r=>({...r,tipo,id:tipo==='EMPLEO'?r.empleo_id:r.id||r.publicidad_id}))));return json({success:true,results:groups.flat()});}
-  const body=await request.json(),c=defs[body.tipo];if(!c||!body.id||!['APROBAR','RECHAZAR'].includes(body.decision))publicationErrorV77('Decisión inválida.');
-  const empVersion109=c==='empleos'?await db.getVersioned('empleos',empRecord109(body.id)):null;
-  const current=empVersion109?empVersion109.doc:await read.get(c,body.id);if(!current||c==='empleos'&&current.empleo_id!==body.id||current.estado_moderacion!=='PENDIENTE')return json({success:false,message:'No hay una revisión pendiente'},409);
-  const patch={estado_moderacion:body.decision==='APROBAR'?'APROBADO':'RECHAZADO',moderado_por:auth.sid,moderado_en:new Date().toISOString()};if(c==='publicidades'||c==='promos'||c==='empleos')patch.aprobado=body.decision==='APROBAR';
-  const saved=empVersion109?(await db.commitPatches([{collection:c,id:empRecord109(body.id),before:current,patch,options:{updateTime:empVersion109.updateTime}}]))[0]:await db.patch(c,body.id,patch,{mustExist:true});await syncPublicationReviewV77({db,cache,collection:c,id:body.id,current,next:saved});return json({success:true,item:saved});
+  const top=isTopAdmin2(auth),read=db.panelReadDb?db.panelReadDb():db;
+  if(!top&&auth.rol!=='ADMIN_LOCAL')return json({success:false,message:'Acceso no autorizado'},403);
+  const defs={ANUNCIANTE:'anunciantes',PUBLICIDAD:'publicidades',PROMO:'promos',EMPLEO:'empleos'};
+  if(request.method==='GET'){
+   const eligible=Object.entries(defs).filter(([tipo])=>top||gldReviewAllowed189(auth,GLD_REVIEW_KIND189[tipo]));
+   const groups=await Promise.all(eligible.map(async([tipo,c])=>
+    (await read.queryEqual(c,'estado_moderacion','PENDIENTE',500))
+     .filter(r=>!rejectedActivity(r)&& (top||String(r.revision_adulto||'')!=='PENDIENTE'))
+     .filter(r=>top||gldReviewVisible189(auth,GLD_REVIEW_KIND189[tipo],r))
+     .map(r=>({...r,tipo,id:tipo==='EMPLEO'?r.empleo_id:r.id||r.publicidad_id}))));
+   return json({success:true,results:groups.flat()});
+  }
+  if(request.method!=='POST')return json({success:false,message:'Método no permitido'},405);
+  const body=await request.json().catch(()=>({})),tipo=String(body.tipo||'').toUpperCase(),decision=String(body.decision||'').toUpperCase();
+  const c=defs[tipo],kind=GLD_REVIEW_KIND189[tipo],id=String(body.id||'').trim();
+  if(!c||!id||!['APROBAR','RECHAZAR'].includes(decision))return json({success:false,message:'Decisión inválida'},400);
+  if(!top&&!gldReviewAllowed189(auth,kind,decision))return json({success:false,message:'Esta revisión no está autorizada para el moderador'},403);
+  const empVersion109=c==='empleos'?await db.getVersioned('empleos',empRecord109(id)):null;
+  const current=empVersion109?empVersion109.doc:await read.get(c,id);
+  if(!current||c==='empleos'&&current.empleo_id!==id||String(current.estado_moderacion||'')!=='PENDIENTE')
+    return json({success:false,message:'No hay una revisión pendiente'},409);
+  if(!top){
+   if(String(current.revision_adulto||'')==='PENDIENTE')
+    return json({success:false,message:'Revisión de contenido +18 reservada a Gran Hermano'},403);
+   await gldReviewAssertTerritory189(auth,kind,current,id,read);
+  }
+  const patch={estado_moderacion:decision==='APROBAR'?'APROBADO':'RECHAZADO',moderado_por:auth.sid,moderado_en:new Date().toISOString()};
+  if(c==='publicidades'||c==='promos'||c==='empleos')patch.aprobado=decision==='APROBAR';
+  const saved=empVersion109?(await db.commitPatches([{collection:c,id:empRecord109(id),before:current,patch,options:{updateTime:empVersion109.updateTime}}]))[0]:await db.patch(c,id,patch,{mustExist:true});
+  await syncPublicationReviewV77({db,cache,collection:c,id,current,next:saved});
+  return json({success:true,item:saved});
  }
  if(path==='/superadmin/publications/recent'){
   const auth=await requireAdmin(env,request);if(!auth)return json({success:false,message:'Sesión administrativa requerida'},401);
