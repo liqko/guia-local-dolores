@@ -82,3 +82,12 @@ test('un origen preparado después del cierre no inventa historia del corte ante
  const ready=await call({op:'city-book-read',to:Math.floor((cutoff+86400000-4*3600000)/86400000)});
  assert.equal(ready.status,200);assert.equal(ready.data.value.rows.length,1);assert.equal(rebuilt,1);
 });
+
+test('los anuncios vencen en la copia local respetando contrato, pieza y contenido vinculado',()=>{
+ const window=worker.publicityWindow191({vigente_hasta:'2000-01-01'},{reglas_version:147,vigente_desde:'2026-11-01',vigente_hasta:'2026-11-30'},'2026-11-12');
+ assert.equal(window.public_until,Date.parse('2026-11-13T02:59:59.999Z'));
+ assert.equal(bookTools.visibleAt(window,{from:'public_from',until:'public_until'},Date.parse('2026-11-13T02:59:59Z')),true);
+ assert.equal(bookTools.visibleAt(window,{from:'public_from',until:'public_until'},Date.parse('2026-11-13T03:00:00Z')),false);
+ assert.equal(bookTools.visibleAt(window,{from:'public_from',until:'public_until'},Date.parse('2026-10-31T20:00:00Z')),false);
+ assert.equal(bookTools.visibleAt({},undefined),true);
+});

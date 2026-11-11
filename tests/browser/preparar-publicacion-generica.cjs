@@ -17,9 +17,9 @@ module.exports=async function prepare(stage,fromLive,city){
  while(true){const j=await api('/empleo/publicas?ciudad_id='+qs+'&pagina='+page++);jobs.push(...j.rows);if(jobs.length>=j.total)break;if(page>1000||!j.rows.length)throw Error('Paginación de ensayo incompleta');}
  const schema={...(old.schema||legacySchema()),
   ephemerides:{field:'efemerides',id:'efemeride_id',metadata:[]},
-  employment:{field:'rows',id:'empleo_id',metadata:['ciudad_id','areas']},
-  ads_eventos:{field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'EVENTOS'},
-  ads_actividades:{field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'ACTIVIDADES'}
+  employment:{field:'rows',id:'empleo_id',metadata:['ciudad_id','areas'],window:{until:'hasta'}},
+  ads_eventos:{field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'EVENTOS',window:{from:'public_from',until:'public_until'}},
+  ads_actividades:{field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'ACTIVIDADES',window:{from:'public_from',until:'public_until'}}
  };
  const additions={ephemerides:{success:true,efemerides:calendar.efemerides},employment:{success:true,rows:jobs,ciudad_id:city,areas:catalog.areas},ads_eventos:{success:true,publicidades:adsEvents.publicidades},ads_actividades:{success:true,publicidades:adsActivities.publicidades}};
  const changes=Object.fromEntries(Object.entries(additions).map(([name,module])=>{const {[schema[name].field]:rows,success,...metadata}=module;return [name,{upsert:rows,remove:[],metadata}];}));
