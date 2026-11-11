@@ -141,6 +141,18 @@ async function fromLive(p){
    report.historical={clock:historical.fecha_desde,events:await dp.evaluate(()=>eventosData.length),reason:'Validar tarjetas reales vencidas sin crear ni alterar registros'};
    assert(report.historical.events>0,'Las fichas reales se presentan en su fecha vigente');
    await dp.locator('#events').getByText(historical.nombre_evento,{exact:true}).first().waitFor({timeout:5000});
+   const readsBefore=eventReads;
+   await dp.locator('#search').fill(historical.nombre_evento);
+   assert((await dp.evaluate(()=>eventosFiltrados.length))>0,'Búsqueda de la ficha real');
+   await dp.locator('#search').fill('');
+   const categories=await dp.locator('#categoryFilter option').evaluateAll(opts=>opts.map(o=>o.value).filter(Boolean));
+   if(categories.length){
+    await dp.locator('#categoryFilter').selectOption(categories[0]);
+    assert((await dp.evaluate(()=>eventosFiltrados.length))>0,'Categoría de fichas reales');
+    await dp.locator('#categoryFilter').selectOption('');
+   }
+   assert.equal(eventReads,readsBefore,'Búsqueda y categoría no consultan Eventos');
+   report.historical.filtersWithoutEventRequests=true;
   }
   await direct.close();
  }finally{
