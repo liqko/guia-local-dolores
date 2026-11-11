@@ -8694,13 +8694,14 @@ async function gldCerrarContrato185(ctx){
  const purchased={EVENTOS:Number(units.eventos_vip||0),ACTIVIDADES:Number(units.actividades||0),PROMOS:Number(units.promociones||0),PUBLICIDAD:all};
  const before=new Set(Array.isArray(previous.funcionalidades)?previous.funcionalidades:
   String(previous.funcionalidades||'').split(/[;,|\\n]/).map(x=>x.trim()).filter(Boolean));
- const remove=new Set(['EVENTOS','EVENTOS_VIP','ACTIVIDADES','PROMOS','PROMOCIONES','PUBLICIDAD','PUBLI']);
- const enabled=[...before].filter(k=>!remove.has(k.toUpperCase()));
- for(const [key,value] of Object.entries(purchased))if(value>0)enabled.push(key);
+ // Cerrar una nueva venta amplía lo previamente contratado: no revoca otras prestaciones.
+ const enabled=[...before];
+ for(const [key,value] of Object.entries(purchased))if(value>0&&!enabled.includes(key))enabled.push(key);
  const settings=structuredClone(previous.funcionalidades_config||{});
  for(const [key,value] of Object.entries(purchased)){
   const current=settings[key]||{};
-  if(key!=='PUBLICIDAD')settings[key]={...current,cantidad:value};
+  if(value===0)continue;
+  if(key!=='PUBLICIDAD')settings[key]={...current,cantidad:(Number.isSafeInteger(Number(current.cantidad))?Number(current.cantidad):0)+value};
   else if(value>0){
    const selected=new Set(Object.values(quoteBody.cobertura_funcionalidades||{}).flat());
    const catalog=await getPublicidadCatalogs(cache);
@@ -8708,13 +8709,15 @@ async function gldCerrarContrato185(ctx){
    const sections=(catalog.ubicaciones||[]).filter(x=>destinations.has(GLD_AD_RULES147.section(x)));
    if(!sections.some(x=>GLD_AD_RULES147.section(x)==='Guía'))
     return json({success:false,message:'No está configurada la ubicación publicitaria de Guía. No se cerró la venta.'},409);
-   settings[key]={...current,activas_max:value,posiciones:Math.max(value,Number(current.posiciones)||0,1),
-    permite_imagen:Number(formats.publicidad_imagen||0)>0,
-    permite_carrusel:Number(formats.publicidad_carrusel||0)>0,
-    permite_short:Number(formats.publicidad_short||0)>0,
-    ubicaciones_ids:[...new Set(sections.map(x=>String(x.ubicacion_id||x.id)))],
+   const hadPreviousPublicity=before.has('PUBLICIDAD')||before.has('PUBLI');
+   const previousQty=Number.isSafeInteger(Number(current.activas_max))?Number(current.activas_max):0;
+   settings[key]={...current,activas_max:previousQty+value,posiciones:Math.max(1,(Number(current.posiciones)||0)+value),
+    permite_imagen:(hadPreviousPublicity&&current.permite_imagen===true)||Number(formats.publicidad_imagen||0)>0,
+    permite_carrusel:(hadPreviousPublicity&&current.permite_carrusel===true)||Number(formats.publicidad_carrusel||0)>0,
+    permite_short:(hadPreviousPublicity&&current.permite_short===true)||Number(formats.publicidad_short||0)>0,
+    ubicaciones_ids:[...new Set([...(Array.isArray(current.ubicaciones_ids)?current.ubicaciones_ids:[]),...sections.map(x=>String(x.ubicacion_id||x.id))])],
     cobertura_tipo:current.cobertura_tipo||'CIUDADES'};
-  }else settings[key]={...current,activas_max:0,posiciones:0};
+  }
  }
  let comisiones=null;
  if(auth.comercial_exclusivo){
