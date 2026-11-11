@@ -227,7 +227,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   </div>
   <div id="modResultados"></div>
   <div id="ghRolesPersona188" hidden>
-   <h3 id="ghRolesNombre188"></h3>
+   <h3 id="ghRolesNombre188"></h3><div id="ghRolesActuales190" class="muted" role="status"></div>
    <label>Rol a asignar o modificar
     <select id="ghRolesTipo188" onchange="ghRolesSeleccionar188()">
      <option value="MODERADOR">Moderador</option>
@@ -237,6 +237,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
    </label>
    <p class="muted">La persona puede conservar simultáneamente su moderación y su función comercial. Supervisor y Vendedor utilizan un registro comercial independiente.</p>
   </div>
+  <div id="ghRolesEdicionAsignacion190"></div>
  </div>
  <div class="card" id="modEditorCard" hidden><div id="modEditor"></div><div id="modMensaje" role="status"></div></div>
  <div class="card" id="ghComercialRoles186" hidden>
@@ -244,7 +245,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <div id="ghComercialEditor186" hidden>
    <h3 id="ghComercialPersona186"></h3>
    <p id="ghComercialId186" class="muted"></p>
-   <label>Rol comercial<select id="ghComercialRol186" onchange="ghComercialRolCambio188()"><option value="VENDEDOR">Vendedor</option><option value="SUPERVISOR">Supervisor</option></select></label>
+   <label>Rol comercial seleccionado<select id="ghComercialRol186" disabled><option value="VENDEDOR">Vendedor</option><option value="SUPERVISOR">Supervisor</option></select></label>
    <label class="gh-mod-check" style="display:flex;align-items:center;gap:10px"><input type="checkbox" id="ghComercialActivo186"><span>Asignación comercial activa</span></label>
    <fieldset class="item"><legend><strong>Comisiones individuales</strong></legend>
     <label>Comisión por venta (%)<input type="number" min="0" max="100" step="0.01" id="ghComercialComision186"></label>
@@ -264,7 +265,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
    </fieldset>
    <p class="muted">Las comisiones son individuales. Un supervisor tiene vendedores a cargo; un vendedor puede tener un supervisor asignado.</p>
    <div id="ghComercialEquipo186" class="muted"></div>
-   <button type="button" onclick="ghComercialGuardar186()">Guardar rol comercial</button>
+   <button type="button" onclick="ghComercialGuardar186()">Guardar rol comercial</button> <button type="button" class="sec" id="ghComercialEliminar190" onclick="ghRolesEliminarComercial190()" hidden>Eliminar únicamente este rol</button>
    <p id="ghComercialMensaje186" role="status"></p>
   </div>
  </div>
@@ -281,6 +282,17 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
    <button type="button" class="sec" onclick="ghRolesListar188()">Buscar roles</button>
   </div>
   <div id="ghRolesListaResultados188" role="status">Seleccioná los filtros y buscá roles asignados.</div>
+  <div id="ghRolesEdicionListado190" hidden>
+   <h3 id="ghRolesTituloListado190"></h3>
+   <div id="ghRolesActualesListado190" class="muted" role="status"></div>
+   <label>Rol que querés administrar
+    <select id="ghRolesTipoListado190" onchange="ghRolesSeleccionarListado190()">
+     <option value="MODERADOR">Moderador</option>
+     <option value="SUPERVISOR">Supervisor</option>
+     <option value="VENDEDOR">Vendedor</option>
+    </select>
+   </label>
+  </div>
  </div>
 </section>
         <section id="view-ventas" class="view" data-loaded="0">
@@ -570,18 +582,52 @@ async function ghRolesBuscar188(){
  }catch(e){box.textContent=String(e.message||e);}
  informarAltura();
 }
+
+let GH_ROLES_FROM_LIST190=false;
+async function ghRolesRenderActual190(row,target){
+ const box=document.getElementById(target),sid=String(row.suscriptor_id||row.id||'');
+ if(!box||!sid)return;
+ box.textContent='Consultando roles asignados…';
+ try{
+  const result=await ghAdminRequest_('/internal-roles/person',{suscriptor_id:sid});
+  if(String(GH_ROLES_PERSONA188?.suscriptor_id||GH_ROLES_PERSONA188?.id||'')!==sid)return;
+  box.textContent=(result.roles||[]).length
+   ?'Roles actuales: '+result.roles.map(r=>r.rol+' ('+(r.activo?'activo':'pausado')+')').join(' · ')
+   :'Este suscriptor no tiene roles internos asignados.';
+  if(!result.suscriptor_activo)box.textContent+=' · Suscripción sin acceso activo.';
+ }catch(e){box.textContent='No se pudieron consultar los roles: '+String(e.message||e);}
+}
+function ghRolesSeleccionarListado190(){
+ document.getElementById('ghRolesTipo188').value=document.getElementById('ghRolesTipoListado190').value;
+ ghRolesSeleccionar188();
+}
+function ghRolesAbrirListado190(row,role){
+ GH_ROLES_FROM_LIST190=true;GH_ROLES_PERSONA188=row;
+ document.getElementById('ghRolesPersona188').hidden=true;
+ document.getElementById('ghRolesEdicionListado190').hidden=false;
+ document.getElementById('ghRolesTituloListado190').textContent='Administrar roles de '+(row.nombre||row.suscriptor_id)+(row.mail?' · '+row.mail:'');
+ document.getElementById('ghRolesTipoListado190').value=role;
+ document.getElementById('ghRolesTipo188').value=role;
+ ghRolesRenderActual190(row,'ghRolesActualesListado190');
+ ghRolesSeleccionar188();
+}
 function ghRolesPersona188(row){
- GH_ROLES_PERSONA188=row;
+ GH_ROLES_FROM_LIST190=false;GH_ROLES_PERSONA188=row;
  document.getElementById('ghRolesPersona188').hidden=false;
+ document.getElementById('ghRolesEdicionListado190').hidden=true;
  document.getElementById('ghRolesNombre188').textContent=(row.nombre||row.suscriptor_id||row.id)+' · '+(row.mail||'');
  document.getElementById('ghRolesTipo188').value='MODERADOR';
+ ghRolesRenderActual190(row,'ghRolesActuales190');
  ghRolesSeleccionar188();
 }
 function ghRolesSeleccionar188(){
  const row=GH_ROLES_PERSONA188;if(!row)return;
  const role=document.getElementById('ghRolesTipo188').value;
- document.getElementById('modEditorCard').hidden=role!=='MODERADOR';
- document.getElementById('ghComercialRoles186').hidden=role==='MODERADOR';
+ const host=document.getElementById(GH_ROLES_FROM_LIST190?'ghRolesEdicionListado190':'ghRolesEdicionAsignacion190');
+ const mod=document.getElementById('modEditorCard'),com=document.getElementById('ghComercialRoles186');
+ host.append(mod,com);
+ mod.hidden=role!=='MODERADOR';com.hidden=role==='MODERADOR';
+ if(GH_ROLES_FROM_LIST190)document.getElementById('ghRolesTipoListado190').value=role;
  if(role==='MODERADOR')ghEditarModerador(row);
  else{
   document.getElementById('ghComercialTitulo188').textContent='Asignación · '+(role==='SUPERVISOR'?'Supervisor':'Vendedor');
@@ -672,19 +718,31 @@ function ghRolesFiltrar188(){
  const role=document.getElementById('ghRolesListaRol188').value,st=document.getElementById('ghRolesListaEstado188').value;
  const country=document.getElementById('ghRolesListaPais188').value,province=document.getElementById('ghRolesListaProvincia188').value,city=document.getElementById('ghRolesListaCiudad188').value;
  const catalog=GH_ROLES_GEO188?.cities||[];
- const rows=GH_ROLES_LIST188.filter(r=>(!q||(r.nombre+' '+r.mail+' '+r.suscriptor_id).toLowerCase().includes(q))&&
-   (!role||r.rol===role)&&(!st||(r.activo?'ACTIVO':'PAUSADO')===st)&&
-   (!(country||province||city)||catalog.some(x=>(r.ciudades||[]).includes(x.id)&&(!country||x.country===country)&&(!province||x.province===province)&&(!city||x.id===city))));
+ const rows=GH_ROLES_LIST188.filter(r=>(!q||((r.nombre||'')+' '+(r.mail||'')+' '+(r.suscriptor_id||'')).toLowerCase().includes(q))&&
+  (!role||r.rol===role)&&(!st||(r.activo?'ACTIVO':'PAUSADO')===st)&&
+  (!(country||province||city)||catalog.some(x=>(r.ciudades||[]).includes(x.id)&&(!country||x.country===country)&&(!province||x.province===province)&&(!city||x.id===city))));
  host.replaceChildren();
- const count=document.createElement('p');count.textContent=rows.length+' asignación(es) encontrada(s).';host.append(count);
+ const groups=new Map();
  for(const r of rows){
-  const btn=document.createElement('button');btn.className='sec';btn.type='button';btn.style.cssText='display:block;width:100%;text-align:left;margin:6px 0';
-  btn.textContent=(r.nombre||r.suscriptor_id)+' · '+r.rol+' · '+(r.activo?'Activo':'Pausado')+(r.mail?' · '+r.mail:'');
-  btn.onclick=()=>{GH_ROLES_PERSONA188={suscriptor_id:r.suscriptor_id,nombre:r.nombre,mail:r.mail};
-   document.getElementById('ghRolesPersona188').hidden=false;
-   document.getElementById('ghRolesNombre188').textContent=(r.nombre||r.suscriptor_id)+' · '+(r.mail||'');
-   document.getElementById('ghRolesTipo188').value=r.rol;ghRolesSeleccionar188();};
-  host.append(btn);
+  if(!groups.has(r.suscriptor_id))groups.set(r.suscriptor_id,{person:r,matches:[]});
+  groups.get(r.suscriptor_id).matches.push(r);
+ }
+ const count=document.createElement('p');count.textContent=groups.size+' persona(s), '+rows.length+' rol(es) encontrado(s).';host.append(count);
+ for(const {person,matches} of groups.values()){
+  const article=document.createElement('div');article.className='item';
+  const name=document.createElement('strong');name.textContent=(person.nombre||person.suscriptor_id)+(person.mail?' · '+person.mail:'');article.append(name);
+  const all=GH_ROLES_LIST188.filter(x=>x.suscriptor_id===person.suscriptor_id);
+  const summary=document.createElement('p');summary.className='muted';
+  summary.textContent='Roles asignados: '+all.map(x=>x.rol+' ('+(x.activo?'activo':'pausado')+')').join(' · ');
+  article.append(summary);
+  if(person.suscriptor_activo===false){const inactive=document.createElement('p');inactive.className='muted';inactive.textContent='Cuenta de suscriptor sin acceso activo.';article.append(inactive);}
+  for(const r of matches){
+   const btn=document.createElement('button');btn.type='button';btn.className='sec';btn.style.margin='4px';
+   btn.textContent='Administrar '+r.rol+' · '+(r.activo?'Activo':'Pausado');
+   btn.onclick=()=>ghRolesAbrirListado190({suscriptor_id:r.suscriptor_id,nombre:r.nombre,mail:r.mail},r.rol);
+   article.append(btn);
+  }
+  host.append(article);
  }
  informarAltura();
 }
@@ -718,7 +776,8 @@ async function ghEditarModerador(row){
   for(const city of cities){const country=city._country||'SIN_PAIS',province=city._province||'SIN_PROVINCIA';if(!countries.has(country))countries.set(country,new Map());const provinces=countries.get(country);if(!provinces.has(province))provinces.set(province,[]);provinces.get(province).push(city);}
   const cityInput=c=>'<label class="gh-mod-check"><input type="checkbox" data-mod-city="'+esc(c._id)+'" '+(assigned.has(c._id)?'checked':'')+'><span>'+esc(c.ciudad_visible||c.nombre||c.ciudad||c._id)+'</span></label>';
   const options=[...countries].sort((a,b)=>(countryNames.get(a[0])||a[0]).localeCompare(countryNames.get(b[0])||b[0],'es')).map(([country,provinces])=>'<details class="gh-mod-group"><summary>'+esc(countryNames.get(country)||country)+'</summary><div class="gh-mod-choices"><label class="gh-mod-check"><input type="checkbox" data-mod-group="country" data-country="'+esc(country)+'"><span>Seleccionar todas las ciudades de este país</span></label>'+[...provinces].sort((a,b)=>(provinceNames.get(a[0])||a[0]).localeCompare(provinceNames.get(b[0])||b[0],'es')).map(([province,items])=>'<details class="gh-mod-group"><summary>'+esc(provinceNames.get(province)||province)+'</summary><div class="gh-mod-choices"><label class="gh-mod-check"><input type="checkbox" data-mod-group="province" data-country="'+esc(country)+'" data-province="'+esc(province)+'"><span>Seleccionar todas las ciudades de esta provincia</span></label>'+items.sort((a,b)=>String(a.ciudad_visible||a.nombre||a._id).localeCompare(String(b.ciudad_visible||b.nombre||b._id),'es')).map(cityInput).join('')+'</div></details>').join('')+'</div></details>').join('');
-  box.innerHTML='<h2>Editar permisos: '+esc(row.nombre||GH_MOD_SELECTED)+'</h2><p>'+esc(row.mail||'')+'</p><p role="status"><strong>Estado actual:</strong> '+(m?.activo===true?'Habilitado':'Pausado (sin acceso a la moderación)')+'</p><label class="gh-mod-check"><input type="checkbox" id="modActivo" '+(m?.activo===true?'checked':'')+'><span>Habilitar moderador (destildar para pausar)</span></label><p class="muted">El estado cambia al pulsar «Guardar permisos». Si está pausado, tildá esta opción para volver a habilitarlo.</p><h3>Ciudades asignadas</h3><div class="gh-mod-toolbar"><label class="gh-mod-check"><input type="checkbox" id="modTodasCiudades"><span>Seleccionar todas las ciudades</span></label><button type="button" class="sec" id="modQuitarTodas">Quitar todas</button><span class="gh-mod-count" id="modCantidad"></span></div><div id="modCiudades">'+options+'</div><h3>Permisos de moderación</h3><p class="muted">Elegí qué puede revisar este moderador en las ciudades asignadas. Publicidad y Promociones permiten resolver publicaciones pendientes. Las modificaciones de anunciantes corresponden únicamente a cambios que ingresen a revisión. Contenidos +18, Empleo y cambios administrativos de la ficha siguen reservados a Gran Hermano.</p>'+[['EVENTO','Eventos Free y VIP'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Altas y reclamos de anunciantes'],['ANUNCIANTE_MODIFICACION','Revisiones pendientes de modificaciones del anunciante'],['PUBLICIDAD','Publicidad pendiente de revisión'],['PROMO','Promociones pendientes de revisión']].map(([k,label])=>'<label class="gh-mod-check"><input type="checkbox" data-mod-perm="'+k+'" '+(perms[k]===true?'checked':'')+'><span>'+label+'</span></label>').join('')+'<p>Los cambios de permisos o la deshabilitación invalidan la sesión anterior.</p><button type="button" id="modGuardar" onclick="ghGuardarModerador()">Guardar permisos de moderación</button>';
+  box.innerHTML='<h2>Editar permisos: '+esc(row.nombre||GH_MOD_SELECTED)+'</h2><p>'+esc(row.mail||'')+'</p><p role="status"><strong>Estado actual:</strong> '+(m?.activo===true?'Habilitado':'Pausado (sin acceso a la moderación)')+'</p><label class="gh-mod-check"><input type="checkbox" id="modActivo" '+(m?.activo===true?'checked':'')+'><span>Habilitar moderador (destildar para pausar)</span></label><p class="muted">El estado cambia al pulsar «Guardar permisos». Si está pausado, tildá esta opción para volver a habilitarlo.</p><h3>Ciudades asignadas</h3><div class="gh-mod-toolbar"><label class="gh-mod-check"><input type="checkbox" id="modTodasCiudades"><span>Seleccionar todas las ciudades</span></label><button type="button" class="sec" id="modQuitarTodas">Quitar todas</button><span class="gh-mod-count" id="modCantidad"></span></div><div id="modCiudades">'+options+'</div><h3>Permisos de moderación</h3><p class="muted">Elegí qué puede revisar este moderador en las ciudades asignadas. Publicidad y Promociones permiten resolver publicaciones pendientes. Las modificaciones de anunciantes corresponden únicamente a cambios que ingresen a revisión. Contenidos +18, Empleo y cambios administrativos de la ficha siguen reservados a Gran Hermano.</p>'+[['EVENTO','Eventos Free y VIP'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Altas y reclamos de anunciantes'],['ANUNCIANTE_MODIFICACION','Revisiones pendientes de modificaciones del anunciante'],['PUBLICIDAD','Publicidad pendiente de revisión'],['PROMO','Promociones pendientes de revisión']].map(([k,label])=>'<label class="gh-mod-check"><input type="checkbox" data-mod-perm="'+k+'" '+(perms[k]===true?'checked':'')+'><span>'+label+'</span></label>').join('')+'<p>Los cambios de permisos o la deshabilitación invalidan la sesión anterior.</p><button type="button" id="modGuardar" onclick="ghGuardarModerador()">Guardar permisos de moderación</button><button type="button" class="sec" id="modEliminar190" onclick="ghRolesEliminarModerador190()" hidden>Eliminar únicamente el rol de Moderador</button>';
+  const removeRole=box.querySelector('#modEliminar190');if(removeRole)removeRole.hidden=!(m?.rol==='ADMIN_LOCAL');
   const cityChecks=[...box.querySelectorAll('[data-mod-city]')];
   const matching=(input)=>cityChecks.filter(el=>{const city=cities.find(c=>c._id===el.dataset.modCity);return city&&(input.dataset.country===undefined||(city._country||'SIN_PAIS')===input.dataset.country)&&(input.dataset.province===undefined||(city._province||'SIN_PROVINCIA')===input.dataset.province);});
   const refresh=()=>{for(const input of box.querySelectorAll('[data-mod-group],#modTodasCiudades')){const group=input.id==='modTodasCiudades'?cityChecks:matching(input);const n=group.filter(x=>x.checked).length;input.checked=group.length>0&&n===group.length;input.indeterminate=n>0&&n<group.length;}box.querySelector('#modCantidad').textContent=cityChecks.filter(x=>x.checked).length+' de '+cityChecks.length+' ciudades seleccionadas';};
@@ -731,7 +790,10 @@ async function ghEditarModerador(row){
 async function ghGuardarModerador(){
  const button=document.getElementById('modGuardar'),msg=document.getElementById('modMensaje');button.disabled=true;msg.textContent='Guardando...';
  try{const ciudades=[...document.querySelectorAll('[data-mod-city]:checked')].map(c=>c.dataset.modCity),moderacion=Object.fromEntries([...document.querySelectorAll('[data-mod-perm]')].map(c=>[c.dataset.modPerm,c.checked]));
- const result=await ghAdminRequest_('/moderators',{suscriptor_id:GH_MOD_SELECTED,activo:document.getElementById('modActivo').checked,ciudades,permisos:{moderacion}},'POST');msg.textContent=(result.message||'Permisos guardados.')+' Estado: '+(result.moderador?.activo===true?'habilitado':'pausado')+'.';const st=document.querySelector('#modEditor [role=status]');if(st)st.innerHTML='<strong>Estado actual:</strong> '+(result.moderador?.activo===true?'Habilitado':'Pausado (sin acceso a la moderación)');
+ const result=await ghAdminRequest_('/moderators',{suscriptor_id:GH_MOD_SELECTED,activo:document.getElementById('modActivo').checked,ciudades,permisos:{moderacion}},'POST');msg.textContent=(result.message||'Permisos guardados.')+' Estado: '+(result.moderador?.activo===true?'habilitado':'pausado')+'.';
+  if(GH_ROLES_LIST188)ghRolesListar188();
+  ghRolesRenderActual190({suscriptor_id:GH_MOD_SELECTED},GH_ROLES_FROM_LIST190?'ghRolesActualesListado190':'ghRolesActuales190');
+  const remove=document.getElementById('modEliminar190');if(remove)remove.hidden=false;const st=document.querySelector('#modEditor [role=status]');if(st)st.innerHTML='<strong>Estado actual:</strong> '+(result.moderador?.activo===true?'Habilitado':'Pausado (sin acceso a la moderación)');
  }catch(e){msg.textContent=e.message;}finally{button.disabled=false;informarAltura();}
 }
 
@@ -3153,32 +3215,36 @@ async function ghComercialBuscar186(){
  informarAltura();
 }
 async function ghComercialEditar186(row,selectedRole=null){
- const sid=String(row.suscriptor_id||row.id||'');
+ const sid=String(row.suscriptor_id||row.id||''),role=selectedRole||document.getElementById('ghRolesTipo188').value;
  GH_COMERCIAL_PERSONA186={id:sid,nombre:row.nombre||sid};
- const box=document.getElementById('ghComercialEditor186');
- box.hidden=false;document.getElementById('ghComercialPersona186').textContent=GH_COMERCIAL_PERSONA186.nombre;
+ const box=document.getElementById('ghComercialEditor186');box.hidden=false;
+ document.getElementById('ghComercialPersona186').textContent=GH_COMERCIAL_PERSONA186.nombre;
  document.getElementById('ghComercialId186').textContent='Suscriptor: '+sid;
- document.getElementById('ghComercialMensaje186').textContent='Cargando asignación comercial…';
+ document.getElementById('ghComercialRol186').value=role;
+ document.getElementById('ghComercialMensaje186').textContent='Consultando '+role+'…';
  try{
-  const result=await ghAdminRequest_('/commercial/personnel',{suscriptor_id:sid});
+  const result=await ghAdminRequest_('/commercial/personnel',{suscriptor_id:sid,rol:role});
+  if(GH_COMERCIAL_PERSONA186.id!==sid||document.getElementById('ghRolesTipo188').value!==role)return;
   const p=result.personal||{};
   GH_COMERCIAL_CIUDADES188=Array.isArray(p.ciudades)?p.ciudades:[];
   await ghRolesGeoCargar188();ghComercialGeoInicializar188();
-  document.getElementById('ghComercialRol186').value=selectedRole|| (p.rol==='SUPERVISOR'?'SUPERVISOR':'VENDEDOR');ghComercialRolCambio188();
+  ghComercialRolCambio188();
   document.getElementById('ghComercialActivo186').checked=p.activo===true;
   document.getElementById('ghComercialComision186').value=p.comision_porcentaje??0;
   document.getElementById('ghComercialSupervision186').value=p.comision_supervision_porcentaje??0;
   document.getElementById('ghComercialSupervisor186').value=p.supervisor_id||'';
-  const equipo=document.getElementById('ghComercialEquipo186');
-  equipo.replaceChildren();
-  if(p.rol==='SUPERVISOR'){
-   const head=document.createElement('strong');head.textContent='Vendedores a cargo';equipo.append(head);
-   const sellers=result.team||[];
-   const lines=document.createElement('p');lines.textContent=sellers.length?sellers.map(x=>x.suscriptor_id+(x.activo?' · Activo':' · Inactivo')).join(' · '):'Sin vendedores asignados.';
-   equipo.append(lines);
+  document.getElementById('ghComercialEliminar190').hidden=!result.personal;
+  const team=document.getElementById('ghComercialEquipo186');team.replaceChildren();
+  if(role==='SUPERVISOR'){
+   const heading=document.createElement('strong');heading.textContent='Vendedores a cargo';team.append(heading);
+   const sellers=result.team||[],paragraph=document.createElement('p');
+   paragraph.textContent=sellers.length?sellers.map(x=>x.suscriptor_id+(x.activo?' · Activo':' · Pausado')).join(' · '):'Sin vendedores asignados.';
+   team.append(paragraph);
   }
-  document.getElementById('ghComercialMensaje186').textContent='Asignación cargada. El rol de moderador, si existe, permanece independiente.';ghComercialRolCambio188();
- }catch(e){document.getElementById('ghComercialMensaje186').textContent='No se pudo leer el rol: '+String(e.message||e);}
+  document.getElementById('ghComercialMensaje186').textContent=!result.suscriptor_activo
+   ?'La cuenta de suscriptor no tiene acceso activo. No se puede activar este rol.'
+   :result.personal?'Editando '+role+' sin afectar los otros roles.':'Todavía no tiene asignado '+role+'. Podés configurarlo y guardarlo.';
+ }catch(e){document.getElementById('ghComercialMensaje186').textContent='No se pudo consultar el rol: '+String(e.message||e);}
  informarAltura();
 }
 async function ghComercialGuardar186(){
@@ -3193,10 +3259,39 @@ async function ghComercialGuardar186(){
  try{
   await ghAdminRequest_('/commercial/personnel',{suscriptor_id:p.id,rol:role,activo:document.getElementById('ghComercialActivo186').checked,
    comision_porcentaje:n,comision_supervision_porcentaje:role==='SUPERVISOR'?k:0,supervisor_id:role==='VENDEDOR'?supervisor:'',ciudades:GH_COMERCIAL_CIUDADES188},'POST');
-  msg.textContent='Rol comercial guardado. El usuario podrá ingresar al panel comercial si su acceso está activo.';GH_ROLES_LIST188=null;
+  msg.textContent='Rol '+role+' guardado sin modificar los otros roles.';
+  if(GH_ROLES_LIST188)ghRolesListar188();
+  ghRolesRenderActual190({suscriptor_id:p.id},GH_ROLES_FROM_LIST190?'ghRolesActualesListado190':'ghRolesActuales190');
+  document.getElementById('ghComercialEliminar190').hidden=false;
  }catch(e){msg.textContent='No se guardó: '+String(e.message||e);}
 }
 
+async function ghRolesEliminarComercial190(){
+ const person=GH_COMERCIAL_PERSONA186,role=document.getElementById('ghComercialRol186').value;
+ if(!person||!confirm('¿Eliminar únicamente el rol '+role+' de '+person.nombre+'? Se conservarán el suscriptor y los otros roles.'))return;
+ const msg=document.getElementById('ghComercialMensaje186');msg.textContent='Eliminando rol '+role+'…';
+ try{
+  await ghAdminRequest_('/commercial/personnel',{suscriptor_id:person.id,rol:role},'DELETE');
+  msg.textContent='Rol '+role+' eliminado. Suscripción y demás roles conservados.';
+  document.getElementById('ghComercialEliminar190').hidden=true;
+  document.getElementById('ghComercialActivo186').checked=false;
+  if(GH_ROLES_LIST188)ghRolesListar188();
+  ghRolesRenderActual190({suscriptor_id:person.id},GH_ROLES_FROM_LIST190?'ghRolesActualesListado190':'ghRolesActuales190');
+ }catch(e){msg.textContent='No se eliminó el rol: '+String(e.message||e);}
+}
+async function ghRolesEliminarModerador190(){
+ const sid=GH_MOD_SELECTED;
+ if(!sid||!confirm('¿Eliminar únicamente el rol de Moderador? El suscriptor y sus roles comerciales se conservarán.'))return;
+ const msg=document.getElementById('modMensaje');msg.textContent='Eliminando rol de Moderador…';
+ try{
+  await ghAdminRequest_('/moderators',{suscriptor_id:sid},'DELETE');
+  msg.textContent='Rol de Moderador eliminado. El suscriptor y los demás roles permanecen.';
+  const remove=document.getElementById('modEliminar190');if(remove)remove.hidden=true;
+  const active=document.getElementById('modActivo');if(active)active.checked=false;
+  if(GH_ROLES_LIST188)ghRolesListar188();
+  ghRolesRenderActual190({suscriptor_id:sid},GH_ROLES_FROM_LIST190?'ghRolesActualesListado190':'ghRolesActuales190');
+ }catch(e){msg.textContent='No se eliminó el rol: '+String(e.message||e);}
+}
 function ghRolesLabel183(key){return ({
  'Eventos.aprobar':'Aprobar eventos','Eventos.rechazar':'Rechazar eventos',
  'Actividades.aprobar':'Aprobar actividades','Actividades.rechazar':'Rechazar actividades',
