@@ -24,6 +24,7 @@ export async function versionarRecursos(stage){
   let html=await readFile(file,'utf8');
   const scripts=[...html.matchAll(/<script\b[^>]*\bsrc=["'](\/plataforma\/[^"'?]+\.js)(?:\?[^"']*)?["'][^>]*>/gi)];
   for(const [tag,source] of scripts){
+   if(source.startsWith(prefix))continue;
    if(!files.has(source)){
     let script=await readFile(join(stage,source),'utf8');
     for(const [original,replacement] of files)if(!original.endsWith('.js'))script=script.replaceAll(original,replacement);
