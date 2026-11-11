@@ -14,11 +14,12 @@ h2{font-size:21px;margin:0 0 9px}h3{font-size:17px;margin:0 0 9px}p{margin:8px 0
 <label>Correo electrónico<input id="mail" type="email" autocomplete="username"></label><label>Contraseña<input id="pass" type="password" autocomplete="current-password"></label><button id="login">Ingresar</button><div id="authStatus" role="status"></div></section>
 <div id="panel" class="hide">
 <div class="card"><strong id="who"></strong><p class="note">Este panel solo permite consultar precios, presupuestar y cerrar contrataciones. Los permisos de moderación, si los tenés, se usan por separado en Gran Hermano.</p></div>
+<section class="card hide" id="teamCard"><h2>Mi equipo de ventas</h2><p class="note">Vendedores bajo tu supervisión, con su comisión individual acordada.</p><button id="teamRefresh" class="secondary">Actualizar equipo</button><div id="teamResults"></div></section>
 <section class="card"><span class="step">01 · Cliente</span><h2>Presupuesto o contratación</h2>
 <label class="check"><input type="radio" name="mode" value="presupuesto" checked> Preparar presupuesto</label>
 <label class="check"><input type="radio" name="mode" value="contratacion"> Cerrar contratación</label>
 <label>Buscar anunciante registrado<input id="search" placeholder="Nombre, correo o ID"></label><button id="find" class="secondary">Buscar anunciante</button><div id="matches" class="options"></div>
-<label>Nombre del anunciante o interesado<input id="client" placeholder="Nombre"></label><label>WhatsApp (opcional, formato internacional)<input id="phone" type="tel" inputmode="tel" placeholder="5492245..."></label><div id="selected" class="note">Sin anunciante registrado seleccionado. Podés realizar un presupuesto.</div></section>
+<label>Nombre del anunciante o interesado<input id="client" placeholder="Nombre" title="Si cambiás este nombre luego de elegir un anunciante deberás seleccionarlo nuevamente"></label><label>WhatsApp (opcional, formato internacional)<input id="phone" type="tel" inputmode="tel" placeholder="5492245..."></label><div id="selected" class="note">Sin anunciante registrado seleccionado. Podés realizar un presupuesto.</div></section>
 <section class="card"><span class="step">02 · Servicios</span><h2>Elegí el plan y sus prestaciones</h2>
 <label>Nivel<select id="level"><option value="">Cargando niveles…</option></select></label>
 <div id="items"></div><fieldset><legend>Publicidad · formatos</legend><div id="formats"></div></fieldset>
@@ -81,17 +82,27 @@ async function closeDeal(){
  try{const r=await req('/commercial/close',{...selection,anunciante_id:selectedId,operacion_id:operation});status('Contratación '+r.contratacion.operacion_id+' confirmada. Funcionalidades y cupos habilitados en la ficha.');selection=null;operation='';}
  catch(e){status('No se confirmó el cierre: '+e.message);g('close').disabled=false;}
 }
+async function loadTeam(){
+ const host=g('teamResults');host.textContent='Consultando vendedores a cargo…';
+ try{const data=await req('/commercial/team');host.replaceChildren();
+  const rows=data.results||[];if(!rows.length){host.textContent='Todavía no tenés vendedores asignados.';return;}
+  for(const person of rows){const row=document.createElement('div');row.className='item';
+   row.textContent=person.suscriptor_id+' · '+(person.activo?'Activo':'Inactivo')+' · Comisión por venta: '+person.comision_porcentaje+'%';host.append(row);}
+ }catch(e){host.textContent=e.message;}
+}
 async function login(){
  g('login').disabled=true;g('authStatus').textContent='Ingresando…';
  try{const r=await req('/commercial/login',{mail:g('mail').value.trim(),clave:g('pass').value});token=r.token;
   const data=await req('/commercial/catalog');catalog=data;render();g('who').textContent=(r.nombre||'Usuario comercial')+' · '+(r.perfil==='SUPERVISOR'?'Supervisor':'Vendedor');
+  g('teamCard').classList.toggle('hide',r.perfil!=='SUPERVISOR');if(r.perfil==='SUPERVISOR')loadTeam();
   g('auth').classList.add('hide');g('panel').classList.remove('hide');g('logout').classList.remove('hide');g('pass').value='';}
  catch(e){token='';g('authStatus').textContent=e.message;}finally{g('login').disabled=false;}
 }
 g('login').onclick=login;g('logout').onclick=()=>{token='';catalog=null;selection=null;selectedId='';g('panel').classList.add('hide');g('auth').classList.remove('hide');g('logout').classList.add('hide');g('authStatus').textContent='Sesión cerrada.';};
-g('find').onclick=search;g('calc').onclick=calculate;g('close').onclick=closeDeal;
+g('teamRefresh').onclick=loadTeam;g('find').onclick=search;g('calc').onclick=calculate;g('close').onclick=closeDeal;
 g('copy').onclick=()=>{if(quoteText)navigator.clipboard?.writeText(quoteText).catch(()=>window.prompt('Copiar propuesta',quoteText));};
 g('send').onclick=()=>{if(!quoteText)return;const phone=g('phone').value.replace(/\D/g,'');if(phone&&phone.length<8){status('Revisá el número de WhatsApp');return;}window.open('https://wa.me/'+phone+'?text='+encodeURIComponent(quoteText),'_blank','noopener,noreferrer');};
+g('client').addEventListener('input',()=>{if(selectedId){selectedId='';g('selected').textContent='Nombre modificado: volvé a buscar y seleccionar al anunciante antes de cerrar una contratación.';}invalidate();mode();});
 for(const radio of document.querySelectorAll('[name=mode]'))radio.addEventListener('change',mode);
 })();
 </script></body></html>
