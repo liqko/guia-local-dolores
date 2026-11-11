@@ -54,7 +54,7 @@ async function fromLive(p){
    pending.push((async()=>{
     try{
      const r=await request.response();row.status=r.status();row.fromServiceWorker=r.fromServiceWorker();
-     const sizes=await request.sizes();row.bodyBytes=sizes.responseBodySize;row.headerBytes=sizes.responseHeadersSize;
+     const sizes=await request.sizes();row.bodyBytes=sizes.responseBodySize>=0?sizes.responseBodySize:null;row.headerBytes=sizes.responseHeadersSize>=0?sizes.responseHeadersSize:null;
      const h=await r.allHeaders();row.workerVersion=h['x-gld-worker-version']||null;
      row.requestId=h['x-gld-request-id']||null;
      row.consumption=h['x-gld-consumption']?JSON.parse(decodeURIComponent(h['x-gld-consumption'])):null;
@@ -67,8 +67,10 @@ async function fromLive(p){
    await page.waitForTimeout(1800);await Promise.all(pending);
    const worker=rows.filter(r=>new URL(r.url).hostname==='login.liqkoargentina.workers.dev');
    const hosting=rows.filter(r=>new URL(r.url).origin===origin);
-   const step={action,at:new Date().toISOString(),workerRequests:worker.length,workerPaths:worker.map(r=>new URL(r.url).pathname),hostingRequests:hosting.length,hostingBodyBytes:hosting.reduce((n,r)=>n+(r.bodyBytes||0),0),rows,errors:[...errors]};
-   report.steps.push(step);console.log(JSON.stringify({...step,rows:undefined}));rows=[];pending=[];errors=[];
+   const timings=[];
+   for(const frame of page.frames())try{timings.push(...await frame.evaluate(()=>[...performance.getEntriesByType('resource'),...performance.getEntriesByType('navigation')].map(e=>({url:e.name,start:performance.timeOrigin+e.startTime,transfer:e.transferSize,encoded:e.encodedBodySize,decoded:e.decodedBodySize,type:e.entryType}))));}catch{}
+   const step={action,at:new Date().toISOString(),workerRequests:worker.length,workerPaths:worker.map(r=>new URL(r.url).pathname),hostingRequests:hosting.length,hostingBodyBytesObserved:hosting.reduce((n,r)=>n+(r.bodyBytes||0),0),hostingBodyBytesUnknown:hosting.filter(r=>r.bodyBytes==null).length,timings,rows,errors:[...errors]};
+   report.steps.push(step);console.log(JSON.stringify({...step,rows:undefined,timings:undefined}));rows=[];pending=[];errors=[];
    return step;
   }
   async function guideReady(){
@@ -83,7 +85,7 @@ async function fromLive(p){
   await finish('carcasa: primera apertura sin copia');
   await page.reload({waitUntil:'load'});await guideReady();
   const reload=await finish('carcasa: recarga con copia vigente');
-  if(candidate){
+  if(mode!=='baseline'){
    assert(!reload.workerPaths.includes('/'),'Sin consulta de versión al Worker');
    assert(!reload.rows.some(r=>r.url.includes('/paquetes-ciudad/')),'Sin nuevo paquete');
    assert(!reload.rows.some(r=>new URL(r.url).searchParams.has('_v')),'Sin URL aleatoria');
@@ -101,7 +103,7 @@ async function fromLive(p){
   await frame.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'),{timeout:20000});
   const count=await frame.evaluate(()=>eventosData.length);report.eventsShown=count;
   const events=await finish('eventos: abrir documento público en carcasa (sin login sintético)');
-  if(candidate){
+  if(mode!=='baseline'){
    assert(!events.workerPaths.includes('/events-new'),'Eventos usa el libro');
    assert(!events.rows.some(r=>r.url.includes('/paquetes-ciudad/')),'Comparte el libro de Carcasa');
    const ids=new Set(book.modules.events.events.map(e=>String(e.evento_id||e.id)));
@@ -114,15 +116,24 @@ async function fromLive(p){
   await frame.goto(origin+'/plataforma/eventos.html'+query,{waitUntil:'load'});
   await frame.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'));
   const again=await finish('eventos: volver a abrir');
-  if(candidate)assert(!again.workerPaths.includes('/events-new'));
+  if(mode!=='baseline')assert(!again.workerPaths.includes('/events-new'));
   // Apertura directa con almacenamiento vacío, fuera de la carcasa.
   await context.close();
   const direct=await browser.newContext({serviceWorkers:'block'});const dp=await direct.newPage();let eventReads=0,books=0;
   direct.on('request',r=>{const u=new URL(r.url());if(u.pathname==='/events-new')eventReads++;if(u.pathname.includes('/paquetes-ciudad/'))books++;});
   await dp.goto(origin+'/plataforma/eventos.html'+query,{waitUntil:'load'});
   await dp.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'));
-  if(candidate){assert.equal(eventReads,0);assert.equal(books,1);}
+  if(mode!=='baseline'){assert.equal(eventReads,0);assert.equal(books,1);}
   report.direct={eventReads,books,events:await dp.evaluate(()=>eventosData.length)};
+  const historical=book.modules.events.events.find(e=>/^\d{4}-\d{2}-\d{2}$/.test(e.fecha_desde||''));
+  if(historical){
+   await dp.clock.setFixedTime(new Date(historical.fecha_desde+'T15:00:00Z'));
+   await dp.reload({waitUntil:'load'});
+   await dp.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'));
+   report.historical={clock:historical.fecha_desde,events:await dp.evaluate(()=>eventosData.length),reason:'Validar tarjetas reales vencidas sin crear ni alterar registros'};
+   assert(report.historical.events>0,'Las fichas reales se presentan en su fecha vigente');
+   await dp.locator('#events').getByText(historical.nombre_evento,{exact:true}).first().waitFor({timeout:5000});
+  }
   await direct.close();
  }finally{
   await browser.close();server?.close();
