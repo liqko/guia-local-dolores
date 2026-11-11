@@ -1,10 +1,11 @@
 // Navegador aislado, datos públicos reales; no crea cuentas ni modifica fichas.
 const {chromium}=require('playwright');
 const {createServer}=require('node:http');
-const {readFile,writeFile,mkdir}=require('node:fs/promises');
+const {readFile,writeFile,mkdir,mkdtemp,cp,rm}=require('node:fs/promises');
 const {createHash}=require('node:crypto');
 const assert=require('node:assert/strict');
 const path=require('node:path');
+const {tmpdir}=require('node:os');
 const LIVE='https://anunciantes-guialocal.web.app';
 const CITY='DOL (BUE - ARG)';
 const query='?pais_id=ARG&provincia_id=BUE&ciudad_id='+encodeURIComponent(CITY)+'&ciudad=Dolores';
@@ -21,8 +22,13 @@ async function fromLive(p){
  return remote.get(p);
 }
 (async()=>{
- let server,origin=LIVE;
+ let server,stage,origin=LIVE;
  if(candidate){
+  stage=await mkdtemp(path.join(tmpdir(),'gld-assets-'));
+  await cp('plataforma',path.join(stage,'plataforma'),{recursive:true});
+  await writeFile(path.join(stage,'plataforma/territorio-cache.js'),(await fromLive('/plataforma/territorio-cache.js')).body);
+  const {versionarRecursos}=await import('../../scripts/versionar-recursos-publicos.mjs');
+  report.assets=await versionarRecursos(stage);
   // El servidor usa archivos candidatos y la publicación real, sin fichas ficticias.
   server=createServer(async(req,res)=>{
    try{
@@ -32,11 +38,11 @@ async function fromLive(p){
     if(p==='/plataforma/territorio-cache.js'||p.startsWith('/plataforma/paquetes-ciudad/')){
      ({body,type}=await fromLive(p));
     }else{
-     body=await readFile(path.join(process.cwd(),p));
+     body=await readFile(path.join(stage,p));
      type=({'html':'text/html','js':'text/javascript','json':'application/json','css':'text/css'})[p.split('.').at(-1)]||'application/octet-stream';
     }
     const etag='"'+createHash('sha256').update(body).digest('hex')+'"';
-    const headers={'Content-Type':type,'ETag':etag,'Cache-Control':'no-cache, max-age=0, must-revalidate'};
+    const headers={'Content-Type':type,'ETag':etag,'Cache-Control':p.startsWith('/plataforma/assets/app/')?'public, max-age=31536000, immutable':'no-cache, max-age=0, must-revalidate'};
     if(req.headers['if-none-match']===etag){res.writeHead(304,headers);return res.end();}
     res.writeHead(200,headers);res.end(body);
    }catch(error){res.writeHead(404);res.end();}
@@ -89,6 +95,8 @@ async function fromLive(p){
    assert(!reload.workerPaths.includes('/'),'Sin consulta de versión al Worker');
    assert(!reload.rows.some(r=>r.url.includes('/paquetes-ciudad/')),'Sin nuevo paquete');
    assert(!reload.rows.some(r=>new URL(r.url).searchParams.has('_v')),'Sin URL aleatoria');
+   assert(reload.timings.some(r=>r.url.includes('/plataforma/assets/app/')),'Recursos con revisión en URL');
+   assert(reload.timings.filter(r=>r.url.includes('/plataforma/assets/app/')).every(r=>r.transfer===0),'Recursos inmutables reutilizados sin transferencia en la recarga');
   }
   // No se fabrican credenciales. Se comprueba la barrera y después se navega al
   // documento público dentro del marco para comprobar su lectura compartida.
@@ -136,7 +144,7 @@ async function fromLive(p){
   }
   await direct.close();
  }finally{
-  await browser.close();server?.close();
+  await browser.close();server?.close();if(stage)await rm(stage,{recursive:true,force:true});
   report.finished=new Date().toISOString();
   await mkdir('test-results',{recursive:true});
   await writeFile('test-results/carcasa-eventos-'+mode+'.json',JSON.stringify(report,null,2));
