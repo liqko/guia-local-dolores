@@ -10,10 +10,12 @@ import {aplicarCorte} from '../scripts/aplicar-corte-paquetes-ciudad.mjs';
 const workerSource=await readFile(new URL('../worker/worker190_roles_multiples_sobre_189.txt',import.meta.url),'utf8');
 const worker=await import('data:text/javascript;base64,'+Buffer.from(workerSource).toString('base64'));
 const {applyDelta,validBook,legacySchema,client}=bookTools;
+const canonicalEmployment=worker.PUBLIC_FEATURES191.employment.rebuild;
 const oldBook=city=>({city,revision:1,modules:Object.fromEntries(Object.entries(bookTools.lists).map(([name,[field]])=>[name,{success:true,[field]:[]}]))});
 const readAt=root=>async path=>JSON.parse(await readFile(join(root,path),'utf8'));
 async function stage(t){const root=await mkdtemp(join(tmpdir(),'gld-generic-'));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(join(root,'plataforma'));await writeFile(join(root,'plataforma/territorio-cache.js'),'const paquetes=/* GLD_CITY_BOOKS */ {};');return root;}
 function actors(t,raw){
+ worker.PUBLIC_FEATURES191.employment.rebuild=async()=>{};
  const actors=new Map();
  const env={GLD_CITY_BOOK_CAPTURE:'1',GLD_CACHE_KV:{get:async key=>raw.has(key)?JSON.stringify(raw.get(key)):null,put:async(key,value)=>raw.set(key,JSON.parse(value)),list:async({prefix})=>({keys:[...raw.keys()].filter(name=>name.startsWith(prefix)).map(name=>({name})),list_complete:true})}};
  env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){if(!actors.has(name)){
@@ -59,4 +61,24 @@ test('el contrato rechaza claves peligrosas, metadatos no declarados y cambios i
  assert.throws(()=>applyDelta(book,{city:'DOL',from:1,revision:2,changes:{ads:{upsert:[],remove:[],metadata:{privado:'reservado'}}}}),/Metadatos/);
  assert(!validBook({...book,schema:JSON.parse('{"__proto__":{"field":"rows","id":"id","metadata":[]}}')},'DOL'));
  assert.throws(()=>applyDelta(book,{city:'DOL',from:1,revision:2,schema:{...legacySchema(),events:{field:'otra',id:'id',metadata:[]}},changes:{}}),/incompatible/);
+});
+
+test('la migración de Empleo lee la fuente una vez y excluye privados y no aprobados',async()=>{
+ let reads=0;const packets=new Map();
+ const row={empleo_id:'publicado',estado_moderacion:'PUBLICADO',hasta:'2040-01-01',ciudad_ids:['DOL','BAL'],contacto:{email:'publico@example.test'},contacto_privado:{email:'reservado'},suscriptor_id:'reservado'};
+ await canonicalEmployment({db:{listCollection:async c=>{assert.equal(c,'empleos');reads++;return [row,{...row,empleo_id:'pendiente',estado_moderacion:'PENDIENTE'}];}},cache:{put:async(k,v)=>packets.set(k,v)}});
+ assert.equal(reads,1);assert.equal(packets.size,2);assert.equal(packets.get('employment:city:v1:DOL').rows.length,1);assert(!JSON.stringify([...packets]).includes('reservado'));
+});
+test('un origen preparado después del cierre no inventa historia del corte anterior',async t=>{
+ const cutoff=Date.parse('2026-11-12T04:00:00Z');let now=cutoff+1000;t.mock.method(Date,'now',()=>now);
+ const raw=new Map(),{env}=actors(t,raw),record='EMP-'+('a'.repeat(32)),id=record+'__11111111-1111-1111-1111-111111111111';let rebuilt=0;
+ worker.PUBLIC_FEATURES191.employment.rebuild=async({cache,env})=>{rebuilt++;env.__gldRequestReport119.source_versions119={['empleos/'+record]:'2026-11-10T00:00:00.000000000Z'};await cache.put('employment:city:v1:DOL',{version:1,ciudad_id:'DOL',rows:[{empleo_id:id,estado_moderacion:'PUBLICADO',hasta:'2040-01-01',ciudad_ids:['DOL']}]});};
+ const actor=env.GLD_PUBLIC_CACHE.get('public-city-v119:employment:city:v1:DOL');
+ const call=async body=>{const r=await actor.fetch(new Request('https://test.invalid',{method:'POST',body:JSON.stringify({key:'employment:city:v1:DOL',...body})}));return {status:r.status,data:await r.json()};};
+ assert.equal((await call({op:'get'})).status,200);
+ const early=await call({op:'city-book-read',to:Math.floor((cutoff-4*3600000)/86400000)});
+ assert.equal(early.status,503);assert.match(early.data.error,/corte posterior/);
+ now=cutoff+86400000+1000;
+ const ready=await call({op:'city-book-read',to:Math.floor((cutoff+86400000-4*3600000)/86400000)});
+ assert.equal(ready.status,200);assert.equal(ready.data.value.rows.length,1);assert.equal(rebuilt,1);
 });

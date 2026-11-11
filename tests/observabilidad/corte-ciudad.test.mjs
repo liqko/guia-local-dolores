@@ -10,7 +10,9 @@ import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
 const source = await readFile(new URL(process.env.GLD_WORKER||'../../worker/worker187_corregir_parametro_jsdoc_sobre_186.txt', import.meta.url), 'utf8');
-const { GldPublicCache119 } = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const candidateWorker = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
+const {GldPublicCache119}=candidateWorker;
+if(candidateWorker.PUBLIC_FEATURES191)candidateWorker.PUBLIC_FEATURES191.employment.rebuild=async()=>{};
 const { lists } = bookTools;
 const key = 'guide:city:v1:DOLORES';
 
