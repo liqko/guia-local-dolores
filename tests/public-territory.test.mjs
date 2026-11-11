@@ -43,8 +43,9 @@ test('el catálogo publicado actualiza solo cuando cambia la revisión',async()=
   const same=await preparePublicTerritory({file,scheduled:true,read:async url=>
    url.endsWith('.js')?new Response(initial):Response.json({...packet,updated_at:'nuevo-sello'})});
   assert.deepEqual(same,{changed:false,revision:first.revision});
-  assert.equal(await readFile(file,'utf8'),template);
+  assert.equal(await readFile(file,'utf8'),initial);
 
+  await writeFile(file,template);
   const changed={...packet,ciudades:[...packet.ciudades,{ciudad_id:'TAN',ciudad_visible:'Tandil'}]};
   await preparePublicTerritory({file,scheduled:true,read:async url=>
    url.endsWith('.js')?new Response(initial):Response.json(changed)});
