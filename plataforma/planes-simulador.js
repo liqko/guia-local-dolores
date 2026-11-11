@@ -13,6 +13,27 @@ const publicityFormats=[['publicidad_imagen','Imagen individual','En carrusel co
 const ids={eventos_vip:'EVENTOS',actividades:'ACTIVIDADES',promociones:'PROMOS'};
 const ars=v=>new Intl.NumberFormat('es-AR',{style:'currency',currency:'ARS',maximumFractionDigits:0}).format(v);
 let packet=null;
+const functionalityIds={eventos_vip:'EVENTOS',actividades:'ACTIVIDADES',promociones:'PROMOS',publicidad_imagen:'PUBLICIDAD',publicidad_carrusel:'PUBLICIDAD',publicidad_short:'PUBLICIDAD'};
+function allowedLevels(id){
+ const cfg=packet?.funcionalidades_parametros?.[id]||{};
+ if(cfg.activo===false)return [];
+ return Array.isArray(cfg.niveles_habilitados)?cfg.niveles_habilitados.map(Number).filter(n=>Number.isInteger(n)&&n>=1&&n<=6):(id==='EVENTOS_FREE'?[1,2,3,4,5,6]:[5,6]);
+}
+function availabilityText(id){const levels=allowedLevels(id);return levels.length?'Habilitado para niveles '+levels.join(', '):'No habilitado';}
+function updateAvailability(){
+ const n=Number(select.value||0);
+ additional.querySelectorAll('[data-sim-key]').forEach(input=>{
+  const id=functionalityIds[input.dataset.simKey];
+  const permitted=!!n&&allowedLevels(id).includes(n);
+  input.disabled=!permitted;
+  if(!permitted)input.value='0';
+  const note=input.closest('label')?.querySelector('[data-sim-availability]');
+  if(note)note.textContent=availabilityText(id)+(n&&!permitted?' · No disponible para el nivel elegido':'');
+ });
+ const pubAllowed=!!n&&allowedLevels('PUBLICIDAD').includes(n);
+ additional.querySelectorAll('[data-sim-cobertura]').forEach(input=>{input.disabled=!pubAllowed;if(!pubAllowed)input.checked=false;});
+ additional.querySelectorAll('[data-sim-extra]').forEach(input=>{input.disabled=!n;if(!n)input.value='0';});
+}
 const selectable=(p)=>p&&Number.isSafeInteger(p.importe)&&p.importe>=0;
 function cost(p){
  if(!selectable(p))return null;
@@ -45,6 +66,7 @@ function quote(){
   const qty=Number(el?.value||0);
   if(!Number.isSafeInteger(qty)||qty<0||qty>100){missing=true;continue;}
   if(!qty)continue;
+  if(!n||!allowedLevels(functionalityIds[key]).includes(Number(n))){missing=true;continue;}
   const item=packet?.precios_detalle?.funcionalidades?.[key],value=cost(item);
   lines.push(label+' x '+qty);
   details.push(label+' × '+qty+': '+(value===null?'consultar precio':ars(value*qty)));
@@ -53,7 +75,7 @@ function quote(){
  }
  for(const [id,item] of Object.entries(addOns)){
   if(item.modalidad_cobro!=='funcionalidad_destino')continue;
-  const selected=[...additional.querySelectorAll('[data-sim-cobertura="'+id+'"]:checked')].map(el=>el.value);
+  const selected=allowedLevels('PUBLICIDAD').includes(Number(n))?[...additional.querySelectorAll('[data-sim-cobertura="'+id+'"]:checked')].map(el=>el.value):[];
   if(!selected.length)continue;
   const destinations=packet?.cobertura_publicidad_destinos||[];
   const textDest=selected.map(x=>destinations.find(d=>d.id===x)?.nombre||x).join(' y ');
@@ -109,6 +131,7 @@ function render(data){
   const info=document.createElement('span');
   const title=document.createElement('strong');title.textContent=label;info.append(title);
   if(description){const note=document.createElement('small');note.className='muted';note.style.display='block';note.textContent=description;info.append(note);}
+  const availability=document.createElement('small');availability.className='muted';availability.dataset.simAvailability='';availability.style.display='block';availability.textContent=availabilityText(functionalityIds[key]);info.append(availability);
   const input=document.createElement('input');input.type='number';input.min='0';input.max='100';input.step='1';input.value='0';input.dataset.simKey=key;
   input.setAttribute('aria-label','Cantidad de '+label);input.style.cssText='width:85px;padding:9px;border:1px solid #dae3e7;border-radius:8px;flex-shrink:0;';
   holder.append(info,input);parent.append(holder);
@@ -157,11 +180,12 @@ function render(data){
  if(!packet?.precios_detalle){
   const alert=document.createElement('p');alert.className='muted';alert.textContent='Aún no están disponibles los importes públicos para estimar el costo completo.';additional.append(alert);
  }
+ updateAvailability();
  quote();
 }
-select.addEventListener('change',quote);
+select.addEventListener('change',()=>{updateAvailability();quote();});
 additional.addEventListener('input',quote);
-reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key],[data-sim-extra]').forEach(el=>el.value='0');additional.querySelectorAll('[data-sim-cobertura]').forEach(el=>el.checked=false);quote();});
+reset.addEventListener('click',()=>{select.value='';additional.querySelectorAll('[data-sim-key],[data-sim-extra]').forEach(el=>el.value='0');additional.querySelectorAll('[data-sim-cobertura]').forEach(el=>el.checked=false);updateAvailability();quote();});
 window.GLD_SIMULADOR_PUBLICO={render};
 if(window.GLD_PLANES_PUBLIC_PACKET)render(window.GLD_PLANES_PUBLIC_PACKET);
 })();
