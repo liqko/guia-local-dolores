@@ -21,7 +21,8 @@
       if(!safeKey(name)||!safeKey(spec?.field)||!safeKey(spec?.id)||!Array.isArray(spec.metadata)||
         spec.metadata.some(key=>!safeKey(key)||['success',spec.field].includes(key))||
         new Set(spec.metadata).size!==spec.metadata.length||
-        Object.keys(spec).some(key=>!['field','id','metadata','family','context'].includes(key))||
+        spec.window!==undefined&&(!spec.window||typeof spec.window!=='object'||Array.isArray(spec.window)||!Object.keys(spec.window).length||Object.entries(spec.window).some(([key,value])=>!['from','until'].includes(key)||!safeKey(value)))||
+        Object.keys(spec).some(key=>!['field','id','metadata','family','context','window'].includes(key))||
         spec.family!==undefined&&!safeKey(spec.family)||spec.context!==undefined&&
         (typeof spec.context!=='string'||!spec.context.trim()||spec.context.length>100))throw Error('Contrato público inválido');
     }
@@ -37,6 +38,17 @@
         Object.entries(schema).every(([name,{field,metadata}])=>book.modules[name]?.success===true&&
           Array.isArray(book.modules[name][field])&&(!book.schema||Object.keys(book.modules[name]).every(key=>['success',field,...metadata].includes(key))));
     }catch{return false;}
+  }
+
+  function visibleAt(row,window,now=Date.now()){
+    if(!window)return true;
+    const parse=(value,end)=>{
+      if(value===null||value===undefined||value==='')return null;
+      if(typeof value==='number')return Number.isFinite(value)?value:NaN;
+      return Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(value)?value+(end?'T23:59:59.999-03:00':'T00:00:00-03:00'):value);
+    };
+    const from=parse(window.from?row[window.from]:null,false),until=parse(window.until?row[window.until]:null,true);
+    return (from===null||Number.isFinite(from)&&now>=from)&&(until===null||Number.isFinite(until)&&now<=until);
   }
 
   function applyDelta(book, delta) {
@@ -114,7 +126,9 @@
       const schema=schemaOf(book);
       const name=Object.keys(schema).find(name=>context===undefined?name===family:
         (schema[name].family||name)===family&&schema[name].context===context);
-      return name?book.modules[name]:null;
+      if(!name)return null;
+      const spec=schema[name],module=book.modules[name];
+      return spec.window?{...module,[spec.field]:module[spec.field].filter(row=>visibleAt(row,spec.window))}:module;
     }};
     return api;
   }
@@ -156,7 +170,7 @@
   }
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { applyDelta, client, idOf, lists, validBook, schemaOf, legacySchema };
+    module.exports = { applyDelta, client, idOf, lists, validBook, schemaOf, legacySchema, visibleAt };
     return;
   }
   try {

@@ -2201,6 +2201,13 @@ function activeSeg2(s) {
 function activeMedia2(m) {
   return m && (m.activo === void 0 && m.activa === void 0 || bool9(m.activo ?? m.activa));
 }
+function publicityWindow191(piece,contract,contentEnd){
+ const parse=(value,end)=>{if(!value)return null;const text=String(value);const time=Date.parse(/^\d{4}-\d{2}-\d{2}$/.test(text)?text+(end?'T23:59:59.999-03:00':'T00:00:00-03:00'):text);return Number.isFinite(time)?time:null;};
+ const legacy=contract?.reglas_version!==147;
+ const from=[parse(contract?.vigente_desde,false),legacy?parse(piece.vigente_desde,false):null].filter(v=>v!==null);
+ const until=[parse(contract?.vigente_hasta,true),legacy?parse(piece.vigente_hasta,true):null,parse(contentEnd,true)].filter(v=>v!==null);
+ return {public_from:from.length?Math.max(...from):null,public_until:until.length?Math.min(...until):null};
+}
 async function publicidadPublicaV3({ cache, cityId, moduleName, categoryId = "",at=Date.now() }) {
   const city = text19(cityId), mod = text19(moduleName).toUpperCase(), cat = text19(categoryId);
   if (/PROMO/.test(mod))return {success:true,ciudad_id:city,modulo:mod,publicidades:[]};
@@ -2227,11 +2234,12 @@ async function publicidadPublicaV3({ cache, cityId, moduleName, categoryId = "",
     if(contract&&(!contract.habilitada||contract.activas_max<=0||!contract.ciudades_sin_limite&&!contract.ciudades_max||!contract.categorias_sin_limite&&!contract.categorias_max||!valid(contract,at)||p.formato==='IMAGEN'&&!contract.permite_imagen||p.formato==='CARRUSEL'&&!contract.permite_carrusel||p.formato==='SHORT'&&!contract.permite_short))return null;
     const seg = (Array.isArray(p.segmentacion) ? p.segmentacion : []).filter(activeSeg2).filter((s) => text19(s.ciudad_id) === city).filter((s) => ubicaciones.has(text19(s.ubicacion_id))).filter((s) => (!cat || text19(s.categoria_id) === cat||text19(s.categoria_id)==="GENERAL")&&(!contract?.ciudades_ids?.length||contract.ciudades_ids.includes(text19(s.ciudad_id)))&&(!contract?.ubicaciones_ids?.length||contract.ubicaciones_ids.includes(text19(s.ubicacion_id)))&&(!contract?.categorias_keys?.length||contract.categorias_keys.includes(text19(s.categoria_key)||text19(s.ubicacion_id)+":"+text19(s.categoria_id))));
     if (!seg.length||!advertisingPlacementAllowed154(section150,p.cta_tipo,contract?.nivel??p.nivel)) return null;
-    let sourceCategories150=[];
+    let sourceCategories150=[],contentEnd191;
     if(['EVENTO','ACTIVIDAD'].includes(p.cta_tipo)){
       if(!linkedPackets147.has(p.cta_tipo))linkedPackets147.set(p.cta_tipo,advertisingLinkedRows147(cache,p.cta_tipo,city));
       const original=(await linkedPackets147.get(p.cta_tipo)).find(row=>text19(row.evento_id||row.actividad_id||row.id)===text19(p.contenido_id));
       if(!advertisingContentValid147(original,p.cta_tipo,aid,at))return null;
+      contentEnd191=advertisingEnd147(original,p.cta_tipo);
       if(section150!=='Guía')sourceCategories150=[original.categoria_id,original.categoria,...(Array.isArray(original.categoria_ids)?original.categoria_ids:[])].filter(Boolean);
     }
     const media = (Array.isArray(p.media) ? p.media : []).filter(activeMedia2).sort((a, b) => Number(a.orden || 0) - Number(b.orden || 0));
@@ -2239,7 +2247,7 @@ async function publicidadPublicaV3({ cache, cityId, moduleName, categoryId = "",
     const tipo = text19(first.tipo_media || p.formato).toUpperCase();
     const url = text19(first.url);
     return {
-      ...p,nivel:contract?.nivel??p.nivel,posiciones:contract?.posiciones??1,reglas_version:contract?.reglas_version??101,
+      ...p,...publicityWindow191(p,contract,contentEnd191),nivel:contract?.nivel??p.nivel,posiciones:contract?.posiciones??1,reglas_version:contract?.reglas_version??101,
       media,
       segmentacion: seg,
       ...(sourceCategories150.length?{categoria_ids:sourceCategories150,busqueda147:{...p.busqueda147,categoria_ids:sourceCategories150}}:{}),
@@ -10071,7 +10079,7 @@ function adultPublic(value,authorized){
    const out={contenido_adulto:true,bloqueado18:true,nombre:'Contenido +18',nombre_evento:'Contenido +18',titulo:'Contenido +18',actividad:'Contenido +18',descripcion:'Iniciá sesión y confirmá tu edad para visualizar esta publicación.',sedes:[]};
    if(value.promo_id){out.promo='Promoción con contenido +18';}
    out.sedes=(value.sedes||[]).map(s=>({sede_id:s.sede_id,ciudad_id:s.ciudad_id,nombre_sede:'Contenido +18'}));
-   for(const k of ['id','anunciante_id','evento_id','actividad_id','publicidad_id','promo_id','empleo_id','sede_id','ciudad_id','nivel','estado','aprobado','activo','pausado','desde','hasta','fecha_desde','fecha_hasta'])if(Object.hasOwn(value,k))out[k]=value[k];
+   for(const k of ['id','anunciante_id','evento_id','actividad_id','publicidad_id','promo_id','empleo_id','sede_id','ciudad_id','nivel','estado','aprobado','activo','pausado','desde','hasta','fecha_desde','fecha_hasta','public_from','public_until'])if(Object.hasOwn(value,k))out[k]=value[k];
    return out;
   }
  }
@@ -11371,11 +11379,11 @@ const PUBLIC_FEATURES191 = {
  guide:{rebuild:rebuildGuideAllV2,store:{prefix:'guide:city:v1:',module:'guide',field:'anunciantes',id:'anunciante_id',collection:'anunciantes'},path:'/guide',query:{compact:'1'},field:'results',id:'anunciante_id',metadata:[]},
  events:{rebuild:rebuildEventsAllV2,store:{prefix:'events:city:v2:',module:'events',field:'events',id:'evento_id',collection:'eventos'},path:'/events-new',field:'events',id:'evento_id',metadata:[],virtual:true,watchShared:['territory']},
  promos:{rebuild:rebuildPromosAll,store:{prefix:'promos:city:v1:',module:'promos',field:'promos',id:'promo_id',collection:'promos'},path:'/promos',field:'promos',id:'promo_id',metadata:[]},
- activities:{rebuild:rebuildActivitiesAllV2,store:{prefix:'activities:city:v2:',module:'activities',field:'actividades',id:'actividad_id',collection:'actividades'},path:'/actividades',query:{action:'publicas'},field:'actividades',id:'actividad_id',metadata:[],virtual:true,watchShared:['activities'],sharedKeys:[{prefix:'guide:advertiser:v2:'},{prefix:'panel:record:v53:anunciantes:'}],validity:true},
- ads:{rebuild:rebuildPublicityAllV2,store:{prefix:'publicity:city:v2:',module:'publicity',field:'publicidades',id:'publicidad_id',collection:'publicidades'},path:'/publicidad',query:{action:'publicas',modulo:'GUIA'},field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'GUIA',sharedKeys:[{key:KEYS.publicidad},{prefix:'publicity:contract:v101:'}],watchShared:['ads','territory'],watch:['events','activities','guide'],validity:true},
+ activities:{rebuild:rebuildActivitiesAllV2,store:{prefix:'activities:city:v2:',module:'activities',field:'actividades',id:'actividad_id',collection:'actividades'},path:'/actividades',query:{action:'publicas'},field:'actividades',id:'actividad_id',metadata:[],virtual:true,watchShared:['activities'],window:{from:'vigente_desde',until:'vigente_hasta'},sharedKeys:[{prefix:'guide:advertiser:v2:'},{prefix:'panel:record:v53:anunciantes:'}],validity:true},
+ ads:{rebuild:rebuildPublicityAllV2,store:{prefix:'publicity:city:v2:',module:'publicity',field:'publicidades',id:'publicidad_id',collection:'publicidades'},path:'/publicidad',query:{action:'publicas',modulo:'GUIA'},field:'publicidades',id:'publicidad_id',metadata:[],family:'ads',context:'GUIA',window:{from:'public_from',until:'public_until'},sharedKeys:[{key:KEYS.publicidad},{prefix:'publicity:contract:v101:'}],watchShared:['ads','territory'],watch:['events','activities','guide'],validity:true},
  pharmacy:{rebuild:rebuildFarmAllV2,store:{prefix:'farmacias:city:v2:',module:'farmacias',field:'ciclos',id:'ciclo_id',collection:'farmacias_ciclos'},path:'/farmacias',query:{action:'ciclo'},field:'ciclos',id:'ciclo_id',metadata:['version','updated_at','ciudad_id'],emptyStatus:503},
  ephemerides:{rebuild:rebuildEfemeridesAllV3,store:{prefix:'efemerides:city:v2:',module:'efemerides',field:'efemerides',id:'efemeride_id',collection:'efemerides_bis'},field:'efemerides',id:'efemeride_id',metadata:[],project:async({cache,city})=>({success:true,efemerides:(await getEfemCityV2({cache,cityId:city})).efemerides||[]})},
- employment:{rebuild:rebuildEmployment191,store:{prefix:'employment:city:v1:',module:'employment',field:'rows',id:'empleo_id',collection:'empleos',sourceId:empRecord109,legacyMigration:true,bootstrapOnce:true},field:'rows',id:'empleo_id',metadata:['areas','ciudad_id'],validity:true,project:async({cache,city,cutoff})=>({success:true,ciudad_id:city,areas:EMP_AREAS109,rows:((await cache.get('employment:city:v1:'+city))?.rows||[]).filter(row=>empLive109(row,cutoff)).map(empPublic109)})}
+ employment:{rebuild:rebuildEmployment191,store:{prefix:'employment:city:v1:',module:'employment',field:'rows',id:'empleo_id',collection:'empleos',sourceId:empRecord109,legacyMigration:true,bootstrapOnce:true},field:'rows',id:'empleo_id',metadata:['areas','ciudad_id'],window:{until:'hasta'},validity:true,project:async({cache,city,cutoff})=>({success:true,ciudad_id:city,areas:EMP_AREAS109,rows:((await cache.get('employment:city:v1:'+city))?.rows||[]).filter(row=>empLive109(row,cutoff)).map(empPublic109)})}
 };
 async function publicFeatures191(cache){
  const features={...PUBLIC_FEATURES191};
@@ -11397,7 +11405,7 @@ async function publicFeatures191(cache){
  }
  return features;
 }
-function publicSchema191(features){return Object.fromEntries(Object.entries(features).map(([name,spec])=>[name,{field:spec.field,id:spec.id,metadata:spec.metadata||[],...(spec.family?{family:spec.family,context:spec.context}:{})}]));}
+function publicSchema191(features){return Object.fromEntries(Object.entries(features).map(([name,spec])=>[name,{field:spec.field,id:spec.id,metadata:spec.metadata||[],...(spec.window?{window:spec.window}:{}),...(spec.family?{family:spec.family,context:spec.context}:{})}]));}
 const CITY_BOOK_SHARED='city-book-shared-v1';
 function cityBookSharedKind(key){
  if(key===PUBLIC_KEY)return 'territory';
@@ -12583,4 +12591,4 @@ async function ownerTeamRoute159(ctx){
  const admin=await (db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid));
  return json({success:true,results:rows,revision_nueva:await wholeRevisionInternal({}),funcionalidades:[...new Set((Array.isArray(admin?.funcionalidades)?admin.funcionalidades:String(admin?.funcionalidades||'').split(/[;,|\n]/)).concat(['PUBLICIDAD','EMPLEO']).map(x=>String(x).trim().toUpperCase()).filter(Boolean))]});
 }
-export { publicFeatures191, publicSchema191, PUBLIC_FEATURES191, syncEmpleo109 };
+export { publicFeatures191, publicSchema191, PUBLIC_FEATURES191, syncEmpleo109, publicityWindow191 };

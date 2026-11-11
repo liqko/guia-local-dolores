@@ -953,3 +953,11 @@ Conversaciones recuperadas: [chat original](https://chatgpt.com/g/g-p-6aeb230677
 - Si la preparación canónica con registros ocurre después del cierre, la publicación rechaza reconstruir ese pasado y conserva el libro vigente hasta un corte posterior a la preparación. No se inventa historia. Tras instalar 191, el siguiente paso es comprobar/preparar ese origen antes del primer corte habilitado con los tipos nuevos.
 - Cuatro pruebas nuevas de contrato/migración aprobadas: ampliación desde origen sin editar transporte, privacidad/validación, lectura canónica única sin privados/no aprobados y rechazo de un corte previo al bootstrap (sin repetir la reconstrucción en el siguiente). Regresiones del corte 191 aprobaron. Estos ensayos no son consumos facturados.
 - Costo inicial pendiente de medir: documentos leídos en la única reconstrucción de Empleo y filas/almacenamiento del coordinador; no anunciar Firestore cero para esa preparación. El recorrido público con libro ya preparado se probó sin pedidos Worker en la candidata. CPU/duración/factura siguen sin medir.
+
+
+### Publicación genérica · Vigencia local entre cortes · 11/11/2026
+
+- Revisión final de Publicidad: una copia vigente del libro no debe mostrar una pieza después de que termine su contrato o el contenido vinculado. La proyección pública incorpora límites efectivos de visibilidad, sin exponer el contrato privado.
+- El contrato de transporte admite una declaración genérica de ventana de visibilidad (campos desde/hasta). El lector filtra por el reloj local sin consultar al servidor. Publicidad usa los límites efectivos; Actividades su vigencia y Empleo su vencimiento. Guía también solicita su selección publicitaria al lector común. No se agregan listas paralelas de funcionalidades al publicador.
+- La prueba aislada confirma fechas argentinas, contrato 147 frente a fechas antiguas de pieza, límite del contenido vinculado, vencimiento y ocultamiento antes del inicio. TypeScript 5.9.3 sigue dando 0 diagnósticos en Worker 191.
+- Cliente/publicador base ya integrados en PR61, 4b207e19966154e479bd1410806847a6f2a74757, despliegue 43120497724 aprobado con libro legado y fallback. Esta ampliación de ventanas se comprueba antes de integrar. El Worker 191 candidato aún requiere instalación manual; no afirmar que ya se exportan estas proyecciones en producción.
