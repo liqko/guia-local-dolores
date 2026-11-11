@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {cp,mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {cp,mkdtemp,readFile,writeFile,rm,readdir} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {versionarRecursos} from '../scripts/versionar-recursos-publicos.mjs';
@@ -8,7 +8,7 @@ test('Recursos publicados: revisión por contenido, imágenes intactas y actuali
  const stage=await mkdtemp(join(tmpdir(),'gld-build-'));
  try{
   await cp('plataforma',join(stage,'plataforma'),{recursive:true});
-  const originals=Object.fromEntries(await Promise.all(['carcasa.html','anunciantes.html','eventos.html'].map(async p=>[p,await readFile(join(stage,'plataforma',p),'utf8')])));
+  const originals=Object.fromEntries(await Promise.all((await readdir(join(stage,'plataforma'))).filter(p=>p.endsWith('.html')).map(async p=>[p,await readFile(join(stage,'plataforma',p),'utf8')])));
   const reset=async()=>{for(const [p,s] of Object.entries(originals))await writeFile(join(stage,'plataforma',p),s);};
   const first=await versionarRecursos(stage);
   assert(first.resources>10);
