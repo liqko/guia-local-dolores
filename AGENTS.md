@@ -7,6 +7,17 @@
 - Publicar con comprobación del SHA esperado; si main cambió, volver a leer e integrar antes de escribir. Documentar versión preparada, instalada y cambios pendientes en el registro maestro.
 - Las versiones anteriores se consultan en el historial Git, sin restituir copias al árbol de trabajo. Preparar y probar un cambio no autoriza instalarlo en Cloudflare.
 
+
+## Regla general de caché de Gran Hermano — instrucción del usuario, 12/11/2026
+
+- Todo Gran Hermano debe consultar copias privadas preparadas y reutilizables, sin reconstruir información ni volver a leer Firestore por cada apertura, pestaña, filtro o repetición. Aplicar esta regla al auditar cada acción completa; no declarar que ya está implementada en todo el panel.
+- Separar configuración estable (catálogos, niveles, valores, parámetros generales y reglas de moderación) de colas cambiantes (soporte, problemas de acceso, altas, reclamos y publicaciones pendientes). Los consumidores de un mismo dato comparten su copia y su mecanismo de actualización, sin multiplicar fuentes por pestaña.
+- Configuración estable: actualizar la copia común al guardar un cambio y mantener sus consumidores coherentes. Las colas también usan copias; su frecuencia de actualización se determina por la necesidad real. El usuario admite hasta 24 horas de demora para pendientes de moderación; no extender ese plazo automáticamente a soporte, altas o reclamos.
+- Autorización, contraseñas, permisos y revocación de sesiones conservan sus controles vigentes y no esperan la publicación diaria de moderación. La copia de una bandeja no autoriza ejecutar decisiones sobre una versión antigua del registro.
+- Distinguir reglas de moderación (configuración) de pendientes de moderación (cola). Mostrar la fecha de preparación cuando la información admita demora; una copia ausente no equivale a una bandeja vacía.
+- La posible atención por WhatsApp no autoriza eliminar ni desviar flujos existentes del panel sin una definición expresa. Auditar el funcionamiento que existe y registrar decisiones de canal pendientes.
+- No confundir caché con consumo monetario total cero: registrar por separado Firestore, KV, Worker, Durable Objects, SQL, CPU y descargas. La preparación inicial o recuperación se mide aparte de la consulta repetida.
+
 # Contrato rector de ingeniería — Guía Local
 **Vigencia: 24/10/2026. Prioridad: estas reglas prevalecen sobre instrucciones técnicas antiguas de este archivo si hay contradicción.**
 **Estado de aplicación:** reglas documentadas, NO equivalen a pruebas automatizadas ni garantizan por sí mismas cumplimiento.
