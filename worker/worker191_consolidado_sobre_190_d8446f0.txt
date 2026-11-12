@@ -3414,7 +3414,7 @@ function freeEventAssignedQuota114(admin){
 function gldValidarDescripcionFree167(descripcion,policy){
  if(policy?.descripcion_sin_limites)return;
  const max=Number.isSafeInteger(policy?.descripcion_max)?policy.descripcion_max:200;
- if(String(descripcion??'').length>max)throw new Error('La descripción de Eventos Free admite hasta '+max+' caracteres.');
+ if(max>=0&&String(descripcion??'').length>max)throw new Error('La descripción de Eventos Free admite hasta '+max+' caracteres.');
 }
 function freeEventPolicyV95(admin,packet=null){
  const cfg=admin?.funcionalidades_config?.EVENTOS_FREE||{};
@@ -3501,7 +3501,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   }
   if (!unlimited && q.max <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   if (!unlimited && q.active >= q.max) throw new Error("Alcanzaste el máximo de eventos activos.");
-  if (!unlimited && q.total >= q.totalMax) throw new Error("Alcanzaste el máximo de eventos guardados.");
+  if (!unlimited && !free && q.total >= q.totalMax) throw new Error("Alcanzaste el máximo de eventos guardados.");
   if (free && !bool12(data.confirmar_similar)) {
     const dup = await similarFree({ db, advertiserId, data });
     if (dup.length) return { success: false, requires_confirmation: true, duplicados: dup };
@@ -4533,12 +4533,13 @@ var text37 = (v) => String(v ?? "").trim();
 var isFree2 = (e) => text37(e && e.nivel).toUpperCase() === "FREE";
 async function eventsPanelDataV2({ db, cache, advertiserId, featureEnabled: featureEnabled3, cupo: cupo3 }) {
   if(db.panelReadDb)db=db.panelReadDb();
-  const [admin, advertiser, events, sedes, catalogs] = await Promise.all([
+  const [admin, advertiser, events, sedes, catalogs, freeSettings198] = await Promise.all([
     db.get("anunciantes_administracion", advertiserId),
     db.get("anunciantes", advertiserId),
     db.queryEqual("eventos", "anunciante_id", advertiserId, 500),
     db.queryEqual("anunciantes_sedes", "anunciante_id", advertiserId, 500),
-    cache.get("catalogs:eventos:v1")
+    cache.get("catalogs:eventos:v1"),
+    gldFuncPacket166(cache,db,false)
   ]);
   if (!admin) return { success: false, message: "No existe la administración del anunciante." };
   const enriched = await Promise.all(events.filter(e=>!e.eliminado).map(async (e) => ({
@@ -4553,10 +4554,10 @@ async function eventsPanelDataV2({ db, cache, advertiserId, featureEnabled: feat
       eventos_free: !!featureEnabled3(admin, "EVENTOS_FREE")
     },
     eventos_cant: Number(cupo3(admin, "EVENTOS") || 0),
-    eventos_free_limites:{...freeEventPolicyV95(admin),mes:freeEventMonthV95(),usados:freeEventMonthlyRowsV95(events,freeEventMonthV95()).length},
+    eventos_free_limites:{...freeEventPolicyV95(admin,freeSettings198),mes:freeEventMonthV95(),usados:freeEventMonthlyRowsV95(events,freeEventMonthV95()).length},
     eventos_free_cant: Number(cupo3(admin, "EVENTOS_FREE") || 0),
     eventos_guardadas_max:cupoGuardado(cupo3(admin,"EVENTOS")),
-    eventos_free_guardadas_max:cupoGuardado(cupo3(admin,"EVENTOS_FREE")),
+    eventos_free_guardadas_max:freeEventPolicyV95(admin,freeSettings198).guardadas_max,
     categorias: catalogs && catalogs.categorias || [],
     lugares: [...catalogs && catalogs.lugares || [], ...sedes],
     partners: catalogs && catalogs.partners || [],
