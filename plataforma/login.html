@@ -6281,7 +6281,57 @@ function buildCommerceRelationsPayloads(){
 
 
 
+// Reglas de carga administradas por Niveles: mismo catálogo que renderiza la ficha.
+function gldLimitesCargaNivel198_(){
+  const cfg=(commerceCatalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
+  const grupo=[1,2].includes(Number(sesion?.administracion?.nivel))?'institucional':'comercial';
+  const fallback={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:0};
+  const get=key=>{
+    const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
+    const n=Number(raw);
+    if(!Number.isSafeInteger(n)||n<0)throw Error('Configuración inválida de Niveles: '+key);
+    return n;
+  };
+  const prestaciones=cfg['carga_'+grupo+'_prestaciones'];
+  return {...Object.fromEntries(Object.keys(fallback).map(k=>[k,get(k)])),
+    prestaciones:Array.isArray(prestaciones)?new Set(prestaciones):null};
+}
+function gldValidarCargaNivel198_(){
+  const form=document.getElementById('form-datos-comercio');
+  if(!form)return;
+  const lim=gldLimitesCargaNivel198_();
+  for(const campo of ['actividad','descripcion','tags']){
+    const el=form.querySelector('[name="'+campo+'"]');
+    if(el&&lim[campo]>0&&el.value.length>lim[campo])throw Error('El campo '+campo+' admite hasta '+lim[campo]+' caracteres.');
+  }
+  const categorias=[...form.querySelectorAll('[name="categoria_id_item"]:checked')];
+  if(categorias.length>Math.min(3,lim.categorias))throw Error('El nivel permite hasta '+Math.min(3,lim.categorias)+' categorías.');
+  const sedes=[...form.querySelectorAll('.commerce-sede-card')];
+  if(lim.sedes>0&&sedes.length>lim.sedes)throw Error('Se admiten hasta '+lim.sedes+' sedes.');
+  for(const sede of sedes){
+    const nombre=sede.querySelector('.commerce-sede-title')?.textContent?.trim()||'Sede';
+    const imagenes=[...sede.querySelectorAll('[name^="img"]')].filter(el=>/^img\d+$/.test(el.name)&&el.value.trim());
+    if(imagenes.some(el=>Number(el.name.slice(3))>lim.imagenes))throw Error(nombre+': el límite es '+lim.imagenes+' imágenes.');
+    const redes=['instagram','facebook','youtube','tiktok','linkedin','x'].filter(k=>sede.querySelector('[name="'+k+'"]')?.value.trim());
+    if(redes.length>lim.redes)throw Error(nombre+': se admiten hasta '+lim.redes+' redes sociales.');
+    if(lim.prestaciones){
+      const prev=new Set(String(currentCommerceSedes.find(x=>String(x.sede_id||'')===String(sede.querySelector('[name="sede_id"]')?.value||''))?.servicios_iconos||'').split(',').filter(Boolean));
+      const seleccionados=[...sede.querySelectorAll('[name="servicios_iconos_opcion"]:checked')].map(el=>el.value);
+      if(seleccionados.some(id=>!lim.prestaciones.has(id)&&!prev.has(id)))throw Error(nombre+': hay prestaciones no habilitadas en Niveles.');
+    }
+  }
+}
+function gldComprobarCupoSedes198_(){
+  try{
+    const max=gldLimitesCargaNivel198_().sedes;
+    const actual=document.querySelectorAll('#form-datos-comercio .commerce-sede-card').length;
+    if(max>0&&actual>=max){setMsg('msg-datos-comercio','err','Tu nivel admite hasta '+max+' sedes.');return false;}
+    return true;
+  }catch(e){setMsg('msg-datos-comercio','err',e.message);return false;}
+}
+
 function addEmptySedeCard(){
+  if(!gldComprobarCupoSedes198_())return;
   const wrap = document.querySelector('.commerce-sedes-wrap');
   if(!wrap) return;
 
@@ -6312,6 +6362,7 @@ function addEmptySedeCard(){
 }
 
 function duplicateSedeCard(card){
+  if(!gldComprobarCupoSedes198_())return;
   if(!card) return;
   const clone = card.cloneNode(true);
   const hiddenId = clone.querySelector('[name="sede_id"]');
@@ -8576,6 +8627,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       setMsg('msg-datos-comercio','ok','Guardando cambios...');
 
       try{
+        gldValidarCargaNivel198_();
         const {full:dataFull,patch:dataPatch}=commerceBuildDataPatch_();
         const sedePayload=commerceBuildSedesPatch_();
 
