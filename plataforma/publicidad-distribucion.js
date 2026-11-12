@@ -47,14 +47,31 @@
    const cats=[...(b.categoria_ids||[]),...(b.busqueda147?.categoria_ids||[]),...(b.segmentacion||[]).flatMap(s=>[s.categoria_id,s.categoria_nombre].filter(Boolean))].map(normal);
    return cats.some(c=>categories.has(c)&&!['general','*'].includes(c))?1:2;
   };
-  let pool=[...new Map((rows||[]).map(b=>[id(b),b])).values()];
+  const pool=[...new Map((rows||[]).map(b=>[id(b),b])).values()];
   if(!pool.length)return [];
-  const tier=Math.min(...pool.map(relevance));pool=pool.filter(b=>relevance(b)===tier);
-  if(!context.constrained){
-   const premium=pool.filter(b=>level(b)===6),other=pool.filter(b=>level(b)!==6);
-   if(premium.length&&other.length){const reserve=Math.min(2,slots,new Set(premium.map(b=>String(b.anunciante_id||id(b)))).size);return [...wheel147(premium,reserve,context),...wheel147(other,slots-reserve,context)];}
+  const bands=context.constrained?[
+    pool.filter(b=>relevance(b)===0),
+    pool.filter(b=>relevance(b)===1),
+    pool.filter(b=>relevance(b)===2&&level(b)===6),
+    pool.filter(b=>relevance(b)===2&&level(b)!==6)
+  ]:[
+    pool.filter(b=>level(b)===6),
+    pool.filter(b=>level(b)===5),
+    pool.filter(b=>level(b)<5)
+  ];
+  const result=[];
+  for(const band of bands){
+   if(!band.length||result.length>=slots)continue;
+   // Primero se ofrece una participación por anunciante de esta banda.
+   // Las unidades extras influyen en la rotación y los espacios sobrantes,
+   // pero no ocupan en bloque el comienzo de la página.
+   const advertisers=new Set(band.map(b=>String(b.anunciante_id||id(b))));
+   const count=Math.min(slots-result.length,advertisers.size);
+   const assigned=wheel147(band,count,{...context,slotsPerPage:Math.max(count,Number(context.slotsPerPage)||count)});
+   result.push(...assigned);
   }
-  return wheel147(pool,slots,context);
+  if(result.length<slots)result.push(...wheel147(pool,slots-result.length,{...context,slotsPerPage:Math.max(slots,Number(context.slotsPerPage)||slots)}));
+  return result;
  }
  function wheel147(pool,slots,context){
   if(!slots)return [];
