@@ -2926,33 +2926,57 @@ async function commerceSetDatos({ db, cache, advertiserId, body }) {
   const saved = await db.patch("anunciantes", advertiserId, patch, { mustExist: true });
   return { success: true, updated: true, id: advertiserId, advertiser: saved };
 }
-async function commerceSetSedes({ db, advertiserId, body }) {
-  const incoming = Array.isArray(body && body.sedes) ? body.sedes : [];
-  const saved = [];
-  for (const raw of incoming) {
-    const existingId = text28(raw && raw.sede_id);
-    const id4 = existingId || newSedeId(advertiserId);
-    if (existingId) {
-      const current = await db.get("anunciantes_sedes", id4);
-      if (!current || text28(current.anunciante_id) !== text28(advertiserId)) {
-        throw new Error("La sede no pertenece al anunciante.");
+async function commerceSetSedes({ db, cache, advertiserId, body }) {
+  const incoming=Array.isArray(body?.sedes)?body.sedes:[];
+  if(incoming.length>100)throw Error('Demasiadas sedes en una operación.');
+  const limites=incoming.length&&cache?await commerceLoadLimitsV153({db,cache,advertiserId}):null;
+  if(limites?.sedes>0&&incoming.some(row=>!text28(row?.sede_id))){
+    const existentes=await db.queryEqual('anunciantes_sedes','anunciante_id',advertiserId,500);
+    const nuevos=incoming.filter(row=>!text28(row?.sede_id)).length;
+    if(existentes.length+nuevos>limites.sedes)throw Error('Se admiten hasta '+limites.sedes+' sedes cargadas.');
+  }
+  const preflight=[],seen=new Set();
+  // Se revisa toda la solicitud antes de la primera escritura.
+  for(const raw of incoming){
+    const existingId=text28(raw?.sede_id),id=existingId||newSedeId(advertiserId);
+    if(seen.has(id))throw Error('Sede repetida en la operación.');
+    seen.add(id);
+    const current=existingId?await db.get('anunciantes_sedes',id):null;
+    if(existingId&&(!current||text28(current.anunciante_id)!==text28(advertiserId)))
+      throw Error('La sede no pertenece al anunciante.');
+    if(limites){
+      const delta=changedFieldsV1(current,raw||{});
+      await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta,limits:limites});
+      if(Object.hasOwn(raw||{},'servicios_iconos')){
+        const elegidas=String(raw.servicios_iconos??'').split(',').map(x=>x.trim()).filter(Boolean);
+        const prev=new Set(String(current?.servicios_iconos??'').split(',').map(x=>x.trim()).filter(Boolean));
+        if(elegidas.length>10||new Set(elegidas).size!==elegidas.length)
+          throw Error('Prestaciones inválidas para esta sede.');
+        if(Array.isArray(limites.prestaciones)&&elegidas.some(x=>x!=='accesibilidad'&&!limites.prestaciones.includes(x)&&!prev.has(x)))
+          throw Error('La prestación no está habilitada en Niveles.');
+      }
+      const sociales=['instagram','facebook','youtube','tiktok','linkedin','x'];
+      if(sociales.some(k=>Object.hasOwn(delta,k))){
+        const conjunto={...(current||{}),...(raw||{})};
+        if(sociales.filter(k=>text28(conjunto[k])).length>limites.redes)
+          throw Error('Se admiten hasta '+limites.redes+' redes cargadas por sede.');
       }
     }
-    const patch = {
-      ...raw || {},
-      sede_id: id4,
-      anunciante_id: advertiserId,
-      actualizado_en: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    if ("actividad_ids" in patch) patch.actividad_ids = ids2(patch.actividad_ids);
-    if ("accion_ids" in patch) patch.accion_ids = ids2(patch.accion_ids);
-    if ("nodo_ids" in patch) patch.nodo_ids = ids2(patch.nodo_ids);
+    const patch={...(raw||{}),sede_id:id,anunciante_id:advertiserId,actualizado_en:new Date().toISOString()};
+    if('actividad_ids' in patch)patch.actividad_ids=ids2(patch.actividad_ids);
+    if('accion_ids' in patch)patch.accion_ids=ids2(patch.accion_ids);
+    if('nodo_ids' in patch)patch.nodo_ids=ids2(patch.nodo_ids);
     delete patch.__id;
-    await db.patch("anunciantes_sedes", id4, patch, { mustExist: !!existingId });
-    saved.push(id4);
+    preflight.push({id,patch,existingId});
   }
-  return { success: true, updated: true, id: advertiserId, sedes: saved };
+  const saved=[];
+  for(const row of preflight){
+    await db.patch('anunciantes_sedes',row.id,row.patch,{mustExist:!!row.existingId});
+    saved.push(row.id);
+  }
+  return {success:true,updated:!!saved.length,id:advertiserId,sedes:saved};
 }
+
 async function commerceSetRelacionesSede({ db, advertiserId, body }) {
   const id4 = text28(body && body.sede_id);
   if (!id4) throw new Error("Falta sede_id.");
@@ -4329,7 +4353,7 @@ async function routePanelV3({ path, request: request2, url, env, db, cache }) {
     if (action === "set_sedes") {
       const old = await db.queryEqual("anunciantes_sedes", "anunciante_id", aid);
       const oldCities = [...new Set(old.map((x) => text36(x.ciudad_id)).filter(Boolean))];
-      const out2 = await commerceSetSedes({ db, advertiserId: aid, body });
+      const out2 = await commerceSetSedes({ db, cache, advertiserId: aid, body });
       await syncGuideAdvertiserV2({ db, cache, advertiserId: aid, affectedCityIds: oldCities });
       return json(out2);
     }
@@ -5356,7 +5380,7 @@ async function routePanelV5(ctx) {
     if (action === "set_sedes") {
       const previous = await db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500);
       const previousCities = [...new Set(previous.map((x) => text43(x.ciudad_id)).filter(Boolean))];
-      const out2 = await commerceSetSedes({ db, advertiserId: aid, body });
+      const out2 = await commerceSetSedes({ db, cache, advertiserId: aid, body });
       await Promise.all([
         syncGuideAdvertiserV2({ db, cache, advertiserId: aid, affectedCityIds: previousCities }),
         syncAdvertiserIndexV2({ db, cache, advertiserId: aid })
