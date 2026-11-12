@@ -2786,12 +2786,32 @@ function ghAdOpc176(tipo,seleccion){
  const items=tipo==='nivel'?Array.from({length:6},(_,i)=>[String(i+1),'Nivel '+(i+1)]):GH_AD_OPC176;
  return items.map(([id,nombre])=>'<option value="'+esc(id)+'" '+(seleccion===id?'selected':'')+'>'+esc(nombre)+'</option>').join('');
 }
+function ghAdNivelesElegibles190(tipo,ref){
+ if(tipo==='nivel')return [Number(ref)].filter(n=>Number.isInteger(n)&&n>=1&&n<=6);
+ const map={eventos_vip:'EVENTOS',eventos_free:'EVENTOS_FREE',actividades:'ACTIVIDADES',promociones:'PROMOS',publicidad:'PUBLICIDAD'};
+ return map[ref]?ghCotizarNiveles189(map[ref]):[];
+}
+function ghAdNivelesHtml190(tipo,ref,seleccion){
+ const valid=ghAdNivelesElegibles190(tipo,ref),active=Array.isArray(seleccion)?seleccion.map(Number):valid;
+ return '<fieldset data-gh-ad-niveles190><legend>Niveles habilitados para este adicional</legend><div style="display:flex;flex-wrap:wrap;gap:12px">'+
+ valid.map(n=>'<label style="display:inline-flex;align-items:center;gap:6px"><input type="checkbox" data-gh-ad-nivel190="'+n+'" value="'+n+'" '+(active.includes(n)?'checked':'')+'> Nivel '+n+'</label>').join('')+
+ '</div></fieldset>';
+}
+function ghAdActualizarNiveles190(field){
+ const row=field.closest('[data-adicional-id176]');if(!row)return;
+ const tipo=row.querySelector('[data-ad-campo176="tipo"]')?.value||'funcionalidad',ref=row.querySelector('[data-ad-campo176="asociacion"]')?.value||'';
+ const host=row.querySelector('[data-gh-ad-niveles190]');if(!host)return;
+ const valid=ghAdNivelesElegibles190(tipo,ref);
+ const prev=host.dataset.ref190===tipo+':'+ref?[...host.querySelectorAll('[data-gh-ad-nivel190]:checked')].map(x=>Number(x.value)):valid;
+ const tmp=document.createElement('div');tmp.innerHTML=ghAdNivelesHtml190(tipo,ref,prev);
+ const next=tmp.firstElementChild;next.dataset.ref190=tipo+':'+ref;host.replaceWith(next);
+}
 function ghAdRow176(id,row={}){
  const tipo=row.asociacion_tipo==='nivel'?'nivel':'funcionalidad';
  return '<details class="item" open data-adicional-id176="'+esc(id)+'"><summary><strong>'+esc(row.nombre||'Nuevo adicional')+'</strong></summary>'+
  '<label>Nombre<input data-ad-campo176="nombre" maxlength="100" value="'+esc(row.nombre||'')+'"></label>'+
  '<label>Asociación<select data-ad-campo176="tipo" onchange="ghAdTipo176(this)"><option value="funcionalidad" '+(tipo==='funcionalidad'?'selected':'')+'>Funcionalidad</option><option value="nivel" '+(tipo==='nivel'?'selected':'')+'>Nivel</option></select></label>'+
- '<label>Corresponde a<select data-ad-campo176="asociacion">'+ghAdOpc176(tipo,String(row.asociacion_id||''))+'</select></label>'+
+ '<label>Corresponde a<select data-ad-campo176="asociacion" onchange="ghAdActualizarNiveles190(this)">'+ghAdOpc176(tipo,String(row.asociacion_id||''))+'</select></label>'+ghAdNivelesHtml190(tipo,String(row.asociacion_id||''),row.niveles_habilitados)+
  '<label>Descripción<textarea data-ad-campo176="descripcion" maxlength="1500" rows="3">'+esc(row.descripcion||'')+'</textarea></label>'+
  '<label>Modalidad de cobro<select data-ad-campo176="modalidad_cobro" onchange="ghAdModo183(this)"><option value="unidad" '+(row.modalidad_cobro!=='funcionalidad_destino'?'selected':'')+'>Por unidad contratada</option><option value="funcionalidad_destino" '+(row.modalidad_cobro==='funcionalidad_destino'?'selected':'')+'>Por funcionalidad de exhibición adicional</option></select></label>'+
  '<p class="muted" data-gh-ad-modo-ayuda183>'+ (row.modalidad_cobro==='funcionalidad_destino'?'Cada destino seleccionado (Eventos o Actividades) suma una unidad. La Guía es la cobertura base; Promociones no admite esta ampliación.':'Cantidad de unidades contratadas.')+'</p>'+
@@ -2809,6 +2829,7 @@ function ghAdModo183(field){
   const tipo=row.querySelector('[data-ad-campo176="tipo"]'),assoc=row.querySelector('[data-ad-campo176="asociacion"]');
   if(tipo){tipo.value='funcionalidad';ghAdTipo176(tipo);}
   if(assoc)assoc.value='publicidad';
+  ghAdActualizarNiveles190(field);
  }
 }
 function ghAdTipo176(field){
@@ -2816,6 +2837,7 @@ function ghAdTipo176(field){
  if(!sel)return;
  const entries=field.value==='nivel'?Array.from({length:6},(_,i)=>[String(i+1),'Nivel '+(i+1)]):GH_AD_OPC176;
  sel.replaceChildren(...entries.map(([id,name])=>{const el=document.createElement('option');el.value=id;el.textContent=name;return el}));
+ ghAdActualizarNiveles190(field);
 }
 function ghAdRender176(){
  const host=document.getElementById('ghPreciosAdicionales176');if(!host)return;
@@ -2844,8 +2866,11 @@ function ghAdLeer176(){
   if(d!==''&&Number(d)>0&&(raw===''||Number(raw)===0))throw Error('El adicional '+nombre+' requiere importe positivo para aplicar un descuento.');
   if(t.length>120)throw Error('El texto del descuento de '+nombre+' supera 120 caracteres.');
   if(field('modalidad_cobro')?.value==='funcionalidad_destino'&&(tipo!=='funcionalidad'||asociacion!=='publicidad'))throw Error('La cobertura por funcionalidades debe asociarse a Publicidad.');
+  const permitidos=ghAdNivelesElegibles190(tipo,asociacion);
+  const niveles=[...row.querySelectorAll('[data-gh-ad-nivel190]:checked')].map(x=>Number(x.value));
+  if(!niveles.length||niveles.some(n=>!permitidos.includes(n)))throw Error('Seleccioná niveles válidos para '+nombre);
   result[id]={nombre,descripcion,asociacion_tipo:tipo,asociacion_id:asociacion,
-   importe:raw===''?null:Number(raw),descuento_porcentaje:d===''?null:Number(d),descuento_texto:t,modalidad_cobro:field('modalidad_cobro')?.value||'unidad',activo:field('activo')?.checked===true};
+   niveles_habilitados:niveles,importe:raw===''?null:Number(raw),descuento_porcentaje:d===''?null:Number(d),descuento_texto:t,modalidad_cobro:field('modalidad_cobro')?.value||'unidad',activo:field('activo')?.checked===true};
  }
  return result;
 }
@@ -2992,6 +3017,13 @@ function ghCotizarActualizarPermisos189(){
   const note=field.closest('label')?.querySelector('[data-gh-cotizar-niveles]');
   if(note)note.textContent='Niveles habilitados: '+(ghCotizarNiveles189(id).join(', ')||'ninguno')+(level&&!allowed?' · No disponible para este nivel':'');
  });
+ for(const field of document.querySelectorAll('[data-gh-adicional181],[data-gh-cobertura183]')){
+  const id=field.dataset.ghAdicional181||field.dataset.ghCobertura183,extra=GH_PRECIOS_ESTADO162?.precios?.adicionales?.[id];
+  if(!extra)continue;
+  const allowed=Array.isArray(extra.niveles_habilitados)?extra.niveles_habilitados.map(Number):ghAdNivelesElegibles190(extra.asociacion_tipo,extra.asociacion_id);
+  field.disabled=!level||!allowed.includes(level);
+  if(field.disabled){if(field.type==='checkbox')field.checked=false;else field.value='0';}
+ }
  const pub=!!level&&ghCotizarNiveles189('PUBLICIDAD').includes(level);
  document.querySelectorAll('[data-gh-cobertura183]').forEach(field=>{field.disabled=!pub;if(!pub)field.checked=false;});
 }
