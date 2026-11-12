@@ -8280,6 +8280,20 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const SUSCRIPTOR_TOKEN_KEY='gld_suscriptor_token_v2';
   const SUSCRIPTOR_AUTHS_KEY='gld_suscriptor_authorizations_v2';
   const DASHBOARD_ADVERTISER_KEY='gld_dashboard_anunciante_id_v1';
+  // El destino vive en la URL de esta pestaña, sin redirecciones arbitrarias.
+  let reclamoDirectoPendiente = !window.GLD_ADMIN_PANEL155 && (
+    location.pathname.replace(/\/$/,'')==='/reclamar-anuncio' ||
+    new URLSearchParams(location.search).get('accion')==='reclamar'
+  );
+
+  function abrirReclamoDirecto_(){
+    if(!reclamoDirectoPendiente || !sesionSuscriptor?.suscriptor_id || !gldSubscriberToken) return false;
+    reclamoDirectoPendiente=false;
+    limpiarContextoAnunciante_();
+    abrirSolicitudAnunciante_('RECLAMAR');
+    return true;
+  }
+
 
   function guardarSesionSuscriptor_(data){
     sesionSuscriptor=data||null;
@@ -8551,6 +8565,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     // El ingreso acaba de verificar credenciales y devolver autorizaciones;
     // no repetir POST /suscriptores action=session para recuperar el mismo paquete.
     if(!autorizacionesVerificadas) await obtenerAutorizaciones_();
+    if(abrirReclamoDirecto_()) return true;
 
     if(!autorizacionesAnunciante.length){
       limpiarContextoAnunciante_();
@@ -8630,7 +8645,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
       document.getElementById('tab-modificar-datos')?.click();
       window.opener?.postMessage({type:'gld-admin-open159',nonce:window.GLD_ADMIN_PANEL155.nonce},location.origin);
     }).catch(error=>{mostrarPanel('acceso-administrativo');document.getElementById('admin-access-status159').textContent=error.message;window.opener?.postMessage({type:'gld-admin-error159',nonce:window.GLD_ADMIN_PANEL155.nonce,message:error.message},location.origin);});
-  }else restaurarSesionSuscriptor_();
+  }else{
+    if(reclamoDirectoPendiente){
+      document.querySelector('#panel-login h2').textContent='Reclamar un anuncio';
+      document.querySelector('#panel-login .small-muted').textContent='Ingresá o creá tu cuenta para continuar con el reclamo.';
+    }
+    restaurarSesionSuscriptor_();
+  }
   document.getElementById('ev-add-programacion')?.addEventListener('click',addEventProgramacion_);
   renderEventProgramacion_();
   efemInitFixedDays();
@@ -8730,8 +8751,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   document.getElementById('volverLoginRecuperar')?.addEventListener('click',()=>mostrarPanel('login'));
   document.getElementById('btnCrearCuentaSuscriptor')?.addEventListener('click',()=>{
-    try{window.top.location.href='https://guialocal.ar/suscriptores/?vista=registro';}
-    catch(e){window.location.href='https://guialocal.ar/suscriptores/?vista=registro';}
+    const destino='/mi-guia?vista=registro'+(reclamoDirectoPendiente?'&continuar=reclamar-anuncio':'');
+    try{window.top.location.href=destino;}
+    catch(e){window.location.href=destino;}
   });
 
   document.getElementById('btnEnviarCodigo')?.addEventListener('click',async()=>{
@@ -9345,8 +9367,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       const anunciantesLogin=Array.isArray(data.anunciantes) ? data.anunciantes : [];
 
       // Esta página es exclusivamente el Panel de Anunciantes.
-      // Una cuenta de suscriptor sin relaciones activas no ingresa.
-      if(!anunciantesLogin.length){
+      // Sin relaciones activas sólo se permite continuar el reclamo solicitado.
+      if(!anunciantesLogin.length && !reclamoDirectoPendiente){
         limpiarContextoAnunciante_();
         guardarSesionSuscriptor_(null);
         sesionSuscriptor=null;
