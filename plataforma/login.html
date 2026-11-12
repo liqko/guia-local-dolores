@@ -6300,33 +6300,52 @@ function gldValidarCargaNivel198_(){
   const form=document.getElementById('form-datos-comercio');
   if(!form)return;
   const lim=gldLimitesCargaNivel198_();
+  const anterior=commerceEditBaseline?.datos||{};
   for(const campo of ['actividad','descripcion','tags']){
     const el=form.querySelector('[name="'+campo+'"]');
-    if(el&&lim[campo]>0&&el.value.length>lim[campo])throw Error('El campo '+campo+' admite hasta '+lim[campo]+' caracteres.');
+    if(el&&lim[campo]>0&&el.value.length>lim[campo]&&
+       (!commerceEditBaseline||!gldEditEqual_(el.value.trim(),anterior[campo])))
+      throw Error('El campo '+campo+' admite hasta '+lim[campo]+' caracteres.');
   }
-  const categorias=[...form.querySelectorAll('[name="categoria_id_item"]:checked')];
-  if(categorias.length>Math.min(3,lim.categorias))throw Error('El nivel permite hasta '+Math.min(3,lim.categorias)+' categorías.');
+  const categorias=[...form.querySelectorAll('[name="categoria_id_item"]:checked')].map(x=>x.value);
+  if(categorias.length>Math.min(3,lim.categorias)&&
+     (!commerceEditBaseline||!gldEditEqual_(categorias.join(';'),anterior.categoria_id)))
+    throw Error('El nivel permite hasta '+Math.min(3,lim.categorias)+' categorías.');
   const redesComunesActivas=!!form.querySelector('[name="redes_comunes_habilitado"]')?.checked;
   if(redesComunesActivas){
-    const comunes=['instagram','facebook','youtube','tiktok','linkedin','x']
-      .filter(k=>form.querySelector('[name="red_comun_'+k+'"]')?.value.trim());
-    if(comunes.length>lim.redes)throw Error('Las redes compartidas admiten hasta '+lim.redes+' redes sociales.');
+    const claves=['instagram','facebook','youtube','tiktok','linkedin','x','web'];
+    const configuracion={habilitado:true,...Object.fromEntries(claves.map(k=>[k,String(form.querySelector('[name="red_comun_'+k+'"]')?.value||'').trim()]))};
+    const cantidad=claves.filter(k=>k!=='web'&&configuracion[k]).length;
+    if(cantidad>lim.redes&&
+       (!commerceEditBaseline||!gldEditEqual_(configuracion,anterior.redes_web_comunes)))
+      throw Error('Las redes compartidas admiten hasta '+lim.redes+' redes sociales.');
   }
   const sedes=[...form.querySelectorAll('.commerce-sede-card')];
-  if(lim.sedes>0&&sedes.length>lim.sedes)throw Error('Se admiten hasta '+lim.sedes+' sedes.');
+  const nuevas=sedes.filter(s=>!String(s.querySelector('[name="sede_id"]')?.value||'').trim());
+  if(lim.sedes>0&&nuevas.length&&currentCommerceSedes.length+nuevas.length>lim.sedes)
+    throw Error('Se admiten hasta '+lim.sedes+' sedes.');
+  const sedeAnterior=new Map((commerceEditBaseline?.sedes||[]).map(s=>[String(s.sede_id||''),s]));
   for(const sede of sedes){
+    const id=String(sede.querySelector('[name="sede_id"]')?.value||'');
+    const previo=sedeAnterior.get(id);
+    const cambiado=(k,v)=>!previo||!gldEditEqual_(v,previo[k]);
     const nombre=sede.querySelector('.commerce-sede-title')?.textContent?.trim()||'Sede';
     const imagenes=[...sede.querySelectorAll('[name^="img"]')].filter(el=>/^img\d+$/.test(el.name)&&el.value.trim());
-    if(imagenes.some(el=>Number(el.name.slice(3))>lim.imagenes))throw Error(nombre+': el límite es '+lim.imagenes+' imágenes.');
-    const redes=['instagram','facebook','youtube','tiktok','linkedin','x'].filter(k=>sede.querySelector('[name="'+k+'"]')?.value.trim());
-    if(redes.length>lim.redes)throw Error(nombre+': se admiten hasta '+lim.redes+' redes sociales.');
+    if(imagenes.some(el=>Number(el.name.slice(3))>lim.imagenes&&cambiado(el.name,el.value.trim())))
+      throw Error(nombre+': el límite es '+lim.imagenes+' imágenes.');
+    const camposRedes=['instagram','facebook','youtube','tiktok','linkedin','x'];
+    const redes=camposRedes.filter(k=>sede.querySelector('[name="'+k+'"]')?.value.trim());
+    if(redes.length>lim.redes&&camposRedes.some(k=>cambiado(k,String(sede.querySelector('[name="'+k+'"]')?.value||'').trim())))
+      throw Error(nombre+': se admiten hasta '+lim.redes+' redes sociales.');
     if(lim.prestaciones){
-      const prev=new Set(String(currentCommerceSedes.find(x=>String(x.sede_id||'')===String(sede.querySelector('[name="sede_id"]')?.value||''))?.servicios_iconos||'').split(',').filter(Boolean));
+      const prev=new Set(String(currentCommerceSedes.find(x=>String(x.sede_id||'')===id)?.servicios_iconos||'').split(',').filter(Boolean));
       const seleccionados=[...sede.querySelectorAll('[name="servicios_iconos_opcion"]:checked')].map(el=>el.value);
-      if(seleccionados.some(id=>!lim.prestaciones.has(id)&&!prev.has(id)))throw Error(nombre+': hay prestaciones no habilitadas en Niveles.');
+      if(seleccionados.some(x=>!lim.prestaciones.has(x)&&!prev.has(x)))
+        throw Error(nombre+': hay prestaciones no habilitadas en Niveles.');
     }
   }
 }
+
 function gldComprobarCupoSedes198_(){
   try{
     const max=gldLimitesCargaNivel198_().sedes;
