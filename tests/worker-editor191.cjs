@@ -8,5 +8,5 @@ host.readFile=f=>f===filename?text:read(f);host.fileExists=f=>f===filename||exis
 host.getSourceFile=(f,language,onError,newFile)=>f===filename?ts.createSourceFile(f,text,language,true,ts.ScriptKind.JS):get(f,language,onError,newFile);
 const diagnostics=ts.getPreEmitDiagnostics(ts.createProgram([filename],options,host));
 for(const d of diagnostics)console.error((d.file&&d.start!==undefined?d.file.getLineAndCharacterOfPosition(d.start).line+1:'')+': '+ts.flattenDiagnosticMessageText(d.messageText,' '));
-console.log('TypeScript '+ts.version+': '+diagnostics.length+' diagnósticos de JavaScript en Worker 191');
+console.log('TypeScript '+ts.version+': '+diagnostics.length+' diagnósticos de JavaScript en Worker '+(text.match(/WORKER (\d+)/)?.[1]||'desconocido'));
 process.exitCode=diagnostics.length?1:0;
