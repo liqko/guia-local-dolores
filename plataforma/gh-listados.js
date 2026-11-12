@@ -1,7 +1,7 @@
 (function(){
 'use strict';
 const el=id=>document.getElementById(id),states=new Map(),searchStates=new Map();
-const defs={vip:{kind:'eventos',clase:'VIP',box:'eventosList'},free:{kind:'eventos',clase:'FREE',box:'eventosFreeList'},actividades:{kind:'actividades',box:'activitiesAll102'},promos:{kind:'promos',box:'ghPromosList'},publicidad:{kind:'publicidad',box:'ghPublicidadList'},moderadores:{kind:'moderadores',box:'moderadoresAll102'}};
+const defs={vip:{kind:'eventos',clase:'VIP',box:'eventosList'},free:{kind:'eventos',clase:'FREE',box:'eventosFreeList'},actividades:{kind:'actividades',box:'activitiesAll102'},promos:{kind:'promos',box:'ghPromosList'},publicidad:{kind:'publicidad',box:'ghPublicidadList'}};
 
 let directoryActionPending=false;
 async function runDirectoryAction(work){
@@ -35,7 +35,6 @@ window.GH_DIRECTORY_LOCAL102=localPage;
 function ensure(){
  const publicityReview=el('publicidadesRevisionArea');if(publicityReview&&publicityReview.parentElement.id!=='view-publicidad')el('view-publicidad').prepend(publicityReview);
  if(!el('activitiesAll102')){const card=node('div','','card');card.append(node('h3','Todas las actividades'),node('div'));card.lastChild.id='activitiesAll102';el('view-actividades').prepend(card);}
- if(!el('moderadoresAll102')){const card=node('div','','card');card.append(node('h3','Moderadores asignados'),node('p','Abrí un moderador y elegí «Editar permisos» para modificar su estado, ciudades y autorizaciones. Los cambios se aplican al guardar.','muted'),node('div'));card.lastChild.id='moderadoresAll102';el('view-moderadores').append(card);}
  for(const [key,d]of Object.entries(defs)){
   if(key==='free')continue;if(el('dir-'+key))continue;
   const target=el(d.box);if(!target)continue;
