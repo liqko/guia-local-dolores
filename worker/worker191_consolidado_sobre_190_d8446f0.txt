@@ -3418,17 +3418,18 @@ function gldValidarDescripcionFree167(descripcion,policy){
 }
 function freeEventPolicyV95(admin,packet=null){
  const cfg=admin?.funcionalidades_config?.EVENTOS_FREE||{};
+ if(!packet?.reglas?.EVENTOS_FREE)throw httpError('La configuración de Eventos Free no está disponible. Revisá Administración → Funcionalidades.',503);
  const global=gldFuncRules166(packet,'EVENTOS_FREE');
  const own=freeEventAssignedQuota114(admin);
  const allow=global.admite_excepciones===true;
  const overridden=allow&&cfg.excepcion_cupo===true;
- const monthly=overridden?own:(Number.isSafeInteger(global.altas_mensuales_max)?global.altas_mensuales_max:4);
+ const monthly=overridden?own:(global.altas_mensuales_max);
  return {sin_limites:allow&&cfg.sin_limites===true,altas_mensuales_max:monthly,
-  descripcion_max:allow&&cfg.parametros_especiales?.descripcion_max?.habilitado===true?gldValorParticular168(global,cfg,'descripcion_max',200):allow&&cfg.descripcion_excepcion===true&&Number.isSafeInteger(cfg.descripcion_max)?cfg.descripcion_max:gldValorParticular168(global,cfg,'descripcion_max',200),
+  descripcion_max:allow&&cfg.parametros_especiales?.descripcion_max?.habilitado===true?gldValorParticular168(global,cfg,'descripcion_max',null):allow&&cfg.descripcion_excepcion===true&&Number.isSafeInteger(cfg.descripcion_max)?cfg.descripcion_max:gldValorParticular168(global,cfg,'descripcion_max',200),
   descripcion_sin_limites:allow&&cfg.descripcion_sin_limites===true,
-  activas_max:gldValorParticular168(global,cfg,'activas_max',2),
-  guardadas_max:gldValorParticular168(global,cfg,'guardadas_max',4),
-  ediciones_max:gldValorParticular168(global,cfg,'ediciones_max',1),
+  activas_max:gldValorParticular168(global,cfg,'activas_max',null),
+  guardadas_max:gldValorParticular168(global,cfg,'guardadas_max',null),
+  ediciones_max:gldValorParticular168(global,cfg,'ediciones_max',null),
   ediciones_dia_max:gldValorParticular168(global,cfg,'ediciones_dia_max',null),
   ediciones_semana_max:gldValorParticular168(global,cfg,'ediciones_semana_max',null),
   ediciones_mes_max:gldValorParticular168(global,cfg,'ediciones_mes_max',null),
@@ -3472,7 +3473,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const operation145=/^[a-f0-9-]{36}$/i.test(String(payload?.__operation_id145||''))?String(payload.__operation_id145):'';
   delete data.operation_id145;delete data.operation_fingerprint145;
   const fingerprint145=operation145?await fieldRevisionInternal({level,data},['level','data']):'';
-  const settings166=await gldFuncPacket166(cache,db,false);
+  const settings166=await gldFuncPacket166(cache,db,true);
   const admin166=await db.get("anunciantes_administracion",advertiserId);
   const policy=free?freeEventPolicyV95(admin166,settings166):null;
   const vipSettings166=gldFuncRules166(settings166,'EVENTOS');
@@ -3594,7 +3595,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   let editVersion=null,policy=null;
   const scheduleChanged=hasProgramacion&&!sameValueV1(data.programacion,previousProgramacion);
   if(level==='VIP'&&(hasDataChanges||scheduleChanged)){
-    const [adminVip,packetVip]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,false)]);
+    const [adminVip,packetVip]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,true)]);
     const globalVip=gldFuncRules166(packetVip,'EVENTOS'),cfgVip=adminVip?.funcionalidades_config?.EVENTOS||{};
     const maxDesc=gldValorParticular168(globalVip,cfgVip,'descripcion_max',null);
     if(Number.isSafeInteger(maxDesc)&&String(next.descripcion??'').length>maxDesc)throw httpError('La descripción de Eventos VIP admite hasta '+maxDesc+' caracteres.',400);
@@ -3602,7 +3603,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
     if(Number.isSafeInteger(maxEdiciones)&&Number(current.ediciones_vip_contador||0)>=maxEdiciones)throw httpError('Se alcanzó la cantidad de ediciones permitidas para este evento VIP.',409);
   }
   if(level==='FREE'&&(hasDataChanges||scheduleChanged)){
-    policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId),await gldFuncPacket166(cache,db,false));
+    policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId),await gldFuncPacket166(cache,db,true));
     gldValidarDescripcionFree167(next.descripcion,policy);
     freeEventValidateConfigured198(next,policy);
     if(!policy.sin_limites){
@@ -3634,7 +3635,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   if(level==='VIP'&&Object.keys(patch).length)patch.ediciones_vip_contador=Number(current.ediciones_vip_contador||0)+1;
   if(Object.keys(patch).length){
    const fid170=level==='FREE'?'EVENTOS_FREE':'EVENTOS';
-   const [admin170,settings170]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,false)]);
+   const [admin170,settings170]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,true)]);
    patch.control_cambios170=gldControlEdicion170(current,gldFuncRules166(settings170,fid170),admin170?.funcionalidades_config?.[fid170]||{},false);
   }
   const saved = Object.keys(patch).length ? await db.patch("eventos", eventId, patch, { mustExist: true,...((editVersion?.updateTime||eventVersion145.updateTime)?{updateTime:editVersion?.updateTime||eventVersion145.updateTime}:{}) }) : current;
@@ -3658,7 +3659,7 @@ async function pauseEventV3({ db, cache, advertiserId, payload, max, level = "VI
   const pause = bool12(payload && (payload.pause !== void 0 ? payload.pause : payload.pausado));
   if (!pause && bool12(current.pausado)) {
     const admin=await db.get('anunciantes_administracion',advertiserId);
-    const packet=await gldFuncPacket166(cache,db,false);
+    const packet=await gldFuncPacket166(cache,db,true);
     const cfg=admin?.funcionalidades_config?.[level==='FREE'?'EVENTOS_FREE':'EVENTOS']||{};
     const global=gldFuncRules166(packet,level==='FREE'?'EVENTOS_FREE':'EVENTOS');
     const allowed=global.admite_excepciones===true;
@@ -3672,7 +3673,7 @@ async function pauseEventV3({ db, cache, advertiserId, payload, max, level = "VI
   if (!Object.keys(patch).length) return { success: true, updated: false, evento_id: eventId, evento: await GLD_EVENTS145.result(current) };
   if('pausado' in patch){
    const fid170=level==='FREE'?'EVENTOS_FREE':'EVENTOS';
-   const [admin170,settings170]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,false)]);
+   const [admin170,settings170]=await Promise.all([db.get('anunciantes_administracion',advertiserId),gldFuncPacket166(cache,db,true)]);
    patch.control_cambios170=gldControlEdicion170(current,gldFuncRules166(settings170,fid170),admin170?.funcionalidades_config?.[fid170]||{},true);
   }
   const saved = await db.patch("eventos", eventId, patch, {mustExist:true,...(eventVersion145.updateTime?{updateTime:eventVersion145.updateTime}:{})});
@@ -4539,7 +4540,7 @@ async function eventsPanelDataV2({ db, cache, advertiserId, featureEnabled: feat
     db.queryEqual("eventos", "anunciante_id", advertiserId, 500),
     db.queryEqual("anunciantes_sedes", "anunciante_id", advertiserId, 500),
     cache.get("catalogs:eventos:v1"),
-    gldFuncPacket166(cache,db,false)
+    gldFuncPacket166(cache,db,true)
   ]);
   if (!admin) return { success: false, message: "No existe la administración del anunciante." };
   const enriched = await Promise.all(events.filter(e=>!e.eliminado).map(async (e) => ({
