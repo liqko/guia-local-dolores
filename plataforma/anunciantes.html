@@ -2375,10 +2375,10 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           const mostrarAcciones=GLD_CLASSIFICATION.flag(regla.insignias_actividades_habilitadas);
           const mostrarNodos=GLD_CLASSIFICATION.flag(regla.insignias_nodos_habilitadas);
           if(mostrarAcciones===null?leg:mostrarAcciones){
-            (item.acciones||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+            sedesPublicables_(item,nivelVisual).flatMap(s=>s.acciones||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
           }
           if(mostrarNodos===null?leg:mostrarNodos){
-            (item.nodos||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
+            sedesPublicables_(item,nivelVisual).flatMap(s=>s.nodos||[]).forEach(x=>add(x&&x.insignia,x&&x.nombre));
           }
 
           // Las insignias territoriales se determinan por el nodo asignado a la sede,
@@ -2388,7 +2388,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             'termales mall':'https://res.cloudinary.com/dw3oovvb1/image/upload/v1761318135/xytxrhlkwdp4j9trscwj.png'
           };
           if(mostrarNodos===null?leg:mostrarNodos){
-            (item.nodos||[]).forEach(nodo=>{
+            sedesPublicables_(item,nivelVisual).flatMap(s=>s.nodos||[]).forEach(nodo=>{
               const nombre=String(nodo?.nombre||'').trim();
               const normal=nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
               if(!nodo?.insignia&&insigniasNodoHistoricas[normal])add(insigniasNodoHistoricas[normal],nombre);
@@ -2439,13 +2439,22 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         }
         function renderRedesNivel3(item){return redesNivel_(item,3,false);}
         function renderRedesNivel4(item){return redesNivel_(item,4,false);}
-        function renderRedesBloque(item,nivelVisual){if(nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo!=='libre')return '';return redesNivel_(item,nivelVisual,false);}
+        function renderRedesBloque(item,nivelVisual){
+          if(contactoUnicoNivel_(nivelVisual))return '';
+          const sedes=sedesPublicables_(item,nivelVisual);
+          const fuentes=sedes.length?sedes:[item];
+          return fuentes.map(sede=>redesNivel_(sede,nivelVisual,false)).filter(Boolean).join('');
+        }
 
         function permisoNivel_(nivel,clave,base){const v=GLD_CLASSIFICATION.flag(reglaNivel_(nivel)[clave]);return v===null?base:v;}
         function destinoNivel_(nivel,clave,base){return String(reglaNivel_(nivel)[clave]||base);}
         function linkFicha_(item){const u=new URL('./anunciantes.html',location.href);u.searchParams.set('anunciante_id',String(item.id||''));return u.href;}
         function logoNivel_(item,nivel){if(!item.logo||!permisoNivel_(nivel,'logo_habilitado',nivel!==3))return '';const img=`<img class="logo-comercio" width="110" height="110" ${gldCardImageAttrs(item.logo)} alt="Logo">`;const modo=destinoNivel_(nivel,'logo_destino','ninguno');const u=modo==='web'?enlaceWebGuiaInternal(item.link):modo==='ficha'?linkFicha_(item):'';return u?`<a href="${u}" target="_blank" rel="noopener noreferrer">${img}</a>`:img;}
         function accionImagenNivel_(item,nivel,imagenes,idx){const modo=destinoNivel_(nivel,'imagenes_destino','ampliar');if(modo==='ninguno')return '';const u=modo==='web'?enlaceWebGuiaInternal(item.link):modo==='ficha'?linkFicha_(item):'';const js=u?'window.open('+JSON.stringify(u)+',"_blank","noopener")':modo==='ampliar'?'mostrarModalGaleria(this,'+JSON.stringify(imagenes)+','+idx+')':'';return js?'onclick="'+js.replace(/"/g,'&quot;')+'"':'';}
+        function contactoUnicoNivel_(nivelVisual){
+          const modo=reglaNivel_(nivelVisual)?.contacto_modo;
+          return modo==='direccion_o_alternativa'||(Number(nivelVisual)===3&&modo!=='libre');
+        }
         function reglaNivel_(nivelVisual){
           return GLD_CLASSIFICATION.findLevel(catalogosGlobales.niveles,nivelVisual);
         }
@@ -2523,7 +2532,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           return max===0?sedes:sedes.slice(0,max);
         }
         function contactoNivel3Seleccionado_(item,nivel){
-          if(nivel!==3||reglaNivel_(nivel)?.contacto_modo==='libre')return null;
+          if(!contactoUnicoNivel_(nivel))return null;
           const sede=sedesPublicables_(item,nivel)[0]||{};
           if(permisoNivel_(nivel,'direccion_habilitada',true)&&String(sede.direccion||item.direccion||'').trim())
             return {tipo:'direccion',valor:String(sede.direccion||item.direccion),sede};
@@ -2540,7 +2549,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         }
         function renderContactoNuevo(item, nivelVisual) {
           const unico=contactoNivel3Seleccionado_(item,nivelVisual);
-          const esUnico=nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo!=='libre';
+          const esUnico=contactoUnicoNivel_(nivelVisual);
           if(esUnico){
             if(!unico)return '';
             let contenido='';
@@ -2673,8 +2682,14 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
               return '<div style="white-space:pre-line;margin-top:4px">'+nombre+safe(sede.horarios_atencion)+'</div>';
             }).join('')+'</div>';
           }
-          if(!(nivelVisual===3&&reglaNivel_(nivelVisual)?.contacto_modo!=='libre'))html += renderRedesBloque(item,nivelVisual);
-          html += renderGaleria(item,nivelVisual,galeriaId);
+          html += renderRedesBloque(item,nivelVisual);
+          const sedesGaleria=sedesPublicables_(item,nivelVisual);
+          if(sedesGaleria.length){
+            sedesGaleria.forEach((sede,idx)=>{
+              const galeria=renderGaleria(sede,nivelVisual,galeriaId+'-'+idx);
+              if(galeria)html+=(sedesGaleria.length>1?'<div class="sede-nombre">'+String(sede.nombre_sede||'Sede '+(idx+1)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>':'')+galeria;
+            });
+          }else html += renderGaleria(item,nivelVisual,galeriaId);
           if(nivelVisual===1)html += '<div class="leyenda-nivel-4">ESPACIO GRATUITO</div><span class="segmento-doble"></span>';
           if(nivelVisual===2)html += '<div class="leyenda-nivel-3">ESPACIO GRATUITO/BONIFICADO</div><span class="segmento-doble"></span>';
           if(nivelVisual===3)html += '<div class="leyenda-nivel-espacio-gratis">ESPACIO GRATUITO</div><span class="segmento-doble"></span>';
