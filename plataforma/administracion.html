@@ -152,7 +152,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 </style>
 <script src="/plataforma/clasificacion.js?v=86"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
-<script src="/plataforma/gh-calendario.js?v=91"></script>
+<script src="/plataforma/gh-calendario.js?v=195"></script>
 <script src="/plataforma/gh-promos.js?v=91"></script>
 <script src="./farmacias-ciclo.js?v=147"></script>
 <script defer src="/plataforma/marca-global.js?v=2"></script>
@@ -213,7 +213,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
       </div><p class="summary-note">Las altas y los reclamos de titularidad se resuelven en Altas y reclamos de anuncios; las consultas generales, los problemas de acceso y las solicitudes de revisión, en Soporte.</p></div>
       <div class="card"><h2>Publicaciones recientes <span id="ghRecientesCantidad">Sin consultar</span></h2><p>Ya publicadas en los últimos diez días. Esta lista sirve para revisar; no son pendientes de aprobación.</p><button onclick="ghGoView('recientes')">Ver publicaciones recientes</button></div>
 
-      <div class="card" id="ghBirthdaySummary"><h2>Cumpleaños · Próximos 30 días</h2><p>Hoy y los próximos 29 días. Cuentas activas con fecha de nacimiento declarada válida; la edad no está verificada.</p><div id="ghBirthdayContent">Sin consultar</div><div class="actions"><button class="sec" onclick="ghBirthdayRefreshV83()">Actualizar resumen</button><button id="ghBirthdayPrepare" hidden onclick="ghBirthdayPrepareV83()">Preparar resumen de cuentas existentes</button></div></div>
+      <div class="card" id="ghBirthdaySummary"><h2>Cumpleaños · Próximos 7 días</h2><p>Hoy y los próximos seis días, a partir del listado general diario de cuentas activas.</p><div id="ghBirthdayContent">Sin consultar</div><div class="actions"><button class="sec" onclick="ghBirthdayRefreshV83()">Ver listado diario</button><button id="ghBirthdayPrepare" hidden onclick="ghBirthdayPrepareV83()">Preparar listado general inicial</button></div></div>
       
     </section>
     <section id="view-efemerides" class="view">
@@ -463,16 +463,24 @@ let GH_CATALOG_CACHE={};
 // Configuracion estable de Gran Hermano: un solo paquete en memoria por sesion.
 // El soporte se anuncia desde /superadmin/dashboard; Worker antiguo: sin solicitud extra.
 let GH_FIXED_SUPPORTED169=false,GH_FIXED_PACKET169=null,GH_FIXED_PROMISE169=null;
+let GH_DAILY_ENTRY195=null;
+function ghFixedApply195(j){
+ GH_FIXED_PACKET169=j;
+ for(const [tipo,rows]of Object.entries(j.catalogos||{}))if(Array.isArray(rows))GH_CATALOG_CACHE[tipo]=rows;
+ GH_FUNC_GLOBAL166=j.reglas;if(j.precios?.precios)GH_PRECIOS_ESTADO162=j.precios;
+}
+function ghDailyApply195(j){
+ GH_DAILY_ENTRY195=j.entrada;
+ if(j.entrada.fixed)ghFixedApply195(j.entrada.fixed);
+ ghTerritoryApply195(j.entrada.territory);
+}
 function ghFixedLoad169(){
  if(!GH_FIXED_SUPPORTED169)return Promise.resolve(null);
  if(GH_FIXED_PACKET169)return Promise.resolve(GH_FIXED_PACKET169);
  if(GH_FIXED_PROMISE169)return GH_FIXED_PROMISE169;
  GH_FIXED_PROMISE169=ghAdminRequest_('/gh/fixed').then(j=>{
   if(!j?.success||j.version!==169||!j.catalogos||!j.reglas)throw Error('Paquete de configuracion incompatible');
-  GH_FIXED_PACKET169=j;
-  for(const [tipo,rows] of Object.entries(j.catalogos))if(Array.isArray(rows))GH_CATALOG_CACHE[tipo]=rows;
-  GH_FUNC_GLOBAL166=j.reglas;
-  if(j.precios?.precios)GH_PRECIOS_ESTADO162=j.precios;
+  ghFixedApply195(j);
   return j;
  }).catch(e=>{
   console.warn('Paquete fijo de Gran Hermano no disponible, se usa consulta individual:',e);
@@ -986,6 +994,7 @@ let GH_SUPPORT_ACTIVE_COUNT=null;
 async function ghCargarSoporteV73(prefetched=null){
  const card=document.getElementById('ghSoporteCard'),box=document.getElementById('ghSoporteLista');
  const local=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';card.style.display=local?'none':'';const supportTab=document.getElementById('tabSoporte');if(supportTab)supportTab.hidden=local;document.getElementById('ghSupportJump').hidden=local;if(local)return;
+ if(prefetched)document.getElementById('ghSoporteEstado').value='ABIERTAS';
  box.textContent='Cargando solicitudes...';
  try{const result=(prefetched&&document.getElementById('ghSoporteEstado').value==='ABIERTAS')?prefetched:await ghAdminRequest_('/support/requests',{estado:document.getElementById('ghSoporteEstado').value});GH_SUPPORT_ROWS=result.results||[];if(document.getElementById('ghSoporteEstado').value==='ABIERTAS'){GH_SUPPORT_ACTIVE_COUNT=GH_SUPPORT_ROWS.length;ghRenderRequestSummary();}
  document.getElementById('ghSoporteResumen').textContent=result.cantidades.recuperacion+' de acceso · '+result.cantidades.soporte+' de soporte';
@@ -1043,7 +1052,7 @@ async function login(){
     if(!r.ok||!j.success||!j.token) throw new Error(j.message||'No se recibió una sesión válida.');
     TOKEN=j.token;
     localStorage.setItem('gld_superadmin_token',TOKEN);
-    await abrirApp();
+    await abrirApp(j.entry_version===195?(j.entrada?j:{success:false,code:j.entrada_pendiente?.code||'GH_DAILY_NOT_PREPARED',message:j.entrada_pendiente?.message||'La copia diaria de Inicio todavía no está preparada.'}):null);
   }catch(e){
     window.gldConsumoAdminV68?.('');
     if(!TOKEN)localStorage.removeItem('gld_superadmin_token');
@@ -1053,23 +1062,26 @@ async function login(){
   }
 }
 
-async function abrirApp(){
+async function abrirApp(prefetched=null){
   try{
-    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/dashboard',{
+    const r=prefetched?{ok:prefetched.success===true,status:prefetched.success?200:503,json:async()=>prefetched}:await fetch(TERRITORY_API_ORIGIN+'/superadmin/dashboard',{
       headers:{Authorization:'Bearer '+TOKEN}
     });
     const j=await r.json();
-    if(!r.ok||!j.success) throw Object.assign(new Error(j.message||'No se pudo recuperar la cuenta.'),{status:r.status});
+    if(!r.ok||!j.success) throw Object.assign(new Error(j.message||'No se pudo recuperar la cuenta.'),{status:r.status,code:j.code});
 
     ghApplyAccessV72();
+    const workerInfo=j.worker_info||{version:Number(r.headers?.get('X-GLD-Worker-Version')||0),event_scope_version:1};
+    window.GLD_ADMIN_WORKER_INFO195=workerInfo;window.dispatchEvent(new CustomEvent('gld-admin-entry195',{detail:workerInfo}));
     GH_FIXED_SUPPORTED169=j.gh_fixed_packet_version===169;GH_FUNC_SAVE_READY170=Number(j.functional_settings_version)>=170;
-    if(GH_FIXED_SUPPORTED169)ghFixedLoad169();
-    document.getElementById('ghSesionConexionEstado').textContent='';
+    if(j.entry_version===195&&j.entrada)ghDailyApply195(j);
+    else if(GH_FIXED_SUPPORTED169)ghFixedLoad169();
+    document.getElementById('ghSesionConexionEstado').textContent=GH_DAILY_ENTRY195?.preparado_en?'Copia diaria: '+new Date(GH_DAILY_ENTRY195.preparado_en).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}):'';
     window.ghCalendarDashboardV83?.(j.cumpleanos);
     window.gldConsumoAdminV68?.(TOKEN);
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
-    document.getElementById('stSus').textContent=j.resumen.suscriptores;
+    document.getElementById('stSus').textContent=j.resumen.suscriptores??'—';
     document.getElementById('stAnu').textContent=j.resumen.anunciantes;
     document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
     const vip=document.getElementById('stEvtPub'); if(vip) vip.textContent='-';
@@ -1077,7 +1089,7 @@ async function abrirApp(){
     const act=document.getElementById('stActPub'); if(act) act.textContent='-';
     GH_CITY_STATS={};
 
-    ghRevisionUnificada().catch(e=>console.warn('Pendientes:',e));
+    ghRevisionUnificada(GH_DAILY_ENTRY195?.inbox||null).catch(e=>console.warn('Pendientes:',e));
     ghRenderTodo();
     ghRestaurarNavegacion();
   }catch(e){
@@ -1092,7 +1104,8 @@ async function abrirApp(){
       document.getElementById('app').style.display='block';
       ghApplyAccessV72();
       document.getElementById('ghSesionConexionEstado').textContent='No se pudo actualizar el resumen. Tu sesión sigue abierta.';
-      ghRestaurarNavegacion();
+      if(e.code!=='GH_DAILY_NOT_PREPARED')ghRestaurarNavegacion();
+      else document.getElementById('ghSesionConexionEstado').textContent=e.message;
     }
   }
 }
@@ -1176,12 +1189,7 @@ async function ghCargarEventosPublicos(){
   }
   ghRenderEventos();
 }
-async function ghCargarCiudades(){
-  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/territory',{
-    headers:{Authorization:'Bearer '+TOKEN}
-  });
-  const j=await r.json();
-  if(!r.ok||!j.success) throw new Error(j.message||'No se pudo cargar Territorio.');
+function ghTerritoryApply195(j){
   GH_CITIES=Array.isArray(j.ciudades)?j.ciudades:[];
   GH_COUNTRIES=Array.isArray(j.paises)?j.paises:[];
   GH_PROVINCES=Array.isArray(j.provincias)?j.provincias:[];
@@ -1194,6 +1202,17 @@ async function ghCargarCiudades(){
   const a=document.getElementById('evCiudad');if(a)a.innerHTML=opts;
   const b=document.getElementById('anuCiudad');if(b)b.innerHTML=opts;
 }
+let GH_TERRITORY_PENDING195=null;
+async function ghCargarCiudades(){
+ if(GH_DAILY_ENTRY195?.territory){ghTerritoryApply195(GH_DAILY_ENTRY195.territory);return;}
+ if(GH_TERRITORY_PENDING195)return GH_TERRITORY_PENDING195;
+ GH_TERRITORY_PENDING195=(async()=>{
+  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/territory',{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();
+  if(!r.ok||!j.success)throw new Error(j.message||'No se pudo cargar Territorio.');
+  ghTerritoryApply195(j);
+ })().finally(()=>{GH_TERRITORY_PENDING195=null;});return GH_TERRITORY_PENDING195;
+}
+
 function ghDetalleEvento(x){
   const arr=[['ID',ghEventId(x)],['Nombre',ghEventName(x)],['Fecha de nacimiento declarada',x.fecha_nacimiento],['Estado',x.activo===false?'Inactivo':x.activo===true?'Activo':x.estado],['Ciudad',x.ciudad_visible||x.ciudad_id],['Categoría',x.categoria],['Lugar',x.lugar],['Dirección',x.direccion],['Fecha desde',x.fecha_desde],['Fecha hasta',x.fecha_hasta],['Hora',x.hora||x.hora_unificada],['Organizador',x.organizador||x.organizador_principal],['Descripción',x.descripcion],['Entradas',x.entradas],['Instagram',x.instagram],['YouTube',x.youtube]].filter(function(p){return String(p[1]||'').trim();});
   return arr.map(function(p){return '<div style="margin:5px 0"><b>'+esc(p[0])+':</b> '+esc(p[1])+'</div>';}).join('')+'<details style="margin-top:8px"><summary>Datos técnicos completos</summary><pre>'+esc(JSON.stringify(x,null,2))+'</pre></details>';
@@ -3661,7 +3680,7 @@ window.addEventListener('resize',informarAltura);
 if(TOKEN) abrirApp();
 informarAltura();
 </script>
-<script src="/plataforma/contenido-adulto.js?v=67" data-adult-editor></script><script>
+<script src="/plataforma/contenido-adulto.js?v=195" data-adult-editor data-admin-entry195></script><script>
 async function ghPublicacionesV77(){
  const box=document.getElementById('ghRecientesV77'),count=document.getElementById('ghRecientesCantidad');box.textContent='Cargando...';count.textContent='…';
  try{
@@ -3722,11 +3741,12 @@ function ghRenderReviewQueues(){
  box.innerHTML=defs.map(([key,label,kind])=>{const tipo=key==='EVENTO_FREE'?'EVENTO':key;const n=GH_REVISION_ROWS.filter(x=>x.tipo===tipo&&(!kind||ghPendingKind(x)===kind)).length;return '<button class="'+(n?'needs-attention':'clear-status')+'" onclick="ghGoPending(\''+key+'\')">'+label+': '+(GH_REVISION_READY?n:'Sin comprobar')+'</button>';}).join('')+GH_REVISION_ERRORS.map(e=>'<p class="error">'+esc(e.message||e)+'</p>').join('');
  document.getElementById('ghApprovalSummary')?.classList.toggle('has-pending',GH_REVISION_ROWS.length>0);
 }
-async function ghRevisionUnificada(){
+async function ghRevisionUnificada(prefetched=null){
  if(GH_REVISION_LOADING)return GH_REVISION_LOADING;
  GH_REVISION_LOADING=(async()=>{
-  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/inbox',{headers:{Authorization:'Bearer '+TOKEN}});
-  const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo consultar el buzón');
+  let j=prefetched;
+  if(!j){const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/inbox',{headers:{Authorization:'Bearer '+TOKEN}});j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo consultar el buzón');}
+  if(!j.success)throw new Error(j.message||'La copia de la bandeja no está disponible.');
   GH_PENDING_EVENTS=j.moderation.eventos||[];
   GH_PENDING_ACTIVITIES=j.moderation.actividades||[];
   GH_PENDING_ADVERTISERS=j.moderation.anunciantes||[];

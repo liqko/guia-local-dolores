@@ -87,7 +87,7 @@ async function load(key,reset=false,force=false,page=0){
 }
 const oldGo=ghGoView,oldEvents=ghRenderEventos;
 ghRenderEventos=function(){if(GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL')return oldEvents();};
-ghGoView=function(name,options){oldGo(name,options);if(GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL')return;ensure();if(!GH_CITIES.length)ghCargarCiudades().then(()=>Object.keys(defs).forEach(updateCities));
+ghGoView=function(name,options){oldGo(name,options);if(GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL')return;ensure();if((name==='eventos'||defs[name]||name==='anunciantes'||name==='suscriptores')&&!GH_CITIES.length)ghCargarCiudades().then(()=>Object.keys(defs).forEach(updateCities));
  if(name==='eventos'){load('vip');load('free');}else if(defs[name])load(name);else if(name==='anunciantes')search('anunciantes');else if(name==='suscriptores')search('suscriptores');
 };
 ghPublicidadLoad101=()=>load('publicidad');ghPublicidadPrepare101=()=>prepare('publicidad');window.ghPromosLoadV91=(force=false)=>load('promos',false,force);window.ghPromosPrepareV91=()=>prepare('promos');

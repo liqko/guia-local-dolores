@@ -1,9 +1,24 @@
 (function(){
  const origin='https://login.liqkoargentina.workers.dev',key='gld_adult_access_v67',nativeFetch=window.fetch.bind(window);
- const editor=!!document.querySelector('script[data-adult-editor]');
+ const editor=document.querySelector('script[data-adult-editor]');
  if(editor){
-  nativeFetch(origin+'/').then(r=>r.json()).then(j=>{window.GLD_EVENT_SCOPE_SUPPORTED=Number(j.version)>=145&&Number(j.event_scope_version)===1;window.GLD_ADULT_SUPPORTED=Number(j.version)>=67;window.GLD_PROMOS_MODERATION_SUPPORTED=Number(j.version)>=108;window.GLD_EVENT_VIRTUAL_SUPPORTED=Number(j.version)>=70;const enable=()=>{document.querySelectorAll('[data-adult-selector]').forEach(x=>{x.disabled=x.id==='promo-adulto'?!window.GLD_PROMOS_MODERATION_SUPPORTED:!window.GLD_ADULT_SUPPORTED;x.title=x.disabled?'La actualización de esta función todavía no está disponible.':'';});document.querySelectorAll('[data-event-selector],[data-event-virtual-option]').forEach(x=>{x.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;x.title=x.disabled?'Requiere Worker V70':'';});document.querySelectorAll('[data-event-scope-selector]').forEach(x=>{x.disabled=!window.GLD_EVENT_SCOPE_SUPPORTED;x.title=x.disabled?'Requiere instalar el Worker145':'';});};enable();new MutationObserver(enable).observe(document.body,{childList:true,subtree:true});}).catch(()=>{});return;
+  let observed=false;
+  const enable=()=>{
+   document.querySelectorAll('[data-adult-selector]').forEach(x=>{x.disabled=x.id==='promo-adulto'?!window.GLD_PROMOS_MODERATION_SUPPORTED:!window.GLD_ADULT_SUPPORTED;x.title=x.disabled?'La actualización de esta función todavía no está disponible.':'';});
+   document.querySelectorAll('[data-event-selector],[data-event-virtual-option]').forEach(x=>{x.disabled=!window.GLD_EVENT_VIRTUAL_SUPPORTED;x.title=x.disabled?'Requiere Worker V70':'';});
+   document.querySelectorAll('[data-event-scope-selector]').forEach(x=>{x.disabled=!window.GLD_EVENT_SCOPE_SUPPORTED;x.title=x.disabled?'Requiere instalar el Worker145':'';});
+  };
+  const apply=j=>{
+   window.GLD_EVENT_SCOPE_SUPPORTED=Number(j.version)>=145&&Number(j.event_scope_version)===1;window.GLD_ADULT_SUPPORTED=Number(j.version)>=67;window.GLD_PROMOS_MODERATION_SUPPORTED=Number(j.version)>=108;window.GLD_EVENT_VIRTUAL_SUPPORTED=Number(j.version)>=70;
+   enable();if(!observed){observed=true;new MutationObserver(enable).observe(document.body,{childList:true,subtree:true});}
+  };
+  if(editor.hasAttribute('data-admin-entry195')){
+   apply(window.GLD_ADMIN_WORKER_INFO195||{});
+   window.addEventListener('gld-admin-entry195',event=>apply(event.detail||{}));
+  }else nativeFetch(origin+'/').then(r=>r.json()).then(apply).catch(()=>{});
+  return;
  }
+
  const style=document.createElement('style');
  style.textContent=`
  .gld-adult-surface{font-family:inherit;font-style:normal;color:#0f2e58;box-sizing:border-box}

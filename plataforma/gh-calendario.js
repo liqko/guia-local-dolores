@@ -11,10 +11,14 @@ async function get(path,force=false){
 }
 function birthdays(data){
  const box=el('ghBirthdayContent');if(!box)return;
- if(!data){box.textContent='Requiere desplegar el Worker V91 para mostrar este resumen.';el('ghBirthdayPrepare').hidden=true;return;}
- el('ghBirthdayPrepare').hidden=data.preparado;
- if(!data.preparado){box.textContent='Resumen todavía sin preparar. La preparación actualiza el índice existente o lee las cuentas una sola vez; las consultas posteriores usan caché.';return;}
- box.innerHTML='<div class="grid"><div class="stat"><span>Cumpleaños</span><b>'+esc(data.total)+'</b></div><div class="stat"><span>Cumplen 18 o más</span><b>'+esc(data.mayores18)+'</b></div><div class="stat"><span>Cumplen menos de 18</span><b>'+esc(data.menores18)+'</b></div></div><p>'+esc(dateLabel(data.desde))+' al '+esc(dateLabel(data.hasta))+'</p>'+'<details><summary>Ver cantidades por día</summary>'+data.dias.map(d=>'<div class="item">'+esc(dateLabel(d.fecha))+' · '+esc(d.total)+' persona(s)</div>').join('')+'</details>';
+ if(data?.periodo_dias!==7){el('ghBirthdayPrepare').hidden=true;box.textContent='Falta activar la versión del listado general diario. La versión anterior devuelve otro resumen.';return;}
+ el('ghBirthdayPrepare').hidden=!!data?.preparado;
+ if(!data?.preparado){box.textContent='El listado general diario todavía no está preparado. No se consultan cuentas al abrir esta pantalla.';return;}
+ box.replaceChildren();
+ const range=document.createElement('p');range.textContent=dateLabel(data.desde)+' al '+dateLabel(data.hasta);box.appendChild(range);
+ if(!data.results?.length){const empty=document.createElement('p');empty.textContent='No hay cumpleaños en estos siete días dentro de la copia diaria.';box.appendChild(empty);}
+ for(const person of data.results||[]){const row=document.createElement('div');row.className='item';row.textContent=dateLabel(person.fecha)+' · '+(person.nombre||person.suscriptor_id);box.appendChild(row);}
+ if(data.preparado_en){const updated=document.createElement('p');updated.className='muted';updated.textContent='Listado general preparado: '+new Date(data.preparado_en).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'});box.appendChild(updated);}
  window.informarAltura?.();
 }
 window.ghCalendarDashboardV83=function(data){el('ghBirthdaySummary').hidden=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';birthdays(data);};
