@@ -6,7 +6,7 @@
 // La etiqueta worker-v129.js que muestra Cloudflare es el nombre
 // técnico heredado del archivo de carga, no esta versión.
 // Comprobación sin Firestore ni KV: GET /__version
-// GUÍA LOCAL - WORKER 197 - IDENTIFICACIÓN DE VERSIÓN (base 162)
+// GUÍA LOCAL - WORKER 198 - IDENTIFICACIÓN DE VERSIÓN (base 162)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -1856,7 +1856,7 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 197</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 197</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 198</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 198</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
     return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
@@ -2914,6 +2914,52 @@ async function commercePanelData({ db, advertiserId, catalogs }) {
     }
   };
 }
+async function commerceLoadLimitsV153({db,cache,advertiserId}){
+ // La ficha carga el máximo del nivel 6; el nivel contratado sólo modifica la tarjeta pública.
+ // La configuración se obtiene del cache, sin leer administración del anunciante.
+ const catalogs=await getCommerceCatalogs(cache);
+ const grupo='comercial';
+ const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
+ const fallback={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:0};
+ const get=key=>{
+  const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
+  const value=Number(raw);
+  if(!Number.isSafeInteger(value)||value<0)throw Error('Configuración inválida: '+key);
+  return value;
+ };
+ const allowed=cfg['carga_'+grupo+'_prestaciones'];
+ const prestaciones=Array.isArray(allowed)?allowed.filter(x=>['tarjetas','efectivo','transferencia','delivery','retiro','reservas','turnos','accesibilidad','estacionamiento','wifi'].includes(x)):null;
+ return {actividad:get('actividad'),descripcion:get('descripcion'),tags:get('tags'),categorias:get('categorias'),imagenes:get('imagenes'),redes:get('redes'),sedes:get('sedes'),prestaciones};
+}
+/** @param {{db:any,cache:any,advertiserId:any,patch:any,limits?:any}} options */
+async function validateCommerceFieldsV86(options){
+ const {db,cache,advertiserId,patch,limits}=options;
+ const fields=Object.keys(patch).filter(k=>['actividad','descripcion','tags','categoria_ids','redes_web_comunes'].includes(k)||/^img\d+$/.test(k));
+ if(!fields.length)return;
+ const cfg=limits||await commerceLoadLimitsV153({db,cache,advertiserId});
+ for(const key of fields){
+   if(key==='categoria_ids'){
+     const selected=ids(patch.categoria_ids);
+     if(new Set(selected).size!==selected.length)throw Error('No repitas categorías del anunciante.');
+     if(selected.length>Math.min(3,cfg.categorias))throw Error('Podés seleccionar hasta '+Math.min(3,cfg.categorias)+' categorías.');
+     continue;
+   }
+   if(key==='redes_web_comunes'){
+     const comunes=patch.redes_web_comunes;
+     if(comunes?.habilitado===true){
+       const cantidad=['instagram','facebook','youtube','tiktok','linkedin','x'].filter(k=>text(comunes[k])).length;
+       if(cantidad>cfg.redes)throw Error('Las redes compartidas superan el máximo de '+cfg.redes+' redes configurado en Niveles.');
+     }
+     continue;
+   }
+   const image=/^img\d+$/.test(key),field=image?'imagenes':key,max=cfg[field];
+   const value=String(patch[key]??'');
+   if(image){
+    if(value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas por sede.');
+   }else if((max===0&&value.length>0)||(max>0&&value.length>max))throw Error(max===0?'El campo '+key+' no admite carga según la configuración de Niveles.':'El campo '+key+' supera '+max+' caracteres de carga.');
+ }
+}
+
 async function commerceSetDatos({ db, cache, advertiserId, body }) {
   const reserved = /* @__PURE__ */ new Set(["action", "accion", "id", "__id", "comercio_id", "advertiserId", "advertiser_id"]);
   const patch = { actualizado_en: (/* @__PURE__ */ new Date()).toISOString() };
@@ -3410,7 +3456,8 @@ function freeEventAssignedQuota114(admin){
  for(const v of [cfg.cantidad,cfg.cupo,cfg.max,cfg.maximo,admin?.eventos_free_cant]){if(v===undefined||v===null||v==='')continue;const n=Number(v);if(Number.isSafeInteger(n)&&n>=0)return n;}
  return 4;
 }
-/** @param {any} descripcion @param {any} policy */
+/** @param {any} descripcion
+ *  @param {any} policy */
 function gldValidarDescripcionFree167(descripcion,policy){
  if(policy?.descripcion_sin_limites)return;
  const max=policy?.descripcion_max;
@@ -3448,7 +3495,8 @@ function freeEventMonthV95(value=Date.now()){
 function freeEventMonthlyRowsV95(rows,month){
  return rows.filter(isFree).filter(e=>(e.cupo_mes||freeEventMonthV95(e.fecha_carga||e.creado))===month);
 }
-/** @param {any} row @param {any} policy */
+/** @param {any} _row
+ *  @param {any} _policy */
 function freeEventEditDateV95(_row,_policy){return '';}
 function freeEventValidateConfigured198(data,policy){
  if(!policy||policy.sin_limites)return;
@@ -6182,52 +6230,6 @@ async function commercePanelDataV3({db,advertiserId,catalogs}){
     nodos:catalogs.nodos||[],funcionalidades:catalogs.funcionalidades||[],
     niveles_anunciante:catalogs.niveles_anunciante||[]
   }};
-}
-
-async function commerceLoadLimitsV153({db,cache,advertiserId}){
- // La ficha carga el máximo del nivel 6; el nivel contratado sólo modifica la tarjeta pública.
- // La configuración se obtiene del cache, sin leer administración del anunciante.
- const catalogs=await getCommerceCatalogs(cache);
- const grupo='comercial';
- const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
- const fallback={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:0};
- const get=key=>{
-  const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
-  const value=Number(raw);
-  if(!Number.isSafeInteger(value)||value<0)throw Error('Configuración inválida: '+key);
-  return value;
- };
- const allowed=cfg['carga_'+grupo+'_prestaciones'];
- const prestaciones=Array.isArray(allowed)?allowed.filter(x=>['tarjetas','efectivo','transferencia','delivery','retiro','reservas','turnos','accesibilidad','estacionamiento','wifi'].includes(x)):null;
- return {actividad:get('actividad'),descripcion:get('descripcion'),tags:get('tags'),categorias:get('categorias'),imagenes:get('imagenes'),redes:get('redes'),sedes:get('sedes'),prestaciones};
-}
-/** @param {{db:any,cache:any,advertiserId:any,patch:any,limits?:any}} options */
-async function validateCommerceFieldsV86(options){
- const {db,cache,advertiserId,patch,limits}=options;
- const fields=Object.keys(patch).filter(k=>['actividad','descripcion','tags','categoria_ids','redes_web_comunes'].includes(k)||/^img\d+$/.test(k));
- if(!fields.length)return;
- const cfg=limits||await commerceLoadLimitsV153({db,cache,advertiserId});
- for(const key of fields){
-   if(key==='categoria_ids'){
-     const selected=ids(patch.categoria_ids);
-     if(new Set(selected).size!==selected.length)throw Error('No repitas categorías del anunciante.');
-     if(selected.length>Math.min(3,cfg.categorias))throw Error('Podés seleccionar hasta '+Math.min(3,cfg.categorias)+' categorías.');
-     continue;
-   }
-   if(key==='redes_web_comunes'){
-     const comunes=patch.redes_web_comunes;
-     if(comunes?.habilitado===true){
-       const cantidad=['instagram','facebook','youtube','tiktok','linkedin','x'].filter(k=>text(comunes[k])).length;
-       if(cantidad>cfg.redes)throw Error('Las redes compartidas superan el máximo de '+cfg.redes+' redes configurado en Niveles.');
-     }
-     continue;
-   }
-   const image=/^img\d+$/.test(key),field=image?'imagenes':key,max=cfg[field];
-   const value=String(patch[key]??'');
-   if(image){
-    if(value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas por sede.');
-   }else if((max===0&&value.length>0)||(max>0&&value.length>max))throw Error(max===0?'El campo '+key+' no admite carga según la configuración de Niveles.':'El campo '+key+' supera '+max+' caracteres de carga.');
- }
 }
 
 async function commerceSetDatosV3({db,cache,advertiserId,body}){
