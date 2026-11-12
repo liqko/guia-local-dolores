@@ -1626,6 +1626,9 @@ const GH_FUNCTION_DEFS=[
  {id:'EFEMERIDES_LOCAL',name:'Efemérides locales',aliases:['EF LOCAL'],territory:'ciudades',all:'todas_ciudades'}
 ];
 let GH_FUNCTION_CONFIG={},GH_FUNCTION_EXTRA=[],GH_FUNCTION_USAGE={},GH_AD_EDITED147=false,GH_AD_SUPPORTED147=false;
+const GH_INFO_ANUNCIANTE_PERMISSION_IDS=new Set(['MODIFICAR','MODIFICAR_DATOS','INFORMACION_ANUNCIANTE','INFORMACIÓN DEL ANUNCIANTE']);
+let GH_INFO_ANUNCIANTE_HIDDEN_IDS=[];
+function ghInfoAnunciantePermission_(id){return GH_INFO_ANUNCIANTE_PERMISSION_IDS.has(ghFunctionKey_(id));}
 function ghFunctionTruth_(v){return v===true||v===1||['true','1','si','sí','x','activo','activa'].includes(String(v??'').trim().toLowerCase());}
 function ghFunctionKey_(v){let s=String(v??'').trim();try{s=decodeURIComponent(s)}catch(_){}return s.toUpperCase();}
 function ghFunctionKeys_(v){return (Array.isArray(v)?v:String(v??'').split(/[;,|\n]/)).map(ghFunctionKey_).filter(Boolean);}
@@ -1759,8 +1762,9 @@ function ghFunctionEditor_(adm,catalog,usage){
  GH_FUNCTION_USAGE=usage||{};
  GH_FUNCTION_CONFIG=structuredClone(adm.funcionalidades_config||{});
  const known=new Set(GH_FUNCTION_DEFS.flatMap(d=>[d.id,...d.aliases||[]]));
- const extra=new Map();for(const x of catalog||[]){const id=ghFunctionKey_(x.funcionalidad_id||x.id);if(id&&!known.has(id))extra.set(id,{id,name:x.nombre||id});}
- for(const id of ghFunctionKeys_(adm.funcionalidades))if(!known.has(id)&&!extra.has(id))extra.set(id,{id,name:id});
+ GH_INFO_ANUNCIANTE_HIDDEN_IDS=ghFunctionKeys_(adm.funcionalidades).filter(ghInfoAnunciantePermission_);
+ const extra=new Map();for(const x of catalog||[]){const id=ghFunctionKey_(x.funcionalidad_id||x.id);if(id&&!known.has(id)&&!ghInfoAnunciantePermission_(id))extra.set(id,{id,name:x.nombre||id});}
+ for(const id of ghFunctionKeys_(adm.funcionalidades))if(!known.has(id)&&!ghInfoAnunciantePermission_(id)&&!extra.has(id))extra.set(id,{id,name:id});
  GH_FUNCTION_EXTRA=[...extra.values()];
  return [...GH_FUNCTION_DEFS,...GH_FUNCTION_EXTRA].map(def=>{
   const record=(catalog||[]).find(x=>[def.id,...def.aliases||[]].includes(ghFunctionKey_(x.funcionalidad_id||x.id)));
@@ -1912,6 +1916,7 @@ async function detalleAnu(id){
     const segActual=String(a.segmento_id||''); const segOpts='<option value="">Sin segmento</option>'+(segJ.results||[]).filter(x=>x.activo!==false).map(x=>{const v=String(x.segmento_id||x.id||'');return '<option value="'+esc(v)+'" '+(segActual===v?'selected':'')+'>'+esc(x.nombre||v)+'</option>';}).join('');
     const catsActual=new Set(Array.isArray(a.categoria_ids)?a.categoria_ids.map(String):[]); const cats=(catJ.results||[]).filter(x=>x.activo!==false).map(x=>{const v=String(x.categoria_id||x.id||'');return '<label><input type="checkbox" data-anu-cat="'+esc(v)+'" '+(catsActual.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');
     const funcs=ghFunctionEditor_(adm,funJ.results||[],j.uso_funcionalidades);
+    const infoLimitsHtml=ghInfoAnuncianteCuposRender_(nivJ.results||[]);
     const actCat=actJ.results||[], accCat=accJ.results||[], nodoCat=nodoJ.results||[];
     const sedes=(j.sedes||[]).map(s=>ghSedeEditor_(s,actCat,accCat,nodoCat,a.redes_web_comunes)).join('');
     const contrato=adm.contratacion_actual;
@@ -1922,7 +1927,7 @@ async function detalleAnu(id){
       Object.entries(contrato.funcionalidades||{}).filter(([,n])=>n>0).map(([k,n])=>'<li>'+esc(({EVENTOS:'Eventos VIP',ACTIVIDADES:'Actividades',PROMOS:'Promociones',PUBLICIDAD:'Publicidad'})[k]||k)+': '+esc(n)+'</li>').join('')+
       '</ul></details>':
       '';
-    box.innerHTML='<h3>'+esc(nombre)+'</h3><div class="muted" style="margin-bottom:12px">ID: '+esc(id)+'</div>'+contratoHtml+'<details class="card" open><summary><b>Funcionalidades</b></summary><div class="function-grid">'+funcs+'</div></details><details class="card"><summary><b>Ficha y clasificación</b></summary><h3 style="margin-top:16px">Publicación de la ficha</h3><div class="checks"><label><input id="anuAprobado" type="checkbox" '+(adm.aprobado===true?'checked':'')+'> Publicado / aprobado</label></div><label>Contenido para mayores de 18 años<select id="anuAdulto" data-adult-selector disabled><option value="false" '+(a.contenido_adulto===true?'':'selected')+'>No · Para todas las edades</option><option value="true" '+(a.contenido_adulto===true?'selected':'')+'>Sí · +18</option></select></label><h3 style="margin-top:16px">Clasificación comercial</h3><div class="classification-stack"><div><label>Segmento</label><select id="anuSegmento">'+segOpts+'</select></div><div><label>Nivel</label><select id="anuNivel">'+nivelOpts+'</select></div><div><label>Subnivel</label><input id="anuSubnivel" value="'+esc(adm.subnivel||'')+'"></div></div><details><summary><b>Categorías</b></summary><div class="checks">'+(cats||'<span class="muted">Sin categorías cargadas.</span>')+'</div></details><h3 style="margin-top:16px">Insignias de distinción</h3><div class="checks"><label><input id="anuVerificado" type="checkbox" '+(adm.verificado===true?'checked':'')+'> Verificado</label><label><input id="anuGold" type="checkbox" '+(adm.gold===true?'checked':'')+'> Gold</label><label hidden><input id="anuPet" type="checkbox" '+(a.pet===true?'checked':'')+'> Pet friendly</label><label hidden><input id="anuEco" type="checkbox" '+(a.eco===true?'checked':'')+'> Eco friendly</label><label hidden><input id="anuGay" type="checkbox" '+(a.gayfriendly===true?'checked':'')+'> Gay friendly</label></div></details><details class="card"><summary><b>Sedes y relaciones</b></summary>'+(sedes||'<div class="muted">Sin sedes cargadas.</div>')+'</details><div class="save-bar"><button id="btnGuardarAnu" onclick="guardarAnuncianteComercial()">Guardar cambios</button><span id="anuGuardarMsg" role="status" aria-live="polite"></span></div>';
+    box.innerHTML='<h3>'+esc(nombre)+'</h3><div class="muted" style="margin-bottom:12px">ID: '+esc(id)+'</div>'+contratoHtml+'<details class="card" open><summary><b>Funcionalidades</b></summary><div class="function-grid">'+funcs+'</div></details>'+infoLimitsHtml+'<details class="card"><summary><b>Ficha y clasificación</b></summary><h3 style="margin-top:16px">Publicación de la ficha</h3><div class="checks"><label><input id="anuAprobado" type="checkbox" '+(adm.aprobado===true?'checked':'')+'> Publicado / aprobado</label></div><label>Contenido para mayores de 18 años<select id="anuAdulto" data-adult-selector disabled><option value="false" '+(a.contenido_adulto===true?'':'selected')+'>No · Para todas las edades</option><option value="true" '+(a.contenido_adulto===true?'selected':'')+'>Sí · +18</option></select></label><h3 style="margin-top:16px">Clasificación comercial</h3><div class="classification-stack"><div><label>Segmento</label><select id="anuSegmento">'+segOpts+'</select></div><div><label>Nivel</label><select id="anuNivel">'+nivelOpts+'</select></div><div><label>Subnivel</label><input id="anuSubnivel" value="'+esc(adm.subnivel||'')+'"></div></div><details><summary><b>Categorías</b></summary><div class="checks">'+(cats||'<span class="muted">Sin categorías cargadas.</span>')+'</div></details><h3 style="margin-top:16px">Insignias de distinción</h3><div class="checks"><label><input id="anuVerificado" type="checkbox" '+(adm.verificado===true?'checked':'')+'> Verificado</label><label><input id="anuGold" type="checkbox" '+(adm.gold===true?'checked':'')+'> Gold</label><label hidden><input id="anuPet" type="checkbox" '+(a.pet===true?'checked':'')+'> Pet friendly</label><label hidden><input id="anuEco" type="checkbox" '+(a.eco===true?'checked':'')+'> Eco friendly</label><label hidden><input id="anuGay" type="checkbox" '+(a.gayfriendly===true?'checked':'')+'> Gay friendly</label></div></details><details class="card"><summary><b>Sedes y relaciones</b></summary>'+(sedes||'<div class="muted">Sin sedes cargadas.</div>')+'</details><div class="save-bar"><button id="btnGuardarAnu" onclick="guardarAnuncianteComercial()">Guardar cambios</button><span id="anuGuardarMsg" role="status" aria-live="polite"></span></div>';
     ghRenderAdvertiserAccess155(j,id);
     ghMountProvincePickers_();
     if(catalogFailures){
@@ -1940,7 +1945,7 @@ async function detalleAnu(id){
 function volverAnunciantes(){document.getElementById('anuFicha').classList.add('hidden');document.getElementById('anuListado').classList.remove('hidden');ANUNCIANTE_ACTUAL='';informarAltura();}
 
 function ghAdvertiserFormPayload_(){
-  const categoria_ids=[...document.querySelectorAll('[data-anu-cat]:checked')].map(x=>x.getAttribute('data-anu-cat'));const funcionalidades=[...document.querySelectorAll('[data-anu-fun]:checked')].map(x=>x.getAttribute('data-anu-fun'));
+  const categoria_ids=[...document.querySelectorAll('[data-anu-cat]:checked')].map(x=>x.getAttribute('data-anu-cat'));const funcionalidades=[...new Set([...document.querySelectorAll('[data-anu-fun]:checked')].map(x=>x.getAttribute('data-anu-fun')).concat(GH_INFO_ANUNCIANTE_HIDDEN_IDS))];
     const sedes=[...new Set([...document.querySelectorAll('[data-sede]')].map(x=>x.getAttribute('data-sede')))].map(sede_id=>({sede_id,actividad_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-act]:checked')].map(x=>x.getAttribute('data-rel-act')),accion_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-acc]:checked')].map(x=>x.getAttribute('data-rel-acc')),nodo_ids:[...document.querySelectorAll('[data-sede="'+CSS.escape(sede_id)+'"][data-rel-nodo]:checked')].map(x=>x.getAttribute('data-rel-nodo'))}));
   return {...(window.GLD_ADULT_SUPPORTED?{contenido_adulto:document.getElementById('anuAdulto')?.value==='true'}:{}),anunciante_id:ANUNCIANTE_ACTUAL,nivel:document.getElementById('anuNivel').value,subnivel:document.getElementById('anuSubnivel').value.trim(),segmento_id:document.getElementById('anuSegmento').value,categoria_ids,aprobado:document.getElementById('anuAprobado').checked,verificado:document.getElementById('anuVerificado').checked,gold:document.getElementById('anuGold').checked,pet:document.getElementById('anuPet').checked,eco:document.getElementById('anuEco').checked,gayfriendly:document.getElementById('anuGay').checked,funcionalidades,funcionalidades_config:ghFunctionPayload_(),sedes,ciudad_ids:ANUNCIANTE_CIUDADES};
 }
@@ -2041,6 +2046,52 @@ async function ghGuardarAmbitoCampos(){
   GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).concat([GH_CARGA_GENERAL_BASE]);
   if(msg)msg.textContent='Clasificación guardada (pendiente de aplicar en Login y Guía).';
  }catch(e){if(msg)msg.textContent='Error: '+String(e.message||e);}
+}
+
+function ghInfoAnuncianteCuposRender_(rows){
+ GH_CARGA_GENERAL_BASE=(rows||[]).find(x=>String(x.nivel_id||x.id||'')===GH_CARGA_GENERAL_ID)||null;
+ const cfg=GH_CARGA_GENERAL_BASE||{},grupo='comercial';
+ const fields=GH_CARGA_GENERAL_FIELDS.map(([key,label,fallback])=>{
+   const value=cfg['carga_'+grupo+'_'+key]??cfg['carga_'+key]??fallback;
+   const warning=Number(value)===0?(key==='sedes_max'?'Sin límite de sedes':'Carga no permitida (0)'):'';
+   return '<label>'+esc(label)+'<input type="number" min="0" step="1" data-info-cupo="'+esc(key)+'" value="'+esc(value)+'">'+(warning?'<small style="color:#9a5c0c">'+esc(warning)+'</small>':'')+'</label>';
+ }).join('');
+ const current=cfg['carga_'+grupo+'_prestaciones'];
+ const selected=Array.isArray(current)?current:GH_PRESTACIONES_OPCIONES.map(x=>x[0]);
+ const prestaciones=GH_PRESTACIONES_OPCIONES.map(([key,label])=>'<label style="display:inline-flex;align-items:center;gap:6px;margin:6px 14px 6px 0"><input type="checkbox" data-info-prestacion="'+esc(key)+'" '+(selected.includes(key)?'checked':'')+'>'+esc(label)+'</label>').join('');
+ return '<details class="card"><summary><b>Información del anunciante</b> · Cupos y condiciones de carga</summary>'+
+ '<p class="muted">Parámetros generales de carga y conservación (capacidad máxima del nivel 6). Se aplican a todos los anunciantes comerciales; el nivel contratado sólo determina qué se publica en la Guía.</p>'+
+ '<div class="formgrid">'+fields+'</div><fieldset style="padding:12px;border:1px solid #999;border-radius:8px;margin-top:16px"><legend>Prestaciones que puede cargar el anunciante</legend>'+prestaciones+'</fieldset>'+
+ '<div class="toolbar" style="margin-top:14px"><button type="button" id="ghInfoAnuncianteCuposSave" onclick="ghGuardarInfoAnuncianteCupos_()">Guardar cupos de información</button><span id="ghInfoAnuncianteCuposMsg" role="status"></span></div></details>';
+}
+async function ghGuardarInfoAnuncianteCupos_(){
+ const btn=document.getElementById('ghInfoAnuncianteCuposSave'),msg=document.getElementById('ghInfoAnuncianteCuposMsg');
+ if(btn)btn.disabled=true;
+ if(msg)msg.textContent='Guardando…';
+ try{
+  if(!GH_CATALOG_CACHE.niveles_anunciante)throw Error('No está cargado el catálogo de niveles.');
+  const cfg=GH_CARGA_GENERAL_BASE||{},item={nivel_id:GH_CARGA_GENERAL_ID};
+  for(const [key,label,def] of GH_CARGA_GENERAL_FIELDS){
+   const field=document.querySelector('[data-info-cupo="'+key+'"]');
+   if(!field||!/^\\d+$/.test(field.value.trim()))throw Error('Ingresá un número válido para '+label);
+   const val=Number(field.value);
+   if(!Number.isSafeInteger(val)||val>10000||key==='imagenes_max'&&val>10||key==='redes_max'&&val>6||key==='categorias_max'&&(val<1||val>3))
+      throw Error('Cupo no válido: '+label);
+   const storage='carga_comercial_'+key;
+   if(val!==Number(cfg[storage]??cfg['carga_'+key]??def))item[storage]=val;
+  }
+  const selected=[...document.querySelectorAll('[data-info-prestacion]:checked')].map(x=>x.dataset.infoPrestacion);
+  const current=cfg.carga_comercial_prestaciones;
+  if(!Array.isArray(current)||JSON.stringify(selected)!==JSON.stringify(current))item.carga_comercial_prestaciones=selected;
+  if(Object.keys(item).length===1){if(msg)msg.textContent='Sin cambios.';return;}
+  if(!GH_CARGA_GENERAL_BASE)Object.assign(item,{nombre:'Configuración general de carga de anunciantes',activo:false});
+  const result=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+  if(!result?.success)throw Error('No se confirmó el guardado.');
+  GH_CARGA_GENERAL_BASE={...cfg,...item};
+  GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).concat([GH_CARGA_GENERAL_BASE]);
+  if(msg)msg.textContent='Cupos generales guardados.';
+ }catch(error){if(msg)msg.textContent='Error: '+String(error.message||error);}
+ finally{if(btn)btn.disabled=false;}
 }
 
 function ghCargaGeneralRender(rows){
