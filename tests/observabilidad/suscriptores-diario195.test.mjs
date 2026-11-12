@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import vm from 'node:vm';
 const source=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
-const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;}').toString('base64'));
+const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;} export function setSourceToken196ForTest(){tokenCache.token="local-fixture-token";tokenCache.expiresAt=Date.now()+3600000;}').toString('base64'));
 const day=Date.parse('2026-11-12T04:00:00Z');
 function setup(t,rows){
  let clock=day+60000;t.mock.method(Date,'now',()=>clock);
@@ -67,7 +67,7 @@ test('datos privados no forman parte del registro de tipos públicos y la consul
 
 test('peticiones simultáneas preparan la edición una vez; fallo previo a publicar no crea una lista vacía',async t=>{
  const h=setup(t,people);await Promise.all([h.op('stage'),h.op('stage')]);const preparedReads=h.calls.length;await h.op('stage');assert.equal(h.calls.length,preparedReads);
- const missing=setup(t,null);const p=await missing.op('stage');assert.equal(p.preparado,false);assert.equal(missing.sql.prepare('SELECT * FROM private_subscribers_daily195').all().length,0);
+ const missing=setup(t,null);t.mock.method(globalThis,'fetch',async()=>{throw Error('Fuente no disponible');});await assert.rejects(missing.op('stage'));assert.equal(missing.sql.prepare('SELECT * FROM private_subscribers_daily195').all().length,0);
 });
 test('el mismo protocolo diario read/commit prepara y activa el listado privado sin enviarlo al paquete público',async t=>{
  const h=setup(t,people);h.env.GLD_CITY_BOOK_CAPTURE='1';w.setCityIdentity195ForTest(async()=>true);
@@ -128,4 +128,46 @@ test('un fallo de la edición privada no bloquea ni deja sin confirmar el libro 
  const invoke=async op=>{const report={},request=new Request('https://test.invalid/internal/city-books',{method:'POST',body:JSON.stringify({op,cutoff:day,publishedCutoff:day,known:[]})});const r=await w.routeCityBookCut({request,env:h.env,report});assert.equal(r.status,200);return report;};
  assert.equal((await invoke('read')).private_daily195.status,'pending');assert.equal((await invoke('commit')).private_daily195.status,'pending');assert.equal(publicCommits,1);assert.equal((await h.op('read')).preparado,false);
  failed=false;assert.equal((await invoke('read')).private_daily195.status,'staged');assert.equal((await invoke('commit')).private_daily195.status,'committed');assert.equal((await h.op('read')).results.length,4);assert.equal(publicCommits,2);
+});
+
+
+test('preparación desde fuentes ausentes usa REST Firestore sólo en el publicador y lo contabiliza; entrada posterior no consulta la fuente',async t=>{
+ const h=setup(t,null);h.env.FIREBASE_PROJECT_ID='fixture-local';w.setSourceToken196ForTest();
+ const missing='panel:query:v48:solicitudes_soporte:estado:PENDIENTE';h.raw.delete(missing);h.raw.delete('territorio:admin:v1');h.raw.delete('territorio:public:v1');
+ const calls=[];t.mock.method(globalThis,'fetch',async(input,options)=>{const u=new URL(String(input));assert.equal(u.hostname,'firestore.googleapis.com');calls.push({path:u.pathname,body:options?.body?JSON.parse(options.body):null});
+  if(u.pathname.endsWith(':runQuery'))return Response.json([]);
+  if(u.pathname.endsWith('/suscriptores'))return Response.json({documents:[{name:'projects/fixture-local/databases/(default)/documents/suscriptores/A',fields:{suscriptor_id:{stringValue:'A'},nombre:{stringValue:'Ana'},fecha_nacimiento:{stringValue:'1990-11-12'},activo:{booleanValue:true}}}]});
+  return Response.json({documents:[]});});
+ const report={operations:{}};h.env.__gldRequestReport119=report;
+ const staged=await w.dailySubscribers195(h.env,'stage');assert.equal(staged.results.length,1);assert.equal(staged.results[0].nombre,'Ana');
+ assert(calls.some(c=>c.body?.structuredQuery?.from[0]?.collectionId==='solicitudes_soporte'));assert(calls.some(c=>c.path.endsWith('/paises')));
+ const stats=Object.values(report.operations);assert(stats.some(s=>s.operation==='listCollection'&&s.calls));assert(stats.some(s=>s.operation==='queryEqual'&&s.calls));assert.equal(report.kv.failures,0);
+ await h.op('commit');const count=calls.length;await h.op('read');await h.op('stage');assert.equal(calls.length,count);assert(h.raw.has(missing));
+});
+
+test('primer listado antiguo sin fechas ni índice de cumpleaños se migra desde la fuente una vez, no deja Inicio bloqueado',async t=>{
+ const h=setup(t,[{suscriptor_id:'A',nombre:'Ana'}]);w.setSourceToken196ForTest();let reads=0;
+ t.mock.method(globalThis,'fetch',async(input)=>{assert(new URL(String(input)).pathname.endsWith('/suscriptores'));reads++;return Response.json({documents:[{name:'projects/local/databases/(default)/documents/suscriptores/A',fields:{suscriptor_id:{stringValue:'A'},nombre:{stringValue:'Ana'},fecha_nacimiento:{stringValue:'1990-11-12'}}}]});});
+ const p=await h.op('initial');assert.equal(p.results[0].fecha_nacimiento,'1990-11-12');assert.equal(reads,1);await h.op('initial');await h.op('read');assert.equal(reads,1);
+});
+
+test('arranque totalmente frío prepara catálogos, territorio, suscriptores y bandeja sin duplicar colecciones',async t=>{
+ const h=setup(t,null);h.raw.clear();h.env.FIREBASE_PROJECT_ID='fixture-local';w.setSourceToken196ForTest();const collections=new Map();
+ t.mock.method(globalThis,'fetch',async(input,options)=>{
+  const u=new URL(String(input));assert.equal(u.hostname,'firestore.googleapis.com');
+  if(u.pathname.endsWith(':runQuery'))return Response.json([]);
+  const path=u.pathname.split('/documents/')[1];if(!path||path.includes('/'))return Response.json({error:{message:'missing'}},{status:404});
+  collections.set(path,(collections.get(path)||0)+1);
+  const rows=path==='suscriptores'?[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12'}]:path==='categorias'?[{id:'CAT',categoria_id:'CAT',nombre:'Servicios',activo:true}]:[];
+  return Response.json({documents:rows.map(row=>({name:'projects/local/databases/(default)/documents/'+path+'/'+row.id,fields:Object.fromEntries(Object.entries(row).map(([k,v])=>[k,typeof v==='boolean'?{booleanValue:v}:{stringValue:v}]))}))});
+ });
+ const p=await h.op('stage');assert.equal(p.preparado,true);assert(p.admin.fixed.catalogos.categorias.some(c=>c.nombre==='Servicios'));assert.equal(collections.get('suscriptores'),1);
+ assert([...collections.values()].every(n=>n===1));await h.op('commit');const calls=[...collections.values()].reduce((a,b)=>a+b,0);await h.op('read');await h.op('stage');assert.equal([...collections.values()].reduce((a,b)=>a+b,0),calls);
+});
+
+
+test('fallo real del transporte de una fuente no publica lista vacía y un reintento prepara y confirma sin reconstruir al leer',async t=>{
+ const h=setup(t,people);h.raw.delete('panel:query:v48:solicitudes_soporte:estado:PENDIENTE');w.setSourceToken196ForTest();let fail=true,calls=0;
+ t.mock.method(globalThis,'fetch',async(input,options)=>{assert(new URL(String(input)).pathname.endsWith(':runQuery'));assert.equal(JSON.parse(options.body).structuredQuery.from[0].collectionId,'solicitudes_soporte');calls++;if(fail)throw Error('Fuente no disponible');return Response.json([]);});
+ await assert.rejects(h.op('stage'));assert.equal((await h.op('read')).preparado,false);fail=false;await h.op('stage');await h.op('commit');assert.equal((await h.op('read')).results.length,4);assert.equal(calls,2);await h.op('read');assert.equal(calls,2);
 });

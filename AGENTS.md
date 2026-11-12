@@ -8,6 +8,12 @@
 - Las versiones anteriores se consultan en el historial Git, sin restituir copias al árbol de trabajo. Preparar y probar un cambio no autoriza instalarlo en Cloudflare.
 
 
+## Publicación diaria transversal — aclaración vigente del usuario, 12/11/2026
+
+- La incorporación de novedades a las copias consultables usa el mismo sistema diario de la 01:00 Argentina en toda la plataforma, no un horario independiente por funcionalidad. Abrir una pantalla, vencer una memoria de minutos o detectar una copia ausente no dispara una nueva publicación.
+- Acción actual: INGRESAR → Inicio completo de Gran Hermano. No reabrir Publicidad ni condicionar la entrega de GH a sus pendientes históricos. Preservar el código anterior al integrar; separar historial de cambios, estado real instalado y comprobación de la acción actual.
+- Preparar fuentes ausentes pertenece al publicador/mantenimiento inicial autorizado y su costo se registra aparte; la consulta de Inicio sólo lee la edición vigente. Seguridad y validación de las operaciones conservan sus controles actuales.
+
 ## Regla general de caché de Gran Hermano — instrucción del usuario, 12/11/2026
 
 - Todo Gran Hermano debe consultar copias privadas preparadas y reutilizables, sin reconstruir información ni volver a leer Firestore por cada apertura, pestaña, filtro o repetición. Aplicar esta regla al auditar cada acción completa; no declarar que ya está implementada en todo el panel.
