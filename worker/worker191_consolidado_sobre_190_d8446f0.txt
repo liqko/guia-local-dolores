@@ -3486,7 +3486,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
     const maxDescripcion=gldValorParticular168(vipSettings166,vipOverride166,'descripcion_max',null);
     if(Number.isSafeInteger(maxDescripcion)&&String(data.descripcion??'').length>maxDescripcion)throw httpError('La descripción de Eventos VIP admite hasta '+maxDescripcion+' caracteres.',400);
   }
-  if (!unlimited && Number(max || 0) <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
+  if (!unlimited && Number(max || 0) === 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
   await validateEvent({ db, cache, advertiserId, data, level });
   const q = await quota2({ db, advertiserId, max, free });
@@ -3499,8 +3499,8 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
     const monthlyVip=q.own.filter(e=>isVip(e)&&(e.cupo_mes||freeEventMonthV95(e.fecha_carga||e.creado))===freeEventMonthV95());
     if(monthlyVip.length>=cap)throw new Error('Alcanzaste el cupo mensual de Eventos VIP.');
   }
-  if (!unlimited && q.max <= 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
-  if (!unlimited && q.active >= q.max) throw new Error("Alcanzaste el máximo de eventos activos.");
+  if (!unlimited && q.max === 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
+  if (!unlimited && q.max >= 0 && q.active >= q.max) throw new Error("Alcanzaste el máximo de eventos activos.");
   if (!unlimited && !free && q.total >= q.totalMax) throw new Error("Alcanzaste el máximo de eventos guardados.");
   if (free && !bool12(data.confirmar_similar)) {
     const dup = await similarFree({ db, advertiserId, data });
@@ -3510,7 +3510,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const own=free?q.own:[];
   const monthly=freeEventMonthlyRowsV95(own,month);
   const legacy=monthly.filter(e=>!e.cupo_slot);
-  if(free&&!unlimited&&monthly.length>=policy.altas_mensuales_max)throw new Error("Alcanzaste el cupo de "+policy.altas_mensuales_max+" altas de Eventos Free de este mes. Borrar un evento no recupera el cupo.");
+  if(free&&!unlimited&&policy.altas_mensuales_max>=0&&monthly.length>=policy.altas_mensuales_max)throw new Error("Alcanzaste el cupo de "+policy.altas_mensuales_max+" altas de Eventos Free de este mes. Borrar un evento no recupera el cupo.");
   const now = (/* @__PURE__ */ new Date()).toISOString(), eventId = operation145?(free?"free-":"vip-")+operation145:id(free ? "free" : "vip");
   const doc = {
     ...data,
@@ -3533,7 +3533,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const programacion = await replaceProgramacion({ db, eventId, programacion: data.programacion, fallbackCity: doc.ciudad_id, previous: [], embedded:true });
   doc.programacion=programacion;doc.programacion_version=2;
   let saved;
-  if(free&&!unlimited){
+  if(free&&!unlimited&&policy.altas_mensuales_max>=0){
     const prefix="free-m95-"+encodeURIComponent(advertiserId)+"-"+month+"-";
     const occupied=new Set(monthly.map(e=>Number(e.cupo_slot)).filter(Boolean));
     for(let slot=1;slot<=policy.altas_mensuales_max-legacy.length;slot++){
@@ -3663,10 +3663,10 @@ async function pauseEventV3({ db, cache, advertiserId, payload, max, level = "VI
     const global=gldFuncRules166(packet,level==='FREE'?'EVENTOS_FREE':'EVENTOS');
     const allowed=global.admite_excepciones===true;
     const unlimited=allowed&&cfg.sin_limites===true;
-    let cap=typeof max==='function'?await max():max;
+    let cap=level==='FREE'?freeEventPolicyV95(admin,packet).activas_max:typeof max==='function'?await max():max;
     if(!unlimited&&!Number.isSafeInteger(Number(cap))&&Number.isSafeInteger(global.activas_max))cap=global.activas_max;
     const q=await quota2({db,advertiserId,max:cap,free:level==='FREE',exclude:eventId});
-    if(!unlimited&&q.active>=q.max)throw new Error('Alcanzaste el máximo de eventos activos.');
+    if(!unlimited&&q.max>=0&&q.active>=q.max)throw new Error('Alcanzaste el máximo de eventos activos.');
   }
   const patch = changedFieldsV1(current, { pausado: pause, actualizado: (/* @__PURE__ */ new Date()).toISOString() });
   if (!Object.keys(patch).length) return { success: true, updated: false, evento_id: eventId, evento: await GLD_EVENTS145.result(current) };
