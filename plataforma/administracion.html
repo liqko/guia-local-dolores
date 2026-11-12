@@ -228,14 +228,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
   <div id="modResultados"></div>
   <div id="ghRolesPersona188" hidden>
    <h3 id="ghRolesNombre188"></h3><div id="ghRolesActuales190" class="muted" role="status"></div>
-   <label>Rol a asignar o modificar
-    <select id="ghRolesTipo188" onchange="ghRolesSeleccionar188()">
-     <option value="MODERADOR">Moderador</option>
-     <option value="SUPERVISOR">Supervisor</option>
-     <option value="VENDEDOR">Vendedor</option>
-    </select>
-   </label>
-   <p class="muted">La persona puede conservar simultáneamente su moderación y su función comercial. Supervisor y Vendedor utilizan un registro comercial independiente.</p>
+   <p class="muted">Marcá todos los roles que querés asignar, configurá sus permisos y guardá todo junto. Los roles existentes se cargan automáticamente.</p>
   </div>
   <div id="ghRolesEdicionAsignacion190"></div>
  </div>
@@ -619,9 +612,131 @@ function ghRolesPersona188(row){
  document.getElementById('ghRolesPersona188').hidden=false;
  document.getElementById('ghRolesEdicionListado190').hidden=true;
  document.getElementById('ghRolesNombre188').textContent=(row.nombre||row.suscriptor_id||row.id)+' · '+(row.mail||'');
- document.getElementById('ghRolesTipo188').value='MODERADOR';
+ document.getElementById('modEditorCard').hidden=true;
+ document.getElementById('ghComercialRoles186').hidden=true;
  ghRolesRenderActual190(row,'ghRolesActuales190');
- ghRolesSeleccionar188();
+ ghRolesConjuntoAbrir191(row);
+}
+
+/* Roles V191: un solo formulario y una única operación atómica. */
+let GH_ROLES_BULK191=null;
+async function ghRolesConjuntoAbrir191(row){
+ const sid=String(row.suscriptor_id||row.id||''),host=document.getElementById('ghRolesEdicionAsignacion190');
+ host.textContent='Consultando los tres roles y el catálogo territorial…';
+ GH_ROLES_BULK191=null;
+ try{
+  const [mod,v,s,territory]=await Promise.all([
+   ghAdminRequest_('/moderators',{suscriptor_id:sid}),
+   ghAdminRequest_('/commercial/personnel',{suscriptor_id:sid,rol:'VENDEDOR'}),
+   ghAdminRequest_('/commercial/personnel',{suscriptor_id:sid,rol:'SUPERVISOR'}),
+   window.GLD_CATALOGO_TERRITORIAL.load()
+  ]);
+  if(String(GH_ROLES_PERSONA188?.suscriptor_id||GH_ROLES_PERSONA188?.id)!==sid||GH_ROLES_FROM_LIST190)return;
+  if(!v.roles||!s.roles)throw Error('Se requiere el Worker con soporte de roles independientes.');
+  const existing={MODERADOR:mod.moderador?.rol==='ADMIN_LOCAL'?mod.moderador:null,SUPERVISOR:s.personal||null,VENDEDOR:v.personal||null};
+  GH_ROLES_BULK191={sid,existing};
+  host.replaceChildren();
+  const make=(tag,text,cls)=>{const x=document.createElement(tag);if(text!=null)x.textContent=text;if(cls)x.className=cls;return x;};
+  const input=(type,value)=>{const x=document.createElement('input');x.type=type;if(value!=null)x.value=value;return x;};
+  const field=(parent,label,control)=>{const l=make('label');l.append(make('span',label),control);parent.append(l);return control;};
+  const cities=(territory.ciudades||[]).map(c=>({id:String(c.ciudad_id||c.id||''),name:String(c.ciudad_visible||c.nombre||c.ciudad||c.id),country:String(c.pais_id||''),province:String(c.provincia_id||'')})).filter(c=>c.id);
+  const countries=new Map((territory.paises||territory.paises_activos||[]).map(x=>[String(x.pais_id||x.id),String(x.nombre||x.pais_visible||x.id)]));
+  const provinces=new Map((territory.provincias||[]).map(x=>[String(x.provincia_id||x.id),String(x.nombre||x.provincia_visible||x.id)]));
+  for(const role of ['MODERADOR','SUPERVISOR','VENDEDOR']){
+   const data=existing[role]||{},section=make('fieldset',null,'item');section.dataset.bulkRole=role;
+   const legend=make('legend');const enable=input('checkbox');enable.dataset.bulkEnable=role;enable.checked=!!existing[role];legend.append(enable,make('strong',' '+role+' · asignar o conservar'));section.append(legend);
+   const content=make('div');content.dataset.bulkContent=role;content.hidden=!enable.checked;section.append(content);
+   enable.onchange=()=>{content.hidden=!enable.checked;};
+   const active=input('checkbox');active.dataset.bulkActive=role;active.checked=data.activo===true;
+   const actLabel=make('label',' Rol habilitado','gh-mod-check');actLabel.prepend(active);content.append(actLabel);
+   if(role==='MODERADOR'){
+    const p=make('div');p.append(make('h4','Permisos de moderación'));
+    for(const [key,label] of [['EVENTO','Eventos'],['ACTIVIDAD','Actividades'],['ANUNCIANTE','Altas y reclamos de anunciantes'],['ANUNCIANTE_MODIFICACION','Modificaciones de anunciantes'],['PUBLICIDAD','Publicidad'],['PROMO','Promociones']]){
+     const box=input('checkbox');box.dataset.bulkPerm=key;box.checked=data.permisos?.moderacion?.[key]===true;
+     const l=make('label',null,'gh-mod-check');l.append(box,make('span',label));p.append(l);
+    }content.append(p);
+   }else{
+    field(content,'Comisión por venta (%)',input('number',data.comision_porcentaje??0)).dataset.bulkCommission=role;
+    const com=content.querySelector('[data-bulk-commission]');com.min='0';com.max='100';com.step='0.01';
+    if(role==='SUPERVISOR'){
+     const x=field(content,'Comisión por supervisión (%)',input('number',data.comision_supervision_porcentaje??0));
+     x.dataset.bulkSupervision=role;x.min='0';x.max='100';x.step='0.01';
+    }else field(content,'Supervisor asignado (ID del suscriptor)',input('text',data.supervisor_id||'')).dataset.bulkManager=role;
+   }
+   const geo=make('details','', 'gh-mod-group');geo.open=false;
+   geo.append(make('summary','Ciudades asignadas'));
+   const controls=make('div',null,'gh-mod-toolbar'),all=input('checkbox'),clear=make('button','Quitar todas','sec'),count=make('span','', 'gh-mod-count');
+   all.type='checkbox';const allLabel=make('label',null,'gh-mod-check');allLabel.append(all,make('span','Seleccionar todas las ciudades'));controls.append(allLabel,clear,count);clear.type='button';geo.append(controls);
+   const tree=make('div',null,'gh-mod-choices');geo.append(tree);
+   const byCountry=new Map();
+   for(const city of cities){if(!byCountry.has(city.country))byCountry.set(city.country,new Map());const p=byCountry.get(city.country);if(!p.has(city.province))p.set(city.province,[]);p.get(city.province).push(city);}
+   const selected=new Set((data.ciudades||[]).map(String));
+   const checks=[];
+   const addCheck=(parent,label,scope,items)=>{
+    const l=make('label',null,'gh-mod-check'),x=input('checkbox');x.dataset.bulkGeo=scope;
+    l.append(x,make('span',label));parent.append(l);
+    x.onchange=()=>{for(const item of items)item.checked=x.checked;refresh();};
+    return x;
+   };
+   const groups=[];
+   for(const [country,provs] of byCountry){
+    const d=make('details',null,'gh-mod-group');d.append(make('summary',countries.get(country)||country));
+    const box=make('div',null,'gh-mod-choices');d.append(box);tree.append(d);
+    const countryItems=[];
+    const countryCheck=addCheck(box,'Seleccionar todas las ciudades del país','country',countryItems);
+    groups.push({box:countryCheck,items:countryItems});
+    for(const [province,items] of provs){
+     const pd=make('details',null,'gh-mod-group');pd.append(make('summary',provinces.get(province)||province));
+     const pb=make('div',null,'gh-mod-choices');pd.append(pb);box.append(pd);
+     const provinceItems=[];
+     const provinceCheck=addCheck(pb,'Seleccionar todas las ciudades de la provincia','province',provinceItems);
+     groups.push({box:provinceCheck,items:provinceItems});
+     for(const city of items){
+      const l=make('label',null,'gh-mod-check'),x=input('checkbox');x.dataset.bulkCity=city.id;x.checked=selected.has(city.id);
+      l.append(x,make('span',city.name));pb.append(l);checks.push(x);countryItems.push(x);provinceItems.push(x);
+      x.onchange=refresh;
+     }
+    }
+   }
+   function refresh(){
+    for(const g of groups){const n=g.items.filter(x=>x.checked).length;g.box.checked=g.items.length>0&&n===g.items.length;g.box.indeterminate=n>0&&n<g.items.length;}
+    const n=checks.filter(x=>x.checked).length;all.checked=checks.length>0&&n===checks.length;all.indeterminate=n>0&&n<checks.length;count.textContent=n+' de '+checks.length+' ciudades seleccionadas';
+   }
+   all.onchange=()=>{for(const x of checks)x.checked=all.checked;refresh();};
+   clear.onclick=()=>{for(const x of checks)x.checked=false;refresh();};
+   refresh();content.append(geo);host.append(section);
+  }
+  const button=make('button','Guardar todos los cambios'),msg=make('p',null,'muted');msg.setAttribute('role','status');
+  button.type='button';button.onclick=()=>ghRolesConjuntoGuardar191(button,msg);host.append(button,msg);
+ }catch(e){host.textContent='No se pudo preparar la asignación conjunta: '+String(e.message||e);}
+}
+async function ghRolesConjuntoGuardar191(button,msg){
+ const state=GH_ROLES_BULK191;if(!state)return;
+ const roles={};
+ try{
+  for(const section of document.querySelectorAll('#ghRolesEdicionAsignacion190 [data-bulk-role]')){
+   const role=section.dataset.bulkRole,enabled=section.querySelector('[data-bulk-enable]').checked;
+   if(!enabled){if(state.existing[role])roles[role]={operacion:'QUITAR'};continue;}
+   const data={activo:section.querySelector('[data-bulk-active]').checked,ciudades:[...section.querySelectorAll('[data-bulk-city]:checked')].map(x=>x.dataset.bulkCity)};
+   if(role==='MODERADOR')data.permisos={moderacion:Object.fromEntries([...section.querySelectorAll('[data-bulk-perm]')].map(x=>[x.dataset.bulkPerm,x.checked]))};
+   else{
+    data.comision_porcentaje=Number(section.querySelector('[data-bulk-commission]').value);
+    data.comision_supervision_porcentaje=role==='SUPERVISOR'?Number(section.querySelector('[data-bulk-supervision]').value):0;
+    data.supervisor_id=role==='VENDEDOR'?section.querySelector('[data-bulk-manager]').value.trim():'';
+    if(!Number.isFinite(data.comision_porcentaje)||!Number.isFinite(data.comision_supervision_porcentaje)||data.comision_porcentaje<0||data.comision_porcentaje>100||data.comision_supervision_porcentaje<0||data.comision_supervision_porcentaje>100)throw Error('Comisiones inválidas para '+role);
+   }
+   roles[role]=data;
+  }
+  if(!Object.keys(roles).length){msg.textContent='No hay roles que modificar.';return;}
+  if(!confirm('¿Guardar todos los cambios de roles de esta persona en una sola operación?'))return;
+  button.disabled=true;msg.textContent='Guardando los roles juntos…';
+  const response=await ghAdminRequest_('/internal-roles/bulk',{suscriptor_id:state.sid,roles},'POST');
+  msg.textContent='Cambios guardados: '+(response.actualizados??0)+' registros. Volvé a abrir la persona para consultar la configuración actual.';
+  GH_ROLES_BULK191=null;
+  ghRolesRenderActual190({suscriptor_id:state.sid},'ghRolesActuales190');
+  if(GH_ROLES_LIST188)ghRolesListar188();
+ }catch(e){msg.textContent='No se guardó el conjunto: '+String(e.message||e);}
+ finally{button.disabled=false;}
 }
 function ghRolesSeleccionar188(){
  const row=GH_ROLES_PERSONA188;if(!row)return;
