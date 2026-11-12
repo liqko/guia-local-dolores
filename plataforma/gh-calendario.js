@@ -12,7 +12,7 @@ async function get(path,force=false){
 function birthdays(data){
  const box=el('ghBirthdayContent');if(!box)return;
  if(data?.periodo_dias!==7){el('ghBirthdayPrepare').hidden=true;box.textContent='Falta activar la versión del listado general diario. La versión anterior devuelve otro resumen.';return;}
- el('ghBirthdayPrepare').hidden=!!data?.preparado;
+ el('ghBirthdayPrepare').hidden=true;
  if(!data?.preparado){box.textContent='El listado general diario todavía no está preparado. No se consultan cuentas al abrir esta pantalla.';return;}
  box.replaceChildren();
  const range=document.createElement('p');range.textContent=dateLabel(data.desde)+' al '+dateLabel(data.hasta);box.appendChild(range);
@@ -23,10 +23,8 @@ function birthdays(data){
 }
 window.ghCalendarDashboardV83=function(data){el('ghBirthdaySummary').hidden=GH_ADMIN_ACCESS.rol==='ADMIN_LOCAL';birthdays(data);};
 window.ghBirthdayRefreshV83=async function(){try{birthdays(await get('/superadmin/birthdays',true));}catch(e){el('ghBirthdayContent').textContent=e.message;}};
-window.ghBirthdayPrepareV83=async function(){
- const btn=el('ghBirthdayPrepare');btn.disabled=true;el('ghBirthdayContent').textContent='Preparando el resumen de las cuentas existentes…';
- try{let j,cursor;do{const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/birthdays/prepare',{method:'POST',headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json'},body:JSON.stringify({cursor})});j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo preparar el resumen.');cursor=j.cursor;}while(j.continuar);requests.clear();birthdays(j);}catch(e){el('ghBirthdayContent').textContent=e.message;}finally{btn.disabled=false;window.informarAltura?.();}
-};
+// Kept for existing callers: a button can only read the published daily list.
+window.ghBirthdayPrepareV83=window.ghBirthdayRefreshV83;
 window.ghCalendarOpenV83=async function(force=false){
  const box=el('ghEphemeridesList'),select=el('ghEphemeridesCity');
  try{

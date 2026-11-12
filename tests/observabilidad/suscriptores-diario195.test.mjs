@@ -4,7 +4,7 @@ import {readFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import vm from 'node:vm';
 const source=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
-const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;} export function setSourceToken196ForTest(){tokenCache.token="local-fixture-token";tokenCache.expiresAt=Date.now()+3600000;}').toString('base64'));
+const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58,prepareBirthdaysV91}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;} export function setSourceToken196ForTest(){tokenCache.token="local-fixture-token";tokenCache.expiresAt=Date.now()+3600000;}').toString('base64'));
 const day=Date.parse('2026-11-12T04:00:00Z');
 function setup(t,rows){
  let clock=day+60000;t.mock.method(Date,'now',()=>clock);
@@ -21,7 +21,7 @@ function setup(t,rows){
  const calls=[];const kv={get:async k=>{calls.push(['get',k]);return raw.get(k)||null;},put:async(k,v)=>{calls.push(['put',k]);raw.set(k,v);},delete:async k=>{calls.push(['delete',k]);raw.delete(k);},list:async({prefix})=>{calls.push(['list',prefix]);return {keys:[...raw.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};}};
  const env={SERVER_SECRET:'prueba-local',GLD_CACHE_KV:kv};let actor=new w.PrivateDaily195(state,env);
  env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){assert.equal(name,'city-book-shared-v1');return {fetch:async req=>actor.fetch(await req.json())};}};
- return {env,raw,calls,sql,setClock(n){clock=n;},restart(){actor=new w.PrivateDaily195(state,env);},async op(action,cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000){const r=await actor.fetch({action,cutoff});const j=await r.json();assert.equal(r.status,200,j.error);return j.value;}};
+ return {env,raw,calls,sql,async publish(){await this.op('stage');await this.op('commit');return this.op('read');},setClock(n){clock=n;},restart(){actor=new w.PrivateDaily195(state,env);},async op(action,cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000){const r=await actor.fetch({action,cutoff});const j=await r.json();assert.equal(r.status,200,j.error);return j.value;}};
 }
 const people=[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12',activo:true},{id:'B',nombre:'Bea',fecha_nacimiento:'1980-11-18',activo:true},{id:'C',nombre:'Caro',fecha_nacimiento:'1970-11-19',activo:true},{id:'D',nombre:'Dani',fecha_nacimiento:'2000-11-13',activo:false}];
 test('cumpleaños es una lista de personas de hoy y los seis días siguientes, sin resúmenes de edad',()=>{
@@ -43,15 +43,15 @@ test('misma publicación diaria: stage idempotente, commit y reaperturas sin lec
  h.restart();h.setClock(day+10*3600000);await h.op('read');await h.op('read');assert.equal(h.calls.length,preparedReads);
 });
 test('alta o corrección durante el día se incorpora una sola vez en el corte siguiente',async t=>{
- const h=setup(t,people);await h.op('initial');
+ const h=setup(t,people);await h.publish();
  h.raw.set('admin:index:subscribers:v2',JSON.stringify({version:2,results:[...people,{id:'NUEVA',nombre:'Nueva',fecha_nacimiento:'1995-11-15',activo:true}]}));
- assert.equal((await h.op('read')).results.length,4);await h.op('initial');assert.equal((await h.op('read')).results.length,4);
+ assert.equal((await h.op('read')).results.length,4);await h.publish();assert.equal((await h.op('read')).results.length,4);
  h.setClock(day+86400000+1000);await h.op('stage',day+86400000);assert.equal((await h.op('read')).preparado,false);await h.op('commit',day+86400000);assert.equal((await h.op('read')).results.length,5);
  const n=h.calls.length;await h.op('stage',day+86400000);assert.equal(h.calls.length,n);
 });
 test('primera migración usa índice privado preparado; las siguientes ediciones reutilizan fechas sin enumerarlo otra vez',async t=>{
  const h=setup(t,[{id:'A',nombre:'Ana'}]);h.raw.set('private:birthdays:ready:v91','{}');h.raw.set('private:birthdays:v91:11-12:A',JSON.stringify({fecha_nacimiento:'1990-11-12'}));
- const first=await h.op('initial');assert.equal(first.results[0].fecha_nacimiento,'1990-11-12');assert.equal(h.calls.filter(x=>x[0]==='list').length,1);
+ const first=await h.publish();assert.equal(first.results[0].fecha_nacimiento,'1990-11-12');assert.equal(h.calls.filter(x=>x[0]==='list').length,1);
  h.setClock(day+86400000+1000);await h.op('stage',day+86400000);await h.op('commit',day+86400000);assert.equal((await h.op('read')).results[0].fecha_nacimiento,'1990-11-12');assert.equal(h.calls.filter(x=>x[0]==='list').length,1);
 });
 test('cambio real alimenta el listado general; repetir sin cambios no vuelve a escribir índices ni toca el índice de cumpleaños',async t=>{
@@ -85,11 +85,12 @@ test('pantalla muestra nombres y fechas sin pedir datos; una respuesta antigua n
  vm.runInNewContext(await readFile(new URL('../../plataforma/gh-calendario.js',import.meta.url),'utf8'),context);
  context.window.ghCalendarDashboardV83(w.birthdayList195({preparado:true,results:people},new Date('2026-11-12T14:00:00Z')));
  assert(nodes.get('ghBirthdayContent').children.some(x=>x.textContent.includes('Ana')));assert(!nodes.get('ghBirthdayContent').children.some(x=>x.textContent.includes('Caro')));
+ context.window.ghCalendarDashboardV83({preparado:false,periodo_dias:7});assert.equal(nodes.get('ghBirthdayPrepare').hidden,true);
  context.window.ghCalendarDashboardV83({preparado:true,total:2,dias:[]});assert(nodes.get('ghBirthdayContent').textContent.includes('Falta activar'));assert(!nodes.get('ghBirthdayContent').textContent.includes('No hay cumpleaños'));
 });
 
 test('ingreso completo en una respuesta: 4 KV get de autenticación y una lectura privada; reanudación 2 KV get',async t=>{
- t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.op('initial');
+ t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.publish();
  const subscriber={id:'P',suscriptor_id:'P',nombre:'Principal de ensayo',mail:'principal@example.invalid',clave:'solo-ensayo',activo:true};
  const admin={id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true};
  const auth=w.withAuthCacheV58({queryEqual:async()=>[subscriber],get:async()=>admin},h.env);await auth.loginAccount(subscriber.mail,subscriber.clave);await auth.loginAdmin('P');h.calls.length=0;
@@ -101,7 +102,7 @@ test('ingreso completo en una respuesta: 4 KV get de autenticación y una lectur
 });
 
 test('copia del ingreso respeta permisos actuales: un moderador no recibe soporte, +18 ni configuración privada',async t=>{
- const h=setup(t,people);await h.op('initial');const packet=await h.op('read');
+ const h=setup(t,people);await h.publish();const packet=await h.op('read');
  packet.admin.inbox.adult=[{nombre:'PRIVADO_ADULTO'}];packet.admin.inbox.support.results=[{nombre:'PRIVADO_SOPORTE'}];
  packet.admin.inbox.moderation={eventos:[{tipo:'EVENTO',ciudad_id:'DOL',id:'E1'},{tipo:'EVENTO',ciudad_id:'OTRA',id:'E2'}],actividades:[],anunciantes:[],cantidades:{}};
  packet.admin.inbox.blocked=[{tipo:'PUBLICIDAD',id:'P1',scope195:['DOL']},{tipo:'PUBLICIDAD',id:'P2',scope195:['DOL','OTRA']}];
@@ -111,7 +112,7 @@ test('copia del ingreso respeta permisos actuales: un moderador no recibe soport
  const denied=await w.dailyDashboard195(h.env,{ok:true,typ:'GLD_SUBSCRIBER'});assert.equal(denied.status,403);
 });
 test('revocación de sesión se aplica antes de leer la copia diaria y una contraseña incorrecta nunca entrega Inicio',async t=>{
- t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.op('initial');
+ t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.publish();
  const subscriber={id:'P',suscriptor_id:'P',mail:'principal@example.invalid',clave:'ensayo',activo:true},admin={id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true};
  const auth=w.withAuthCacheV58({queryEqual:async()=>[subscriber],get:async()=>admin},h.env);await auth.loginAccount(subscriber.mail,subscriber.clave);await auth.loginAdmin('P');
  let calls=0;const binding=h.env.GLD_PUBLIC_CACHE;h.env.GLD_PUBLIC_CACHE={...binding,get(name){calls++;return binding.get(name);}};
@@ -148,7 +149,7 @@ test('preparación desde fuentes ausentes usa REST Firestore sólo en el publica
 test('primer listado antiguo sin fechas ni índice de cumpleaños se migra desde la fuente una vez, no deja Inicio bloqueado',async t=>{
  const h=setup(t,[{suscriptor_id:'A',nombre:'Ana'}]);w.setSourceToken196ForTest();let reads=0;
  t.mock.method(globalThis,'fetch',async(input)=>{assert(new URL(String(input)).pathname.endsWith('/suscriptores'));reads++;return Response.json({documents:[{name:'projects/local/databases/(default)/documents/suscriptores/A',fields:{suscriptor_id:{stringValue:'A'},nombre:{stringValue:'Ana'},fecha_nacimiento:{stringValue:'1990-11-12'}}}]});});
- const p=await h.op('initial');assert.equal(p.results[0].fecha_nacimiento,'1990-11-12');assert.equal(reads,1);await h.op('initial');await h.op('read');assert.equal(reads,1);
+ const p=await h.publish();assert.equal(p.results[0].fecha_nacimiento,'1990-11-12');assert.equal(reads,1);await h.publish();await h.op('read');assert.equal(reads,1);
 });
 
 test('arranque totalmente frío prepara catálogos, territorio, suscriptores y bandeja sin duplicar colecciones',async t=>{
@@ -170,4 +171,15 @@ test('fallo real del transporte de una fuente no publica lista vacía y un reint
  const h=setup(t,people);h.raw.delete('panel:query:v48:solicitudes_soporte:estado:PENDIENTE');w.setSourceToken196ForTest();let fail=true,calls=0;
  t.mock.method(globalThis,'fetch',async(input,options)=>{assert(new URL(String(input)).pathname.endsWith(':runQuery'));assert.equal(JSON.parse(options.body).structuredQuery.from[0].collectionId,'solicitudes_soporte');calls++;if(fail)throw Error('Fuente no disponible');return Response.json([]);});
  await assert.rejects(h.op('stage'));assert.equal((await h.op('read')).preparado,false);fail=false;await h.op('stage');await h.op('commit');assert.equal((await h.op('read')).results.length,4);assert.equal(calls,2);await h.op('read');assert.equal(calls,2);
+});
+
+
+test('ninguna preparación desde pantalla puede crear, publicar ni refrescar una edición, incluso con fuentes presentes',async t=>{
+ const h=setup(t,people),count=h.calls.length;
+ await assert.rejects(h.op('initial'));assert.equal(h.calls.length,count);assert.equal(h.sql.prepare('SELECT * FROM private_subscribers_daily195').all().length,0);
+ const db=new Proxy({},{get(){throw Error('La pantalla no puede leer la fuente');}});
+ await assert.rejects(w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid')),/publicación diaria/);assert.equal(h.calls.length,count);
+ await h.op('stage');await assert.rejects(h.op('initial'));assert.equal((await h.op('read')).preparado,false);
+ await h.op('commit');const n=h.calls.length;const read=await w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid'));assert.equal(read.preparado,true);assert.equal(h.calls.length,n);
+ h.setClock(day+86400000+1000);await assert.rejects(w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid')),/publicación diaria/);assert.equal(h.calls.length,n);
 });

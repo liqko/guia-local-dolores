@@ -8,6 +8,12 @@
 - Las versiones anteriores se consultan en el historial Git, sin restituir copias al árbol de trabajo. Preparar y probar un cambio no autoriza instalarlo en Cloudflare.
 
 
+## Continuidad y comunicación — instrucción vigente del usuario, 12/11/2026
+
+- Informar resultados concretos y bloqueos verificables, sin disculpas ni promesas de trabajo en segundo plano al terminar la sesión.
+- Reanudar desde el bloque «Estado operativo vigente» al principio del registro maestro. El historial no sustituye ese bloque ni reinicia la acción. Actualizar allí el punto exacto, estado de pruebas y limitación externa antes de terminar cada intervención.
+- La regla diaria comprende Usuario, Anunciante y Gran Hermano. Las excepciones de publicación están PENDIENTES DE DEFINICIÓN por el usuario; no inventarlas, declararlas aprobadas ni introducir botones de publicación inmediata por comodidad. Mantener los controles de seguridad existentes no constituye una autorización nueva para publicar datos fuera del corte.
+
 ## Publicación diaria transversal — aclaración vigente del usuario, 12/11/2026
 
 - La incorporación de novedades a las copias consultables usa el mismo sistema diario de la 01:00 Argentina en toda la plataforma, no un horario independiente por funcionalidad. Abrir una pantalla, vencer una memoria de minutos o detectar una copia ausente no dispara una nueva publicación.
