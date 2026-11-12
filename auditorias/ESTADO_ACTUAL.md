@@ -1,5 +1,7 @@
 # GUÍA LOCAL — ESTADO ÚNICO DE AUDITORÍA
 
+> **WORKER ÚNICO VIGENTE — 12/11/2026:** `worker/worker191_consolidado_sobre_190_d8446f0.txt`. Nombre permanente; versión del contenido preparada: **193**. Integra 191 consolidado (guardado conjunto) y corrección de caché de 192. Última versión instalada comprobada: 191; 193 NO verificada instalada. Las rutas numeradas mencionadas en apartados históricos NO son archivos de trabajo vigentes. Leer AGENTS.md antes de editar y verificar el SHA de main para integrar cambios concurrentes.
+
 Este archivo es el punto de continuación obligatorio de la auditoría de consumos. Se ACTUALIZA EN EL MISMO LUGAR; no se crean versiones, inventarios ni informes de avance adicionales. Para reanudar en otro chat o Work: leer primero este archivo y el Worker enlazado, y continuar sin reiniciar la auditoría.
 
 ## Objetivo fijo
@@ -1052,3 +1054,16 @@ La fila indica el bloque a desglosar, no una acción ya auditada. Antes de ejecu
 | Pendiente | Términos y aceptaciones | Consultar, publicar, ver y descargar aceptaciones por separado. |
 
 - **Estado y próximo paso exacto:** código 192 preparado y pruebas aprobadas; NO instalado ni medido en producción. Entregar el mismo archivo para reemplazar el 191 activo. Tras la instalación, verificar código/versiones, medir primer listado y reaperturas con registros correlacionados (Firestore/KV/DO/SQL), probar cambios y ausencias y actualizar este registro. Sólo después cerrar este recorrido y pasar a las dependencias compartidas. El acceso autenticado al GH no estuvo disponible en esta sesión; si no se habilita, realizar esa medición con el usuario, sin atribuir acciones que no se ejecutaron. Los 32/33 de Firebase y el 10% de descargas siguen sin conciliación exacta.
+
+
+### Consolidación y eliminación de copias de Worker · 12/11/2026
+
+- **Instrucción expresa del usuario:** usar exclusivamente worker/worker191_consolidado_sobre_190_d8446f0.txt, eliminar los Workers anteriores y cambiar el número dentro del mismo archivo. Esta instrucción sustituye las rutas de entrega histórica que aparecen antes.
+- **ÚNICA ruta de trabajo y entrega:** worker/worker191_consolidado_sobre_190_d8446f0.txt. El nombre se conserva aunque contenga 191; la cabecera, raíz, /__version y métricas identifican el contenido 193. No crear un archivo nuevo para la siguiente versión.
+- Base exacta aportada por el usuario: blob 0f40415118f9bb92e66f7935350d1ca5df9141c2. Se comprobó que incorpora el guardado conjunto de roles, ausente en la base del 192 anterior. Se preservó esa función y su ruta /superadmin/internal-roles/bulk; se integró la copia privada durable de roles del 192, incluyendo la lectura común para el guardado conjunto.
+- Se eliminaron del árbol vigente de main **32 archivos antiguos/alternativos de Worker** del directorio worker. El historial de Git conserva sus revisiones, pero no vuelven a utilizarse como fuentes de trabajo. No se eliminaron pruebas, HTML ni datos de producción.
+- AGENTS.md establece la ruta única, nombre permanente, lectura previa del registro y comprobación de SHA antes de publicar; si main cambia, integrar antes de escribir, sin sobrescribir el trabajo de otro chat con una copia completa. Es un procedimiento documentado con comprobación de SHA, no un bloqueo automático entre chats.
+- Se actualizaron las referencias de las pruebas activas y el workflow de publicación genérica a la ruta única. La prueba del corte diario ya no utiliza el Worker 187 por defecto: comprueba ahora el archivo único vigente. Referencias de auditoría antiguas se conservan como contexto histórico, subordinadas al aviso inicial.
+- **Comprobación:** 21 pruebas locales aprobaron sobre 193; TypeScript 5.9.3, 0 diagnósticos. Incluyen unicidad física del Worker y referencias activas, corte/publicación genérica, privacidad/vencimientos, caché de roles, cambios/bajas/recuperación/concurrencia/autorización y guardado conjunto de tres roles mediante un único commit del ensayo, con actualización de copia y sin nuevas lecturas fuente al reabrir.
+- **Alcance de medición:** ensayos aislados con memoria/SQLite; no se accedió a Firestore ni se guardaron datos de GH real. Consumo real del 193, CPU, cuotas, facturación y bytes de descargas siguen sin medir. La actualización del workflow puede disparar la automatización de Hosting del repositorio; no equivale a instalar este Worker en Cloudflare.
+- **Estado:** consolidado y comprobado como candidata 193, no desplegado por esta intervención. Próximo paso exacto: instalar EL MISMO archivo único, comprobar código activo y medir el recorrido de roles (primera preparación, reaperturas, guardar y quitar roles, revocación y recuperación). Mantener abierta la conciliación de 32/33 lecturas y del 10% de descargas, y continuar la cola de GH sin reiniciar el diagnóstico.

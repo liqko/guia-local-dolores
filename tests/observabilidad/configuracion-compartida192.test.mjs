@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-const source=await readFile(new URL('../../worker/worker190_roles_multiples_sobre_189.txt',import.meta.url),'utf8');
+const source=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
 const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {ghFixedPacket169,gldFuncPacket166,gldLeerPrecios162,gldCoefRead173};').toString('base64'));
 test('configuración, resumen y valores reutilizan los mismos paquetes; configuración comercial mantiene su propio documento',async()=>{
  const values=new Map([['admin:catalogs:v2',{}]]),reads=[];

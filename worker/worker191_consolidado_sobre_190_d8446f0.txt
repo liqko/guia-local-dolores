@@ -1,12 +1,12 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 191             ║
+// ║                GUÍA LOCAL DOLORES · WORKER 193             ║
 // ║          IDENTIFICACIÓN DE VERSIÓN EN PRODUCCIÓN           ║
-// ║      Base: Worker 184 preparado · cierre de contrataciones    ║
+// ║     Base: 191 consolidado + caché de roles de 192         ║
 // ╚════════════════════════════════════════════════════════════╝
 // La etiqueta worker-v129.js que muestra Cloudflare es el nombre
 // técnico heredado del archivo de carga, no esta versión.
 // Comprobación sin Firestore ni KV: GET /__version
-// GUÍA LOCAL - WORKER 191 - IDENTIFICACIÓN DE VERSIÓN (base 162)
+// GUÍA LOCAL - WORKER 193 - IDENTIFICACIÓN DE VERSIÓN (base 162)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -102,7 +102,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'191',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'193',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -1856,7 +1856,7 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 191</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 191</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 193</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 193</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
     return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
@@ -8746,6 +8746,127 @@ async function gldCerrarContrato185(ctx){
 
 
 
+
+/* Private, durable read model for internal roles. A complete role directory
+   proves absence without asking Firestore for every possible assignment key.
+   All source mutations of these collections pass through the same serial actor.
+   Authentication/revocation stays outside this read model. */
+const ROLE_SOURCE192=new Set(['superadmins','personal_comercial','suscriptores']);
+function roleProjection192(c,row){
+ if(!row)return null;
+ if(c!=='suscriptores')return structuredClone(row);
+ return Object.fromEntries(['id','suscriptor_id','nombre','mail','activo'].filter(k=>Object.hasOwn(row,k)).map(k=>[k,row[k]]));
+}
+class PrivateRoles192 {
+ constructor(state,env,sourceFactory=null){
+  this.state=state;this.env=env;this.sourceFactory=sourceFactory;this.tail=Promise.resolve();
+  state.storage.sql.exec('CREATE TABLE IF NOT EXISTS gh_roles192_rows (collection TEXT NOT NULL,id TEXT NOT NULL,value TEXT NOT NULL,PRIMARY KEY(collection,id))');
+  state.storage.sql.exec('CREATE TABLE IF NOT EXISTS gh_roles192_meta (key TEXT PRIMARY KEY,value TEXT NOT NULL)');
+ }
+ query(sql,...args){const cursor=this.state.storage.sql.exec(sql,...args);const rows=[...cursor];this.metrics.rows_read+=cursor.rowsRead??rows.length;this.metrics.rows_written+=cursor.rowsWritten??0;return rows;}
+ put(c,id,row){this.query('INSERT INTO gh_roles192_rows(collection,id,value) VALUES(?,?,?) ON CONFLICT(collection,id) DO UPDATE SET value=excluded.value',c,String(id),JSON.stringify(roleProjection192(c,row)));}
+ async directory(c,db){
+  if(!['superadmins','personal_comercial'].includes(c))throw Error('Colección privada no habilitada para listado');
+  if(!this.query('SELECT value FROM gh_roles192_meta WHERE key=?','ready:'+c).length){
+   const rows=await db.listCollection(c);
+   this.state.storage.transactionSync(()=>{
+    this.query('DELETE FROM gh_roles192_rows WHERE collection=?',c);
+    for(const row of rows)this.put(c,row.id,row);
+    this.query('INSERT OR REPLACE INTO gh_roles192_meta(key,value) VALUES(?,?)','ready:'+c,'1');
+   });
+  }
+  return this.query('SELECT value FROM gh_roles192_rows WHERE collection=? ORDER BY id',c).map(x=>JSON.parse(x.value)).filter(Boolean);
+ }
+ async subscriber(sid,db){
+  const stored=this.query('SELECT value FROM gh_roles192_rows WHERE collection=? AND id=?','suscriptores',sid)[0];
+  if(stored)return JSON.parse(stored.value);
+  const row=await db.get('suscriptores',sid);this.put('suscriptores',sid,row);return roleProjection192('suscriptores',row);
+ }
+ async recover(db){
+  const marker=this.query('SELECT value FROM gh_roles192_meta WHERE key=?','pending')[0];
+  if(!marker)return;
+  // A source response may have been lost. Reconcile affected records, never
+  // repeat the original mutation, and block reads if reconciliation fails.
+  const refs=JSON.parse(marker.value),rows=[];
+  for(const ref of refs)rows.push({...ref,row:await db.get(ref.c,ref.id)});
+  this.state.storage.transactionSync(()=>{for(const ref of rows)this.put(ref.c,ref.id,ref.row);this.query('DELETE FROM gh_roles192_meta WHERE key=?','pending');});
+ }
+ async execute(body,db){
+  await this.recover(db);
+  if(body.kind==='snapshot'){
+   const moderators=await this.directory('superadmins',db),commerce=await this.directory('personal_comercial',db);
+   const ids=body.sid?[String(body.sid)]:[...new Set([...moderators.filter(x=>x.rol==='ADMIN_LOCAL'),...commerce.filter(x=>GLD_ROLES_COM190.includes(x.rol))].map(x=>String(x.suscriptor_id||x.id||'')).filter(Boolean))];
+   const subscribers=Object.create(null);for(const sid of ids)subscribers[sid]=await this.subscriber(sid,db);
+   return {moderators,commerce,subscribers};
+  }
+  if(body.kind==='subscriber')return this.subscriber(String(body.sid),db);
+  if(!['patch','delete','commitPatches'].includes(body.kind))throw Error('Operación privada no admitida');
+  const entries=body.kind==='commitPatches'?body.entries:[{collection:body.collection,id:body.id}];
+  const refs=[...new Map(entries.filter(e=>ROLE_SOURCE192.has(e.collection)).map(e=>[e.collection+'/'+e.id,{c:e.collection,id:String(e.id)}])).values()];
+  if(!refs.length)throw Error('La operación no corresponde al almacén privado');
+  this.query('INSERT OR REPLACE INTO gh_roles192_meta(key,value) VALUES(?,?)','pending',JSON.stringify(refs));
+  // No passwords, request bodies or auth tokens are persisted in the intent.
+  const value=body.kind==='patch'?await db.patch(body.collection,body.id,body.patch,body.options||{}):body.kind==='delete'?await db.delete(body.collection,body.id,body.options||{}):await db.commitPatches(body.entries);
+  this.state.storage.transactionSync(()=>{
+   if(body.kind==='commitPatches')body.entries.forEach((e,i)=>{
+    if(!ROLE_SOURCE192.has(e.collection))return;
+    if(e.remove||e.before||e.options?.mustNotExist){this.put(e.collection,e.id,e.remove?null:value[i]);return;}
+    const stored=this.query('SELECT value FROM gh_roles192_rows WHERE collection=? AND id=?',e.collection,String(e.id))[0];
+    if(stored)this.put(e.collection,e.id,{...JSON.parse(stored.value),...value[i]});
+    // A partial commit response cannot establish a previously unknown record.
+    // Keep it cold; the next explicit read initializes the complete projection.
+   });
+   else this.put(body.collection,body.id,body.kind==='delete'?null:value);
+   this.query('DELETE FROM gh_roles192_meta WHERE key=?','pending');
+  });
+  return value;
+ }
+ async fetch(body){
+  const prior=this.tail;let release=()=>{};this.tail=new Promise(resolve=>{release=()=>resolve(undefined);});await prior;
+  const report={operations:{}};this.metrics={rows_read:0,rows_written:0};
+  const env=new Proxy(this.env,{get:(t,k)=>k==='__gldRequestReport119'?report:Reflect.get(t,k,t)});
+  try{
+   const source=this.sourceFactory?this.sourceFactory():createDb(env),db=observeDbV41(source,report);
+   const value=await this.execute(body,db);
+   return Response.json({value,operations:report.operations,metrics:this.metrics,source_versions:report.source_versions119||{}});
+  }catch(error){return Response.json({error:String(error.message||error),operations:report.operations,metrics:this.metrics},{status:[400,401,403,409,503].includes(error.status)?error.status:503});}
+  finally{release();}
+ }
+}
+async function roleActor192(env,body){
+ if(!env.GLD_PUBLIC_CACHE)throw Object.assign(Error('Falta el almacén privado de roles. No se hizo una lectura directa alternativa.'),{status:503});
+ const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('internal-role-directory-v192'));
+ const response=await actor.fetch(new Request('https://private-roles.internal/',{method:'POST',body:JSON.stringify({op:'private-roles192',...body})})),result=await response.json();
+ const report=env.__gldRequestReport119;
+ if(report){
+  const metrics=report.admin_store126??={calls:0,rows_read:0,rows_written:0};metrics.calls++;
+  for(const k of ['rows_read','rows_written'])metrics[k]+=result.metrics?.[k]||0;
+  for(const [key,stat]of Object.entries(result.operations||{})){const own=report.operations[key]??={operation:stat.operation,collection:stat.collection,field:stat.field||'',calls:0,documents_returned:0,failures:0};for(const f of ['calls','documents_returned','failures'])own[f]+=Number(stat[f]||0);}
+  if(result.source_versions)Object.assign(report.source_versions119??={},result.source_versions);
+ }
+ if(!response.ok)throw Object.assign(Error(result.error||'No se pudo leer la copia privada de roles'),{status:response.status});
+ return result.value;
+}
+function roleSourceDb192(db,env){return {...db,
+ patch:(c,id,patch,options={})=>ROLE_SOURCE192.has(c)?roleActor192(env,{kind:'patch',collection:c,id,patch,options}):db.patch(c,id,patch,options),
+ delete:(c,id,options={})=>ROLE_SOURCE192.has(c)?roleActor192(env,{kind:'delete',collection:c,id,options}):db.delete(c,id,options),
+ commitPatches:entries=>entries.some(e=>ROLE_SOURCE192.has(e.collection))?roleActor192(env,{kind:'commitPatches',entries}):db.commitPatches(entries)
+};}
+async function rolesRead192(ctx,sid=''){
+ const snapshot=await roleActor192(ctx.env,{kind:'snapshot',sid}),base=ctx.db.panelReadDb?ctx.db.panelReadDb():ctx.db;
+ const lists={superadmins:snapshot.moderators,personal_comercial:snapshot.commerce};
+ const copy=x=>structuredClone(x);
+ return {...base,
+  async get(c,id){
+   if(lists[c])return copy(lists[c].find(row=>String(row.id)===String(id))||null);
+   if(c==='suscriptores'){if(!Object.hasOwn(snapshot.subscribers,id))snapshot.subscribers[id]=await roleActor192(ctx.env,{kind:'subscriber',sid:String(id)});return copy(snapshot.subscribers[id]);}
+   return base.get(c,id);
+  },
+  listCollection:c=>lists[c]?Promise.resolve(copy(lists[c])):base.listCollection(c),
+  queryEqual:(c,f,v,limit=500)=>lists[c]?Promise.resolve(copy(lists[c].filter(row=>row[f]===v).slice(0,limit))):base.queryEqual(c,f,v,limit)
+ };
+}
+
 /* Roles internos V190. Se conserva compatibilidad con asignaciones comerciales
    históricas en personal_comercial/<sid> y se registran nuevas asignaciones de
    Vendedor y Supervisor separadamente en <sid>__<rol>. */
@@ -8782,6 +8903,7 @@ async function gldRolesGuardarConjunto191(ctx,auth,read){
  const roles=body.roles;
  if(!roles||typeof roles!=='object'||Array.isArray(roles)||Object.keys(roles).some(x=>!['MODERADOR','SUPERVISOR','VENDEDOR'].includes(x)))
   return json({success:false,message:'Roles inválidos.'},400);
+ read=await rolesRead192(ctx,sid);
  const [state,moderatorDirect,vendedor,supervisor,territory]=await Promise.all([
   gldComEstado190(env,read,sid),read.get('superadmins',sid),
   gldLeerCom190(read,sid,'VENDEDOR'),gldLeerCom190(read,sid,'SUPERVISOR'),
@@ -8852,7 +8974,7 @@ async function rolesInternosRoute188(ctx){
  const auth=await verifyAdmin(env,request);
  if(!auth.ok)return json({success:false,message:auth.message},401);
  if(auth.rol!=='SUPERADMIN_PRINCIPAL')return json({success:false,message:'Solo Gran Hermano principal administra roles internos.'},403);
- const read=db.panelReadDb?db.panelReadDb():db;
+ let read;
  if(path==='/superadmin/internal-roles/bulk')return gldRolesGuardarConjunto191(ctx,auth,read);
  if(path==='/superadmin/commercial/personnel'){
   const body=request.method==='POST'?await request.json().catch(()=>({})):null;
@@ -8860,6 +8982,7 @@ async function rolesInternosRoute188(ctx){
   const rol=String(body?.rol||url.searchParams.get('rol')||'VENDEDOR').toUpperCase();
   if(!sid||sid.length>180||sid.includes('/'))return json({success:false,message:'Suscriptor inválido.'},400);
   if(!GLD_ROLES_COM190.includes(rol))return json({success:false,message:'Rol comercial inválido.'},400);
+  read=await rolesRead192(ctx,sid);
   const current=await gldLeerCom190(read,sid,rol);
   if(request.method==='GET'){
    const [v,s,state]=await Promise.all([gldLeerCom190(read,sid,'VENDEDOR'),gldLeerCom190(read,sid,'SUPERVISOR'),gldComEstado190(env,read,sid)]);
@@ -8913,6 +9036,7 @@ async function rolesInternosRoute188(ctx){
  if(path==='/superadmin/internal-roles/person'){
   const sid=String(url.searchParams.get('suscriptor_id')||'').trim();
   if(!sid||sid.length>180||sid.includes('/'))return json({success:false,message:'Suscriptor inválido.'},400);
+  read=await rolesRead192(ctx,sid);
   const [mod,v,s,state]=await Promise.all([
    read.get('superadmins',sid),gldLeerCom190(read,sid,'VENDEDOR'),gldLeerCom190(read,sid,'SUPERVISOR'),gldComEstado190(env,read,sid)]);
   const roles=[];
@@ -8921,6 +9045,7 @@ async function rolesInternosRoute188(ctx){
   if(s)roles.push({rol:'SUPERVISOR',activo:s.data.activo===true&&state.active});
   return json({success:true,roles,suscriptor_activo:state.active});
  }
+ read=await rolesRead192(ctx);
  const [moderators,commerce]=await Promise.all([
   read.listCollection('superadmins'),read.listCollection('personal_comercial')]);
  const mapped=[];
@@ -11357,7 +11482,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'191',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'193',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -11443,7 +11568,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12057,7 +12182,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'191',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'193',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -12068,9 +12193,9 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'191',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'193',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
- const source=requestDb119(observeDbV41(createDb(env),report),report);
+ const source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
  try{
   const refs=new Map(job.references.map(ref=>[ref.collection+'/'+ref.id,ref]));
@@ -12270,8 +12395,8 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'191',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
- const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(observeDbV41(createDb(env),report),report);
+ const report={event:'gld_business_recovery143',worker_version:'193',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
   for(const ref of job.refs){
@@ -12336,11 +12461,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'191',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'193',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'191',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'193',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -12483,7 +12608,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'191',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'193',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -12512,7 +12637,7 @@ var app_main_v35_default = {
       if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors()});
       const url=new URL(request.url),path=clean(url.pathname);
       if(path==='/internal/city-books')return await traced(await routeCityBookCut({request,env,report}));
-      db=withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(requestDb119(observeDbV41(createDb(env),report),report),env),env),env,report);
+      db=withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report),env),env),env,report);
       db=GLD_BUSINESS143.journal(guideJournalDb132(db,env),env);
       const cache=createCache(env);
       const action=await observationActionV43(request,url);
@@ -12527,7 +12652,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"191",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"193",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
@@ -12668,3 +12793,5 @@ async function ownerTeamRoute159(ctx){
  return json({success:true,results:rows,revision_nueva:await wholeRevisionInternal({}),funcionalidades:[...new Set((Array.isArray(admin?.funcionalidades)?admin.funcionalidades:String(admin?.funcionalidades||'').split(/[;,|\n]/)).concat(['PUBLICIDAD','EMPLEO']).map(x=>String(x).trim().toUpperCase()).filter(Boolean))]});
 }
 export { publicFeatures191, publicSchema191, PUBLIC_FEATURES191, syncEmpleo109, publicityWindow191 };
+
+export { PrivateRoles192, roleSourceDb192, rolesRead192 };

@@ -7,7 +7,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {pathToFileURL} from 'node:url';
 import bookTools from '../plataforma/paquete-ciudad.js';
 import {aplicarCorte} from '../scripts/aplicar-corte-paquetes-ciudad.mjs';
-const workerSource=await readFile(new URL('../worker/worker190_roles_multiples_sobre_189.txt',import.meta.url),'utf8');
+const workerSource=await readFile(new URL('../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
 const worker=await import('data:text/javascript;base64,'+Buffer.from(workerSource).toString('base64'));
 const {applyDelta,validBook,legacySchema,client}=bookTools;
 const canonicalEmployment=worker.PUBLIC_FEATURES191.employment.rebuild;

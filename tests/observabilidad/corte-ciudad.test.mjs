@@ -9,7 +9,7 @@ import { prepareCityBooks } from '../../scripts/preparar-paquete-ciudad.mjs';
 import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-ciudad.mjs';
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
-const source = await readFile(new URL(process.env.GLD_WORKER||'../../worker/worker187_corregir_parametro_jsdoc_sobre_186.txt', import.meta.url), 'utf8');
+const source = await readFile(new URL(process.env.GLD_WORKER||'../../worker/worker191_consolidado_sobre_190_d8446f0.txt', import.meta.url), 'utf8');
 const candidateWorker = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const {GldPublicCache119}=candidateWorker;
 if(candidateWorker.PUBLIC_FEATURES191)candidateWorker.PUBLIC_FEATURES191.employment.rebuild=async()=>{};

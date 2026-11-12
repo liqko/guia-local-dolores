@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
-const source=await readFile(new URL('../../worker/worker190_roles_multiples_sobre_189.txt',import.meta.url),'utf8');
+const source=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
 const worker=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {rolesInternosRoute188,issue2};').toString('base64'));
 function setup(t){
  const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
@@ -25,7 +25,7 @@ function setup(t){
   const url=new URL('https://ensayo.invalid/superadmin/'+path);for(const[k,v]of Object.entries(params))url.searchParams.set(k,v);
   const request=new Request(url,{method:body?'POST':'GET',headers:{...(auth?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
   const report={operations:{}};env.__gldRequestReport119=report;
-  const response=await worker.rolesInternosRoute188({path:url.pathname,request,url,env,db:sourceDb,cache:{get:async()=>null}});
+  const response=await worker.rolesInternosRoute188({path:url.pathname,request,url,env,db:sourceDb,cache:{get:async key=>key==='territorio:public:v1'?{ciudades:[{ciudad_id:'DOL'}]}:null,put:async(key,value)=>kv.set(key,JSON.stringify(value))}});
   return {status:response.status,body:await response.json(),report};
  };
  return {sql,env,db,sourceDb,rows,calls,writes,call,restart(){actor=new worker.PrivateRoles192(state,env,()=>db);},failCommit(){failAfterCommit=true;},pauseReads(p){pause=p;}};
@@ -89,7 +89,7 @@ test('autorización se comprueba antes de acceder a la copia; sesión revocada n
  r=await h.call('internal-roles/list');assert.equal(r.status,401);assert.equal(h.calls.length,0);
  const token=await worker.issue2(h.env,{sid:'P',rol:'SUPERADMIN',persistent:true,sv:0});
  const url=new URL('https://ensayo.invalid/superadmin/internal-roles/list');
- const response=await worker.rolesInternosRoute188({path:url.pathname,url,request:new Request(url,{headers:{Authorization:'Bearer '+token}}),env:h.env,db:h.sourceDb,cache:{get:async()=>null}});
+ const response=await worker.rolesInternosRoute188({path:url.pathname,url,request:new Request(url,{headers:{Authorization:'Bearer '+token}}),env:h.env,db:h.sourceDb,cache:{get:async key=>key==='territorio:public:v1'?{ciudades:[{ciudad_id:'DOL'}]}:null,put:async(key,value)=>kv.set(key,JSON.stringify(value))}});
  assert([401,403].includes(response.status));assert.equal(h.calls.length,0);
 });
 
@@ -106,4 +106,12 @@ test('commit parcial no borra campos de una proyección conocida y la baja de su
  await h.sourceDb.commitPatches([{collection:'suscriptores',id:'A',patch:{activo:false}}]);
  const r=await h.call('internal-roles/list');assert(r.body.results.every(x=>x.nombre==='Persona A'&&x.activo===false));
  await h.sourceDb.delete('suscriptores','A');const gone=await h.call('internal-roles/person',{suscriptor_id:'A'});assert.equal(gone.body.suscriptor_activo,false);assert.equal(h.calls.length,n);
+});
+
+test('consolidado conserva guardado conjunto: tres roles, un commit y copia actualizada sin lecturas repetidas',async t=>{
+ const h=setup(t);await h.call('internal-roles/list');const n=h.calls.length;
+ const roles={MODERADOR:{activo:true,ciudades:['DOL'],permisos:{moderacion:{EVENTO:true}}},SUPERVISOR:{activo:true,ciudades:['DOL'],comision_porcentaje:2,comision_supervision_porcentaje:1},VENDEDOR:{activo:true,ciudades:['DOL'],comision_porcentaje:3,comision_supervision_porcentaje:0}};
+ const result=await h.call('internal-roles/bulk',{},true,{suscriptor_id:'A',roles});
+ assert.equal(result.status,200);assert.equal(result.body.actualizados,3);assert.deepEqual(h.writes,[['commit']]);
+ const read=await h.call('internal-roles/person',{suscriptor_id:'A'});assert.deepEqual(read.body.roles.map(x=>x.rol),['MODERADOR','VENDEDOR','SUPERVISOR']);assert.equal(h.calls.length,n);
 });
