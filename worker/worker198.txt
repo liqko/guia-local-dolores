@@ -7559,6 +7559,70 @@ var text72 = (v) => String(v ?? "").trim();
 function isTopAdmin(auth) {
   return ["SUPERADMIN_PRINCIPAL", "SUPERADMIN"].includes(text72(auth && auth.rol).toUpperCase());
 }
+// Asignaciones administrativas: superposición explícita sobre las contrataciones.
+// Los campos efectivos (nivel, funcionalidades y funcionalidades_config) siguen siendo
+// la única fuente para el Login y demás paneles.
+function administrativeOverrides198(row){
+ const value=row?.asignaciones_administrativas;
+ return value&&typeof value==='object'&&!Array.isArray(value)?structuredClone(value):{};
+}
+function featureList198(value){
+ return [...new Set((Array.isArray(value)?value:String(value||'').split(/[;,|\n]/))
+   .map(v=>canonicalFeatureId112(String(v).trim())).filter(Boolean))];
+}
+function contractedFeatures198(contract){
+ return new Set(Object.entries(contract?.funcionalidades||{})
+  .filter(([,n])=>Number(n)>0).map(([key])=>canonicalFeatureId112(key)));
+}
+function mergeFeatureAssignments198(purchased,overrides,legacy){
+ const enabled=new Set([...legacy,...purchased].map(canonicalFeatureId112));
+ for(const key of featureList198(overrides?.funcionalidades?.habilitadas||[]))enabled.add(key);
+ for(const key of featureList198(overrides?.funcionalidades?.deshabilitadas||[]))enabled.delete(key);
+ return [...enabled];
+}
+function applyConfigOverrides198(settings,overrides){
+ for(const [feature,fields] of Object.entries(overrides?.funcionalidades_config||{})){
+  if(!fields||typeof fields!=='object'||Array.isArray(fields))continue;
+  const value={...(settings[feature]||{})};
+  for(const [key,item]of Object.entries(fields)){
+   if(item===null)delete value[key];
+   else value[key]=structuredClone(item);
+  }
+  settings[feature]=value;
+ }
+ return settings;
+}
+function captureAdministrativeChanges198(previous,patch,auth){
+ const state=administrativeOverrides198(previous);
+ if(Object.hasOwn(patch,'nivel'))state.nivel=patch.nivel;
+ if(Object.hasOwn(patch,'funcionalidades')){
+  const selected=new Set(featureList198(patch.funcionalidades));
+  const billed=contractedFeatures198(previous.contratacion_actual);
+  state.funcionalidades={
+   habilitadas:[...selected].filter(k=>!billed.has(k)),
+   deshabilitadas:[...billed].filter(k=>!selected.has(k))
+  };
+ }
+ if(Object.hasOwn(patch,'funcionalidades_config')){
+  const saved=previous.funcionalidades_config||{},next=patch.funcionalidades_config||{};
+  const previousOverrides=state.funcionalidades_config&&typeof state.funcionalidades_config==='object'?state.funcionalidades_config:{};
+  for(const [feature,fields]of Object.entries(next)){
+   const before=saved[feature]||{},changes={...(previousOverrides[feature]||{})};
+   for(const [key,value]of Object.entries(fields||{}))
+    if(JSON.stringify(before[key])!==JSON.stringify(value))changes[key]=structuredClone(value);
+   for(const key of Object.keys(before))
+    if(!Object.hasOwn(fields||{},key))changes[key]=null;
+   if(Object.keys(changes).length)previousOverrides[feature]=changes;
+  }
+  for(const feature of Object.keys(saved))
+   if(!Object.hasOwn(next,feature))previousOverrides[feature]=Object.fromEntries(Object.keys(saved[feature]||{}).map(k=>[k,null]));
+  state.funcionalidades_config=previousOverrides;
+ }
+ state.origen='ADMINISTRACION';
+ state.actualizado_en=new Date().toISOString();
+ state.actualizado_por=String(auth?.sid||'');
+ return state;
+}
 async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, payload }) {
   if (!isTopAdmin(auth)) throw new Error("No tenés permiso para modificar la configuración comercial.");
   const aid = text72(advertiserId || payload && payload.anunciante_id || payload && payload.id);
@@ -7657,6 +7721,10 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
   adminTouched=Object.keys(adminPatch).some(key=>!['actualizado_en','actualizado_por'].includes(key));
   let firestoreWrites = 0;
   if (adminTouched) {
+    const commercialChanged=['nivel','funcionalidades','funcionalidades_config']
+      .some(key=>Object.hasOwn(adminPatch,key));
+    if(commercialChanged)
+      adminPatch.asignaciones_administrativas=captureAdministrativeChanges198(commercialSource.doc,adminPatch,auth);
     const savedAdmin=await db.patch("anunciantes_administracion", aid, adminPatch, { mustExist: true,updateTime:commercialSource.updateTime });
     nextCommercialRevision=await commercialRevisionInternal(savedAdmin);
     const contractBefore132={...publicityContractV101(commercialSource.doc),habilitada:featureEnabled2(commercialSource.doc,"PUBLICIDAD")};
@@ -8796,11 +8864,22 @@ async function gldCerrarContrato185(ctx){
   return json({success:false,message:'La ficha del anunciante cambió. Recargala antes de cerrar.',conflicto:true},409);
  const units=quoteBody.funcionalidades||{},formats=quoteBody.formatos_publicidad||{},all=Object.values(formats).reduce((a,b)=>a+(Number(b)||0),0);
  const purchased={EVENTOS:Number(units.eventos_vip||0),ACTIVIDADES:Number(units.actividades||0),PROMOS:Number(units.promociones||0),PUBLICIDAD:all};
- const before=new Set(Array.isArray(previous.funcionalidades)?previous.funcionalidades:
-  String(previous.funcionalidades||'').split(/[;,|\\n]/).map(x=>x.trim()).filter(Boolean));
- const remove=new Set(['EVENTOS','EVENTOS_VIP','ACTIVIDADES','PROMOS','PROMOCIONES','PUBLICIDAD','PUBLI']);
- const enabled=[...before].filter(k=>!remove.has(k.toUpperCase()));
- for(const [key,value] of Object.entries(purchased))if(value>0)enabled.push(key);
+ const overrides=administrativeOverrides198(previous);
+ const previousContract=contractedFeatures198(previous.contratacion_actual);
+ const currentEnabled=new Set(featureList198(previous.funcionalidades));
+ const purchases=new Set(Object.entries(purchased).filter(([,n])=>n>0).map(([k])=>canonicalFeatureId112(k)));
+ const billable=new Set(['EVENTOS','EVENTOS_VIP','ACTIVIDADES','PROMOS','PROMOCIONES','PUBLICIDAD','PUBLI'].map(canonicalFeatureId112));
+ // Preservar las concesiones administrativas anteriores a la primera contratación
+ // y las prestaciones que no proceden de la contratación anterior.
+ const manualLegacy=[...currentEnabled].filter(k=>!previousContract.has(k));
+ const legacyGrants=[...manualLegacy].filter(k=>billable.has(k));
+ if(legacyGrants.length){
+  const existing=new Set(featureList198(overrides?.funcionalidades?.habilitadas||[]));
+  for(const k of legacyGrants)existing.add(k);
+  overrides.funcionalidades={...(overrides.funcionalidades||{}),habilitadas:[...existing]};
+ }
+ const enabled=mergeFeatureAssignments198(purchases,overrides,
+  manualLegacy.filter(k=>!billable.has(k)));
  const settings=structuredClone(previous.funcionalidades_config||{});
  for(const [key,value] of Object.entries(purchased)){
   const current=settings[key]||{};
@@ -8820,6 +8899,13 @@ async function gldCerrarContrato185(ctx){
     cobertura_tipo:current.cobertura_tipo||'CIUDADES'};
   }else settings[key]={...current,activas_max:0,posiciones:0};
  }
+ applyConfigOverrides198(settings,overrides);
+ // Un nivel especial concedido administrativamente prevalece sobre una venta posterior.
+ // Migración conservadora de un nivel anterior a la primera contratación: sólo si
+ // es superior al nivel comprado, para evitar rebajar una bonificación existente.
+ if(!previous.contratacion_actual&&!Object.hasOwn(overrides,'nivel')&&
+    Number(previous.nivel)>Number(body.nivel))overrides.nivel=String(previous.nivel);
+ const effectiveLevel=Object.hasOwn(overrides,'nivel')?String(overrides.nivel):String(body.nivel);
  const contracted={operacion_id:op,anunciante_id:aid,nivel:String(body.nivel),funcionalidades:{...purchased},
   cantidades:{...units},formatos_publicidad:{...formats},adicionales:{...(quoteBody.adicionales||{})},
   cobertura_funcionalidades:{...(quoteBody.cobertura_funcionalidades||{})},
@@ -8827,7 +8913,8 @@ async function gldCerrarContrato185(ctx){
   descuento_aplicado:calculated.descuento_aplicado,
   revision_tarifaria:calculated.revision_comercial,
   cerrado_en:new Date().toISOString(),cerrado_por:auth.sid,estado:'CONFIRMADA'};
- const patch={nivel:String(body.nivel),funcionalidades:enabled,funcionalidades_config:settings,
+ const patch={nivel:effectiveLevel,funcionalidades:enabled,funcionalidades_config:settings,
+  asignaciones_administrativas:overrides,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
  let saved;
  try{saved=await db.patch('anunciantes_administracion',aid,patch,{mustExist:true,updateTime:version.updateTime})}
