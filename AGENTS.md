@@ -4,6 +4,7 @@
 - ÚNICO archivo de Worker: `worker/worker191_consolidado_sobre_190_d8446f0.txt`. Su nombre es permanente; el número real de versión se actualiza DENTRO del archivo.
 - No crear archivos de Worker alternativos, numerados, temporales ni de entrega. No utilizar rutas históricas mencionadas más abajo como base vigente.
 - Antes de editar, leer esta ruta en main y comprobar su SHA, contenido y versión. Integrar sobre esa revisión los cambios concurrentes; no reemplazarla por una copia completa de otra rama o chat.
+- Para HTML y otros archivos compartidos se aplica el mismo control: partir de su contenido fresco en main y aplicar SÓLO los cambios de esta intervención. No interpretar como cambios propios la diferencia completa entre main y una copia local atrasada. Conservar referencias, versiones de recursos y arreglos ajenos. La integridad previa a publicar incluye Administración; mantener su comprobación.
 - Publicar con comprobación del SHA esperado; si main cambió, volver a leer e integrar antes de escribir. Documentar versión preparada, instalada y cambios pendientes en el registro maestro.
 - Las versiones anteriores se consultan en el historial Git, sin restituir copias al árbol de trabajo. Preparar y probar un cambio no autoriza instalarlo en Cloudflare.
 

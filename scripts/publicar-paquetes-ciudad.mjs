@@ -34,6 +34,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
   if (mode === 'commit') {
     const result = await call({op:'commit',cutoff});
     if (result?.success !== true) throw Error('El último corte no quedó confirmado');
+    if (result.private_daily?.status === 'pending') throw Error('El corte público quedó confirmado, pero falta preparar Gran Hermano. Reintentá el mismo publicador; no hace falta volver a publicar desde el panel.');
     return {cutoff};
   }
   if (!['cut','preserve'].includes(mode) || !stage) throw Error('Modo de publicación inválido');
