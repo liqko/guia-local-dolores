@@ -8916,16 +8916,26 @@ async function gldCerrarContrato185(ctx){
  const patch={nivel:effectiveLevel,funcionalidades:enabled,funcionalidades_config:settings,
   asignaciones_administrativas:overrides,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
+ // Las banderas históricas también son leídas por algunos módulos: mantenerlas
+ // sincronizadas con la única configuración efectiva.
+ const activeFeatures=new Set(enabled.map(canonicalFeatureId112));
+ for(const [key,aliases] of Object.entries({
+  EVENTOS:['eventos','eventos_vip'],ACTIVIDADES:['actividades'],
+  PROMOS:['promos','promociones'],PUBLICIDAD:['publicidad','publi']
+ })){
+  const active=activeFeatures.has(key);
+  for(const alias of aliases)patch[alias]=active;
+ }
  let saved;
  try{saved=await db.patch('anunciantes_administracion',aid,patch,{mustExist:true,updateTime:version.updateTime})}
  catch(e){return json({success:false,message:'No se confirmó la contratación. La ficha pudo cambiar: '+String(e.message||e)},409)}
- // Mantener proyecciones existentes; no repetir escrituras Firestore.
- await Promise.allSettled([
-  patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:{nivel:patch.nivel}}),
-  patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch:{nivel:patch.nivel}})
+ // Mantener proyecciones existentes: reutilizar el mismo registro efectivo.
+ await Promise.all([
+  patchGuideAdminFieldsV2({cache,advertiserId:aid,patch}),
+  patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch})
  ]);
- if(purchased.PUBLICIDAD>0)await cache.put('publicity:contract:v101:'+aid,
-  {...publicityContractV101(saved),habilitada:true});
+ await cache.put('publicity:contract:v101:'+aid,
+  {...publicityContractV101(saved),habilitada:featureEnabled2(saved,'PUBLICIDAD')});
  return json({success:true,updated:true,contratacion:contracted,importe:contracted.importe,
   revision_comercial:await commercialRevisionInternal(saved),firestore_writes:1});
 }
