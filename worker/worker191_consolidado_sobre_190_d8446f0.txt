@@ -3427,7 +3427,15 @@ function freeEventPolicyV95(admin,packet=null){
   descripcion_max:allow&&cfg.parametros_especiales?.descripcion_max?.habilitado===true?gldValorParticular168(global,cfg,'descripcion_max',200):allow&&cfg.descripcion_excepcion===true&&Number.isSafeInteger(cfg.descripcion_max)?cfg.descripcion_max:gldValorParticular168(global,cfg,'descripcion_max',200),
   descripcion_sin_limites:allow&&cfg.descripcion_sin_limites===true,
   activas_max:gldValorParticular168(global,cfg,'activas_max',2),
+  guardadas_max:gldValorParticular168(global,cfg,'guardadas_max',4),
   ediciones_max:gldValorParticular168(global,cfg,'ediciones_max',1),
+  ediciones_dia_max:gldValorParticular168(global,cfg,'ediciones_dia_max',null),
+  ediciones_semana_max:gldValorParticular168(global,cfg,'ediciones_semana_max',null),
+  ediciones_mes_max:gldValorParticular168(global,cfg,'ediciones_mes_max',null),
+  cambios_estado_semana_max:gldValorParticular168(global,cfg,'cambios_estado_semana_max',null),
+  nombre_evento_max:gldValorParticular168(global,cfg,'nombre_evento_max',null),
+  imagenes_max:gldValorParticular168(global,cfg,'imagenes_max',null),
+  enlaces_max:gldValorParticular168(global,cfg,'enlaces_max',null),
   excepcion_cupo:overridden,dias_entre_ediciones:0};
 }
 /** @param {any} value */
@@ -3439,10 +3447,19 @@ function freeEventMonthlyRowsV95(rows,month){
  return rows.filter(isFree).filter(e=>(e.cupo_mes||freeEventMonthV95(e.fecha_carga||e.creado))===month);
 }
 /** @param {any} row @param {any} policy */
-function freeEventEditDateV95(row,policy){
- if(policy.ediciones_max===null||policy.ediciones_max===undefined)return '';
- if(policy.sin_limites||!row?.ultima_edicion_free)return '';
- const time=Date.parse(row.ultima_edicion_free);return Number.isFinite(time)?new Date(time+7*86400000).toISOString():'';
+function freeEventEditDateV95(_row,_policy){return '';}
+function freeEventValidateConfigured198(data,policy){
+ if(!policy||policy.sin_limites)return;
+ const maxTitle=policy.nombre_evento_max;
+ if(Number.isSafeInteger(maxTitle)&&maxTitle>=0&&String(data.nombre_evento??'').length>maxTitle)
+   throw httpError('El título de Eventos Free admite hasta '+maxTitle+' caracteres.',400);
+ const imageFields=Object.keys(data||{}).filter(k=>/^(?:img|imagen)\d+$/.test(k)&&String(data[k]??'').trim());
+ const imageList=Array.isArray(data.imagenes)?data.imagenes.filter(Boolean).length:0;
+ if(Number.isSafeInteger(policy.imagenes_max)&&policy.imagenes_max>=0&&Math.max(imageFields.length,imageList)>policy.imagenes_max)
+   throw httpError('El evento Free admite hasta '+policy.imagenes_max+' imágenes.',400);
+ const linked=['url_inscripcion','url_virtual','link_virtual','enlace_virtual','web','link_entradas','url_entradas'].filter(k=>String(data[k]??'').trim()).length;
+ if(Number.isSafeInteger(policy.enlaces_max)&&policy.enlaces_max>=0&&linked>policy.enlaces_max)
+   throw httpError('El evento Free admite hasta '+policy.enlaces_max+' enlaces.',400);
 }
 /** @param {any} data */
 function freeEventProtectedV95(data){
@@ -3464,7 +3481,7 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const unlimited=free?!!policy?.sin_limites:vipAllowed166&&vipOverride166.sin_limites===true;
   if(!unlimited&&free)max=Number.isSafeInteger(policy.activas_max)?policy.activas_max:Number(max||0);
   if(!unlimited&&!free&&!Number.isSafeInteger(Number(max))&&Number.isSafeInteger(vipSettings166.activas_max))max=vipSettings166.activas_max;
-  if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);}
+  if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);freeEventValidateConfigured198(data,policy);}
   else {
     const maxDescripcion=gldValorParticular168(vipSettings166,vipOverride166,'descripcion_max',null);
     if(Number.isSafeInteger(maxDescripcion)&&String(data.descripcion??'').length>maxDescripcion)throw httpError('La descripción de Eventos VIP admite hasta '+maxDescripcion+' caracteres.',400);
@@ -3473,6 +3490,8 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
   await validateEvent({ db, cache, advertiserId, data, level });
   const q = await quota2({ db, advertiserId, max, free });
+  if(free&&!unlimited&&Number.isSafeInteger(policy.guardadas_max)&&policy.guardadas_max>=0&&q.total>=policy.guardadas_max)
+    throw new Error('Alcanzaste el máximo de '+policy.guardadas_max+' Eventos Free guardados.');
   if(operation145){const prior=q.own.find(e=>e.operation_id145===operation145);if(prior){if(prior.operation_fingerprint145!==fingerprint145)throw httpError('Ese identificador corresponde a otro evento.',409);if(prior.eliminado)throw httpError('Ese evento fue borrado. Actualizá el listado antes de crear otro.',409);return {success:true,operation_recovered:true,evento_id:prior.evento_id,evento:prior};}}
   if(!free&&!unlimited){
     const globalMonthly=Number.isSafeInteger(vipSettings166.altas_mensuales_max)?vipSettings166.altas_mensuales_max:5;
@@ -3585,6 +3604,7 @@ async function updateEventV3({ db, cache, advertiserId, payload, level = "VIP" }
   if(level==='FREE'&&(hasDataChanges||scheduleChanged)){
     policy=freeEventPolicyV95(await db.get("anunciantes_administracion",advertiserId),await gldFuncPacket166(cache,db,false));
     gldValidarDescripcionFree167(next.descripcion,policy);
+    freeEventValidateConfigured198(next,policy);
     if(!policy.sin_limites){
       if(Number.isSafeInteger(policy.ediciones_max)&&Number(current.ediciones_free_contador||0)>=policy.ediciones_max)throw httpError('Se alcanzó la cantidad de ediciones permitidas para este evento Free.',409);
       const cachedAvailable=freeEventEditDateV95(current,policy);
