@@ -106,6 +106,24 @@ function pubInternalDestination106(raw){
   const href=linked?b.cta:ficha?new URL('anunciantes.html?ciudad_id='+encodeURIComponent(b.ciudad_id||'')+'&anunciante_id='+encodeURIComponent(b.anunciante_id),location.href).href:pubInternalDestination106(b.cta||b.cta_destino||'');
   return '<aside class="banner-tarjeta" data-contenido-adulto="'+(b.contenido_adulto===true)+'" aria-label="Publicidad"><small>Publicidad</small>'+content+(href?'<a class="cta-btn" href="'+esc(href)+'" target="'+(ficha?'_self':'_top')+'">'+esc(b.cta_texto||'Ver anunciante')+'</a>':'')+'</aside>';
  }
+ function exceptional(rows,ordinary=[],context={}){
+  if(!context.constrained)return [];
+  const unique=new Map();
+  for(const b of rows||[]){
+   if(level(b)!==6||b.bloqueado18)continue;
+   const advertiser=String(b.anunciante_id||id(b));
+   if(!unique.has(advertiser))unique.set(advertiser,b);
+  }
+  if(!unique.size)return [];
+  const shown=new Set((ordinary||[]).filter(b=>level(b)===6).map(b=>String(b.anunciante_id||id(b))));
+  if([...unique.keys()].every(a=>shown.has(a)))return [];
+  return [...unique.entries()].sort((a,b)=>hash(a[0])-hash(b[0])).map(([,piece])=>piece);
+ }
+ function exceptionalHtml(rows,ordinary,context){
+  const pieces=exceptional(rows,ordinary,context);if(!pieces.length)return '';
+  const content=pieces.map((p,i)=>'<div style="flex:0 0 min(86vw,360px);scroll-snap-align:start">'+render(p,'excepcional-'+i)+'</div>').join('');
+  return '<section class="gld-publicidad-excepcional" aria-label="Publicidad Nivel 6" style="width:100%;max-width:100%;margin:14px 0"><h3 style="font-size:1rem;margin:0 0 10px">Publicidad</h3><div role="region" aria-label="Carrusel de publicidad Nivel 6" tabindex="0" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:5px 2px 12px">'+content+'</div></section>';
+ }
  function init(){
   document.querySelectorAll('video[data-gld-publicidad-native]').forEach(video=>{if(video.dataset.wired)return;video.dataset.wired='1';if(typeof IntersectionObserver!=='undefined')new IntersectionObserver(entries=>{for(const entry of entries)if(!entry.isIntersecting)video.pause();},{threshold:0.01}).observe(video);});
   document.querySelectorAll('[data-gld-publicidad-video]').forEach(frame=>{
@@ -113,5 +131,5 @@ function pubInternalDestination106(raw){
    if(typeof IntersectionObserver!=='undefined')new IntersectionObserver(entries=>{for(const entry of entries){if(entry.isIntersecting){seen=true;if(frame.getAttribute('src')==='about:blank')frame.src=src;}else if(seen)frame.src='about:blank';}},{threshold:0.01}).observe(frame);
   });
  }
- window.GLD_PUBLICIDAD={sequence,render,init};
+ window.GLD_PUBLICIDAD={sequence,render,init,exceptional,exceptionalHtml};
 })();
