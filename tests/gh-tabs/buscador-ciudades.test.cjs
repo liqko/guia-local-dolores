@@ -37,3 +37,12 @@ test('nombres e identificadores se presentan como texto sin inyectar botones ni 
 test('consultar resultado no añade permisos de eliminación a un rol secundario',t=>{
  const h=setup(t,cities,'ADMIN_LOCAL');h.search('Dolores');h.results()[0].click();assert.equal(h.doc.getElementById('ghCiudadEliminar'),null);assert.equal(h.calls.length,0);
 });
+test('el selector completo muestra ciudad, provincia y país antes de elegir',t=>{
+ const h=setup(t);const options=[...h.doc.querySelectorAll('#ciuSelect option')];assert.equal(options[1].textContent,'Dolores · Buenos Aires · Argentina');assert.equal(options[2].textContent,'Dolores · Córdoba · Argentina');assert.equal(h.doc.getElementById('ciuSelect').value,'');assert.equal(h.calls.length,0);
+});
+test('buscar por país o provincia usa el mismo contexto completo y no consulta datos nuevos',t=>{
+ const h=setup(t);h.search('ARGENTINA');assert.equal(h.results().length,3);h.search('cordoba');assert.equal(h.results().length,1);assert.equal(h.results()[0].textContent,'Dolores · Córdoba · Argentina');h.search('Dolores Buenos Aires');assert.equal(h.results().length,1);assert.equal(h.results()[0].dataset.ciudadId,'DOL');h.search('');assert.match(h.doc.querySelector('#ciuSelect option[value="DOL"]').textContent,/Buenos Aires.*Argentina/);assert.equal(h.calls.length,0);
+});
+test('contexto declarado y datos incompletos se muestran sin inventar provincia o país',t=>{
+ const h=setup(t,[{ciudad_id:'SP',nombre:'San Pablo',provincia_visible:'São Paulo',pais_visible:'Brasil'},{ciudad_id:'X',nombre:'Otra ciudad'}]);assert.equal(h.doc.querySelector('#ciuSelect option[value="SP"]').textContent,'San Pablo · São Paulo · Brasil');assert.match(h.doc.querySelector('#ciuSelect option[value="X"]').textContent,/Provincia\/estado sin informar.*País sin informar/);h.search('BRASIL');assert.equal(h.results().length,1);assert.equal(h.results()[0].dataset.ciudadId,'SP');assert.equal(h.calls.length,0);
+});
