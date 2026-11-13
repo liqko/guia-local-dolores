@@ -19,7 +19,7 @@ function ghRenderAdvertiserAccess155(data,id){
 }
 async function ghOpenAdvertiserPanel155(){
  const state=GH_ACCESS155;if(!state)return;
- const nonce=crypto.randomUUID(),url=new URL('login.html',location.href);url.searchParams.set('administracion',nonce);
+ const nonce=crypto.randomUUID(),url=new URL('/plataforma/login.html',location.origin);url.searchParams.set('administracion',nonce);
  const panel=window.open(url.href,'_blank');if(!panel){document.getElementById('ghAccessStatus155').textContent='Permití abrir la pestaña del panel.';return;}
  const status=document.getElementById('ghAccessStatus155');status.textContent='Validando acceso administrativo...';let ready=false,grant=null;
  const send=()=>{if(ready&&grant)panel.postMessage({type:'gld-admin-panel155',nonce,grant},url.origin);};
