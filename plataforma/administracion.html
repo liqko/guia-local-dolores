@@ -152,6 +152,8 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 #ghRolesEdicionAsignacion190 .gld-role191 .gld-role-field191{display:grid;gap:6px;max-width:420px}
 #ghRolesEdicionAsignacion190 .gld-role191 .gld-role-field191 input{width:100%;max-width:420px}
 
+#ciuSelect[hidden],#ciuResultados[hidden]{display:none!important}
+#ciuResultados button{display:block;width:100%;text-align:left;margin:6px 0;white-space:normal;overflow-wrap:anywhere}
 </style>
 <script src="/plataforma/clasificacion.js?v=86"></script>
 <script src="/plataforma/cupos.js?v=64"></script>
@@ -404,7 +406,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
           <button class="tab" data-cfg="adultos">Moderación y contenido +18</button><button class="tab" data-cfg="terminos">Términos para anunciantes</button>
         </div>
       </div>
-      <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..."></div><select id="ciuSelect"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
+      <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('pais')">+ País</button><button type="button" onclick="ghNuevoTerritorio('provincia')">+ Provincia / Estado</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..." aria-label="Buscar ciudad o partido" aria-controls="ciuResultados"></div><div id="ciuResultados" aria-live="polite" hidden></div><select id="ciuSelect" aria-label="Seleccionar ciudad"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
       <div class="cfgpane hidden" data-cfgpane="roles_internos">
  <div class="card"><h2>Definición de roles · Funciones, alcances y límites</h2>
  <div class="card" style="border:1px solid #d5e2e8;box-shadow:none;background:#f9fbfc">
@@ -1269,8 +1271,20 @@ function ghRenderCiudades(){
  const q=ghNorm((document.getElementById('ciuQ')||{}).value||'');
  const list=GH_CITIES.filter(x=>!q||ghNorm(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id).includes(q));
  sel.innerHTML='<option value="">Seleccioná una ciudad</option>'+list.map(x=>'<option value="'+esc(String(x.ciudad_id||x.id||''))+'">'+esc(String(x.ciudad_visible||x.nombre||x.ciudad||x.ciudad_id||x.id||''))+(x.activa===false?' · Desactivada':'')+'</option>').join('');
- if(list.some(x=>String(x.ciudad_id||x.id)===selected))sel.value=selected;
+ sel.value=list.some(x=>String(x.ciudad_id||x.id)===selected)?selected:'';
+ const results=document.getElementById('ciuResultados');
+ if(results){
+  results.hidden=!q;sel.hidden=!!q;
+  results.innerHTML=!q?'':list.length?'<p class="muted">'+list.length+' coincidencia'+(list.length===1?'':'s')+'</p>'+list.map(x=>{
+   const id=String(x.ciudad_id||x.id||''),name=String(x.ciudad_visible||x.nombre||x.ciudad||id);
+   const province=GH_PROVINCES.find(p=>String(p.provincia_id||p.id)===String(x.provincia_id));
+   const country=GH_COUNTRIES.find(p=>String(p.pais_id||p.id)===String(x.pais_id));
+   const context=[province?.nombre||province?.provincia_visible||x.provincia_visible,country?.nombre||country?.pais_visible].filter(Boolean).join(', ');
+   return '<button type="button" class="sec" data-ciudad-id="'+esc(id)+'">'+esc(name)+(context?' · '+esc(context):'')+(x.activa===false?' · Desactivada':'')+'</button>';
+  }).join(''):'<p class="muted">No hay ciudades que coincidan con la búsqueda.</p>';
+ }
  ghRenderCiudadEdicion();
+ informarAltura();
 }
 function ghRenderCiudadEdicion(){
  const d=document.getElementById('ciudadDetalle'),sel=document.getElementById('ciuSelect');
@@ -3776,6 +3790,11 @@ document.getElementById('evCiudad').addEventListener('change',ghCargarEventosPub
 document.getElementById('btnEvtRefresh').onclick=async function(){await Promise.all([ghRevisionUnificada(),ghCargarCiudades()]);await ghCargarEventosPublicos();ghRenderTodo();};
 document.getElementById('btnCiudadesRefresh').onclick=async function(){await ghCargarCiudades();ghRenderCiudades();};
 document.getElementById('ciuQ').addEventListener('input',ghRenderCiudades);
+document.getElementById('ciuResultados').addEventListener('click',function(e){
+ const result=e.target.closest('button[data-ciudad-id]');if(!result)return;
+ document.getElementById('ciuSelect').value=result.dataset.ciudadId;
+ ghRenderCiudadEdicion();informarAltura();
+});
 document.getElementById('ciuSelect').addEventListener('change',function(){ghRenderCiudadEdicion();informarAltura();});
 
 document.getElementById('detalle').addEventListener('input',e=>{
