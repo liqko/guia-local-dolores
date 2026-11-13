@@ -11,7 +11,7 @@ import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
 const workerDirectory = new URL('../../worker/', import.meta.url);
-const workerFiles = (await readdir(workerDirectory)).filter(name => /^worker\\d+\\.txt$/.test(name));
+const workerFiles = (await readdir(workerDirectory)).filter(name => /^worker\d+\.txt$/.test(name));
 assert.equal(workerFiles.length,1,'Debe existir un único Worker versionado en worker/');
 const workerPath = new URL(workerFiles[0],workerDirectory);
 const source = await readFile(process.env.GLD_WORKER ? new URL(process.env.GLD_WORKER,import.meta.url) : workerPath, 'utf8');
