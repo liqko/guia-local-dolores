@@ -6301,12 +6301,15 @@ async function commerceSetDatosV3({db,cache,advertiserId,body}){
   if(existingAdult&&db.rememberPanelRows)db.rememberPanelRows("anunciantes",[existingAdult]);
   let delta=changedFieldsV1(existingAdult,patch);
   if(!Object.keys(delta).length)return{success:true,updated:false,id:advertiserId,patch:{}};
-  const limites=await commerceLoadLimitsV153({db,cache,advertiserId});
+  // No consultar el catálogo para cambios que no involucran cupos (p. ej. segmento).
+  const requiereCupos=patch=>Object.keys(patch).some(k=>['actividad','descripcion','tags','categoria_ids','redes_web_comunes'].includes(k)||/^img\d+$/.test(k));
+  let limites=requiereCupos(delta)?await commerceLoadLimitsV153({db,cache,advertiserId}):null;
   await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta,limits:limites});
   if(!/^[a-f0-9]{64}$/.test(String(body.revision_datos||'')))throw httpError('Volvé a abrir los datos del anuncio antes de guardar.',409);
   const version=await db.getVersioned('anunciantes',advertiserId);
   if(!version.doc||!version.updateTime||body.revision_datos!==await wholeRevisionInternal(version.doc))throw httpError('Los datos del anuncio cambiaron mientras los editabas. Volvé a abrirlos antes de guardar.',409);
   existingAdult=version.doc;delta=changedFieldsV1(existingAdult,patch);
+  if(!limites&&requiereCupos(delta))limites=await commerceLoadLimitsV153({db,cache,advertiserId});
   await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta,limits:limites});
   for(const key of Object.keys(patch))delete patch[key];
   Object.assign(patch,delta,adultFields(existingAdult,delta));
