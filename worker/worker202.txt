@@ -7726,10 +7726,13 @@ function gldValidarParametrosIndividuales202(previous,next,globalRules){
   }
   const floor=contract?.estado==='CONFIRMADA'?gldContratoPiso202(previous,id):0;
   if(floor>0){
-   const quotaField=id==='PUBLICIDAD'?'activas_max':'cantidad';
-   if(Object.hasOwn(cfg,quotaField)){
-    const value=cfg[quotaField];
-    if(value!==-1&&(!Number.isSafeInteger(value)||value<floor))
+   for(const quotaField of id==='PUBLICIDAD'?['activas_max']:['cantidad','activas_max']){
+    if(!Object.hasOwn(cfg,quotaField))continue;
+    const value=cfg[quotaField],oldValue=old?.[quotaField];
+    // Un valor anterior inferior al contrato se normaliza sin romper cambios
+    // de otros parámetros. Una reducción nueva, en cambio, se rechaza.
+    if(value!==-1&&(!Number.isSafeInteger(value)||value<floor)&&
+       JSON.stringify(value)!==JSON.stringify(oldValue))
      throw httpError(id+': el cupo no puede ser inferior a las '+floor+' unidades contratadas.',409);
    }
   }
@@ -7792,6 +7795,17 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
     // Consultar las reglas publicadas en caché; sin agregar lecturas Firestore.
     const generalPacket=await gldFuncPacket166(cache,db,false);
     gldValidarParametrosIndividuales202(commercialSource.doc,adminPatch.funcionalidades_config,generalPacket.reglas);
+    // La ficha publicada es la configuración efectiva; nunca almacenar por
+    // debajo de lo contratado, aunque el formulario envíe valores históricos.
+    for(const [key,units]of Object.entries(commercialSource.doc.contratacion_actual?.estado==='CONFIRMADA'?
+      commercialSource.doc.contratacion_actual.funcionalidades||{}:{})){
+      if(!Number.isSafeInteger(units)||units<=0)continue;
+      const id=canonicalFeatureId112(key);
+      const cfg=adminPatch.funcionalidades_config[id]??={};
+      if(!cfg||typeof cfg!=='object'||Array.isArray(cfg))throw httpError('Configuración inválida de '+id,400);
+      cfg.activas_max=gldCupoMayor202(cfg.activas_max,units);
+      if(id!=='PUBLICIDAD')cfg.cantidad=gldCupoMayor202(cfg.cantidad,units);
+    }
     const numeric=new Set(['cantidad','cupo','max','maximo','activas_max','cambios_activos_por_dia_max']);
     for(const [name,cfg]of Object.entries(adminPatch.funcionalidades_config)){
       if(!cfg||typeof cfg!=='object'||Array.isArray(cfg))throw Error('Configuración inválida para '+name+'.');
@@ -9070,9 +9084,10 @@ async function gldCerrarContrato185(ctx){
  // Ningún ajuste histórico ni nueva contratación puede bajar el mínimo comprado.
  for(const [key,units]of Object.entries(purchased)){
   if(units<=0)continue;
-  const field=key==='PUBLICIDAD'?'activas_max':'cantidad';
   settings[key]??={};
-  settings[key][field]=gldCupoMayor202(settings[key][field],units);
+  settings[key].activas_max=gldCupoMayor202(settings[key].activas_max,units);
+  if(key!=='PUBLICIDAD')
+   settings[key].cantidad=gldCupoMayor202(settings[key].cantidad,units);
  }
  // Un nivel especial concedido administrativamente prevalece sobre una venta posterior.
  // Migración conservadora de un nivel anterior a la primera contratación: sólo si
