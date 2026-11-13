@@ -2884,6 +2884,22 @@ function ghRenderCatalogo(def,rows){
  const box=document.getElementById(def.box);if(!box)return;
  if(def.tipo==='funcionalidades'){ghRenderFuncionesUnificadas166(box,rows||[]);return;}
  const listado=def.tipo==='niveles_anunciante'?[...(rows||[])].filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true).sort((a,b)=>Number(b.prioridad??b.orden??0)-Number(a.prioridad??a.orden??0)): (rows||[]);
+ if(def.tipo==='actividades_categorias'){
+  const visible=listado.filter(row=>row.eliminado!==true);
+  const items=visible.map(row=>{
+    const id=String(row[def.idField]||row.id||'');
+    const nombre=GLD_CLASSIFICATION.name(row)||String(row.descripcion||row.categoria||row.denominacion||id);
+    const activo=GLD_CLASSIFICATION.active(row);
+    return '<div class="item" data-actividad-cat-row="'+esc(id)+'"><div class="formgrid"><label>Nombre<input data-actividad-cat-nombre value="'+esc(nombre)+'"></label><label>ID<input disabled value="'+esc(id)+'"></label></div>'+
+      '<label><input type="checkbox" data-actividad-cat-activo '+(activo?'checked':'')+'> Activa</label>'+
+      '<button type="button" class="secondary" data-actividad-cat-delete onclick="ghMarcarEliminarCategoriaActividad(this)">Eliminar</button></div>';
+  }).join('');
+  box.innerHTML='<p class="muted">Editá, agregá o quitá categorías. Se guardarán solamente los cambios.</p>'+
+    '<div class="toolbar"><button type="button" onclick="ghNuevaCategoriaActividad()">+ Agregar categoría</button></div>'+
+    '<div id="ghActividadesCategoriasItems">'+items+'</div>'+
+    '<div class="toolbar"><button type="button" id="ghActividadesCategoriasGuardar" onclick="ghGuardarCategoriasActividades()">Guardar cambios</button><span id="ghActividadesCategoriasEstado" role="status"></span></div>';
+  return;
+ }
  if(def.tipo==='prestaciones'){
   const items=listado.map(row=>{const id=String(row.prestacion_id||row.id||''),nombre=String(row.nombre||''),activo=row.activo!==false,icono=String(row.icono||'');return '<details class="item"><summary><b>'+esc(nombre||id)+'</b> · '+(activo?'Activa':'Inactiva')+'</summary><div class="formgrid"><label>Nombre<input data-cat-nombre="'+esc(id)+'" value="'+esc(nombre)+'"></label><label>Ícono (Font Awesome)<input data-cat-icono="'+esc(id)+'" value="'+esc(icono)+'" placeholder="Ej.: wifi"></label><label>ID<input disabled value="'+esc(id)+'"></label></div><label><input type="checkbox" data-cat-activo="'+esc(id)+'" '+(activo?'checked':'')+'> Activa</label><button onclick="ghGuardarCatalogo(\'prestaciones\',\''+esc(id)+'\')">Guardar</button></details>';}).join('');
   box.innerHTML='<div class="toolbar"><button onclick="ghNuevaPrestacion_()">+ Agregar prestación</button></div>'+items;return;
@@ -3025,6 +3041,70 @@ async function ghCargarCatalogo(def){
  }catch(e){box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
 async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
+function ghNuevaCategoriaActividad(){
+ const host=document.getElementById('ghActividadesCategoriasItems');if(!host)return;
+ const id=ghCatalogoIdNuevo('actividades_categorias')+'_'+Math.floor(Math.random()*100000);
+ const html='<div class="item" data-actividad-cat-row="'+esc(id)+'"><div class="formgrid"><label>Nombre<input data-actividad-cat-nombre placeholder="Nombre de la categoría"></label><label>ID<input disabled value="'+esc(id)+'"></label></div>'+
+  '<label><input type="checkbox" data-actividad-cat-activo checked> Activa</label>'+
+  '<button type="button" class="secondary" onclick="ghMarcarEliminarCategoriaActividad(this)">Eliminar</button></div>';
+ host.insertAdjacentHTML('beforeend',html);
+ host.lastElementChild.querySelector('[data-actividad-cat-nombre]')?.focus();
+}
+function ghMarcarEliminarCategoriaActividad(button){
+ const row=button.closest('[data-actividad-cat-row]');if(!row)return;
+ const id=row.getAttribute('data-actividad-cat-row');
+ const existed=(GH_CATALOG_CACHE.actividades_categorias||[]).some(x=>String(x.categoria_id||x.id||'')===id);
+ if(!existed){row.remove();return;}
+ if(row.hasAttribute('data-actividad-cat-eliminar')){
+  row.removeAttribute('data-actividad-cat-eliminar');row.style.opacity='';button.textContent='Eliminar';return;
+ }
+ if(!confirm('¿Quitar esta categoría? El cambio se aplicará cuando guardes.'))return;
+ row.setAttribute('data-actividad-cat-eliminar','');row.style.opacity='.5';button.textContent='Deshacer eliminación';
+}
+async function ghGuardarCategoriasActividades(){
+ const tipo='actividades_categorias',def=GH_CATALOGOS.find(d=>d.tipo===tipo);
+ const box=document.getElementById('cfgCategoriasActividades'),msg=document.getElementById('ghActividadesCategoriasEstado'),btn=document.getElementById('ghActividadesCategoriasGuardar');
+ if(!def||!box||!btn)return;
+ const original=GH_CATALOG_CACHE[tipo]||[],updates=[];
+ const seen=new Set();
+ for(const el of box.querySelectorAll('[data-actividad-cat-row]')){
+  const id=el.getAttribute('data-actividad-cat-row');
+  if(seen.has(id)){msg.textContent='Hay identificadores duplicados.';return;}seen.add(id);
+  const prev=original.find(x=>String(x.categoria_id||x.id||'')===id);
+  if(el.hasAttribute('data-actividad-cat-eliminar')){
+    if(prev)updates.push({id,prev,item:{categoria_id:id,activo:false,eliminado:true}});
+    continue;
+  }
+  const name=el.querySelector('[data-actividad-cat-nombre]')?.value.trim()||'';
+  if(!name){msg.textContent='Todas las categorías deben tener nombre.';return;}
+  const active=!!el.querySelector('[data-actividad-cat-activo]')?.checked;
+  const oldName=GLD_CLASSIFICATION.name(prev);
+  if(!prev||name!==oldName||active!==GLD_CLASSIFICATION.active(prev)){
+   const labelField=prev&&Object.hasOwn(prev,'titulo')?'titulo':'nombre';
+   const item={categoria_id:id};
+   if(!prev||name!==oldName)item[labelField]=name;
+   if(!prev||active!==GLD_CLASSIFICATION.active(prev))item.activo=active;
+   updates.push({id,prev,item});
+  }
+ }
+ if(!updates.length){msg.textContent='No hay cambios para guardar.';return;}
+ btn.disabled=true;msg.textContent='Guardando '+updates.length+' cambio(s)…';
+ let saved=0;
+ try{
+  for(const change of updates){
+   const result=await api('guardar_catalogo',{tipo,item:change.item},'POST');
+   if(!result?.success)throw Error('No se confirmó el guardado de '+change.id);
+   const updated={...(change.prev||{}),...change.item};
+   GH_CATALOG_CACHE[tipo]=change.prev?(GH_CATALOG_CACHE[tipo]||[]).map(x=>String(x.categoria_id||x.id||'')===change.id?updated:x):[...(GH_CATALOG_CACHE[tipo]||[]),updated];
+   saved++;
+  }
+  if(GH_FIXED_PACKET169?.catalogos)GH_FIXED_PACKET169.catalogos[tipo]=GH_CATALOG_CACHE[tipo];
+  ghRenderCatalogo(def,GH_CATALOG_CACHE[tipo]);
+  document.getElementById('ghActividadesCategoriasEstado').textContent='Cambios guardados ('+saved+').';
+ }catch(e){
+  msg.textContent='Se guardaron '+saved+' de '+updates.length+'. '+String(e.message||e)+'. Revisá y volvé a guardar.';
+ }finally{btn.disabled=false;}
+}
 function ghNuevaPrestacion_(){
  const nombre=prompt('Nombre de la nueva prestación:');if(!nombre?.trim())return;
  const id=prompt('Identificador corto (sin espacios ni acentos):',nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''))?.trim();
