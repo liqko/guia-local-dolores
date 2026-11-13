@@ -1,7 +1,8 @@
-# Worker único — instrucción vigente del usuario, 12/11/2026
+# Worker único — continuidad vigente, 13/11/2026
 
 - Consultar primero `auditorias/ESTADO_ACTUAL.md`.
-- ÚNICO archivo de Worker: `worker/worker191_consolidado_sobre_190_d8446f0.txt`. Su nombre es permanente; el número real de versión se actualiza DENTRO del archivo.
+- ÚNICO archivo de Worker: `worker/worker200.txt`. Su nombre es permanente; el número real de versión se actualiza DENTRO del archivo.
+- La ruta vigente ya había sido renombrada por otra intervención a `worker/worker200.txt` antes de este trabajo. Conservar AHORA ese nombre; 201 y entregas siguientes se modifican dentro del mismo archivo, sin renombrarlo por versión.
 - No crear archivos de Worker alternativos, numerados, temporales ni de entrega. No utilizar rutas históricas mencionadas más abajo como base vigente.
 - Antes de editar, leer esta ruta en main y comprobar su SHA, contenido y versión. Integrar sobre esa revisión los cambios concurrentes; no reemplazarla por una copia completa de otra rama o chat.
 - Para HTML y otros archivos compartidos se aplica el mismo control: partir de su contenido fresco en main y aplicar SÓLO los cambios de esta intervención. No interpretar como cambios propios la diferencia completa entre main y una copia local atrasada. Conservar referencias, versiones de recursos y arreglos ajenos. La integridad previa a publicar incluye Administración; mantener su comprobación.

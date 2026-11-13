@@ -1,9 +1,10 @@
+import {accessBinding201} from './access-fixture201.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
-const source=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
-const worker=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {rolesInternosRoute188,issue2};').toString('base64'));
+import {source} from './worker-source.mjs';
+const worker=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {rolesInternosRoute188,issue2,subscriberSessionState};').toString('base64'));
 function setup(t){
  const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
  const state={storage:{sql:{exec(statement,...args){const p=sql.prepare(statement);if(p.columns().length){const rows=p.all(...args);return Object.assign(rows,{rowsRead:rows.length,rowsWritten:0});}const result=p.run(...args);return Object.assign([],{rowsRead:0,rowsWritten:result.changes});}},transactionSync(fn){sql.exec('BEGIN');try{const value=fn();sql.exec('COMMIT');return value;}catch(e){sql.exec('ROLLBACK');throw e;}}}};
@@ -19,6 +20,7 @@ function setup(t){
  const kv=new Map();const env={SERVER_SECRET:'ensayo-aislado192',GLD_CACHE_KV:{get:async k=>kv.get(k)||null,put:async(k,v)=>kv.set(k,v),delete:async k=>kv.delete(k)}};
  let actor=new worker.PrivateRoles192(state,env,()=>db);
  env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){assert.equal(name,'internal-role-directory-v192');return {fetch:async req=>actor.fetch(await req.json())};}};
+ env.GLD_PUBLIC_CACHE=accessBinding201(worker,env,env.GLD_PUBLIC_CACHE,t);
  const sourceDb=worker.roleSourceDb192(db,env);
  const call=async(path,params={},auth=true,body=null)=>{
   const token=await worker.issue2(env,{sid:'P',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});
@@ -97,7 +99,7 @@ test('guardar desde la ruta real actualiza copia y revoca sesiones sin leer ause
  const h=setup(t);await h.call('internal-roles/list');const n=h.calls.length;
  const saved=await h.call('commercial/personnel',{},true,{suscriptor_id:'A',rol:'VENDEDOR',activo:true,comision_porcentaje:5,comision_supervision_porcentaje:0,supervisor_id:'',ciudades:[]});
  assert.equal(saved.status,200);assert.equal(h.writes.length,1);
- const state=JSON.parse(await h.env.GLD_CACHE_KV.get('subscriber:session-state:v1:A'));assert.equal(state.version,1);
+ const state=await worker.subscriberSessionState(h.env,'A');assert.equal(state.version,1);
  const result=await h.call('internal-roles/person',{suscriptor_id:'A'});assert(result.body.roles.some(x=>x.rol==='VENDEDOR'));assert.equal(h.calls.length,n);
 });
 test('commit parcial no borra campos de una proyección conocida y la baja de suscriptor se refleja',async t=>{
