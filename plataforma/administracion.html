@@ -2812,47 +2812,70 @@ function ghEditorReglas_(rows,grupo){
  '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">Regla</th>'+encabezado+'</tr></thead><tbody>'+cuerpo+'</tbody></table></div>'+
  '';
 }
-async function ghGuardarMatrizReglas_(grupo){
- const msg=document.querySelector('[data-regla-msg="'+grupo+'"]'),nodes=[...document.querySelectorAll('[data-regla-matriz="'+grupo+'"]')],rows=GH_CATALOG_CACHE.niveles_anunciante||[],patches=new Map();
- try{
-  for(const el of nodes){
-   const id=el.dataset.nivelId,key=el.dataset.clave,opt=GH_REGLAS_OPCIONES.find(o=>o.key===key),prev=rows.find(x=>String(x.nivel_id||x.id)===id);
-   if(!prev||!opt)continue;
-   let val=opt.kind==='bool'?el.checked:el.value;
-   if(opt.kind==='number'){if(val==='')continue;val=Number(val);if(!Number.isSafeInteger(val)||val<0||val>opt.max)throw Error('Valor inválido: '+opt.label);}
-   if(opt.kind==='mode'&&val==='')continue;
-   if(opt.kind==='mode'&&!['direccion_o_alternativa','libre'].includes(val))throw Error('Modalidad inválida.');
-   if(opt.kind==='bool'&&GLD_CLASSIFICATION.flag(prev[key])===val)continue;
-   if(opt.kind!=='bool'&&JSON.stringify(prev[key])===JSON.stringify(val))continue;
-   if(!patches.has(id))patches.set(id,{nivel_id:id});
-   patches.get(id)[key]=val;
-   if(key==='imagenes_max'){patches.get(id).imagenes_habilitadas=val>0;patches.get(id).galeria_habilitada=val>0;}
+function ghPrepararMatrizReglas_(grupo){
+ const nodes=[...document.querySelectorAll('[data-regla-matriz="'+grupo+'"]')];
+ const rows=GH_CATALOG_CACHE.niveles_anunciante||[],patches=new Map();
+ for(const el of nodes){
+  const id=el.dataset.nivelId,key=el.dataset.clave,opt=GH_REGLAS_OPCIONES.find(o=>o.key===key);
+  const prev=rows.find(x=>String(x.nivel_id||x.id)===id);
+  if(!prev||!opt)continue;
+  let val=opt.kind==='bool'?el.checked:el.value;
+  if(opt.kind==='number'){
+   if(val==='')continue;
+   val=Number(val);
+   if(!Number.isSafeInteger(val)||val<0||val>opt.max)throw Error('Valor inválido en '+grupo+': '+opt.label);
   }
-  if(!patches.size)return 0;
-  if(msg)msg.textContent='Guardando…';
-  let done=0;
-  for(const [id,item] of patches){
-   const r=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
-   if(!r?.success)throw Error('No se confirmó el nivel '+id);
-   GH_CATALOG_CACHE.niveles_anunciante=GH_CATALOG_CACHE.niveles_anunciante.map(x=>String(x.nivel_id||x.id)===id?{...x,...item}:x);done++;
+  if(opt.kind==='mode'&&val==='')continue;
+  if(opt.kind==='mode'&&!['direccion_o_alternativa','libre'].includes(val))
+   throw Error('Modalidad inválida en '+grupo);
+  if(opt.kind==='bool'&&GLD_CLASSIFICATION.flag(prev[key])===val)continue;
+  if(opt.kind!=='bool'&&JSON.stringify(prev[key])===JSON.stringify(val))continue;
+  if(!patches.has(id))patches.set(id,{nivel_id:id});
+  patches.get(id)[key]=val;
+  if(key==='imagenes_max'){
+   patches.get(id).imagenes_habilitadas=val>0;
+   patches.get(id).galeria_habilitada=val>0;
   }
-  return done;
- }catch(e){throw e;}
+ }
+ return patches;
 }
-async function ghGuardarGrupoCompleto_(grupo){
- const btn=document.querySelector('[data-guardar-grupo="'+grupo+'"]');
- const msg=document.querySelector('[data-regla-msg="'+grupo+'"]');
- if(!['institucional','comercial'].includes(grupo))return;
+async function ghGuardarPublicacionNiveles_(){
+ const btn=document.getElementById('ghGuardarPublicacionNiveles');
+ const msg=document.getElementById('ghPublicacionNivelesMsg');
  if(btn)btn.disabled=true;
- if(msg)msg.textContent='Guardando reglas y parámetros…';
+ if(msg)msg.textContent='Validando y guardando…';
  try{
-  // Un solo botón: ambos conjuntos se guardan, sin alterar las reglas ni sus claves actuales.
-  // La persistencia es secuencial, no una transacción única en Firebase.
-  const reglas=await ghGuardarMatrizReglas_(grupo);
-  const parametros=await ghGuardarCargaGrupo_(grupo);
-  if(msg)msg.textContent=(reglas+parametros)>0?'Guardado: '+reglas+' nivel(es) y '+parametros+' configuración general.':'Sin cambios.';
- }catch(e){if(msg)msg.textContent='Guardado incompleto: '+String(e.message||e)+'. Revisá antes de reintentar.';}
- finally{if(btn)btn.disabled=false;}
+  // Primero se comprueban todos los valores: ningún dato se guarda si hay un error de validación.
+  const patches=new Map(),general={nivel_id:GH_CARGA_GENERAL_ID};
+  for(const grupo of ['institucional','comercial']){
+   for(const [id,item]of ghPrepararMatrizReglas_(grupo))
+    patches.set(id,{...(patches.get(id)||{nivel_id:id}),...item});
+   Object.assign(general,ghPrepararCargaGrupo_(grupo));
+  }
+  if(Object.keys(general).length>1&&!GH_CARGA_GENERAL_BASE)
+   Object.assign(general,{nombre:'Configuración general de carga de anunciantes',activo:false});
+  const items=[...patches.values()];
+  if(Object.keys(general).length>1)items.push(general);
+  if(!items.length){if(msg)msg.textContent='Sin cambios.';return;}
+  let guardados=0;
+  // Un único comando de guardado; internamente la API actual guarda cada registro modificado.
+  for(const item of items){
+   const result=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+   if(!result?.success)throw Error('No se confirmó el guardado de '+item.nivel_id);
+   if(item.nivel_id===GH_CARGA_GENERAL_ID){
+    GH_CARGA_GENERAL_BASE={...(GH_CARGA_GENERAL_BASE||{}),...item};
+    GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[])
+     .filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID).concat([GH_CARGA_GENERAL_BASE]);
+   }else{
+    GH_CATALOG_CACHE.niveles_anunciante=(GH_CATALOG_CACHE.niveles_anunciante||[])
+     .map(x=>String(x.nivel_id||x.id)===item.nivel_id?{...x,...item}:x);
+   }
+   guardados++;
+  }
+  if(msg)msg.textContent='Guardado completo: '+guardados+' registro(s) actualizado(s).';
+ }catch(e){
+  if(msg)msg.textContent='Guardado incompleto: '+String(e.message||e)+'. Revisá los cambios antes de reintentar.';
+ }finally{if(btn)btn.disabled=false;}
 }
 async function ghEliminarNivel(id){
  const rows=GH_CATALOG_CACHE.niveles_anunciante||[];
