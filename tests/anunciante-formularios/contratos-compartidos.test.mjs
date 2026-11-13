@@ -31,14 +31,14 @@ test('permisos devuelve configuracion_funcionalidades al HTML',()=>{
  assert.ok(begin>=0&&end>begin);
  const route=worker.slice(begin,end);
  assert.match(route,/action === "permisos_panel"/);
- assert.match(route,/configuracion_funcionalidades:packet\\?\\.configuracion_funcionalidades/);
- assert.match(html,/parametrosFuncionales170=j\\.configuracion_funcionalidades/);
+ assert.match(route,/configuracion_funcionalidades:packet\?\.configuracion_funcionalidades/);
+ assert.match(html,/parametrosFuncionales170=j\.configuracion_funcionalidades/);
 });
 test('el paquete maestro conserva datos y parámetros sin listas fijas de campos',()=>{
  assert.match(worker,/async function commerceMaster205/);
  assert.match(worker,/const response=await commercePanelDataV3/);
- assert.match(worker,/response\\.advertiser\\.configuracion_funcionalidades=gldConfiguracionPanel205/);
- assert.match(worker,/return packet\\.response/);
+ assert.match(worker,/response\.advertiser\.configuracion_funcionalidades=gldConfiguracionPanel205/);
+ assert.match(worker,/return packet\.response/);
  for(const fn of ['eventsPanelDataV2','actividadesPanelData','promosPanelDataV2','publicidadPanelDataV2']){
   const ix=worker.indexOf('async function '+fn);
   assert.ok(ix>=0&&worker.slice(ix,ix+1000).includes('commerceMaster205'),fn+' no comparte el paquete');
@@ -49,5 +49,5 @@ test('el paquete no se reconstruye si la copia existe',()=>{
  const end=worker.indexOf('async function commerceMasterInvalidate205(',begin);
  assert.ok(begin>=0&&end>begin);
  const source=worker.slice(begin,end);
- assert.match(source,/if\\(packet\\?\\.v===205&&packet\\?\\.response\\?\\.success===true\\)return packet\\.response/);
+ assert.match(source,/if\(packet\?\.v===205&&packet\?\.response\?\.success===true\)return packet\.response/);
 });
