@@ -8279,6 +8279,40 @@ document.addEventListener('DOMContentLoaded', ()=>{
   const SUSCRIPTOR_TOKEN_KEY='gld_suscriptor_token_v2';
   const SUSCRIPTOR_AUTHS_KEY='gld_suscriptor_authorizations_v2';
   const DASHBOARD_ADVERTISER_KEY='gld_dashboard_anunciante_id_v1';
+  // Destinos fijos por pestaña; los permisos siguen validándose en el circuito existente.
+  const rutasDirectas={'/reclamar-anuncio':'reclamar','/registrar-anuncio':'registrar','/cargar-evento-free':'evento-free'};
+  const accionesDirectas={reclamar:'reclamar',registrar:'registrar','evento-free':'evento-free'};
+  let destinoDirecto = window.GLD_ADMIN_PANEL155 ? '' : (
+    rutasDirectas[location.pathname.replace(/\/$/,'')] ||
+    accionesDirectas[new URLSearchParams(location.search).get('accion')] || ''
+  );
+
+  function abrirAltaDirecta_(){
+    if(!['reclamar','registrar'].includes(destinoDirecto) || !sesionSuscriptor?.suscriptor_id || !gldSubscriberToken) return false;
+    limpiarContextoAnunciante_();
+    abrirSolicitudAnunciante_(destinoDirecto==='reclamar'?'RECLAMAR':'CREAR');
+    destinoDirecto='';
+    return true;
+  }
+
+  async function abrirEventoFreeDirecto_(){
+    if(destinoDirecto!=='evento-free')return;
+    const tab=document.getElementById('tab-eventos-free');
+    if(!tab || tab.hidden || tab.disabled || tab.style.display==='none' || !window.gldRelacionPermiteModulo('eventos_free')){
+      const aviso=document.getElementById('dashboard-ready-prompt');
+      if(aviso)aviso.textContent='Este anunciante o tu rol no tiene habilitada la carga de Eventos Free. Podés consultar a Soporte.';
+      return;
+    }
+    tab.click();
+    if(!await window.loadDashboardModule147('eventos_free'))return;
+    clearFreeEventForm_();
+    const form=document.getElementById('eventos-free-form-card');
+    const grupo=form?.closest('details');if(grupo)grupo.open=true;
+    form?.scrollIntoView({behavior:'smooth',block:'start'});
+    document.getElementById('evf-nombre')?.focus({preventScroll:true});
+    destinoDirecto='';
+  }
+
 
   function guardarSesionSuscriptor_(data){
     sesionSuscriptor=data||null;
@@ -8511,7 +8545,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         return;
       }
 
-      await mostrarPanelDashboard();
+      if(await mostrarPanelDashboard())await abrirEventoFreeDirecto_();
       const resumen170=document.getElementById('dashboard-limites-funcionalidades170');
       if(resumen170){
        resumen170.textContent='';
@@ -8550,12 +8584,30 @@ document.addEventListener('DOMContentLoaded', ()=>{
     // El ingreso acaba de verificar credenciales y devolver autorizaciones;
     // no repetir POST /suscriptores action=session para recuperar el mismo paquete.
     if(!autorizacionesVerificadas) await obtenerAutorizaciones_();
+    if(abrirAltaDirecta_()) return true;
 
     if(!autorizacionesAnunciante.length){
+      if(destinoDirecto==='evento-free'){
+        const aviso=document.querySelector('#panel-no-autorizado .info-banner');
+        if(aviso)aviso.textContent='Para cargar un evento Free necesitás un anuncio vinculado a tu cuenta. Primero registrá tu anuncio o reclamá uno existente.';
+      }
       limpiarContextoAnunciante_();
       autorizacionesAnunciante=[];
       mostrarPanel('no-autorizado');
       return false;
+    }
+
+    if(destinoDirecto==='evento-free'){
+      limpiarContextoAnunciante_();
+      if(autorizacionesAnunciante.length===1){
+        await seleccionarAnunciante_(autorizacionesAnunciante[0]);
+        return;
+      }
+      const bienvenida=document.getElementById('suscriptor-bienvenida');
+      renderSeleccionAnunciante_();
+      if(bienvenida)bienvenida.textContent='Elegí con qué anunciante querés cargar el evento Free.';
+      mostrarPanel('seleccionar-anunciante');
+      return;
     }
 
     const guardado=String(gldPanelStorage.getItem(DASHBOARD_ADVERTISER_KEY)||'');
@@ -8629,7 +8681,14 @@ document.addEventListener('DOMContentLoaded', ()=>{
       document.getElementById('tab-modificar-datos')?.click();
       window.opener?.postMessage({type:'gld-admin-open159',nonce:window.GLD_ADMIN_PANEL155.nonce},location.origin);
     }).catch(error=>{mostrarPanel('acceso-administrativo');document.getElementById('admin-access-status159').textContent=error.message;window.opener?.postMessage({type:'gld-admin-error159',nonce:window.GLD_ADMIN_PANEL155.nonce,message:error.message},location.origin);});
-  }else restaurarSesionSuscriptor_();
+  }else{
+    if(destinoDirecto){
+      const titulos={reclamar:'Reclamar un anuncio',registrar:'Registrar un anuncio','evento-free':'Cargar un evento Free'};
+      document.querySelector('#panel-login h2').textContent=titulos[destinoDirecto];
+      document.querySelector('#panel-login .small-muted').textContent='Ingresá o creá tu cuenta para continuar.';
+    }
+    restaurarSesionSuscriptor_();
+  }
   document.getElementById('ev-add-programacion')?.addEventListener('click',addEventProgramacion_);
   renderEventProgramacion_();
   efemInitFixedDays();
@@ -8729,8 +8788,10 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   document.getElementById('volverLoginRecuperar')?.addEventListener('click',()=>mostrarPanel('login'));
   document.getElementById('btnCrearCuentaSuscriptor')?.addEventListener('click',()=>{
-    try{window.top.location.href='https://guialocal.ar/suscriptores/?vista=registro';}
-    catch(e){window.location.href='https://guialocal.ar/suscriptores/?vista=registro';}
+    const continuar=Object.keys(rutasDirectas).find(ruta=>rutasDirectas[ruta]===destinoDirecto);
+    const destino='/crear-cuenta'+(continuar?'?continuar='+encodeURIComponent(continuar.slice(1)):'');
+    try{window.top.location.href=destino;}
+    catch(e){window.location.href=destino;}
   });
 
   document.getElementById('btnEnviarCodigo')?.addEventListener('click',async()=>{
@@ -9204,9 +9265,9 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
   }
 
   async function mostrarPanelDashboard(){
-    if(!sesion || !sesion.id){ mostrarPanel('login'); return; }
+    if(!sesion || !sesion.id){ mostrarPanel('login'); return false; }
     hideGlobalBlocking_();
-    if(!window.GLD_ADMIN_PANEL155&&!await window.GLD_TERMINOS_ANUNCIANTES.aceptarIngreso(String(sesionSuscriptor?.suscriptor_id||''),sesionSuscriptor?.aceptacion_terminos_anunciante))return;
+    if(!window.GLD_ADMIN_PANEL155&&!await window.GLD_TERMINOS_ANUNCIANTES.aceptarIngreso(String(sesionSuscriptor?.suscriptor_id||''),sesionSuscriptor?.aceptacion_terminos_anunciante))return false;
 
     const nombrePersona=String(sesionSuscriptor&&sesionSuscriptor.nombre||'').trim();
     document.getElementById('nombre-comercio').textContent = nombrePersona
@@ -9251,6 +9312,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       btnLogin.removeAttribute('disabled');
       btnLogin.textContent = originalLoginBtnText;
     }
+    return true;
   }
 
   async function loadCommerceUI(){
@@ -9344,8 +9406,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       const anunciantesLogin=Array.isArray(data.anunciantes) ? data.anunciantes : [];
 
       // Esta página es exclusivamente el Panel de Anunciantes.
-      // Una cuenta de suscriptor sin relaciones activas no ingresa.
-      if(!anunciantesLogin.length){
+      // Los enlaces de alta/reclamo conservan la cuenta; Eventos Free exige un anuncio vinculado.
+      if(!anunciantesLogin.length && !destinoDirecto){
         limpiarContextoAnunciante_();
         guardarSesionSuscriptor_(null);
         sesionSuscriptor=null;
