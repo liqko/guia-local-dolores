@@ -8353,8 +8353,22 @@ async function adminSearchSubscribersV2({ cache, url, env }) {
     offset:url.searchParams.has("offset")?Number(url.searchParams.get("offset")):null
   });
 }
-async function adminAdvertiserDetailV2({ db, id: id4 }) {
-  return advertiserDetailV2({ db, advertiserId: id4 });
+// Respuesta administrativa completa en un solo paquete KV, no 18 búsquedas por ficha.
+const GH_ADMIN_DETAIL_TTL203=120;
+function ghAdminDetailKey203(id){
+ return 'admin:advertiser:detail:v203:'+encodeURIComponent(String(id||'').trim());
+}
+async function ghAdminDetailInvalidate203(cache,id){
+ if(id)await cache.del(ghAdminDetailKey203(id));
+}
+async function adminAdvertiserDetailV2({ db, id: id4,cache }) {
+ const key=ghAdminDetailKey203(id4),packet=await cache.get(key);
+ if(packet?.version===203&&packet.expires_at>Date.now()&&packet.detail?.success===true)
+  return packet.detail;
+ const detail=await advertiserDetailV2({ db, advertiserId: id4 });
+ if(detail?.success===true)
+  await cache.put(key,{version:203,expires_at:Date.now()+GH_ADMIN_DETAIL_TTL203*1000,detail},{expirationTtl:GH_ADMIN_DETAIL_TTL203});
+ return detail;
 }
 async function adminSubscriberDetailV2({ db, id: id4 }) {
   return subscriberDetailV2({ db, subscriberId: id4 });
@@ -8372,7 +8386,7 @@ async function routeAdminV8(ctx) {
   if (m && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
     if (!auth.ok) return json({ success: false, message: auth.message }, 401);
-    return json(await adminAdvertiserDetailV2({ db, id: decodeURIComponent(m[1]) }));
+    return json(await adminAdvertiserDetailV2({ db, cache, id: decodeURIComponent(m[1]) }));
   }
   if (path === "/superadmin/subscribers/search" && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
@@ -12592,7 +12606,9 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.profile&&Object.keys(body.profile).length){const r=await updateAdvertiserProfileV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,payload:body.profile});output.updated||=r.updated;output.revision_perfil=r.revision_perfil;}
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
-  });return json(result);
+  });
+  if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
+  return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
  const auth=await requirePanel4(ctx.env,request,aid,true);if(auth.response)return auth.response;
