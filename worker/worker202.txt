@@ -2982,21 +2982,21 @@ async function commercePanelData({ db, advertiserId, catalogs }) {
     }
   };
 }
-async function commerceLoadLimitsV153({db,cache,advertiserId}){
- // La ficha carga el máximo del nivel 6; el nivel contratado sólo modifica la tarjeta pública.
- // La configuración se obtiene del cache, sin leer administración del anunciante.
- const catalogs=await getCommerceCatalogs(cache);
+async function commerceLoadLimitsV153({db,cache,advertiserId,catalogs:providedCatalogs}){
+ // Fuente única: Configuración de plataforma → Niveles → CONFIG_GENERAL_ANUNCIANTES.
+ // Usa el catálogo ya cacheado y recibido por el formulario, sin lecturas Firestore extra.
+ const catalogs=providedCatalogs||await getCommerceCatalogs(cache);
  const grupo='comercial';
- const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
- const fallback={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:0};
+ const cfg=(catalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES');
+ if(!cfg)throw httpError('Falta la configuración general de carga de anunciantes.',503);
+ const fallback={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:-1};
  const get=key=>{
   const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
   const value=Number(raw);
-  if(!Number.isSafeInteger(value)||value<0)throw Error('Configuración inválida: '+key);
+  if(!Number.isSafeInteger(value)||value< -1)throw httpError('Configuración inválida: '+key,503);
   return value;
  };
- const allowed=gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3).map(x=>x.prestacion_id);
- const prestaciones=allowed;
+ const prestaciones=gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3).map(x=>x.prestacion_id);
  return {actividad:get('actividad'),descripcion:get('descripcion'),tags:get('tags'),categorias:get('categorias'),imagenes:get('imagenes'),redes:get('redes'),sedes:get('sedes'),prestaciones};
 }
 /** @param {{db:any,cache:any,advertiserId:any,patch:any,limits?:any}} options */
@@ -3009,21 +3009,21 @@ async function validateCommerceFieldsV86(options){
    if(key==='categoria_ids'){
      const selected=ids(patch.categoria_ids);
      if(new Set(selected).size!==selected.length)throw Error('No repitas categorías del anunciante.');
-     if(selected.length>Math.min(3,cfg.categorias))throw Error('Podés seleccionar hasta '+Math.min(3,cfg.categorias)+' categorías.');
+     if(cfg.categorias>=0&&selected.length>cfg.categorias)throw Error('Podés seleccionar hasta '+cfg.categorias+' categorías.');
      continue;
    }
    if(key==='redes_web_comunes'){
      const comunes=patch.redes_web_comunes;
      if(comunes?.habilitado===true){
        const cantidad=['instagram','facebook','youtube','tiktok','linkedin','x'].filter(k=>text(comunes[k])).length;
-       if(cantidad>cfg.redes)throw Error('Las redes compartidas superan el máximo de '+cfg.redes+' redes configurado en Niveles.');
+       if(cfg.redes>=0&&cantidad>cfg.redes)throw Error('Las redes compartidas superan el máximo de '+cfg.redes+' redes configurado en Niveles.');
      }
      continue;
    }
    const image=/^img\d+$/.test(key),field=image?'imagenes':key,max=cfg[field];
    const value=String(patch[key]??'');
    if(image){
-    if(value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas por sede.');
+    if(max>=0&&value.trim()&&Number(key.slice(3))>max)throw Error('Se admiten hasta '+max+' imágenes cargadas por sede.');
    }else if((max===0&&value.length>0)||(max>0&&value.length>max))throw Error(max===0?'El campo '+key+' no admite carga según la configuración de Niveles.':'El campo '+key+' supera '+max+' caracteres de carga.');
  }
 }
@@ -6301,12 +6301,13 @@ async function commerceSetDatosV3({db,cache,advertiserId,body}){
   if(existingAdult&&db.rememberPanelRows)db.rememberPanelRows("anunciantes",[existingAdult]);
   let delta=changedFieldsV1(existingAdult,patch);
   if(!Object.keys(delta).length)return{success:true,updated:false,id:advertiserId,patch:{}};
-  await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta});
+  const limites=await commerceLoadLimitsV153({db,cache,advertiserId});
+  await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta,limits:limites});
   if(!/^[a-f0-9]{64}$/.test(String(body.revision_datos||'')))throw httpError('Volvé a abrir los datos del anuncio antes de guardar.',409);
   const version=await db.getVersioned('anunciantes',advertiserId);
   if(!version.doc||!version.updateTime||body.revision_datos!==await wholeRevisionInternal(version.doc))throw httpError('Los datos del anuncio cambiaron mientras los editabas. Volvé a abrirlos antes de guardar.',409);
   existingAdult=version.doc;delta=changedFieldsV1(existingAdult,patch);
-  await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta});
+  await validateCommerceFieldsV86({db,cache,advertiserId,patch:delta,limits:limites});
   for(const key of Object.keys(patch))delete patch[key];
   Object.assign(patch,delta,adultFields(existingAdult,delta));
   const saved=await db.patch("anunciantes",advertiserId,patch,{mustExist:true,updateTime:version.updateTime});
@@ -6319,7 +6320,7 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
   const territory=incoming.length?await cache.get('territorio:public:v1'):null;
   // Una sola lectura de la configuración por operación de sedes.
   const limites=incoming.length?await commerceLoadLimitsV153({db,cache,advertiserId}):null;
-  if(limites?.sedes>0&&incoming.some(x=>!String(x?.sede_id||'').trim())){
+  if(limites?.sedes>=0&&incoming.some(x=>!String(x?.sede_id||'').trim())){
     const reader=db.panelReadDb?db.panelReadDb({advertiserId}):db;
     const existentes=await reader.queryEqual('anunciantes_sedes','anunciante_id',advertiserId,500);
     const nuevos=incoming.filter(x=>!String(x?.sede_id||'').trim()).length;
@@ -6363,7 +6364,7 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
     const sociales=['instagram','facebook','youtube','tiktok','linkedin','x'];
     if(sociales.some(k=>Object.hasOwn(patch,k)&&String(patch[k]??'')!==String(current?.[k]??''))){
       const conjunto={...(current||{}),...patch};
-      if(sociales.filter(k=>String(conjunto[k]||'').trim()).length>limites.redes)throw Error('Se admiten hasta '+limites.redes+' redes cargadas por sede.');
+      if(limites.redes>=0&&sociales.filter(k=>String(conjunto[k]||'').trim()).length>limites.redes)throw Error('Se admiten hasta '+limites.redes+' redes cargadas por sede.');
     }
     if(current&&Object.entries(patch).every(([k,v])=>JSON.stringify(current[k])===JSON.stringify(v))){prepared.push({id,patch,current,existingId,updateTime:null});continue;}
     if(existingId){
@@ -12561,7 +12562,7 @@ function sameCacheData129(a,b){
  const keys=Object.keys(a);return keys.length===Object.keys(b).length&&keys.every(k=>Object.hasOwn(b,k)&&sameCacheData129(a[k],b[k]));
 }
 async function stageAdvertiserSaveInternal(db,cache,operation){
- const pending=new Map(),cacheChanges=new Map();
+ const pending=new Map(),cacheChanges=new Map(),cacheReads=new Map();
  function add(entry){
   const key=entry.collection+'/'+entry.id;
   if(pending.has(key))throw httpError('La ficha contiene cambios repetidos. Volvé a abrirla antes de guardar.',409);
@@ -12576,9 +12577,13 @@ async function stageAdvertiserSaveInternal(db,cache,operation){
   async commitPatches(entries){for(const entry of entries)add(entry);return entries.map(e=>e.remove?null:{...e.before,...e.patch,id:e.id});}
  };
  const stagedCache={...cache,
-  async get(key){if(cacheChanges.has(key))return cacheChanges.get(key).deleted?null:structuredClone(cacheChanges.get(key).value);return cache.get(key);},
-  async put(key,value,options){cacheChanges.set(key,{value:structuredClone(value),options});},
-  async del(key){cacheChanges.set(key,{deleted:true});}
+  async get(key){
+   if(cacheChanges.has(key))return cacheChanges.get(key).deleted?null:structuredClone(cacheChanges.get(key).value);
+   if(!cacheReads.has(key))cacheReads.set(key,Promise.resolve().then(()=>cache.get(key)));
+   return structuredClone(await cacheReads.get(key));
+  },
+  async put(key,value,options){cacheReads.delete(key);cacheChanges.set(key,{value:structuredClone(value),options});},
+  async del(key){cacheReads.delete(key);cacheChanges.set(key,{deleted:true});}
  };
  const result=await operation(stagedDb,stagedCache);
  if(pending.size>100)throw httpError('La ficha tiene demasiados cambios juntos. Guardá hasta 100 registros por vez.',400);
