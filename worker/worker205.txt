@@ -6404,13 +6404,29 @@ return {commercePanelDataV3,commerceSetDatosV3,commerceSetSedesV3,commerceDelete
 // A form edit does not change its schema. Writes invalidate the whole packet.
 const COMMERCE_MASTER_TTL205=120;
 function commerceMasterKey205(aid){return 'commerce:advertiser:master:v205:'+encodeURIComponent(String(aid||'').trim());}
+function gldConfiguracionPanel205(admin,packet){
+ return Object.fromEntries(Array.from(new Set([...Object.keys(GLD_FUNC_DEFAULT166),...Object.keys(packet?.reglas||{})])).map(fid=>{
+  const global=gldFuncRules166(packet,fid),cfg=admin?.funcionalidades_config?.[fid]||{};
+  const parametros={};
+  for(const [key,value]of Object.entries(global)){
+   if(['nombre','activo','admite_excepciones'].includes(key))continue;
+   parametros[key]=typeof value==='number'?gldValorParticular168(global,cfg,key,value):value;
+  }
+  return [fid,{nombre:String(global.nombre||fid),activo:global.activo!==false&&(!Array.isArray(global.niveles_habilitados)||global.niveles_habilitados.includes(Number(admin?.nivel))),parametros,admite_excepciones:global.admite_excepciones!==false}];
+ }));
+}
 async function commerceMaster205({db,cache,advertiserId}){
  const key=commerceMasterKey205(advertiserId);
  const packet=await cache.get(key);
  if(packet?.v===205&&packet?.response?.success===true)return packet.response;
- const catalogs=await getCommerceCatalogs(cache);
+ const [catalogs,functionRules]=await Promise.all([getCommerceCatalogs(cache),gldFuncPacket166(cache,db,false)]);
  const response=await commercePanelDataV3({db,advertiserId,catalogs});
- if(response?.success===true)await cache.put(key,{v:205,response},{expirationTtl:COMMERCE_MASTER_TTL205});
+ if(response?.success===true){
+  const admin=response.advertiser?.administracion||{};
+  response.advertiser.configuracion_funcionalidades=gldConfiguracionPanel205(admin,functionRules);
+  response.advertiser.configuracion_revision=functionRules.revision;
+  await cache.put(key,{v:205,response},{expirationTtl:COMMERCE_MASTER_TTL205});
+ }
  return response;
 }
 async function commerceMasterInvalidate205(cache,aid){
@@ -6646,8 +6662,10 @@ async function routePanelV10(ctx) {
       const relation=(session.auth||[]).find(row=>text57(row.anunciante_id)===aid);
       if(!relation||relation.activo===false||!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(text57(relation.rol).toUpperCase()))return json({success:false,message:'No tenés permiso para este anunciante.'},403);
       const master=await commerceMaster205({db,cache,advertiserId:aid});
-      const admin=master?.advertiser?.administracion;
-      return json({ success: !!admin, id: aid, administracion: admin || {} }, admin ? 200 : 404);
+      const packet=master?.advertiser,admin=packet?.administracion;
+      return json({success:!!admin,id:aid,administracion:admin||{},
+       configuracion_funcionalidades:packet?.configuracion_funcionalidades||{},
+       configuracion_revision:packet?.configuracion_revision||0},admin?200:404);
     }
     const auth = await requirePanel4(env, request2, aid, false);
     if (auth.response) return auth.response;
