@@ -3599,12 +3599,15 @@ async function createEventV3({ db, cache, advertiserId, payload, max, advertiser
   const vipOverride166=admin166?.funcionalidades_config?.EVENTOS||{};
   const vipAllowed166=vipSettings166.admite_excepciones===true;
   const unlimited=free?!!policy?.sin_limites:vipAllowed166&&vipOverride166.sin_limites===true;
-  if(!unlimited&&free)max=Number.isSafeInteger(policy.activas_max)?policy.activas_max:-1;
-  if(!unlimited&&!free&&!Number.isSafeInteger(Number(max))&&Number.isSafeInteger(vipSettings166.activas_max))max=vipSettings166.activas_max;
+  if(!unlimited&&free)max=gldCupoRuntime202(Number.isSafeInteger(policy.activas_max)?policy.activas_max:-1);
+  if(!unlimited&&!free){
+   const effective=gldValorParticular168(vipSettings166,vipOverride166,'activas_max',vipSettings166.activas_max);
+   max=gldCupoRuntime202(gldCupoMayor202(Number.isSafeInteger(Number(max))?Number(max):0,effective));
+  }
   if(free){removeFreeEventLinks(data);gldValidarDescripcionFree167(data.descripcion,policy);freeEventValidateConfigured198(data,policy);}
   else {
     const maxDescripcion=gldValorParticular168(vipSettings166,vipOverride166,'descripcion_max',null);
-    if(Number.isSafeInteger(maxDescripcion)&&String(data.descripcion??'').length>maxDescripcion)throw httpError('La descripción de Eventos VIP admite hasta '+maxDescripcion+' caracteres.',400);
+    if(Number.isSafeInteger(maxDescripcion)&&maxDescripcion>=0&&String(data.descripcion??'').length>maxDescripcion)throw httpError('La descripción de Eventos VIP admite hasta '+maxDescripcion+' caracteres.',400);
   }
   if (!unlimited && Number(max || 0) === 0) throw new Error("El anunciante no tiene cupo de " + (free ? "Eventos Free" : "Eventos") + ".");
   await GLD_EVENTS145.scope({db,cache,advertiserId,data,advertiser});
@@ -7673,11 +7676,14 @@ function captureAdministrativeChanges198(previous,patch,auth){
 // Regla de contratación mínima y ampliaciones individuales, sin lecturas Firestore nuevas.
 function gldCupoFicha202(admin,feature){
  const id=canonicalFeatureId112(feature),cfg=admin?.funcionalidades_config?.[id]||{};
- const candidates=[cfg.cantidad,cfg.cupo,cfg.max,cfg.maximo,cfg.activas_max,
-  admin?.[id.toLowerCase()+'_cant'],gldContratoPiso202(admin,id)];
- const numbers=candidates.filter(v=>Number.isSafeInteger(v)&&v>=-1);
- if(numbers.includes(-1))return Number.MAX_SAFE_INTEGER;
- return numbers.length?Math.max(...numbers):0;
+ // Los valores actuales de la ficha prevalecen sobre contadores históricos.
+ const direct=[cfg.activas_max,cfg.cantidad].filter(v=>Number.isSafeInteger(v)&&v>=-1);
+ const legacy=[cfg.cupo,cfg.max,cfg.maximo,admin?.[id.toLowerCase()+'_cant']]
+  .filter(v=>Number.isSafeInteger(v)&&v>=-1);
+ const count=direct.length?direct:legacy;
+ const floor=gldContratoPiso202(admin,id);
+ if(count.includes(-1))return Number.MAX_SAFE_INTEGER;
+ return Math.max(floor,count.length?Math.max(...count):0);
 }
 function gldContratoPiso202(admin,feature){
  const contract=admin?.contratacion_actual;
@@ -7783,6 +7789,14 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
     // Consultar las reglas publicadas en caché; sin agregar lecturas Firestore.
     const generalPacket=await gldFuncPacket166(cache,db,false);
     gldValidarParametrosIndividuales202(commercialSource.doc,adminPatch.funcionalidades_config,generalPacket.reglas);
+    // Al cambiar el cupo activo en la ficha, actualizar también el campo de
+    // cantidad usado por rutas antiguas. No se agrega una segunda excepción.
+    for(const id of ['EVENTOS','ACTIVIDADES','PROMOS']){
+     const cfg=adminPatch.funcionalidades_config[id],old= commercialSource.doc.funcionalidades_config?.[id]||{};
+     if(!cfg||!Object.hasOwn(cfg,'activas_max')||!Number.isSafeInteger(cfg.activas_max))continue;
+     if(JSON.stringify(cfg.activas_max)===JSON.stringify(old.activas_max))continue;
+     cfg.cantidad=gldCupoMayor202(cfg.activas_max,gldContratoPiso202(commercialSource.doc,id));
+    }
     // La ficha publicada es la configuración efectiva; nunca almacenar por
     // debajo de lo contratado, aunque el formulario envíe valores históricos.
     for(const [key,units]of Object.entries(commercialSource.doc.contratacion_actual?.estado==='CONFIRMADA'?
