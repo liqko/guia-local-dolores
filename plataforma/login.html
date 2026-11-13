@@ -1033,7 +1033,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
 <label class="adult-field">Contenido para mayores de 18 años<select id="promo-adulto" data-adult-selector disabled><option value="false">No · Para todas las edades</option><option value="true">Sí · +18</option></select></label>
             <div class="promo-extra-row">
               <div class="promo-text-row"><label class="promo-text-label" for="promo-categoria">Categoría de la promo</label>
-                <select id="promo-categoria" class="promo-select"><option value="">Elegí la categoría</option></select>
+                <select id="promo-categoria" class="promo-select" data-search-placeholder="Buscá y elegí una categoría"><option value="">Elegí la categoría</option></select>
               </div>
               <div class="promo-text-row"><label class="promo-text-label" for="promo-desde">Fecha desde</label><input id="promo-desde" type="date" /></div>
               <div class="promo-text-row"><label class="promo-text-label" for="promo-hasta">Fecha hasta</label><input id="promo-hasta" type="date" /></div>
@@ -1650,8 +1650,8 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
               </div>
 
               <div class="data-field-card">
-                <label for="act-categoria"><strong>Categoría <span class="req" aria-label="obligatorio">*</span></strong></label>
-                <select aria-required="true" id="act-categoria">
+                <label><strong>Categorías <span class="req" aria-label="obligatorio">*</span></strong></label>
+                <select id="act-categorias" multiple aria-label="Categorías de la actividad" aria-required="true" data-search-placeholder="Buscá y elegí una o más categorías">
                   <option value="">Cargando categorías...</option>
                 </select>
               </div>
@@ -3903,13 +3903,27 @@ function actividadesContactoPayload_(){
   return out;
 }
 
+function actividadesCategoriasSeleccionadas_(){
+  const sel=document.getElementById('act-categorias');
+  return sel ? Array.from(sel.selectedOptions||[]).map(el=>String(el.value||'').trim()).filter(Boolean) : [];
+}
+function actividadesMarcarCategorias_(values){
+  const selected=new Set((Array.isArray(values)?values:[values]).map(v=>String(v||'').trim()).filter(Boolean));
+  const sel=document.getElementById('act-categorias');
+  if(!sel)return;
+  Array.from(sel.options).forEach(el=>{el.selected=selected.has(el.value);});
+  sel.dispatchEvent(new Event('change',{bubbles:true}));
+  gldRefreshSearchableSelect_(sel);
+}
 function buildActividadPayloadFromForm_(){
   const cards=Array.from(document.querySelectorAll('#act-horarios .act-horario-card'));
+  const categorias=actividadesCategoriasSeleccionadas_();
   return {
     contenido_adulto:document.getElementById('act-adulto')?.value==='true',
     actividad_id:String(document.getElementById('act-id')?.value||'').trim(),
     nombre:String(document.getElementById('act-nombre')?.value||'').trim(),
-    categoria:String(document.getElementById('act-categoria')?.value||'').trim(),
+    categoria:categorias[0]||'',
+    categorias,
     descripcion:String(document.getElementById('act-descripcion')?.value||'').trim(),
     inscripcion:String(document.getElementById('act-inscripcion')?.value||'').trim(),
     web:String(document.getElementById('act-web')?.value||'').trim(),
@@ -3931,7 +3945,7 @@ function actividadesResetForm_(){
    'act-img1','act-img2','act-img3','act-img4','act-img5'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
-  const cat=document.getElementById('act-categoria'); if(cat) cat.value='';
+  actividadesMarcarCategorias_([]);
   actividadesFillContactoSedes_('',{});
   const box=document.getElementById('act-horarios'); if(box) box.innerHTML='';
   actividadesAgregarHorario_();
@@ -3942,13 +3956,13 @@ function actividadesResetForm_(){
 }
 
 function actividadesFillCategorias_(){
-  const sel=document.getElementById('act-categoria');
-  if(!sel) return;
-  const current=sel.value||'';
+  const host=document.getElementById('act-categorias');
+  if(!host)return;
+  const current=actividadesCategoriasSeleccionadas_();
   const cats=Array.isArray(actividadesState.categorias)?actividadesState.categorias:[];
-  sel.innerHTML='<option value="">Seleccioná una categoría</option>' +
+  host.innerHTML='<option value="">Seleccioná una o más categorías</option>'+
     cats.map(c=>`<option value="${actividadesOptionEscape_(c)}">${actividadesOptionEscape_(c)}</option>`).join('');
-  if(current && cats.includes(current)) sel.value=current;
+  actividadesMarcarCategorias_(current);
 }
 
 function actividadesLugarLabel_(h){
@@ -3971,7 +3985,7 @@ function actividadesAbrirActividadEnForm_(actividad,duplicar=false){
   document.getElementById('act-id').value=duplicar ? '' : (actividad.actividad_id||'');
   document.getElementById('act-adulto').value=actividad.contenido_adulto===true?'true':'false';
         document.getElementById('act-nombre').value=actividad.nombre||'';
-  document.getElementById('act-categoria').value=actividad.categoria||'';
+  actividadesMarcarCategorias_(Array.isArray(actividad.categorias)&&actividad.categorias.length?actividad.categorias:(actividad.categoria||''));
   document.getElementById('act-descripcion').value=actividad.descripcion||'';
   document.getElementById('act-inscripcion').value=actividad.inscripcion||'';
   document.getElementById('act-web').value=actividad.web||'';
@@ -6643,6 +6657,7 @@ function promoClearForm(){
   document.getElementById('promo-adulto').value='false';
   document.getElementById('promo-text').value = '';
   document.getElementById('promo-categoria').value = '';
+  gldRefreshSearchableSelect_(document.getElementById('promo-categoria'));
   cargarSedesPromo('');
   document.getElementById('promo-desde').value = '';
   document.getElementById('promo-hasta').value = '';
@@ -6772,6 +6787,7 @@ function promoAbrirFormulario_(found, duplicar=false){
   document.getElementById('promo-adulto').value=found.contenido_adulto===true?'true':'false';
   document.getElementById('promo-text').value=found.promo||'';
   document.getElementById('promo-categoria').value=found.categoria||'';
+  gldRefreshSearchableSelect_(document.getElementById('promo-categoria'));
   cargarSedesPromo(found.sede_id||'');
   promoActualizarSede(found);
   document.getElementById('promo-desde').value=toDateInputValue(found.desde);
