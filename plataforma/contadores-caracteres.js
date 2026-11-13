@@ -1,11 +1,11 @@
 (() => {
   'use strict';
-  const selector='input[maxlength]:not([type="password"]),textarea[maxlength]';
+  const selector='input[maxlength]:not([type="password"]),textarea[maxlength],input[data-gld-counter],textarea[data-gld-counter]';
   let nextId=0,queued=false;
   const counters=new WeakMap();
   function update(field){
     const max=Number(field.getAttribute('maxlength'));
-    if(!Number.isFinite(max)||max<0)return;
+    const hasLimit=field.hasAttribute('maxlength')&&Number.isFinite(max)&&max>=0;
     let counter=counters.get(field);
     if(!counter||!counter.isConnected){
       counter=document.createElement('div');
@@ -17,8 +17,11 @@
       descriptions.push(counter.id);field.setAttribute('aria-describedby',descriptions.join(' '));
       counters.set(field,counter);
     }
-    const count=String(field.value||'').length,over=count>max;
-    const message=count+' / '+max+' caracteres'+(over?' — supera el límite; ajustá el texto antes de guardar.':count===max?' — límite alcanzado.':'');
+    const count=String(field.value||'').length,over=hasLimit&&count>max;
+    const left=hasLimit?Math.max(0,max-count):null;
+    const message=hasLimit
+      ? count+' usados · '+max+' permitidos · '+left+' restantes'+(over?' — supera el límite; ajustá el texto antes de guardar.':count===max?' — límite alcanzado.':'')
+      : count+' usados · límite de caracteres no informado';
     if(counter.textContent!==message)counter.textContent=message;
     counter.classList.toggle('gld-character-counter-over',over);
   }
@@ -36,7 +39,7 @@
       for(const field of fields){
         if(field.disabled||field.offsetParent===null)continue;
         update(field);
-        if(String(field.value||'').length>Number(field.getAttribute('maxlength'))){event.preventDefault();event.stopImmediatePropagation();field.focus();return;}
+        if(field.hasAttribute('maxlength')&&String(field.value||'').length>Number(field.getAttribute('maxlength'))){event.preventDefault();event.stopImmediatePropagation();field.focus();return;}
       }
     },true);
     new MutationObserver(schedule).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['maxlength']});
