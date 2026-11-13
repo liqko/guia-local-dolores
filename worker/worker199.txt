@@ -1785,6 +1785,7 @@ async function rebuildCatalogs({ db, cache }) {
     nodos,
     funcionalidades,
     niveles,
+    prestaciones,
     promosCategorias,
     eventosCategorias,
     lugares,
@@ -1801,6 +1802,7 @@ async function rebuildCatalogs({ db, cache }) {
     db.listCollection("nodos"),
     db.listCollection("funcionalidades"),
     db.listCollection("niveles_anunciante"),
+    db.listCollection("prestaciones"),
     db.listCollection("promos_categorias"),
     db.listCollection("eventos_categorias"),
     db.listCollection("lugares"),
@@ -1812,7 +1814,7 @@ async function rebuildCatalogs({ db, cache }) {
   ]);
   const now = (/* @__PURE__ */ new Date()).toISOString();
   await Promise.all([
-    cache.put(KEYS.commerce, { updated_at: now, segmentos: onlyActive(segmentos), categorias: onlyActive(categorias), actividades_clave: onlyActive(actividades), acciones: onlyActive(acciones), nodos: onlyActive(nodos), funcionalidades: onlyActive(funcionalidades), niveles_anunciante: onlyActive(niveles) }),
+    cache.put(KEYS.commerce, { updated_at: now, segmentos: onlyActive(segmentos), categorias: onlyActive(categorias), actividades_clave: onlyActive(actividades), acciones: onlyActive(acciones), nodos: onlyActive(nodos), funcionalidades: onlyActive(funcionalidades), niveles_anunciante: onlyActive(niveles), prestaciones:onlyActive(gldPrestacionesCatalogo200(prestaciones)) }),
     cache.put(KEYS.promos, { updated_at: now, categorias: onlyActive(promosCategorias) }),
     cache.put(KEYS.eventos, { updated_at: now, categorias: onlyActive(eventosCategorias), lugares: onlyActive(lugares), partners: [] }),
     cache.put(KEYS.actividades, { updated_at: now, categorias: onlyActive(actividadesCategorias), lugares: onlyActive(lugares) }),
@@ -1822,6 +1824,7 @@ async function rebuildCatalogs({ db, cache }) {
       updated_at: now,
       segmentos,
       niveles_anunciante: niveles,
+      prestaciones:gldPrestacionesCatalogo200(prestaciones),
       funcionalidades,
       categorias,
       actividades_clave: actividades,
@@ -1848,6 +1851,7 @@ async function publicGuideCatalogsV2({ cache }) {
     acciones: Array.isArray(c.acciones) ? c.acciones : [],
     nodos: Array.isArray(c.nodos) ? c.nodos : [],
     niveles_anunciante: Array.isArray(c.niveles_anunciante) ? c.niveles_anunciante : [],
+    prestaciones: gldPrestacionesCatalogo200(c.prestaciones).filter(active3),
     source: "kv"
   };
 }
@@ -2910,7 +2914,8 @@ async function commercePanelData({ db, advertiserId, catalogs }) {
       acciones: catalogs.acciones || [],
       nodos: catalogs.nodos || [],
       funcionalidades: catalogs.funcionalidades || [],
-      niveles_anunciante: catalogs.niveles_anunciante || []
+      niveles_anunciante: catalogs.niveles_anunciante || [],
+      prestaciones: gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3)
     }
   };
 }
@@ -2927,8 +2932,8 @@ async function commerceLoadLimitsV153({db,cache,advertiserId}){
   if(!Number.isSafeInteger(value)||value<0)throw Error('Configuración inválida: '+key);
   return value;
  };
- const allowed=cfg['carga_'+grupo+'_prestaciones'];
- const prestaciones=Array.isArray(allowed)?allowed.filter(x=>['tarjetas','efectivo','transferencia','delivery','retiro','reservas','turnos','accesibilidad','estacionamiento','wifi'].includes(x)):null;
+ const allowed=gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3).map(x=>x.prestacion_id);
+ const prestaciones=allowed;
  return {actividad:get('actividad'),descripcion:get('descripcion'),tags:get('tags'),categorias:get('categorias'),imagenes:get('imagenes'),redes:get('redes'),sedes:get('sedes'),prestaciones};
 }
 /** @param {{db:any,cache:any,advertiserId:any,patch:any,limits?:any}} options */
@@ -6228,7 +6233,7 @@ async function commercePanelDataV3({db,advertiserId,catalogs}){
     segmentos:catalogs.segmentos||[],categorias:catalogs.categorias||[],
     actividades_clave:catalogs.actividades_clave||[],acciones:catalogs.acciones||[],
     nodos:catalogs.nodos||[],funcionalidades:catalogs.funcionalidades||[],
-    niveles_anunciante:catalogs.niveles_anunciante||[]
+    niveles_anunciante:catalogs.niveles_anunciante||[],prestaciones:gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3)
   }};
 }
 
@@ -6282,9 +6287,9 @@ async function commerceSetSedesV3({db,cache,advertiserId,body}){
     if(existingId&&(!current||text(current.anunciante_id)!==text(advertiserId)))throw new Error('La sede no pertenece al anunciante.');
     if(String(raw?.horarios_atencion??'').length>350)throw Error('Los horarios de atención admiten hasta 350 caracteres.');
     if(Object.hasOwn(raw||{},'servicios_iconos')){
-      const allowed=new Set(['tarjetas','efectivo','transferencia','delivery','retiro','reservas','turnos','accesibilidad','estacionamiento','wifi']);
+      const allowed=new Set(gldPrestacionesCatalogo200((await getCommerceCatalogs(cache)).prestaciones).filter(active3).map(x=>x.prestacion_id).concat(['accesibilidad']));
       const items=String(raw.servicios_iconos??'').split(',').map(x=>x.trim()).filter(Boolean);
-      if(items.length>10||new Set(items).size!==items.length||items.some(x=>!allowed.has(x)))throw Error('Prestaciones inválidas para esta sede.');
+      if(items.length>allowed.size||new Set(items).size!==items.length||items.some(x=>!allowed.has(x)))throw Error('Prestaciones inválidas para esta sede.');
       if(Array.isArray(limites?.prestaciones)){
         const prev=new Set(String(current?.servicios_iconos??'').split(',').map(x=>x.trim()).filter(Boolean));
         const enabled=new Set(limites.prestaciones);
@@ -8266,6 +8271,21 @@ async function routeAdminV8(ctx) {
 }
 
 // reconstruccion/worker/modules/superadmin-catalogos-v2.js
+const GLD_PRESTACIONES_DEFAULT200=[
+ ['tarjetas','Tarjetas de crédito o débito','credit-card'],
+ ['efectivo','Efectivo','wallet'],['transferencia','Transferencia','money-bill-transfer'],
+ ['delivery','Envío a domicilio','truck'],['retiro','Retiro en local','bag-shopping'],
+ ['reservas','Reservas','calendar-check'],['turnos','Turnos','clock'],
+ ['estacionamiento','Estacionamiento','square-parking'],['wifi','Wi-Fi','wifi']
+].map(([prestacion_id,nombre,icono])=>({prestacion_id,nombre,icono,activo:true}));
+function gldPrestacionesCatalogo200(rows){
+ const byId=new Map(GLD_PRESTACIONES_DEFAULT200.map(x=>[x.prestacion_id,x]));
+ for(const row of rows||[]){
+  const id=String(row?.prestacion_id||row?.id||'').trim();
+  if(id)byId.set(id,{...(byId.get(id)||{}),...row,prestacion_id:id});
+ }
+ return [...byId.values()];
+}
 var ADMIN_KEY2 = "admin:catalogs:v2";
 var text79 = (v) => String(v ?? "").trim();
 var defs = {
@@ -8273,6 +8293,7 @@ var defs = {
   publicidad_categorias:{collection:"publicidad_categorias",idField:"categoria_key",moduleKey:KEYS.publicidad,moduleField:"categorias"},
   segmentos: { collection: "segmentos", idField: "segmento_id", moduleKey: KEYS.commerce, moduleField: "segmentos" },
   niveles_anunciante: { collection: "niveles_anunciante", idField: "nivel_id", moduleKey: KEYS.commerce, moduleField: "niveles_anunciante" },
+  prestaciones: { collection: "prestaciones", idField: "prestacion_id", moduleKey: KEYS.commerce, moduleField: "prestaciones" },
   funcionalidades: { collection: "funcionalidades", idField: "funcionalidad_id", moduleKey: KEYS.commerce, moduleField: "funcionalidades" },
   categorias: { collection: "categorias", idField: "categoria_id", moduleKey: KEYS.commerce, moduleField: "categorias" },
   actividades_clave: { collection: "actividades_clave", idField: "actividad_id", moduleKey: KEYS.commerce, moduleField: "actividades_clave" },
@@ -8313,6 +8334,7 @@ async function listAdminCatalogV2({ cache, tipo, cityId = "" }) {
   const byId=new Map();
   for(const x of [...moduleRows,...adminRows]){const id=text79(x[def.idField]||x.id);if(id)byId.set(id,{...byId.get(id),...x});}
   let rows=[...byId.values()];
+  if(t==='prestaciones')rows=gldPrestacionesCatalogo200(rows);
   if (t === "nodos" && text79(cityId)) {
     rows = rows.filter((x) => text79(x.ciudad_id) === text79(cityId));
   }
@@ -8328,6 +8350,11 @@ async function saveAdminCatalogV2({ db, cache, tipo, item, cityId = "" }) {
   if (t === "nodos" && cityId && !text79(payload.ciudad_id)) payload.ciudad_id = text79(cityId);
   const admin = await cache.get(ADMIN_KEY2) || { version: 2 };
   const current = (admin[t] || []).find((x) => text79(x[def.idField] || x.id) === id4);
+  if(t==='prestaciones'){
+   if(!/^[a-z0-9][a-z0-9_-]{0,48}$/.test(id4))throw Error('Identificador de prestación inválido.');
+   if(typeof payload.nombre!=='string'||!payload.nombre.trim()||payload.nombre.length>90)throw Error('Nombre de prestación inválido.');
+   if(payload.icono!==undefined&&!/^[a-z0-9-]{0,60}$/.test(payload.icono))throw Error('Ícono inválido.');
+ }
   if(t==='niveles_anunciante')for(const key of ['numero','descripcion_max','adicionales_max','tags_max','imagenes_max']){
     if(!Object.hasOwn(item,key)||JSON.stringify(item[key])===JSON.stringify(current?.[key]))continue;
     const value=item[key];
@@ -8337,7 +8364,7 @@ async function saveAdminCatalogV2({ db, cache, tipo, item, cityId = "" }) {
   const patch = changedFieldsV1(current, payload);
   if (!Object.keys(patch).length) return { success: true, updated: false, tipo: t, item: current, firestore_writes: 0, firestore_reads: 0 };
   const saved = await db.patch(def.collection, id4, patch, { mustExist: !!current, newDocument: !current });
-  const adminRows = upsert4(Array.isArray(admin[t]) ? admin[t] : [], def.idField, saved);
+  const adminRows = upsert4(t==='prestaciones'?gldPrestacionesCatalogo200(admin[t]):(Array.isArray(admin[t]) ? admin[t] : []), def.idField, saved);
   await cache.put(ADMIN_KEY2, {
     ...admin,
     version: 2,
@@ -8346,7 +8373,7 @@ async function saveAdminCatalogV2({ db, cache, tipo, item, cityId = "" }) {
   });
   if (def.moduleKey && def.moduleField) {
     const modulePacket = await cache.get(def.moduleKey) || {};
-    let rows = (Array.isArray(modulePacket[def.moduleField]) ? modulePacket[def.moduleField] : []).filter((x) => text79(x[def.idField] || x.id) !== id4);
+    let rows = (t==='prestaciones'?gldPrestacionesCatalogo200(modulePacket[def.moduleField]):(Array.isArray(modulePacket[def.moduleField]) ? modulePacket[def.moduleField] : [])).filter((x) => text79(x[def.idField] || x.id) !== id4);
     if (active3(saved) || (t==='niveles_anunciante' && id4==='CONFIG_GENERAL_ANUNCIANTES')) rows.push(saved);
     await cache.put(def.moduleKey, {
       ...modulePacket,
@@ -8660,7 +8687,7 @@ async function gldFuncEndpoint166(ctx){
 
 // Paquete FIJO de Gran Hermano, sin datos dinamicos ni personales.
 const GH_FIXED_PACKET_KEY169='admin:gh:fixed:v169';
-const GH_FIXED_CATALOGS169=['segmentos','niveles_anunciante','funcionalidades','categorias','actividades_clave','acciones','eventos_categorias','actividades_categorias','moderacion_18'];
+const GH_FIXED_CATALOGS169=['prestaciones','segmentos','niveles_anunciante','funcionalidades','categorias','actividades_clave','acciones','eventos_categorias','actividades_categorias','moderacion_18'];
 async function ghFixedPacket169({cache,db}){
  const hot=await cache.get(GH_FIXED_PACKET_KEY169);
  if(hot?.version===169&&hot.catalogos&&hot.reglas&&hot.precios)return hot;
