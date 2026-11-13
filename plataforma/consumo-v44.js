@@ -192,7 +192,9 @@
       const frame=document.createElement('iframe');frame.title='Simulación privada de Guía Local';frame.style.cssText='width:100%;height:760px;border:1px solid #ccc;background:#fff';frame.hidden=true;
       for(const [label,page] of [['Probar visitante','carcasa.html'],['Probar Mi Guía','suscriptores.html'],['Probar anunciante','login.html']]){const choice=document.createElement('button');choice.type='button';choice.textContent=label;choice.onclick=()=>{if(!authorized()){message.textContent='Activá primero las pruebas privadas.';return;}frame.hidden=false;frame.src='/plataforma/'+page;};choices.appendChild(choice);}
       const close=document.createElement('button');close.type='button';close.textContent='Cerrar simulación';close.onclick=()=>{frame.hidden=true;frame.removeAttribute('src');};choices.appendChild(close);toolbar.appendChild(choices);toolbar.appendChild(frame);
-      document.querySelector('#app')?.appendChild(toolbar);addShareControls(toolbar);}
+      const toolbarSelector=script&&script.getAttribute('data-gld-consumo-toolbar');
+      const toolbarHost=(toolbarSelector&&document.querySelector(toolbarSelector))||document.querySelector('#app');
+      toolbarHost?.appendChild(toolbar);addShareControls(toolbar);}
     diagnosticReady=validate();updateButton();
   };
   window.addEventListener('storage',e=>{if(e.key===capabilityKey)diagnosticReady=validate();else if(e.key===key||e.key===measurementKey)render();else if(e.key==='gld_superadmin_token'&&!e.newValue){stop();toolbar?.remove();toolbar=null;}});
