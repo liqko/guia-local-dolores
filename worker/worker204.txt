@@ -1,12 +1,12 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 203             ║
-// ║          VERSIÓN 203 · PENDIENTE DE DESPLIEGUE           ║
+// ║                GUÍA LOCAL DOLORES · WORKER 204             ║
+// ║          VERSIÓN 204 · PENDIENTE DE DESPLIEGUE           ║
 // ║     Base: 194 + listado diario privado; vista de 7 días   ║
 // ╚════════════════════════════════════════════════════════════╝
 // La etiqueta worker-v129.js que muestra Cloudflare es el nombre
 // técnico heredado del archivo de carga, no esta versión.
 // Comprobación sin Firestore ni KV: GET /__version
-// GUÍA LOCAL - WORKER 203 - IDENTIFICACIÓN DE VERSIÓN (base 162)
+// GUÍA LOCAL - WORKER 204 - IDENTIFICACIÓN DE VERSIÓN (base 162)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -102,7 +102,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'203',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'204',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -1859,7 +1859,7 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 203</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 203</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 204</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 204</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
     return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
@@ -6271,6 +6271,22 @@ const SEDE_ALLOWED=new Set([
   "estado","horarios_atencion","servicios_iconos","ciudad_id","pais_id","provincia_id","codigo_postal","actividad_ids","accion_ids","nodo_ids"
 ]);
 
+// Full advertiser packet: prepared once and cached as one KV value.
+// Only authorized panel sessions can reach this function.
+const COMMERCE_PACKET_TTL204=120;
+function commercePacketKey204(aid){return 'commerce:advertiser:full:v204:'+encodeURIComponent(String(aid||'').trim());}
+async function commercePanelPacket204({db,cache,advertiserId}){
+ const key=commercePacketKey204(advertiserId),cached=await cache.get(key);
+ if(cached?.v===204&&cached.expires>Date.now()&&cached.response?.success===true)return cached.response;
+ const catalogs=await getCommerceCatalogs(cache);
+ const response=await commercePanelDataV3({db,advertiserId,catalogs});
+ if(response?.success===true)
+  await cache.put(key,{v:204,expires:Date.now()+COMMERCE_PACKET_TTL204*1000,response},{expirationTtl:COMMERCE_PACKET_TTL204});
+ return response;
+}
+async function commercePacketInvalidate204(cache,aid){
+ if(aid)await cache.del(commercePacketKey204(aid));
+}
 async function commercePanelDataV3({db,advertiserId,catalogs}){
   if(db.panelReadDb)db=db.panelReadDb();
   const [datos,administracion,sedes]=await Promise.all([
@@ -6635,7 +6651,7 @@ async function routePanelV10(ctx) {
     const auth = await requirePanel4(env, request2, aid, false);
     if (auth.response) return auth.response;
     if (action === "anunciante") {
-      return json(await commercePanelDataV3({ db, advertiserId: aid, catalogs: await getCommerceCatalogs(cache) }));
+      return json(await commercePanelPacket204({db,cache,advertiserId:aid}));
     }
     return null;
   }
@@ -6648,6 +6664,7 @@ async function routePanelV10(ctx) {
       const out2 = await commerceSetDatosV3({ db, cache, advertiserId: aid, body });
       if (out2.updated) {
         await patchGuideAdvertiserDataFromCacheV2({ cache, advertiserId: aid, patch: out2.patch || {} });
+        await commercePacketInvalidate204(cache,aid);
       }
       return json(out2);
     }
@@ -6655,6 +6672,7 @@ async function routePanelV10(ctx) {
       const out2 = await commerceSetSedesV3({ db, cache, advertiserId: aid, body });
       if (out2.updated) {
         await patchGuideAdvertiserSedesFromCacheV2({ cache, advertiserId: aid, savedSedes: out2.changed_sedes || [] });
+        await commercePacketInvalidate204(cache,aid);
       }
       return json(out2);
     }
@@ -6662,12 +6680,13 @@ async function routePanelV10(ctx) {
       const sede_id=String(body.sede_id||'').trim();if(!sede_id)throw Error('Falta sede_id.');
       const relations=Object.fromEntries(['actividad_ids','accion_ids','nodo_ids'].filter(k=>body[k]!==undefined).map(k=>[k,body[k]]));
       const result=await commerceSetSedesV3({db,cache,advertiserId:aid,body:{sedes:[{sede_id,...relations,revision_sede:body.revision_sede}]}});
-      if(result.updated)await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:result.changed_sedes||[]});
+      if(result.updated){await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:result.changed_sedes||[]});await commercePacketInvalidate204(cache,aid);}
       return json({success:true,updated:result.updated,sede_id,revision_sedes:result.revision_sedes});
     }
     if (action === "delete_sede") {
       const out2 = await commerceDeleteSedeV3({ db, advertiserId: aid, body });
       await patchGuideAdvertiserSedesFromCacheV2({ cache, advertiserId: aid, deletedSedeId: out2.sede_id });
+      await commercePacketInvalidate204(cache,aid);
       return json(out2);
     }
     return null;
@@ -11320,7 +11339,7 @@ async function dailyDashboard195(env,auth){
  const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
  if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
  const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:203,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
+ return json({success:true,entry_version:195,worker_info:{version:204,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
@@ -11992,7 +12011,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'203',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'204',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -12615,7 +12634,7 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
   });
-  if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
+  if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid),commercePacketInvalidate204(cache,aid)]);
   return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
@@ -12633,7 +12652,7 @@ async function routeAtomicAdvertiserInternal(ctx){
   if(body.sedes?.length){const r=await commerceSetSedesV3({db:stagedDb,cache:stagedCache,advertiserId:aid,body:{sedes:body.sedes}});if(r.updated)await patchGuideAdvertiserSedesFromCacheV2({cache:stagedCache,advertiserId:aid,savedSedes:r.changed_sedes});output.updated||=r.updated;output.sedes=r.sedes;output.revision_sedes=r.revision_sedes;}
   return output;
  });
- if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
+ if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid),commercePacketInvalidate204(cache,aid)]);
  return json(result);
 }
 
@@ -12658,7 +12677,7 @@ async function routeGuideDispatch132(ctx){
  if(response.ok){
   const outcome=await response.clone().json().catch(()=>null);
   if(outcome?.success===true&&outcome.updated!==false)
-   await ghAdminDetailInvalidate203(ctx.cache,aid);
+   await Promise.all([ghAdminDetailInvalidate203(ctx.cache,aid),commercePacketInvalidate204(ctx.cache,aid)]);
  }
  const renewal=SESSION_RENEWALS_V87.get(request);
  if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
@@ -12712,7 +12731,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'203',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'204',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -12723,7 +12742,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'203',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'204',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -12925,7 +12944,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'203',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'204',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -12991,11 +13010,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'203',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'204',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'203',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'204',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -13138,7 +13157,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'203',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'204',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -13182,7 +13201,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"203",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"204",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
