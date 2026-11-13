@@ -1781,41 +1781,43 @@ function ghAnuParamMinimum202(key){
 function ghAnuParamHtml202(id,cfg){
  if(!GH_FUNC_FIELDS168[id]&&!GH_FUNC_GLOBAL166?.reglas?.[id])return '';
  const general=GH_FUNC_GLOBAL166?.reglas?.[id];
- if(!general)return '<p class="notice">No están disponibles los parámetros generales; se conserva la configuración actual sin ofrecer modificaciones.</p>';
- const admite=general.admite_excepciones!==false,fields=ghAnuParamFields202(id);
+ if(!general)return '<p class="notice">No están disponibles los parámetros generales. No se modifican valores hasta que puedan consultarse.</p>';
+ const admite=general.admite_excepciones===true;
+ const fields=ghAnuParamFields202(id);
  if(!fields.length)return '';
  const rows=fields.map(([key,label])=>{
-  const own=Object.hasOwn(cfg,key)&&cfg[key]!==null&&cfg[key]!=='',base=general[key],min=ghAnuParamMinimum202(key);
-  return '<div data-gh-param-row202="'+esc(id)+'" style="display:grid;gap:7px;padding:12px 0;border-bottom:1px solid #45515a">'+
-  '<label style="display:inline-flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:7px">'+
-  '<input type="checkbox" style="width:18px;height:18px;margin:0" data-gh-param-check202="'+esc(id)+'" data-gh-param-key202="'+esc(key)+'" '+(own?'checked ':'')+(admite?'':'disabled ')+'onchange="ghAnuParamToggle202(this)"> Excepción individual</label>'+
-  '<label>'+esc(label)+'<input type="number" step="1" min="'+min+'" data-gh-param-value202="'+esc(id)+'" data-gh-param-key202="'+esc(key)+'" data-gh-general202="'+esc(base??'')+'" value="'+esc((own?cfg[key]:base)??'')+'" '+(own&&admite?'':'disabled')+'></label>'+
-  '<small class="muted">General: '+esc(base??'sin definir')+(min===-1?' · −1 ilimitado; 0 ninguno':'')+'</small></div>';
+  const base=general[key];
+  const own=Object.hasOwn(cfg,key)&&cfg[key]!==null&&cfg[key]!==''&&
+    (base===undefined||Number(cfg[key])!==Number(base));
+  const min=ghAnuParamMinimum202(key);
+  return '<label style="display:grid;gap:5px;padding:8px 0">'+esc(label)+
+    '<input type="number" step="1" min="'+min+'" data-gh-param-value202="'+esc(id)+
+    '" data-gh-param-key202="'+esc(key)+'" data-gh-general202="'+esc(base??'')+
+    '" value="'+esc((own?cfg[key]:base)??'')+'" '+(admite?'':'readonly')+'>'+
+    '<small class="muted">General: '+esc(base??'sin definir')+
+    (min===-1?' · −1 ilimitado · 0 ninguno':'')+
+    (admite?' · Podés cambiar el valor directamente':' · No admite excepciones')+'</small></label>';
  }).join('');
- return '<details class="gh-param-form202" open><summary><strong>Parámetros</strong> · '+fields.length+'</summary><p class="muted">'+
- (admite?'Los parámetros sin excepción aplican el valor general. Marcá cada excepción únicamente si querés modificarla.':'La funcionalidad no admite excepciones.')+
- '</p>'+rows+'</details>';
-}
-function ghAnuParamToggle202(cb){
- const input=cb.closest('[data-gh-param-row202]')?.querySelector('[data-gh-param-value202]');
- if(!input)return;
- input.disabled=!cb.checked;
- if(!cb.checked)input.value=input.dataset.ghGeneral202??'';
+ return '<div class="gh-param-form202" data-gh-param-feature202="'+esc(id)+'">'+rows+'</div>';
 }
 function ghAnuParamPayload202(root){
  for(const section of document.querySelectorAll('.gh-param-form202')){
-  const first=section.querySelector('[data-gh-param-check202]');
-  if(!first)continue;
-  const id=first.dataset.ghParamCheck202;
-  if(GH_FUNC_GLOBAL166?.reglas?.[id]?.admite_excepciones===false)continue;
+  const id=section.dataset.ghParamFeature202,global=GH_FUNC_GLOBAL166?.reglas?.[id];
+  if(!global||global.admite_excepciones!==true)continue;
   const cfg={...(root[id]||{})};
-  for(const cb of section.querySelectorAll('[data-gh-param-check202]')){
-   const key=cb.dataset.ghParamKey202;
-   if(!cb.checked){delete cfg[key];continue;}
-   const input=section.querySelector('[data-gh-param-value202="'+id+'"][data-gh-param-key202="'+key+'"]');
-   const raw=String(input?.value??'').trim(),min=ghAnuParamMinimum202(key);
-   if(!raw||!Number.isSafeInteger(Number(raw))||Number(raw)<min)throw Error('Parámetro individual inválido: '+id+' / '+key);
-   cfg[key]=Number(raw);
+  for(const input of section.querySelectorAll('[data-gh-param-value202]')){
+   const key=input.dataset.ghParamKey202,raw=String(input.value??'').trim();
+   const general=global[key];
+   if(raw===''&& (general===null||general===undefined||general==='')){
+    delete cfg[key];continue;
+   }
+   const min=ghAnuParamMinimum202(key);
+   if(!raw||!Number.isSafeInteger(Number(raw))||Number(raw)<min)
+    throw Error('Valor inválido: '+id+' / '+key);
+   const number=Number(raw);
+   if(general!==null&&general!==undefined&&general!==''&&number===Number(general))
+    delete cfg[key];
+   else cfg[key]=number;
   }
   if(Object.keys(cfg).length||Object.hasOwn(root,id))root[id]=cfg;
  }
@@ -1856,7 +1858,7 @@ function ghFunctionEditor_(adm,catalog,usage){
    }
   if(d.territory){let list=[...(d.territory==='ciudades'?GH_CITIES:GH_PROVINCES)];const fallback=d.id==='TURNOS_FARMA'?adm.farmacias_ciudades:(d.territory==='ciudades'?adm.efemerides_ciudades:adm.efemerides_provincias);const ids=Array.isArray(cfg[d.territory])?cfg[d.territory]:Array.isArray(fallback)?fallback:(d.id==='TURNOS_FARMA'?String(adm.turnos_farma||'').split(/[;,|]/).map(v=>v.trim()).filter(v=>v&&v!=='*'):[]);for(const id of ids)if(!list.some(r=>String(r.ciudad_id||r.provincia_id||r.id)===String(id)))list.push({id,nombre:id});const all=ghFunctionTruth_(cfg[d.all])||(d.id==='TURNOS_FARMA'?adm.turnos_farma==='*':ghFunctionTruth_(adm[d.territory==='ciudades'?'efemerides_todas_ciudades':'efemerides_todas_provincias']));inputs+='<label class="switch"><input type="checkbox" data-gh-all="'+d.id+'" '+(all?'checked':'')+'>Todas las '+d.territory+'</label><label>'+ (d.territory==='ciudades'?'Ciudades habilitadas':'Provincias habilitadas')+'<select multiple data-gh-territory="'+d.id+'">'+list.map(r=>{const id=String(r.ciudad_id||r.provincia_id||r.id||'');return '<option value="'+esc(id)+'" '+(ids.map(String).includes(id)?'selected':'')+'>'+esc(r.ciudad_visible||r.nombre||id)+'</option>'}).join('')+'</select></label>'+(d.territory==='ciudades'?'<div data-gh-provinces-for="'+d.id+'"></div>':'');}
   if(d.territory)inputs='<details><summary>Territorio habilitado</summary>'+inputs+'</details>';
-  return '<article class="function-card"><div class="function-heading"><h4>'+esc(d.name)+'</h4></div><label class="module-enable '+(on?'is-enabled':'is-disabled')+'"><input type="checkbox" data-anu-fun="'+esc(d.id)+'" '+(on?'checked':'')+' onchange="ghFunctionToggle_(this)"><strong data-gh-enabled-state>'+(on?'HABILITADO':'DESHABILITADO')+'</strong></label>'+contract+'<p class="module-enable-help">Un cupo por sí solo no habilita una funcionalidad.</p><details class="function-fields" open><summary><strong>Cupos, uso y condiciones</strong></summary>'+inputs+'</details></article>';
+  return '<article class="function-card"><div class="function-heading"><h4>'+esc(d.name)+'</h4></div><label class="module-enable '+(on?'is-enabled':'is-disabled')+'"><input type="checkbox" data-anu-fun="'+esc(d.id)+'" '+(on?'checked':'')+' onchange="ghFunctionToggle_(this)"><strong data-gh-enabled-state>'+(on?'HABILITADO':'DESHABILITADO')+'</strong></label>'+contract+'<p class="module-enable-help">Un cupo por sí solo no habilita una funcionalidad.</p><details class="function-fields" open><summary><strong>Parámetros</strong></summary>'+inputs+'</details></article>';
  }).join('');
 }
 
