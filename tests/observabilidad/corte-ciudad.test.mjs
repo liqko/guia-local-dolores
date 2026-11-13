@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
@@ -9,7 +10,11 @@ import { prepareCityBooks } from '../../scripts/preparar-paquete-ciudad.mjs';
 import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-ciudad.mjs';
 import bookTools from '../../plataforma/paquete-ciudad.js';
 
-const source = await readFile(new URL(process.env.GLD_WORKER||'../../worker/worker191_consolidado_sobre_190_d8446f0.txt', import.meta.url), 'utf8');
+const workerDirectory = new URL('../../worker/', import.meta.url);
+const workerFiles = (await readdir(workerDirectory)).filter(name => /^worker\\d+\\.txt$/.test(name));
+assert.equal(workerFiles.length,1,'Debe existir un único Worker versionado en worker/');
+const workerPath = new URL(workerFiles[0],workerDirectory);
+const source = await readFile(process.env.GLD_WORKER ? new URL(process.env.GLD_WORKER,import.meta.url) : workerPath, 'utf8');
 const candidateWorker = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
 const {GldPublicCache119}=candidateWorker;
 if(candidateWorker.PUBLIC_FEATURES191)candidateWorker.PUBLIC_FEATURES191.employment.rebuild=async()=>{};
