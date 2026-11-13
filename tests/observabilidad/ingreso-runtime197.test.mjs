@@ -6,10 +6,10 @@ import assert from 'node:assert/strict';
 import {readFile,mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {generateKeyPairSync,sign} from 'node:crypto';
+import {generateKeyPairSync,sign,createHmac} from 'node:crypto';
 import {publicarPaquetes} from '../../scripts/publicar-paquetes-ciudad.mjs';
 const {Miniflare,Log,LogLevel}=await import(process.env.GLD_MINIFLARE||'miniflare');
-const script=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
+import {source as script} from './worker-source.mjs';
 const cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000;
 const fixture={suscriptores:[{id:'P',suscriptor_id:'P',nombre:'Cuenta local de integración',mail:'principal@example.invalid',clave:'solo-fixture',activo:true,fecha_nacimiento:'1990-11-12'}],superadmins:[{id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true}],categorias:[{id:'CAT',categoria_id:'CAT',nombre:'Categoría de prueba',activo:true}]};
 const fsValue=v=>typeof v==='boolean'?{booleanValue:v}:typeof v==='number'?{integerValue:String(v)}:{stringValue:String(v)};
@@ -50,10 +50,29 @@ test('workerd + SQLite/KV persistentes: identidad de publicador, arranque frío,
  denySource=true;const sources=requests.length;
  for(let i=0;i<2;i++){
   const response=await login(),body=await response.json();assert.equal(response.status,200,JSON.stringify(body));assert(body.entrada.inbox);assert(body.entrada.fixed);assert(body.entrada.territory);assert.equal(body.resumen.suscriptores,1);assert(body.entrada.fixed.catalogos.categorias.some(c=>c.nombre==='Categoría de prueba'));assert.equal(body.entry_version,195);
-  const m=meters(response);assert.equal(m.firestore.read_calls,0);assert.equal(m.cloudflare.kv.get_calls,4);assert.equal(m.cloudflare.admin_store.calls,1);assert.equal(m.cloudflare.admin_store.rows_read,1);assert.equal(m.cloudflare.kv.put_calls,0);assert.equal(m.cloudflare.kv.list_calls,0);
+  const m=meters(response);assert.equal(m.firestore.read_calls,0);assert.equal(m.cloudflare.kv.get_calls,1);assert.deepEqual(m.cloudflare.auth_store,{calls:1,rows_read:1,rows_written:0,failures:0});assert.equal(m.cloudflare.admin_store.calls,1);assert.equal(m.cloudflare.admin_store.rows_read,1);assert.equal(m.cloudflare.kv.put_calls,0);assert.equal(m.cloudflare.kv.list_calls,0);
  }
  const noManual=await send('/superadmin/birthdays/prepare',{method:'POST',headers:auth});assert.equal(noManual.status,200);assert.equal(meters(noManual).firestore.read_calls,0);assert.equal(requests.length,sources);
  await mf.dispose();await start();
- const resumed=await send('/superadmin/dashboard',{headers:auth}),body=await resumed.json();assert.equal(resumed.status,200,JSON.stringify(body));assert.equal(body.resumen.suscriptores,1);assert.equal(meters(resumed).firestore.read_calls,0);assert.equal(meters(resumed).cloudflare.kv.get_calls,2);assert.equal(requests.length,sources);
+ const resumed=await send('/superadmin/dashboard',{headers:auth}),body=await resumed.json();assert.equal(resumed.status,200,JSON.stringify(body));assert.equal(body.resumen.suscriptores,1);assert.equal(meters(resumed).firestore.read_calls,0);assert.equal(meters(resumed).cloudflare.kv.get_calls,0);assert.deepEqual(meters(resumed).cloudflare.auth_store,{calls:1,rows_read:1,rows_written:0,failures:0});assert.equal(requests.length,sources);
  const bad=await send('/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:fixture.suscriptores[0].mail,clave:'incorrecta'})});assert.equal(bad.status,401);assert.equal(requests.length,sources);
+ // Use the actual bound DO for mutations; all identities below are fixtures.
+ const access=async(sid,command={action:'read'})=>{
+  const namespace=await mf.getDurableObjectNamespace('GLD_PUBLIC_CACHE');
+  const actor=namespace.get(namespace.idFromName('private-access-v201:'+sid));
+  const r=await actor.fetch('https://access.internal/',{method:'POST',body:JSON.stringify({op:'private-access201',sid,...command})});assert.equal(r.status,200);return (await r.json()).value;
+ };
+ const fixtureToken=(sid,rol,extra={})=>{const body=Buffer.from(JSON.stringify({sid,rol,persistent:true,sv:0,...extra})).toString('base64url');return body+'.'+createHmac('sha256','local-integration-secret').update(body).digest('base64url');};
+ for(const rol of ['SUPERADMIN_PRINCIPAL','SUPERADMIN','ADMIN_LOCAL']){
+  const sid='fixture-'+rol,token=fixtureToken(sid,rol,{ciudades:['DOL']});await access(sid);
+  const headers={Authorization:'Bearer '+token};const allowed=await send('/superadmin/dashboard',{headers});assert.equal(allowed.status,200);const m=meters(allowed);assert.equal(m.cloudflare.kv.get_calls,0);assert.deepEqual(m.cloudflare.auth_store,{calls:1,rows_read:1,rows_written:0,failures:0});
+  await access(sid,{action:'policy',policy:{activo:false,revision:'revoked'}});
+  const denied=await send('/superadmin/dashboard',{headers});assert.equal(denied.status,401);assert.equal(meters(denied).cloudflare.admin_store.calls,0);
+ }
+ // Source data arriving after a change must not undo that change.
+ const initial=await access('concurrent');await Promise.all(Array.from({length:20},()=>access('concurrent',{action:'revoke'})));
+ const stale=await access('concurrent',{action:'admin',generation:initial.generation,admin:{id:'concurrent',activo:true,rol:'SUPERADMIN_PRINCIPAL'}});assert.equal(stale.state.version,20);assert.equal(stale.admin,null);
+ const kv=await mf.getKVNamespace('GLD_CACHE_KV');await kv.put('subscriber:session-state:v1:corrupt','{');
+ const corrupt=await send('/superadmin/dashboard',{headers:{Authorization:'Bearer '+fixtureToken('corrupt','SUPERADMIN_PRINCIPAL')}});assert.equal(corrupt.status,503);assert.equal(meters(corrupt).cloudflare.auth_store.failures,1);assert.equal(meters(corrupt).cloudflare.admin_store.calls,0);
+ await mf.dispose();await start();const restored=await access('concurrent');assert.equal(restored.state.version,20);assert.equal(restored.admin,null);assert.equal(requests.length,sources);
 });

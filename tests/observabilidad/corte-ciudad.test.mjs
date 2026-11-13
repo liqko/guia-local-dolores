@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { prepareCityBooks } from '../../scripts/preparar-paquete-ciudad.mjs';
 import { aplicarCorte, ultimoCorte } from '../../scripts/aplicar-corte-paquetes-ciudad.mjs';
 import bookTools from '../../plataforma/paquete-ciudad.js';
+import {accessBinding201} from './access-fixture201.mjs';
 
 const workerDirectory = new URL('../../worker/', import.meta.url);
 const workerFiles = (await readdir(workerDirectory)).filter(name => /^worker\d+\.txt$/.test(name));
@@ -343,7 +344,7 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
 
 });
 
-test('reanudar promociones usa la configuración tanto en panel como en Gran Hermano', async () => {
+test('reanudar promociones usa la configuración tanto en panel como en Gran Hermano', async t => {
   const { createHmac } = await import('node:crypto');
   const testSource = source + '\nexport {promoUpdateV2,routeAdminPromosV91};';
   const {promoUpdateV2,routeAdminPromosV91} = await import('data:text/javascript;base64,' + Buffer.from(testSource).toString('base64'));
@@ -367,6 +368,7 @@ test('reanudar promociones usa la configuración tanto en panel como en Gran Her
   const request=new Request(url,{method:'POST',headers:{Authorization:'Bearer '+body+'.'+sig},
     body:JSON.stringify({promo_id:initial.promo_id,action:'reanudar'})});
   const env={SERVER_SECRET:secret,GLD_CACHE_KV:{get:async()=>null,put:async()=>{}}};
+  env.GLD_PUBLIC_CACHE=accessBinding201(candidateWorker,env,{get(){throw Error('Unexpected actor');}},t);
   const fromAdmin=await routeAdminPromosV91({path:url.pathname,request,env,db,cache,url});
   assert.equal(fromAdmin.status,200);
   assert.equal((await fromAdmin.json()).promo.pausado,false);

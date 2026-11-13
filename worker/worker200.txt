@@ -1,12 +1,12 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 200             ║
+// ║                GUÍA LOCAL DOLORES · WORKER 201             ║
 // ║          VERSIÓN PREPARADA · PENDIENTE DE DESPLIEGUE           ║
 // ║     Base: 194 + listado diario privado; vista de 7 días   ║
 // ╚════════════════════════════════════════════════════════════╝
 // La etiqueta worker-v129.js que muestra Cloudflare es el nombre
 // técnico heredado del archivo de carga, no esta versión.
 // Comprobación sin Firestore ni KV: GET /__version
-// GUÍA LOCAL - WORKER 200 - IDENTIFICACIÓN DE VERSIÓN (base 162)
+// GUÍA LOCAL - WORKER 201 - IDENTIFICACIÓN DE VERSIÓN (base 162)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -102,7 +102,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'200',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'201',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -1068,9 +1068,8 @@ async function verifyAdminUncached138(env, request2) {
   if (!p || !p.sid || (p.persistent !== true && (!p.exp || Date.now() > Number(p.exp)))) return { ok: false, message: "Sesión inválida o vencida" };
   const rol = text2(p.rol).toUpperCase();
   if (!["SUPERADMIN_PRINCIPAL", "SUPERADMIN", "ADMIN_LOCAL"].includes(rol)) return { ok: false, message: "Rol administrativo no habilitado" };
-  const policy=await createCache(env).get("admin:access:v72:"+text2(p.sid));
+  const {policy,state}=await accessRecord201(env,p.sid);
   if(policy && (!policy.activo || !p.access_revision || p.access_revision!==policy.revision))return {ok:false,message:"Los permisos cambiaron. Volvé a iniciar sesión."};
-  const state=await subscriberSessionState(env,p.sid);
   if(state.deleted || (p.sv !== undefined && Number(p.sv)!==Number(state.version||0))) return {ok:false,message:"Sesión cerrada. Volvé a ingresar."};
   if(p.persistent !== true) SESSION_RENEWALS_V87.set(request2,{kind:"admin",token:await issue2(env,{...p,sv:Number(state.version||0)})});
   return { ok: true, sid: text2(p.sid), rol, access_revision:p.access_revision||"", ciudades: adminCityIdsV71(p.ciudades), perfil:p.perfil||"", permisos:p.permisos||{} };
@@ -1860,7 +1859,7 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 200</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 200</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 201</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 201</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
     return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
@@ -2683,20 +2682,84 @@ async function routePublicV12(ctx) {
 }
 
 // reconstruccion/worker/core/subscriber-session-state.js
-var key2 = (sid) => "subscriber:session-state:v1:" + String(sid || "").trim();
+// One authoritative private access record per account. Password verifiers remain
+// in the existing mail projection; ordinary sessions never read that projection.
+// SQL mutations are serialized by the existing Durable Object request queue.
+async function accessRecord201(env, sid, command = { action: 'read' }) {
+  sid=String(sid||'').trim();
+  if(!sid||!env.GLD_PUBLIC_CACHE)throw httpError('Registro de acceso no disponible.',503);
+  const report=env.__gldRequestReport119;
+  const metrics=report?(report.auth_store201??={calls:0,rows_read:0,rows_written:0,failures:0}):null;
+  if(metrics)metrics.calls++;
+  try{
+    const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-access-v201:'+sid));
+    const response=await actor.fetch(new Request('https://access.internal/',{method:'POST',body:JSON.stringify({op:'private-access201',sid,...command})}));
+    const result=await response.json();
+    if(metrics){
+      for(const field of ['rows_read','rows_written'])metrics[field]+=result.metrics?.[field]||0;
+      if(result.metrics?.legacy_gets){const kv=report.kv??={get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0};kv.get_calls+=result.metrics.legacy_gets;kv.failures+=result.metrics.legacy_failures||0;}
+    }
+    if(!response.ok)throw httpError('No se pudo comprobar el acceso.',503);
+    return result.value;
+  }catch(error){if(metrics)metrics.failures++;throw error;}
+}
+class AccessRecord201 {
+  constructor(state,env){this.sql=state.storage.sql;this.env=env;this.sql.exec('CREATE TABLE IF NOT EXISTS private_access201 (slot INTEGER PRIMARY KEY, value TEXT NOT NULL)');}
+  async fetch(body){
+    const metrics={rows_read:0,rows_written:0,legacy_gets:0,legacy_failures:0};
+    const query=(sql,...args)=>{const cursor=this.sql.exec(sql,...args),rows=[...cursor];metrics.rows_read+=cursor.rowsRead||0;metrics.rows_written+=cursor.rowsWritten||0;return rows;};
+    const legacy=async key=>{metrics.legacy_gets++;try{const raw=await this.env.GLD_CACHE_KV.get(key);return raw?JSON.parse(raw):null;}catch(error){metrics.legacy_failures++;throw error;}};
+    try{
+      if(!body.sid||!['read','revoke','policy','invalidate-admin','admin'].includes(body.action))throw Error('Invalid access operation');
+      const stored=query('SELECT value FROM private_access201 WHERE slot=1')[0];
+      let value=stored?JSON.parse(stored.value):null,changed=false;
+      if(!value){
+        // One-time import only. An absent legacy key is not an absent SQL record.
+        // Malformed/unavailable sources fail closed and cannot create a record.
+        const [state,policy,admin]=await Promise.all([
+          legacy('subscriber:session-state:v1:'+body.sid),
+          legacy('admin:access:v72:'+body.sid),
+          legacy('auth:admin:v100:'+encodeURIComponent(body.sid))
+        ]);
+        if(state&&(!Number.isSafeInteger(state.version)||state.version<0||typeof state.deleted!=='boolean'))throw Error('Invalid session state');
+        if(policy&&(typeof policy.activo!=='boolean'||typeof policy.revision!=='string'))throw Error('Invalid access policy');
+        value={sid:body.sid,generation:0,state:state||{version:0,deleted:false},policy,admin:admin?.version===58?admin.data||null:null,admin_loaded:admin?.version===58};changed=true;
+      }
+      if(value.sid!==body.sid||!Number.isSafeInteger(value.generation)||value.generation<0||!Number.isSafeInteger(value.state?.version)||value.state.version<0||typeof value.state.deleted!=='boolean')throw Error('Invalid access record');
+      if(value.admin&&String(value.admin.suscriptor_id||value.admin.id)!==body.sid)throw Error('Access identity mismatch');
+      if(body.action==='revoke'){
+        value.state={version:Number(value.state.version||0)+1,deleted:body.deleted===true||value.state.deleted===true};value.generation++;changed=true;
+      }else if(body.action==='policy'){
+        if(typeof body.policy?.activo!=='boolean'||typeof body.policy?.revision!=='string')throw Error('Invalid access policy');
+        if(body.policy.activo&&value.policy&&body.policy.revision!==value.policy.revision){
+          // Another permission update overtook this source write. Keep access
+          // disabled instead of reactivating either unconfirmed revision.
+          value.policy={...value.policy,activo:false};value.admin=null;value.admin_loaded=false;value.generation++;
+          query('INSERT INTO private_access201(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value',JSON.stringify(value));
+          return Response.json({error:'ACCESS_UPDATE_CONFLICT',metrics},{status:503});
+        }
+        value.policy=body.policy;value.admin=null;value.admin_loaded=false;value.generation++;changed=true;
+      }else if(body.action==='invalidate-admin'){
+        value.admin=null;value.admin_loaded=false;value.generation++;changed=true;
+      }else if(body.action==='admin'&&body.generation===value.generation){
+        // A source read started before a revocation/permission change cannot
+        // restore an older authorization when its response arrives later.
+        const admin=body.admin;
+        if(admin&&String(admin.suscriptor_id||admin.id)!==body.sid)throw Error('Admin identity mismatch');
+        if(!value.state.deleted&&(!value.policy||value.policy.activo&&admin?.access_revision===value.policy.revision)){
+          value.admin=admin||null;value.admin_loaded=true;changed=true;
+        }
+      }
+      if(changed)query('INSERT INTO private_access201(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value',JSON.stringify(value));
+      return Response.json({value,metrics});
+    }catch(error){return Response.json({error:'ACCESS_RECORD_UNAVAILABLE',metrics},{status:503});}
+  }
+}
 async function subscriberSessionState(env, sid) {
-  const kv = env.GLD_CACHE_KV;
-  if (!kv) throw new Error("Falta binding GLD_CACHE_KV.");
-  const raw = await kv.get(key2(sid));
-  if (!raw) return { version: 0, deleted: false };
-  return JSON.parse(raw);
+  return (await accessRecord201(env,sid)).state;
 }
 async function revokeSubscriberSessions(env, sid, { deleted = false } = {}) {
-  const current = await subscriberSessionState(env, sid);
-  await env.GLD_CACHE_KV.put(key2(sid), JSON.stringify({
-    version: Number(current.version || 0) + 1,
-    deleted: deleted || current.deleted === true
-  }));
+  await accessRecord201(env,sid,{action:'revoke',deleted});
 }
 
 // reconstruccion/worker/modules/suscriptores.js
@@ -9193,12 +9256,12 @@ async function gldRolesGuardarConjunto191(ctx,auth,read){
  if(!entries.length)return json({success:true,actualizados:0,message:'No había modificaciones para guardar.'});
  // Firestore :commit aplica las escrituras de forma atómica.
  // La revisión administrativa se invalida antes de confirmar para no conservar permisos antiguos.
- if(entries.some(e=>e.collection==='superadmins'))await cache.put('admin:access:v72:'+sid,{activo:false,revision});
+ if(entries.some(e=>e.collection==='superadmins'))await accessRecord201(env,sid,{action:'policy',policy:{activo:false,revision}});
  await db.commitPatches(entries);
  await revokeSubscriberSessions(env,sid);
  if(entries.some(e=>e.collection==='superadmins')){
   const modEntry=entries.find(e=>e.collection==='superadmins');
-  await cache.put('admin:access:v72:'+sid,{activo:!modEntry.remove&&modEntry.patch.activo===true,revision});
+  await accessRecord201(env,sid,{action:'policy',policy:{activo:!modEntry.remove&&modEntry.patch.activo===true,revision}});
  }
  return json({success:true,actualizados:entries.length,firestore_writes:entries.length,message:'Todos los cambios se guardaron juntos.'});
 }
@@ -9394,7 +9457,7 @@ async function superadminLoginV2({ env, db, body }) {
   }
   const sid = text81(sus.suscriptor_id || sus.id);
   if (!sid) return { success: false, message: "Suscriptor sin ID válido" };
-  const admin = await db.loginAdmin(sid);
+  const {admin,state:sessionState} = await db.loginAdminBundle(sid);
   if (!admin) return { success: false, message: "Esta cuenta no tiene acceso a este panel" };
   if (!truthy8(admin.activo)) {
     return { success: false, message: "Administrador no activo" };
@@ -9406,7 +9469,6 @@ async function superadminLoginV2({ env, db, body }) {
   const nombre = text81(sus.nombre || admin.nombre);
   const ciudades = adminCityIdsV71(admin.ciudades);
   if (role === "ADMIN_LOCAL" && !ciudades.length) return {success:false,message:"El administrador local no tiene una ciudad asignada."};
-  const sessionState=await subscriberSessionState(env,sid);
   if(sessionState.deleted)return {success:false,message:"Suscriptor no activo"};
   const perfil155=admin.perfil||"";
   let perms155=admin.permisos||{};
@@ -9803,10 +9865,10 @@ async function roleRoutes155({path,request,env,db,cache,url}){
  if(ciudades.some(x=>!known.has(x)))return json({success:false,message:"Ciudad no autorizada."},400);
  if(!await read.get("suscriptores",sid))return json({success:false,message:"No existe el suscriptor."},404);
  const moderation={EVENTO:actions.some(x=>x.startsWith("Eventos.")&&(x.endsWith(".aprobar")||x.endsWith(".rechazar"))),ACTIVIDAD:actions.some(x=>x.startsWith("Actividades.")&&(x.endsWith(".aprobar")||x.endsWith(".rechazar"))),ANUNCIANTE:actions.some(x=>x.startsWith("Anunciantes.")&&(x.endsWith(".aprobar")||x.endsWith(".rechazar")))};
- const revision=crypto.randomUUID(),key="admin:access:v72:"+sid;
- await cache.put(key,{activo:false,revision});
+ const revision=crypto.randomUUID();
+ await accessRecord201(env,sid,{action:'policy',policy:{activo:false,revision}});
  await db.patch("superadmins",String(old?.id||sid),{suscriptor_id:sid,rol:"ADMIN_LOCAL",perfil,activo,ciudades,permisos:{...(old?.permisos||{}),moderacion:moderation,acciones:actions},access_revision:revision,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid});
- await cache.put(key,{activo,revision});
+ await accessRecord201(env,sid,{action:'policy',policy:{activo,revision}});
  return json({success:true,message:"Permisos guardados. La persona debe volver a iniciar sesion.",personal:{perfil,activo,ciudades,acciones:actions}});
 }
 function roleClaim155(request){try{const part=String(request.headers.get("Authorization")||"").replace(/^Bearer\s+/i,"").split(".")[0];return JSON.parse(b64decode(part)).perfil||"";}catch{return "";}}
@@ -10460,22 +10522,30 @@ function withAuthCacheV58(db,env){
    if(!row){const rows=await db.queryEqual('superadmins','suscriptor_id',id,5);row=rows.find(r=>text(r.suscriptor_id)===text(id));}
    await put(key,{data:row||null});return row||null;
   },
-  async loginAdmin(id){
-   const key='auth:admin:v100:'+encodeURIComponent(text(id));
-   const policyRaw=kv?.get?await kv.get('admin:access:v72:'+text(id),{cacheTtl:30}):null;
-   let policy=null;try{policy=policyRaw?JSON.parse(policyRaw):null;}catch{return null;}
-   if(policy&&!policy.activo)return null;
-   const hit=await load(key);
-   if(hit?.data&&(!policy||hit.data.access_revision===policy.revision))return structuredClone(hit.data);
-   let row=await db.get('superadmins',id);
-   if(!row){const rows=await db.queryEqual('superadmins','suscriptor_id',id,5);row=rows.find(r=>text(r.suscriptor_id)===text(id));}
-   if(!row||policy&&row.access_revision!==policy.revision)return null;
-   await put(key,{data:row});return structuredClone(row);
+  async loginAdminBundle(id){
+   let access=await accessRecord201(env,id);
+   if(access.state.deleted||access.policy&&!access.policy.activo)return {admin:null,state:access.state};
+   if(!access.admin_loaded||access.admin&&access.policy&&access.admin.access_revision!==access.policy.revision){
+    let row=await db.get('superadmins',id);
+    if(!row){const rows=await db.queryEqual('superadmins','suscriptor_id',id,5);row=rows.find(r=>text(r.suscriptor_id)===text(id));}
+    access=await accessRecord201(env,id,{action:'admin',admin:row,generation:access.generation});
+   }
+   const admin=access.admin;
+   return {admin:access.state.deleted||access.policy&&(!access.policy.activo||admin?.access_revision!==access.policy.revision)?null:structuredClone(admin),state:access.state};
   },
+  async loginAdmin(id){return (await this.loginAdminBundle(id)).admin;},
   async cachedSubscriberProjection(id){const index=await load(sidKey(id));if(index?.data){const {clave,...data}=index.data;return structuredClone(data);}const old=await previous(id);if(!old.row)return null;if(!old.p&&Object.hasOwn(old.row,'clave'))await store(old.row);const {clave,...data}=old.row;return structuredClone(data);},
   async get(c,id){const row=await db.get(c,id);if(c==='suscriptores'&&row)rawRows.set(text(id),row);return row;},
-  async patch(c,id,patch,options={}){if(c==='superadmins'&&kv?.delete){await kv.delete('auth:admin:v100:'+encodeURIComponent(text(patch.suscriptor_id||id)));}if(c!=='suscriptores')return db.patch(c,id,patch,options);const old=await previous(id);const result=await db.patch(c,id,patch,options);const row={...old.row,...patch,...result,id:text(id)};if(old.row?.mail&&norm(old.row.mail)!==norm(row.mail))await put(await mailKey(old.row.mail),{deleted:true});await store(row,old.p);await syncSubscriberDirectory195(env,old.row,row);rawRows.set(text(id),row);return result;},
-  async delete(c,id,options={}){if(c==='superadmins'&&kv?.delete){await kv.delete('auth:admin:v100:'+encodeURIComponent(text(id)));}if(c!=='suscriptores')return db.delete(c,id,options);const old=await previous(id),result=await db.delete(c,id,options);if(old.row?.mail)await put(await mailKey(old.row.mail),{deleted:true});await put(sidKey(id),{deleted:true});await syncSubscriberDirectory195(env,old.row,null);rawRows.delete(text(id));return result;}
+  async commitPatches(entries){
+   for(const entry of entries)if(entry.collection==='superadmins'){
+    const sid=text(entry.patch?.suscriptor_id||entry.before?.suscriptor_id||entry.id);
+    await accessRecord201(env,sid,{action:'invalidate-admin'});
+    await kv.delete('auth:admin:v100:'+encodeURIComponent(sid));
+   }
+   return db.commitPatches(entries);
+  },
+  async patch(c,id,patch,options={}){if(c==='superadmins'){await accessRecord201(env,text(patch.suscriptor_id||id),{action:'invalidate-admin'});await kv.delete('auth:admin:v100:'+encodeURIComponent(text(patch.suscriptor_id||id)));}if(c!=='suscriptores')return db.patch(c,id,patch,options);const old=await previous(id);const result=await db.patch(c,id,patch,options);const row={...old.row,...patch,...result,id:text(id)};if(old.row?.mail&&norm(old.row.mail)!==norm(row.mail))await put(await mailKey(old.row.mail),{deleted:true});await store(row,old.p);await syncSubscriberDirectory195(env,old.row,row);rawRows.set(text(id),row);return result;},
+  async delete(c,id,options={}){if(c==='superadmins'){await accessRecord201(env,text(id),{action:'invalidate-admin'});await kv.delete('auth:admin:v100:'+encodeURIComponent(text(id)));}if(c!=='suscriptores')return db.delete(c,id,options);const old=await previous(id),result=await db.delete(c,id,options);if(old.row?.mail)await put(await mailKey(old.row.mail),{deleted:true});await put(sidKey(id),{deleted:true});await syncSubscriberDirectory195(env,old.row,null);rawRows.delete(text(id));return result;}
  };
 }
 
@@ -10707,8 +10777,8 @@ async function routeModeratorsV72(ctx){
       if(!m){const rows=await read.queryEqual('superadmins','suscriptor_id',sid,5);m=rows.find(x=>String(x.suscriptor_id||'')===sid);}
       if(!m)return json({success:false,message:'El rol de moderador no está asignado.'},404);
       if(m.rol!=='ADMIN_LOCAL')return json({success:false,message:'No se puede eliminar un administrador superior.'},403);
-      const revision=crypto.randomUUID(),key='admin:access:v72:'+sid;
-      await cache.put(key,{activo:false,revision});
+      const revision=crypto.randomUUID();
+      await accessRecord201(env,sid,{action:'policy',policy:{activo:false,revision}});
       await db.delete('superadmins',String(m.id||sid));
       await revokeSubscriberSessions(env,sid);
       return json({success:true,deleted:true,rol:'MODERADOR',message:'Rol eliminado. El suscriptor y los roles comerciales permanecen.'});
@@ -10728,10 +10798,10 @@ async function routeModeratorsV72(ctx){
       let existing=await read.get("superadmins",sid);
       if(!existing){const rows=await read.queryEqual("superadmins","suscriptor_id",sid,5);existing=rows.find(r=>String(r.suscriptor_id||"").trim()===sid);}
       if(existing&&String(existing.rol||"").toUpperCase()!=="ADMIN_LOCAL")return json({success:false,message:"Esta cuenta tiene un rol superior; no se modifica desde Moderadores."},403);
-      const revision=crypto.randomUUID();const key="admin:access:v72:"+sid;
-      await cache.put(key,{activo:false,revision});
+      const revision=crypto.randomUUID();
+      await accessRecord201(env,sid,{action:'policy',policy:{activo:false,revision}});
       const saved=await db.patch("superadmins",String(existing?.id||sid),{suscriptor_id:sid,rol:"ADMIN_LOCAL",activo,ciudades,permisos:{...(existing?.permisos||{}),moderacion},access_revision:revision,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid});
-      await cache.put(key,{activo,revision});
+      await accessRecord201(env,sid,{action:'policy',policy:{activo,revision}});
       return json({success:true,moderador:{suscriptor_id:sid,rol:saved.rol,activo:saved.activo,ciudades:saved.ciudades,permisos:saved.permisos},message:"Permisos guardados. El moderador debe volver a iniciar sesión."});
     }
     return json({success:false,message:"Operación no disponible."},405);
@@ -11142,7 +11212,7 @@ async function dailyDashboard195(env,auth){
  const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
  if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
  const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:200,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
+ return json({success:true,entry_version:195,worker_info:{version:201,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
@@ -11451,7 +11521,7 @@ async function routeDiagnosticsV87({path,request,env,cache}){
   if(parts.length!==2||parts[1]!==await hmac(env,parts[0]))return json({success:false,message:'Diagnóstico no autorizado.'},401);
   let p;try{p=JSON.parse(b64decode(parts[0]));}catch{return json({success:false},401);}
   if(p.typ!=='GLD_DIAGNOSTIC'||!p.sid||!Number.isFinite(p.exp)||p.exp<=Date.now())return json({success:false},401);
-  const [policy,state]=await Promise.all([cache.get('admin:access:v72:'+p.sid),subscriberSessionState(env,p.sid)]);
+  const {policy,state}=await accessRecord201(env,p.sid);
   if(state.deleted||Number(state.version||0)!==Number(p.sv||0)||policy&&(!policy.activo||policy.revision!==p.access_revision))return json({success:false},401);
   return json({success:true,expires_at:p.exp,source:'kv'});
  }
@@ -11814,7 +11884,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'200',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'201',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -11900,7 +11970,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12519,7 +12589,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'200',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'201',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -12530,7 +12600,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'200',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'201',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -12606,7 +12676,7 @@ function consumption136(report){
 }
 function consumptionBase136(report){
  const {totals}=finishObservationV42(report);
- const kv=report.kv,publicStore=report.public_store,adminStore=report.admin_store126;
+ const kv=report.kv,publicStore=report.public_store,adminStore=report.admin_store126,authStore=report.auth_store201;
  const absent=[];
  if(!kv)absent.push('kv-binding');
  if(totals.read_calls||totals.write_calls||totals.delete_calls)absent.push('firestore-billed-operations');
@@ -12615,7 +12685,7 @@ function consumptionBase136(report){
  const count=(obj,key)=>obj?obj[key]??null:0;
  return {schema:136,request_id:report.request_id,version:report.worker_version,
   firestore:{read_calls:totals.read_calls,documents_returned:totals.documents_returned,write_calls:totals.write_calls,delete_calls:totals.delete_calls,billed_reads:totals.read_calls?null:0,billed_writes:totals.write_calls?null:0,billed_deletes:totals.delete_calls?null:0,failures:totals.failures},
-  cloudflare:{worker_requests:1,kv:{get_calls:kv?.get_calls??null,put_calls:kv?.put_calls??null,delete_calls:kv?.delete_calls??null,list_calls:kv?.list_calls??null,failures:kv?.failures??null},public_store:{calls:count(publicStore,'calls'),rows_read:count(publicStore,'rows_read'),rows_written:count(publicStore,'rows_written'),legacy_gets:count(publicStore,'legacy_gets'),legacy_lists:count(publicStore,'legacy_lists'),components:publicStore?.components??[]},admin_store:{calls:count(adminStore,'calls'),rows_read:count(adminStore,'rows_read'),rows_written:count(adminStore,'rows_written')},cpu_ms:null,do_duration_gbs:null,storage_bytes:null},
+  cloudflare:{worker_requests:1,kv:{get_calls:kv?.get_calls??null,put_calls:kv?.put_calls??null,delete_calls:kv?.delete_calls??null,list_calls:kv?.list_calls??null,failures:kv?.failures??null},public_store:{calls:count(publicStore,'calls'),rows_read:count(publicStore,'rows_read'),rows_written:count(publicStore,'rows_written'),legacy_gets:count(publicStore,'legacy_gets'),legacy_lists:count(publicStore,'legacy_lists'),components:publicStore?.components??[]},admin_store:{calls:count(adminStore,'calls'),rows_read:count(adminStore,'rows_read'),rows_written:count(adminStore,'rows_written')},auth_store:{calls:count(authStore,'calls'),rows_read:count(authStore,'rows_read'),rows_written:count(authStore,'rows_written'),failures:count(authStore,'failures')},cpu_ms:null,do_duration_gbs:null,storage_bytes:null},
   coverage:{status:'INCOMPLETO',missing:[...absent,'worker-cpu','durable-object-billed-duration','persistent-storage-size','browser-preflight-and-external-assets'],operation_counters:absent.length?'INCOMPLETO':'REGISTRADOS',scope:'This HTTP response; not the entire browser action or the account invoice.'}};
 }
 
@@ -12732,7 +12802,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'200',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'201',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -12798,11 +12868,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'200',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'201',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'200',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'201',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -12945,7 +13015,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'200',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'201',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -12989,7 +13059,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"200",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"201",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
@@ -13032,7 +13102,7 @@ function adminPanelRoute155(request,p){
 }
 async function verifyAdminPanel155(env,request,p){
  if(!p.sid||!p.aid||!Number.isFinite(p.exp)||p.exp<=Date.now()||!['SUPERADMIN_PRINCIPAL','SUPERADMIN'].includes(p.admin_role))return {ok:false,message:'El acceso administrativo venció. Volvé a abrir el panel desde Gran Hermano.'};
- const [policy,state]=await Promise.all([createCache(env).get('admin:access:v72:'+p.sid),subscriberSessionState(env,p.sid)]);
+ const {policy,state}=await accessRecord201(env,p.sid);
  if(state.deleted||Number(p.sv||0)!==Number(state.version||0)||policy&&(!policy.activo||policy.revision!==p.access_revision))return {ok:false,message:'El acceso administrativo fue revocado.'};
  const url=new URL(request.url),body=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
  if(['/empleo','/empleo/panel'].includes(url.pathname)&&String(body.anunciante_id||url.searchParams.get('anunciante_id')||'')!==p.aid)return {ok:false,message:'Este acceso requiere el anunciante autorizado.'};

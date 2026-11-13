@@ -1,10 +1,11 @@
+import {accessBinding201} from './access-fixture201.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {DatabaseSync} from 'node:sqlite';
 import vm from 'node:vm';
-const source=await readFile(new URL('../../worker/worker191_consolidado_sobre_190_d8446f0.txt',import.meta.url),'utf8');
-const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58,prepareBirthdaysV91}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;} export function setSourceToken196ForTest(){tokenCache.token="local-fixture-token";tokenCache.expiresAt=Date.now()+3600000;}').toString('base64'));
+import {source} from './worker-source.mjs';
+const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58,prepareBirthdaysV91,accessRecord201,revokeSubscriberSessions}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;} export function setSourceToken196ForTest(){tokenCache.token="local-fixture-token";tokenCache.expiresAt=Date.now()+3600000;}').toString('base64'));
 const day=Date.parse('2026-11-12T04:00:00Z');
 function setup(t,rows){
  let clock=day+60000;t.mock.method(Date,'now',()=>clock);
@@ -21,6 +22,7 @@ function setup(t,rows){
  const calls=[];const kv={get:async k=>{calls.push(['get',k]);return raw.get(k)||null;},put:async(k,v)=>{calls.push(['put',k]);raw.set(k,v);},delete:async k=>{calls.push(['delete',k]);raw.delete(k);},list:async({prefix})=>{calls.push(['list',prefix]);return {keys:[...raw.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};}};
  const env={SERVER_SECRET:'prueba-local',GLD_CACHE_KV:kv};let actor=new w.PrivateDaily195(state,env);
  env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){assert.equal(name,'city-book-shared-v1');return {fetch:async req=>actor.fetch(await req.json())};}};
+ env.GLD_PUBLIC_CACHE=accessBinding201(w,env,env.GLD_PUBLIC_CACHE,t);
  return {env,raw,calls,sql,async publish(){await this.op('stage');await this.op('commit');return this.op('read');},setClock(n){clock=n;},restart(){actor=new w.PrivateDaily195(state,env);},async op(action,cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000){const r=await actor.fetch({action,cutoff});const j=await r.json();assert.equal(r.status,200,j.error);return j.value;}};
 }
 const people=[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12',activo:true},{id:'B',nombre:'Bea',fecha_nacimiento:'1980-11-18',activo:true},{id:'C',nombre:'Caro',fecha_nacimiento:'1970-11-19',activo:true},{id:'D',nombre:'Dani',fecha_nacimiento:'2000-11-13',activo:false}];
@@ -89,7 +91,7 @@ test('pantalla muestra nombres y fechas sin pedir datos; una respuesta antigua n
  context.window.ghCalendarDashboardV83({preparado:true,total:2,dias:[]});assert(nodes.get('ghBirthdayContent').textContent.includes('Falta activar'));assert(!nodes.get('ghBirthdayContent').textContent.includes('No hay cumpleaños'));
 });
 
-test('ingreso completo en una respuesta: 4 KV get de autenticación y una lectura privada; reanudación 2 KV get',async t=>{
+test('ingreso completo en una respuesta: 1 KV de contraseña y 1 fila de acceso; reanudación sin KV',async t=>{
  t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.publish();
  const subscriber={id:'P',suscriptor_id:'P',nombre:'Principal de ensayo',mail:'principal@example.invalid',clave:'solo-ensayo',activo:true};
  const admin={id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true};
@@ -97,8 +99,8 @@ test('ingreso completo en una respuesta: 4 KV get de autenticación y una lectur
  const login=await w.default.fetch(new Request('https://test.invalid/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:subscriber.mail,clave:subscriber.clave})}),h.env);assert.equal(login.status,200);const logged=await login.json();assert(logged.token);assert.equal(logged.entry_version,195);assert(logged.entrada.inbox);assert(logged.entrada.fixed);assert(logged.entrada.territory);
  const dashboard=await w.default.fetch(new Request('https://test.invalid/superadmin/dashboard',{headers:{Authorization:'Bearer '+logged.token}}),h.env);assert.equal(dashboard.status,200);const entry=await dashboard.json();assert.equal(entry.entry_version,195);assert(entry.entrada.inbox);assert(entry.entrada.fixed);assert(entry.entrada.territory);assert.equal(entry.cumpleanos.periodo_dias,7);
  const a=JSON.parse(decodeURIComponent(login.headers.get('X-GLD-Consumption'))),b=JSON.parse(decodeURIComponent(dashboard.headers.get('X-GLD-Consumption')));
- assert.equal(a.cloudflare.kv.get_calls,4);assert.equal(b.cloudflare.kv.get_calls,2);assert.equal(a.firestore.read_calls+b.firestore.read_calls,0);assert.equal(a.firestore.write_calls+b.firestore.write_calls,0);assert.equal(a.cloudflare.kv.put_calls+b.cloudflare.kv.put_calls,0);assert.equal(a.cloudflare.kv.list_calls+b.cloudflare.kv.list_calls,0);assert.equal(a.cloudflare.admin_store.calls,1);assert.equal(a.cloudflare.admin_store.rows_read,1);assert.equal(b.cloudflare.admin_store.calls,1);assert.equal(b.cloudflare.admin_store.rows_read,1);
- assert.equal(h.calls.filter(x=>x[0]==='get').length,6);
+ assert.equal(a.cloudflare.kv.get_calls,1);assert.equal(b.cloudflare.kv.get_calls,0);assert.equal(a.firestore.read_calls+b.firestore.read_calls,0);assert.equal(a.firestore.write_calls+b.firestore.write_calls,0);assert.equal(a.cloudflare.kv.put_calls+b.cloudflare.kv.put_calls,0);assert.equal(a.cloudflare.kv.list_calls+b.cloudflare.kv.list_calls,0);assert.equal(a.cloudflare.admin_store.calls,1);assert.equal(a.cloudflare.admin_store.rows_read,1);assert.equal(b.cloudflare.admin_store.calls,1);assert.equal(b.cloudflare.admin_store.rows_read,1);
+ assert.equal(h.calls.filter(x=>x[0]==='get').length,1);
 });
 
 test('copia del ingreso respeta permisos actuales: un moderador no recibe soporte, +18 ni configuración privada',async t=>{
@@ -117,8 +119,8 @@ test('revocación de sesión se aplica antes de leer la copia diaria y una contr
  const auth=w.withAuthCacheV58({queryEqual:async()=>[subscriber],get:async()=>admin},h.env);await auth.loginAccount(subscriber.mail,subscriber.clave);await auth.loginAdmin('P');
  let calls=0;const binding=h.env.GLD_PUBLIC_CACHE;h.env.GLD_PUBLIC_CACHE={...binding,get(name){calls++;return binding.get(name);}};
  const bad=await w.default.fetch(new Request('https://test.invalid/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:subscriber.mail,clave:'incorrecta'})}),h.env);assert.equal(bad.status,401);assert.equal(calls,0);
- const token=await w.issue2(h.env,{sid:'P',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});h.raw.set('subscriber:session-state:v1:P',JSON.stringify({version:1,deleted:false}));
- const stale=await w.default.fetch(new Request('https://test.invalid/superadmin/dashboard',{headers:{Authorization:'Bearer '+token}}),h.env);assert.equal(stale.status,401);assert.equal(calls,0);
+ const token=await w.issue2(h.env,{sid:'P',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});await w.revokeSubscriberSessions(h.env,'P');calls=0;
+ const stale=await w.default.fetch(new Request('https://test.invalid/superadmin/dashboard',{headers:{Authorization:'Bearer '+token}}),h.env);assert.equal(stale.status,401);assert.equal(calls,1);
 });
 
 
