@@ -13,7 +13,7 @@ async function readJson(read, url, options = {}) {
   return response.json();
 }
 
-async function githubIdentity(read) {
+export async function githubIdentity(read) {
   const {ACTIONS_ID_TOKEN_REQUEST_URL:url,ACTIONS_ID_TOKEN_REQUEST_TOKEN:token} = process.env;
   if (!url || !token) throw Error('Falta identidad del trabajo de publicación');
   const target = new URL(url);

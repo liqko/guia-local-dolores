@@ -1,83 +1,20 @@
-import {accessBinding201} from './access-fixture201.mjs';
+// Calendar/UI compatibility after migrating the single publisher to DailyEdition206.
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {DatabaseSync} from 'node:sqlite';
 import vm from 'node:vm';
-import {source} from './worker-source.mjs';
-const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {subscriberRow,rowOf,routeCalendarV83,issue2,searchSubscribersV2,routeCityBookCut,withAuthCacheV58,prepareBirthdaysV91,accessRecord201,revokeSubscriberSessions}; export function setCityIdentity195ForTest(fn){cityBookIdentity=fn;} export function setSourceToken196ForTest(){tokenCache.token="local-fixture-token";tokenCache.expiresAt=Date.now()+3600000;}').toString('base64'));
-const day=Date.parse('2026-11-12T04:00:00Z');
-function setup(t,rows){
- let clock=day+60000;t.mock.method(Date,'now',()=>clock);
- const sql=new DatabaseSync(':memory:');t.after(()=>sql.close());
- const state={storage:{sql:{exec(s,...args){const p=sql.prepare(s);if(p.columns().length){const rows=p.all(...args);return Object.assign(rows,{rowsRead:rows.length,rowsWritten:0});}const r=p.run(...args);return Object.assign([],{rowsRead:0,rowsWritten:r.changes});}}}};
- const raw=new Map();if(rows!==null)raw.set('admin:index:subscribers:v2',JSON.stringify({version:2,results:rows}));
- // Prepared private indices used by the same complete entry producer.
- raw.set('admin:index:advertisers:v2',JSON.stringify({version:2,results:[]}));
- raw.set('territorio:admin:v1',JSON.stringify({paises:[],provincias:[],ciudades:[]}));
- raw.set('territorio:public:v1',JSON.stringify({paises:[],provincias:[],ciudades:[]}));
- raw.set('admin:gh:fixed:v169',JSON.stringify({version:169,catalogos:{},reglas:{revision:0,reglas:{}},precios:{revision:0,precios:{}}}));
- const pairs=[['eventos','estado_moderacion','PENDIENTE'],['eventos','estado_moderacion','REVISION'],['actividades','aprobado',false],['solicitudes_anunciante','estado','PENDIENTE'],...['anunciantes','publicidades','promos','empleos'].map(c=>[c,'estado_moderacion','PENDIENTE']),...['empleos','promos','anunciantes','eventos','actividades','publicidades'].map(c=>[c,'revision_adulto','PENDIENTE']),...['PENDIENTE','EN_ATENCION'].map(v=>['solicitudes_soporte','estado',v])];
- for(const[c,f,v]of pairs){const key='panel:query:v48:'+c+':'+(c==='solicitudes_soporte'||['estado_moderacion','ciudad_id','aprobado','revision_adulto'].includes(f)?f+':':'')+encodeURIComponent(String(v));raw.set(key,JSON.stringify({version:48,data:[],revision:''}));}
- const calls=[];const kv={get:async k=>{calls.push(['get',k]);return raw.get(k)||null;},put:async(k,v)=>{calls.push(['put',k]);raw.set(k,v);},delete:async k=>{calls.push(['delete',k]);raw.delete(k);},list:async({prefix})=>{calls.push(['list',prefix]);return {keys:[...raw.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};}};
- const env={SERVER_SECRET:'prueba-local',GLD_CACHE_KV:kv};let actor=new w.PrivateDaily195(state,env);
- env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){assert.equal(name,'city-book-shared-v1');return {fetch:async req=>actor.fetch(await req.json())};}};
- env.GLD_PUBLIC_CACHE=accessBinding201(w,env,env.GLD_PUBLIC_CACHE,t);
- return {env,raw,calls,sql,async publish(){await this.op('stage');await this.op('commit');return this.op('read');},setClock(n){clock=n;},restart(){actor=new w.PrivateDaily195(state,env);},async op(action,cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000){const r=await actor.fetch({action,cutoff});const j=await r.json();assert.equal(r.status,200,j.error);return j.value;}};
-}
+import {w,fixture,cutoff,day} from '../arquitectura/fixture206.mjs';
 const people=[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12',activo:true},{id:'B',nombre:'Bea',fecha_nacimiento:'1980-11-18',activo:true},{id:'C',nombre:'Caro',fecha_nacimiento:'1970-11-19',activo:true},{id:'D',nombre:'Dani',fecha_nacimiento:'2000-11-13',activo:false}];
 test('cumpleaños es una lista de personas de hoy y los seis días siguientes, sin resúmenes de edad',()=>{
  const r=w.birthdayList195({preparado:true,results:people},new Date('2026-11-12T14:00:00Z'));
  assert.equal(r.periodo_dias,7);assert.equal(r.desde,'2026-11-12');assert.equal(r.hasta,'2026-11-18');assert.deepEqual(r.results.map(x=>x.nombre),['Ana','Bea']);assert(!JSON.stringify(r).includes('mayores18'));
  const tomorrow=w.birthdayList195({preparado:true,results:people},new Date('2026-11-13T14:00:00Z'));assert.deepEqual(tomorrow.results.map(x=>x.nombre),['Bea','Caro']);
 });
+
 test('ventana de siete días cruza año usando fecha argentina y conserva homónimos',()=>{
  const rows=[{id:'1',nombre:'Juan',fecha_nacimiento:'1980-12-31'},{id:'2',nombre:'Juan',fecha_nacimiento:'2000-01-01'},{id:'3',nombre:'Fuera',fecha_nacimiento:'2000-01-04'}];
  const r=w.birthdayList195({preparado:true,results:rows},new Date('2027-01-01T01:00:00Z'));assert.equal(r.desde,'2026-12-31');assert.equal(r.results.length,3);
  const r2=w.birthdayList195({preparado:true,results:rows},new Date('2027-01-01T04:00:00Z'));assert.equal(r2.results.length,2);
-});
-test('lectura de edición inexistente no consulta KV ni Firestore ni crea una copia vacía',async t=>{
- const h=setup(t,null);const p=await h.op('read');assert.equal(p.preparado,false);assert.equal(p.results,null);assert.equal(h.calls.length,0);assert.equal(w.birthdayList195(p).total,null);
-});
-test('misma publicación diaria: stage idempotente, commit y reaperturas sin lecturas KV incluso al reiniciar',async t=>{
- const h=setup(t,people);await h.op('stage');assert.equal((await h.op('read')).preparado,false);const preparedReads=h.calls.length;assert(preparedReads>1);
- await h.op('stage');assert.equal(h.calls.length,preparedReads);await h.op('commit');assert.equal((await h.op('read')).results.length,4);
- h.restart();h.setClock(day+10*3600000);await h.op('read');await h.op('read');assert.equal(h.calls.length,preparedReads);
-});
-test('alta o corrección durante el día se incorpora una sola vez en el corte siguiente',async t=>{
- const h=setup(t,people);await h.publish();
- h.raw.set('admin:index:subscribers:v2',JSON.stringify({version:2,results:[...people,{id:'NUEVA',nombre:'Nueva',fecha_nacimiento:'1995-11-15',activo:true}]}));
- assert.equal((await h.op('read')).results.length,4);await h.publish();assert.equal((await h.op('read')).results.length,4);
- h.setClock(day+86400000+1000);await h.op('stage',day+86400000);assert.equal((await h.op('read')).preparado,false);await h.op('commit',day+86400000);assert.equal((await h.op('read')).results.length,5);
- const n=h.calls.length;await h.op('stage',day+86400000);assert.equal(h.calls.length,n);
-});
-test('primera migración usa índice privado preparado; las siguientes ediciones reutilizan fechas sin enumerarlo otra vez',async t=>{
- const h=setup(t,[{id:'A',nombre:'Ana'}]);h.raw.set('private:birthdays:ready:v91','{}');h.raw.set('private:birthdays:v91:11-12:A',JSON.stringify({fecha_nacimiento:'1990-11-12'}));
- const first=await h.publish();assert.equal(first.results[0].fecha_nacimiento,'1990-11-12');assert.equal(h.calls.filter(x=>x[0]==='list').length,1);
- h.setClock(day+86400000+1000);await h.op('stage',day+86400000);await h.op('commit',day+86400000);assert.equal((await h.op('read')).results[0].fecha_nacimiento,'1990-11-12');assert.equal(h.calls.filter(x=>x[0]==='list').length,1);
-});
-test('cambio real alimenta el listado general; repetir sin cambios no vuelve a escribir índices ni toca el índice de cumpleaños',async t=>{
- const h=setup(t,[]);const row={id:'A',suscriptor_id:'A',nombre:'Ana',mail:'ana@example.invalid',fecha_nacimiento:'1990-11-12',activo:true};
- await w.syncSubscriberDirectory195(h.env,null,row);const puts=h.calls.filter(x=>x[0]==='put').length;await w.syncSubscriberDirectory195(h.env,row,row);assert.equal(h.calls.filter(x=>x[0]==='put').length,puts);
- assert.equal(JSON.parse(h.raw.get('admin:index:subscribers:v2')).results[0].fecha_nacimiento,row.fecha_nacimiento);assert(!h.calls.some(x=>String(x[1]).startsWith('private:birthdays:')));
-});
-test('datos privados no forman parte del registro de tipos públicos y la consulta de cumpleaños sigue exigiendo autorización',async t=>{
- const h=setup(t,people);const request=new Request('https://test.invalid/superadmin/birthdays');
- const response=await w.routeCalendarV83({env:h.env,db:{},cache:{},url:new URL(request.url),path:'/superadmin/birthdays',request});assert.equal(response.status,401);assert.equal(h.calls.filter(x=>x[0]==='list').length,0);
- const schema=await w.publicFeatures191({get:async()=>null});assert(!Object.keys(schema).some(x=>/subscriber|birthday/i.test(x)));
-});
-
-test('peticiones simultáneas preparan la edición una vez; fallo previo a publicar no crea una lista vacía',async t=>{
- const h=setup(t,people);await Promise.all([h.op('stage'),h.op('stage')]);const preparedReads=h.calls.length;await h.op('stage');assert.equal(h.calls.length,preparedReads);
- const missing=setup(t,null);t.mock.method(globalThis,'fetch',async()=>{throw Error('Fuente no disponible');});await assert.rejects(missing.op('stage'));assert.equal(missing.sql.prepare('SELECT * FROM private_subscribers_daily195').all().length,0);
-});
-test('el mismo protocolo diario read/commit prepara y activa el listado privado sin enviarlo al paquete público',async t=>{
- const h=setup(t,people);h.env.GLD_CITY_BOOK_CAPTURE='1';w.setCityIdentity195ForTest(async()=>true);
- const original=h.env.GLD_PUBLIC_CACHE;
- h.env.GLD_PUBLIC_CACHE={...original,get(name){const privateStub=original.get(name);return {fetch:async req=>{const b=await req.clone().json();if(b.op==='city-book-checkpoint')return Response.json({cutoff:day});if(b.op==='city-book-commit')return Response.json({success:true});return privateStub.fetch(req);}};}};
- const invoke=async body=>{const request=new Request('https://test.invalid/internal/city-books',{method:'POST',body:JSON.stringify(body)});const r=await w.routeCityBookCut({request,env:h.env,report:{}});assert.equal(r.status,200);return r.json();};
- const data=await invoke({op:'read',cutoff:day,publishedCutoff:day,known:[]});assert.equal(data.complete,true);assert(!JSON.stringify(data).includes('Ana'));assert(!JSON.stringify(data).includes('1990-11-12'));assert.equal((await h.op('read')).preparado,false);
- await invoke({op:'commit',cutoff:day});assert.equal((await h.op('read')).results.length,4);
 });
 
 test('pantalla muestra nombres y fechas sin pedir datos; una respuesta antigua no se interpreta como lista vacía',async()=>{
@@ -91,97 +28,20 @@ test('pantalla muestra nombres y fechas sin pedir datos; una respuesta antigua n
  context.window.ghCalendarDashboardV83({preparado:true,total:2,dias:[]});assert(nodes.get('ghBirthdayContent').textContent.includes('Falta activar'));assert(!nodes.get('ghBirthdayContent').textContent.includes('No hay cumpleaños'));
 });
 
-test('ingreso completo en una respuesta: 1 KV de contraseña y 1 fila de acceso; reanudación sin KV',async t=>{
- t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.publish();
- const subscriber={id:'P',suscriptor_id:'P',nombre:'Principal de ensayo',mail:'principal@example.invalid',clave:'solo-ensayo',activo:true};
- const admin={id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true};
- const auth=w.withAuthCacheV58({queryEqual:async()=>[subscriber],get:async()=>admin},h.env);await auth.loginAccount(subscriber.mail,subscriber.clave);await auth.loginAdmin('P');h.calls.length=0;
- const login=await w.default.fetch(new Request('https://test.invalid/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:subscriber.mail,clave:subscriber.clave})}),h.env);assert.equal(login.status,200);const logged=await login.json();assert(logged.token);assert.equal(logged.entry_version,195);assert(logged.entrada.inbox);assert(logged.entrada.fixed);assert(logged.entrada.territory);
- const dashboard=await w.default.fetch(new Request('https://test.invalid/superadmin/dashboard',{headers:{Authorization:'Bearer '+logged.token}}),h.env);assert.equal(dashboard.status,200);const entry=await dashboard.json();assert.equal(entry.entry_version,195);assert(entry.entrada.inbox);assert(entry.entrada.fixed);assert(entry.entrada.territory);assert.equal(entry.cumpleanos.periodo_dias,7);
- const a=JSON.parse(decodeURIComponent(login.headers.get('X-GLD-Consumption'))),b=JSON.parse(decodeURIComponent(dashboard.headers.get('X-GLD-Consumption')));
- assert.equal(a.cloudflare.kv.get_calls,1);assert.equal(b.cloudflare.kv.get_calls,0);assert.equal(a.firestore.read_calls+b.firestore.read_calls,0);assert.equal(a.firestore.write_calls+b.firestore.write_calls,0);assert.equal(a.cloudflare.kv.put_calls+b.cloudflare.kv.put_calls,0);assert.equal(a.cloudflare.kv.list_calls+b.cloudflare.kv.list_calls,0);assert.equal(a.cloudflare.admin_store.calls,1);assert.equal(a.cloudflare.admin_store.rows_read,1);assert.equal(b.cloudflare.admin_store.calls,1);assert.equal(b.cloudflare.admin_store.rows_read,1);
- assert.equal(h.calls.filter(x=>x[0]==='get').length,1);
+test('cumpleaños y configuración comparten la misma edición diaria de las tres interfaces',async t=>{
+ const h=fixture(t);h.rows.suscriptores=people;await h.publish();
+ const packet=await h.op('read',{key:'daily:entry:195'});assert.equal(packet.results.length,4);assert(packet.admin.fixed);assert(packet.admin.territory);
+ assert.equal(w.birthdayList195(packet,new Date('2026-11-12T14:00:00Z')).results.length,2);
+ const scans=h.metrics.sourceLists;h.restart();await h.op('read',{key:'daily:entry:195'});assert.equal(h.metrics.sourceLists,scans);
 });
-
-test('copia del ingreso respeta permisos actuales: un moderador no recibe soporte, +18 ni configuración privada',async t=>{
- const h=setup(t,people);await h.publish();const packet=await h.op('read');
- packet.admin.inbox.adult=[{nombre:'PRIVADO_ADULTO'}];packet.admin.inbox.support.results=[{nombre:'PRIVADO_SOPORTE'}];
- packet.admin.inbox.moderation={eventos:[{tipo:'EVENTO',ciudad_id:'DOL',id:'E1'},{tipo:'EVENTO',ciudad_id:'OTRA',id:'E2'}],actividades:[],anunciantes:[],cantidades:{}};
- packet.admin.inbox.blocked=[{tipo:'PUBLICIDAD',id:'P1',scope195:['DOL']},{tipo:'PUBLICIDAD',id:'P2',scope195:['DOL','OTRA']}];
- const auth={ok:true,sid:'LOCAL',rol:'ADMIN_LOCAL',ciudades:['DOL'],permisos:{moderacion:{EVENTO:true,PUBLICIDAD:true}}};
- const view=await w.dailyInboxForAuth195(packet,auth);assert.equal(view.moderation.eventos.length,1);assert.equal(view.blocked.length,1);assert.deepEqual(view.adult,[]);assert.deepEqual(view.support.results,[]);assert(!JSON.stringify(view).includes('scope195'));
- packet.admin.inbox.blocked=[{tipo:'PUBLICIDAD',id:'P3',scope195:null}];await assert.rejects(w.dailyInboxForAuth195(packet,auth));
- const denied=await w.dailyDashboard195(h.env,{ok:true,typ:'GLD_SUBSCRIBER'});assert.equal(denied.status,403);
+test('nueva fecha se incorpora al corte siguiente conservando la anterior mientras sólo hay stage',async t=>{
+ const h=fixture(t);h.rows.suscriptores=people;await h.publish();h.events.push({at:cutoff+1,entries:[{collection:'suscriptores',id:'A',patch:{fecha_nacimiento:'1990-12-01'}}]});h.now=cutoff+day+60000;
+ await h.op('stage');assert.equal((await h.op('read',{key:'daily:entry:195'})).results.find(x=>x.suscriptor_id==='A').fecha_nacimiento,'1990-11-12');await h.op('commit');assert.equal((await h.op('read',{key:'daily:entry:195'})).results.find(x=>x.suscriptor_id==='A').fecha_nacimiento,'1990-12-01');
 });
-test('revocación de sesión se aplica antes de leer la copia diaria y una contraseña incorrecta nunca entrega Inicio',async t=>{
- t.mock.method(console,'log',()=>{});const h=setup(t,people);await h.publish();
- const subscriber={id:'P',suscriptor_id:'P',mail:'principal@example.invalid',clave:'ensayo',activo:true},admin={id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true};
- const auth=w.withAuthCacheV58({queryEqual:async()=>[subscriber],get:async()=>admin},h.env);await auth.loginAccount(subscriber.mail,subscriber.clave);await auth.loginAdmin('P');
- let calls=0;const binding=h.env.GLD_PUBLIC_CACHE;h.env.GLD_PUBLIC_CACHE={...binding,get(name){calls++;return binding.get(name);}};
- const bad=await w.default.fetch(new Request('https://test.invalid/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:subscriber.mail,clave:'incorrecta'})}),h.env);assert.equal(bad.status,401);assert.equal(calls,0);
- const token=await w.issue2(h.env,{sid:'P',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});await w.revokeSubscriberSessions(h.env,'P');calls=0;
- const stale=await w.default.fetch(new Request('https://test.invalid/superadmin/dashboard',{headers:{Authorization:'Bearer '+token}}),h.env);assert.equal(stale.status,401);assert.equal(calls,1);
+test('un moderador nunca recibe soporte privado, contenido adulto ni configuración global',async t=>{
+ const h=fixture(t);await h.publish();const packet=await h.op('read',{key:'daily:entry:195'});packet.admin.inbox.support={success:true,results:[{secreto:'privado'}]};packet.admin.inbox.adult=[{nombre:'Adulto'}];
+ const inbox=await w.dailyInboxForAuth195(packet,{ok:true,rol:'ADMIN_LOCAL',ciudades:['D'],permisos:{}});assert.deepEqual(inbox.support.results,[]);assert.deepEqual(inbox.adult,[]);
 });
-
-
-test('un fallo de la edición privada no bloquea ni deja sin confirmar el libro público; se registra pendiente y el reintento recupera',async t=>{
- const h=setup(t,people);h.env.GLD_CITY_BOOK_CAPTURE='1';w.setCityIdentity195ForTest(async()=>true);
- const original=h.env.GLD_PUBLIC_CACHE;let failed=true,publicCommits=0;
- h.env.GLD_PUBLIC_CACHE={...original,get(name){const privateStub=original.get(name);return {fetch:async req=>{const b=await req.clone().json();if(b.op==='city-book-checkpoint')return Response.json({cutoff:day});if(b.op==='city-book-commit'){publicCommits++;return Response.json({success:true});}if(failed)throw Error('almacenamiento privado no disponible');return privateStub.fetch(req);}};}};
- const invoke=async op=>{const report={},request=new Request('https://test.invalid/internal/city-books',{method:'POST',body:JSON.stringify({op,cutoff:day,publishedCutoff:day,known:[]})});const r=await w.routeCityBookCut({request,env:h.env,report});assert.equal(r.status,200);return report;};
- assert.equal((await invoke('read')).private_daily195.status,'pending');assert.equal((await invoke('commit')).private_daily195.status,'pending');assert.equal(publicCommits,1);assert.equal((await h.op('read')).preparado,false);
- failed=false;assert.equal((await invoke('read')).private_daily195.status,'staged');assert.equal((await invoke('commit')).private_daily195.status,'committed');assert.equal((await h.op('read')).results.length,4);assert.equal(publicCommits,2);
-});
-
-
-test('preparación desde fuentes ausentes usa REST Firestore sólo en el publicador y lo contabiliza; entrada posterior no consulta la fuente',async t=>{
- const h=setup(t,null);h.env.FIREBASE_PROJECT_ID='fixture-local';w.setSourceToken196ForTest();
- const missing='panel:query:v48:solicitudes_soporte:estado:PENDIENTE';h.raw.delete(missing);h.raw.delete('territorio:admin:v1');h.raw.delete('territorio:public:v1');
- const calls=[];t.mock.method(globalThis,'fetch',async(input,options)=>{const u=new URL(String(input));assert.equal(u.hostname,'firestore.googleapis.com');calls.push({path:u.pathname,body:options?.body?JSON.parse(options.body):null});
-  if(u.pathname.endsWith(':runQuery'))return Response.json([]);
-  if(u.pathname.endsWith('/suscriptores'))return Response.json({documents:[{name:'projects/fixture-local/databases/(default)/documents/suscriptores/A',fields:{suscriptor_id:{stringValue:'A'},nombre:{stringValue:'Ana'},fecha_nacimiento:{stringValue:'1990-11-12'},activo:{booleanValue:true}}}]});
-  return Response.json({documents:[]});});
- const report={operations:{}};h.env.__gldRequestReport119=report;
- const staged=await w.dailySubscribers195(h.env,'stage');assert.equal(staged.results.length,1);assert.equal(staged.results[0].nombre,'Ana');
- assert(calls.some(c=>c.body?.structuredQuery?.from[0]?.collectionId==='solicitudes_soporte'));assert(calls.some(c=>c.path.endsWith('/paises')));
- const stats=Object.values(report.operations);assert(stats.some(s=>s.operation==='listCollection'&&s.calls));assert(stats.some(s=>s.operation==='queryEqual'&&s.calls));assert.equal(report.kv.failures,0);
- await h.op('commit');const count=calls.length;await h.op('read');await h.op('stage');assert.equal(calls.length,count);assert(h.raw.has(missing));
-});
-
-test('primer listado antiguo sin fechas ni índice de cumpleaños se migra desde la fuente una vez, no deja Inicio bloqueado',async t=>{
- const h=setup(t,[{suscriptor_id:'A',nombre:'Ana'}]);w.setSourceToken196ForTest();let reads=0;
- t.mock.method(globalThis,'fetch',async(input)=>{assert(new URL(String(input)).pathname.endsWith('/suscriptores'));reads++;return Response.json({documents:[{name:'projects/local/databases/(default)/documents/suscriptores/A',fields:{suscriptor_id:{stringValue:'A'},nombre:{stringValue:'Ana'},fecha_nacimiento:{stringValue:'1990-11-12'}}}]});});
- const p=await h.publish();assert.equal(p.results[0].fecha_nacimiento,'1990-11-12');assert.equal(reads,1);await h.publish();await h.op('read');assert.equal(reads,1);
-});
-
-test('arranque totalmente frío prepara catálogos, territorio, suscriptores y bandeja sin duplicar colecciones',async t=>{
- const h=setup(t,null);h.raw.clear();h.env.FIREBASE_PROJECT_ID='fixture-local';w.setSourceToken196ForTest();const collections=new Map();
- t.mock.method(globalThis,'fetch',async(input,options)=>{
-  const u=new URL(String(input));assert.equal(u.hostname,'firestore.googleapis.com');
-  if(u.pathname.endsWith(':runQuery'))return Response.json([]);
-  const path=u.pathname.split('/documents/')[1];if(!path||path.includes('/'))return Response.json({error:{message:'missing'}},{status:404});
-  collections.set(path,(collections.get(path)||0)+1);
-  const rows=path==='suscriptores'?[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12'}]:path==='categorias'?[{id:'CAT',categoria_id:'CAT',nombre:'Servicios',activo:true}]:[];
-  return Response.json({documents:rows.map(row=>({name:'projects/local/databases/(default)/documents/'+path+'/'+row.id,fields:Object.fromEntries(Object.entries(row).map(([k,v])=>[k,typeof v==='boolean'?{booleanValue:v}:{stringValue:v}]))}))});
- });
- const p=await h.op('stage');assert.equal(p.preparado,true);assert(p.admin.fixed.catalogos.categorias.some(c=>c.nombre==='Servicios'));assert.equal(collections.get('suscriptores'),1);
- assert([...collections.values()].every(n=>n===1));await h.op('commit');const calls=[...collections.values()].reduce((a,b)=>a+b,0);await h.op('read');await h.op('stage');assert.equal([...collections.values()].reduce((a,b)=>a+b,0),calls);
-});
-
-
-test('fallo real del transporte de una fuente no publica lista vacía y un reintento prepara y confirma sin reconstruir al leer',async t=>{
- const h=setup(t,people);h.raw.delete('panel:query:v48:solicitudes_soporte:estado:PENDIENTE');w.setSourceToken196ForTest();let fail=true,calls=0;
- t.mock.method(globalThis,'fetch',async(input,options)=>{assert(new URL(String(input)).pathname.endsWith(':runQuery'));assert.equal(JSON.parse(options.body).structuredQuery.from[0].collectionId,'solicitudes_soporte');calls++;if(fail)throw Error('Fuente no disponible');return Response.json([]);});
- await assert.rejects(h.op('stage'));assert.equal((await h.op('read')).preparado,false);fail=false;await h.op('stage');await h.op('commit');assert.equal((await h.op('read')).results.length,4);assert.equal(calls,2);await h.op('read');assert.equal(calls,2);
-});
-
-
-test('ninguna preparación desde pantalla puede crear, publicar ni refrescar una edición, incluso con fuentes presentes',async t=>{
- const h=setup(t,people),count=h.calls.length;
- await assert.rejects(h.op('initial'));assert.equal(h.calls.length,count);assert.equal(h.sql.prepare('SELECT * FROM private_subscribers_daily195').all().length,0);
- const db=new Proxy({},{get(){throw Error('La pantalla no puede leer la fuente');}});
- await assert.rejects(w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid')),/publicación diaria/);assert.equal(h.calls.length,count);
- await h.op('stage');await assert.rejects(h.op('initial'));assert.equal((await h.op('read')).preparado,false);
- await h.op('commit');const n=h.calls.length;const read=await w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid'));assert.equal(read.preparado,true);assert.equal(h.calls.length,n);
- h.setClock(day+86400000+1000);await assert.rejects(w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid')),/publicación diaria/);assert.equal(h.calls.length,n);
+test('la copia inexistente o el stage fallido no se convierten en un listado vacío',async t=>{
+ const h=fixture(t);await assert.rejects(h.op('read',{key:'daily:entry:195'}));await assert.rejects(h.op('initial'));assert.equal(h.metrics.sourceLists,0);
 });

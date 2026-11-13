@@ -1,0 +1,96 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+import {generateKeyPairSync,sign,createHmac} from 'node:crypto';
+import {source} from '../observabilidad/worker-source.mjs';
+const {Miniflare,Log,LogLevel}=await import(process.env.GLD_MINIFLARE||'miniflare');
+const day=86400000,cutoff=Math.floor((Date.now()-4*3600000)/day)*day+4*3600000;
+const toFs=v=>v===null?{nullValue:null}:typeof v==='boolean'?{booleanValue:v}:typeof v==='number'?{integerValue:String(v)}:typeof v==='string'?{stringValue:v}:Array.isArray(v)?{arrayValue:{values:v.map(toFs)}}:{mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,x])=>[k,toFs(x)]))}};
+const fromFs=v=>'stringValue'in v?v.stringValue:'booleanValue'in v?v.booleanValue:'integerValue'in v?Number(v.integerValue):'timestampValue'in v?v.timestampValue:'arrayValue'in v?(v.arrayValue.values||[]).map(fromFs):'mapValue'in v?Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,x])=>[k,fromFs(x)])):null;
+const doc=(c,id,row,stamp)=>({name:'projects/fixture/databases/(default)/documents/'+c+'/'+id,fields:Object.fromEntries(Object.entries(row).filter(([k])=>k!=='id').map(([k,v])=>[k,toFs(v)])),updateTime:new Date(stamp).toISOString()});
+const {privateKey,publicKey}=generateKeyPairSync('rsa',{modulusLength:2048});
+const jwk={...publicKey.export({format:'jwk'}),kid:'edition206-fixture',alg:'RS256'};
+const meter=r=>JSON.parse(decodeURIComponent(r.headers.get('X-GLD-Consumption')));
+
+test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, guardados atómicos y dos cortes',async t=>{
+ const root=await mkdtemp(join(tmpdir(),'gld-runtime206-'));t.after(()=>rm(root,{recursive:true,force:true}));
+ let clock=cutoff+60000,denyReads=false,failCommit=false,mf;
+ const calls=[],history=new Map(),atomic=[];
+ const put=(c,id,row,at)=>{const k=c+'/'+id;if(!history.has(k))history.set(k,[]);history.get(k).push({at,row});};
+ const get=(c,id,at=Infinity)=>history.get(c+'/'+id)?.findLast(x=>x.at<=at)?.row??null;
+ const list=(c,at)=>[...history.keys()].filter(k=>k.startsWith(c+'/')).map(k=>({id:k.slice(c.length+1),row:get(c,k.slice(c.length+1),at)})).filter(x=>x.row).map(x=>({id:x.id,...x.row}));
+ const fixtures={eventos:[{id:'E',evento_id:'E',anunciante_id:'A',nombre_evento:'Evento',nivel:'VIP',aprobado:true,estado:'PUBLICADO',estado_moderacion:'PUBLICADO',programacion_version:1,fecha_desde:'2040-01-01',ciudad_id:'D'}],evento_programacion:[{id:'EP',evento_id:'E',ciudad_id:'D',fecha_desde:'2040-01-01',hora_desde:'20:00'}],actividades:[{id:'ACT',actividad_id:'ACT',anunciante_id:'A',nombre:'Actividad',activo:true,aprobado:true,estado:'ACTIVA',estado_moderacion:'PUBLICADO',horarios_version:1}],actividad_horarios:[{id:'H',actividad_horario_id:'H',actividad_id:'ACT',ciudad_id:'D',dia:'LUNES',hora_desde:'10:00'}],promos:[{id:'PR',promo_id:'PR',anunciante_id:'A',ciudad_id:'D',promo:'Promoción',aprobado:true,estado_moderacion:'PUBLICADO'}],publicidades:[{id:'PUB',publicidad_id:'PUB',anunciante_id:'A',estado:'ACTIVA',aprobado:true,titulo:'Pieza',formato:'IMAGEN',relaciones_version:1}],publicidad_media:[{id:'M',publicidad_id:'PUB',url:'https://example.invalid/image.jpg',tipo_media:'IMAGEN',activo:true,orden:1}],publicidad_segmentacion:[{id:'SG',publicidad_id:'PUB',ciudad_id:'D',ubicacion_id:'GUIA',activo:true}],farmacias_ciclos:[{id:'C',ciclo_id:'C',anunciante_id:'A',activo:true,fecha_inicio:'2026-11-01',hora_inicio:'00:00',duracion_horas:24,farmacias_por_turno:1}],farmacias_ciclo_sedes:[{id:'CP',ciclo_id:'C',sede_id:'S',orden:1,activo:true}],configuracion_plataforma:[{id:'FUNCIONALIDADES',revision:1,reglas:{EVENTOS_FREE:{}}}],paises:[{id:'AR',pais_id:'AR',nombre:'Argentina'}],provincias:[{id:'BA',provincia_id:'BA',pais_id:'AR',nombre:'Buenos Aires'}],ciudades:[{id:'D',ciudad_id:'D',pais_id:'AR',provincia_id:'BA',nombre:'Dolores',activa:true}],anunciantes:[{id:'A',anunciante_id:'A',nombre:'Original',aprobado:true}],anunciantes_administracion:[{id:'A',nivel:3,aprobado:true,funcionalidades:'EVENTOS,EVENTOS_FREE,PROMOS,ACTIVIDADES,PUBLICIDAD,TURNOS_FARMA',eventos_max:5,promos_max:5,actividades_max:5}],anunciantes_sedes:[{id:'S',sede_id:'S',anunciante_id:'A',ciudad_id:'D',nombre_sede:'Sede'}],suscriptores:[{id:'U',nombre:'Persona',mail:'persona@example.invalid',clave:'privado-fixture',activo:true},{id:'P',nombre:'Principal',mail:'principal@example.invalid',clave:'clave-fixture',activo:true}],superadmins:[{id:'P',suscriptor_id:'P',rol:'SUPERADMIN_PRINCIPAL',activo:true}]};
+ for(const [c,rows]of Object.entries(fixtures))for(const row of rows)put(c,row.id,row,cutoff-1000);
+ // Test-only, in-memory harness: source writes use the actual createDb adapter.
+ // Production exports/routes are unchanged and no fixture endpoint is saved there.
+ const script=source.replace('app_main_v35_default as default,','')+`\nlet fixtureClock206=${clock};Date.now=()=>fixtureClock206;export default {async fetch(request,env){const path=new URL(request.url).pathname;if(path==='/__fixture/clock'){fixtureClock206=(await request.json()).now;return Response.json({success:true});}if(path==='/__fixture/patch'){const b=await request.json();try{return Response.json(await createDb(env).patch(b.c,b.id,b.patch,b.options||{}));}catch(e){return Response.json({message:e.message},{status:e.status||500});}}return app_main_v35_default.fetch(request,env);}};`;
+ const options={script,modules:true,compatibilityDate:'2026-07-01',log:new Log(LogLevel.NONE),kvNamespaces:['GLD_CACHE_KV'],kvPersist:join(root,'kv'),durableObjects:{GLD_PUBLIC_CACHE:{className:'GldPublicCache119',useSQLite:true}},durableObjectsPersist:join(root,'do'),bindings:{SERVER_SECRET:'fixture206-secret',GLD_CITY_BOOK_CAPTURE:'1',FIREBASE_PROJECT_ID:'fixture',FIREBASE_CLIENT_EMAIL:'fixture@fixture.iam.gserviceaccount.com',FIREBASE_PRIVATE_KEY:privateKey.export({format:'pem',type:'pkcs8'})},outboundService:async request=>{
+  const url=new URL(request.url);calls.push({host:url.hostname,path:url.pathname,method:request.method});
+  if(url.hostname==='token.actions.githubusercontent.com')return Response.json({keys:[jwk]});
+  if(url.hostname==='oauth2.googleapis.com')return Response.json({access_token:'fixture206-google',expires_in:3600});
+  assert.equal(url.hostname,'firestore.googleapis.com','No external service escapes interception');
+  const body=request.method==='POST'?await request.json():null;
+  if(url.pathname.endsWith(':commit')){
+   atomic.push(body.writes);if(failCommit)return Response.json({error:'injected'},{status:503});
+   for(const write of body.writes){const ref=(write.update?.name||write.delete).split('/documents/')[1],i=ref.indexOf('/'),c=ref.slice(0,i),id=ref.slice(i+1),old=get(c,id);if(write.currentDocument?.exists===false&&old||write.currentDocument?.exists===true&&!old||write.currentDocument?.updateTime&&write.currentDocument.updateTime!==new Date(history.get(c+'/'+id)?.at(-1)?.at||0).toISOString())return Response.json({error:'conflict'},{status:409});}
+   for(const write of body.writes){const ref=(write.update?.name||write.delete).split('/documents/')[1],i=ref.indexOf('/'),c=ref.slice(0,i),id=ref.slice(i+1);let next=write.delete?null:{...get(c,id),...Object.fromEntries(Object.entries(write.update.fields).map(([k,v])=>[k,fromFs(v)]))};if(next&&write.updateTransforms)for(const tr of write.updateTransforms)next[tr.fieldPath]=new Date(clock).toISOString();put(c,id,next,clock);}
+   return Response.json({commitTime:new Date(clock).toISOString(),writeResults:body.writes.map(()=>({updateTime:new Date(clock).toISOString()}))});
+  }
+  assert.equal(denyReads,false,'Una lectura de pantalla alcanzó Firestore');
+  const asOf=body?.readTime?Date.parse(body.readTime):url.searchParams.has('readTime')?Date.parse(url.searchParams.get('readTime')):Infinity;
+  if(url.pathname.endsWith(':runQuery')){
+   const q=body.structuredQuery,c=q.from[0].collectionId;let rows=list(c,asOf);
+   const filters=q.where?.compositeFilter?.filters||[q.where];for(const filter of filters){if(!filter)continue;const f=filter.fieldFilter,value=fromFs(f.value);rows=rows.filter(row=>f.op==='EQUAL'?row[f.field.fieldPath]===value:f.op==='GREATER_THAN'?row[f.field.fieldPath]>value:f.op==='GREATER_THAN_OR_EQUAL'?row[f.field.fieldPath]>=value:row[f.field.fieldPath]<=value);}
+   if(q.orderBy)rows.sort((a,b)=>String(a.commit_at).localeCompare(String(b.commit_at))||a.id.localeCompare(b.id));
+   return Response.json(rows.slice(0,q.limit||Infinity).map(row=>({document:doc(c,row.id,row,history.get(c+'/'+row.id).findLast(x=>x.at<=asOf).at)})));
+  }
+  if(url.pathname.endsWith(':batchGet'))return Response.json(body.documents.map(name=>{const ref=name.split('/documents/')[1],i=ref.indexOf('/'),c=ref.slice(0,i),id=ref.slice(i+1),row=get(c,id,asOf);return row?{found:doc(c,id,row,history.get(c+'/'+id).findLast(x=>x.at<=asOf).at)}:{missing:name,readTime:new Date(clock).toISOString()};}));
+  const ref=url.pathname.split('/documents/')[1];assert(ref,'Unexpected request '+url);const [c,id]=ref.split('/');
+  if(id){const row=get(c,id,asOf);return row?Response.json(doc(c,id,row,history.get(c+'/'+id).findLast(x=>x.at<=asOf).at)):Response.json({}, {status:404});}
+  return Response.json({documents:list(c,asOf).map(row=>doc(c,row.id,row,cutoff-1000))});
+ }};
+ const start=async()=>{mf=new Miniflare(options);await mf.ready;await mf.dispatchFetch('https://fixture/__fixture/clock',{method:'POST',body:JSON.stringify({now:clock})});};
+ await start();t.after(()=>mf?.dispose());
+ const send=(path,init)=>mf.dispatchFetch('https://fixture'+path,init);
+ const advance=async now=>{clock=now;await send('/__fixture/clock',{method:'POST',body:JSON.stringify({now})});};
+ const oidc=()=>{const n=Math.floor(clock/1000),head=Buffer.from(JSON.stringify({alg:'RS256',kid:jwk.kid})).toString('base64url'),body=Buffer.from(JSON.stringify({iss:'https://token.actions.githubusercontent.com',aud:'guialocal:publicacion-ciudades',repository_id:'987998657',repository_owner_id:'199677170',workflow_ref:'liqko/guia-local-dolores/.github/workflows/firebase-hosting-merge.yml@refs/heads/main',ref:'refs/heads/main',event_name:'schedule',nbf:n-10,exp:n+300})).toString('base64url'),message=head+'.'+body;return message+'.'+sign('RSA-SHA256',Buffer.from(message),privateKey).toString('base64url');};
+ const daily=async(op,cut=cutoff)=>{const r=await send('/internal/city-books',{method:'POST',headers:{Authorization:'Bearer '+oidc()},body:JSON.stringify(op==='read'?{op,cutoff:cut,known:[],publishedCutoff:null}:{op,cutoff:cut})});const b=await r.json();assert.equal(r.status,200,JSON.stringify(b));return b;};
+ const jwt=payload=>{const body=Buffer.from(JSON.stringify({persistent:true,sv:0,...payload})).toString('base64url');return body+'.'+createHmac('sha256','fixture206-secret').update(body).digest('base64url');};
+ const subscriber={Authorization:'Bearer '+jwt({typ:'GLD_SUBSCRIBER',sid:'U',auth:[{anunciante_id:'A',rol:'PROPIETARIO',activo:true,permisos:'EVENTOS,EVENTOS_FREE,PROMOS,ACTIVIDADES,PUBLICIDAD,TURNOS_FARMA,MODIFICAR_DATOS'}]})};
+ const admin={Authorization:'Bearer '+jwt({sid:'P',rol:'SUPERADMIN_PRINCIPAL'})};
+ const missing=await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber});assert.equal(missing.status,503);assert.equal(calls.filter(c=>c.host==='firestore.googleapis.com').length,0);
+ const login=()=>send('/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:'principal@example.invalid',clave:'clave-fixture'})});
+ const primed=await login(),primedBody=await primed.json();assert.equal(primed.status,200,JSON.stringify(primedBody));assert(primedBody.token);assert(primedBody.entrada_pendiente);admin.Authorization='Bearer '+primedBody.token;
+ const noIdentity=await send('/internal/city-books',{method:'POST',body:JSON.stringify({op:'territory',cutoff})});assert.equal(noIdentity.status,401);
+ await daily('territory');assert.equal((await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).status,503);
+ await daily('commit');denyReads=true;
+ const routes=[['/commerce?action=anunciante&advertiserId=A',subscriber],['/commerce?action=permisos_panel&advertiserId=A',subscriber],['/events-new?action=getpaneldata&advertiserId=A',subscriber],['/promos?action=getpromos&advertiserId=A',subscriber],['/actividades?action=getpaneldata&advertiserId=A',subscriber],['/publicidad?action=getpaneldata&advertiserId=A',subscriber],['/farmacias?action=getpaneldata&advertiserId=A',subscriber],['/superadmin/dashboard',admin],['/superadmin/advertisers/A',admin],['/territory/public',{}],['/guide?ciudad_id=D&compact=1',{}],
+ ['/commerce/team?advertiserId=A',subscriber],['/support/mine',subscriber],['/notifications',subscriber],['/advertiser/terms',subscriber],['/suscriptores?action=perfil',subscriber],['/suscriptores?action=favoritos',subscriber],
+ ['/superadmin/territory',admin],['/superadmin/gh/fixed',admin],['/superadmin/catalogs/prices',admin],['/superadmin/catalogs/functional-settings',admin],['/superadmin/sales/coefficients',admin],['/superadmin/listados?tipo=eventos',admin],['/superadmin/promos',admin],['/superadmin/publicidad',admin],['/superadmin/support/requests',admin],['/superadmin/birthdays',admin],['/superadmin/adult-review',admin],['/superadmin/moderation/events/pending',admin],['/superadmin/publications/blocked',admin]];
+ const observations=[];
+ for(const round of ['first','warm','cold']){
+  for(const [path,headers]of routes){if(round==='cold'){await mf.dispose();await start();}const post=['/events-new','/promos','/farmacias'].some(p=>path.startsWith(p+'?'));const before=calls.length,r=await send(path,{headers,...(post?{method:'POST',body:JSON.stringify({action:new URL('https://fixture'+path).searchParams.get('action'),advertiserId:'A'})}:{})}),body=await r.json();assert.equal(r.status,200,path+' '+JSON.stringify(body));assert.equal(body.success,true,path);assert.equal(calls.length,before,'Network egress from '+path);const m=meter(r);assert.equal(m.firestore.read_calls,0,path);assert.equal(m.firestore.write_calls,0,path);assert.equal(m.cloudflare.kv.put_calls,0,path);if(path==='/superadmin/promos'||path==='/superadmin/publicidad')assert(m.cloudflare.edition_store.rows_read<20,'Un listado vacío barrió otras filas SQL: '+path);observations.push({round,path,kv:m.cloudflare.kv,edition:m.cloudflare.edition_store,auth:m.cloudflare.auth_store});}
+ }
+ const relogin=await login(),reloginBody=await relogin.json();assert.equal(relogin.status,200,JSON.stringify(reloginBody));assert(reloginBody.entrada.fixed);assert.equal(meter(relogin).firestore.read_calls,0);assert.equal(meter(relogin).cloudflare.kv.get_calls,1);
+ const wrong=await send('/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:'principal@example.invalid',clave:'incorrecta'})});assert.equal(wrong.status,401);assert(!(await wrong.json()).entrada);
+ const local=await send('/superadmin/dashboard',{headers:{Authorization:'Bearer '+jwt({sid:'M',rol:'ADMIN_LOCAL',ciudades:['D']})}});const scoped=await local.json();assert.equal(local.status,200);assert.equal(scoped.entrada.fixed,undefined);assert.equal(scoped.cumpleanos,undefined);assert.deepEqual(scoped.entrada.inbox.support.results,[]);
+ const before=calls.length;const denied=await send('/commerce?action=anunciante&advertiserId=OTHER',{headers:subscriber});assert.equal(denied.status,403);assert.equal(calls.length,before);
+ denyReads=false;
+ let form=await (await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).json();
+ const save=async(segment,revision)=>{const r=await send('/commerce',{method:'POST',headers:subscriber,body:JSON.stringify({action:'set_datos',advertiserId:'A',segmento_id:segment,revision_datos:revision,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})});const result=await r.json();assert.equal(r.status,200,JSON.stringify(result));return result;};
+ const saved1=await save('primero',form.advertiser.revision_datos);await advance(clock+1);const saved2=await save('segundo',saved1.revision_datos);assert(saved2.revision_datos);assert.equal(get('anunciantes','A').segmento_id,'segundo');
+ const stale=await send('/commerce',{method:'POST',headers:subscriber,body:JSON.stringify({action:'set_datos',advertiserId:'A',segmento_id:'obsoleto',revision_datos:form.advertiser.revision_datos,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})});assert.equal(stale.status,409);assert.equal(get('anunciantes','A').segmento_id,'segundo');
+ atomic.length=0; // Count the two adapter commits below separately.
+ const initialOutboxCount=list('_gld_publication_outbox206',Infinity).length;
+ const patch=async data=>{const r=await send('/__fixture/patch',{method:'POST',body:JSON.stringify({c:'anunciantes',id:'A',patch:data})});assert.equal(r.status,200,await r.clone().text());};
+ await advance(cutoff+3600000);await patch({nombre:'Primera'});await advance(cutoff+3600001);await patch({nombre:'Final',nuevo_campo:{valor:17}});
+ assert.equal(atomic.length,2);assert(atomic.every(writes=>writes.length===2&&writes[1].update.name.includes('/_gld_publication_outbox206/')));
+ assert.equal((await (await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).json()).advertiser.datos.nombre,'Original');
+ failCommit=true;const failed=await send('/__fixture/patch',{method:'POST',body:JSON.stringify({c:'anunciantes',id:'A',patch:{nombre:'NO_GUARDADO'}})});assert.equal(failed.status,503);failCommit=false;assert.equal(get('anunciantes','A').nombre,'Final');assert.equal(list('_gld_publication_outbox206',Infinity).length,initialOutboxCount+2);
+ await advance(cutoff+day+60000);await daily('territory',cutoff+day);assert.equal((await (await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).json()).advertiser.datos.nombre,'Original');await daily('commit',cutoff+day);
+ const final=await (await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).json();assert.equal(final.advertiser.datos.nombre,'Final');assert.deepEqual(final.advertiser.datos.nuevo_campo,{valor:17});
+ const namespace=await mf.getDurableObjectNamespace('GLD_PUBLIC_CACHE'),access=namespace.get(namespace.idFromName('private-access-v201:U'));await access.fetch('https://access.fixture/',{method:'POST',body:JSON.stringify({op:'private-access201',sid:'U',action:'revoke'})});const revoked=await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber});assert.equal(revoked.status,401);assert.equal(meter(revoked).cloudflare.edition_store.calls,0);
+ console.log('RUNTIME206_COSTS '+JSON.stringify(observations));
+});

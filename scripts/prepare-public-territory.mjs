@@ -1,6 +1,8 @@
 import {createHash} from 'node:crypto';
 import {appendFile,readFile,writeFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
+import {githubIdentity} from './publicar-paquetes-ciudad.mjs';
+import {ultimoCorte} from './aplicar-corte-paquetes-ciudad.mjs';
 
 const WORKER='https://login.liqkoargentina.workers.dev/territory/public';
 const LIVE='https://anunciantes-guialocal.web.app/plataforma/territorio-cache.js';
@@ -29,12 +31,12 @@ async function readPublished(read){
  return response.text();
 }
 
-export async function preparePublicTerritory({file,read=fetch,scheduled=false,stageUnchanged=false}){
+export async function preparePublicTerritory({file,read=fetch,scheduled=false,stageUnchanged=false,identity=githubIdentity,cutoff=ultimoCorte()}){
  const source=await readFile(file,'utf8');
  if(source.split(MARKER).length!==2)throw Error('Marcador de catálogo público ausente o duplicado.');
  let prepared;
  try{
-  const response=await read(WORKER,{cache:'no-store',signal:AbortSignal.timeout(20000)});
+  const response=scheduled?await read('https://login.liqkoargentina.workers.dev/internal/city-books',{method:'POST',redirect:'error',headers:{Authorization:'Bearer '+await identity(read),'Content-Type':'application/json'},body:JSON.stringify({op:'territory',cutoff}),signal:AbortSignal.timeout(90000)}):await read(WORKER,{cache:'no-store',signal:AbortSignal.timeout(20000)});
   if(!response.ok)throw Error('Catálogo público no disponible (HTTP '+response.status+').');
   prepared=snapshot(await response.json());
  }catch(error){

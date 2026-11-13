@@ -234,114 +234,19 @@ test('un solo lote por ciudad combina las seis familias y conserva la separació
   assert.deepEqual(bookTools.applyDelta(originalBook,restoredDelta),restoredBook);
 });
 
-test('el publicador recibe la salida real del Worker aislado, filtra y prepara Hosting', async t => {
-  const { default:worker, exportCityBookCut, cityBookIdentity } = await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
-  const { publicarPaquetes } = await import('../../scripts/publicar-paquetes-ciudad.mjs');
-  const { generateKeyPairSync, sign } = await import('node:crypto');
-  const { publicKey, privateKey } = generateKeyPairSync('rsa',{modulusLength:2048});
-  const jwk={...publicKey.export({format:'jwk'}),kid:'test-cut',alg:'RS256'};
-  const cutoff=Date.parse('2026-11-11T04:00:00Z'),after=cutoff-86400000;
-  let clock=cutoff-1000;
-  t.mock.method(Date,'now',()=>clock);
-  const now=Math.floor(cutoff/1000);
-  const claims={iss:'https://token.actions.githubusercontent.com',aud:'guialocal:publicacion-ciudades',
-    repository_id:'987998657',repository_owner_id:'199677170',
-    workflow_ref:'liqko/guia-local-dolores/.github/workflows/firebase-hosting-merge.yml@refs/heads/main',
-    ref:'refs/heads/main',event_name:'schedule',nbf:now-60,exp:now+300};
-  const enc=value=>Buffer.from(JSON.stringify(value)).toString('base64url');
-  function token(payload){
-    const message=enc({alg:'RS256',kid:jwk.kid})+'.'+enc(payload);
-    return message+'.'+sign('RSA-SHA256',Buffer.from(message),privateKey).toString('base64url');
-  }
-  const good=token(claims);
-  const request=value=>new Request('https://worker.invalid/internal/city-books',{headers:{Authorization:'Bearer '+value}});
-  assert.equal(await cityBookIdentity(request(good),async()=>Response.json({keys:[jwk]}),cutoff),true);
-  assert.equal(await cityBookIdentity(request(token({...claims,ref:'refs/heads/otro'})),async()=>assert.fail('No debe pedir llaves'),cutoff),false);
-  assert.equal(await cityBookIdentity(request(good+'x'),async()=>assert.fail('No debe pedir llaves'),cutoff),false);
-
-  const raw = new Map([['territorio:public:v1',{ciudades:[{ciudad_id:'DOL'},{ciudad_id:'BAL'}]}]]);
-  const actors = new Map(),calls=[];
-  const env={GLD_CITY_BOOK_CAPTURE:'1',GLD_CACHE_KV:{get:async key=>raw.has(key)?JSON.stringify(raw.get(key)):null,put:async(key,value)=>raw.set(key,JSON.parse(value)),list:async({prefix})=>({keys:[...raw.keys()].filter(name=>name.startsWith(prefix)).map(name=>({name})),list_complete:true})}};
-  env.GLD_PUBLIC_CACHE={idFromName:name=>name,get(name){
-    if(!actors.has(name)){
-      const db=new DatabaseSync(':memory:');
-      t.after(()=>db.close());
-      actors.set(name,new GldPublicCache119({storage:{sql:{exec(sql,...args){
-        const statement=db.prepare(sql);
-        if(statement.columns().length){
-          const rows=statement.all(...args);
-          return Object.assign(rows,{rowsRead:rows.length});
-        }
-        statement.run(...args);return [];
-      }},transactionSync(fn){
-        db.exec('BEGIN');try{const x=fn();db.exec('COMMIT');return x;}
-        catch(error){db.exec('ROLLBACK');throw error;}
-      }}},env));
-    }
-    return {async fetch(req){calls.push(await req.clone().json());return actors.get(name).fetch(req);}};
-  }};
-  async function set(key,field,rows){
-    const actor=env.GLD_PUBLIC_CACHE.get('public-city-v119:'+key);
-    const send=body=>actor.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,...body})}));
-    const {value:base}=await (await send({op:'get'})).json();
-    const r=await send({op:'put',base,value:{[field]:rows}});
-    assert.equal(r.status,200,await r.text());
-  }
-  const publicRow={anunciante_id:'publico',nombre:'Visible',redes_web_comunes:{habilitado:true,instagram:'perfil'},sedes:[{sede_id:'sede'}]};
-  const adult={anunciante_id:'adulto',nombre:'Texto reservado',contenido_adulto:true,revision_adulto:'APROBADO'};
-  await set('guide:city:v1:DOL','anunciantes',[publicRow,adult]);
-  await set('events:city:v2:VIRTUAL','events',[{evento_id:'virtual',nombre_evento:'Virtual',ciudad_id:'VIRTUAL',alcance_publicacion:{modo:'CIUDAD',ciudad_id:'BAL'}}]);
-  await set('activities:city:v2:DOL','actividades',[{actividad_id:'vence',nombre:'Actividad temporal',activo:true,aprobado:true,vigente_hasta:'2026-11-11'}]);
-  await set('promos:city:v1:BAL','promos',[{promo_id:'promo',promo:'Descuento',estado_moderacion:'PENDIENTE'}]);
-  clock=cutoff+30000;
-  await set('guide:city:v1:DOL','anunciantes',[{...publicRow,nombre:'Después del corte'},adult]);
-  calls.length=0;
-  const cache={get:async key=>raw.get(key)??null};
-  const report={};
-  const cut=await exportCityBookCut({env,cache,after,cutoff,known:['DOL','BAL'],report});
-  assert.equal(cut.complete,true);
-  assert.ok(cut.cities.find(x=>x.city==='DOL').changes.guide.upsert.some(x=>x.nombre==='Visible'));
-  assert.equal(JSON.stringify(cut).includes('Texto reservado'),false);
-  assert.equal(JSON.stringify(cut).includes('Después del corte'),false);
-  assert.deepEqual(cut.cities.find(x=>x.city==='DOL').changes.events.upsert,[]);
-  assert.equal(cut.cities.find(x=>x.city==='BAL').changes.events.upsert[0].evento_id,'virtual');
-  assert.deepEqual(cut.cities.find(x=>x.city==='BAL').changes.promos.upsert,[]);
-  assert.equal(cut.cities.find(x=>x.city==='DOL').changes.activities.upsert[0].actividad_id,'vence');
-  assert.equal(calls.filter(x=>x.key==='events:city:v2:VIRTUAL'&&x.op==='city-book-changes').length,1);
-  assert.ok(calls.some(x=>x.key==='guide:city:v1:DOL'&&x.op==='city-book-read'&&x.ids.length===2));
-
-  const stage=await mkdtemp(join(tmpdir(),'corte-hosting-'));
-  t.after(()=>rm(stage,{recursive:true,force:true}));
-  await mkdir(join(stage,'plataforma'));
-  await writeFile(join(stage,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
-  const count={worker:0};
-  const staged=await publicarPaquetes({mode:'cut',stage,cutoff,identity:async()=>good,read:async (input,options)=>{
-    const url=new URL(input);
-    if(url.hostname.endsWith('workers.dev')){
-      count.worker++;
-      assert.equal(JSON.parse(options.body).op,'read');
-      return worker.fetch(new Request(url,options),env);
-    }
-    assert.match(url.pathname,/publicacion\.json$/);
-    return new Response(null,{status:404});
-  }});
-  assert.equal(count.worker,1);
-  assert.equal(staged.changed,true);
-  assert.deepEqual(Object.keys(staged.manifest),['DOL','BAL']);
-  const path=join(stage,'plataforma','paquetes-ciudad',staged.manifest.DOL.key,'completo-'+staged.manifest.DOL.revision+'.json');
-  assert.equal(JSON.parse(await readFile(path)).modules.guide.results.find(x=>x.anunciante_id==='publico').nombre,'Visible');
-  const callWorker=body=>worker.fetch(new Request('https://login.liqkoargentina.workers.dev/internal/city-books',{
-    method:'POST',headers:{Authorization:'Bearer '+good,'Content-Type':'application/json'},body:JSON.stringify(body),
-  }),env);
-  assert.equal((await callWorker({op:'commit',cutoff})).status,200);
-  const retry=await callWorker({op:'read',cutoff,publishedCutoff:cutoff,known:['DOL','BAL']});
-  assert.equal(retry.status,200);
-  assert.deepEqual((await retry.json()).cities,[]);
-
-  clock=cutoff+86400000+1000;
-  const expiry=await exportCityBookCut({env,cache,after:cutoff,cutoff:cutoff+86400000,known:['DOL','BAL'],report:{}});
-  assert.deepEqual(expiry.cities.find(x=>x.city==='DOL').replacements.activities.actividades,[]);
-
+test('Hosting consume la salida preparada por el compilador diario y conserva los contratos públicos',async t=>{
+ const {fixture,cutoff,w}=await import('../arquitectura/fixture206.mjs');
+ const {publicarPaquetes}=await import('../../scripts/publicar-paquetes-ciudad.mjs');
+ const h=fixture(t);h.rows.anunciantes_administracion[0].aprobado=true;h.rows.anunciantes_administracion[0].nivel=4;h.rows.anunciantes[0].aprobado=true;h.rows.anunciantes[0].nombre='Visible';
+ await h.op('stage');
+ const cache={get:async key=>{const r=await w.editionCall206(h.env,{action:'staged-read',cutoff,key:'cache/'+key});return r.value;}};
+ const cut=await w.exportCityBookCut({env:h.env,cache,after:cutoff-86400000,cutoff,known:[],report:{}});
+ assert(cut.complete);assert(!JSON.stringify(cut).includes('administracion'));
+ const root=await mkdtemp(join(tmpdir(),'corte-hosting-'));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(join(root,'plataforma'));await writeFile(join(root,'plataforma/territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
+ const staged=await publicarPaquetes({mode:'cut',stage:root,cutoff,identity:async()=> 'fixture-oidc',read:async(input,options)=>new URL(input).hostname.endsWith('workers.dev')?Response.json(cut):new Response(null,{status:404})});
+ assert.equal(staged.changed,true);assert.deepEqual(Object.keys(staged.manifest),['D']);const entry=staged.manifest.D;
+ const published=JSON.parse(await readFile(join(root,'plataforma/paquetes-ciudad',entry.key,'completo-'+entry.revision+'.json')));
+ assert.equal(published.modules.guide.results[0].nombre,'Visible');assert(!JSON.stringify(published).includes('campo_futuro'));
 });
 
 test('reanudar promociones usa la configuración tanto en panel como en Gran Hermano', async t => {

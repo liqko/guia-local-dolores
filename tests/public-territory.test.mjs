@@ -40,13 +40,13 @@ test('el catálogo publicado actualiza solo cuando cambia la revisión',async()=
   assert.deepEqual({requests:warm.stats().requests,writes:warm.stats().writes},{requests:0,writes:0});
 
   await writeFile(file,template);
-  const same=await preparePublicTerritory({file,scheduled:true,read:async url=>
+  const same=await preparePublicTerritory({file,scheduled:true,identity:async()=> 'fixture-oidc',read:async url=>
    url.endsWith('.js')?new Response(initial):Response.json({...packet,updated_at:'nuevo-sello'})});
   assert.deepEqual(same,{changed:false,revision:first.revision});
   assert.equal(await readFile(file,'utf8'),template);
 
   const changed={...packet,ciudades:[...packet.ciudades,{ciudad_id:'TAN',ciudad_visible:'Tandil'}]};
-  await preparePublicTerritory({file,scheduled:true,read:async url=>
+  await preparePublicTerritory({file,scheduled:true,identity:async()=> 'fixture-oidc',read:async url=>
    url.endsWith('.js')?new Response(initial):Response.json(changed)});
   const next=browser(await readFile(file,'utf8'),a.stats().box);
   assert.equal((await next.load()).ciudades[1].ciudad_visible,'Tandil');
