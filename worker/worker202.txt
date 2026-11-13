@@ -3207,9 +3207,9 @@ async function quota({ db, cache, advertiserId, cupoFromAdmin, excludeId = "" })
   ]);
   const originalMax=Number(cupoFromAdmin(admin || {}) || 0);
   const general=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PROMOS');
-  const limit=general.activas_max;
-  const allow=general.admite_excepciones===true&&admin?.funcionalidades_config?.PROMOS?.excepcion_cupo===true;
-  const max=Number.isSafeInteger(originalMax)?originalMax:limit;
+  const cfgEffective=admin?.funcionalidades_config?.PROMOS||{};
+  const particular=gldValorParticular168(general,cfgEffective,'activas_max',general.activas_max);
+  const max=gldCupoMayor202(originalMax,particular);
   const active4 = promos.filter((p) => text29(p.promo_id || p.id) !== text29(excludeId) && !paused(p)).length;
   const cfg=admin?.funcionalidades_config?.PROMOS||{};
   return { max, active: active4, total:promos.length, totalMax:gldValorParticular168(general,cfg,'guardadas_max',cupoGuardado(max)),general,admin };
@@ -3218,8 +3218,8 @@ function gldValidarPromo168(data,general,admin){
  const cfg=admin?.funcionalidades_config?.PROMOS||{};
  const maxPromo=gldValorParticular168(general,cfg,'descripcion_max',300);
  const maxOtros=gldValorParticular168(general,cfg,'condiciones_max',120);
- if(Object.hasOwn(data,'promo')&&Number.isSafeInteger(maxPromo)&&String(data.promo??'').length>maxPromo)throw httpError('El texto de la promo admite hasta '+maxPromo+' caracteres.',400);
- if(Object.hasOwn(data,'otros')&&Number.isSafeInteger(maxOtros)&&String(data.otros??'').length>maxOtros)throw httpError('La aclaración adicional admite hasta '+maxOtros+' caracteres.',400);
+ if(Object.hasOwn(data,'promo')&&Number.isSafeInteger(maxPromo)&&maxPromo>=0&&String(data.promo??'').length>maxPromo)throw httpError('El texto de la promo admite hasta '+maxPromo+' caracteres.',400);
+ if(Object.hasOwn(data,'otros')&&Number.isSafeInteger(maxOtros)&&maxOtros>=0&&String(data.otros??'').length>maxOtros)throw httpError('La aclaración adicional admite hasta '+maxOtros+' caracteres.',400);
 }
 async function promoCreateV2({ db, cache, advertiserId, body, cupoFromAdmin }) {
   const data = body && body.payload && typeof body.payload === "object" ? body.payload : body || {};
@@ -3878,12 +3878,7 @@ function id2(prefix) {
   return prefix + "-" + crypto.randomUUID();
 }
 function quota3(admin) {
-  const cfg = admin && admin.funcionalidades_config && admin.funcionalidades_config.ACTIVIDADES || {};
-  for (const v of [cfg.cantidad, cfg.cupo, cfg.max, cfg.maximo, admin && admin.actividades_cant]) {
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-  }
-  return 0;
+  return gldCupoFicha202(admin,'ACTIVIDADES');
 }
 function enabled(admin) {
   if (bool13(admin && admin.actividades)) return true;
@@ -4416,13 +4411,7 @@ function featureEnabled(admin, name) {
 }
 function cupo(admin, name) {
   if(String(name).toUpperCase()==='EVENTOS_FREE')return freeEventAssignedQuota114(admin);
-  const key3 = text36(name).toUpperCase();
-  const cfg = admin && admin.funcionalidades_config && admin.funcionalidades_config[key3] || {};
-  for (const v of [cfg.cantidad, cfg.cupo, cfg.max, cfg.maximo, admin && admin[key3.toLowerCase() + "_cant"]]) {
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-  }
-  return 0;
+  return gldCupoFicha202(admin,text36(name).toUpperCase());
 }
 async function requirePanel(env, request2, aid, moduleName, write = false) {
   const s = await verifySubscriberSession(env, request2);
@@ -4852,13 +4841,7 @@ function featureEnabled2(admin, name) {
 }
 function cupo2(admin, name) {
   if(String(name).toUpperCase()==='EVENTOS_FREE')return freeEventAssignedQuota114(admin);
-  const key3 = text40(name).toUpperCase();
-  const cfg = admin && admin.funcionalidades_config && admin.funcionalidades_config[key3] || {};
-  for (const v of [cfg.cantidad, cfg.cupo, cfg.max, cfg.maximo, admin && admin[key3.toLowerCase() + "_cant"]]) {
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-  }
-  return 0;
+  return gldCupoFicha202(admin,text40(name).toUpperCase());
 }
 async function requirePanel2(env, request2, aid, moduleName, write = false) {
   const s = await verifySubscriberSession(env, request2);
@@ -6779,12 +6762,7 @@ function addDays2(iso, n) {
   return d.toISOString().slice(0, 10);
 }
 function quota4(admin) {
-  const cfg = admin && admin.funcionalidades_config && admin.funcionalidades_config.ACTIVIDADES || {};
-  for (const v of [cfg.cantidad, cfg.cupo, cfg.max, cfg.maximo, admin && admin.actividades_cant]) {
-    const n = Number(v);
-    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
-  }
-  return 0;
+  return gldCupoFicha202(admin,'ACTIVIDADES');
 }
 function enabled2(admin) {
   if (bool16(admin && admin.actividades)) return true;
@@ -6833,11 +6811,10 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   let current = null;
   const originalMax=quota4(admin);
   const globalCfg=gldFuncRules166(await gldFuncPacket166(cache,db,false),'ACTIVIDADES');
-  const generalMax=globalCfg.activas_max;
   const maxDescripcionActividad=gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'descripcion_max',null);
-  if(Number.isSafeInteger(maxDescripcionActividad)&&String(payload.descripcion??'').length>maxDescripcionActividad)throw httpError('La descripción de la actividad admite hasta '+maxDescripcionActividad+' caracteres.',400);
-  const allowed=globalCfg.admite_excepciones===true&&admin?.funcionalidades_config?.ACTIVIDADES?.excepcion_cupo===true;
-  const max=Number.isSafeInteger(originalMax)?originalMax:generalMax;
+  if(Number.isSafeInteger(maxDescripcionActividad)&&maxDescripcionActividad>=0&&String(payload.descripcion??'').length>maxDescripcionActividad)throw httpError('La descripción de la actividad admite hasta '+maxDescripcionActividad+' caracteres.',400);
+  const particular=gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'activas_max',globalCfg.activas_max);
+  const max=gldCupoMayor202(originalMax,particular);
   const totalMax = gldValorParticular168(globalCfg,admin?.funcionalidades_config?.ACTIVIDADES,'guardadas_max',cupoGuardado(max));
   if (activityId) {
     current = await db.get("actividades", activityId);
@@ -7694,6 +7671,14 @@ function captureAdministrativeChanges198(previous,patch,auth){
  return state;
 }
 // Regla de contratación mínima y ampliaciones individuales, sin lecturas Firestore nuevas.
+function gldCupoFicha202(admin,feature){
+ const id=canonicalFeatureId112(feature),cfg=admin?.funcionalidades_config?.[id]||{};
+ const candidates=[cfg.cantidad,cfg.cupo,cfg.max,cfg.maximo,cfg.activas_max,
+  admin?.[id.toLowerCase()+'_cant'],gldContratoPiso202(admin,id)];
+ const numbers=candidates.filter(v=>Number.isSafeInteger(v)&&v>=-1);
+ if(numbers.includes(-1))return Number.MAX_SAFE_INTEGER;
+ return numbers.length?Math.max(...numbers):0;
+}
 function gldContratoPiso202(admin,feature){
  const contract=admin?.contratacion_actual;
  if(contract?.estado!=='CONFIRMADA')return 0;
