@@ -9,7 +9,7 @@ import {pathToFileURL} from 'node:url';
 import bookTools from '../plataforma/paquete-ciudad.js';
 import {aplicarCorte} from '../scripts/aplicar-corte-paquetes-ciudad.mjs';
 const workerDirectory = new URL('../worker/', import.meta.url);
-const workerFiles = (await readdir(workerDirectory)).filter(name => /^worker\\d+\\.txt$/.test(name));
+const workerFiles = (await readdir(workerDirectory)).filter(name => /^worker\d+\.txt$/.test(name));
 assert.equal(workerFiles.length,1,'Debe existir un único Worker versionado en worker/');
 const workerPath = new URL(workerFiles[0],workerDirectory);
 const workerSource = await readFile(workerPath,'utf8');
