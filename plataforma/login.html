@@ -3311,15 +3311,33 @@ function commerceRefreshCommonNetworks_(){
 }
 document.addEventListener('change',e=>{if(e.target.name==='redes_comunes_habilitado')commerceRefreshCommonNetworks_();});
 
-// Contador de caracteres: usa el límite dinámico del catálogo de Panel de administración general.
-document.addEventListener('input',event=>{
-  const field=event.target;
-  if(!field?.matches?.('#form-datos-comercio [data-gld-char-max]'))return;
-  const max=Number(field.dataset.gldCharMax);
-  if(!Number.isFinite(max))return;
-  const counter=field.parentElement?.querySelector('[data-gld-char-counter]');
-  if(counter)counter.textContent='Restan '+Math.max(0,max-field.value.length)+' de '+max+' caracteres';
-});
+// Contadores para los textos de Información del anunciante y sus sedes.
+function gldCommerceUpdateCounter_(el){
+ if(!el?.matches?.('#form-datos-comercio input[type="text"],#form-datos-comercio textarea'))return;
+ let hint=el.nextElementSibling;
+ if(!hint?.matches?.('[data-gld-char-counter]')){
+  hint=document.createElement('small');
+  hint.className='small-muted';
+  hint.setAttribute('data-gld-char-counter','');
+  el.insertAdjacentElement('afterend',hint);
+ }
+ const count=el.value.length,raw=el.dataset.gldCharMax;
+ const max=raw!==undefined&&raw!==''?Number(raw):(el.hasAttribute('maxlength')?Number(el.getAttribute('maxlength')):null);
+ if(Number.isSafeInteger(max)&&max>=0){
+  const rest=max-count;
+  hint.textContent='Escritos: '+count+' · Máximo: '+max+' · '+(rest>=0?'Restan: '+rest:'Excede por: '+(-rest))+' caracteres';
+  hint.style.color=rest<0?'#b42318':'';
+  el.setAttribute('aria-invalid',rest<0?'true':'false');
+ }else{
+  hint.textContent='Caracteres escritos: '+count+' · Sin máximo de caracteres configurado';
+  hint.style.color='';
+  el.removeAttribute('aria-invalid');
+ }
+}
+function gldCommerceUpdateAllCounters_(root){
+ (root||document.getElementById('form-datos-comercio'))?.querySelectorAll('input[type="text"],textarea').forEach(gldCommerceUpdateCounter_);
+}
+document.addEventListener('input',event=>gldCommerceUpdateCounter_(event.target));
 function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const values = (datos && typeof datos === 'object') ? datos : {};
   let html = '<div class="data-fields-grid">';
@@ -3347,7 +3365,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   </div>`;
 
   html += `<div class="data-field-card" style="grid-column:1/-1">
-    <label><strong>CATEGORÍAS · MÁXIMO 3</strong></label>
+    <label><strong>CATEGORÍAS · ${(()=>{const max=gldLimitesCargaNivel198_().categorias;return max===-1?'SIN LÍMITE':max===0?'CARGA NO HABILITADA':'MÁXIMO '+max;})()}</strong></label>
     <details class="multi-select-dropdown">
       <summary>Seleccionar categorías</summary>
       <div style="padding:10px 4px 2px">
@@ -3368,15 +3386,9 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
   const nivelActual=String((sesion&&sesion.administracion&&sesion.administracion.nivel)??'').trim();
   const reglaNivel=GLD_CLASSIFICATION.findLevel(commerceCatalogs.niveles_anunciante,nivelActual);
   const reglasNivel=GLD_CLASSIFICATION.rules(reglaNivel,nivelActual);
-  // Los máximos de carga son por segmento, no por nivel de publicación.
-  const cfgCarga=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
-  const grupoCarga='comercial'; // Capacidad máxima de ficha: igual para todos, equivalente al nivel 6.
-  const limiteCampo=(fieldName)=>{
-    const defaults={actividad:80,descripcion:500,tags:300};
-    if(!Object.hasOwn(defaults,fieldName))return null;
-    const raw=cfgCarga['carga_'+grupoCarga+'_'+fieldName+'_max']??cfgCarga['carga_'+fieldName+'_max']??defaults[fieldName];
-    const n=Number(raw);return Number.isSafeInteger(n)&&n>=0?n:defaults[fieldName];
-  };
+  // Topes de carga generales; el nivel 1–6 sólo regula publicación.
+  const carga=gldLimitesCargaNivel198_();
+  const limiteCampo=fieldName=>Object.hasOwn(carga,fieldName)?carga[fieldName]:null;
 
   COMMERCE_DATA_FIELDS.forEach((fieldName)=>{
     if(fieldName==='link')return;
@@ -3402,22 +3414,21 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
 
     let maxLengthAttr = '';
     const maxLengthNum = limiteCampo(fieldName);
-    if(maxLengthNum!==null && maxLengthNum>0) maxLengthAttr = ' maxlength="'+maxLengthNum+'"';
+    if(maxLengthNum!==null && maxLengthNum>=0) maxLengthAttr = ' maxlength="'+maxLengthNum+'"';
     // Carga 0 = no se admiten datos nuevos; mostrar lo ya guardado para permitir corregirlo.
-    const restrictionHtml = maxLengthNum===0 ? ' <span style="color:#a6570d;font-weight:700;font-size:.9em">(Carga no permitida: 0; revisar configuración)</span>' : maxLengthNum!==null && maxLengthNum>0 ? ` <span style="color:#c00;font-weight:normal;font-size:.9em">(Hasta ${maxLengthNum} caracteres)</span>` : '';
+    const restrictionHtml = maxLengthNum===0 ? ' <span style="color:#a6570d;font-weight:700;font-size:.9em">(Carga no habilitada: 0 caracteres)</span>' : maxLengthNum===-1 ? ' <span class="small-muted">(Sin límite de caracteres)</span>' : maxLengthNum!==null && maxLengthNum>0 ? ` <span class="small-muted">(Máximo ${maxLengthNum} caracteres)</span>` : '';
     const labelHtml = `<strong>${htmlEscape(fieldName==='actividad'?'ACTIVIDAD / ACLARACIÓN DEL NOMBRE':upperName)}</strong>${restrictionHtml}`;
 
     if(['descripcion','adicionales','tags','actividad','nombre'].includes(fieldName)){
       html += `<div class="data-field-card" style="grid-column:1/-1">
         <label>${labelHtml}</label>
         ${fieldName==='actividad'?'<p class="small-muted">Usá este espacio cuando el nombre del comercio no indique claramente a qué se dedica. Por ejemplo: si se llama «La Bonita», podés aclarar «Carnicería». Si se llama «Carnicería La Bonita», no hace falta repetirlo.</p>':''}
-        <textarea name="${htmlEscape(fieldName)}" rows="${fieldName==='actividad'?2:4}"${maxLengthAttr}${maxLengthNum!==null&&maxLengthNum>0?' data-gld-char-max="'+maxLengthNum+'"':''}>${htmlEscape(fieldValue)}</textarea>
-        ${maxLengthNum!==null&&maxLengthNum>0?'<small class="small-muted" data-gld-char-counter>Restan '+Math.max(0,maxLengthNum-fieldValue.length)+' de '+maxLengthNum+' caracteres</small>':''}
+        <textarea name="${htmlEscape(fieldName)}" rows="${fieldName==='actividad'?2:4}"${maxLengthAttr}${maxLengthNum!==null?' data-gld-char-max="'+maxLengthNum+'"':''}>${htmlEscape(fieldValue)}</textarea>
       </div>`;
     }else{
       html += `<div class="data-field-card">
         <label>${labelHtml}</label>
-        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr} />
+        <input type="text" name="${htmlEscape(fieldName)}" value="${htmlEscape(fieldValue)}"${maxLengthAttr}${maxLengthNum!==null?' data-gld-char-max="'+maxLengthNum+'"':''} />
       </div>`;
     }
   });
@@ -3489,10 +3500,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
       const isImage = /^img\d+$/.test(fieldName);
       const imageNumber = isImage ? Number(fieldName.replace('img','')) : 0;
       // Las imágenes que se pueden CARGAR son independientes de las que el nivel publica.
-      const cfg=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
-      const segmento='comercial'; // La ficha no restringe datos por nivel contratado.
-      const rawMax=cfg['carga_'+segmento+'_imagenes_max']??cfg.carga_imagenes_max??5;
-      const imagenesMax=Math.max(0,Math.min(10,Number(rawMax)||0));
+      const imagenesMax=carga.imagenes===-1?10:Math.max(0,Math.min(10,carga.imagenes));
       if(isImage && imageNumber>imagenesMax) return;
       const group=['instagram','facebook','youtube','tiktok','linkedin','x','web'].includes(fieldName)?'Redes y web':['nombre_sede','direccion','lat','lng','maps'].includes(fieldName)?'Ubicación':/^(telefono|whatsapp|mail)\d*$/.test(fieldName)?'Teléfonos y contacto':fieldName==='horarios_atencion'?'Horarios':fieldName==='servicios_iconos'?'Prestaciones y servicios':'Otros';
       if(group!==previousGroup){html+=group==='Ubicación'?ciudadMarkup:'<div class="sede-section"><div class="sede-section-title">'+group+'</div></div>';previousGroup=group;}
@@ -3551,10 +3559,7 @@ function buildCommerceFieldsMarkup(datos, clasificacion={}, sedes=[]){
 
     // Imágenes al final de los campos editables de la sede, después de las relaciones.
     html += '<div class="sede-section"><div class="sede-section-title">Imágenes</div></div>';
-    const cfgImagenes=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id)==='CONFIG_GENERAL_ANUNCIANTES')||{};
-    const grupoImagenes='comercial';
-    const rawImagenes=cfgImagenes['carga_'+grupoImagenes+'_imagenes_max']??cfgImagenes.carga_imagenes_max??5;
-    const imagenesMaxSede=Math.max(0,Math.min(10,Number(rawImagenes)||0));
+    const imagenesMaxSede=carga.imagenes===-1?10:Math.max(0,Math.min(10,carga.imagenes));
     COMMERCE_SEDE_FIELDS.filter(fieldName=>/^img\d+$/.test(fieldName)).forEach(fieldName=>{
       if(Number(fieldName.slice(3))>imagenesMaxSede)return;
       const value=String(sede[fieldName]??'');
@@ -6241,12 +6246,8 @@ function buildCommerceSavePayload(){
   payload.segmento_id = String(form?.querySelector('[name="segmento_id"]')?.value || '').trim();
   const catsElegidas=Array.from(form?.querySelectorAll('[name="categoria_id_item"]:checked') || [])
     .map(el=>String(el.value||'').trim()).filter(Boolean);
-  const cfgCategorias=commerceCatalogs.niveles_anunciante.find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
-  const nivelCategorias=Number(sesion?.administracion?.nivel||3);
-  const grupoCategorias='comercial';
-  const rawMax=Number(cfgCategorias['carga_'+grupoCategorias+'_categorias_max']??3);
-  const maxCategorias=Number.isSafeInteger(rawMax)&&rawMax>=1?Math.min(3,rawMax):3;
-  if(catsElegidas.length>maxCategorias)throw Error('Podés seleccionar hasta '+maxCategorias+' categorías.');
+  const maxCategorias=gldLimitesCargaNivel198_().categorias;
+  if(maxCategorias>=0&&catsElegidas.length>maxCategorias)throw Error('Podés seleccionar hasta '+maxCategorias+' categorías.');
   payload.categoria_id=catsElegidas.join(';');
   return payload;
 }
@@ -6301,19 +6302,20 @@ function buildCommerceRelationsPayloads(){
 
 
 
-// Reglas de carga administradas por Niveles: mismo catálogo que renderiza la ficha.
+// Reglas de carga administradas por Niveles, compartidas por la ficha y su validación.
 function gldLimitesCargaNivel198_(){
-  const cfg=(commerceCatalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES')||{};
-  const grupo='comercial'; // No depende del nivel contratado.
-  const fallback={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:0};
+  const cfg=(commerceCatalogs.niveles_anunciante||[]).find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES');
+  if(!cfg)throw Error('Faltan las reglas de carga de Información del anunciante. Actualizá el panel antes de guardar.');
+  const grupo='comercial';
+  const defaults={actividad:80,descripcion:500,tags:300,categorias:3,imagenes:5,redes:6,sedes:0};
   const get=key=>{
-    const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??fallback[key];
+    const raw=cfg['carga_'+grupo+'_'+key+'_max']??cfg['carga_'+key+'_max']??defaults[key];
     const n=Number(raw);
-    if(!Number.isSafeInteger(n)||n<0)throw Error('Configuración inválida de Niveles: '+key);
+    if(!Number.isSafeInteger(n)||n< -1)throw Error('Configuración inválida de Niveles: '+key);
     return n;
   };
   const prestaciones=cfg['carga_'+grupo+'_prestaciones'];
-  return {...Object.fromEntries(Object.keys(fallback).map(k=>[k,get(k)])),
+  return {...Object.fromEntries(Object.keys(defaults).map(k=>[k,get(k)])),
     prestaciones:Array.isArray(prestaciones)?new Set(prestaciones):null};
 }
 function gldValidarCargaNivel198_(){
@@ -6328,21 +6330,21 @@ function gldValidarCargaNivel198_(){
       throw Error(lim[campo]===0?'El campo '+campo+' está deshabilitado para cargar en Niveles.':'El campo '+campo+' admite hasta '+lim[campo]+' caracteres.');
   }
   const categorias=[...form.querySelectorAll('[name="categoria_id_item"]:checked')].map(x=>x.value);
-  if(categorias.length>Math.min(3,lim.categorias)&&
+  if(lim.categorias>=0&&categorias.length>lim.categorias&&
      (!commerceEditBaseline||!gldEditEqual_(categorias.join(';'),anterior.categoria_id)))
-    throw Error('El nivel permite hasta '+Math.min(3,lim.categorias)+' categorías.');
+    throw Error('El cupo general admite hasta '+lim.categorias+' categorías.');
   const redesComunesActivas=!!form.querySelector('[name="redes_comunes_habilitado"]')?.checked;
   if(redesComunesActivas){
     const claves=['instagram','facebook','youtube','tiktok','linkedin','x','web'];
     const configuracion={habilitado:true,...Object.fromEntries(claves.map(k=>[k,String(form.querySelector('[name="red_comun_'+k+'"]')?.value||'').trim()]))};
     const cantidad=claves.filter(k=>k!=='web'&&configuracion[k]).length;
-    if(cantidad>lim.redes&&
+    if(lim.redes>=0&&cantidad>lim.redes&&
        (!commerceEditBaseline||!gldEditEqual_(configuracion,anterior.redes_web_comunes)))
       throw Error('Las redes compartidas admiten hasta '+lim.redes+' redes sociales.');
   }
   const sedes=[...form.querySelectorAll('.commerce-sede-card')];
   const nuevas=sedes.filter(s=>!String(s.querySelector('[name="sede_id"]')?.value||'').trim());
-  if(lim.sedes>0&&nuevas.length&&currentCommerceSedes.length+nuevas.length>lim.sedes)
+  if(lim.sedes>=0&&nuevas.length&&currentCommerceSedes.length+nuevas.length>lim.sedes)
     throw Error('Se admiten hasta '+lim.sedes+' sedes.');
   const sedeAnterior=new Map((commerceEditBaseline?.sedes||[]).map(s=>[String(s.sede_id||''),s]));
   for(const sede of sedes){
@@ -6351,11 +6353,11 @@ function gldValidarCargaNivel198_(){
     const cambiado=(k,v)=>!previo||!gldEditEqual_(v,previo[k]);
     const nombre=sede.querySelector('.commerce-sede-title')?.textContent?.trim()||'Sede';
     const imagenes=[...sede.querySelectorAll('[name^="img"]')].filter(el=>/^img\d+$/.test(el.name)&&el.value.trim());
-    if(imagenes.some(el=>Number(el.name.slice(3))>lim.imagenes&&cambiado(el.name,el.value.trim())))
+    if(imagenes.some(el=>lim.imagenes>=0&&Number(el.name.slice(3))>lim.imagenes&&cambiado(el.name,el.value.trim())))
       throw Error(nombre+': el límite es '+lim.imagenes+' imágenes.');
     const camposRedes=['instagram','facebook','youtube','tiktok','linkedin','x'];
     const redes=camposRedes.filter(k=>sede.querySelector('[name="'+k+'"]')?.value.trim());
-    if(redes.length>lim.redes&&camposRedes.some(k=>cambiado(k,String(sede.querySelector('[name="'+k+'"]')?.value||'').trim())))
+    if(lim.redes>=0&&redes.length>lim.redes&&camposRedes.some(k=>cambiado(k,String(sede.querySelector('[name="'+k+'"]')?.value||'').trim())))
       throw Error(nombre+': se admiten hasta '+lim.redes+' redes sociales.');
     if(lim.prestaciones){
       const prev=new Set(String(currentCommerceSedes.find(x=>String(x.sede_id||'')===id)?.servicios_iconos||'').split(',').filter(Boolean));
@@ -6370,7 +6372,7 @@ function gldComprobarCupoSedes198_(){
   try{
     const max=gldLimitesCargaNivel198_().sedes;
     const actual=document.querySelectorAll('#form-datos-comercio .commerce-sede-card').length;
-    if(max>0&&actual>=max){setMsg('msg-datos-comercio','err','Tu nivel admite hasta '+max+' sedes.');return false;}
+    if(max>=0&&actual>=max){setMsg('msg-datos-comercio','err','La configuración general admite hasta '+max+' sedes.');return false;}
     return true;
   }catch(e){setMsg('msg-datos-comercio','err',e.message);return false;}
 }
@@ -6400,6 +6402,7 @@ function addEmptySedeCard(){
     if(title) title.textContent='Nueva sede';
 
     wrap.appendChild(clone);
+    gldCommerceUpdateAllCounters_(clone);
     return;
   }
 
@@ -6415,6 +6418,7 @@ function duplicateSedeCard(card){
   const title = clone.querySelector('.commerce-sede-title');
   if(title) title.textContent = 'Nueva sede (copia)';
   card.insertAdjacentElement('afterend', clone);
+  gldCommerceUpdateAllCounters_(clone);
 }
 
 async function deleteSedeCard(card){
@@ -9396,6 +9400,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
       if(box) box.innerHTML = buildCommerceFieldsMarkup(datos, clasificacion, sedes);
       commerceRefreshCommonNetworks_();
+      gldCommerceUpdateAllCounters_();
       commerceBeginEditSession_();
       return true;
     }catch(err){
