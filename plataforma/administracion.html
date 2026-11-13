@@ -1626,6 +1626,7 @@ const GH_FUNCTION_DEFS=[
  {id:'EVENTOS',name:'Eventos VIP',aliases:['EVENTOS_VIP','EVENTOS VIP'],quota:true},
  {id:'EVENTOS_FREE',name:'Eventos Free',aliases:['EV_FREE','EVFREE','EVENTOS FREE'],quota:true},
  {id:'ACTIVIDADES',name:'Actividades',quota:true},
+ {id:'EMPLEO',name:'Empleo'},
  {id:'PUBLICIDAD',name:'Publicidad',aliases:['PUBLI'],fields:[['activas_max','Máximo de piezas activas'],['posiciones','Posiciones contratadas']]},
  {id:'TURNOS_FARMA',name:'Farmacias de turno',aliases:['FARMACIAS','TURNOS FARMA'],territory:'ciudades',all:'todas_ciudades'},
  {id:'EFEMERIDES_GRL',name:'Efemérides generales',aliases:['EF GENERAL','EFEMERIDES_GENERAL']},
@@ -1764,6 +1765,59 @@ function ghFunctionDisplayName_(label){
  const lower=raw.toLocaleLowerCase('es-AR');
  return lower.charAt(0).toLocaleUpperCase('es-AR')+lower.slice(1);
 }
+
+const GH_ANU_PARAM_METADATA202=new Set(['activo','activa','nombre','admite_excepciones','niveles_habilitados','suscriptores_habilitados','distribucion','revision','actualizado_en','actualizado_por']);
+function ghAnuParamFields202(id){
+ const general=GH_FUNC_GLOBAL166?.reglas?.[id]||{},out=new Map(GH_FUNC_FIELDS168[id]||[]);
+ for(const [key,value]of Object.entries(general))
+  if(!GH_ANU_PARAM_METADATA202.has(key)&&!out.has(key)&&typeof value==='number'&&Number.isSafeInteger(value))out.set(key,key.replaceAll('_',' '));
+ return [...out];
+}
+function ghAnuParamMinimum202(key){
+ return /^(ediciones_(dia|semana|mes)_max|cambios_estado_semana_max|guardadas_max|enlaces_max|altas_mensuales_max|activas_max|ofertas_activas_max|busquedas_activas_max)$/.test(key)?-1:0;
+}
+function ghAnuParamHtml202(id,cfg){
+ const general=GH_FUNC_GLOBAL166?.reglas?.[id];
+ if(!general)return '<p class="notice">No están disponibles los parámetros generales; se conserva la configuración actual sin ofrecer modificaciones.</p>';
+ const admite=general.admite_excepciones!==false,fields=ghAnuParamFields202(id);
+ if(!fields.length)return '';
+ const rows=fields.map(([key,label])=>{
+  const own=Object.hasOwn(cfg,key)&&cfg[key]!==null&&cfg[key]!=='',base=general[key],min=ghAnuParamMinimum202(key);
+  return '<div data-gh-param-row202="'+esc(id)+'" style="display:grid;gap:7px;padding:12px 0;border-bottom:1px solid #45515a">'+
+  '<label style="display:inline-flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:7px">'+
+  '<input type="checkbox" style="width:18px;height:18px;margin:0" data-gh-param-check202="'+esc(id)+'" data-gh-param-key202="'+esc(key)+'" '+(own?'checked ':'')+(admite?'':'disabled ')+'onchange="ghAnuParamToggle202(this)"> Excepción individual</label>'+
+  '<label>'+esc(label)+'<input type="number" step="1" min="'+min+'" data-gh-param-value202="'+esc(id)+'" data-gh-param-key202="'+esc(key)+'" data-gh-general202="'+esc(base??'')+'" value="'+esc((own?cfg[key]:base)??'')+'" '+(own&&admite?'':'disabled')+'></label>'+
+  '<small class="muted">General: '+esc(base??'sin definir')+(min===-1?' · −1 ilimitado; 0 ninguno':'')+'</small></div>';
+ }).join('');
+ return '<details class="gh-param-form202" open><summary><strong>Parámetros</strong> · '+fields.length+'</summary><p class="muted">'+
+ (admite?'Los parámetros sin excepción aplican el valor general. Marcá cada excepción únicamente si querés modificarla.':'La funcionalidad no admite excepciones.')+
+ '</p>'+rows+'</details>';
+}
+function ghAnuParamToggle202(cb){
+ const input=cb.closest('[data-gh-param-row202]')?.querySelector('[data-gh-param-value202]');
+ if(!input)return;
+ input.disabled=!cb.checked;
+ if(!cb.checked)input.value=input.dataset.ghGeneral202??'';
+}
+function ghAnuParamPayload202(root){
+ for(const section of document.querySelectorAll('.gh-param-form202')){
+  const first=section.querySelector('[data-gh-param-check202]');
+  if(!first)continue;
+  const id=first.dataset.ghParamCheck202;
+  if(GH_FUNC_GLOBAL166?.reglas?.[id]?.admite_excepciones===false)continue;
+  const cfg={...(root[id]||{})};
+  for(const cb of section.querySelectorAll('[data-gh-param-check202]')){
+   const key=cb.dataset.ghParamKey202;
+   if(!cb.checked){delete cfg[key];continue;}
+   const input=section.querySelector('[data-gh-param-value202="'+id+'"][data-gh-param-key202="'+key+'"]');
+   const raw=String(input?.value??'').trim(),min=ghAnuParamMinimum202(key);
+   if(!raw||!Number.isSafeInteger(Number(raw))||Number(raw)<min)throw Error('Parámetro individual inválido: '+id+' / '+key);
+   cfg[key]=Number(raw);
+  }
+  if(Object.keys(cfg).length||Object.hasOwn(root,id))root[id]=cfg;
+ }
+ return root;
+}
 function ghFunctionEditor_(adm,catalog,usage){
  GH_AD_EDITED147=false;
  GH_FUNCTION_USAGE=usage||{};
@@ -1782,18 +1836,7 @@ function ghFunctionEditor_(adm,catalog,usage){
   const rawName=GLD_CLASSIFICATION.name(record);const d={...def,name:ghFunctionDisplayName_(rawName&&!rawName.includes('%20')&&![def.id,...def.aliases||[]].includes(ghFunctionKey_(rawName))?rawName:def.name)};
   const cfg=GH_FUNCTION_CONFIG[d.id]||Object.entries(GH_FUNCTION_CONFIG).find(([k])=>[d.id,...d.aliases||[]].includes(ghFunctionKey_(k)))?.[1]||{},on=ghFunctionEnabled_(d,adm);
   let inputs='',contract='';
-  if(d.quota||d.id==='PUBLICIDAD'){
-   const n=d.quota?ghFunctionNumber_(cfg.cantidad,cfg.cupo,cfg.max,cfg.maximo,adm[d.id.toLowerCase()+'_cant'],d.id==='EVENTOS_FREE'?4:0):ghFunctionNumber_(cfg.activas_max,cfg.activas,cfg.max_activas,adm.publicidad_activas_max);
-   const saved=GLD_CUPOS.guardado(n);
-   const field=d.quota?'cantidad':'activas_max';
-   const u=GH_FUNCTION_USAGE[d.id],available=u?.disponible===true;
-   const val=k=>available?esc(u[k]??0):'—';
-   inputs='<div class="quota-settings"><label>'+(d.id==='PUBLICIDAD'?'Máximo de piezas activas':'Cupo asignado')+'<input type="number" min="0" step="1" data-gh-limit="'+d.id+'" data-gh-field="'+field+'" value="'+n+'"></label><label>Cupo de guardado (automático: el doble)<input type="number" min="0" step="1" readonly data-gh-storage="'+d.id+'" value="'+saved+'"></label></div>';
-   inputs+='<div class="quota-usage" data-gh-usage="'+d.id+'"><span>Activos<b>'+val('activas')+'</b></span><span>Pausados<b>'+val('pausadas')+'</b></span><span>Guardados<b>'+val('guardadas')+'</b></span><span>Disponibles<b data-gh-free-active>'+ (available?Math.max(0,n-u.activas):'—')+'</b></span><span>Disponibles para guardar<b data-gh-free-saved>'+ (available?Math.max(0,saved-u.guardadas):'—')+'</b></span><span>Pendientes<b>'+val('pendientes')+'</b></span></div>';
-
-
-   if(d.id==='EVENTOS_FREE'||d.id==='EVENTOS')inputs+='<details class="free-exception"><summary>Excepciones · '+esc(d.name)+'</summary><label style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:auto;margin:0" data-gh-exception-quota="'+d.id+'" '+(cfg.excepcion_cupo===true?'checked':'')+'> Excepción: cupo particular autorizado</label><label style="display:flex;align-items:center;gap:10px"><input type="checkbox" style="width:auto;margin:0" data-gh-exception-unlimited="'+d.id+'" '+(cfg.sin_limites===true?'checked':'')+'> Excepción: sin límites de cupos y ediciones</label>'+
-    (d.id==='EVENTOS_FREE'?'<div class="quota-settings"><label><input type="checkbox" data-gh-free-description-exception '+(cfg.descripcion_excepcion===true?'checked':'')+'> Excepción: caracteres especiales para este anunciante</label><label>Máximo de caracteres de descripción<input type="number" min="0" step="1" data-gh-free-description-max value="'+esc(cfg.descripcion_max??200)+'"></label><label><input type="checkbox" data-gh-free-description-unlimited '+(cfg.descripcion_sin_limites===true?'checked':'')+'> Descripción sin límite de caracteres</label></div>':'')+'</details>';
+  inputs+=ghAnuParamHtml202(d.id,cfg);
    if(d.id==='PUBLICIDAD'){
     const locations=(GH_CATALOG_CACHE.publicidad_ubicaciones||[]).filter(x=>GLD_AD_RULES147.section(x));
     const scopeCfg=Object.keys(cfg).length?cfg:{...cfg,cobertura_tipo:'CIUDADES',ciudades_ids:ANUNCIANTE_CIUDADES.slice(0,1),ubicaciones_ids:locations.filter(x=>GLD_AD_RULES147.section(x)==='Guía').slice(0,1).map(x=>String(x.ubicacion_id||x.id))};
@@ -1808,7 +1851,6 @@ function ghFunctionEditor_(adm,catalog,usage){
     inputs+='</section></details><p>La publicidad acompaña la búsqueda utilizando los datos del anunciante y los tags de la campaña. No se contratan categorías por separado.</p>';
     inputs+=ghPublicidadFormats_(cfg);
    }
-  }
   if(d.territory){let list=[...(d.territory==='ciudades'?GH_CITIES:GH_PROVINCES)];const fallback=d.id==='TURNOS_FARMA'?adm.farmacias_ciudades:(d.territory==='ciudades'?adm.efemerides_ciudades:adm.efemerides_provincias);const ids=Array.isArray(cfg[d.territory])?cfg[d.territory]:Array.isArray(fallback)?fallback:(d.id==='TURNOS_FARMA'?String(adm.turnos_farma||'').split(/[;,|]/).map(v=>v.trim()).filter(v=>v&&v!=='*'):[]);for(const id of ids)if(!list.some(r=>String(r.ciudad_id||r.provincia_id||r.id)===String(id)))list.push({id,nombre:id});const all=ghFunctionTruth_(cfg[d.all])||(d.id==='TURNOS_FARMA'?adm.turnos_farma==='*':ghFunctionTruth_(adm[d.territory==='ciudades'?'efemerides_todas_ciudades':'efemerides_todas_provincias']));inputs+='<label class="switch"><input type="checkbox" data-gh-all="'+d.id+'" '+(all?'checked':'')+'>Todas las '+d.territory+'</label><label>'+ (d.territory==='ciudades'?'Ciudades habilitadas':'Provincias habilitadas')+'<select multiple data-gh-territory="'+d.id+'">'+list.map(r=>{const id=String(r.ciudad_id||r.provincia_id||r.id||'');return '<option value="'+esc(id)+'" '+(ids.map(String).includes(id)?'selected':'')+'>'+esc(r.ciudad_visible||r.nombre||id)+'</option>'}).join('')+'</select></label>'+(d.territory==='ciudades'?'<div data-gh-provinces-for="'+d.id+'"></div>':'');}
   if(d.territory)inputs='<details><summary>Territorio habilitado</summary>'+inputs+'</details>';
   return '<article class="function-card"><div class="function-heading"><h4>'+esc(d.name)+'</h4></div><label class="module-enable '+(on?'is-enabled':'is-disabled')+'"><input type="checkbox" data-anu-fun="'+esc(d.id)+'" '+(on?'checked':'')+' onchange="ghFunctionToggle_(this)"><strong data-gh-enabled-state>'+(on?'HABILITADO':'DESHABILITADO')+'</strong></label>'+contract+'<p class="module-enable-help">Un cupo por sí solo no habilita una funcionalidad.</p><details class="function-fields" open><summary><strong>Cupos, uso y condiciones</strong></summary>'+inputs+'</details></article>';
@@ -1848,7 +1890,7 @@ async function ghSaveFreeException_(){
 
 function ghFunctionPayload_(){
  const root=structuredClone(GH_FUNCTION_CONFIG);
- for(const d of GH_FUNCTION_DEFS)if(d.quota||d.id==='PUBLICIDAD')for(const key of [d.id,...d.aliases||[]])if(root[key]){delete root[key].guardadas_max;delete root[key].max_guardadas;delete root[key].guardadas;}
+ for(const d of GH_FUNCTION_DEFS)if(d.quota||d.id==='PUBLICIDAD')for(const key of [d.id,...d.aliases||[]])if(root[key]){delete root[key].guardadas;}
  for(const d of GH_FUNCTION_DEFS){let cfg={...(root[d.id]||(d.id==='TURNOS_FARMA'?root.FARMACIAS:undefined)||{})},changed=false;
   for(const input of document.querySelectorAll('[data-gh-limit="'+d.id+'"]')){const n=Number(input.value);if(input.value.trim()===''||!Number.isSafeInteger(n)||n<0)throw Error('Indicá un número entero mayor o igual a cero en '+d.name+'.');cfg[input.dataset.ghField]=n;changed=true;}
   if(d.territory){const all=document.querySelector('[data-gh-all="'+d.id+'"]'),sel=document.querySelector('[data-gh-territory="'+d.id+'"]');cfg[d.all]=!!all?.checked;cfg[d.territory]=sel?[...sel.selectedOptions].map(o=>o.value):[];changed=true;}
@@ -1860,21 +1902,9 @@ function ghFunctionPayload_(){
    cfg.ubicaciones_ids=cfg.ubicaciones_ids.filter(id=>locations.some(x=>String(x.ubicacion_id||x.id)===id));
 
    delete cfg.cruces_max;delete cfg.cambios_activos_por_dia_max;changed=true;}
-  if(d.id==='EVENTOS_FREE'||d.id==='EVENTOS'){
-   cfg.sin_limites=!!document.querySelector('[data-gh-exception-unlimited="'+d.id+'"]')?.checked;
-   cfg.excepcion_cupo=!!document.querySelector('[data-gh-exception-quota="'+d.id+'"]')?.checked;
-   if(d.id==='EVENTOS_FREE'){
-    cfg.descripcion_excepcion=!!document.querySelector('[data-gh-free-description-exception]')?.checked;
-    cfg.descripcion_sin_limites=!!document.querySelector('[data-gh-free-description-unlimited]')?.checked;
-    const chars=document.querySelector('[data-gh-free-description-max]')?.value.trim()??'';
-    if(chars!==''&&(!/^\d+$/.test(chars)||!Number.isSafeInteger(Number(chars))))throw Error('Límite de caracteres inválido en Eventos Free.');
-    cfg.descripcion_max=chars===''?200:Number(chars);
-   }
-   changed=true;
-  }
   if(changed)root[d.id]=cfg;
  }
- return root;
+ return ghAnuParamPayload202(root);
 }
 
 
@@ -1922,6 +1952,7 @@ async function detalleAnu(id){
     const nivelOpts=(nivJ.results||[]).filter(x=>x.activo!==false).sort((x,y)=>Number(x.orden??x.numero)-Number(y.orden??y.numero)).map(x=>{const v=GLD_CLASSIFICATION.ids(x).includes(nivel)?nivel:String(x.numero??x.nivel_id??x.id??'');return '<option value="'+esc(v)+'" '+(nivel===v?'selected':'')+'>'+esc(GLD_CLASSIFICATION.levelLabel(x))+'</option>';}).join('');
     const segActual=String(a.segmento_id||''); const segOpts='<option value="">Sin segmento</option>'+(segJ.results||[]).filter(x=>x.activo!==false).map(x=>{const v=String(x.segmento_id||x.id||'');return '<option value="'+esc(v)+'" '+(segActual===v?'selected':'')+'>'+esc(x.nombre||v)+'</option>';}).join('');
     const catsActual=new Set(Array.isArray(a.categoria_ids)?a.categoria_ids.map(String):[]); const cats=(catJ.results||[]).filter(x=>x.activo!==false).map(x=>{const v=String(x.categoria_id||x.id||'');return '<label><input type="checkbox" data-anu-cat="'+esc(v)+'" '+(catsActual.has(v)?'checked':'')+'> '+esc(x.nombre||v)+'</label>';}).join('');
+    if(!GH_FUNC_GLOBAL166)try{await ghCargarFuncionesGlobal166();}catch(e){console.warn('No se cargaron los parámetros generales:',e);}
     const funcs=ghFunctionEditor_(adm,funJ.results||[],j.uso_funcionalidades);
     const infoLimitsHtml=ghInfoAnuncianteCuposRender_(nivJ.results||[]);
     const actCat=actJ.results||[], accCat=accJ.results||[], nodoCat=nodoJ.results||[];
