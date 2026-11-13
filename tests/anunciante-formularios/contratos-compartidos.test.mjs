@@ -51,3 +51,22 @@ test('el paquete no se reconstruye si la copia existe',()=>{
  const source=worker.slice(begin,end);
  assert.match(source,/if\(packet\?\.v===205&&packet\?\.response\?\.success===true\)return packet\.response/);
 });
+
+test('abrir un catálogo no hace escrituras KV aunque falte el parámetro general',async()=>{
+ const begin=worker.indexOf('async function getCommerceCatalogs(cache)');
+ const end=worker.indexOf('async function getEventosCatalogs(cache)',begin);
+ assert.ok(begin>=0&&end>begin);
+ const getCommerceCatalogs=new Function('KEYS',worker.slice(begin,end)+'return getCommerceCatalogs;')({commerce:'catalogs:commerce:v1'});
+ const operations=[];
+ const cache={
+  get:async key=>{
+   operations.push(['get',key]);
+   if(key==='catalogs:commerce:v1')return {niveles_anunciante:[]};
+   return {niveles_anunciante:[{nivel_id:'CONFIG_GENERAL_ANUNCIANTES',descripcion:500}]};
+  },
+  put:async key=>operations.push(['put',key])
+ };
+ const response=await getCommerceCatalogs(cache);
+ assert.ok(response.niveles_anunciante.some(row=>row.nivel_id==='CONFIG_GENERAL_ANUNCIANTES'));
+ assert.ok(!operations.some(([op])=>op==='put'),'Leer una configuración no debe escribir KV');
+});
