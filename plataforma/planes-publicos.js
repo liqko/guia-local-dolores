@@ -58,6 +58,24 @@ function cardFuncionalidad(title,summary,price,details){
  return '<article class="service"><h3>'+esc(title)+'</h3><p class="plan-desc">'+esc(summary)+'</p>'+
   price+'<details class="plan-detail"><summary><strong>Detalle</strong></summary>'+details+'</details></article>';
 }
+// Cada columna mantiene su propia altura: abrir un nivel no desplaza a los vecinos.
+const independentStyle=document.createElement('style');
+independentStyle.textContent='.plans.plans-independent{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-items:start;gap:15px}.plans-independent .plan-column{display:flex;flex-direction:column;gap:15px;min-width:0}.plans-independent .plan{min-width:0}@media(max-width:850px){.plans.plans-independent{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:580px){.plans.plans-independent{grid-template-columns:1fr}}';
+document.head.appendChild(independentStyle);
+let currentColumns=0;
+function columnCount(){return window.innerWidth<=580?1:window.innerWidth<=850?2:3;}
+function arrangePlans(){
+ const cards=Array.from(list.querySelectorAll('.plan'));
+ if(!cards.length)return;
+ const count=columnCount();
+ if(currentColumns===count&&list.classList.contains('plans-independent'))return;
+ const columns=Array.from({length:count},()=>{const el=document.createElement('div');el.className='plan-column';return el;});
+ cards.forEach((card,i)=>columns[i%count].appendChild(card));
+ list.replaceChildren(...columns);
+ list.classList.add('plans-independent');
+ currentColumns=count;
+}
+window.addEventListener('resize',()=>{if(list.classList.contains('plans-independent')&&columnCount()!==currentColumns)arrangePlans();});
 function render(payload){
  window.GLD_PLANES_PUBLIC_PACKET=payload;
  const rows=Array.isArray(payload.niveles_anunciante)?payload.niveles_anunciante:[];
@@ -77,6 +95,8 @@ function render(payload){
   (groups.length?'<details class="plan-detail"><summary><strong>Qué incluye este nivel</strong></summary>'+benefits+'</details>':'')+
   '<a class="plan-link" target="_blank" rel="noopener noreferrer" href="'+wa+'">Consultar este nivel <span aria-hidden="true">↗</span></a></article>';
  }).join('');
+ currentColumns=0;
+ arrangePlans();
  if(window.GLD_FUNCIONALIDADES_RESUMEN?.render)window.GLD_FUNCIONALIDADES_RESUMEN.render(payload.funcionalidades_parametros);
  if(window.GLD_SIMULADOR_PUBLICO?.render)window.GLD_SIMULADOR_PUBLICO.render(payload);
  const priceBox=document.getElementById('preciosFuncPublicos');
