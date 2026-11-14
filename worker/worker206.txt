@@ -11014,21 +11014,57 @@ async function routePublicationsV77(ctx){
   const id='REQ-'+crypto.randomUUID(),now=new Date().toISOString();await db.patch('solicitudes_anunciante',id,{detalle:{descripcion:reason,mail:String(body.mail||''),whatsapp:String(body.whatsapp||'')},solicitud_id:id,modo:'RECLAMAR',anunciante_id:aid,suscriptor_id:s.sid,nombre:existing.nombre,ciudad_id:existing.ciudad_id||'',estado:'PENDIENTE',creado_en:now,declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:s.sid,fecha:now}},{newDocument:true});return json({success:true,solicitud_id:id,message:'Reclamo enviado para verificar la titularidad. No modifica la publicación existente.'});
  }
  if(String(body.modo).toUpperCase()!=='CREAR')publicationErrorV77('Tipo de solicitud inválido.');
- const cityPacket=await cache.get('territorio:public:v1'),needle=String(body.ciudad||'').trim().toLowerCase();
- const matches=(cityPacket?.ciudades||[]).filter(c=>String(c.ciudad_id||c.id).toLowerCase()===needle||String(c.ciudad_visible||c.nombre||'').toLowerCase()===needle);
- if(matches.length!==1||!String(body.nombre||'').trim())publicationErrorV77('Indicá un nombre y seleccioná una ciudad válida.');
- if(String(body.actividad||'').trim().length>80)publicationErrorV77('La aclaración de actividad admite hasta 80 caracteres.');
- const city=String(matches[0].ciudad_id||matches[0].id),aid='ANU-'+crypto.randomUUID(),now=new Date().toISOString(),sedeId='SED-'+aid+'-MAIN';
+
+ const cityPacket=await cache.get('territorio:public:v1');
+ const cities=Array.isArray(cityPacket?.ciudades)?cityPacket.ciudades:[];
+ const byCity=v=>cities.filter(c=>String(c.ciudad_id||c.id).trim()===String(v||'').trim()||String(c.ciudad_visible||c.nombre||'').trim().toLowerCase()===String(v||'').trim().toLowerCase());
+ const info=body.datos&&typeof body.datos==='object'&&!Array.isArray(body.datos)?body.datos:{};
+ const submitted=Array.isArray(body.sedes)?body.sedes:null;
+ const sourceSedes=submitted||[{ciudad_id:body.ciudad,nombre_sede:'Principal',direccion:body.direccion,whatsapp:body.whatsapp,mail:body.mail,web:body.web}];
+ if(!String(body.nombre||'').trim()||!sourceSedes.length)publicationErrorV77('Indicá un nombre y al menos una sede.');
+ if(sourceSedes.length>100)publicationErrorV77('Cantidad de sedes inválida.');
+ const validSedes=sourceSedes.map((row,index)=>{
+   if(!row||typeof row!=='object'||Array.isArray(row))publicationErrorV77('Sede inválida.');
+   const matches=byCity(row.ciudad_id||body.ciudad);
+   if(matches.length!==1)publicationErrorV77('Seleccioná una ciudad válida para la sede '+(index+1)+'.');
+   const {sede_id,anunciante_id,revision_sede,...source}=row;
+   const allowed=['nombre_sede','contacto_publico_elegido','direccion','lat','lng','maps','horarios_atencion','servicios_iconos','telefono','telefono2','telefono3','telefono4','telefono5','whatsapp','whatsapp2','whatsapp3','whatsapp4','whatsapp5','mail','mail2','mail3','instagram','facebook','youtube','tiktok','linkedin','x','web','img1','img2','img3','img4','img5','img6','img7','img8','img9','img10','pais_id','provincia_id','codigo_postal','actividad_ids','accion_ids','nodo_ids'];
+   const clean={};
+   for(const field of allowed){
+     const value=source[field];
+     if(Array.isArray(value)&&['actividad_ids','accion_ids','nodo_ids'].includes(field))clean[field]=[...new Set(value.map(v=>String(v||'').trim()).filter(Boolean))].slice(0,100);
+     else if(typeof value==='string'&&value.trim())clean[field]=value.trim();
+   }
+   return {...clean,ciudad_id:String(matches[0].ciudad_id||matches[0].id),nombre_sede:clean.nombre_sede||'Sede '+(index+1)};
+ });
+ const activity=String(info.actividad??body.actividad??'').trim(),description=String(info.descripcion??body.descripcion??'').trim(),tags=String(info.tags??'').trim();
+ if(activity.length>80||description.length>500||tags.length>300)publicationErrorV77('Los textos exceden los límites de carga.');
+ const city=validSedes[0].ciudad_id,aid='ANU-'+crypto.randomUUID(),now=new Date().toISOString();
+ const advertiserPayload={
+   id:aid,nombre:String(body.nombre).trim(),actividad:activity,descripcion:description,tags,
+   segmento_id:String(info.segmento_id||'').trim(),categoria_id:String(info.categoria_id||'').trim(),
+   logo:String(info.logo||'').trim(),link:String(info.link||'').trim(),
+   mail:String(validSedes[0].mail||body.mail||''),whatsapp:String(validSedes[0].whatsapp||body.whatsapp||''),
+   web:String(validSedes[0].web||body.web||''),ciudad_id:city,
+   contenido_adulto:adultFlag(info.contenido_adulto??body.contenido_adulto),
+   creado_en:now,actualizado_en:now
+ };
+ if(info.redes_web_comunes&&typeof info.redes_web_comunes==='object')advertiserPayload.redes_web_comunes=info.redes_web_comunes;
+ const sedeRows=validSedes.map((sede,index)=>({
+   ...sede,sede_id:'SED-'+crypto.randomUUID(),anunciante_id:aid,
+   activo:true,creado_en:now,actualizado_en:now
+ }));
  if(db.prepareNewAdvertiserPanels116)await db.prepareNewAdvertiserPanels116(aid);else if(db.prepareNewPanelList)await db.prepareNewPanelList('anunciantes_sedes','anunciante_id',aid);
  const policy=publicationPolicyV77(body,ctx.publication.rules);
- const advertiser=await db.patch('anunciantes',aid,{id:aid,nombre:String(body.nombre).trim(),actividad:String(body.actividad||''),descripcion:String(body.descripcion||''),mail:String(body.mail||''),whatsapp:String(body.whatsapp||''),web:String(body.web||''),ciudad_id:city,contenido_adulto:adultFlag(body.contenido_adulto),creado_en:now,actualizado_en:now},{newDocument:true});
+ const advertiser=await db.patch('anunciantes',aid,advertiserPayload,{newDocument:true});
  const admin=await db.patch('anunciantes_administracion',aid,{id:aid,aprobado:true,nivel:'',subnivel:'',funcionalidades:[],creado_en:now,actualizado_en:now},{newDocument:true});
- const sede=await db.patch('anunciantes_sedes',sedeId,{sede_id:sedeId,anunciante_id:aid,ciudad_id:city,nombre_sede:'Principal',direccion:String(body.direccion||''),whatsapp:String(body.whatsapp||''),mail:String(body.mail||''),web:String(body.web||''),activo:true},{newDocument:true});
+ const savedSedes=[];
+ for(const sede of sedeRows)savedSedes.push(await db.patch('anunciantes_sedes',sede.sede_id,sede,{newDocument:true}));
  await db.patch('suscriptor_anunciante',s.sid+'__'+aid,{relacion_id:s.sid+'__'+aid,suscriptor_id:s.sid,anunciante_id:aid,anunciante_nombre:advertiser.nombre,rol:'PROPIETARIO',activo:true,fecha_alta:now},{newDocument:true});
- if(db.rememberPanelRows){db.rememberPanelRows('anunciantes',[advertiser]);db.rememberPanelRows('anunciantes_administracion',[admin]);db.rememberPanelRows('anunciantes_sedes',[sede]);}
- if(db.rememberPanelRows)db.rememberPanelRows('anunciantes_sedes',[sede]);
- const createdDb={...db,queryEqual:(c,f,v,limit)=>c==='anunciantes_sedes'&&f==='anunciante_id'&&String(v)===aid?Promise.resolve([sede]):db.queryEqual(c,f,v,limit)};
- await syncGuideAdvertiserV2({db:createdDb,cache,advertiserId:aid});await syncAdvertiserIndexV2({db:createdDb,cache,advertiserId:aid});
+ if(db.rememberPanelRows){db.rememberPanelRows('anunciantes',[advertiser]);db.rememberPanelRows('anunciantes_administracion',[admin]);db.rememberPanelRows('anunciantes_sedes',savedSedes);}
+ const createdDb={...db,queryEqual:(collection,field,value,limit)=>collection==='anunciantes_sedes'&&field==='anunciante_id'&&String(value)===aid?Promise.resolve(savedSedes):db.queryEqual(collection,field,value,limit)};
+ await syncGuideAdvertiserV2({db:createdDb,cache,advertiserId:aid});
+ await syncAdvertiserIndexV2({db:createdDb,cache,advertiserId:aid});
  return json({success:true,anunciante_id:aid,publicado:!policy.contenido_adulto&&policy.estado_moderacion==='PUBLICADO',revision_adulto:policy.revision_adulto,estado_moderacion:policy.estado_moderacion,message:'Anuncio creado. Volvé a iniciar sesión para acceder a su panel. La clasificación comercial y los cupos se asignan desde Gran Hermano.'});
 }
 
