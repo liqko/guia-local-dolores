@@ -82,7 +82,14 @@ const activityCityKeyV2=id=>'activities:city:v2:'+id;
 const sort5=rows=>[...rows].sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
 const putPreparedRelationsV1=async()=>{};
 `;
- const exposed=Function(stubs2+['gldPublicacionAdmisible206','isPublic3','syncActivityPreparedV2','getActivitiesCityV2'].map(extract).join('\n')+'\nreturn {syncActivityPreparedV2,getActivitiesCityV2};')();
+ const activityFunctions=[
+   extract('gldPublicacionAdmisible206'),
+   extract('isPublic3'),
+   worker.slice(worker.indexOf('async function syncActivityPreparedV2('),worker.indexOf('async function getActivitiesCityV2(')),
+   worker.slice(worker.indexOf('async function getActivitiesCityV2('),worker.indexOf('async function rebuildActivitiesAllV2('))
+ ];
+ assert(activityFunctions.every(x=>x.length>50),'Funciones del circuito de actividades incompletas');
+ const exposed=Function(stubs2+activityFunctions.join('\n')+'\nreturn {syncActivityPreparedV2,getActivitiesCityV2};')();
  const store=new Map();let reads=0,writes=0;
  const cache={get:async k=>{reads++;return store.get(k)||null;},put:async(k,v)=>{writes++;store.set(k,v);}};
  const row={actividad_id:'ACT-PRUEBA',nombre:'TALLER STREAMING',estado:'ACTIVA',activo:true,aprobado:false,estado_moderacion:'PUBLICADO',vigente_desde:'2026-11-01',vigente_hasta:'2026-11-30'};
