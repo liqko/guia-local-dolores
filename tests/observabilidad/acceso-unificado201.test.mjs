@@ -6,7 +6,7 @@ const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport
 function setup(t){
  const raw=new Map(),gets=[],report={operations:{},kv:{get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0}};
  const env={SERVER_SECRET:'local-only-access-test',__gldRequestReport119:report,GLD_CACHE_KV:{get:async key=>{gets.push(key);return raw.get(key)||null;},put:async(key,v)=>raw.set(key,v),delete:async key=>raw.delete(key)}};
- env.GLD_PUBLIC_CACHE=accessBinding201(w,env,{get(){throw Error('Unexpected actor');}},t);
+ env.GLD_PUBLIC_CACHE=accessBinding201(w,env,{get(name){if(name==='city-book-shared-v1')return {fetch:async req=>{const body=await req.json();assert.equal(body.op,'daily-edition206');assert.equal(body.action,'read');return Response.json({error:'No preparada'},{status:503});}};throw Error('Unexpected actor');}},t);
  const seed=(key,value)=>raw.set(key,JSON.stringify(value));
  const access=(sid,command)=>w.accessRecord201(env,sid,command);
  const token=(sid='P',rol='SUPERADMIN_PRINCIPAL',extra={})=>w.issue2(env,{sid,rol,persistent:true,sv:0,...extra});

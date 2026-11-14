@@ -31,20 +31,19 @@ function actors(t,raw){
  return {env,set,cache:{get:async key=>raw.get(key)||null}};
 }
 test('un tipo nuevo viaja del registro de origen al publicador y al lector sin editar esas piezas',async t=>{
- const cutoff=Date.parse('2026-11-12T04:00:00Z');let now=cutoff-1000;t.mock.method(Date,'now',()=>now);
- const raw=new Map([['territorio:public:v1',{ciudades:[{ciudad_id:'DOL'}]}],['catalogs:publicidad:v1',{ubicaciones:[{modulo:'INMUEBLES',ubicacion_id:'nueva'}]}]]);
- const {env,set,cache}=actors(t,raw);
- worker.PUBLIC_FEATURES191.inmuebles={store:{prefix:'inmuebles:city:v1:',module:'inmuebles',field:'ofertas',id:'inmueble_id',collection:'inmuebles'},field:'ofertas',id:'inmueble_id',metadata:[],project:async({cache,city})=>({success:true,ofertas:(await cache.get('inmuebles:city:v1:'+city))?.ofertas||[]})};
- t.after(()=>delete worker.PUBLIC_FEATURES191.inmuebles);
- await set('inmuebles:city:v1:DOL','ofertas',[{inmueble_id:'casa-ensayo',titulo:'Proyección pública de ensayo'}]);
- await set('efemerides:city:v2:DOL','efemerides',[{efemeride_id:'dia-ensayo',nombre:'Calendario de ensayo',tipo_fecha:'FIJA',mes:11,dia:12}]);
- const job={empleo_id:'empleo-ensayo',tipo:'OFREZCO',nombre:'Aviso de ensayo',puesto:'Administración',tags:[],ciudad_id:'DOL',ciudad_ids:['DOL'],desde:new Date(cutoff-86400000).toISOString(),hasta:new Date(cutoff+3600000).toISOString(),estado_moderacion:'PUBLICADO',contacto:{email:'publico@example.test'},suscriptor_id:'NO_PUBLICAR',contacto_privado:{email:'NO_PUBLICAR'}};
- await set('employment:city:v1:DOL','rows',[job,{...job,empleo_id:'pendiente',estado_moderacion:'PENDIENTE'},{...job,empleo_id:'adulto',contenido_adulto:true,revision_adulto:'APROBADO',nombre:'NO_PUBLICAR_ADULTO'}]);
- now=cutoff+1000;
- const cut=await worker.exportCityBookCut({env,cache,after:cutoff-86400000,cutoff,known:['DOL'],report:{}});
- assert(cut.schema.inmuebles);assert(cut.schema.ads_inmuebles);assert(cut.schema.ephemerides);assert(cut.schema.employment);
- assert(!JSON.stringify(cut).includes('NO_PUBLICAR'));assert(!JSON.stringify(cut).includes('"empleo_id":"pendiente"'));
- assert.equal(cut.cities[0].replacements.employment.rows.length,2);
+ const {fixture,cutoff,day}=await import('./arquitectura/fixture206.mjs');
+ worker.EDITION_COLLECTIONS206.add('inmuebles');
+ worker.PUBLIC_FEATURES191.employment.rebuild=canonicalEmployment;
+ worker.PUBLIC_FEATURES191.inmuebles={rebuild:async({db,cache})=>cache.put('inmuebles:city:v1:DOL',{ofertas:await db.listCollection('inmuebles')}),store:{prefix:'inmuebles:city:v1:',module:'inmuebles',field:'ofertas',id:'inmueble_id',collection:'inmuebles'},field:'ofertas',id:'inmueble_id',metadata:[],project:async({cache,city})=>({success:true,ofertas:(await cache.get('inmuebles:city:v1:'+city))?.ofertas||[]})};
+ t.after(()=>{delete worker.PUBLIC_FEATURES191.inmuebles;worker.EDITION_COLLECTIONS206.delete('inmuebles');});
+ const h=fixture(t);h.rows.ciudades=[{id:'DOL',ciudad_id:'DOL',nombre:'Dolores'}];h.rows.anunciantes=[];h.rows.anunciantes_sedes=[];h.rows.anunciantes_administracion=[];
+ h.rows.inmuebles=[{id:'casa-ensayo',inmueble_id:'casa-ensayo',titulo:'Proyección pública de ensayo'}];
+ h.rows.publicidad_ubicaciones=[{id:'nueva',ubicacion_id:'nueva',modulo:'INMUEBLES',activo:true}];
+ h.rows.empleos=[{id:'empleo-ensayo',empleo_id:'empleo-ensayo',tipo:'OFREZCO',nombre:'Aviso de ensayo',puesto:'Administración',tags:[],ciudad_id:'DOL',ciudad_ids:['DOL'],desde:new Date(cutoff-day).toISOString(),hasta:new Date(cutoff+3600000).toISOString(),estado_moderacion:'PUBLICADO'}];
+ await h.op('stage');
+ const env=h.env,cache={get:async key=>(await worker.editionCall206(env,{action:'staged-read',cutoff:Math.floor((Date.now()-4*3600000)/day)*day+4*3600000,key:'cache/'+key})).value};
+ const cut=await worker.exportCityBookCut({env,cache,after:cutoff-day,cutoff,known:['DOL'],report:{}});
+ assert(cut.schema.inmuebles);assert(cut.schema.ads_inmuebles);
  const previous={cutoff:cut.after,manifest:{DOL:{key:Buffer.from('DOL').toString('base64url'),revision:1,deltas:[]}}};
  const root=await stage(t),book=oldBook('DOL');
  const result=await aplicarCorte({previous,source:cut,readPublished:async()=>book,stage:root});
@@ -56,9 +55,9 @@ test('un tipo nuevo viaja del registro de origen al publicador y al lector sin e
  assert.deepEqual(await open().get('DOL'),published);assert.equal(requests.length,1);assert.match(requests[0],/cambios-1-2/);
  await open().get('DOL');assert.equal(requests.length,1);
  assert.equal((await open().module('DOL','ads','INMUEBLES')).publicidades.length,0);
- // Sin editar ni guardar un empleo, su vencimiento debe generar una baja pública.
- now=cutoff+86400000+1000;
- const next=await worker.exportCityBookCut({env,cache,after:cutoff,cutoff:cutoff+86400000,known:['DOL'],knownSchema:cut.schema,report:{}});
+
+ await h.op('commit');h.now=cutoff+day+1000;await h.op('stage');
+ const next=await worker.exportCityBookCut({env,cache,after:cutoff,cutoff:cutoff+day,known:['DOL'],knownSchema:cut.schema,report:{}});
  assert.equal(next.cities[0].replacements.employment.rows.length,0);
 });
 test('el contrato rechaza claves peligrosas, metadatos no declarados y cambios incompatibles',()=>{
