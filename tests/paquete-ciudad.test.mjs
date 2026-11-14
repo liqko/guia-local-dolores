@@ -86,3 +86,33 @@ test('primera apertura, recarga vigente, un lote de veinte altas, edición y baj
   assert.equal(await open().get('sin-publicacion'), null);
   assert.equal(requests.length, 0);
 });
+
+test('el mismo lector adopta una nueva edición una vez y la comparte entre secciones',async()=>{
+ const copies=new Map(),requests=[];let revision=1;
+ const original=initial('dolores');original.modules.guide.results=[{anunciante_id:'A',nombre:'Anterior'}];
+ const updated={city:'dolores',from:1,revision:2,changes:{guide:{upsert:[{anunciante_id:'A',nombre:'Actualizado'}],remove:[]}}};
+ const api=client({manifest:()=>({key:'dolores',revision,deltas:[1]}),storage:{get:city=>copies.get(city),put:book=>copies.set(book.city,book)},fetchJson:async path=>{requests.push(path);return path.includes('completo')?original:updated;}});
+ assert.equal((await api.get('dolores')).revision,1);revision=2;
+ const [book,guide,events]=await Promise.all([api.get('dolores'),api.module('dolores','guide'),api.module('dolores','events')]);
+ assert.equal(book.revision,2);assert.equal(guide.results[0].nombre,'Actualizado');assert.deepEqual(events.events,[]);
+ assert.equal(requests.length,2,'una descarga inicial y una de cambios, no una por sección');
+ for(let i=0;i<20;i++)await api.get('dolores');assert.equal(requests.length,2);
+});
+
+test('quinientas fichas en el mismo paquete se reutilizan sin una solicitud por ficha o sección',async()=>{
+ const book=initial('dolores');book.modules.guide.results=Array.from({length:500},(_,i)=>({anunciante_id:'A'+i,nombre:'Anunciante '+i,descripcion:'Descripción completa de ensayo '+i}));
+ const copies=new Map();let downloads=0;const make=()=>client({manifest:()=>({key:'dolores',revision:1,deltas:[]}),storage:{get:city=>copies.get(city),put:packet=>copies.set(packet.city,packet)},fetchJson:async()=>{downloads++;return book;}});
+ const api=make();await Promise.all(Object.keys(lists).map(name=>api.module('dolores',name)));
+ const cached=await api.module('dolores','guide');for(const row of cached.results)assert(row.nombre);
+ assert.equal(downloads,1);assert.equal(cached.results.length,500);
+ await make().module('dolores','guide');assert.equal(downloads,1,'volver a entrar reutiliza la copia persistente');
+});
+
+test('el fallo de una descarga anterior no elimina una nueva descarga en curso',async()=>{
+ const original=initial('dolores'),copies=new Map([['dolores',original]]);let revision=2,rejectOld,resolveNew;const requests=[];
+ const api=client({manifest:()=>({key:'dolores',revision,deltas:[]}),storage:{get:city=>copies.get(city),put:book=>copies.set(book.city,book)},fetchJson:path=>{requests.push(path);return new Promise((resolve,reject)=>{if(path.includes('completo-2'))rejectOld=reject;else resolveNew=resolve;});}});
+ const old=api.get('dolores');await Promise.resolve();revision=3;const newer=api.get('dolores');await Promise.resolve();
+ rejectOld(Error('interrupción'));await old;
+ assert.strictEqual(api.get('dolores'),newer,'se conserva la descarga más nueva');
+ resolveNew({...initial('dolores'),revision:3});assert.equal((await newer).revision,3);assert.equal(requests.length,2);
+});
