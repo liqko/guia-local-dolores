@@ -5,7 +5,7 @@ import {fileURLToPath} from 'node:url';
 import {resolve,dirname} from 'node:path';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const html=readFileSync(resolve(root,'plataforma/login.html'),'utf8');
-const worker=readFileSync(resolve(root,'worker/worker205.txt'),'utf8');
+const worker=readFileSync(resolve(root,'worker/worker206.txt'),'utf8');
 test('los seis formularios del panel conservan rutas de carga',()=>{
  for(const [name,path,action] of [
   ['Información','/commerce','action=anunciante'],
@@ -36,20 +36,18 @@ test('permisos devuelve configuracion_funcionalidades al HTML',()=>{
 });
 test('el paquete maestro conserva datos y parámetros sin listas fijas de campos',()=>{
  assert.match(worker,/async function commerceMaster205/);
- assert.match(worker,/const response=await commercePanelDataV3/);
- assert.match(worker,/response\.advertiser\.configuracion_funcionalidades=gldConfiguracionPanel205/);
- assert.match(worker,/return packet\.response/);
+ assert.match(worker,/response=await commercePanelDataV3/);
+ assert.match(worker,/advertiser\.configuracion_funcionalidades=gldConfiguracionPanel205/);
+ assert.match(worker,/return response/);
  for(const fn of ['eventsPanelDataV2','actividadesPanelData','promosPanelDataV2','publicidadPanelDataV2']){
   const ix=worker.indexOf('async function '+fn);
   assert.ok(ix>=0&&worker.slice(ix,ix+1000).includes('commerceMaster205'),fn+' no comparte el paquete');
  }
 });
-test('el paquete no se reconstruye si la copia existe',()=>{
- const begin=worker.indexOf('async function commerceMaster205(');
- const end=worker.indexOf('async function commerceMasterInvalidate205(',begin);
- assert.ok(begin>=0&&end>begin);
- const source=worker.slice(begin,end);
- assert.match(source,/if\(packet\?\.v===205&&packet\?\.response\?\.success===true\)return packet\.response/);
+test('el paquete usa la copia durable y no vence a los dos minutos',()=>{
+ assert.match(worker,/const response=await db\.commerceMasterRead209\(advertiserId\)/);
+ assert.match(worker,/if\(response\)return response/);
+ assert.doesNotMatch(worker,/COMMERCE_MASTER_TTL205|commerceMasterInvalidate205/);
 });
 
 test('abrir un catálogo no hace escrituras KV aunque falte el parámetro general',async()=>{
