@@ -75,3 +75,34 @@ test('guardar, moderar y publicar actividades comparten la política automática
  assert.match(policy,/patch\.estado=patch\.aprobado\?'ACTIVA':'PENDIENTE'/);
  assert.match(worker,/function gldPublicacionAdmisible206\(/);
 });
+
+test('alta -> paquete v2 -> lectura pública, pausa y rechazo, sin escritura al leer',async()=>{
+ const stubs2=stubs+`
+const activityCityKeyV2=id=>'activities:city:v2:'+id;
+const sort5=rows=>[...rows].sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
+const putPreparedRelationsV1=async()=>{};
+`;
+ const exposed=Function(stubs2+['gldPublicacionAdmisible206','isPublic3','syncActivityPreparedV2','getActivitiesCityV2'].map(extract).join('\n')+'\nreturn {syncActivityPreparedV2,getActivitiesCityV2};')();
+ const store=new Map();let reads=0,writes=0;
+ const cache={get:async k=>{reads++;return store.get(k)||null;},put:async(k,v)=>{writes++;store.set(k,v);}};
+ const row={actividad_id:'ACT-PRUEBA',nombre:'TALLER STREAMING',estado:'ACTIVA',activo:true,aprobado:false,estado_moderacion:'PUBLICADO',vigente_desde:'2026-11-01',vigente_hasta:'2026-11-30'};
+ const horarios=[{actividad_horario_id:'AH-1',ciudad_id:'DOLORES',activo:true}];
+ await exposed.syncActivityPreparedV2({cache,activityId:row.actividad_id,next:row,horarios});
+ assert.equal(store.get('activities:city:v2:DOLORES').actividades.length,1);
+ writes=0;reads=0;
+ const listing=await exposed.getActivitiesCityV2({cache,cityId:'DOLORES',at:when});
+ assert.deepEqual(listing.actividades.map(x=>x.actividad_id),['ACT-PRUEBA']);
+ assert.equal(writes,0,'Una consulta de actividades no debe escribir en KV');
+ assert(reads<=2,'Una lectura pública sin anunciante asociado no necesita más de ciudad+virtual');
+ await exposed.syncActivityPreparedV2({cache,activityId:row.actividad_id,current:row,next:{...row,estado:'PAUSADA'},horarios,previousCities:['DOLORES']});
+ assert.equal((await exposed.getActivitiesCityV2({cache,cityId:'DOLORES',at:when})).actividades.length,0);
+ await exposed.syncActivityPreparedV2({cache,activityId:row.actividad_id,current:row,next:{...row,estado_moderacion:'RECHAZADA'},horarios,previousCities:['DOLORES']});
+ assert.equal((await exposed.getActivitiesCityV2({cache,cityId:'DOLORES',at:when})).actividades.length,0);
+});
+test('la ruta activa de guardado de Actividades usa V3 y el paquete v2',()=>{
+ const v12=worker.slice(worker.indexOf('async function routePanelV12('),worker.indexOf('async function routePanelV13('));
+ assert.match(v12,/activitySaveV3\(/);
+ assert.match(v12,/activityActionV3\(/);
+ const v3=worker.slice(worker.indexOf('async function activitySaveV3('),worker.indexOf('async function activityActionV3('));
+ assert.match(v3,/syncActivityPreparedV2\(/);
+});
