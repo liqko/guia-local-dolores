@@ -1,12 +1,14 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 206             ║
-// ║          VERSIÓN 206 · PENDIENTE DE DESPLIEGUE           ║
+// ║                GUÍA LOCAL DOLORES · WORKER 207             ║
+// ║          VERSIÓN 207 · PENDIENTE DE DESPLIEGUE           ║
 // ║     Base: 194 + listado diario privado; vista de 7 días   ║
 // ╚════════════════════════════════════════════════════════════╝
+// Revisión de entrega: 207-arranque-recuperable-2. Preparación inicial
+// persistente en el publicador existente; nunca se inicia desde una lectura.
 // La etiqueta worker-v129.js que muestra Cloudflare es el nombre
 // técnico heredado del archivo de carga, no esta versión.
 // Comprobación sin Firestore ni KV: GET /__version
-// GUÍA LOCAL - WORKER 206 - IDENTIFICACIÓN DE VERSIÓN (base 162)
+// GUÍA LOCAL - WORKER 207 - IDENTIFICACIÓN DE VERSIÓN (base 162)
 // Base: Worker 149. No se eliminan registros históricos de Firestore.
 (function(root){
  'use strict';
@@ -102,7 +104,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'206',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'207',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -824,6 +826,7 @@ async function newToken(env) {
   return tokenCache.token;
 }
 async function token(env) {
+  if(env.__editionReader206)throw Object.assign(Error("Una consulta de edición no puede acceder a Firestore."),{status:503,code:"READ_SOURCE_ACCESS_BLOCKED"});
   if (tokenCache.token && Date.now() < tokenCache.expiresAt) return tokenCache.token;
   if (tokenCache.pending) return tokenCache.pending;
   tokenCache.pending = newToken(env);
@@ -890,12 +893,14 @@ function firestoreFieldName115(value){
  return /^[A-Za-z_][A-Za-z_0-9]*$/.test(key)?key:'`'+key.replace(/\\/g,'\\\\').replace(/`/g,'\\`')+'`';
 }
 function createDb(env) {
+  const documents206=new Map(),readTime206=env.__editionReadTime206;
+  const remember206=(c,id,row)=>{documents206.set(c+"/"+id,row);return row;};
   async function sourceDocument119(collection,id){
-    if(!env.GLD_PUBLIC_CACHE||!RECOVERABLE119.has(collection))return request(env,`${encodeURIComponent(collection)}/${encodeURIComponent(id)}`,{allow404:true});
+    if(!env.GLD_PUBLIC_CACHE||!RECOVERABLE119.has(collection))return request(env,`${encodeURIComponent(collection)}/${encodeURIComponent(id)}`+(readTime206?'?readTime='+encodeURIComponent(readTime206):''),{allow404:true});
     // batchGet costs one document read, just like get. Its server readTime also
     // proves an absent record without inventing a client-clock delete version.
     const name='projects/'+text(env.FIREBASE_PROJECT_ID)+'/databases/(default)/documents/'+collection+'/'+id;
-    const response=await fetch(base(env)+':batchGet',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({documents:[name]})});
+    const response=await fetch(base(env)+':batchGet',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({documents:[name],...(readTime206?{readTime:readTime206}:{})})});
     if(!response.ok)throw httpError('No se pudo consultar el registro. Reintentá.',503);
     const records=await response.json(),record=records.find(x=>x.found?.name===name||x.missing===name);
     if(!record)throw Error('Firestore batchGet missing response');
@@ -903,31 +908,62 @@ function createDb(env) {
   }
   return {
     async commitPatches(/** @type {any[]} */ entries){
-      if(!entries.length||entries.length>500)throw httpError('Demasiados cambios en una operación.',400);
+      if(!entries.length||entries.length>(entries.some(e=>EDITION_COLLECTIONS206.has(e.collection))?499:500))throw httpError('Demasiados cambios en una operación.',400);
       const name=(c,id)=>'projects/'+text(env.FIREBASE_PROJECT_ID)+'/databases/(default)/documents/'+c+'/'+id;
+      for(const e of entries)if(e.options?.fieldPaths)e.options.fieldPaths.forEach(editionFieldPath206);
       const writes=entries.map(e=>{
         const pre=e.options?.updateTime?{updateTime:e.options.updateTime}:e.options?.mustNotExist?{exists:false}:e.options?.mustExist?{exists:true}:null;
-        const write=e.remove?{delete:name(e.collection,e.id)}:{update:{name:name(e.collection,e.id),fields:Object.fromEntries(Object.entries(e.patch).filter(([,v])=>v!==undefined).map(([k,v])=>[k,toFs(v)]))},updateMask:{fieldPaths:Object.keys(e.patch).filter(k=>e.patch[k]!==undefined).map(firestoreFieldName115)}};
+        const write=e.remove?{delete:name(e.collection,e.id)}:{update:{name:name(e.collection,e.id),fields:Object.fromEntries(Object.entries(e.patch).filter(([,v])=>v!==undefined).map(([k,v])=>[k,toFs(v)]))},updateMask:{fieldPaths:e.options?.fieldPaths||Object.keys(e.patch).filter(k=>e.patch[k]!==undefined).map(firestoreFieldName115)}};
         if(pre)write.currentDocument=pre;
         return write;
       });
+      const publicationEntries206=entries.filter(e=>EDITION_COLLECTIONS206.has(e.collection)).map(e=>({collection:e.collection,id:String(e.id),...(e.remove?{remove:true}:{patch:editionSafe206(e.collection,e.patch),...(e.options?.fieldPaths?{fieldPaths:e.options.fieldPaths}:{})})}));
+      if(publicationEntries206.length){
+       const outboxName206=name(EDITION_OUTBOX206,crypto.randomUUID());
+       writes.push({update:{name:outboxName206,fields:{schema:toFs(1),entries:toFs(publicationEntries206)}},currentDocument:{exists:false},updateTransforms:[{fieldPath:'commit_at',setToServerValue:'REQUEST_TIME'}]});
+      }
       const r=await fetch(base(env)+':commit',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({writes})});
       if(!r.ok){if([400,409,412].includes(r.status))throw httpError('Hubo otro cambio simultáneo. Actualizá la lista y reintentá.',409);throw httpError('No se pudieron guardar los cambios. Reintentá.',503);}
       const committed119=await r.json();
-      entries.forEach((e,i)=>noteSource119(env,e.collection,e.id,{...e.before,...e.patch},committed119.writeResults?.[i]?.updateTime||committed119.commitTime));
-      return entries.map(e=>e.remove?null:{...e.before,...e.patch,id:e.id});
+      if(publicationEntries206.length)editionStat206(env,EDITION_OUTBOX206,'patch',1,0);
+      entries.forEach((e,i)=>noteSource119(env,e.collection,e.id,e.remove?null:editionApplyPatch206(e.before||{},e.patch,e.options?.fieldPaths),committed119.writeResults?.[i]?.updateTime||committed119.commitTime));
+      return entries.map(e=>e.remove?null:{...editionApplyPatch206(e.before||{},e.patch,e.options?.fieldPaths),id:e.id});
+    },
+    async editionOutbox206(after,cutoff){
+      const timestamp=ms=>({timestampValue:new Date(ms).toISOString()});
+      const r=await fetch(base(env)+':runQuery',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({structuredQuery:{from:[{collectionId:EDITION_OUTBOX206}],where:{compositeFilter:{op:'AND',filters:[{fieldFilter:{field:{fieldPath:'commit_at'},op:'GREATER_THAN_OR_EQUAL',value:timestamp(after)}},{fieldFilter:{field:{fieldPath:'commit_at'},op:'LESS_THAN_OR_EQUAL',value:timestamp(cutoff)}}]}},orderBy:[{field:{fieldPath:'commit_at'},direction:'ASCENDING'},{field:{fieldPath:'__name__'},direction:'ASCENDING'}]}})});
+      if(!r.ok)throw httpError('No se pudo recuperar el outbox del corte; se conserva la edición anterior.',503);
+      const result=await r.json();const documents=result.filter(x=>x.document),lower=editionStamp206(new Date(after).toISOString()),upper=editionStamp206(new Date(cutoff).toISOString());const rows=documents.map(x=>({row:docToJs(x.document),stamp:editionStamp206(x.document.updateTime),name:x.document.name})).filter(x=>x.stamp>lower&&x.stamp<=upper).sort((a,b)=>a.stamp.localeCompare(b.stamp)||a.name.localeCompare(b.name)).map(x=>x.row);editionStat206(env,EDITION_OUTBOX206,'queryEqual',1,documents.length);return rows;
+    },
+    async cleanupOutbox206(before){
+      let removed=0;
+      for(;;){
+       const r=await fetch(base(env)+':runQuery',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({structuredQuery:{from:[{collectionId:EDITION_OUTBOX206}],where:{fieldFilter:{field:{fieldPath:'commit_at'},op:'LESS_THAN_OR_EQUAL',value:{timestampValue:new Date(before).toISOString()}}},limit:499}})});
+       if(!r.ok)throw httpError('Limpieza del outbox pendiente; las ediciones se conservan.',503);
+       const rows=(await r.json()).filter(x=>x.document).map(x=>docToJs(x.document));editionStat206(env,EDITION_OUTBOX206,'queryEqual',1,rows.length);
+       if(!rows.length)return {removed};
+       await this.commitPatches(rows.map(row=>({collection:EDITION_OUTBOX206,id:row.id,remove:true})));
+       editionStat206(env,EDITION_OUTBOX206,'delete',rows.length,0);removed+=rows.length;
+       if(rows.length<499)return {removed};
+      }
     },
     async get(collection, id4) {
       const d = await sourceDocument119(collection,id4);
       noteSource119(env,collection,id4,docToJs(d,id4),d?.updateTime);
-      return docToJs(d, id4);
+      return remember206(collection,id4,docToJs(d,id4));
     },
     async getVersioned(collection, id4) {
       const d = await sourceDocument119(collection,id4);
       noteSource119(env,collection,id4,docToJs(d,id4),d?.updateTime);
-      return {doc:docToJs(d,id4),updateTime:d?.updateTime};
+      return {doc:remember206(collection,id4,docToJs(d,id4)),updateTime:d?.updateTime};
     },
     async patch(collection, id4, patch, { mustExist = false, mustNotExist = false, fieldPaths = null, updateTime = null } = {}) {
+      if(EDITION_COLLECTIONS206.has(collection)){
+       let before=documents206.get(collection+'/'+id4);
+       if(!documents206.has(collection+'/'+id4)&&!mustNotExist){before=await this.get(collection,id4);editionStat206(env,collection,'get',1,before?1:0);}
+       const [saved]=await this.commitPatches([{collection,id:id4,before,patch,options:{mustExist,mustNotExist,updateTime,fieldPaths}}]);
+       remember206(collection,id4,saved);return saved;
+      }
       const clean2 = {};
       for (const [k, v] of Object.entries(patch || {})) if (v !== void 0) clean2[k] = v;
       const qs = new URLSearchParams();
@@ -958,7 +994,7 @@ function createDb(env) {
      * No usar dentro de acciones interactivas normales.
      */
     async listPage102(/** @type {string} */ collection,pageToken='') {
-      const qs=new URLSearchParams({pageSize:'500'});if(pageToken)qs.set('pageToken',pageToken);
+      const qs=new URLSearchParams({pageSize:'500'});if(readTime206)qs.set('readTime',readTime206);if(pageToken)qs.set('pageToken',pageToken);
       const page=await request(env,encodeURIComponent(collection)+'?'+qs)||{};
       return {rows:(page.documents||[]).map(d=>docToJs(d)),nextPageToken:String(page.nextPageToken||'')};
     },
@@ -966,7 +1002,7 @@ function createDb(env) {
       let pageToken = "";
       const out2 = [];
       do {
-        const qs = new URLSearchParams({ pageSize: String(pageSize) });
+        const qs = new URLSearchParams({ pageSize: String(pageSize) });if(readTime206)qs.set("readTime",readTime206);
         if (pageToken) qs.set("pageToken", pageToken);
         const j = await request(env, `${encodeURIComponent(collection)}?${qs}`) || {};
         for (const d of j.documents || []) {const row=docToJs(d);noteSource119(env,collection,row.id,row,d.updateTime);out2.push(row);}
@@ -977,7 +1013,7 @@ function createDb(env) {
     async queryEqual(collection, field, value, limit = 1e3) {
       const project = text(env.FIREBASE_PROJECT_ID);
       const url = `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(project)}/databases/(default)/documents:runQuery`;
-      const r = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + await token(env), "Content-Type": "application/json" }, body: JSON.stringify({ structuredQuery: { from: [{ collectionId: collection }], where: { fieldFilter: { field: { fieldPath: field }, op: "EQUAL", value: toFs(value) } }, limit: Number(limit) } }) });
+      const r = await fetch(url, { method: "POST", headers: { Authorization: "Bearer " + await token(env), "Content-Type": "application/json" }, body: JSON.stringify({ structuredQuery: { from: [{ collectionId: collection }], where: { fieldFilter: { field: { fieldPath: field }, op: "EQUAL", value: toFs(value) } }, limit: Number(limit) },...(readTime206?{readTime:readTime206}:{}) }) });
       const rows = await r.json().catch(() => []);
       if (!r.ok) throw new Error(`Firestore query ${collection}.${field}: ${r.status}`);
       return (Array.isArray(rows) ? rows : []).filter((x) => x.document).map((x) => {const row=docToJs(x.document);noteSource119(env,collection,row.id,row,x.document.updateTime);return row;});
@@ -992,10 +1028,16 @@ function createCache(env) {
     throw new Error("Falta binding GLD_CACHE_KV.");
   }
   return {
+    readOnly206:env.__editionReader206===true,
     invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(env,'pending-events-invalidate'):null,
     async get(key3) {
       const raw = await kv.get(key3);
-      if (!raw) return null;
+      if (!raw){
+       if(!env.__editionReader206&&env.GLD_PUBLIC_CACHE&&!editionSecurityKey206(String(key3))){
+        try{return await editionRead206(env,{key:editionCacheKey206(key3)});}catch(error){if(error?.code!=='DAILY_EDITION_NOT_PREPARED')throw error;}
+       }
+       return null;
+      }
       try {
         return JSON.parse(raw);
       } catch (_) {
@@ -1344,6 +1386,7 @@ async function getPreparedRelationsV1({ cache, type, id: id4, current, load }) {
   if(Number(current?.relaciones_version)===2&&type==='publicity-seg')return current.segmentacion||[];
   const packet2 = await cache.get(key(type, id4));
   if (packet2 && packet2.revision === revision(current) && packet2.data) return packet2.data;
+  if(cache.readOnly206)throw editionUnavailable206();
   return load();
 }
 async function putPreparedRelationsV1({ cache, type, id: id4, next, data }) {
@@ -1860,8 +1903,8 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 206</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 206</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
-    return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 207</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 207</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-GLD-Build':'207-arranque-recuperable-2'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
     const [catalogo,precios,funciones]=await Promise.all([
@@ -2513,7 +2556,8 @@ async function getFarmCityV2({cache,cityId}){
   const city=text24(cityId);
   if(!city)return{success:false,message:"ciudad_id obligatorio",status:400};
   const key=farmCityKeyV2(city),packet=await cache.get(key);
-  if(!packet)return{success:true,ciudad_id:city,ciclos:[],cold:true};
+  if(!packet)throw editionUnavailable206();
+  if(cache.readOnly206)return {success:true,...packet};
   if(!(packet.ciclos||[]).length)return{success:true,...packet};
   const guide=(await cache.get("guide:city:v1:"+city))||{};
   const context=await prepareFarmSedes(cache,city,packet.ciclos.flatMap(c=>c.sedes||[]),guide);
@@ -4712,7 +4756,7 @@ async function publicidadPanelDataV2({db,cache,advertiserId,featureEnabled,confi
   const contractKey='publicity:contract:v101:'+advertiserId;
   // Las cuentas anteriores pueden no tener copia; llenar sólo si falta.
   // Gran Hermano actualiza la configuración; consultar no la reescribe.
-  if(!await cache.get(contractKey)){
+  if(!cache.readOnly206&&!await cache.get(contractKey)){
     try{await cache.put(contractKey,{...config,habilitada:featureEnabled(admin)});}
     catch(error){if(!/KV put\(\) limit exceeded for (?:the day|today)/i.test(String(error?.message||error)))throw error;}
   }
@@ -5905,7 +5949,7 @@ async function subscriberLoginV2({env,db,body}){
   const buildRelations161=async()=>{
     const relations=(await (db.loginRelations?db.loginRelations(sid):db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100)))
       .filter(r=>text(r.anunciante_id)&&truthy(r.activo));
-  
+
     const enriched=await Promise.all(relations.map(async rel=>{
       const aid=text(rel.anunciante_id);
       const [advertiser,admin]=await Promise.all([
@@ -5922,7 +5966,7 @@ async function subscriberLoginV2({env,db,body}){
         activo:true
       };
     }));
-  
+
       return enriched;
   };
   const enriched=await (db.loginAuthorizationBundle161?db.loginAuthorizationBundle161(sid,Number(state.version||0),buildRelations161):buildRelations161());
@@ -6280,7 +6324,7 @@ async function commercePanelDataV3({db,advertiserId,catalogs}){
   ]);
   if(!datos)return{success:false,error:"anunciante_no_encontrado"};
   return{success:true,advertiser:{
-    id:advertiserId,datos,revision_datos:await wholeRevisionInternal(datos),revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await wholeRevisionInternal(row)]))),administracion:administracion||{},sedes,redes_web_comunes_disponible:true,
+    id:advertiserId,datos,revision_datos:await wholeRevisionInternal(datos||{}),revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await wholeRevisionInternal(row)]))),administracion:administracion||{},sedes,redes_web_comunes_disponible:true,
     segmentos:catalogs.segmentos||[],categorias:catalogs.categorias||[],
     actividades_clave:catalogs.actividades_clave||[],acciones:catalogs.acciones||[],
     nodos:catalogs.nodos||[],funcionalidades:catalogs.funcionalidades||[],
@@ -6401,10 +6445,467 @@ async function commerceDeleteSedeV3({db,advertiserId,body}){
 return {commercePanelDataV3,commerceSetDatosV3,commerceSetSedesV3,commerceDeleteSedeV3};
 })();
 
-// Master packet is shape-independent: retain every field as returned by storage.
-// A form edit does not change its schema. Writes invalidate the whole packet.
-const COMMERCE_MASTER_TTL205=120;
-function commerceMasterKey205(aid){return 'commerce:advertiser:master:v205:'+encodeURIComponent(String(aid||'').trim());}
+// Transversal daily data contract. The only publisher remains /internal/city-books.
+// Operational writes and their outbox commit atomically in Firestore. SQL editions
+// are private, immutable after stage and invisible until the existing commit.
+const EDITION_COLLECTIONS206=new Set([
+ 'paises','provincias','ciudades','segmentos','categorias','actividades_clave','acciones','nodos','funcionalidades','niveles_anunciante','prestaciones',
+ 'promos_categorias','eventos_categorias','lugares','actividades_categorias','publicidad_categorias','publicidad_ubicaciones','publicidad_prioridades','eventos_moderacion_palabras',
+ 'anunciantes','anunciantes_administracion','anunciantes_sedes','eventos','evento_programacion','actividades','actividad_horarios','promos','publicidades','publicidad_media','publicidad_segmentacion',
+ 'publicidad_estado','publicidad_cambios','efemerides_bis','farmacias_ciclos','farmacias_ciclo_sedes','farmacias_participantes','empleos',
+ 'superadmins','suscriptores','suscriptor_anunciante','suscriptor_favoritos','solicitudes_anunciante','solicitudes_soporte','solicitudes_soporte_mensajes','configuracion','configuracion_plataforma','planes_precios','terminos_anunciantes','personal_comercial'
+]);
+const EDITION_OUTBOX206='_gld_publication_outbox206';
+function editionStat206(env,collection,operation,calls,documents_returned){const report=env.__gldRequestReport119;if(!report)return;const k=operation+':'+collection,s=report.operations[k]??={operation,collection,field:'',calls:0,documents_returned:0,failures:0};s.calls+=calls;s.documents_returned+=documents_returned;}
+function editionStamp206(value){const stamp=String(value||'');if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/.test(stamp))throw Error('El outbox no tiene una revisión de servidor válida.');return stamp.includes('.')?stamp.replace(/\.(\d+)Z$/,(_,fraction)=>'.'+fraction.padEnd(9,'0')+'Z'):stamp.replace('Z','.000000000Z');}
+function editionFieldPath206(path){
+ const parts=[];let token='',quoted=false,escaped=false;
+ for(const char of String(path)){
+  if(escaped){token+=char;escaped=false;continue;}
+  if(char==='\\'&&quoted){escaped=true;continue;}
+  if(char==='`'){quoted=!quoted;continue;}
+  if(char==='.'&&!quoted){parts.push(token);token='';}else token+=char;
+ }
+ parts.push(token);if(quoted||escaped||parts.some(p=>!p||['__proto__','constructor','prototype'].includes(p)))throw httpError('Ruta de campo inválida.',400);return parts;
+}
+function editionApplyPatch206(before,patch,fieldPaths){
+ if(!fieldPaths)return {...before,...patch};
+ const out=structuredClone(before);
+ for(const path of fieldPaths){
+  const parts=editionFieldPath206(path);let target=out,input=patch;
+  for(const part of parts.slice(0,-1)){if(!target[part]||typeof target[part]!=='object'||Array.isArray(target[part]))target[part]={};target=target[part];input=input?.[part];}
+  const leaf=parts.at(-1);if(input&&Object.hasOwn(input,leaf))target[leaf]=structuredClone(input[leaf]);else delete target[leaf];
+ }
+ return out;
+}
+function editionSafe206(collection,row){
+ if(row==null)return null;
+ if(collection!=='suscriptores')return structuredClone(row);
+ const {clave,password,salt,digest,token,reset_token,...safe}=row;return safe;
+}
+function editionUnavailable206(){return Object.assign(Error('La edición publicada no está preparada. La recuperación corresponde al publicador diario.'),{status:503,code:'DAILY_EDITION_NOT_PREPARED'});}
+function editionSecurityKey206(key){return /^(auth:|login:|session:|subscriber:session:|admin:access:|diagnostics:share:)/.test(key)||key==='admin:roles:config:v155';}
+function editionSharedCollection206(c){return ['anunciantes','anunciantes_administracion','anunciantes_sedes'].includes(c);}
+function editionMasterKey206(aid){return 'master/'+encodeURIComponent(aid);}
+function editionQueryKey206(c,f,v){return 'lookup/'+c+'/'+encodeURIComponent(f)+'/'+encodeURIComponent(JSON.stringify(v));}
+function editionSourceKey206(c,id){return 'source/'+c+'/'+encodeURIComponent(id);}
+function editionCacheKey206(key){return 'cache/'+key;}
+function editionSourceDb206(rows){
+ const byCollection=new Map();for(const c of EDITION_COLLECTIONS206)byCollection.set(c,[]);
+ for(const [c,items]of Object.entries(rows))byCollection.set(c,items);
+ const lists=c=>{if(!byCollection.has(c))throw editionUnavailable206();return structuredClone(byCollection.get(c));};
+ const indexes=new Map(),query=(c,f,v,limit)=>{if(!byCollection.has(c))throw editionUnavailable206();const k=c+'/'+f;if(!indexes.has(k)){const map=new Map();for(const row of byCollection.get(c)){const value=JSON.stringify(row[f]);if(!map.has(value))map.set(value,[]);map.get(value).push(row);}indexes.set(k,map);}return structuredClone((indexes.get(k).get(JSON.stringify(v))||[]).slice(0,limit));};
+ const db={
+  listCollection:async c=>lists(c),
+  get:async(c,id)=>lists(c).find(x=>String(x.id)===String(id))||null,
+  queryEqual:async(c,f,v,limit=1000)=>query(c,f,v,limit),
+  getVersioned:async(c,id)=>({doc:await db.get(c,id),updateTime:undefined}),
+  panelReadDb:()=>db,
+  panelAdministration:id=>db.get('anunciantes_administracion',id),
+  cachedAdvertiserRelations104:id=>db.queryEqual('suscriptor_anunciante','anunciante_id',id,500),
+  subscriberRelations:id=>db.queryEqual('suscriptor_anunciante','suscriptor_id',id,500),
+  cachedSubscriberProjection:id=>db.get('suscriptores',id),
+  cachedPanelRows:(c,f,v)=>db.queryEqual(c,f,v,500),
+  notePanelCacheCheck:()=>{},rememberPanelRows:()=>{},
+ };
+ for(const op of ['patch','delete','commitPatches','prepareNewPanelList','prepareNewAdvertiserPanels116'])db[op]=async()=>{throw Object.assign(Error('Una lectura de edición no puede modificar datos.'),{status:503,code:'READ_SIDE_EFFECT_BLOCKED'});};
+ return db;
+}
+class DailyEdition206 {
+ constructor(state,env){
+  this.state=state;this.env=env;this.tail=Promise.resolve();
+ }
+ ensure(){
+  if(this.initialized206)return;
+  const state=this.state;
+  state.storage.sql.exec('CREATE TABLE IF NOT EXISTS edition_records206 (key TEXT NOT NULL,cutoff INTEGER NOT NULL,value TEXT,PRIMARY KEY(key,cutoff))');
+  state.storage.sql.exec('CREATE TABLE IF NOT EXISTS edition_chunks206 (key TEXT NOT NULL,cutoff INTEGER NOT NULL,part INTEGER NOT NULL,value TEXT NOT NULL,PRIMARY KEY(key,cutoff,part))');
+  state.storage.sql.exec('CREATE TABLE IF NOT EXISTS edition_state206 (cutoff INTEGER PRIMARY KEY,ready INTEGER NOT NULL,published INTEGER NOT NULL DEFAULT 0)');
+  state.storage.sql.exec('CREATE TABLE IF NOT EXISTS edition_cache_work206 (seq INTEGER PRIMARY KEY AUTOINCREMENT,key TEXT NOT NULL,bucket INTEGER NOT NULL,at INTEGER NOT NULL,value TEXT,UNIQUE(key,bucket))');
+  state.storage.sql.exec('CREATE INDEX IF NOT EXISTS edition_cache_work_key206 ON edition_cache_work206(key,at,seq)');
+  this.initialized206=true;
+ }
+ q(sql,...args){const cursor=this.state.storage.sql.exec(sql,...args),rows=[...cursor];this.metrics.rows_read+=cursor.rowsRead??rows.length;this.metrics.rows_written+=cursor.rowsWritten??0;return rows;}
+ cutoff(){return this.q('SELECT cutoff FROM edition_state206 WHERE published=1 ORDER BY cutoff DESC LIMIT 1')[0]?.cutoff??null;}
+ checksum(value){let h=2166136261;for(let i=0;i<value.length;i++){h^=value.charCodeAt(i);h=Math.imul(h,16777619);}return h>>>0;}
+ decode(row){
+  if(row?.value==null)return null;
+  if(!row.value.startsWith('@GLD206:'))return JSON.parse(row.value);
+  const manifest=JSON.parse(row.value.slice(8)),parts=this.q('SELECT part,value FROM edition_chunks206 WHERE key=? AND cutoff=? ORDER BY part',row.key,row.cutoff);
+  if(parts.length!==manifest.parts||parts.some((p,i)=>p.part!==i))throw editionUnavailable206();
+  const encoded=parts.map(x=>x.value).join('');if(encoded.length!==manifest.length||this.checksum(encoded)!==manifest.checksum)throw editionUnavailable206();
+  return JSON.parse(encoded);
+ }
+ get(key,cutoff){const row=this.q('SELECT key,cutoff,value FROM edition_records206 WHERE key=? AND cutoff<=? ORDER BY cutoff DESC LIMIT 1',key,cutoff)[0];return this.decode(row);}
+ all(cutoff,prefix=''){
+  const end=prefix?prefix.slice(0,-1)+String.fromCharCode(prefix.charCodeAt(prefix.length-1)+1):'\u{10ffff}';
+  return this.q('SELECT r.key,r.cutoff,r.value FROM edition_records206 r JOIN (SELECT key,max(cutoff) AS c FROM edition_records206 WHERE cutoff<=? AND key>=? AND key<? GROUP BY key) h ON r.key=h.key AND r.cutoff=h.c ORDER BY r.key',cutoff,prefix,end).filter(x=>x.value!==null).map(x=>[x.key,this.decode(x)]);
+ }
+ put(key,cutoff,value){
+  const encoded=value===null?null:JSON.stringify(value);
+  const previous=this.get(key,cutoff-1);
+  if(JSON.stringify(previous)===JSON.stringify(value))return;
+  this.q('DELETE FROM edition_chunks206 WHERE key=? AND cutoff=?',key,cutoff);
+  let stored=encoded;
+  if(encoded&&encoded.length>65536){
+   const parts=Math.ceil(encoded.length/65536);
+   for(let i=0;i<parts;i++)this.q('INSERT INTO edition_chunks206(key,cutoff,part,value) VALUES(?,?,?,?)',key,cutoff,i,encoded.slice(i*65536,(i+1)*65536));
+   stored='@GLD206:'+JSON.stringify({parts,length:encoded.length,checksum:this.checksum(encoded)});
+  }
+  this.q('INSERT INTO edition_records206(key,cutoff,value) VALUES(?,?,?) ON CONFLICT(key,cutoff) DO UPDATE SET value=excluded.value',key,cutoff,stored);
+ }
+ checkedGet(key,cutoff){
+  const value=this.get(key,cutoff);
+  if(value===null&&key.startsWith('source/')){const [,c,id]=key.split('/'),ids=this.get('index/'+c,cutoff);if(!Array.isArray(ids)||ids.includes(decodeURIComponent(id)))throw editionUnavailable206();}
+  if(value===null&&key.startsWith('master/')){
+   const ids=this.get('index/master',cutoff);if(!Array.isArray(ids)||ids.includes(decodeURIComponent(key.slice(7))))throw editionUnavailable206();
+  }
+  return value;
+ }
+ checkedAll(prefix,cutoff){
+  const values=this.all(cutoff,prefix);
+  const index=prefix==='master/'?'index/master':/^source\/[^/]+\/$/.test(prefix)?'index/'+prefix.slice(7,-1):null;
+  if(index){const ids=this.get(index,cutoff);if(!Array.isArray(ids)||ids.length!==values.length)throw editionUnavailable206();}
+  return values;
+ }
+ async fetch(body){
+  const prior=this.tail;let release;this.tail=new Promise(r=>{release=r;});await prior;
+  this.metrics={rows_read:0,rows_written:0};this.sourceReport206={operations:{}};
+  try{
+   if(['stage','commit','capture'].includes(body.action))this.ensure();
+   const committed=body.action==='capture'?null:this.cutoff();let value;
+   if(body.action==='open'){
+    if(committed===null)throw editionUnavailable206();value={cutoff:committed};
+   }else if(body.action==='staged-read'){
+    if(!this.q('SELECT cutoff FROM edition_state206 WHERE cutoff=? AND ready=1',body.cutoff).length)throw editionUnavailable206();
+    value=this.get(body.key,body.cutoff);
+   }else if(body.action==='read'){
+    if(committed===null)throw editionUnavailable206();
+    const selected=body.edition??committed;
+    if(!Number.isSafeInteger(selected)||selected>committed||selected!==committed&&!this.q('SELECT cutoff FROM edition_state206 WHERE cutoff=? AND published=1',selected).length)throw editionUnavailable206();
+    if(body.key)value=this.checkedGet(body.key,selected);
+    else if(body.prefix)value=this.checkedAll(body.prefix,selected);
+    else throw Error('Falta la referencia de lectura');
+   }else if(body.action==='capture'){
+    if(typeof body.key!=='string'||editionSecurityKey206(body.key))throw Error('Referencia no publicable');
+    this.q('INSERT INTO edition_cache_work206(key,bucket,at,value) VALUES(?,?,?,?) ON CONFLICT(key,bucket) DO UPDATE SET at=excluded.at,value=excluded.value',body.key,cityBookDay(Date.now()),Date.now(),body.value===null?null:JSON.stringify(body.value));value={success:true};
+   }else{
+    const cutoff=body.cutoff;
+    if(!Number.isSafeInteger(cutoff)||cutoff!==cityBookBoundary(cityBookDay(Date.now())))throw Error('El corte debe ser la última 01:00 Argentina');
+    if(body.action==='commit'){
+     if(!this.q('SELECT cutoff FROM edition_state206 WHERE cutoff=? AND ready=1',cutoff).length)throw editionUnavailable206();
+     this.state.storage.transactionSync(()=>{
+      this.q('UPDATE edition_state206 SET published=1 WHERE cutoff=? AND ready=1 AND published=0',cutoff);
+      this.q('DELETE FROM edition_cache_work206 WHERE at<?',cutoff);
+      // The source checkpoint exists only during initial preparation. The
+      // committed edition owns the canonical records and master from here on.
+      this.q("DELETE FROM edition_records206 WHERE key>=? AND key<?",'bootstrap/','bootstrap0');
+      const oldest=cutoff-2*CITY_BOOK_DAY_MS;
+      this.q('DELETE FROM edition_records206 WHERE cutoff<? AND (key,cutoff) NOT IN (SELECT key,max(cutoff) FROM edition_records206 WHERE cutoff<=? GROUP BY key)',oldest,oldest);
+      this.q('DELETE FROM edition_chunks206 WHERE NOT EXISTS (SELECT 1 FROM edition_records206 r WHERE r.key=edition_chunks206.key AND r.cutoff=edition_chunks206.cutoff)');
+      this.q('DELETE FROM edition_state206 WHERE cutoff<?',oldest);
+     });value={success:true,cutoff};
+    }else if(body.action==='stage'){
+     if(this.q('SELECT cutoff FROM edition_state206 WHERE cutoff=? AND ready=1',cutoff).length)value={success:true,preparado:true,cutoff,reused:true};
+     else value=await this.stage(cutoff,committed);
+    }else throw Error('Acción de edición inválida');
+   }
+   return Response.json({value,cutoff:body.action==='commit'?body.cutoff:committed,metrics:this.metrics,operations:this.sourceReport206.operations});
+  }catch(error){return Response.json({error:String(error.message||error),code:error.code||'DAILY_EDITION_PENDING',metrics:this.metrics,operations:this.sourceReport206.operations},{status:503});}
+  finally{release();}
+ }
+ source(cutoff){return observeDbV41(createDb({...this.env,__gldRequestReport119:this.sourceReport206,__editionReadTime206:new Date(cutoff).toISOString()}),this.sourceReport206);}
+ async initialSources(cutoff){
+  // Only the producer enters here. Completed collection snapshots survive a
+  // failed build/restart; no reader can import or prepare operational sources.
+  const complete=this.q("SELECT cutoff FROM edition_records206 WHERE key=? AND cutoff<=? ORDER BY cutoff DESC LIMIT 1",'bootstrap/complete',cutoff)[0];
+  const seed=complete?.cutoff??cutoff,source=this.source(seed),rows={};
+  for(const c of EDITION_COLLECTIONS206){
+   const indexKey='bootstrap/index/'+c,index=this.get(indexKey,seed);
+   if(index?.cutoff===seed){
+    rows[c]=index.ids.map(id=>{const row=this.get('bootstrap/source/'+c+'/'+encodeURIComponent(id),seed);if(!row)throw Error('La captura inicial está incompleta; no se publica.');return row;});
+    continue;
+   }
+   const snapshot=(await source.listCollection(c)).map(row=>editionSafe206(c,row));
+   const ids=snapshot.map(row=>String(row.id));
+   if(ids.includes('undefined')||new Set(ids).size!==ids.length)throw Error('La captura inicial contiene identificadores inválidos.');
+   this.state.storage.transactionSync(()=>{
+    for(const row of snapshot)this.put('bootstrap/source/'+c+'/'+encodeURIComponent(row.id),seed,row);
+    this.put(indexKey,seed,{cutoff:seed,ids});
+   });rows[c]=snapshot;
+  }
+  this.put('bootstrap/complete',seed,{cutoff:seed});
+  return {rows,cutoff:seed};
+ }
+ async stage(cutoff,previous){
+  // A failed stage never changes the published pointer. Retrying reads the same
+  // Firestore readTime and can replace incomplete, uncommitted rows safely.
+  this.q("DELETE FROM edition_records206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
+  this.q("DELETE FROM edition_chunks206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
+  let rows=Object.fromEntries([...EDITION_COLLECTIONS206].map(c=>[c,[]])),sourceCutoff=previous;
+  if(previous!==null){
+   for(const [key,row]of this.all(previous,'source/'))rows[key.split('/')[1]].push(row);
+   for(const [,packet]of this.all(previous,'master/')){
+    if(packet.datos)rows.anunciantes.push(packet.datos);
+    if(packet.administracion)rows.anunciantes_administracion.push(packet.administracion);
+    rows.anunciantes_sedes.push(...packet.sedes);
+   }
+  }
+  const source=this.source(cutoff),changed=new Set();
+  if(previous===null){
+   const initial=await this.initialSources(cutoff);rows=initial.rows;sourceCutoff=initial.cutoff;
+   for(const c of EDITION_COLLECTIONS206)changed.add(c);
+  }
+  if(sourceCutoff<cutoff){
+   const entries=await source.editionOutbox206(sourceCutoff,cutoff);
+   const maps=new Map();
+   for(const event of entries)for(const entry of event.entries||[]){
+    const c=entry.collection;if(!EDITION_COLLECTIONS206.has(c))throw Error('Colección del outbox no registrada: '+c);
+    if(!maps.has(c))maps.set(c,new Map(rows[c].map(row=>[String(row.id),row])));
+    const map=maps.get(c),id=String(entry.id);
+    if(entry.remove)map.delete(id);else map.set(id,{...editionApplyPatch206(map.get(id)||{},editionSafe206(c,entry.patch),entry.fieldPaths),id});changed.add(c);
+   }
+   for(const [c,map]of maps)rows[c]=[...map.values()];
+  }
+  const db=editionSourceDb206(rows),working=new Map();
+  if(previous!==null)for(const [key,value]of this.all(previous,'cache/'))working.set(key.slice(6),value);
+  // Cache journals record work, never published data. Only entries older than
+  // the cutoff are eligible; a reader never imports native KV or repairs SQL.
+  const captured=this.q('SELECT w.key,w.value FROM edition_cache_work206 w JOIN (SELECT key,max(seq) AS seq FROM edition_cache_work206 WHERE at<? GROUP BY key) h ON h.seq=w.seq',cutoff);
+  for(const row of captured)working.set(row.key,row.value===null?null:JSON.parse(row.value));
+  const normalized=value=>value&&typeof value==='object'&&!Array.isArray(value)?{...value,...(Object.hasOwn(value,'updated_at')?{updated_at:new Date(cutoff).toISOString()}:{})}:value;
+  const cache={get:async key=>structuredClone(working.get(key)??null),put:async(key,value)=>{working.set(key,normalized(value));},del:async key=>{working.set(key,null);}};
+  // Stable, shared data is prepared once per cut. Existing builders consume the
+  // source contract, so changing a form never changes the publication contract.
+  const catalogSources206=new Set(['segmentos','categorias','actividades_clave','acciones','nodos','funcionalidades','niveles_anunciante','prestaciones','promos_categorias','eventos_categorias','lugares','actividades_categorias','publicidad_categorias','publicidad_ubicaciones','publicidad_prioridades','eventos_moderacion_palabras']);
+  const catalogChanged206=previous===null||[...changed].some(c=>catalogSources206.has(c)),territoryChanged206=previous===null||['paises','provincias','ciudades'].some(c=>changed.has(c)),sharedChanged206=previous===null||[...changed].some(editionSharedCollection206);
+  if(catalogChanged206)await rebuildCatalogs({db,cache});
+  if(territoryChanged206){
+   const paises=rows.paises,provincias=rows.provincias,ciudades=rows.ciudades,updated_at=new Date(cutoff).toISOString();
+   const adminTerritory={version:1,updated_at,paises,provincias,ciudades:sortCities(ciudades)};
+   await cache.put(ADMIN_KEY,adminTerritory);
+   await cache.put(PUBLIC_KEY,{version:1,updated_at,paises:paises.filter(active),provincias:provincias.filter(active),ciudades:sortCities(ciudades.filter(active).map(x=>publicCity(x,adminTerritory)))});
+  }
+  if(sharedChanged206||changed.has('suscriptores'))await rebuildAdminIndexesV2({db,cache});
+  const dependencies206={guide:['anunciantes','anunciantes_administracion','anunciantes_sedes'],events:['eventos','evento_programacion'],promos:['promos'],activities:['actividades','actividad_horarios'],ads:['publicidades','publicidad_estado','publicidad_media','publicidad_segmentacion','eventos','evento_programacion','actividades','actividad_horarios'],pharmacy:['farmacias_ciclos','farmacias_ciclo_sedes','farmacias_participantes'],ephemerides:['efemerides_bis'],employment:['empleos']};
+  for(const [name,spec]of Object.entries(PUBLIC_FEATURES191))if(catalogChanged206||territoryChanged206||sharedChanged206||(dependencies206[name]||[spec.store.collection]).some(c=>changed.has(c))){
+   const family=spec.store.prefix.split(':')[0]+':city:';
+   for(const key of [...working.keys()])if(key.startsWith(family)||name==='guide'&&key.startsWith('guide:advertiser:v2:'))working.set(key,null);
+   if(typeof spec.rebuild!=='function')throw Error('La fuente pública no tiene un compilador registrado: '+name);
+   await spec.rebuild({db,cache});
+   for(const row of rows.ciudades.filter(active)){
+    const city=String(row.ciudad_id||row.id),key=spec.store.prefix+city;
+    if(!await cache.get(key))await cache.put(key,{version:2,ciudad_id:city,updated_at:new Date(cutoff).toISOString(),[spec.store.field]:[]});
+   }
+  }
+  for(const [c,type,child,field]of [['eventos','event','evento_programacion','evento_id'],['actividades','activity','actividad_horarios','actividad_id'],['publicidades','publicity-media','publicidad_media','publicidad_id'],['publicidades','publicity-seg','publicidad_segmentacion','publicidad_id']]){
+   for(const row of rows[c])await cache.put(key(type,row.id),{revision:revision(row),data:rows[child].filter(x=>String(x[field])===String(row.id))});
+  }
+  // Existing list contracts are compiled here, not initialized by their tabs.
+  for(const [kind,c]of Object.entries(DIRECTORY102)){
+   if(previous!==null&&!changed.has(c))continue;
+   const prefix=directoryKey102(kind),generation=String(cutoff),items=rows[c].map(row=>directorySafe102(row,kind));
+   for(const key of [...working.keys()])if(key.startsWith(prefix+':'))working.set(key,null);
+   const chunks=Math.ceil(items.length/100);
+   for(let i=0;i<chunks;i++)await cache.put(prefix+':chunk:'+generation+':'+i,{rows:items.slice(i*100,(i+1)*100)});
+   await cache.put(prefix+':manifest',{generation,chunks,total:items.length,prepared_at:new Date(cutoff).toISOString()});
+  }
+  if(previous===null||changed.has('promos')){
+   for(const key of [...working.keys()])if(key.startsWith(PROMOS_ADMIN_PREFIX_V91))working.set(key,null);
+   for(const row of rows.promos)await syncAdminPromoV91(cache,null,row);
+   await cache.put(PROMOS_ADMIN_READY_V91,{preparado_en:new Date(cutoff).toISOString()});
+  }
+  if(previous===null||changed.has('publicidades'))for(const key of [...working.keys()])if(key.startsWith('publicity:private:v101:'))working.set(key,null);
+  for(const row of rows.publicidades){const media=Number(row.relaciones_version)===2?row.media||[]:rows.publicidad_media.filter(x=>String(x.publicidad_id)===String(row.id)),segmentacion=Number(row.relaciones_version)===2?row.segmentacion||[]:rows.publicidad_segmentacion.filter(x=>String(x.publicidad_id)===String(row.id));await cache.put('publicity:private:v101:'+encodeURIComponent(row.id),{...row,publicidad_id:row.publicidad_id||row.id,media,segmentacion});}
+  await cache.put('publicity:private:ready:v101',true);
+  if(previous===null||changed.has('solicitudes_soporte'))for(const key of [...working.keys()])if(key.startsWith('support:record:v73:'))working.set(key,null);
+  for(const row of rows.solicitudes_soporte)await cache.put('support:record:v73:'+row.id,row);
+  for(const row of rows.anunciantes_administracion)await cache.put('publicity:contract:v101:'+row.id,{...publicityContractV101(row),habilitada:featureEnabled2(row,'PUBLICIDAD')});
+  for(const row of rows.publicidad_estado)await cache.put('publicity:usage:v101:'+row.id,row);
+  // Stable configuration is derived from the staged documents, even if an
+  // operational KV projection was interrupted after its source commit.
+  working.delete(GLD_FUNC_KEY166);working.delete(GLD_PRECIOS_CLAVE162);working.delete(GH_FIXED_PACKET_KEY169);
+  working.delete(GLD_COEF_KEY173);await gldCoefRead173({db,cache,rebuild:true});
+  const functional206=await gldFuncPacket166(cache,db,true);
+  if(previous===null||changed.has('configuracion_plataforma'))for(const catalogKey of [KEYS.commerce,KEYS.admin]){
+   const catalog=await cache.get(catalogKey),items=new Map((catalog?.funcionalidades||[]).map(row=>[String(row.funcionalidad_id||row.id),row]));
+   for(const id of Object.keys(functional206.reglas||{})){const rule=gldFuncRules166(functional206,id);items.set(id,{...items.get(id),funcionalidad_id:id,nombre:rule.nombre||id,activo:rule.activo!==false});}
+   if(catalog)await cache.put(catalogKey,{...catalog,funcionalidades:[...items.values()]});
+  }
+  const legacyTerms206={...LEGACY_ADVERTISER_TERMS_V81,hash:await termsHashV81(LEGACY_ADVERTISER_TERMS_V81)},terms206=[legacyTerms206,...rows.terminos_anunciantes].sort((a,b)=>String(a.publicado_en||a.version).localeCompare(String(b.publicado_en||b.version)));
+  for(const term of terms206)await cache.put(TERMS_VERSION_KEY(term.version||term.id),{...term,archivada:true});
+  await cache.put(TERMS_ACTIVE_KEY,terms206.at(-1));await cache.put('advertiser:terms:history:v81',terms206.map(({version,titulo,hash,publicado_en,publicado_por})=>({version,titulo,hash,publicado_en,publicado_por})));
+
+  // The canonical private master holds ALL source fields, without a form's
+  // allowlist and without embedding the shared catalogs in every advertiser.
+  const catalogs=await getCommerceCatalogs(cache);
+  const masters=new Map(),adminBy=new Map(rows.anunciantes_administracion.map(x=>[String(x.id),x])),dataBy=new Map(rows.anunciantes.map(x=>[String(x.id),x])),sedesBy=new Map();
+  for(const row of rows.anunciantes_sedes){const aid=String(row.anunciante_id||'');if(!aid)throw Error('Una sede carece de anunciante; se conserva la edición anterior.');if(!sedesBy.has(aid))sedesBy.set(aid,[]);sedesBy.get(aid).push(row);}
+  const previousMasters=new Map(previous===null?[]:this.all(previous,'master/').map(([,m])=>[m.advertiser_id,m]));
+  for(const id of new Set([...dataBy.keys(),...adminBy.keys(),...sedesBy.keys()])){
+   const datos=dataBy.get(id)||null,sedes=sedesBy.get(id)||[],administracion=adminBy.get(id)||null,old=previousMasters.get(id),configuration206=gldConfiguracionPanel205(administracion||{},functional206);
+   if(old&&JSON.stringify([old.datos,old.administracion,old.sedes,old.configuracion_funcionalidades,old.configuracion_revision])===JSON.stringify([datos,administracion,sedes,configuration206,functional206.revision])){masters.set(id,old);continue;}
+   const packet={schema:1,advertiser_id:id,catalog_ref:KEYS.commerce,datos,administracion,sedes,configuracion_funcionalidades:configuration206,configuracion_revision:functional206.revision,
+    revision_datos:await wholeRevisionInternal(datos),revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await wholeRevisionInternal(row)])))};
+   masters.set(id,packet);this.put(editionMasterKey206(id),cutoff,packet);
+  }
+  for(const row of rows.anunciantes_sedes)this.put('reference/sede/'+encodeURIComponent(row.id),cutoff,{aid:String(row.anunciante_id)});
+  if(previous!==null)for(const [key]of this.all(previous,'master/'))if(!masters.has(decodeURIComponent(key.slice(7))))this.put(key,cutoff,null);
+  for(const c of EDITION_COLLECTIONS206){
+   if(editionSharedCollection206(c)||previous!==null&&!changed.has(c))continue;
+   const keys=new Set();for(const row of rows[c]){const key=editionSourceKey206(c,String(row.id));keys.add(key);this.put(key,cutoff,row);}
+   if(previous!==null)for(const [key]of this.all(previous,'source/'+c+'/'))if(!keys.has(key))this.put(key,cutoff,null);
+  }
+  // Generate the same private entry as GH, using the staged source and cache.
+  const top={ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}};
+  const inbox=await prepareInbox195({db},top);
+  for(const row of inbox.blocked){const c=row.tipo==='ANUNCIANTE'?'anunciantes_sedes':row.tipo==='PUBLICIDAD'?'publicidad_segmentacion':null;row.scope195=c?(await db.queryEqual(c,c==='anunciantes_sedes'?'anunciante_id':'publicidad_id',row.id,500)).filter(x=>x.activo!==false).map(x=>String(x.ciudad_id||'')):[String(row.ciudad_id||'')];}
+  const territory=await cache.get(ADMIN_KEY),territory_public=await cache.get(PUBLIC_KEY),fixed=await ghFixedPacket169({cache,db});
+  const subscribers=rows.suscriptores.map(subscriberRow);
+  this.put('index/master',cutoff,[...masters.keys()].sort());
+  for(const c of EDITION_COLLECTIONS206)if(!editionSharedCollection206(c))this.put('index/'+c,cutoff,rows[c].map(x=>String(x.id)).sort());
+  for(const c of EDITION_COLLECTIONS206){
+   if(previous!==null&&!changed.has(c))continue;
+   const indexes=new Map();
+   for(const row of rows[c])for(const [field,value]of Object.entries(row)){
+    if(value===null||!['string','number','boolean'].includes(typeof value)||String(value).length>180)continue;
+    const k=editionQueryKey206(c,field,value);if(!indexes.has(k))indexes.set(k,[]);indexes.get(k).push(String(row.id));
+   }
+   for(const [k,ids]of indexes)this.put(k,cutoff,ids.sort());
+   if(previous!==null)for(const [k]of this.all(previous,'lookup/'+c+'/'))if(!indexes.has(k))this.put(k,cutoff,null);
+  }
+
+  this.put('daily:entry:195',cutoff,{preparado:true,version:206,corte:cutoff,preparado_en:new Date(cutoff).toISOString(),results:subscribers,admin:{resumen:{suscriptores:subscribers.length,anunciantes:masters.size,ciudades:rows.ciudades.length},inbox,fixed,territory,territory_public}});
+  for(const [key,value]of working){
+   if(editionSecurityKey206(key)||key.startsWith('commerce:advertiser:master:')||key.startsWith('admin:advertiser:detail:')||key.startsWith('panel:record:v53:anunciantes:')||key.startsWith('panel:query:v48:anunciantes_sedes:'))continue;
+   this.put(editionCacheKey206(key),cutoff,value);
+  }
+  const features206=await publicFeatures191(cache),cities206=(territory_public.ciudades||[]).filter(active).map(row=>String(row.ciudad_id||row.id)),publicChanged206={};
+  for(const city of cities206)for(const [name,spec]of Object.entries(features206)){
+   const output=await editionPublicProjection206({cache,spec,city,cutoff}),encoded=JSON.stringify(Object.fromEntries(Object.entries(output).filter(([key])=>key!=='updated_at'))),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(encoded)))].map(x=>x.toString(16).padStart(2,'0')).join(''),ref='public/hash/'+encodeURIComponent(city)+'/'+name;
+   if(previous===null||this.get(ref,previous)!==hash){(publicChanged206[city]??=[]).push(name);this.put(ref,cutoff,hash);}
+  }
+  this.put('public/manifest',cutoff,{cutoff,cities:cities206,schema:publicSchema191(features206),changed:publicChanged206});
+  this.q('INSERT INTO edition_state206(cutoff,ready,published) VALUES(?,1,0) ON CONFLICT(cutoff) DO UPDATE SET ready=1',cutoff);
+  let cleanup206=null;if(previous!==null&&source.cleanupOutbox206){try{cleanup206=await source.cleanupOutbox206(previous-2*CITY_BOOK_DAY_MS);}catch(error){cleanup206={pending:true,message:String(error.message||error)};}}
+  return {success:true,preparado:true,cutoff,changed_collections:[...changed],masters:masters.size,cleanup:cleanup206};
+ }
+}
+async function editionCall206(env,body){
+ if(!env.GLD_PUBLIC_CACHE)throw editionUnavailable206();
+ const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName(CITY_BOOK_SHARED));
+ const response=await actor.fetch(new Request('https://edition.internal/',{method:'POST',body:JSON.stringify({op:'daily-edition206',...body})}));
+ const result=await response.json(),report=env.__gldRequestReport119;
+ if(report){const stats=report.edition_store206??={calls:0,rows_read:0,rows_written:0};stats.calls++;for(const k of ['rows_read','rows_written'])stats[k]+=Number(result.metrics?.[k]||0);
+  for(const [key,entry]of Object.entries(result.operations||{})){const own=report.operations[key]??={...entry,calls:0,documents_returned:0,failures:0};for(const k of ['calls','documents_returned','failures'])own[k]+=Number(entry[k]||0);}
+ }
+ if(!response.ok)throw Object.assign(editionUnavailable206(),{message:result.error||editionUnavailable206().message});
+ return result;
+}
+const EDITION_POOL206=new WeakMap();
+async function editionRead206(env,body){
+ const session=env.__editionSession206;
+ if(!session)return (await editionCall206(env,{action:'read',...body})).value;
+ if(!session.open)session.open=editionCall206(env,{action:'open'}).then(r=>r.value.cutoff);
+ const edition=await session.open,scope=env.__editionCacheScope206||env.GLD_PUBLIC_CACHE;
+ let pool=EDITION_POOL206.get(scope);if(!pool){pool={values:new Map(),bytes:0};EDITION_POOL206.set(scope,pool);}
+ const cacheKey=JSON.stringify([edition,body.key||null,body.prefix||null]);
+ if(pool.values.has(cacheKey)){
+  const report=env.__gldRequestReport119;if(report)(report.edition_memory206??={hits:0}).hits++;
+  return structuredClone(await pool.values.get(cacheKey).work);
+ }
+ const entry={bytes:0,work:editionCall206(env,{action:'read',...body,edition}).then(r=>r.value)};
+ pool.values.set(cacheKey,entry);
+ try{
+  const value=await entry.work;entry.bytes=JSON.stringify(value).length*2;pool.bytes+=entry.bytes;
+  while(pool.bytes>8*1024*1024||pool.values.size>512){const [first,old]=pool.values.entries().next().value;pool.values.delete(first);pool.bytes-=old.bytes;}
+  return structuredClone(value);
+ }catch(error){if(pool.values.get(cacheKey)===entry){pool.values.delete(cacheKey);pool.bytes-=entry.bytes;}throw error;}
+}
+
+function editionReader206(env,db){
+ const pending=new Map(),once=(key,body)=>{if(!pending.has(key))pending.set(key,editionRead206(env,body));return pending.get(key).then(structuredClone);};
+ const master=id=>once('master/'+id,{action:'read',key:editionMasterKey206(String(id))});
+ const list=async c=>{
+  if(!EDITION_COLLECTIONS206.has(c))throw editionUnavailable206();
+  if(editionSharedCollection206(c)){
+   const all=await once('masters',{action:'read',prefix:'master/'});
+   return all.flatMap(([,m])=>c==='anunciantes'?(m.datos?[m.datos]:[]):c==='anunciantes_administracion'?(m.administracion?[m.administracion]:[]):m.sedes);
+  }
+  return (await once('source/'+c,{action:'read',prefix:'source/'+c+'/'})).map(([,value])=>value);
+ };
+ const reader={...db,
+  listCollection:list,
+  get:async(c,id)=>{
+   if(c==='anunciantes'||c==='anunciantes_administracion'){const m=await master(String(id));return m?.[c==='anunciantes'?'datos':'administracion']||null;}
+   if(c==='anunciantes_sedes'){const owner=await once('sede-ref/'+id,{key:'reference/sede/'+encodeURIComponent(id)});return owner?(await master(owner.aid))?.sedes.find(row=>String(row.id)===String(id))||null:null;}
+   if(!EDITION_COLLECTIONS206.has(c))throw editionUnavailable206();
+   return once('record/'+c+'/'+id,{key:editionSourceKey206(c,String(id))});
+  },
+  queryEqual:async(c,f,v,limit=1000)=>{
+   if(c==='anunciantes_sedes'&&f==='anunciante_id')return (await master(String(v)))?.sedes?.slice(0,limit)||[];
+   if(!EDITION_COLLECTIONS206.has(c)||!Number.isSafeInteger(Number(limit))||Number(limit)<0)throw editionUnavailable206();
+   const ids=await once('lookup/'+JSON.stringify([c,f,v]),{key:editionQueryKey206(c,f,v)});
+   if(ids===null)return [];
+   if(!Array.isArray(ids))throw editionUnavailable206();
+   return Promise.all(ids.slice(0,limit).map(id=>reader.get(c,id)));
+  },
+  publishedMaster206:master,
+  cachedSubscriberProjection:id=>reader.get('suscriptores',id),
+  subscriberRelations:id=>reader.queryEqual('suscriptor_anunciante','suscriptor_id',id,500),
+  subscriberFavorites:id=>reader.queryEqual('suscriptor_favoritos','suscriptor_id',id,500),
+  cachedAdminSettings126:id=>reader.get('superadmins',id),
+  cachedAdvertiserRelations104:id=>reader.queryEqual('suscriptor_anunciante','anunciante_id',id,500),
+  panelAdministration:id=>reader.get('anunciantes_administracion',id),
+  cachedPanelRows:(c,f,v)=>reader.queryEqual(c,f,v,500),
+  panelReadDb:()=>reader,flushLoginCache:async()=>{},
+ };
+ reader.getVersioned=async(c,id)=>({doc:await reader.get(c,id),updateTime:undefined});
+ for(const op of ['patch','delete','commitPatches'])reader[op]=async()=>{throw Object.assign(Error('Una consulta no puede guardar datos.'),{status:503,code:'READ_SIDE_EFFECT_BLOCKED'});};
+ return reader;
+}
+function editionReadEnvironment206(env){
+ const native=env.GLD_CACHE_KV,pending=new Map(),session={open:null};
+ const namespace=env.GLD_PUBLIC_CACHE,names=new Map();
+ const readNamespace=namespace&&new Proxy(namespace,{get(target,prop){
+  if(prop==='idFromName')return name=>{const id=target.idFromName(name);names.set(id.toString(),name);return id;};
+  if(prop==='get')return id=>{const stub=target.get(id),name=names.get(id.toString())||id.name;return {async fetch(input,init){
+   const request=input instanceof Request?input:new Request(input,init),body=await request.clone().json().catch(()=>({}));
+   const security=name?.startsWith('private-access-v201:')&&body.op==='private-access201'&&body.action==='read';
+   const edition=name===CITY_BOOK_SHARED&&body.op==='daily-edition206'&&['read','open'].includes(body.action);
+   const status=name?.startsWith('guide-save-v132:')&&body.op==='business-status143'||name==='territory-actions-v138'&&body.op==='shared-action138'&&body.command?.method==='GET'&&body.command?.path==='/superadmin/territory/action-status';
+   if(!security&&!edition&&!status)throw Object.assign(editionUnavailable206(),{code:'READ_SIDE_EFFECT_BLOCKED'});
+   return stub.fetch(request);
+  }};};
+  const value=Reflect.get(target,prop,target);return typeof value==='function'?value.bind(target):value;
+ }});
+
+ const load=key=>{if(!pending.has(key))pending.set(key,editionRead206(scoped,{key:editionCacheKey206(key)}));return pending.get(key);};
+ const binding=new Proxy(native,{get(target,prop){
+  if(prop==='get')return async(key,options)=>{
+   if(editionSecurityKey206(key))return target.get(key,options);
+   const value=await load(key);if(value===null)return null;
+   if(value&&Object.keys(value).length===1&&Object.hasOwn(value,'__gldText206'))return value.__gldText206;
+   return options==='json'||options?.type==='json'?structuredClone(value):JSON.stringify(value);
+  };
+  if(prop==='put'||prop==='delete')return async(key,...args)=>{
+   if(editionSecurityKey206(key))return target[prop](key,...args);
+   throw Object.assign(Error('Una consulta no puede preparar, publicar ni reparar paquetes.'),{status:503,code:'READ_SIDE_EFFECT_BLOCKED'});
+  };
+  if(prop==='list')return async(options={})=>{
+   if(editionSecurityKey206(options.prefix||''))return target.list(options);
+   const items=await editionRead206(scoped,{prefix:editionCacheKey206(options.prefix||'')});
+   const keys=items.map(([key])=>({name:key.slice(6)})),start=Number(options.cursor||0),limit=Math.min(Number(options.limit)||1000,1000),end=start+limit;
+   if(!Number.isSafeInteger(start)||start<0)throw httpError('Cursor inválido',400);
+   return {keys:keys.slice(start,end),list_complete:end>=keys.length,...(end<keys.length?{cursor:String(end)}:{})};
+  };
+  const value=Reflect.get(target,prop,target);return typeof value==='function'?value.bind(target):value;
+ }});
+ const scoped=new Proxy(env,{get(target,key){return key==='GLD_CACHE_KV'?binding:key==='GLD_PUBLIC_CACHE'?readNamespace:key==='__editionSession206'?session:key==='__editionCacheScope206'?env.GLD_PUBLIC_CACHE:key==='__editionReader206'?true:Reflect.get(target,key,target);}});
+ return scoped;
+}
+
+// Compatibility adapter: shared catalogs are referenced, never stored per form.
 function gldConfiguracionPanel205(admin,packet){
  return Object.fromEntries(Array.from(new Set([...Object.keys(GLD_FUNC_DEFAULT166),...Object.keys(packet?.reglas||{})])).map(fid=>{
   const global=gldFuncRules166(packet,fid),cfg=admin?.funcionalidades_config?.[fid]||{};
@@ -6416,22 +6917,14 @@ function gldConfiguracionPanel205(admin,packet){
   return [fid,{nombre:String(global.nombre||fid),activo:global.activo!==false&&(!Array.isArray(global.niveles_habilitados)||global.niveles_habilitados.includes(Number(admin?.nivel))),parametros,admite_excepciones:global.admite_excepciones!==false}];
  }));
 }
+
 async function commerceMaster205({db,cache,advertiserId}){
- const key=commerceMasterKey205(advertiserId);
- const packet=await cache.get(key);
- if(packet?.v===205&&packet?.response?.success===true)return packet.response;
- const [catalogs,functionRules]=await Promise.all([getCommerceCatalogs(cache),gldFuncPacket166(cache,db,false)]);
- const response=await commercePanelDataV3({db,advertiserId,catalogs});
- if(response?.success===true){
-  const admin=response.advertiser?.administracion||{};
-  response.advertiser.configuracion_funcionalidades=gldConfiguracionPanel205(admin,functionRules);
-  response.advertiser.configuracion_revision=functionRules.revision;
-  await cache.put(key,{v:205,response},{expirationTtl:COMMERCE_MASTER_TTL205});
- }
- return response;
-}
-async function commerceMasterInvalidate205(cache,aid){
- if(aid)await cache.del(commerceMasterKey205(aid));
+ if(!db.publishedMaster206)throw editionUnavailable206();
+ const master=await db.publishedMaster206(String(advertiserId));
+ if(!master?.datos)return {success:false,error:'anunciante_no_encontrado'};
+ const catalogs=await getCommerceCatalogs(cache);
+ return {success:true,advertiser:{id:master.advertiser_id,datos:master.datos,administracion:master.administracion||{},sedes:master.sedes,revision_datos:master.revision_datos,revision_sedes:master.revision_sedes,redes_web_comunes_disponible:true,configuracion_funcionalidades:master.configuracion_funcionalidades,configuracion_revision:master.configuracion_revision,
+  segmentos:catalogs.segmentos||[],categorias:catalogs.categorias||[],actividades_clave:catalogs.actividades_clave||[],acciones:catalogs.acciones||[],nodos:catalogs.nodos||[],funcionalidades:catalogs.funcionalidades||[],niveles_anunciante:catalogs.niveles_anunciante||[],prestaciones:gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3)}};
 }
 
 // reconstruccion/worker/core/commerce-cache-patch-v2.js
@@ -6684,7 +7177,7 @@ async function routePanelV10(ctx) {
       const out2 = await commerceSetDatosV3({ db, cache, advertiserId: aid, body });
       if (out2.updated) {
         await patchGuideAdvertiserDataFromCacheV2({ cache, advertiserId: aid, patch: out2.patch || {} });
-        await commerceMasterInvalidate205(cache,aid);
+
       }
       return json(out2);
     }
@@ -6692,7 +7185,7 @@ async function routePanelV10(ctx) {
       const out2 = await commerceSetSedesV3({ db, cache, advertiserId: aid, body });
       if (out2.updated) {
         await patchGuideAdvertiserSedesFromCacheV2({ cache, advertiserId: aid, savedSedes: out2.changed_sedes || [] });
-        await commerceMasterInvalidate205(cache,aid);
+
       }
       return json(out2);
     }
@@ -6700,13 +7193,13 @@ async function routePanelV10(ctx) {
       const sede_id=String(body.sede_id||'').trim();if(!sede_id)throw Error('Falta sede_id.');
       const relations=Object.fromEntries(['actividad_ids','accion_ids','nodo_ids'].filter(k=>body[k]!==undefined).map(k=>[k,body[k]]));
       const result=await commerceSetSedesV3({db,cache,advertiserId:aid,body:{sedes:[{sede_id,...relations,revision_sede:body.revision_sede}]}});
-      if(result.updated){await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:result.changed_sedes||[]});await commerceMasterInvalidate205(cache,aid);}
+      if(result.updated){await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:result.changed_sedes||[]});}
       return json({success:true,updated:result.updated,sede_id,revision_sedes:result.revision_sedes});
     }
     if (action === "delete_sede") {
       const out2 = await commerceDeleteSedeV3({ db, advertiserId: aid, body });
       await patchGuideAdvertiserSedesFromCacheV2({ cache, advertiserId: aid, deletedSedeId: out2.sede_id });
-      await commerceMasterInvalidate205(cache,aid);
+
       return json(out2);
     }
     return null;
@@ -8396,22 +8889,9 @@ async function adminSearchSubscribersV2({ cache, url, env }) {
     offset:url.searchParams.has("offset")?Number(url.searchParams.get("offset")):null
   });
 }
-// Respuesta administrativa completa en un solo paquete KV, no 18 búsquedas por ficha.
-const GH_ADMIN_DETAIL_TTL203=120;
-function ghAdminDetailKey203(id){
- return 'admin:advertiser:detail:v203:'+encodeURIComponent(String(id||'').trim());
-}
-async function ghAdminDetailInvalidate203(cache,id){
- if(id)await cache.del(ghAdminDetailKey203(id));
-}
-async function adminAdvertiserDetailV2({ db, id: id4,cache }) {
- const key=ghAdminDetailKey203(id4),packet=await cache.get(key);
- if(packet?.version===203&&packet.expires_at>Date.now()&&packet.detail?.success===true)
-  return packet.detail;
- const detail=await advertiserDetailV2({ db, advertiserId: id4 });
- if(detail?.success===true)
-  await cache.put(key,{version:203,expires_at:Date.now()+GH_ADMIN_DETAIL_TTL203*1000,detail},{expirationTtl:GH_ADMIN_DETAIL_TTL203});
- return detail;
+// Administrative details share the canonical master and the published source.
+async function adminAdvertiserDetailV2({db,id,cache}){
+ return advertiserDetailV2({db,advertiserId:id});
 }
 async function adminSubscriberDetailV2({ db, id: id4 }) {
   return subscriberDetailV2({ db, subscriberId: id4 });
@@ -8645,6 +9125,7 @@ function gldPreciosNormalizar162(input,strict=false){
 async function gldLeerPrecios162({cache,db,reconstruir=false}){
  const packet=await cache.get(GLD_PRECIOS_CLAVE162);
  if(packet?.precios)return packet;
+ if(cache.readOnly206)throw editionUnavailable206();
  if(!reconstruir)return {revision:0,precios:gldPreciosNormalizar162(null)};
  const saved=await db.get('planes_precios','CATALOGO');
  const recovered={revision:Number.isSafeInteger(saved?.revision)?saved.revision:0,precios:gldPreciosNormalizar162(saved?.precios)};
@@ -8735,6 +9216,7 @@ const GLD_FUNC_NUMERIC_FIELDS168={"EVENTOS_FREE":["altas_mensuales_max","activas
 async function gldFuncPacket166(cache,db,withFallback=false){
  const packet=await cache.get(GLD_FUNC_KEY166);
  if(packet&&packet.reglas)return packet;
+ if(cache.readOnly206)throw editionUnavailable206();
  if(!withFallback)return {revision:0,reglas:{}};
  const record=await db.get('configuracion_plataforma','FUNCIONALIDADES');
  const result={revision:Number.isSafeInteger(record?.revision)?record.revision:0,reglas:record?.reglas&&typeof record.reglas==='object'?record.reglas:{}};
@@ -8889,6 +9371,7 @@ const GH_FIXED_CATALOGS169=['prestaciones','segmentos','niveles_anunciante','fun
 async function ghFixedPacket169({cache,db}){
  const hot=await cache.get(GH_FIXED_PACKET_KEY169);
  if(hot?.version===169&&hot.catalogos&&hot.reglas&&hot.precios)return hot;
+ if(cache.readOnly206)throw editionUnavailable206();
  const [entries,func,prices]=await Promise.all([
   Promise.all(GH_FIXED_CATALOGS169.map(async tipo=>[tipo,(await listAdminCatalogV2({cache,tipo})).results||[]])),
   gldFuncPacket166(cache,db,true),
@@ -9297,6 +9780,7 @@ function roleSourceDb192(db,env){return {...db,
  commitPatches:entries=>entries.some(e=>ROLE_SOURCE192.has(e.collection))?roleActor192(env,{kind:'commitPatches',entries}):db.commitPatches(entries)
 };}
 async function rolesRead192(ctx,sid=''){
+ if(ctx.env.__editionReader206)return ctx.db;
  const snapshot=await roleActor192(ctx.env,{kind:'snapshot',sid}),base=ctx.db.panelReadDb?ctx.db.panelReadDb():ctx.db;
  const lists={superadmins:snapshot.moderators,personal_comercial:snapshot.commerce};
  const copy=x=>structuredClone(x);
@@ -10107,6 +10591,7 @@ async function routeAdminV11(ctx) {
 function observeDbV41(db, report) {
   const observed = {};
   for (const operation of Object.keys(db)) {
+    if(['editionOutbox206','cleanupOutbox206'].includes(operation)){observed[operation]=(...args)=>db[operation](...args);continue;}
     observed[operation] = async (...args) => {
       const collection = String(args[0] || "");
       const field=operation==="queryEqual"?String(args[1]||""):"";
@@ -11309,33 +11794,6 @@ async function routeAdminPromosV91(ctx){
  await syncPromo({cache,current,next:saved});return json({success:true,promo:{...saved,estado_panel:promoStateV91(saved)}});
 }
 
-async function prepareEntry195(env,report,subscribers,preparedSource=null){
- const scoped=requestCache121(observeKv117(env,report),report),cache=createCache(scoped);
- // Source reads are permitted only in this daily producer, never on entry.
- const source=preparedSource||observeDbV41(createDb(scoped),report);
- const db=withPanelCacheV48(withPrivateCacheV46(source,scoped),scoped,report),top={ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}};
- let [adminTerritory,publicTerritory,advertiserIndex]=await Promise.all([cache.get('territorio:admin:v1'),cache.get('territorio:public:v1'),cache.get(ADMIN_ADVERTISERS_KEY)]);
- if(!adminTerritory||!publicTerritory){
-  const [paises,provincias,ciudades]=await Promise.all([db.listCollection(C.paises),db.listCollection(C.provincias),db.listCollection(C.ciudades)]),updated_at=new Date().toISOString();
-  adminTerritory={version:1,updated_at,paises,provincias,ciudades:sortCities(ciudades)};
-  publicTerritory={version:1,updated_at,paises:paises.filter(active),provincias:provincias.filter(active),ciudades:sortCities(ciudades.filter(active).map(x=>publicCity(x,adminTerritory)))};
-  await Promise.all([cache.put('territorio:admin:v1',adminTerritory),cache.put('territorio:public:v1',publicTerritory)]);
- }
- if(!Array.isArray(advertiserIndex?.results)){await rebuildAdminIndexesV2({db,cache});advertiserIndex=await cache.get(ADMIN_ADVERTISERS_KEY);}
- if(!await cache.get(GH_FIXED_PACKET_KEY169)&&!await cache.get(ADMIN_KEY2))await rebuildCatalogs({db,cache});
- const [inbox,fixed,territory,territory_public,advertisers]=await Promise.all([prepareInbox195({db},top),ghFixedPacket169({cache,db}),cache.get('territorio:admin:v1'),cache.get('territorio:public:v1'),cache.get(ADMIN_ADVERTISERS_KEY)]);
- if(!territory||!Array.isArray(territory.ciudades)||!Array.isArray(advertisers?.results))throw httpError('Los índices privados del ingreso no están preparados.',503);
- // Scope proofs are computed during publication. Missing proof never grants access.
- for(const row of inbox.blocked){
-  let cities;
-  if(row.tipo==='PUBLICIDAD')cities=await db.cachedPanelRows('publicidad_segmentacion','publicidad_id',row.id);
-  else if(row.tipo==='ANUNCIANTE')cities=await db.cachedPanelRows('anunciantes_sedes','anunciante_id',row.id);
-  else {row.scope195=[String(row.ciudad_id||'')];continue;}
-  row.scope195=cities===null?null:cities.filter(x=>x.activo!==false).map(x=>String(x.ciudad_id||''));
-  if(row.tipo==='ANUNCIANTE'&&row.scope195&&row.scope195.length===0&&row.ciudad_id)row.scope195=[String(row.ciudad_id)];
- }
- return {resumen:{suscriptores:subscribers.length,anunciantes:advertisers.results.length,ciudades:territory.ciudades.length},inbox,fixed,territory,territory_public};
-}
 async function dailyInboxForAuth195(packet,auth){
  if(!canModerate2(auth))throw httpError('Acceso administrativo requerido.',403);
  if(!packet?.preparado||!packet.admin?.inbox)throw httpError('La copia diaria de Inicio todavía no está preparada.',503);
@@ -11352,94 +11810,23 @@ async function dailyInboxForAuth195(packet,auth){
 }
 async function dailyDashboard195(env,auth){
  if(!auth?.ok||!canModerate2(auth))return json({success:false,message:'Acceso administrativo requerido.'},403);
- const packet=await dailySubscribers195(env,'read');
+ let packet;try{packet=await dailySubscribers195(env,'read');}catch(error){return json({success:false,entry_version:195,code:'GH_DAILY_NOT_PREPARED',message:String(error.message||error)},503);}
  if(!packet?.preparado||!packet.admin)return json({success:false,entry_version:195,code:'GH_DAILY_NOT_PREPARED',message:'La copia diaria de Inicio todavía no está preparada.'},503);
  const top=isTopAdmin2(auth),inbox=await dailyInboxForAuth195(packet,auth);
  if(!top&&!packet.admin.territory_public)throw httpError('La copia territorial pública todavía no está preparada.',503);
  const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
  if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
  const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:206,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
+ return json({success:true,entry_version:195,worker_info:{version:207,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
-class PrivateDaily195 {
- constructor(state,env){this.state=state;this.env=env;this.tail=Promise.resolve();state.storage.sql.exec('CREATE TABLE IF NOT EXISTS private_subscribers_daily195 (cutoff INTEGER PRIMARY KEY,value TEXT NOT NULL,published INTEGER NOT NULL DEFAULT 0)');}
- async fetch(body){
-  const prior=this.tail;let release=()=>{};this.tail=new Promise(resolve=>{release=()=>resolve(undefined);});await prior;
-  const metrics={rows_read:0,rows_written:0},report={operations:{}};
-  const query=(sql,...args)=>{const cursor=this.state.storage.sql.exec(sql,...args),rows=[...cursor];metrics.rows_read+=cursor.rowsRead??rows.length;metrics.rows_written+=cursor.rowsWritten??0;return rows;};
-  const decode=row=>row?JSON.parse(row.value):{preparado:false,results:null};
-  try{
-   const cutoff=body.cutoff,latest=()=>query('SELECT value FROM private_subscribers_daily195 WHERE published=1 ORDER BY cutoff DESC LIMIT 1')[0];
-   if(body.action==='read'){const value=decode(latest());return Response.json({value:value.preparado&&value.corte===cutoff?value:{preparado:false,results:null,pendiente_corte:true},metrics});}
-   if(!Number.isSafeInteger(cutoff)||cutoff!==cityBookBoundary(cityBookDay(Date.now())))throw Error('El corte privado no corresponde a la publicación diaria vigente.');
-   if(body.action==='commit'){
-    if(!query('SELECT value FROM private_subscribers_daily195 WHERE cutoff=?',cutoff)[0])throw Error('Falta la edición privada preparada para confirmar este corte.');
-    query('UPDATE private_subscribers_daily195 SET published=1 WHERE cutoff=? AND published=0',cutoff);
-    // Retain two previous editions for recovery; neither is public.
-    query('DELETE FROM private_subscribers_daily195 WHERE cutoff<?',cutoff-2*CITY_BOOK_DAY_MS);
-    return Response.json({value:{success:true},metrics});
-   }
-   if(body.action!=='stage')throw Error('La edición se prepara únicamente mediante el publicador diario.');
-   const published=latest();
-   const existing=query('SELECT value FROM private_subscribers_daily195 WHERE cutoff=?',cutoff)[0];
-   if(existing)return Response.json({value:decode(existing),metrics});
-   const env=observeKv117(this.env,report),cache=createCache(env),nativeSource=observeDbV41(createDb(env),report),lists=new Map();
-   const source={...nativeSource,listCollection(c){if(!lists.has(c))lists.set(c,nativeSource.listCollection(c));return lists.get(c).then(rows=>structuredClone(rows));}};
-   let index=await cache.get(ADMIN_SUBSCRIBERS_KEY);
-   if(!Array.isArray(index?.results)){
-    index={version:2,births_version:195,updated_at:new Date().toISOString(),results:sortByName((await source.listCollection('suscriptores')).map(subscriberRow))};
-    await cache.put(ADMIN_SUBSCRIBERS_KEY,index);
-   }
-   const previous=new Map((decode(published).results||[]).map(row=>[String(row.suscriptor_id||row.id),row]));
-   const unresolved=index.results.filter(row=>!Object.hasOwn(row,'fecha_nacimiento')&&!previous.has(String(row.suscriptor_id||row.id)));
-   const legacy=new Map();
-   if(unresolved.length){
-    // One-time enrichment from the prepared legacy index; the producer repairs a missing index from source.
-    if(!await cache.get(BIRTHDAY_READY_V83)){
-     index={version:2,births_version:195,updated_at:new Date().toISOString(),results:sortByName((await source.listCollection('suscriptores')).map(subscriberRow))};
-     await cache.put(ADMIN_SUBSCRIBERS_KEY,index);
-    }else{
-    let cursor;do{const page=await env.GLD_CACHE_KV.list({prefix:BIRTHDAY_PREFIX_V91,...(cursor?{cursor}:{})});
-     for(const key of page.keys){const value=await cache.get(key.name);if(!value)continue;let sid;try{sid=decodeURIComponent(key.name.slice(key.name.lastIndexOf(':')+1));}catch{continue;}legacy.set(sid,birthDateOnly_(value.fecha_nacimiento)||'');}
-     cursor=page.list_complete?null:page.cursor;
-    }while(cursor);
-    }
-   }
-   const results=index.results.map(row=>{const sid=String(row.suscriptor_id||row.id);return {...row,fecha_nacimiento:Object.hasOwn(row,'fecha_nacimiento')?birthDateOnly_(row.fecha_nacimiento)||'':previous.get(sid)?.fecha_nacimiento??legacy.get(sid)??''};});
-   const admin=await prepareEntry195(this.env,report,results,source);
-   const value={preparado:true,version:195,corte:cutoff,preparado_en:new Date().toISOString(),results,admin};
-   const encoded=JSON.stringify(value);if(new TextEncoder().encode(encoded).length>1800000)throw Error('El listado general supera el tamaño seguro. No se publicó una copia incompleta.');
-   query('INSERT INTO private_subscribers_daily195(cutoff,value,published) VALUES(?,?,?)',cutoff,encoded,0);
-   return Response.json({value,metrics,kv:report.kv,operations:report.operations});
-  }catch(error){return Response.json({error:String(error.message||error),metrics,kv:report.kv,operations:report.operations},{status:503});}
-  finally{release();}
- }
-}
-const PRIVATE_DAILY_REQUEST195=new WeakMap();
+class PrivateDaily195 extends DailyEdition206 {} // Existing import name; same storage/protocol.
 async function dailySubscribers195(env,action,cutoff=cityBookBoundary(cityBookDay(Date.now()))){
- if(action==='read'&&env.__gldRequestReport119&&PRIVATE_DAILY_REQUEST195.has(env))return PRIVATE_DAILY_REQUEST195.get(env);
- const work=(async()=>{
-  if(!env.GLD_PUBLIC_CACHE)return {preparado:false,results:null};
-  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName(CITY_BOOK_SHARED));
-  const response=await actor.fetch(new Request('https://private-daily.internal/',{method:'POST',body:JSON.stringify({op:'private-subscribers-daily195',action,cutoff})})),result=await response.json(),report=env.__gldRequestReport119;
-  if(report){
-   const metrics=report.admin_store126??={calls:0,rows_read:0,rows_written:0};metrics.calls++;for(const k of ['rows_read','rows_written'])metrics[k]+=result.metrics?.[k]||0;
-   for(const [key,stat] of Object.entries(result.operations||{})){const prev=report.operations[key];if(!prev)report.operations[key]=stat;else for(const field of ['calls','documents_returned','failures'])prev[field]=(prev[field]||0)+(stat[field]||0);}
-   if(result.kv){report.kv??={get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0};for(const k of ['get_calls','put_calls','delete_calls','list_calls','failures'])report.kv[k]+=result.kv[k]||0;}
-  }
-  if(!response.ok)throw httpError(result.error||'No se pudo consultar la edición privada diaria.',503);
-  return result.value;
- })();
- if(action==='read'&&env.__gldRequestReport119){PRIVATE_DAILY_REQUEST195.set(env,work);try{return await work;}catch(e){PRIVATE_DAILY_REQUEST195.delete(env);throw e;}}
- return work;
+ if(action==='read')return await editionRead206(env,{key:'daily:entry:195'})||{preparado:false,results:null};
+ return (await editionCall206(env,{action,cutoff})).value;
 }
 
-// Private calendar projections; no subscriber identities in summary responses.
-const BIRTHDAY_READY_V83='private:birthdays:ready:v91';
-const BIRTHDAY_PREFIX_V91='private:birthdays:v91:';
-function birthdayKeyV83(row){const birth=birthDateOnly_(row?.fecha_nacimiento),sid=String(row?.suscriptor_id||row?.id||'').trim();return sid&&adultAge(birth)!==null&&adultAge(birth)<=120?BIRTHDAY_PREFIX_V91+birth.slice(5)+':'+encodeURIComponent(sid):'';}
 async function syncSubscriberDirectory195(env,previous,next){
  const cache=createCache(env);
  if(next)return upsertSubscriberIndexV2({cache,subscriber:next});
@@ -11812,6 +12199,7 @@ async function routeEmpleo109(/** @type {any} */ ctx){
 function observeKv117(env,report){
  const original=env.GLD_CACHE_KV;if(!original)return env;
  const stats=report.kv={get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0,write_groups:{}};
+ const captureEnvironment206=new Proxy(env,{get(target,p){return p==='__gldRequestReport119'?report:Reflect.get(target,p,target);}});
  const names={get:'get_calls',put:'put_calls',delete:'delete_calls',list:'list_calls'},methods=new Map();
  const binding=new Proxy(original,{get(target,property){
   const method=Reflect.get(target,property,target);if(typeof method!=='function')return method;
@@ -11819,7 +12207,13 @@ function observeKv117(env,report){
   if(!methods.has(property))methods.set(property,async(...args)=>{
    stats[names[property]]++;
    if(property==='put'){const group=String(args[0]||'').split(':').slice(0,3).join(':');stats.write_groups[group]=(stats.write_groups[group]||0)+1;}
-   try{return await Reflect.apply(method,target,args);}catch(error){stats.failures++;throw error;}
+   try{
+    if(!env.__editionReader206&&env.GLD_PUBLIC_CACHE&&['put','delete'].includes(property)&&!editionSecurityKey206(String(args[0]))){
+     let value=null;if(property==='put'){try{value=JSON.parse(args[1]);}catch{value={__gldText206:String(args[1])};}}
+     await editionCall206(captureEnvironment206,{action:'capture',key:String(args[0]),value});
+    }
+    return await Reflect.apply(method,target,args);
+   }catch(error){stats.failures++;throw error;}
   });return methods.get(property);
  }});
  return new Proxy(env,{get(target,property){return property==='__gldCatalogScope126'?original:property==='__gldRequestReport119'?report:property==='GLD_CACHE_KV'?binding:Reflect.get(target,property,target);}});
@@ -12031,7 +12425,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'206',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'207',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -12117,7 +12511,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='daily-edition206'){if(!this.edition206)this.edition206=new DailyEdition206(this.state,this.env);return await this.edition206.fetch(body);}if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.edition206)this.edition206=new DailyEdition206(this.state,this.env);return await this.edition206.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12195,106 +12589,33 @@ async function cityBookActor(env,key,op,params,report){
  return result;
 }
 
+// The exporter consumes the SAME frozen source as the three interfaces. A
+// missing/late operational projection cannot conceal a committed source edit.
+async function editionPublicProjection206({cache,spec,city,cutoff}){
+ const url=new URL(spec.path||'/projection','https://publication.internal');
+ for(const [key,value]of Object.entries({ciudad_id:city,...spec.query}))url.searchParams.set(key,value);
+ const response=spec.project?Response.json(await spec.project({cache,city,cutoff})):await routePublicV12({path:spec.path,request:new Request(url),url,cache,cityBookCutoff:cutoff});
+ if(spec.emptyStatus&&response?.status===spec.emptyStatus)return {success:true,ciudad_id:city,version:139,[spec.field]:[]};
+ if(!response?.ok)throw editionUnavailable206();
+ const safe=adultPublic(await response.json(),false);
+ if(safe?.success!==true||!Array.isArray(safe[spec.field]))throw editionUnavailable206();
+ return {success:true,[spec.field]:safe[spec.field],...Object.fromEntries((spec.metadata||[]).filter(k=>safe[k]!==undefined).map(k=>[k,safe[k]])),...(spec.emptyStatus?{ciudad_id:city,version:safe.version??139}:{})};
+}
 async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report}){
- const features=await publicFeatures191(cache),schema=publicSchema191(features);
- const from=cityBookDay(after),to=cityBookDay(cutoff),now=cityBookDay(Date.now());
- if(!Number.isSafeInteger(after)||!Number.isSafeInteger(cutoff)||after!==cityBookBoundary(from)||
-    cutoff!==cityBookBoundary(to)||to<=from||to>now||from<now-CITY_BOOK_HORIZON||
-    !Array.isArray(known)||known.length>100||known.some(city=>typeof city!=='string'||!city||city.length>160)){
-  throw httpError('Ventana del corte inválida.',400);
- }
- const before=await cityBookSharedState(env,{op:'city-book-shared-changes',from,to});
- if(before.later)throw httpError('Cambió una regla pública después del cierre del corte.',503);
- const dirty=new Set(before.kinds),due=new Set(before.due.map(row=>row.kind+'\0'+row.city)),future=new Map();
- const territorial=await cache.get(PUBLIC_KEY);
- if(!territorial)throw httpError('Falta el catálogo territorial publicado.',503);
- const activeCities=(packet(territorial).ciudades||[]).filter(city=>city.activa!==false).map(city=>String(city.ciudad_id||'')).filter(Boolean);
- const active=new Set(activeCities),previous=new Set(known),reads=new Map(),shared=new Map();
- const journal=key=>{
-  if(!reads.has(key))reads.set(key,cityBookActor(env,key,'city-book-changes',{from,to},report));
-  return reads.get(key);
- };
- const snapshots=new Map();
- const atCut=(key,ids)=>{const ref=JSON.stringify([key,ids||null]);if(!snapshots.has(ref))snapshots.set(ref,cityBookActor(env,key,'city-book-read',{to,...(ids?{ids}: {})},report).then(result=>result.value));return snapshots.get(ref).then(value=>structuredClone(value));};
- const stored=key=>{
-  if(!shared.has(key))shared.set(key,key===PUBLIC_KEY?Promise.resolve(territorial):cache.get(key));
-  return shared.get(key);
- };
- function rememberDate(value,kind,city,end){
-  const text=String(value||'').trim();
-  if(!text)return;
-  const isDay=/^\d{4}-\d{2}-\d{2}$/.test(text);
-  const stamp=Date.parse(isDay?text+(end?'T23:59:59.999-03:00':'T00:00:00-03:00'):text)+(end?1:0);
-  if(!Number.isFinite(stamp)||stamp<cutoff)return;
-  const day=cityBookDay(stamp);
-  future.set(day+'\0'+kind+'\0'+city,[day,kind,city]);
- }
- function rememberValidity(value,kind,city){
-  rememberDate(value?.vigente_desde,kind,city,false);
-  rememberDate(value?.vigente_hasta,kind,city,true);
- }
- async function projection(name,city,ids){
-  const spec=features[name],key=city=>spec.store.prefix+city,ownKey=key(city),virtualKey=spec.virtual?key('VIRTUAL'):null;
-  const url=new URL(spec.path||'/projection','https://public-cache.internal');
-  for(const [key,value] of Object.entries({ciudad_id:city,...spec.query}))url.searchParams.set(key,value);
-  const internal={
-   async get(key){
-    const definition=cityDefinition119(key);
-    const value=await (definition?atCut(key,(key===ownKey||key===virtualKey)?ids:null):stored(key));
-    if(spec.validity&&definition?.module===spec.store.module){
-     for(const row of value?.[definition.field]||[]){rememberValidity(row,name,city);rememberDate(row.hasta,name,city,true);}
-    }
-    if(spec.family==='ads'){
-     if(definition?.module==='publicity')for(const row of value?.publicidades||[])rememberValidity(row,name,city);
-     if(definition?.module==='events'||definition?.module==='activities'){
-      const type=definition.module==='events'?'EVENTO':'ACTIVIDAD';
-      for(const row of value?.[definition.field]||[])rememberDate(advertisingEnd147(row,type),name,city,true);
-     }
-     if(key.startsWith('publicity:contract:v101:'))rememberValidity(value,name,city);
-    }
-    return value;
-   },
-  };
-  const response=spec.project?Response.json(await spec.project({cache:internal,city,cutoff,ids})):await routePublicV12({path:spec.path,request:new Request(url),url,cache:internal,cityBookCutoff:cutoff});
-  if(spec.emptyStatus&&response?.status===spec.emptyStatus&&!ids){
-   // The normal API treats a city without any cycle as unavailable.
-   return {success:true,ciudad_id:city,version:139,[spec.field]:[]};
-  }
-  if(!response?.ok)throw httpError('No se pudo preparar un módulo público del corte.',503);
-  const safe=adultPublic(await response.json(),false);
-  if(safe?.success!==true||!Array.isArray(safe[spec.field]))throw httpError('Proyección pública inválida.',503);
-  return {success:true,[spec.field]:safe[spec.field],...Object.fromEntries((spec.metadata||[]).filter(key=>safe[key]!==undefined).map(key=>[key,safe[key]])),...(spec.emptyStatus?{ciudad_id:city,version:safe.version??139}:{})};
- }
- const cities=[],initial=[];
+ if(!Number.isSafeInteger(after)||!Number.isSafeInteger(cutoff)||after>=cutoff||!Array.isArray(known)||known.length>100||known.some(city=>typeof city!=='string'||!city||city.length>160))throw httpError('Ventana del corte inválida.',400);
+ const metadata=(await editionCall206(env,{action:'staged-read',cutoff,key:'public/manifest'})).value;
+ if(!metadata||metadata.cutoff!==cutoff)throw editionUnavailable206();
+ const features=await publicFeatures191(cache),schema=publicSchema191(features),cities=[],initial=[];
+ const previous=new Set(known),active=new Set(metadata.cities);
  for(const city of active){
   if(!previous.has(city)){
-   const modules={};
-   for(const name of Object.keys(features))modules[name]=await projection(name,city,null);
-   initial.push({city,revision:to+1,schema,modules});
-   continue;
+   const modules={};for(const [name,spec]of Object.entries(features))modules[name]=await editionPublicProjection206({cache,spec,city,cutoff});
+   initial.push({city,revision:cityBookDay(cutoff)+1,schema,modules});continue;
   }
-  const changes={},replacements={};
-  for(const [name,spec] of Object.entries(features)){
-   const delta=await journal(spec.store.prefix+city);
-   const virtual=spec.virtual?await journal(spec.store.prefix+'VIRTUAL'):null;
-   const ids=[...new Set([...delta.changes,...(virtual?.changes||[])].map(row=>row.id))];
-   const enrolled=knownSchema?Object.hasOwn(knownSchema,name):['guide','events','promos','activities','ads','pharmacy'].includes(name);
-   const derived=!enrolled||knownSchema&&knownSchema[name]&&!samePublicValueInternal(knownSchema[name],schema[name])||(spec.watchShared||[]).some(kind=>dirty.has(kind))||due.has(name+'\0'+city)||
-    (spec.watch||[]).some(dependency=>changes[dependency]||replacements[dependency]);
-   if(!ids.length&&!derived)continue;
-   if(spec.family==='ads'||derived){
-    replacements[name]=await projection(name,city,null);
-    continue;
-   }
-   const upsert=(await projection(name,city,ids))[spec.field];
-   const included=new Set(upsert.map(row=>String(row[spec.id]||row.id||'')));
-   changes[name]={upsert,remove:ids.filter(id=>!included.has(id))};
-  }
-  if(Object.keys(changes).length||Object.keys(replacements).length)cities.push({city,changes,replacements});
+  const replacements={};
+  for(const [name,spec]of Object.entries(features))if((metadata.changed[city]||[]).includes(name)||!knownSchema||!samePublicValueInternal(knownSchema[name],schema[name]))replacements[name]=await editionPublicProjection206({cache,spec,city,cutoff});
+  if(Object.keys(replacements).length)cities.push({city,changes:{},replacements});
  }
- const afterRead=await cityBookSharedState(env,{op:'city-book-shared-changes',from,to});
- if(afterRead.later||afterRead.kinds.length!==before.kinds.length)throw httpError('Cambió una regla pública durante el corte.',503);
- if(future.size)await cityBookSharedState(env,{op:'city-book-add-due',due:[...future.values()]});
  return {complete:true,after,cutoff,schema,cities,initial,retired:known.filter(city=>!active.has(city))};
 }
 const CITY_BOOK_ISSUER='https://token.actions.githubusercontent.com';
@@ -12339,12 +12660,14 @@ async function routeCityBookCut({request,env,report}){
  if(!await cityBookIdentity(request))return json({success:false,message:'Identidad de publicación inválida.'},401,{'Cache-Control':'no-store'});
  const data=await request.json(),cutoff=data?.cutoff,now=cityBookBoundary(cityBookDay(Date.now()));
  if(!Number.isSafeInteger(cutoff)||cutoff!==now)throw httpError('El corte no corresponde a la última 01:00.',400);
+ if(data.op==='territory'){await editionCall206(env,{action:'stage',cutoff});const territorial=await editionStageCache206(env,cutoff).get(PUBLIC_KEY);if(!territorial)throw editionUnavailable206();return json({success:true,...territorial,publication:{build:'207-arranque-recuperable-2',cutoff,status:'staged'}},200,{'Cache-Control':'no-store'});}
  if(data.op==='commit'){
+  await editionCall206(env,{action:'commit',cutoff});
   await cityBookSharedState(env,{op:'city-book-commit',cutoff});
   // A private edition failure must not interrupt or undo the public publication.
-  try{await dailySubscribers195(env,'commit',cutoff);report.private_daily195={status:'committed',cutoff};}
+  try{report.private_daily195={status:'committed',cutoff};}
   catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_COMMIT_FAILED'};}
-  return json({success:true,private_daily:report.private_daily195},200,{'Cache-Control':'no-store'});
+  return json({success:true,private_daily:report.private_daily195,publication:{build:'207-arranque-recuperable-2',cutoff,status:'committed'}},200,{'Cache-Control':'no-store'});
  }
  if(data.op!=='read'||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
  const installed=data.publishedCutoff;
@@ -12353,11 +12676,12 @@ async function routeCityBookCut({request,env,report}){
  const state=await cityBookSharedState(env,{op:'city-book-checkpoint'});
  if(installed===null&&state.cutoff!==null)throw httpError('Falta recuperar la última publicación de Hosting.',503);
  const after=Math.max(installed??(cutoff-CITY_BOOK_DAY_MS),state.cutoff??0);
+ await editionCall206(env,{action:'stage',cutoff});
+ const stagedCache206=editionStageCache206(env,cutoff);
  const output=after===cutoff?{complete:true,after,cutoff,cities:[],initial:[],retired:[]}:
-  await exportCityBookCut({env,cache:createCache(env),after,cutoff,known:data.known,knownSchema:data.schema,report});
- try{const prepared=await dailySubscribers195(env,'stage',cutoff);report.private_daily195={status:prepared?.preparado?'staged':'pending',cutoff};}
- catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_PREPARE_FAILED'};}
- return json(output,200,{'Cache-Control':'no-store'});
+  await exportCityBookCut({env,cache:stagedCache206,after,cutoff,known:data.known,knownSchema:data.schema,report});
+ report.private_daily195={status:'staged',cutoff};
+ return json({...output,publication:{build:'207-arranque-recuperable-2',cutoff,status:'staged'}},200,{'Cache-Control':'no-store'});
 }
 function coordinatedCities119(env,report){
  if(!env.GLD_PUBLIC_CACHE){report.public_cache_backend='legacy-kv';return env;}
@@ -12573,6 +12897,7 @@ GldPublicCache119.prototype.moduleSnapshot125=async function(body){
 const PUBLIC_CATALOG_POOL126=new WeakMap();
 const PUBLIC_CATALOG_KEYS126=new Set(['catalogs:publicidad:v1','catalogs:commerce:v1','catalogs:eventos:v1','catalogs:actividades:v1','catalogs:promos:v1']);
 async function pendingActor126(env,op){
+ if(env.__editionReader206){if(op!=='pending-events-read')throw editionUnavailable206();return pendingEventsV2({db:editionReader206(env,{}),limit:100});}
  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('admin-pending-events-v126'));
  const response=await actor.fetch(new Request('https://pending.internal/',{method:'POST',body:JSON.stringify({op})}));
  const result=await response.json(),report=env.__gldRequestReport119;
@@ -12654,7 +12979,7 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
   });
-  if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid),commerceMasterInvalidate205(cache,aid)]);
+
   return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
@@ -12672,7 +12997,7 @@ async function routeAtomicAdvertiserInternal(ctx){
   if(body.sedes?.length){const r=await commerceSetSedesV3({db:stagedDb,cache:stagedCache,advertiserId:aid,body:{sedes:body.sedes}});if(r.updated)await patchGuideAdvertiserSedesFromCacheV2({cache:stagedCache,advertiserId:aid,savedSedes:r.changed_sedes});output.updated||=r.updated;output.sedes=r.sedes;output.revision_sedes=r.revision_sedes;}
   return output;
  });
- if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid),commerceMasterInvalidate205(cache,aid)]);
+
  return json(result);
 }
 
@@ -12692,13 +13017,6 @@ async function routeGuideDispatch132(ctx){
  else{const auth=await requirePanel4(env,request,aid,true);if(auth.response)return auth.response;}
  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
  const response=await actor.fetch(new Request('https://guide-write.internal/',{method:'POST',body:JSON.stringify({op:'guide-save132',aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body})}));
- // Invalidación sólo después de un cambio confirmado. La siguiente apertura
- // recupera un paquete nuevo, no 18 subconsultas de los datos anteriores.
- if(response.ok){
-  const outcome=await response.clone().json().catch(()=>null);
-  if(outcome?.success===true&&outcome.updated!==false)
-   await Promise.all([ghAdminDetailInvalidate203(ctx.cache,aid),commerceMasterInvalidate205(ctx.cache,aid)]);
- }
  const renewal=SESSION_RENEWALS_V87.get(request);
  if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
  const headers=new Headers(response.headers);headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');
@@ -12751,7 +13069,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'206',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'207',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -12762,7 +13080,7 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'206',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const report={event:'gld_guide_recovery',worker_version:'207',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
@@ -12847,7 +13165,7 @@ function consumptionBase136(report){
  const count=(obj,key)=>obj?obj[key]??null:0;
  return {schema:136,request_id:report.request_id,version:report.worker_version,
   firestore:{read_calls:totals.read_calls,documents_returned:totals.documents_returned,write_calls:totals.write_calls,delete_calls:totals.delete_calls,billed_reads:totals.read_calls?null:0,billed_writes:totals.write_calls?null:0,billed_deletes:totals.delete_calls?null:0,failures:totals.failures},
-  cloudflare:{worker_requests:1,kv:{get_calls:kv?.get_calls??null,put_calls:kv?.put_calls??null,delete_calls:kv?.delete_calls??null,list_calls:kv?.list_calls??null,failures:kv?.failures??null},public_store:{calls:count(publicStore,'calls'),rows_read:count(publicStore,'rows_read'),rows_written:count(publicStore,'rows_written'),legacy_gets:count(publicStore,'legacy_gets'),legacy_lists:count(publicStore,'legacy_lists'),components:publicStore?.components??[]},admin_store:{calls:count(adminStore,'calls'),rows_read:count(adminStore,'rows_read'),rows_written:count(adminStore,'rows_written')},auth_store:{calls:count(authStore,'calls'),rows_read:count(authStore,'rows_read'),rows_written:count(authStore,'rows_written'),failures:count(authStore,'failures')},cpu_ms:null,do_duration_gbs:null,storage_bytes:null},
+  cloudflare:{worker_requests:1,kv:{get_calls:kv?.get_calls??null,put_calls:kv?.put_calls??null,delete_calls:kv?.delete_calls??null,list_calls:kv?.list_calls??null,failures:kv?.failures??null},public_store:{calls:count(publicStore,'calls'),rows_read:count(publicStore,'rows_read'),rows_written:count(publicStore,'rows_written'),legacy_gets:count(publicStore,'legacy_gets'),legacy_lists:count(publicStore,'legacy_lists'),components:publicStore?.components??[]},admin_store:{calls:count(adminStore,'calls'),rows_read:count(adminStore,'rows_read'),rows_written:count(adminStore,'rows_written')},auth_store:{calls:count(authStore,'calls'),rows_read:count(authStore,'rows_read'),rows_written:count(authStore,'rows_written'),failures:count(authStore,'failures')},edition_store:report.edition_store206||{calls:0,rows_read:0,rows_written:0},cpu_ms:null,do_duration_gbs:null,storage_bytes:null},
   coverage:{status:'INCOMPLETO',missing:[...absent,'worker-cpu','durable-object-billed-duration','persistent-storage-size','browser-preflight-and-external-assets'],operation_counters:absent.length?'INCOMPLETO':'REGISTRADOS',scope:'This HTTP response; not the entire browser action or the account invoice.'}};
 }
 
@@ -12964,7 +13282,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'206',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'207',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -13030,11 +13348,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'206',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'207',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'206',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'207',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -13177,8 +13495,11 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'206',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
-    env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
+    const report={event:'gld_firestore_observation',worker_version:'207',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const readBody206=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
+    const readAction206=String(readBody206.action||readBody206.accion||new URL(request.url).searchParams.get('action')||'').toLowerCase();
+    const dataRead206=(request.method==='GET'||request.method==='POST'&&['getpaneldata','getfreeeventspaneldata','getvipeventspaneldata','getpromos','geteventospanel','getvipevents','getfreeevents','checkfreeeventduplicates','ubicaciones','locations','bootstrap','paneldata','listar','listar_admin','list'].includes(readAction206))&&!['/','/internal/city-books'].includes(clean(new URL(request.url).pathname));
+    env=dataRead206?requestCache121(editionReadEnvironment206(observeKv117(env,report)),report):coordinatedCities119(requestCache121(observeKv117(env,report),report),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
       if(db&&db.flushLoginCache&&!cacheFlushed){cacheFlushed=true;await db.flushLoginCache();}
@@ -13209,9 +13530,11 @@ var app_main_v35_default = {
       db=withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report),env),env),env,report);
       db=GLD_BUSINESS143.journal(guideJournalDb132(db,env),env);
       const cache=createCache(env);
+      if(request.method==='POST'&&/\/(?:prepare|rebuild)(?:[-/]|$)/.test(path))return await traced(json({success:false,code:'DAILY_PUBLISHER_REQUIRED',message:'La preparación y recuperación utilizan el publicador diario existente.'},409));
       const action=await observationActionV43(request,url);
       if(action)report.action=action;
       cache.ensureGuideBaseInternal=aid=>ensureGuideBaseFromPrivateInternal({db,cache,advertiserId:aid});
+      if(dataRead206)db=editionReader206(env,db);
       const ctx={path,request,url,env,db,cache,request_id143:report.request_id};
       const advertiserAccess158=await routeAdvertiserAccess155(ctx);if(advertiserAccess158)return await traced(advertiserAccess158);
       const gate155=await roleGate155(ctx);if(gate155)return await traced(gate155);
@@ -13221,7 +13544,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"206",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"207",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
@@ -13367,4 +13690,7 @@ export { PrivateRoles192, roleSourceDb192, rolesRead192 };
 
 export { PrivateDaily195, dailySubscribers195, birthdayList195, syncSubscriberDirectory195 };
 
-export { prepareEntry195, prepareInbox195, dailyDashboard195, dailyInboxForAuth195 };
+export { prepareInbox195, dailyDashboard195, dailyInboxForAuth195 };
+function editionStageCache206(env,cutoff){return {get:async key=>(await editionCall206(env,{action:"staged-read",cutoff,key:editionCacheKey206(key)})).value};}
+
+export {DailyEdition206,editionSourceDb206,editionReader206,editionReadEnvironment206,editionCall206,EDITION_COLLECTIONS206,editionSafe206,editionSecurityKey206};
