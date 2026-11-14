@@ -1,9 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtemp,rm} from 'node:fs/promises';
+import {mkdtemp,rm,mkdir,readFile,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
 import {generateKeyPairSync,sign,createHmac} from 'node:crypto';
+import {publicationRequest,requirePublication207,publicarPaquetes} from '../../scripts/publicar-paquetes-ciudad.mjs';
+import {preparePublicTerritory} from '../../scripts/prepare-public-territory.mjs';
 import {source} from '../observabilidad/worker-source.mjs';
 const {Miniflare,Log,LogLevel}=await import(process.env.GLD_MINIFLARE||'miniflare');
 const day=86400000,cutoff=Math.floor((Date.now()-4*3600000)/day)*day+4*3600000;
@@ -56,7 +58,7 @@ test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, g
  const send=(path,init)=>mf.dispatchFetch('https://fixture'+path,init);
  const advance=async now=>{clock=now;await send('/__fixture/clock',{method:'POST',body:JSON.stringify({now})});};
  const oidc=()=>{const n=Math.floor(clock/1000),head=Buffer.from(JSON.stringify({alg:'RS256',kid:jwk.kid})).toString('base64url'),body=Buffer.from(JSON.stringify({iss:'https://token.actions.githubusercontent.com',aud:'guialocal:publicacion-ciudades',repository_id:'987998657',repository_owner_id:'199677170',workflow_ref:'liqko/guia-local-dolores/.github/workflows/firebase-hosting-merge.yml@refs/heads/main',ref:'refs/heads/main',event_name:'schedule',nbf:n-10,exp:n+300})).toString('base64url'),message=head+'.'+body;return message+'.'+sign('RSA-SHA256',Buffer.from(message),privateKey).toString('base64url');};
- const daily=async(op,cut=cutoff)=>{const r=await send('/internal/city-books',{method:'POST',headers:{Authorization:'Bearer '+oidc()},body:JSON.stringify(op==='read'?{op,cutoff:cut,known:[],publishedCutoff:null}:{op,cutoff:cut})});const b=await r.json();assert.equal(r.status,200,JSON.stringify(b));return b;};
+ const daily=async(op,cut=cutoff)=>{const r=await send('/internal/city-books',{method:'POST',headers:{Authorization:'Bearer '+oidc()},body:JSON.stringify(op==='read'?{op,cutoff:cut,known:[],publishedCutoff:null}:{op,cutoff:cut})});const b=await r.json();assert.equal(r.status,200,JSON.stringify(b));requirePublication207(b,cut,op==='commit'?'committed':'staged');return b;};
  const jwt=payload=>{const body=Buffer.from(JSON.stringify({persistent:true,sv:0,...payload})).toString('base64url');return body+'.'+createHmac('sha256','fixture206-secret').update(body).digest('base64url');};
  const subscriber={Authorization:'Bearer '+jwt({typ:'GLD_SUBSCRIBER',sid:'U',auth:[{anunciante_id:'A',rol:'PROPIETARIO',activo:true,permisos:'EVENTOS,EVENTOS_FREE,PROMOS,ACTIVIDADES,PUBLICIDAD,TURNOS_FARMA,MODIFICAR_DATOS'}]})};
  const admin={Authorization:'Bearer '+jwt({sid:'P',rol:'SUPERADMIN_PRINCIPAL'})};
@@ -65,8 +67,31 @@ test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, g
  const primed=await login(),primedBody=await primed.json();assert.equal(primed.status,200,JSON.stringify(primedBody));assert(primedBody.token);assert(primedBody.entrada_pendiente);admin.Authorization='Bearer '+primedBody.token;
  const noIdentity=await send('/internal/city-books',{method:'POST',body:JSON.stringify({op:'territory',cutoff})});assert.equal(noIdentity.status,401);
  const interrupted=await send('/internal/city-books',{method:'POST',headers:{Authorization:'Bearer '+oidc()},body:JSON.stringify({op:'territory',cutoff})});assert.equal(interrupted.status,503);assert((await interrupted.text()).includes('fixture-first-build-interrupted'));
- await advance(cutoff+2*3600000);await mf.dispose();await start();denyReads=true;const recoveredBefore=calls.length;await daily('territory');assert.equal(calls.slice(recoveredBefore).filter(c=>c.host==='firestore.googleapis.com').length,0,'captura inicial persistente recuperada sin Firestore tras reiniciar dos horas después');assert.equal((await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).status,503);
- await daily('commit');denyReads=true;
+ await advance(cutoff+2*3600000);await mf.dispose();await start();denyReads=true;const recoveredBefore=calls.length;
+ // Run the actual producer scripts against the actual Worker routes before
+ // allowing any application reader to see the new edition.
+ const hostStage207=join(root,'hosting');await mkdir(join(hostStage207,'plataforma'),{recursive:true});
+ const territoryFile207=join(hostStage207,'plataforma/territorio-cache.js');
+ await writeFile(territoryFile207,await readFile(new URL('../../plataforma/territorio-cache.js',import.meta.url),'utf8'));
+ const producerRead207=async(url,init)=>{
+  if(new URL(url).hostname.endsWith('workers.dev'))return send('/internal/city-books',init);
+  if(String(url).endsWith('.js'))return new Response('// catálogo anterior');
+  return new Response(null,{status:404});
+ };
+ await preparePublicTerritory({file:territoryFile207,scheduled:true,cutoff,identity:async()=>oidc(),read:producerRead207});
+ const packaged207=await publicarPaquetes({mode:'cut',stage:hostStage207,cutoff,identity:async()=>oidc(),read:producerRead207});
+ assert.equal(packaged207.changed,true);assert(packaged207.manifest.D);
+ const stagedManifest207=JSON.parse(await readFile(join(hostStage207,'plataforma/paquetes-ciudad/publicacion.json'),'utf8'));
+ assert.equal(stagedManifest207.cutoff,cutoff);
+ assert.equal(calls.slice(recoveredBefore).filter(c=>c.host==='firestore.googleapis.com').length,0,'captura inicial persistente recuperada sin Firestore tras reiniciar dos horas después');assert.equal((await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).status,503);
+ // Simulate a lost confirmation response after the real commit succeeded.
+ let attempts207=0;
+ const confirmation207=await publicarPaquetes({mode:'commit',cutoff,identity:async()=>oidc(),read:async(url,init)=>{
+  attempts207++;const response=await send('/internal/city-books',init);
+  if(attempts207===1){assert.equal(response.status,200);await response.body.cancel();throw Error('respuesta perdida');}
+  return response;
+ }});
+ assert.equal(confirmation207.cutoff,cutoff);assert.equal(attempts207,2);denyReads=true;
  const routes=[['/commerce?action=anunciante&advertiserId=A',subscriber],['/commerce?action=permisos_panel&advertiserId=A',subscriber],['/events-new?action=getpaneldata&advertiserId=A',subscriber],['/promos?action=getpromos&advertiserId=A',subscriber],['/actividades?action=getpaneldata&advertiserId=A',subscriber],['/publicidad?action=getpaneldata&advertiserId=A',subscriber],['/farmacias?action=getpaneldata&advertiserId=A',subscriber],['/superadmin/dashboard',admin],['/superadmin/advertisers/A',admin],['/territory/public',{}],['/guide?ciudad_id=D&compact=1',{}],
  ['/commerce/team?advertiserId=A',subscriber],['/support/mine',subscriber],['/notifications',subscriber],['/advertiser/terms',subscriber],['/suscriptores?action=perfil',subscriber],['/suscriptores?action=favoritos',subscriber],
  ['/superadmin/territory',admin],['/superadmin/gh/fixed',admin],['/superadmin/catalogs/prices',admin],['/superadmin/catalogs/functional-settings',admin],['/superadmin/sales/coefficients',admin],['/superadmin/listados?tipo=eventos',admin],['/superadmin/promos',admin],['/superadmin/publicidad',admin],['/superadmin/support/requests',admin],['/superadmin/birthdays',admin],['/superadmin/adult-review',admin],['/superadmin/moderation/events/pending',admin],['/superadmin/publications/blocked',admin]];

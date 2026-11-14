@@ -243,7 +243,7 @@ test('Hosting consume la salida preparada por el compilador diario y conserva lo
  const cut=await w.exportCityBookCut({env:h.env,cache,after:cutoff-86400000,cutoff,known:[],report:{}});
  assert(cut.complete);assert(!JSON.stringify(cut).includes('administracion'));
  const root=await mkdtemp(join(tmpdir(),'corte-hosting-'));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(join(root,'plataforma'));await writeFile(join(root,'plataforma/territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
- const staged=await publicarPaquetes({mode:'cut',stage:root,cutoff,identity:async()=> 'fixture-oidc',read:async(input,options)=>new URL(input).hostname.endsWith('workers.dev')?Response.json(cut):new Response(null,{status:404})});
+ const staged=await publicarPaquetes({mode:'cut',stage:root,cutoff,identity:async()=> 'fixture-oidc',read:async(input,options)=>new URL(input).hostname.endsWith('workers.dev')?Response.json({...cut,publication:{build:'207-arranque-recuperable-2',cutoff,status:'staged'}}):new Response(null,{status:404})});
  assert.equal(staged.changed,true);assert.deepEqual(Object.keys(staged.manifest),['D']);const entry=staged.manifest.D;
  const published=JSON.parse(await readFile(join(root,'plataforma/paquetes-ciudad',entry.key,'completo-'+entry.revision+'.json')));
  assert.equal(published.modules.guide.results[0].nombre,'Visible');assert(!JSON.stringify(published).includes('campo_futuro'));

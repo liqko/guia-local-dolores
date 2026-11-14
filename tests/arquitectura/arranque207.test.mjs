@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {w,fixture,cutoff,day} from './fixture206.mjs';
-import {publicationCutoff} from '../../scripts/publicar-paquetes-ciudad.mjs';
+import {publicationCutoff,publicationRequest,requirePublication207,publicarPaquetes} from '../../scripts/publicar-paquetes-ciudad.mjs';
 
 test('arranque interrumpido retoma colecciones completas tras reiniciar sin publicarlas',async t=>{
  const f=fixture(t);let fail=true;
@@ -64,4 +64,27 @@ test('el trabajo diario existente fija el corte y conserva su único horario e i
  assert(workflow.includes("'GLD_PUBLICATION_CUTOFF='+ultimoCorte()"));
  assert(workflow.indexOf('GLD_PUBLICATION_CUTOFF')<workflow.indexOf('Preparar el catálogo público'));
  assert(workflow.includes('node scripts/publicar-paquetes-ciudad.mjs commit'));
+});
+
+
+test('una interrupción transitoria reintenta el MISMO corte y cuerpo, con límite',async()=>{
+ const bodies=[],pauses=[];let count=0;
+ const result=await publicationRequest(async(url,init)=>{
+  bodies.push(init.body);count++;
+  if(count===1)throw Error('conexión interrumpida');
+  if(count===2)return new Response('ocupado',{status:503});
+  return Response.json({success:true});
+ },'https://fixture.invalid',{method:'POST',body:JSON.stringify({op:'commit',cutoff})},async ms=>pauses.push(ms));
+ assert.equal(result.success,true);assert.equal(new Set(bodies).size,1);assert.equal(pauses.length,2);
+ count=0;await assert.rejects(publicationRequest(async()=>{count++;return new Response(null,{status:503});},'https://fixture.invalid',{},async()=>{}),/503/);assert.equal(count,3);
+ for(const status of [400,401,403]){count=0;await assert.rejects(publicationRequest(async()=>{count++;return new Response(null,{status});},'https://fixture.invalid',{},async()=>{}));assert.equal(count,1);}
+});
+
+test('la preparación y la confirmación rechazan otra revisión, otro corte o un estado incompleto',async()=>{
+ const valid={success:true,publication:{build:'207-arranque-recuperable-2',cutoff,status:'committed'}};
+ requirePublication207(valid,cutoff,'committed');
+ for(const publication of [undefined,{...valid.publication,build:'207'},{...valid.publication,cutoff:cutoff-day},{...valid.publication,status:'staged'}]){
+  assert.throws(()=>requirePublication207({...valid,publication},cutoff,'committed'));
+  await assert.rejects(publicarPaquetes({mode:'commit',cutoff,identity:async()=> 'fixture',read:async()=>Response.json({...valid,publication})}),/no confirmó/);
+ }
 });
