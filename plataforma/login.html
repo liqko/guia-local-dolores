@@ -847,7 +847,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
     <div id="panel-alta-anunciante" class="panel">
       <h2 id="alta-anunciante-titulo">Crear anuncio</h2>
       <div class="info-banner" style="margin-bottom:14px">
-        Completá los datos básicos. El anuncio se publica directamente salvo revisión por +18 o moderación. Los reclamos de titularidad requieren verificación.
+        Completá la información del anunciante y todas sus sedes. El nivel determina qué se publica, no qué datos podés guardar.
       </div>
       <input id="alta-anunciante-modo" type="hidden" value="CREAR">
       <label for="alta-anunciante-nombre">Nombre del anunciante</label>
@@ -884,7 +884,7 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
           <div class="small-muted">Hasta 500 caracteres.</div>
         </div>
       </div>
-      <div id="alta-reclamo155" hidden><label>Buscar anuncio por nombre o ID<input id="alta-reclamo-buscar155" type="search"></label><button type="button" onclick="buscarAnuncioReclamo155()">Buscar anuncio</button><p id="alta-reclamo-status155" role="status"></p><label>Anuncio que querés reclamar<select id="alta-reclamo-id155"><option value="">Seleccioná un anuncio existente</option></select></label><label>¿Qué relación tenés con el anunciante y cómo podemos verificarla?<textarea id="alta-reclamo-motivo155" rows="4" minlength="20" maxlength="2000"></textarea></label><p>El reclamo se revisa en Panel de administración general. Enviarlo no concede acceso ni reemplaza a los responsables actuales.</p></div><div id="alta-anunciante-ayuda" class="small-muted" style="margin-top:8px"></div>
+      <div id="alta-anunciante-completo" hidden aria-live="polite"></div><div id="alta-reclamo155" hidden><label>Buscar anuncio por nombre o ID<input id="alta-reclamo-buscar155" type="search"></label><button type="button" onclick="buscarAnuncioReclamo155()">Buscar anuncio</button><p id="alta-reclamo-status155" role="status"></p><label>Anuncio que querés reclamar<select id="alta-reclamo-id155"><option value="">Seleccioná un anuncio existente</option></select></label><label>¿Qué relación tenés con el anunciante y cómo podemos verificarla?<textarea id="alta-reclamo-motivo155" rows="4" minlength="20" maxlength="2000"></textarea></label><p>El reclamo se revisa en Panel de administración general. Enviarlo no concede acceso ni reemplaza a los responsables actuales.</p></div><div id="alta-anunciante-ayuda" class="small-muted" style="margin-top:8px"></div>
       <button id="btnEnviarAltaAnunciante" class="primary" type="button">Enviar solicitud</button>
       <button id="btnVolverDesdeAltaAnunciante" class="secondary" type="button">Volver</button>
     </div>
@@ -2151,9 +2151,64 @@ function abrirSolicitudAnunciante_(modo){
   if(dl){
     dl.innerHTML=(comercios||[]).map(x=>`<option value="${htmlEscape(x.nombre)}"></option>`).join('');
   }
+  const boxCompleto=document.getElementById('alta-anunciante-completo');
+  const basicos=document.querySelector('#panel-alta-anunciante > .data-fields-grid');
+  if(basicos)basicos.hidden=!esReclamo;
+  if(boxCompleto){boxCompleto.hidden=esReclamo;boxCompleto.dataset.ready='';boxCompleto.replaceChildren();}
   mostrarPanel('alta-anunciante');
+  if(!esReclamo)cargarAltaCompleta_();
 }
 
+
+async function cargarAltaCompleta_(){
+ const box=document.getElementById('alta-anunciante-completo');if(!box)return;
+ box.hidden=false;box.textContent='Cargando las opciones de la ficha completa…';
+ try{
+  const [response,territorio]=await Promise.all([
+   fetch(WORKER_ORIGIN+'/catalogs/public/guide',{mode:'cors',credentials:'omit'}),gldTerritoryPublic_()
+  ]);
+  if(!response.ok)throw Error('No se pudieron cargar las opciones.');
+  const catalog=await response.json();
+  if(catalog.success!==true)throw Error('No está disponible el catálogo.');
+  commerceCatalogs={segmentos:catalog.segmentos||[],categorias:catalog.categorias||[],
+   ciudades:territorio.ciudades||[],actividades_clave:catalog.actividades_clave||[],
+   acciones:catalog.acciones||[],nodos:catalog.nodos||[],
+   niveles_anunciante:catalog.niveles_anunciante||[],prestaciones:catalog.prestaciones||[]};
+  if(!commerceCatalogs.ciudades.length)throw Error('No hay ciudades disponibles.');
+  gldLimitesCargaNivel198_();
+  box.innerHTML='<p class="small-muted">Completá toda la información. El nivel solo controla la visibilidad pública.</p>'+
+    '<div id="alta-anunciante-formulario">'+buildCommerceFieldsMarkup({}, {}, [{nombre_sede:'Principal'}])+'</div>';
+  box.dataset.ready='1';
+ }catch(error){box.dataset.ready='';box.textContent='No se pudo cargar la ficha completa: '+String(error.message||error)+'. Volvé a abrir Crear anuncio para reintentar.';}
+}
+document.getElementById('panel-alta-anunciante')?.addEventListener('click',event=>{
+ if(document.getElementById('alta-anunciante-modo')?.value!=='CREAR')return;
+ const add=event.target.closest('.btn-agregar-sede'),dup=event.target.closest('.btn-duplicar-sede'),del=event.target.closest('.btn-eliminar-sede');
+ if(!add&&!dup&&!del)return;
+ event.preventDefault();event.stopPropagation();
+ const root=document.getElementById('alta-anunciante-completo'),wrap=root?.querySelector('.commerce-sedes-wrap');
+ if(!wrap)return;
+ if(del){
+  const card=del.closest('.commerce-sede-card');
+  if(wrap.querySelectorAll('.commerce-sede-card').length<=1){alert('El anuncio necesita al menos una sede.');return;}
+  if(confirm('¿Quitar esta sede del formulario?'))card?.remove();return;
+ }
+ const lim=gldLimitesCargaNivel198_();
+ if(lim.sedes>=0&&wrap.querySelectorAll('.commerce-sede-card').length>=lim.sedes){alert('Se admiten hasta '+lim.sedes+' sedes.');return;}
+ const card=dup?.closest('.commerce-sede-card');
+ const temp=document.createElement('div');
+ temp.innerHTML=buildCommerceFieldsMarkup({}, {}, [{nombre_sede:'Nueva sede'}]);
+ const clone=card?.cloneNode(true)||temp.querySelector('.commerce-sede-card');
+ if(!clone)return;
+ if(!card){
+  clone.querySelectorAll('input[type="text"],textarea').forEach(x=>x.value='');
+  clone.querySelectorAll('select').forEach(x=>x.selectedIndex=0);
+  clone.querySelectorAll('input[type="checkbox"]').forEach(x=>x.checked=false);
+ }
+ const sid=clone.querySelector('[name="sede_id"]');if(sid)sid.value='';
+ if(card)card.insertAdjacentElement('afterend',clone);else add.before(clone);
+ const title=clone.querySelector('.commerce-sede-title');if(title)title.textContent='Nueva sede';
+});
 async function enviarSolicitudAnunciante_(){
   const modo=String(document.getElementById('alta-anunciante-modo')?.value||'CREAR').toUpperCase();
   const nombre=String(document.getElementById('alta-anunciante-nombre')?.value||'').trim();
@@ -2180,6 +2235,30 @@ async function enviarSolicitudAnunciante_(){
     web:String(document.getElementById('alta-anunciante-web')?.value||'').trim(),
     descripcion:String(document.getElementById('alta-anunciante-descripcion')?.value||'').trim()
   };
+  if(modo==='CREAR'){
+    const box=document.getElementById('alta-anunciante-completo');
+    if(box?.dataset.ready!=='1'){alert('No se cargó el formulario completo.');return;}
+    let datos,sedes;
+    try{
+      datos=buildCommerceSavePayload(box);
+      sedes=buildCommerceSedesPayload(box).sedes;
+      const lim=gldLimitesCargaNivel198_();
+      if(!sedes.length)throw Error('Agregá al menos una sede.');
+      if(lim.sedes>=0&&sedes.length>lim.sedes)throw Error('Superaste el cupo de sedes.');
+      if(!datos.segmento_id)throw Error('Seleccioná un segmento.');
+      if(!datos.categoria_id)throw Error('Seleccioná al menos una categoría.');
+      for(const field of ['actividad','descripcion','tags'])if(lim[field]>=0&&String(datos[field]||'').length>lim[field])throw Error('Excediste el límite de '+field+'.');
+      for(const [idx,sede] of sedes.entries()){
+        if(!sede.ciudad_id||!commerceCatalogs.ciudades.some(c=>String(c.ciudad_id)===sede.ciudad_id))throw Error('Seleccioná una ciudad válida para la sede '+(idx+1)+'.');
+        if(!String(sede.nombre_sede||'').trim())sede.nombre_sede='Sede '+(idx+1);
+      }
+    }catch(error){alert(String(error.message||error));return;}
+    payload.datos=datos;payload.sedes=sedes;payload.ciudad=sedes[0].ciudad_id;
+    payload.actividad=datos.actividad||'';payload.descripcion=datos.descripcion||'';
+    payload.contenido_adulto=datos.contenido_adulto===true;
+    payload.direccion=sedes[0].direccion||'';payload.whatsapp=sedes[0].whatsapp||'';
+    payload.mail=sedes[0].mail||'';payload.web=sedes[0].web||'';
+  }
   const btn=document.getElementById('btnEnviarAltaAnunciante');
   if(btn) btn.disabled=true;
   try{
@@ -6266,8 +6345,8 @@ function commerceBuildSedesPatch_(){
   };
 }
 
-function buildCommerceSavePayload(){
-  const form = document.getElementById('form-datos-comercio');
+function buildCommerceSavePayload(formOverride){
+  const form = formOverride || document.getElementById('form-datos-comercio');
   const payload = { action:'set_datos' };
   const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
   if(id){
@@ -6287,14 +6366,14 @@ function buildCommerceSavePayload(){
   const maxCategorias=gldLimitesCargaNivel198_().categorias;
   const categoriasAnteriores=String(commerceEditBaseline?.datos?.categoria_id||'').split(/[;,|\n]+/).map(v=>v.trim()).filter(Boolean);
   const categoriasModificadas=!commerceEditBaseline||!gldEditEqual_(catsElegidas.join(';'),categoriasAnteriores.join(';'));
-  if(maxCategorias>=0&&catsElegidas.length>maxCategorias&&categoriasModificadas)
+  if(maxCategorias>=0&&catsElegidas.length>maxCategorias&&(formOverride||categoriasModificadas))
     throw Error('Podés seleccionar hasta '+maxCategorias+' categorías.');
   payload.categoria_id=catsElegidas.join(';');
   return payload;
 }
 
-function buildCommerceSedesPayload(){
-  const form = document.getElementById('form-datos-comercio');
+function buildCommerceSedesPayload(formOverride){
+  const form = formOverride || document.getElementById('form-datos-comercio');
   const id = String(form?.querySelector('[name="__id"]')?.value || (sesion && sesion.id) || '').trim();
   const sedes = Array.from(form?.querySelectorAll('.commerce-sede-card') || []).map(card => {
     const sede = {
