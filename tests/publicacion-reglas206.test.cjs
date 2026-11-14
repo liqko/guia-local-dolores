@@ -113,3 +113,11 @@ test('la ruta activa de guardado de Actividades usa V3 y el paquete v2',()=>{
  const v3=worker.slice(worker.indexOf('async function activitySaveV3('),worker.indexOf('async function activityActionV3('));
  assert.match(v3,/syncActivityPreparedV2\(/);
 });
+
+test('no quedan rutas ni paquetes antiguos de Actividades v1/v2',()=>{
+ for(const obsolete of ['activities:city:v1:', 'async function activitySaveV2(', 'async function activityActionV2(', 'async function syncActivity(', 'async function getActivitiesCity(']){
+  assert.equal(worker.includes(obsolete),false,'Ruta heredada contradictoria: '+obsolete);
+ }
+ assert.equal((worker.match(/async function activitySaveV3\(/g)||[]).length,1);
+ assert.equal((worker.match(/async function getActivitiesCityV2\(/g)||[]).length,1);
+});
