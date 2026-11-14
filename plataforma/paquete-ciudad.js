@@ -113,14 +113,17 @@
       const city = String(cityId ?? '').trim();
       const info = manifest(city);
       if (!validRevision(info?.revision) || !/^[\w-]+$/.test(info.key)) return Promise.resolve(null);
-      if (!pending.has(city)) {
+      let entry = pending.get(city);
+      if (!entry || entry.revision !== info.revision) {
         const request = load(city, info);
-        pending.set(city, request);
+        entry = { revision: info.revision, request };
+        pending.set(city, entry);
+        const current = entry;
         request.then(book => {
-          if (!book || book.revision < info.revision) pending.delete(city);
+          if ((!book || book.revision < info.revision) && pending.get(city) === current) pending.delete(city);
         });
       }
-      return pending.get(city);
+      return entry.request;
     },async module(cityId,family,context){
       const book=await api.get(cityId);if(!book)return null;
       const schema=schemaOf(book);
