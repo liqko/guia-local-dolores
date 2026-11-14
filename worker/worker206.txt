@@ -1261,10 +1261,22 @@ var promoCityKey = (cityId) => "promos:city:v1:" + text5(cityId);
 function isPaused(p) {
   return bool3(p && p.pausado);
 }
+// Regla transversal de elegibilidad pública: una falta de aprobación histórica
+// no sustituye una restricción de moderación explícita. Publicidad conserva
+// aparte la autorización comercial exigida por su contratación.
+function gldPublicacionAdmisible206(row){
+ if(!row||row.eliminado===true||row.eliminada===true||row.borrado===true||row.borrada===true)return false;
+ if(row.pausado===true||row.pausada===true||row.suspendido===true||row.suspendida===true)return false;
+ const up=v=>String(v??'').trim().toUpperCase();
+ const blocked=new Set(['PAUSADA','PAUSADO','SUSPENDIDA','SUSPENDIDO','INACTIVA','INACTIVO','BORRADOR','ELIMINADA','ELIMINADO','RECHAZADA','RECHAZADO','PENDIENTE','EN_REVISION','EN REVISIÓN','REVISION']);
+ if(blocked.has(up(row.estado))||blocked.has(up(row.estado_moderacion)))return false;
+ if(row.contenido_adulto===true||row.contenido_adulto===1||up(row.contenido_adulto)==='TRUE'){
+  if(!['APROBADO','APROBADA'].includes(up(row.revision_adulto)))return false;
+ }
+ return true;
+}
 function visible(p) {
-  if (isPaused(p) || promoPendingV91(p) || ['RECHAZADA','RECHAZADO'].includes(String(p?.estado_moderacion||'').toUpperCase()) || (adultFlag(p?.contenido_adulto)&&p?.revision_adulto!=='APROBADO')) return false;
-  const estado = text5(p && p.estado).toUpperCase();
-  return !estado || !["INACTIVA", "INACTIVO", "BORRADOR", "RECHAZADA", "RECHAZADO"].includes(estado);
+  return gldPublicacionAdmisible206(p) && !isPaused(p) && !promoPendingV91(p);
 }
 function publicPromo(p) {
   return {
@@ -1359,12 +1371,7 @@ var text7 = (v) => String(v ?? "").trim();
 var bool4 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x"].includes(text7(v).toLowerCase());
 var eventsCityKey = (cityId) => "events:city:v2:" + text7(cityId);
 function published(e) {
-  if(e?.eliminado===true)return false;
-  if (bool4(e && e.pausado)) return false;
-  const estado = text7(e && e.estado).toUpperCase();
-  const mod = text7(e && e.estado_moderacion).toUpperCase();
-  if (["RECHAZADA", "RECHAZADO", "BORRADOR", "INACTIVA", "INACTIVO"].includes(estado)) return false;
-  return ["APROBADO", "APROBADA", "PUBLICADO", "PUBLICADA"].includes(mod);
+  return gldPublicacionAdmisible206(e) && !bool4(e && e.pausado);
 }
 function cleanEvent(e, programacion = []) {
   const out2 = { ...e, programacion: [...programacion].sort(
@@ -1913,7 +1920,8 @@ function isWithinValidity(p, now = Date.now()) {
   return true;
 }
 function isPublic2(p) {
-  return text14(p && p.estado).toUpperCase() === "ACTIVA" && bool7(p && p.aprobado) && isWithinValidity(p);
+  // Autorización comercial, distinta de la moderación de contenido.
+  return gldPublicacionAdmisible206(p) && text14(p && p.estado).toUpperCase()==="ACTIVA" && bool7(p && p.aprobado) && isWithinValidity(p);
 }
 function activeSeg(s) {
   return s && (s.activo === void 0 && s.activa === void 0 || bool7(s.activo ?? s.activa));
@@ -1976,12 +1984,10 @@ var text16 = (v) => String(v ?? "").trim();
 var bool8 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x"].includes(text16(v).toLowerCase());
 var activityCityKeyV2 = (cityId) => "activities:city:v2:" + text16(cityId);
 function isPublic3(a,at=Date.now()) {
-  if (!a || !bool8(a.activo) || !bool8(a.aprobado)) return false;
-  const estado = text16(a.estado).toUpperCase();
-  if (["PAUSADA", "PAUSADO", "INACTIVA", "INACTIVO", "BORRADOR", "ELIMINADA", "ELIMINADO", "RECHAZADA", "RECHAZADO"].includes(estado)) return false;
-  const hoy = new Date(at - 3 * 60 * 60 * 1e3).toISOString().slice(0, 10);
-  if (text16(a.vigente_desde) && text16(a.vigente_desde) > hoy) return false;
-  if (text16(a.vigente_hasta) && text16(a.vigente_hasta) < hoy) return false;
+  if(!a||!bool8(a.activo)||!gldPublicacionAdmisible206(a))return false;
+  const hoy=new Date(at-3*60*60*1e3).toISOString().slice(0,10);
+  if(text16(a.vigente_desde)&&text16(a.vigente_desde)>hoy)return false;
+  if(text16(a.vigente_hasta)&&text16(a.vigente_hasta)<hoy)return false;
   return true;
 }
 function sort5(rows) {
