@@ -132,7 +132,10 @@ test('no hay una segunda ruta pública V2 de Publicidad ni predicado independien
  assert.match(v9,/publicidadPublicaV3\(/);
 });
 test('directorio no etiqueta como pendiente solo por aprobado falso histórico',()=>{
- const directory=Function(extract('directoryState102')+';return directoryState102')();
+ const start=worker.indexOf('function directoryState102(');
+ const end=worker.indexOf('function directorySafe102(',start);
+ assert(start>=0&&end>start);
+ const directory=Function(worker.slice(start,end)+';return directoryState102')();
  assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'PUBLICADO'}),'ACTIVA');
  assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'PENDIENTE'}),'PENDIENTE');
  assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'RECHAZADA'}),'RECHAZADA');
