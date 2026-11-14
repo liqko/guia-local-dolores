@@ -1,11 +1,13 @@
-import {readFileSync} from 'node:fs';
+import {readFileSync,readdirSync} from 'node:fs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {resolve,dirname} from 'node:path';
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'../..');
 const html=readFileSync(resolve(root,'plataforma/login.html'),'utf8');
-const worker=readFileSync(resolve(root,'worker/worker205.txt'),'utf8');
+const workerFiles=readdirSync(resolve(root,'worker')).filter(name=>name.endsWith('.txt'));
+assert.equal(workerFiles.length,1);
+const worker=readFileSync(resolve(root,'worker',workerFiles[0]),'utf8');
 test('los seis formularios del panel conservan rutas de carga',()=>{
  for(const [name,path,action] of [
   ['Información','/commerce','action=anunciante'],
@@ -36,20 +38,20 @@ test('permisos devuelve configuracion_funcionalidades al HTML',()=>{
 });
 test('el paquete maestro conserva datos y parámetros sin listas fijas de campos',()=>{
  assert.match(worker,/async function commerceMaster205/);
- assert.match(worker,/const response=await commercePanelDataV3/);
- assert.match(worker,/response\.advertiser\.configuracion_funcionalidades=gldConfiguracionPanel205/);
- assert.match(worker,/return packet\.response/);
+ assert.match(worker,/async function commerceMasterPrepare205/);
+ assert.match(worker,/advertiser\.configuracion_funcionalidades=gldConfiguracionPanel205/);
+ assert.match(worker,/packet\.response/);
  for(const fn of ['eventsPanelDataV2','actividadesPanelData','promosPanelDataV2','publicidadPanelDataV2']){
   const ix=worker.indexOf('async function '+fn);
   assert.ok(ix>=0&&worker.slice(ix,ix+1000).includes('commerceMaster205'),fn+' no comparte el paquete');
  }
 });
 test('el paquete no se reconstruye si la copia existe',()=>{
- const begin=worker.indexOf('async function commerceMaster205(');
- const end=worker.indexOf('async function commerceMasterInvalidate205(',begin);
- assert.ok(begin>=0&&end>begin);
- const source=worker.slice(begin,end);
- assert.match(source,/if\(packet\?\.v===205&&packet\?\.response\?\.success===true\)return packet\.response/);
+ const source=worker.match(/async function commerceMaster205[\s\S]*?\n\}/)?.[0];
+ assert.ok(source);
+ assert.match(source,/packet\?\.v===205&&packet\?\.response\?\.success===true\?packet\.response/);
+ assert.doesNotMatch(worker,/COMMERCE_MASTER_TTL205|commerceMasterInvalidate205/);
+ assert.match(worker,/commerceDirty205/);
 });
 
 test('abrir un catálogo no hace escrituras KV aunque falte el parámetro general',async()=>{

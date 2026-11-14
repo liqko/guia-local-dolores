@@ -26,6 +26,7 @@ values.set('farmacias:city:v2:D',JSON.stringify({turnos:[]}));
 values.set('publicity:city:v2:D',JSON.stringify({publicidades:[{...rows.get('publicidades/P'),estado:'ACTIVA',media:[rows.get('publicidad_media/M')],segmentacion:[rows.get('publicidad_segmentacion/G')]}]}));
 values.set('guide:city:v1:D',JSON.stringify({anunciantes:[{id:'A',nombre:'Farmacia Test',ciudad_id:'D',sedes:[{sede_id:'SED',ciudad_id:'D',estado:'ACTIVA'}]}]}));
 values.set('admin:catalogs:v2',JSON.stringify({moderacion_18:[]}));
+values.set('catalogs:commerce:v1',JSON.stringify({niveles_anunciante:[{nivel_id:'CONFIG_GENERAL_ANUNCIANTES'}]}));
 const original=globalThis.fetch;
 globalThis.fetch=async(url,options={})=>{
  const u=new URL(String(url));if(u.host==='oauth2.googleapis.com')return Response.json({access_token:'test',expires_in:3600});assert.equal(u.host,'firestore.googleapis.com');
@@ -48,8 +49,8 @@ globalThis.fetch=async(url,options={})=>{
 
 seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
-let token='';
-async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-10'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
+let token='',publicationVersion='';
+async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:publicationVersion}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
 const reports=[],measures=[],physical={get:0,put:0,delete:0,list:0};
 globalThis.__circuitCapture=r=>reports.push(structuredClone(r));
@@ -85,6 +86,12 @@ try{
   seed('suscriptor_anunciante','R'+sid,{suscriptor_id:sid,anunciante_id:'A',rol:role,permisos:'EVENTOS',activo:true});
  }
  seed('anunciantes_administracion','A',{nivel:4,aprobado:true,funcionalidades:'EVENTOS,MODIFICAR'});
+ for(const [aid,nivel,role]of [['B',3,'PROPIETARIO'],['C',6,'MANAGER']]){
+  seed('anunciantes',aid,{anunciante_id:aid,nombre:'Cuenta '+aid,ciudad_ids:['D']});
+  seed('anunciantes_administracion',aid,{nivel,aprobado:true,funcionalidades:'EVENTOS'});
+  seed('suscriptor_anunciante','D-'+aid,{suscriptor_id:'D',anunciante_id:aid,rol:role,permisos:'EVENTOS',activo:true});
+ }
+
  ownerToken=(await ok('owner','/suscriptores',{action:'login',mail:'m@test.invalid',clave:'test-password'})).j.token;
  const caps=await ok('owner','/commerce?action=permisos_panel&advertiserId=A');assert.equal(caps.j.id,'A');
  let denied=await as('owner','/commerce?action=anunciante&advertiserId=A');assert.equal(denied.r.status,403);
@@ -93,9 +100,19 @@ try{
  ownerToken=(await ok('owner','/suscriptores',{action:'login',mail:'d@test.invalid',clave:'test-password'})).j.token;
  await ok('owner','/commerce?action=permisos_panel&advertiserId=A');
  const current=(await ok('owner','/commerce?action=anunciante&advertiserId=A')).j.advertiser;
- const terms=await ok('owner','/advertiser/terms');await ok('owner','/advertiser/terms',{aceptada:true,version:terms.j.actual?.version||terms.j.terms?.version||'2026-10-11',hash:terms.j.actual?.hash||terms.j.terms?.hash});
+ const terms=await ok('owner','/advertiser/terms');publicationVersion=terms.j.actual?.version||terms.j.terms?.version;assert(publicationVersion);await ok('owner','/advertiser/terms',{aceptada:true,version:terms.j.actual?.version||terms.j.terms?.version||'2026-10-11',hash:terms.j.actual?.hash||terms.j.terms?.hash});
  await ok('owner','/commerce',{action:'save_ficha',advertiserId:'A',datos:{revision_datos:current.revision_datos,descripcion:'Cambio autorizado del administrador'}});
  assert.equal(rows.get('anunciantes/A').descripcion,'Cambio autorizado del administrador');
+ for(const [aid,nivel]of [['A',4],['B',3],['C',6],['A',4]]){
+  const caps=await ok('owner','/commerce?action=permisos_panel&advertiserId='+aid);
+  assert.equal(caps.j.id,aid);assert.equal(caps.j.administracion.nivel,nivel);
+ }
+ assert.equal((await as('owner','/commerce?action=anunciante&advertiserId=C')).r.status,403);
+ const own=await ok('owner','/commerce?action=anunciante&advertiserId=B');assert.equal(own.j.advertiser.id,'B');
+ const reopened=await ok('owner','/commerce?action=anunciante&advertiserId=A');
+ assert.equal(reopened.j.advertiser.datos.descripcion,'Cambio autorizado del administrador');
+ assert.equal(reopened.calls.length,0,'Reabrir la ficha preparada no debe consultar Firestore');
+
  denied=await as('public','/commerce?action=permisos_panel&advertiserId=A');assert.equal(denied.r.status,401);
  console.log('PASS manager can read assigned panel capabilities but cannot read/edit ficha; administrator can edit; unrelated advertisers and anonymous requests remain denied.');
 }finally{globalThis.fetch=original;delete globalThis.__circuitCapture;}

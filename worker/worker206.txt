@@ -6055,8 +6055,8 @@ return {commercePanelDataV3,commerceSetDatosV3,commerceSetSedesV3,commerceDelete
 })();
 
 // Master packet is shape-independent: retain every field as returned by storage.
-// A form edit does not change its schema. Writes invalidate the whole packet.
-const COMMERCE_MASTER_TTL205=120;
+// Confirmed source mutations prepare this packet before acknowledging the save.
+// Shared catalogs/rules remain authoritative; they are not frozen inside a copy.
 function commerceMasterKey205(aid){return 'commerce:advertiser:master:v205:'+encodeURIComponent(String(aid||'').trim());}
 function gldConfiguracionPanel205(admin,packet){
  return Object.fromEntries(Array.from(new Set([...Object.keys(GLD_FUNC_DEFAULT166),...Object.keys(packet?.reglas||{})])).map(fid=>{
@@ -6069,22 +6069,27 @@ function gldConfiguracionPanel205(admin,packet){
   return [fid,{nombre:String(global.nombre||fid),activo:global.activo!==false&&(!Array.isArray(global.niveles_habilitados)||global.niveles_habilitados.includes(Number(admin?.nivel))),parametros,admite_excepciones:global.admite_excepciones!==false}];
  }));
 }
-async function commerceMaster205({db,cache,advertiserId}){
- const key=commerceMasterKey205(advertiserId);
- const packet=await cache.get(key);
- if(packet?.v===205&&packet?.response?.success===true)return packet.response;
- const [catalogs,functionRules]=await Promise.all([getCommerceCatalogs(cache),gldFuncPacket166(cache,db,false)]);
- const response=await commercePanelDataV3({db,advertiserId,catalogs});
- if(response?.success===true){
-  const admin=response.advertiser?.administracion||{};
-  response.advertiser.configuracion_funcionalidades=gldConfiguracionPanel205(admin,functionRules);
-  response.advertiser.configuracion_revision=functionRules.revision;
-  await cache.put(key,{v:205,response},{expirationTtl:COMMERCE_MASTER_TTL205});
- }
+async function commerceMasterPrepare205({db,cache,advertiserId}){
+ const response=await commercePanelDataV3({db,advertiserId,catalogs:{}});
+ if(response?.success===true)await cache.put(commerceMasterKey205(advertiserId),{v:205,response});
+ else await cache.del(commerceMasterKey205(advertiserId));
  return response;
 }
-async function commerceMasterInvalidate205(cache,aid){
- if(aid)await cache.del(commerceMasterKey205(aid));
+async function commerceMaster205({db,cache,advertiserId}){
+ const [packet,catalogs,functionRules]=await Promise.all([
+  cache.get(commerceMasterKey205(advertiserId)),getCommerceCatalogs(cache),gldFuncPacket166(cache,db,false)
+ ]);
+ // Retain the existing first-use transition until all installed advertisers
+ // have a prepared packet. This is not a timer or a refresh of an existing copy.
+ const response=packet?.v===205&&packet?.response?.success===true?packet.response:
+  await commerceMasterPrepare205({db,cache,advertiserId});
+ if(response?.success!==true)return response;
+ const advertiser={...response.advertiser};
+ for(const key of ['segmentos','categorias','actividades_clave','acciones','nodos','funcionalidades','niveles_anunciante'])advertiser[key]=catalogs[key]||[];
+ advertiser.prestaciones=gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3);
+ advertiser.configuracion_funcionalidades=gldConfiguracionPanel205(advertiser.administracion||{},functionRules);
+ advertiser.configuracion_revision=functionRules.revision;
+ return {...response,advertiser};
 }
 
 var text56 = (v) => String(v ?? "").trim();
@@ -6335,7 +6340,6 @@ async function routePanelV10(ctx) {
       const out2 = await commerceSetDatosV3({ db, cache, advertiserId: aid, body });
       if (out2.updated) {
         await patchGuideAdvertiserDataFromCacheV2({ cache, advertiserId: aid, patch: out2.patch || {} });
-        await commerceMasterInvalidate205(cache,aid);
       }
       return json(out2);
     }
@@ -6343,7 +6347,6 @@ async function routePanelV10(ctx) {
       const out2 = await commerceSetSedesV3({ db, cache, advertiserId: aid, body });
       if (out2.updated) {
         await patchGuideAdvertiserSedesFromCacheV2({ cache, advertiserId: aid, savedSedes: out2.changed_sedes || [] });
-        await commerceMasterInvalidate205(cache,aid);
       }
       return json(out2);
     }
@@ -6351,13 +6354,12 @@ async function routePanelV10(ctx) {
       const sede_id=String(body.sede_id||'').trim();if(!sede_id)throw Error('Falta sede_id.');
       const relations=Object.fromEntries(['actividad_ids','accion_ids','nodo_ids'].filter(k=>body[k]!==undefined).map(k=>[k,body[k]]));
       const result=await commerceSetSedesV3({db,cache,advertiserId:aid,body:{sedes:[{sede_id,...relations,revision_sede:body.revision_sede}]}});
-      if(result.updated){await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:result.changed_sedes||[]});await commerceMasterInvalidate205(cache,aid);}
+      if(result.updated){await patchGuideAdvertiserSedesFromCacheV2({cache,advertiserId:aid,savedSedes:result.changed_sedes||[]});}
       return json({success:true,updated:result.updated,sede_id,revision_sedes:result.revision_sedes});
     }
     if (action === "delete_sede") {
       const out2 = await commerceDeleteSedeV3({ db, advertiserId: aid, body });
       await patchGuideAdvertiserSedesFromCacheV2({ cache, advertiserId: aid, deletedSedeId: out2.sede_id });
-      await commerceMasterInvalidate205(cache,aid);
       return json(out2);
     }
     return null;
@@ -10123,6 +10125,7 @@ const advertiserKey=id=>'panel:record:v53:anunciantes:'+encodeURIComponent(text(
 const docKey=id=>'panel:record:v48:publicidad_cambios:'+encodeURIComponent(text(id));
 function withPanelCacheV48(db,env,report){
   const kv=env.GLD_CACHE_KV,known=new Map(),changes=new Map(),records=new Map(),pending=new Map(),directoryChanges102=new Map();
+  const commerceDirty205=new Set();
   const copy=x=>x==null?x:structuredClone(x);
   function remember(c,rows){for(const row of rows||[])if(row&&row.id)known.set(c+'/'+text(row.id),copy(row));return rows;}
   async function read(key){if(!kv?.get)return null;const raw=await kv.get(key,{cacheTtl:30});if(!raw)return null;try{const p=JSON.parse(raw);return p?.version===48?p:null;}catch(_){return null;}}
@@ -10201,6 +10204,8 @@ function withPanelCacheV48(db,env,report){
     return copy(known.get(k)||null);
   }
   function queue(c,id,old,row){
+    if(c==='anunciantes'||c==='anunciantes_administracion')commerceDirty205.add(text(id));
+    if(c==='anunciantes_sedes')for(const aid of [old?.anunciante_id,row?.anunciante_id])if(text(aid))commerceDirty205.add(text(aid));
     directoryChanges102.set(c+'/'+id,{c,id,row});
     const entry=fields[c];if(!entry)return;
     for(const field of (Array.isArray(entry)?entry:[entry])){
@@ -10211,6 +10216,16 @@ function withPanelCacheV48(db,env,report){
     known.set(c+'/'+text(id),copy(row));
   }
   async function flush(){
+    // Reuse the confirmed mutation rows and the prepared lists, including their
+    // in-request deltas. Prepare before clearing those deltas; no GET is needed.
+    if(commerceDirty205.size){
+      const cache=createCache(env),reader={panelReadDb:()=>({get:panelGet,queryEqual:panelQuery})};
+      for(const aid of commerceDirty205){
+        try{await commerceMasterPrepare205({db:reader,cache,advertiserId:aid});}
+        catch(error){await cache.del(commerceMasterKey205(aid));throw error;}
+        commerceDirty205.delete(aid);
+      }
+    }
     const affected=new Set();
     for(const [key,change]of changes){affected.add(change.key);try{await requiredSave(key,{version:48,...change});}catch(error){if(kv?.delete)await kv.delete(change.key);throw error;}}
     for(const key of affected){try{await requiredSave(key+':changes',{version:48,revision:crypto.randomUUID(),updated_at:Date.now()});}catch(error){if(kv?.delete)await kv.delete(key);throw error;}}
@@ -12355,7 +12370,7 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
   });
-  if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid),commerceMasterInvalidate205(cache,aid)]);
+  if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid)]);
   return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
@@ -12373,7 +12388,7 @@ async function routeAtomicAdvertiserInternal(ctx){
   if(body.sedes?.length){const r=await commerceSetSedesV3({db:stagedDb,cache:stagedCache,advertiserId:aid,body:{sedes:body.sedes}});if(r.updated)await patchGuideAdvertiserSedesFromCacheV2({cache:stagedCache,advertiserId:aid,savedSedes:r.changed_sedes});output.updated||=r.updated;output.sedes=r.sedes;output.revision_sedes=r.revision_sedes;}
   return output;
  });
- if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid),commerceMasterInvalidate205(cache,aid)]);
+ if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid)]);
  return json(result);
 }
 
@@ -12398,7 +12413,7 @@ async function routeGuideDispatch132(ctx){
  if(response.ok){
   const outcome=await response.clone().json().catch(()=>null);
   if(outcome?.success===true&&outcome.updated!==false)
-   await Promise.all([ghAdminDetailInvalidate203(ctx.cache,aid),commerceMasterInvalidate205(ctx.cache,aid)]);
+   await Promise.all([ghAdminDetailInvalidate203(ctx.cache,aid)]);
  }
  const renewal=SESSION_RENEWALS_V87.get(request);
  if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
