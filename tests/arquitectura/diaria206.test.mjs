@@ -109,3 +109,20 @@ test('máscaras de campos anidados conservan aceptaciones simultáneas y permite
  f.events.push({at:cutoff+1,entries:[{collection:'suscriptores',id:'U',patch:{historial:{'nueva.1':{version:2}}},fieldPaths:['historial.`nueva.1`']}]},{at:cutoff+2,entries:[{collection:'suscriptores',id:'U',patch:{historial:{otra:{version:3}}},fieldPaths:['historial.otra','historial.eliminar']}]});
  f.now=cutoff+day+60000;await f.publish();const user=await f.op('read',{key:'source/suscriptores/U'});assert.deepEqual(user.historial,{vieja:{version:1},'nueva.1':{version:2},otra:{version:3}});
 });
+
+
+test('costo de preparación inicial, día sin cambios y cincuenta ediciones del mismo registro',async t=>{
+ const f=fixture(t);await f.publish();
+ const initial={lists:f.metrics.sourceLists,documents:f.metrics.sourceListDocuments};
+ assert.equal(initial.lists,w.EDITION_COLLECTIONS206.size);
+ f.now=cutoff+day+60000;f.restart();await f.publish();
+ assert.equal(f.metrics.sourceLists,initial.lists,'un día vacío no puede releer colecciones Firestore');
+ assert.equal(f.metrics.sourceOutbox,1);assert.equal(f.metrics.sourceOutboxDocuments,0);
+ for(let n=0;n<50;n++)f.events.push({at:cutoff+day+1000+n,entries:[{collection:'anunciantes',id:'A',patch:{nombre:'Edición '+n}}]});
+ f.now=cutoff+2*day+60000;f.restart();await f.publish();
+ assert.equal(f.metrics.sourceLists,initial.lists,'las ocho familias públicas no pueden releer sus fuentes Firestore');
+ assert.equal(f.metrics.sourceOutbox,2);assert.equal(f.metrics.sourceOutboxDocuments,50,'una consulta no significa un solo documento leído');
+ assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Edición 49');
+ assert.equal(f.sql.prepare('SELECT count(*) n FROM edition_records206 WHERE key=? AND cutoff=?').get('master/A',cutoff+2*day).n,1,'las 50 novedades producen una única versión del maestro');
+ console.log('PUBLICATION_SOURCE_COST207 '+JSON.stringify({initial,emptyDay:{outboxQueries:1,returnedChanges:0,collectionScans:0},fiftyEdits:{outboxQueries:1,returnedChanges:50,collectionScans:0,masterVersions:1},scope:'adaptador aislado; no factura Firestore ni SQL total'}));
+});
