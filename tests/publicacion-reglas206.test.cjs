@@ -145,3 +145,18 @@ test('Eventos VIP/Free, Actividades y Promociones reutilizan un único filtro de
    assert.match(extract(name),/gldPublicacionAdmisible206\(/);
  }
 });
+
+test('no existe una ruta heredada duplicada de panel de Eventos y Publicidad',()=>{
+ const legacy=worker.slice(worker.indexOf('async function routePanelV3('),worker.indexOf('async function routePanelV4('));
+ const active=worker.slice(worker.indexOf('async function routePanelV4('),worker.indexOf('async function routePanelV5('));
+ assert.doesNotMatch(legacy,/path === "\/events-new"/);
+ assert.doesNotMatch(legacy,/path === "\/publicidad"/);
+ assert.match(active,/path === "\/events-new"/);
+ assert.match(active,/path === "\/publicidad"/);
+ assert.equal(worker.includes('async function eventosPanelData('),false);
+ assert.equal(worker.includes('async function publicidadPanelData('),false);
+ assert.match(legacy,/path === "\/promos"/);
+ assert.match(legacy,/path === "\/actividades"/);
+ assert.match(active,/eventsPanelDataV2\(/);
+ assert.match(active,/publicidadPanelDataV2\(/);
+});
