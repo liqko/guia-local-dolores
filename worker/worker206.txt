@@ -1870,6 +1870,115 @@ async function routePublicV6(ctx) {
   return routePublicV5(ctx);
 }
 
+// reconstruccion/worker/core/activities-read-model-v2.js
+var text16 = (v) => String(v ?? "").trim();
+var bool8 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x"].includes(text16(v).toLowerCase());
+var activityCityKeyV2 = (cityId) => "activities:city:v2:" + text16(cityId);
+function isPublic3(a,at=Date.now()) {
+  if(!a||!bool8(a.activo)||!gldPublicacionAdmisible206(a))return false;
+  const hoy=new Date(at-3*60*60*1e3).toISOString().slice(0,10);
+  if(text16(a.vigente_desde)&&text16(a.vigente_desde)>hoy)return false;
+  if(text16(a.vigente_hasta)&&text16(a.vigente_hasta)<hoy)return false;
+  return true;
+}
+function sort5(rows) {
+  return [...rows].sort((a, b) => text16(a.nombre).localeCompare(text16(b.nombre), "es", { sensitivity: "base" }));
+}
+async function syncActivityPreparedV2({ cache, activityId, current = null, next = null, horarios = [], previousCities = [] }) {
+  const id4 = text16(activityId || next && next.actividad_id || current && current.actividad_id);
+  const currentCities = [...new Set((horarios || []).map((h) => text16(h.ciudad_id)).filter(Boolean))];
+  const targets = [...new Set([...(previousCities || []).map(text16), ...currentCities].filter(Boolean))];
+  for (const cityId of targets) {
+    const key3 = activityCityKeyV2(cityId);
+    const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", actividades: [] };
+    let rows = (packet2.actividades || []).filter((x) => text16(x.actividad_id || x.id) !== id4);
+    if (next && isPublic3(next)) {
+      const hs = (horarios || []).filter((h) => text16(h.ciudad_id) === cityId && (h.activo === void 0 || bool8(h.activo)));
+      if (hs.length) rows.push({ ...next, horarios: hs });
+    }
+    await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), actividades: sort5(rows) });
+  }
+  await putPreparedRelationsV1({ cache, type: "activity", id: id4, next, data: horarios });
+  return { success: true, ciudades_actualizadas: targets };
+}
+async function getActivitiesCityV2({ cache, cityId, at=Date.now() }) {
+  const city=text16(cityId);if(!city)return {success:false,message:'ciudad_id obligatorio',status:400};
+  const [packet,virtual]=await Promise.all([cache.get(activityCityKeyV2(city)),city==='VIRTUAL'?Promise.resolve(null):cache.get(activityCityKeyV2('VIRTUAL'))]);
+  const byId=new Map();
+  for(const row of [...(packet?.actividades||[]),...(virtual?.actividades||[])]){
+    if(!isPublic3(row,at))continue;
+    const id=text16(row.actividad_id||row.id),previous=byId.get(id);
+    if(previous){const schedules=new Map();for(const h of [...previous.horarios||[],...row.horarios||[]])schedules.set(text16(h.actividad_horario_id||h.id)||JSON.stringify(h),h);byId.set(id,{...previous,...row,horarios:[...schedules.values()]});}
+    else byId.set(id,row);
+  }
+  const publishers=new Map();
+  const activities=await Promise.all([...byId.values()].map(async row=>{
+    const aid=text16(row.anunciante_id||row.id_anunciante);if(!aid)return row;
+    if(!publishers.has(aid))publishers.set(aid,Promise.all([cache.get('guide:advertiser:v2:'+aid),cache.get('panel:record:v53:anunciantes:'+encodeURIComponent(aid))]));
+    const [guide,profile]=await publishers.get(aid);
+    const source=guide?.template||guide?.cards?.[0]||profile?.data;
+    return source?{...row,anunciante_nombre:text16(source.nombre||row.anunciante_nombre),logo_anunciante:text16(source.logo||source.logo_url||'')}:row;
+  }));
+  return {success:true,...packet,ciudad_id:city,actividades:sort5(activities),cold:!packet&&!virtual};
+}
+async function rebuildActivitiesAllV2({ db, cache }) {
+  const [activities, schedules] = await Promise.all([
+    db.listCollection("actividades"),
+    db.listCollection("actividad_horarios")
+  ]);
+  const byAct = /* @__PURE__ */ new Map();
+  for (const h of schedules) {
+    const id4 = text16(h.actividad_id);
+    if (!id4) continue;
+    if (!byAct.has(id4)) byAct.set(id4, []);
+    byAct.get(id4).push(h);
+  }
+  for(const a of activities)if(Number(a.horarios_version)===2&&Array.isArray(a.horarios))byAct.set(text16(a.actividad_id||a.id),a.horarios);
+  const byCity = /* @__PURE__ */ new Map();
+  for (const a of activities) {
+    await putPreparedRelationsV1({ cache, type: "activity", id: text16(a.actividad_id || a.id), next: a, data: byAct.get(text16(a.actividad_id || a.id)) || [] });
+    if (!isPublic3(a)) continue;
+    const id4 = text16(a.actividad_id || a.id), groups = /* @__PURE__ */ new Map();
+    for (const h of byAct.get(id4) || []) {
+      if (h.activo !== void 0 && !bool8(h.activo)) continue;
+      const city = text16(h.ciudad_id);
+      if (!city) continue;
+      if (!groups.has(city)) groups.set(city, []);
+      groups.get(city).push(h);
+    }
+    for (const [city, hs] of groups) {
+      if (!byCity.has(city)) byCity.set(city, []);
+      byCity.get(city).push({ ...a, horarios: hs });
+    }
+  }
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  await Promise.all([...byCity.entries()].map(([city, actividades]) => cache.put(activityCityKeyV2(city), {
+    version: 2,
+    ciudad_id: city,
+    updated_at: now,
+    actividades: sort5(actividades)
+  })));
+  return { success: true, ciudades: byCity.size, actividades: activities.length, updated_at: now };
+}
+
+// reconstruccion/worker/routes/public-v7.js
+var text17 = (v) => String(v ?? "").trim();
+async function routePublicV7(ctx) {
+  const { path, request: request2, url, cache } = ctx;
+  if (path === "/actividades" && request2.method === "GET") {
+    const action = text17(url.searchParams.get("action")).toLowerCase();
+    if (action === "publicas") {
+      const out2 = await getActivitiesCityV2({
+        cache,
+        at:ctx.cityBookCutoff,
+        cityId: text17(url.searchParams.get("ciudad_id"))
+      });
+      return out2.status ? json(out2, out2.status) : publicJson(out2);
+    }
+  }
+  return routePublicV6(ctx);
+}
+
 // reconstruccion/worker/core/publicity-read-model-v2.js
 var text18 = (v) => String(v ?? "").trim();
 var publicityCityKeyV2 = (cityId) => "publicity:city:v2:" + text18(cityId);
