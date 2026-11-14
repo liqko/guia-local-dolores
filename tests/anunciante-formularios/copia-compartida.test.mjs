@@ -1,9 +1,11 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {source} from '../observabilidad/worker-source.mjs';
-const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {commerceMaster205,commerceMasterPrepare205,commerceMasterKey205,withPanelCacheV48,createCache};').toString('base64'));
+const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {commerceMaster205,withPanelCacheV48,createCache};').toString('base64'));
 function fixture(){
  const values=new Map(),sourceRows=new Map(),ops=[],sourceOps=[];
+ const masters=new Map(),actors=new Map();let failWrite=false;
+ const masterKey=aid=>'test:master:'+aid;
  const env={GLD_CACHE_KV:{
   async get(key){ops.push(['get',key]);return values.get(key)??null;},
   async put(key,value,options){ops.push(['put',key,options]);assert.equal(options?.expirationTtl,undefined);values.set(key,value);},
@@ -19,7 +21,7 @@ function fixture(){
   const sedes=[{id:'S-'+aid,sede_id:'S-'+aid,anunciante_id:aid,nombre_sede:'Original'}];
   sourceRows.set('anunciantes/'+aid,datos);sourceRows.set('anunciantes_administracion/'+aid,administracion);
   for(const row of sedes)sourceRows.set('anunciantes_sedes/'+row.id,row);
-  seed(w.commerceMasterKey205(aid),{v:205,response:{success:true,advertiser:{id:aid,datos,administracion,sedes}}});
+  masters.set(aid,{success:true,advertiser:{id:aid,datos,administracion,sedes}});
   seed('panel:query:v48:anunciantes_sedes:'+aid,{version:48,data:sedes,revision:''});
  }
  const db={
@@ -30,8 +32,14 @@ function fixture(){
   async commitPatches(entries){return Promise.all(entries.map(e=>e.remove?this.delete(e.collection,e.id).then(()=>null):this.patch(e.collection,e.id,e.patch)));},
   async panelAdministration(id){return structuredClone(sourceRows.get('anunciantes_administracion/'+id)||{});}
  };
- const panel=w.withPanelCacheV48(db,env,{});
- return{env,cache,seed,add,sourceRows,ops,sourceOps,panel,db};
+ env.GLD_PUBLIC_CACHE={idFromName:x=>x,get(name){const aid=name.split(':').at(-1);if(!actors.has(aid))actors.set(aid,{
+  metrics:{rows_read:0,rows_written:0},repairGuide132:async()=>{},
+  query(sql,value){if(sql.startsWith('SELECT')){this.metrics.rows_read++;ops.push(['master-get',aid]);return masters.has(aid)?[{value:JSON.stringify(masters.get(aid))}]:[];}if(sql.startsWith('INSERT')){if(failWrite)throw Error('Escritura interrumpida');this.metrics.rows_written++;masters.set(aid,JSON.parse(value));ops.push(['master-put',aid]);}return [];},
+  commerceMaster209:w.GldPublicCache119.prototype.commerceMaster209,
+  commerceRequest209:w.GldPublicCache119.prototype.commerceRequest209
+ });return{async fetch(request){const actor=actors.get(aid);actor.metrics={rows_read:0,rows_written:0};return actor.commerceRequest209(await request.json());}};}};
+ const panel=w.withPanelCacheV48(db,env,{operations:{}});
+ return{env,cache,seed,add,sourceRows,ops,sourceOps,panel,db:panel,master:aid=>masters.get(aid),set failWrite(value){failWrite=value;}};
 }
 test('una cuenta puede consultar copias independientes de niveles 3, 4 y 6 sin tocar Firestore',async()=>{
  const h=fixture();for(const [id,level]of [['A',3],['B',4],['C',6]])h.add(id,level);
@@ -41,8 +49,8 @@ test('una cuenta puede consultar copias independientes de niveles 3, 4 y 6 sin t
   assert.equal(response.advertiser.id,id);assert.equal(response.advertiser.datos.nombre,id);
   assert.equal(response.advertiser.sedes[0].anunciante_id,id);
   assert.equal(response.advertiser.configuracion_funcionalidades.ACTIVIDADES.activo,id!=='A');
-  assert.deepEqual(h.ops.slice(start).map(op=>op[0]),['get','get','get']);
-  assert.equal(h.ops[start][1],w.commerceMasterKey205(id));
+  assert.deepEqual(h.ops.slice(start).map(op=>op[0]),['master-get','get','get']);
+  assert.equal(h.ops[start][1],id);
  }
  assert.equal(h.sourceOps.length,0);
 });
@@ -56,19 +64,19 @@ test('reglas y catálogos nuevos se reflejan sin reconstruir ni reescribir la fi
  assert.equal(response.advertiser.configuracion_revision,10);
  assert.equal(response.advertiser.configuracion_funcionalidades.ACTIVIDADES.activo,false);
  assert.equal(response.advertiser.categorias[0].nombre,'Modificada');
- assert.equal(h.sourceOps.length,0);assert(h.ops.every(op=>op[0]==='get'));
+ assert.equal(h.sourceOps.length,0);assert(h.ops.every(op=>['get','master-get'].includes(op[0])));
 });
 test('guardar datos prepara la copia antes de la siguiente apertura y conserva campos no modificados',async()=>{
  const h=fixture();h.add('A',3);
  await h.panel.patch('anunciantes','A',{descripcion:'Guardada'});
  await h.panel.flushLoginCache();
- const puts=h.ops.filter(([op,key])=>op==='put'&&key===w.commerceMasterKey205('A'));
+ const puts=h.ops.filter(([op,key])=>op==='master-put'&&key==='A');
  assert.equal(puts.length,1);assert.equal(puts[0][2],undefined);
  h.sourceOps.length=0;h.ops.length=0;
  const response=await w.commerceMaster205({db:h.db,cache:h.cache,advertiserId:'A'});
  assert.equal(response.advertiser.datos.descripcion,'Guardada');
  assert.deepEqual(response.advertiser.datos.extension_futura,{conservar:true});
- assert.equal(h.sourceOps.length,0);assert(h.ops.every(([op])=>op==='get'));
+ assert.equal(h.sourceOps.length,0);assert(h.ops.every(([op])=>['get','master-get'].includes(op)));
 });
 test('alta, edición y baja de sedes mantienen la copia con los deltas confirmados',async()=>{
  const h=fixture();h.add('A',3);
@@ -89,29 +97,26 @@ test('un cambio comercial actualiza su anunciante sin modificar las copias de ot
  const b=await w.commerceMaster205({db:h.db,cache:h.cache,advertiserId:'B'});
  assert.equal(a.advertiser.administracion.nivel,4);assert.equal(b.advertiser.administracion.nivel,6);
  assert(a.advertiser.configuracion_funcionalidades.ACTIVIDADES.activo);
- assert.equal(h.ops.filter(([op,key])=>op==='put'&&key===w.commerceMasterKey205('B')).length,0);
+ assert.equal(h.ops.filter(([op,key])=>op==='master-put'&&key==='B').length,0);
 });
-test('fallo al escribir la copia impide confirmar el guardado y no conserva una copia anterior',async()=>{
+test('fallo al escribir la copia impide confirmar el guardado y permite recuperar la proyección',async()=>{
  const h=fixture();h.add('A',3);
- const put=h.env.GLD_CACHE_KV.put;
- h.env.GLD_CACHE_KV.put=async(key,...args)=>{if(key===w.commerceMasterKey205('A'))throw Error('Escritura interrumpida');return put(key,...args);};
+ h.failWrite=true;
  await h.panel.patch('anunciantes','A',{descripcion:'Cambio confirmado en fuente'});
  await assert.rejects(h.panel.flushLoginCache(),/Escritura interrumpida/);
- assert.equal(await h.cache.get(w.commerceMasterKey205('A')),null);
- h.env.GLD_CACHE_KV.put=put;await h.panel.flushLoginCache();
- assert.equal((await h.cache.get(w.commerceMasterKey205('A'))).response.advertiser.datos.descripcion,'Cambio confirmado en fuente');
+ assert.notEqual(h.master('A').advertiser.datos.descripcion,'Cambio confirmado en fuente');
+ h.failWrite=false;await h.panel.flushLoginCache();
+ assert.equal(h.master('A').advertiser.datos.descripcion,'Cambio confirmado en fuente');
 });
 test('la copia preparada sigue válida después de dos minutos y de un día, sin escrituras al consultar',async t=>{
  const h=fixture();h.add('A',3);
- await w.commerceMasterPrepare205({db:h.db,cache:h.cache,advertiserId:'A'});
- const packet=await h.cache.get(w.commerceMasterKey205('A'));
- assert.equal(packet.response.advertiser.id,'A');
+ assert.equal(h.master('A').advertiser.id,'A');
  const now=Date.now();let elapsed=0;t.mock.method(Date,'now',()=>now+elapsed);
  for(elapsed of [121000,86400001]){
   h.ops.length=0;h.sourceOps.length=0;
   const response=await w.commerceMaster205({db:h.db,cache:h.cache,advertiserId:'A'});
   assert.equal(response.advertiser.id,'A');assert.equal(h.sourceOps.length,0);
-  assert(h.ops.every(([op])=>op==='get'));
+  assert(h.ops.every(([op])=>['get','master-get'].includes(op)));
  }
 });
 test('un guardado conjunto prepara una sola copia por anunciante',async()=>{
@@ -121,7 +126,7 @@ test('un guardado conjunto prepara una sola copia por anunciante',async()=>{
   {collection:'anunciantes_sedes',id:'S-A',before:h.sourceRows.get('anunciantes_sedes/S-A'),patch:{nombre_sede:'Conjunta'}}
  ]);
  await h.panel.flushLoginCache();
- assert.equal(h.ops.filter(([op,key])=>op==='put'&&key===w.commerceMasterKey205('A')).length,1);
+ assert.equal(h.ops.filter(([op,key])=>op==='master-put'&&key==='A').length,1);
  const response=await w.commerceMaster205({db:h.db,cache:h.cache,advertiserId:'A'});
  assert.equal(response.advertiser.datos.descripcion,'Conjunta');assert.equal(response.advertiser.sedes[0].nombre_sede,'Conjunta');
 });

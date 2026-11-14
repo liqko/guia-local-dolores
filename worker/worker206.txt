@@ -1,6 +1,6 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 208             ║
-// ║          VERSIÓN 208 · PENDIENTE DE DESPLIEGUE           ║
+// ║                GUÍA LOCAL DOLORES · WORKER 209             ║
+// ║          VERSIÓN 209 · PENDIENTE DE DESPLIEGUE           ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
@@ -98,7 +98,7 @@ var GLD_ACTIONS138 = (() => {
  const definition={countries:{collection:'paises',field:'paises',id:'pais_id'},provinces:{collection:'provincias',field:'provincias',id:'provincia_id'},cities:{collection:'ciudades',field:'ciudades',id:'ciudad_id'}};
  async function hash(value){return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(stable(value))))),v=>v.toString(16).padStart(2,'0')).join('');}
  function resources(env,command){
-  const report={event:'gld_action138',worker_version:'208',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
+  const report={event:'gld_action138',worker_version:'209',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),path:command.path,method:command.method,operations:{},status:500};
   const scoped=requestCache121(observeKv117(env,report),report,false);
   return {env:scoped,db:observeDbV41(createDb(scoped),report),cache:createCache(scoped),report};
  }
@@ -1814,7 +1814,7 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 208</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 208</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 209</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 209</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
     return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
@@ -6054,10 +6054,7 @@ async function commerceDeleteSedeV3({db,advertiserId,body}){
 return {commercePanelDataV3,commerceSetDatosV3,commerceSetSedesV3,commerceDeleteSedeV3};
 })();
 
-// Master packet is shape-independent: retain every field as returned by storage.
-// Confirmed source mutations prepare this packet before acknowledging the save.
-// Shared catalogs/rules remain authoritative; they are not frozen inside a copy.
-function commerceMasterKey205(aid){return 'commerce:advertiser:master:v205:'+encodeURIComponent(String(aid||'').trim());}
+// One persistent advertiser projection. Global catalogs/rules remain shared.
 function gldConfiguracionPanel205(admin,packet){
  return Object.fromEntries(Array.from(new Set([...Object.keys(GLD_FUNC_DEFAULT166),...Object.keys(packet?.reglas||{})])).map(fid=>{
   const global=gldFuncRules166(packet,fid),cfg=admin?.funcionalidades_config?.[fid]||{};
@@ -6069,27 +6066,40 @@ function gldConfiguracionPanel205(admin,packet){
   return [fid,{nombre:String(global.nombre||fid),activo:global.activo!==false&&(!Array.isArray(global.niveles_habilitados)||global.niveles_habilitados.includes(Number(admin?.nivel))),parametros,admite_excepciones:global.admite_excepciones!==false}];
  }));
 }
-async function commerceMasterPrepare205({db,cache,advertiserId}){
- const response=await commercePanelDataV3({db,advertiserId,catalogs:{}});
- if(response?.success===true)await cache.put(commerceMasterKey205(advertiserId),{v:205,response});
- else await cache.del(commerceMasterKey205(advertiserId));
+async function commerceMaster205({db,cache,advertiserId}){
+ if(!db.commerceMasterRead209)throw httpError('La copia del anunciante no está disponible.',503);
+ const response=await db.commerceMasterRead209(advertiserId);
+ if(response?.success!==true)return response;
+ const [catalogs,functionRules]=await Promise.all([getCommerceCatalogs(cache),gldFuncPacket166(cache,db,false)]);
+ const advertiser=response.advertiser;
+ for(const field of ['segmentos','categorias','actividades_clave','acciones','nodos','funcionalidades','niveles_anunciante'])advertiser[field]=catalogs[field]||[];
+ advertiser.prestaciones=gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3);
+ advertiser.configuracion_funcionalidades=gldConfiguracionPanel205(advertiser.administracion,functionRules);
+ advertiser.configuracion_revision=functionRules.revision;
  return response;
 }
-async function commerceMaster205({db,cache,advertiserId}){
- const [packet,catalogs,functionRules]=await Promise.all([
-  cache.get(commerceMasterKey205(advertiserId)),getCommerceCatalogs(cache),gldFuncPacket166(cache,db,false)
- ]);
- // Retain the existing first-use transition until all installed advertisers
- // have a prepared packet. This is not a timer or a refresh of an existing copy.
- const response=packet?.v===205&&packet?.response?.success===true?packet.response:
-  await commerceMasterPrepare205({db,cache,advertiserId});
- if(response?.success!==true)return response;
- const advertiser={...response.advertiser};
- for(const key of ['segmentos','categorias','actividades_clave','acciones','nodos','funcionalidades','niveles_anunciante'])advertiser[key]=catalogs[key]||[];
- advertiser.prestaciones=gldPrestacionesCatalogo200(catalogs.prestaciones).filter(active3);
- advertiser.configuracion_funcionalidades=gldConfiguracionPanel205(advertiser.administracion||{},functionRules);
- advertiser.configuracion_revision=functionRules.revision;
- return {...response,advertiser};
+async function commerceMasterActor209(env,report,body){
+ const local=env.__gldGuideActor132;
+ if(local){
+  const before={...local.metrics};
+  try{return await local.commerceMaster209({...body,report});}
+  finally{if(report){const metrics=report.commerce_store209??={calls:0,rows_read:0,rows_written:0};for(const key of ['rows_read','rows_written'])metrics[key]+=Number(local.metrics[key]||0)-Number(before[key]||0);}}
+ }
+ if(!env.GLD_PUBLIC_CACHE)throw httpError('Falta el almacén de copias de anunciantes.',503);
+ const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+body.aid));
+ const response=await actor.fetch(new Request('https://commerce-master.internal/',{method:'POST',body:JSON.stringify(body)}));
+ const result=await response.json();
+ if(report){
+  const metrics=report.commerce_store209??={calls:0,rows_read:0,rows_written:0};metrics.calls++;
+  for(const key of ['rows_read','rows_written'])metrics[key]+=Number(result.metrics?.[key]||0);
+  for(const [key,stat]of Object.entries(result.operations||{})){
+   const target=report.operations[key]??={...stat,calls:0,documents_returned:0,failures:0};
+   for(const name of ['calls','documents_returned','failures'])target[name]+=Number(stat[name]||0);
+  }
+  if(result.kv){report.commerce_store209.kv??={get_calls:0,put_calls:0,delete_calls:0,list_calls:0};for(const key of ['get_calls','put_calls','delete_calls','list_calls'])report.commerce_store209.kv[key]+=Number(result.kv[key]||0);}
+ }
+ if(!response.ok)throw httpError(result.error||'No se pudo sincronizar la copia del anunciante.',503);
+ return result.response;
 }
 
 var text56 = (v) => String(v ?? "").trim();
@@ -10125,7 +10135,6 @@ const advertiserKey=id=>'panel:record:v53:anunciantes:'+encodeURIComponent(text(
 const docKey=id=>'panel:record:v48:publicidad_cambios:'+encodeURIComponent(text(id));
 function withPanelCacheV48(db,env,report){
   const kv=env.GLD_CACHE_KV,known=new Map(),changes=new Map(),records=new Map(),pending=new Map(),directoryChanges102=new Map();
-  const commerceDirty205=new Set();
   const copy=x=>x==null?x:structuredClone(x);
   function remember(c,rows){for(const row of rows||[])if(row&&row.id)known.set(c+'/'+text(row.id),copy(row));return rows;}
   async function read(key){if(!kv?.get)return null;const raw=await kv.get(key,{cacheTtl:30});if(!raw)return null;try{const p=JSON.parse(raw);return p?.version===48?p:null;}catch(_){return null;}}
@@ -10204,9 +10213,7 @@ function withPanelCacheV48(db,env,report){
     return copy(known.get(k)||null);
   }
   function queue(c,id,old,row){
-    if(c==='anunciantes'||c==='anunciantes_administracion')commerceDirty205.add(text(id));
-    if(c==='anunciantes_sedes')for(const aid of [old?.anunciante_id,row?.anunciante_id])if(text(aid))commerceDirty205.add(text(aid));
-    directoryChanges102.set(c+'/'+id,{c,id,row});
+    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id});
     const entry=fields[c];if(!entry)return;
     for(const field of (Array.isArray(entry)?entry:[entry])){
       const prior=text(old?.[field]),next=text(row?.[field]);
@@ -10216,16 +10223,6 @@ function withPanelCacheV48(db,env,report){
     known.set(c+'/'+text(id),copy(row));
   }
   async function flush(){
-    // Reuse the confirmed mutation rows and the prepared lists, including their
-    // in-request deltas. Prepare before clearing those deltas; no GET is needed.
-    if(commerceDirty205.size){
-      const cache=createCache(env),reader={panelReadDb:()=>({get:panelGet,queryEqual:panelQuery})};
-      for(const aid of commerceDirty205){
-        try{await commerceMasterPrepare205({db:reader,cache,advertiserId:aid});}
-        catch(error){await cache.del(commerceMasterKey205(aid));throw error;}
-        commerceDirty205.delete(aid);
-      }
-    }
     const affected=new Set();
     for(const [key,change]of changes){affected.add(change.key);try{await requiredSave(key,{version:48,...change});}catch(error){if(kv?.delete)await kv.delete(change.key);throw error;}}
     for(const key of affected){try{await requiredSave(key+':changes',{version:48,revision:crypto.randomUUID(),updated_at:Date.now()});}catch(error){if(kv?.delete)await kv.delete(key);throw error;}}
@@ -10245,10 +10242,17 @@ function withPanelCacheV48(db,env,report){
       await directoryDelta102(directoryCache102,change.c,change.id,change.row);
       await notify102(directoryCache102,change.c,change.id,change.row);
     }
-    directoryChanges102.clear();
     if(db.flushLoginCache)await db.flushLoginCache();
+    const masterChanges=new Map();
+    for(const change of directoryChanges102.values())if(GUIDE_SOURCE132.has(change.c)){
+      const aids=change.c==='anunciantes_sedes'?[change.row?.anunciante_id,change.previousAdvertiser]:[change.id];
+      for(const aid of new Set(aids.filter(Boolean).map(String))){if(!masterChanges.has(aid))masterChanges.set(aid,[]);masterChanges.get(aid).push(change);}
+    }
+    for(const [aid,changes]of masterChanges)await commerceMasterActor209(env,report,{op:'commerce-master-update209',aid,changes});
+    directoryChanges102.clear();
   }
   return {...db,
+    commerceMasterRead209:aid=>commerceMasterActor209(env,report,{op:'commerce-master-read209',aid}),
     prepareNewAdvertiserPanels116,
     repairPanelGuide132(c,id,before,row){
       queue(c,id,before,row);
@@ -11075,7 +11079,7 @@ async function dailyDashboard195(env,auth){
  const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
  if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
  const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:208,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
+ return json({success:true,entry_version:195,worker_info:{version:209,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
@@ -11747,7 +11751,7 @@ class GldPublicCache119 {
    const snapshot=this.guideSnapshot135(result);
    if(snapshot!==null){
     try{this.query('UPDATE packet SET value=? WHERE slot=1',snapshot);}
-    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'208',error:String(error?.message||error)}));}
+    catch(error){console.warn(JSON.stringify({event:'gld_guide_snapshot_deferred',worker_version:'209',error:String(error?.message||error)}));}
    }
   }
   if(def.module==='efemerides'){
@@ -11833,7 +11837,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(['commerce-master-read209','commerce-master-update209'].includes(body.op))return await this.commerceRequest209(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12370,7 +12374,7 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
   });
-  if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid)]);
+  if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
   return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
@@ -12388,9 +12392,55 @@ async function routeAtomicAdvertiserInternal(ctx){
   if(body.sedes?.length){const r=await commerceSetSedesV3({db:stagedDb,cache:stagedCache,advertiserId:aid,body:{sedes:body.sedes}});if(r.updated)await patchGuideAdvertiserSedesFromCacheV2({cache:stagedCache,advertiserId:aid,savedSedes:r.changed_sedes});output.updated||=r.updated;output.sedes=r.sedes;output.revision_sedes=r.revision_sedes;}
   return output;
  });
- if(result.updated)await Promise.all([ghAdminDetailInvalidate203(cache,aid)]);
+ if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
  return json(result);
 }
+
+GldPublicCache119.prototype.commerceMaster209=async function(body){
+ const aid=String(body.aid||'').trim();
+ if(!aid||this.guideAid132&&this.guideAid132!==aid)throw Error('La copia no pertenece al anunciante.');
+ this.guideAid132=aid;
+ if(!this.commerceTable209){this.query('CREATE TABLE IF NOT EXISTS commerce_master209(slot INTEGER PRIMARY KEY,value TEXT NOT NULL)');this.commerceTable209=true;}
+ const stored=this.query('SELECT value FROM commerce_master209 WHERE slot=1')[0];
+ let response=stored?JSON.parse(stored.value):null;
+ if(body.op==='commerce-master-update209'){
+  // Initialize a missing copy once; subsequent saves apply only confirmed rows.
+  if(!response)return this.commerceMaster209({...body,op:'commerce-master-read209'});
+  for(const change of body.changes||[]){
+   const row=change.row;
+   if(change.c==='anunciantes'&&String(change.id)===aid){
+    if(!row)response={success:false,error:'anunciante_no_encontrado'};
+    else{response={...response,success:true,advertiser:{...(response.advertiser||{}),id:aid,datos:row}};response.advertiser.revision_datos=await wholeRevisionInternal(row);}
+   }
+   if(change.c==='anunciantes_administracion'&&String(change.id)===aid&&response.success)response.advertiser.administracion=row||{};
+   if(change.c==='anunciantes_sedes'&&response.success){
+    const rows=new Map((response.advertiser.sedes||[]).map(x=>[String(x.sede_id||x.id),x]));
+    rows.delete(String(change.id));
+    if(row&&String(row.anunciante_id)===aid)rows.set(String(row.sede_id||row.id),row);
+    response.advertiser.sedes=[...rows.values()];
+    response.advertiser.revision_sedes=Object.fromEntries(await Promise.all([...rows].map(async([id,row])=>[id,await wholeRevisionInternal(row)])));
+   }
+  }
+ }else if(body.op==='commerce-master-read209'){
+  if(response)return response;
+  const report=body.report||{operations:{}};
+  const scoped=requestCache121(observeKv117(this.env,report),report);
+  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(scoped),report),scoped),report);
+  const db=withPanelCacheV48(withPrivateCacheV46(source,scoped),scoped,report);
+  response=await commercePanelDataV3({db,advertiserId:aid,catalogs:{}});
+  await db.flushLoginCache();
+ }else throw Error('Operación de copia inválida.');
+ this.query('INSERT INTO commerce_master209(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value',JSON.stringify(response));
+ return response;
+};
+GldPublicCache119.prototype.commerceRequest209=async function(body){
+ const report={operations:{}};
+ try{
+  if(body.op==='commerce-master-read209')await this.repairGuide132();
+  const response=await this.commerceMaster209({...body,report});
+  return Response.json({response,metrics:this.metrics,operations:report.operations,kv:report.kv});
+ }catch(error){return Response.json({error:String(error?.message||error),metrics:this.metrics,operations:report.operations,kv:report.kv},{status:503});}
+};
 
 // A durable, per-advertiser intent precedes the source commit. Recovery rebuilds
 // projections from current source; it never repeats the user's mutation.
@@ -12408,12 +12458,11 @@ async function routeGuideDispatch132(ctx){
  else{const auth=await requirePanel4(env,request,aid,true);if(auth.response)return auth.response;}
  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
  const response=await actor.fetch(new Request('https://guide-write.internal/',{method:'POST',body:JSON.stringify({op:'guide-save132',aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body})}));
- // Invalidación sólo después de un cambio confirmado. La siguiente apertura
- // recupera un paquete nuevo, no 18 subconsultas de los datos anteriores.
+ // La copia integral se mantiene durante el guardado; aquí sólo se invalida el detalle administrativo heredado.
  if(response.ok){
   const outcome=await response.clone().json().catch(()=>null);
   if(outcome?.success===true&&outcome.updated!==false)
-   await Promise.all([ghAdminDetailInvalidate203(ctx.cache,aid)]);
+   await ghAdminDetailInvalidate203(ctx.cache,aid);
  }
  const renewal=SESSION_RENEWALS_V87.get(request);
  if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
@@ -12467,7 +12516,7 @@ GldPublicCache119.prototype.finishGuide132=async function(applied=true){
 };
 GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
  if(receipt.applied===false)return json({success:false,code:'GUIDE_OPERATION_REVIEW',message:'No se confirmó ese guardado. Volvé a abrir la ficha para revisar los datos antes de intentarlo otra vez.'},409);
- const report={event:'gld_guide_replay',worker_version:'208',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
+ const report={event:'gld_guide_replay',worker_version:'209',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/guide/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report);
  try{
   const datos=await db.get('anunciantes',aid),sedes=[];
@@ -12478,8 +12527,9 @@ GldPublicCache119.prototype.replayGuide132=async function(receipt,aid){
 };
 GldPublicCache119.prototype.repairGuide132=async function(){
  const job=await this.guideJob132();if(!job)return;
- const report={event:'gld_guide_recovery',worker_version:'208',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
- const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report);
+ const report={event:'gld_guide_recovery',worker_version:'209',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'ALARM',path:'/internal/guide/recover',operations:{}};
+ const recoveryEnv=new Proxy(this.env,{get:(target,key)=>key==='__gldGuideActor132'?this:Reflect.get(target,key,target)});
+ const env=coordinatedCities119(requestCache121(observeKv117(recoveryEnv,report),report),report);
  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);
  try{
@@ -12543,6 +12593,7 @@ GldPublicCache119.prototype.alarm=async function(){
 // Operation counters, not a bill. Missing provider metrics remain null.
 function consumption136(report){
  const result=consumptionBase136(report),action=report.action_store138;
+ result.cloudflare.commerce_store=report.commerce_store209||{calls:0,rows_read:0,rows_written:0};
  result.cloudflare.action_store=action||{calls:0,rows_read:0,rows_written:0,alarm_set_calls:0,alarm_cancel_calls:0};
  if(action?.rows_read===null){
   result.coverage.missing.push('action-store-unreported-internal-operations');result.coverage.operation_counters='INCOMPLETO';
@@ -12680,7 +12731,7 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 };
 GldPublicCache119.prototype.repairBusiness143=async function(){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const report={event:'gld_business_recovery143',worker_version:'208',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ const report={event:'gld_business_recovery143',worker_version:'209',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
  const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
@@ -12746,11 +12797,11 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'208',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:'209',path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
- const report={event:'gld_business_replay143',worker_version:'208',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ const report={event:'gld_business_replay143',worker_version:'209',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
@@ -12893,7 +12944,7 @@ var GLD_EVENTS145=(()=>{
 
 var app_main_v35_default = {
   async fetch(request,env){
-    const report={event:'gld_firestore_observation',worker_version:'208',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
+    const report={event:'gld_firestore_observation',worker_version:'209',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
@@ -12937,7 +12988,7 @@ var app_main_v35_default = {
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
-      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"208",event_scope_version:1,publicidad_reglas_version:147}));
+      if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:"209",event_scope_version:1,publicidad_reglas_version:147}));
 
       const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
       const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
