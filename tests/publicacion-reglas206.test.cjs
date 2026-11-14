@@ -160,3 +160,38 @@ test('no existe una ruta heredada duplicada de panel de Eventos y Publicidad',()
  assert.match(active,/eventsPanelDataV2\(/);
  assert.match(active,/publicidadPanelDataV2\(/);
 });
+
+test('alta completa conserva el circuito previo de reclamo y alta básica',()=>{
+ const route=worker.slice(worker.indexOf("if(body.action!=='solicitar_anunciante')"),worker.indexOf("const LEGACY_ADVERTISER_TERMS_V81",worker.indexOf("if(body.action!=='solicitar_anunciante')")));
+ assert.match(route,/===['"]RECLAMAR['"]/);
+ assert.match(route,/solicitudes_anunciante/);
+ assert.match(route,/const submitted=Array\.isArray\(body\.sedes\)\?body\.sedes:null/);
+ assert.match(route,/submitted\|\|\[\{ciudad_id:body\.ciudad/);
+ assert.match(route,/await db\.patch\('suscriptor_anunciante'/);
+ assert.match(route,/syncGuideAdvertiserV2/);
+ assert.match(route,/syncAdvertiserIndexV2/);
+});
+
+test('alta completa valida catálogo, ciudades y persiste cada sede sin reemplazar otras rutas',()=>{
+ const route=worker.slice(worker.indexOf("if(body.action!=='solicitar_anunciante')"),worker.indexOf("const LEGACY_ADVERTISER_TERMS_V81",worker.indexOf("if(body.action!=='solicitar_anunciante')")));
+ assert.match(route,/getCommerceCatalogs\(cache\)/);
+ assert.match(route,/Seleccioná un segmento y categorías válidas/);
+ assert.match(route,/Seleccioná una ciudad válida para la sede/);
+ assert.match(route,/const sedeRows=validSedes\.map/);
+ assert.match(route,/for\(const sede of sedeRows\)savedSedes\.push\(await db\.patch\('anunciantes_sedes'/);
+ assert.match(route,/redes_web_comunes/);
+ assert.match(worker,/alta_anunciante_completa:\s*true/);
+ assert.match(worker,/if \(path === "\/catalogs\/public\/guide" && request2\.method === "GET"\)/);
+});
+
+test('pantalla de alta usa formulario completo y no envía al Worker incompatible',()=>{
+ const login=fs.readFileSync(require('node:path').join(__dirname,'../plataforma/login.html'),'utf8');
+ assert.match(login,/async function cargarAltaCompleta_\(/);
+ assert.match(login,/buildCommerceFieldsMarkup\(\{\}, \{\}, \[\{nombre_sede:'Principal'\}\]\)/);
+ assert.match(login,/buildCommerceSavePayload\(box\)/);
+ assert.match(login,/buildCommerceSedesPayload\(box\)/);
+ assert.match(login,/catalog\.alta_anunciante_completa!==true/);
+ assert.match(login,/\.btn-agregar-sede/);
+ assert.match(login,/\.btn-eliminar-sede/);
+ assert.match(login,/\.btn-duplicar-sede/);
+});
