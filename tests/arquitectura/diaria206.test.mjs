@@ -126,3 +126,14 @@ test('costo de preparación inicial, día sin cambios y cincuenta ediciones del 
  assert.equal(f.sql.prepare('SELECT count(*) n FROM edition_records206 WHERE key=? AND cutoff=?').get('master/A',cutoff+2*day).n,1,'las 50 novedades producen una única versión del maestro');
  console.log('PUBLICATION_SOURCE_COST207 '+JSON.stringify({initial,emptyDay:{outboxQueries:1,returnedChanges:0,collectionScans:0},fiftyEdits:{outboxQueries:1,returnedChanges:50,collectionScans:0,masterVersions:1},scope:'adaptador aislado; no factura Firestore ni SQL total'}));
 });
+
+
+test('el productor comparte una única lectura SQL de maestros para reconstrucción, comparación y bajas',async t=>{
+ const f=fixture(t);await f.publish();
+ const original=w.DailyEdition206.prototype.all,calls=[];
+ t.mock.method(w.DailyEdition206.prototype,'all',function(cut,prefix){calls.push(prefix);return original.call(this,cut,prefix);});
+ f.events.push({at:cutoff+1,entries:[{collection:'anunciantes',id:'A',patch:{nombre:'Cambio'}}]});
+ f.now=cutoff+day+60000;await f.publish();
+ assert.equal(calls.filter(prefix=>prefix==='master/').length,1,'el mismo maestro no se relee para cada fase del productor');
+ assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Cambio');
+});
