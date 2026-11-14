@@ -11022,6 +11022,38 @@ async function routePublicationsV77(ctx){
  const info=body.datos&&typeof body.datos==='object'&&!Array.isArray(body.datos)?body.datos:{};
  const submitted=Array.isArray(body.sedes)?body.sedes:null;
  const sourceSedes=submitted||[{ciudad_id:body.ciudad,nombre_sede:'Principal',direccion:body.direccion,whatsapp:body.whatsapp,mail:body.mail,web:body.web}];
+ if(submitted){
+   const catalog=await getCommerceCatalogs(cache);
+   const levels=Array.isArray(catalog.niveles_anunciante)?catalog.niveles_anunciante:[];
+   const cfg=levels.find(x=>String(x.nivel_id||x.id||'')==='CONFIG_GENERAL_ANUNCIANTES');
+   if(!cfg)publicationErrorV77('No están disponibles las reglas de carga del anunciante.');
+   const max=(key,fallback)=>{
+     const val=cfg['carga_comercial_'+key+'_max']??cfg['carga_'+key+'_max']??fallback;
+     const n=Number(val);
+     if(!Number.isSafeInteger(n)||n< -1)publicationErrorV77('Parámetro de carga inválido.');
+     return n;
+   };
+   const selectedCats=String(info.categoria_id||'').split(/[;,|\\n]+/).map(x=>x.trim()).filter(Boolean);
+   const seg=String(info.segmento_id||'').trim();
+   const validSegmentos=new Set((catalog.segmentos||[]).map(x=>String(x.segmento_id||x.id||'')));
+   const validCategorias=new Set((catalog.categorias||[]).map(x=>String(x.categoria_id||x.id||'')));
+   if(!seg||!validSegmentos.has(seg)||!selectedCats.length||selectedCats.some(x=>!validCategorias.has(x)))
+      publicationErrorV77('Seleccioná un segmento y categorías válidas.');
+   const maxCats=max('categorias',3),maxSedes=max('sedes',-1),maxImages=max('imagenes',5),maxSocial=max('redes',6);
+   if(maxCats>=0&&selectedCats.length>maxCats)publicationErrorV77('Excediste el máximo de categorías.');
+   if(maxSedes>=0&&sourceSedes.length>maxSedes)publicationErrorV77('Excediste el máximo de sedes.');
+   for(const field of [['actividad',80],['descripcion',500],['tags',300]]){
+     const cap=max(field[0],field[1]);
+     if(cap>=0&&String(info[field[0]]||'').length>cap)publicationErrorV77('Excediste el máximo de '+field[0]+'.');
+   }
+   for(const sede of sourceSedes){
+     const images=Array.from({length:10},(_,i)=>String(sede['img'+(i+1)]||'')).filter(Boolean).length;
+     const social=['instagram','facebook','youtube','tiktok','linkedin','x'].filter(k=>String(sede[k]||'').trim()).length;
+     if(maxImages>=0&&images>maxImages)publicationErrorV77('Excediste la cantidad de imágenes de una sede.');
+     if(maxSocial>=0&&social>maxSocial)publicationErrorV77('Excediste la cantidad de redes sociales de una sede.');
+   }
+ }
+
  if(!String(body.nombre||'').trim()||!sourceSedes.length)publicationErrorV77('Indicá un nombre y al menos una sede.');
  if(sourceSedes.length>100)publicationErrorV77('Cantidad de sedes inválida.');
  const validSedes=sourceSedes.map((row,index)=>{
