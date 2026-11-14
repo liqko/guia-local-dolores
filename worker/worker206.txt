@@ -6643,9 +6643,10 @@ class DailyEdition206 {
   this.q("DELETE FROM edition_records206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
   this.q("DELETE FROM edition_chunks206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
   let rows=Object.fromEntries([...EDITION_COLLECTIONS206].map(c=>[c,[]])),sourceCutoff=previous;
+  const previousMasters=new Map(previous===null?[]:this.all(previous,'master/').map(([,m])=>[m.advertiser_id,m]));
   if(previous!==null){
    for(const [key,row]of this.all(previous,'source/'))rows[key.split('/')[1]].push(row);
-   for(const [,packet]of this.all(previous,'master/')){
+   for(const packet of previousMasters.values()){
     if(packet.datos)rows.anunciantes.push(packet.datos);
     if(packet.administracion)rows.anunciantes_administracion.push(packet.administracion);
     rows.anunciantes_sedes.push(...packet.sedes);
@@ -6741,7 +6742,6 @@ class DailyEdition206 {
   const catalogs=await getCommerceCatalogs(cache);
   const masters=new Map(),adminBy=new Map(rows.anunciantes_administracion.map(x=>[String(x.id),x])),dataBy=new Map(rows.anunciantes.map(x=>[String(x.id),x])),sedesBy=new Map();
   for(const row of rows.anunciantes_sedes){const aid=String(row.anunciante_id||'');if(!aid)throw Error('Una sede carece de anunciante; se conserva la edición anterior.');if(!sedesBy.has(aid))sedesBy.set(aid,[]);sedesBy.get(aid).push(row);}
-  const previousMasters=new Map(previous===null?[]:this.all(previous,'master/').map(([,m])=>[m.advertiser_id,m]));
   for(const id of new Set([...dataBy.keys(),...adminBy.keys(),...sedesBy.keys()])){
    const datos=dataBy.get(id)||null,sedes=sedesBy.get(id)||[],administracion=adminBy.get(id)||null,old=previousMasters.get(id),configuration206=gldConfiguracionPanel205(administracion||{},functional206);
    if(old&&JSON.stringify([old.datos,old.administracion,old.sedes,old.configuracion_funcionalidades,old.configuracion_revision])===JSON.stringify([datos,administracion,sedes,configuration206,functional206.revision])){masters.set(id,old);continue;}
@@ -6750,7 +6750,7 @@ class DailyEdition206 {
    masters.set(id,packet);this.put(editionMasterKey206(id),cutoff,packet);
   }
   for(const row of rows.anunciantes_sedes)this.put('reference/sede/'+encodeURIComponent(row.id),cutoff,{aid:String(row.anunciante_id)});
-  if(previous!==null)for(const [key]of this.all(previous,'master/'))if(!masters.has(decodeURIComponent(key.slice(7))))this.put(key,cutoff,null);
+  for(const id of previousMasters.keys())if(!masters.has(id))this.put(editionMasterKey206(id),cutoff,null);
   for(const c of EDITION_COLLECTIONS206){
    if(editionSharedCollection206(c)||previous!==null&&!changed.has(c))continue;
    const keys=new Set();for(const row of rows[c]){const key=editionSourceKey206(c,String(row.id));keys.add(key);this.put(key,cutoff,row);}
