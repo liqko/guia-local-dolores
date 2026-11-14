@@ -48,10 +48,8 @@ test('el paquete maestro conserva datos y parámetros sin listas fijas de campos
  }
 });
 test('el paquete no se reconstruye si la copia existe',()=>{
- const begin=worker.indexOf('async function commerceMaster205(');
- const end=worker.indexOf('// reconstruccion/worker/core/commerce-cache-patch-v2.js',begin);
- assert.ok(begin>=0&&end>begin);
- const source=worker.slice(begin,end);
+ const source=worker.match(/async function commerceMaster205[\s\S]*?\n\}/)?.[0];
+ assert.ok(source,'Falta la función real del maestro compartido');
  assert.match(source,/db\.publishedMaster206/);assert.doesNotMatch(source,/cache\.(put|del)|db\.(get|queryEqual|listCollection)|expirationTtl/);
 });
 

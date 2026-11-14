@@ -23,7 +23,7 @@ const isWithinValidity=p=>!p.vigente_hasta||p.vigente_hasta>='2026-11-14';
 const isPaused=p=>p.pausado===true||p.estado==='PAUSADA';
 const promoPendingV91=p=>p.estado_moderacion==='PENDIENTE';
 `;
-const selected=['gldPublicacionAdmisible206','isPublic3','published','visible','isPublic2'];
+const selected=['gldPublicacionAdmisible206','isPublic3','published','visible'];
 const funcs=Function(stubs+selected.map(extract).join('\n')+'\nreturn {'+selected.join(',')+'};')();
 const when=Date.parse('2026-11-14T12:00:00Z');
 const activity={estado:'ACTIVA',activo:true,aprobado:false,estado_moderacion:'PUBLICADO',vigente_desde:'2026-11-01',vigente_hasta:'2026-11-30'};
@@ -54,10 +54,12 @@ test('promociones activas y pendientes/rechazadas',()=>{
  assert.equal(funcs.visible({estado:'ACTIVA',estado_moderacion:'PENDIENTE'}),false);
  assert.equal(funcs.visible({estado:'ACTIVA',estado_moderacion:'RECHAZADA'}),false);
 });
-test('publicidad conserva autorización comercial y moderación',()=>{
- assert.equal(funcs.isPublic2({estado:'ACTIVA',aprobado:false}),false);
- assert.equal(funcs.isPublic2({estado:'ACTIVA',aprobado:true}),true);
- assert.equal(funcs.isPublic2({estado:'ACTIVA',aprobado:true,estado_moderacion:'PENDIENTE'}),false);
+test('publicidad pública V3 conserva autorización comercial y moderación',()=>{
+ const publicV3=worker.slice(worker.indexOf('async function publicidadPublicaV3('),worker.indexOf('// reconstruccion/worker/routes/public-v9.js'));
+ assert.match(publicV3,/\.filter\(p=>gldPublicacionAdmisible206\(p\)/);
+ assert.match(publicV3,/bool9\(p\.aprobado\)/);
+ assert.equal(funcs.gldPublicacionAdmisible206({estado:'ACTIVA',aprobado:true,estado_moderacion:'PENDIENTE'}),false);
+ assert.equal(funcs.gldPublicacionAdmisible206({estado:'ACTIVA',aprobado:true,estado_moderacion:'RECHAZADO'}),false);
 });
 test('circuito actividades comparte versión de paquete entre guardar y leer',()=>{
  const save=worker.slice(worker.indexOf('async function syncActivityPreparedV2('),worker.indexOf('async function getActivitiesCityV2('));
@@ -120,4 +122,41 @@ test('no quedan rutas ni paquetes antiguos de Actividades v1/v2',()=>{
  }
  assert.equal((worker.match(/async function activitySaveV3\(/g)||[]).length,1);
  assert.equal((worker.match(/async function getActivitiesCityV2\(/g)||[]).length,1);
+});
+
+test('no hay una segunda ruta pública V2 de Publicidad ni predicado independiente',()=>{
+ assert.equal(worker.includes('async function publicidadPublicaV2('),false);
+ assert.equal(worker.includes('function isPublic4('),false);
+ assert.equal(worker.includes('function isPublic2('),false);
+ const v9=worker.slice(worker.indexOf('async function routePublicV9('),worker.indexOf('async function routePublicV10('));
+ assert.match(v9,/publicidadPublicaV3\(/);
+});
+test('directorio no etiqueta como pendiente solo por aprobado falso histórico',()=>{
+ const start=worker.indexOf('function directoryState102(');
+ const end=worker.indexOf('function directorySafe102(',start);
+ assert(start>=0&&end>start);
+ const directory=Function(worker.slice(start,end)+';return directoryState102')();
+ assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'PUBLICADO'}),'ACTIVA');
+ assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'PENDIENTE'}),'PENDIENTE');
+ assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'RECHAZADA'}),'RECHAZADA');
+});
+test('Eventos VIP/Free, Actividades y Promociones reutilizan un único filtro de moderación',()=>{
+ for(const name of ['published','isPublic3','visible']){
+   assert.match(extract(name),/gldPublicacionAdmisible206\(/);
+ }
+});
+
+test('no existe una ruta heredada duplicada de panel de Eventos y Publicidad',()=>{
+ const legacy=worker.slice(worker.indexOf('async function routePanelV3('),worker.indexOf('async function routePanelV4('));
+ const active=worker.slice(worker.indexOf('async function routePanelV4('),worker.indexOf('async function routePanelV5('));
+ assert.doesNotMatch(legacy,/path === "\/events-new"/);
+ assert.doesNotMatch(legacy,/path === "\/publicidad"/);
+ assert.match(active,/path === "\/events-new"/);
+ assert.match(active,/path === "\/publicidad"/);
+ assert.equal(worker.includes('async function eventosPanelData('),false);
+ assert.equal(worker.includes('async function publicidadPanelData('),false);
+ assert.match(legacy,/path === "\/promos"/);
+ assert.match(legacy,/path === "\/actividades"/);
+ assert.match(active,/eventsPanelDataV2\(/);
+ assert.match(active,/publicidadPanelDataV2\(/);
 });

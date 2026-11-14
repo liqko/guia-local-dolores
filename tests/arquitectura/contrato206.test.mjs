@@ -9,7 +9,7 @@ test('el archivo único conserva una entrada común de lectura y una única auto
  assert(source.includes('editionReadEnvironment206(observeKv117(env,report))'));
  assert(source.includes('if(dataRead206)db=editionReader206(env,db)'));
  assert(!source.includes('COMMERCE_MASTER_TTL205'));assert(!source.includes('GH_ADMIN_DETAIL_TTL203'));
- const adapter=between('async function commerceMaster205','// reconstruccion/worker/core/commerce-cache-patch-v2.js');assert(!/cache\.(put|del)|db\.(get|queryEqual|listCollection)/.test(adapter));
+ const adapter=source.match(/async function commerceMaster205[\s\S]*?\n\}/)?.[0];assert(adapter);assert(!/cache\.(put|del)|db\.(get|queryEqual|listCollection)/.test(adapter));
  const previous=between('class PrivateDaily195','async function dailySubscribers195');assert(previous.includes('extends DailyEdition206'));assert(!previous.includes('listCollection'));
  const workflow=await readFile(new URL('../../.github/workflows/firebase-hosting-merge.yml',import.meta.url),'utf8');assert(workflow.includes('cron: "0 4 * * *"'));
 });
