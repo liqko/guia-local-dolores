@@ -6098,7 +6098,7 @@ async function commerceMasterActor209(env,report,body){
   }
   if(result.kv){report.commerce_store209.kv??={get_calls:0,put_calls:0,delete_calls:0,list_calls:0};for(const key of ['get_calls','put_calls','delete_calls','list_calls'])report.commerce_store209.kv[key]+=Number(result.kv[key]||0);}
  }
- if(!response.ok)throw httpError(result.error||'No se pudo sincronizar la copia del anunciante.',503);
+ if(!response.ok)throw Object.assign(httpError(result.error||'No se pudo sincronizar la copia del anunciante.',503),{code:result.code||'COMMERCE_COPY_UNAVAILABLE'});
  return result.response;
 }
 
@@ -11837,7 +11837,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(['commerce-master-read209','commerce-master-update209'].includes(body.op))return await this.commerceRequest209(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12405,7 +12405,7 @@ GldPublicCache119.prototype.commerceMaster209=async function(body){
  let response=stored?JSON.parse(stored.value):null;
  if(body.op==='commerce-master-update209'){
   // Initialize a missing copy once; subsequent saves apply only confirmed rows.
-  if(!response)return this.commerceMaster209({...body,op:'commerce-master-read209'});
+  if(!response)return this.commerceMaster209({...body,op:'commerce-master-prepare209'});
   for(const change of body.changes||[]){
    const row=change.row;
    if(change.c==='anunciantes'&&String(change.id)===aid){
@@ -12423,6 +12423,10 @@ GldPublicCache119.prototype.commerceMaster209=async function(body){
   }
  }else if(body.op==='commerce-master-read209'){
   if(response)return response;
+  await this.requestCommercePreparation209(aid);
+  throw Object.assign(Error('Estamos preparando los datos del anuncio por primera vez. La carga continuará automáticamente.'),{code:'COMMERCE_COPY_PREPARING'});
+ }else if(body.op==='commerce-master-prepare209'){
+  if(response)return response;
   const report=body.report||{operations:{}};
   const scoped=requestCache121(observeKv117(this.env,report),report);
   const source=requestDb119(roleSourceDb192(observeDbV41(createDb(scoped),report),scoped),report);
@@ -12436,10 +12440,82 @@ GldPublicCache119.prototype.commerceMaster209=async function(body){
 GldPublicCache119.prototype.commerceRequest209=async function(body){
  const report={operations:{}};
  try{
-  if(body.op==='commerce-master-read209')await this.repairGuide132();
+  if(body.op!=='commerce-master-read209')await this.repairGuide132();
+  else if(await this.guideJob132())throw Object.assign(Error('Se está recuperando el último guardado del anuncio.'),{code:'COMMERCE_COPY_PREPARING'});
   const response=await this.commerceMaster209({...body,report});
   return Response.json({response,metrics:this.metrics,operations:report.operations,kv:report.kv});
- }catch(error){return Response.json({error:String(error?.message||error),metrics:this.metrics,operations:report.operations,kv:report.kv},{status:503});}
+ }catch(error){return Response.json({error:String(error?.message||error),code:error?.code||'COMMERCE_COPY_UNAVAILABLE',metrics:this.metrics,operations:report.operations,kv:report.kv},{status:503});}
+};
+
+// Initial preparation is durable maintenance, separate from reading a ficha.
+GldPublicCache119.prototype.requestCommercePreparation209=async function(aid){
+ if(this.commercePreparation209===undefined)this.commercePreparation209=await this.state.storage.get('commerce-preparation209')||null;
+ if(!this.commercePreparation209){
+  this.commercePreparation209={aid,attempts:0};
+  await this.state.storage.put('commerce-preparation209',this.commercePreparation209);
+ }
+ const alarm=await this.state.storage.getAlarm();
+ if(alarm===null||alarm>Date.now()+1000)await this.state.storage.setAlarm(Date.now()+1000);
+};
+GldPublicCache119.prototype.runCommercePreparation209=async function(){
+ const job=this.commercePreparation209===undefined?await this.state.storage.get('commerce-preparation209'):this.commercePreparation209;
+ if(!job)return;
+ this.commercePreparation209=job;
+ const report={event:'gld_commerce_preparation209',worker_version:'209',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),method:'ALARM',path:'/internal/commerce/prepare',operations:{},status:500};
+ try{
+  await this.repairGuide132();
+  await this.commerceMaster209({op:'commerce-master-prepare209',aid:job.aid,report});
+  await this.state.storage.delete('commerce-preparation209');this.commercePreparation209=null;report.status=200;
+ }catch(error){
+  job.attempts++;await this.state.storage.put('commerce-preparation209',job);
+  const retry=GLD_BUSINESS143.quotaError(error)?86400000:Math.min(3600000,1000*2**Math.min(job.attempts,12));
+  await this.state.storage.setAlarm(Date.now()+retry);report.error=String(error?.message||error);
+ }finally{report.commerce_store209={calls:0,...this.metrics};console.log(JSON.stringify(finishObservationV42(report)));}
+};
+const commerceMigrationBindings209=new WeakSet();
+function commerceMigrationKick209(request,env,execution){
+ const binding=env.GLD_PUBLIC_CACHE,path=new URL(request.url).pathname;
+ if(!binding||commerceMigrationBindings209.has(binding)||!['/','/suscriptores','/commerce','/superadmin/dashboard'].includes(path))return;
+ commerceMigrationBindings209.add(binding);
+ execution.waitUntil((async()=>{
+  try{
+   const actor=binding.get(binding.idFromName('commerce-migration-v209'));
+   const response=await actor.fetch(new Request('https://commerce-migration.internal/',{method:'POST',body:JSON.stringify({op:'commerce-migration-start209'})}));
+   if(!response.ok)throw Error('No se pudo iniciar la preparación inicial.');
+  }catch(error){commerceMigrationBindings209.delete(binding);console.error('gld_commerce_migration_start209',String(error?.message||error));}
+ })());
+}
+GldPublicCache119.prototype.commerceMigrationStart209=async function(){
+ let job=await this.state.storage.get('commerce-migration209');
+ if(!job){job={ids:null,cursor:0,done:false,attempts:0};await this.state.storage.put('commerce-migration209',job);}
+ if(!job.done&&await this.state.storage.getAlarm()===null)await this.state.storage.setAlarm(Date.now()+1000);
+ return Response.json({success:true,done:job.done,prepared:job.cursor,total:job.ids?.length??null});
+};
+GldPublicCache119.prototype.commerceMigrationStep209=async function(){
+ const job=await this.state.storage.get('commerce-migration209');if(!job||job.done)return;
+ const report={event:'gld_commerce_migration209',worker_version:'209',request_id:crypto.randomUUID(),started_at:new Date().toISOString(),method:'ALARM',path:'/internal/commerce/migrate',operations:{},status:500};
+ try{
+  if(!job.ids){
+   const kvEnv=observeKv117(this.env,report);
+   const raw=await kvEnv.GLD_CACHE_KV.get(ADMIN_ADVERTISERS_KEY),index=raw?JSON.parse(raw):null;
+   if(!Array.isArray(index?.results))throw Error('Falta el índice existente de anunciantes; no se consulta Firestore para reconstruirlo.');
+   job.ids=[...new Set(index.results.map(row=>String(row.id||row.anunciante_id||'').trim()).filter(Boolean))];
+   await this.state.storage.put('commerce-migration209',job);
+  }
+  for(let n=0;n<5&&job.cursor<job.ids.length;n++){
+   await commerceMasterActor209(this.env,report,{op:'commerce-master-prepare209',aid:job.ids[job.cursor]});
+   job.cursor++;job.attempts=0;await this.state.storage.put('commerce-migration209',job);
+  }
+  job.done=job.cursor===job.ids.length;
+  await this.state.storage.put('commerce-migration209',job);
+  if(!job.done)await this.state.storage.setAlarm(Date.now()+1000);
+  report.status=200;
+ }catch(error){
+  job.attempts++;job.last_error=String(error?.message||error);
+  await this.state.storage.put('commerce-migration209',job);
+  await this.state.storage.setAlarm(Date.now()+(GLD_BUSINESS143.quotaError(error)?86400000:Math.min(3600000,1000*2**Math.min(job.attempts,12))));
+  report.error=job.last_error;
+ }finally{report.prepared=job.cursor;report.total=job.ids?.length??null;console.log(JSON.stringify(finishObservationV42(report)));}
 };
 
 // A durable, per-advertiser intent precedes the source commit. Recovery rebuilds
@@ -12573,6 +12649,9 @@ GldPublicCache119.prototype.alarm=async function(){
  const previous=this.requestTail127||Promise.resolve();let release=()=>{};
  this.requestTail127=new Promise(resolve=>{release=()=>resolve(undefined);});await previous;
  try{
+  this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
+  if(await this.state.storage.get('commerce-migration209'))return await this.commerceMigrationStep209();
+  await this.runCommercePreparation209();
   const markerRead=this.guidePending132===undefined?1:0;
   await this.guideJob132();
   if(this.guideState132?.action_kind138){this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.alarm(markerRead);}
@@ -12943,7 +13022,8 @@ var GLD_EVENTS145=(()=>{
 })();
 
 var app_main_v35_default = {
-  async fetch(request,env){
+  async fetch(request,env,execution){
+    if(execution?.waitUntil&&!env.__gldGuideActor132&&!env.__gldBusinessActor143)commerceMigrationKick209(request,env,execution);
     const report={event:'gld_firestore_observation',worker_version:'209',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
     env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
     let db,cacheFlushed=false;

@@ -26,7 +26,21 @@
   const p=payload(sent),requestKind=p?.typ==='GLD_SUBSCRIBER'?'subscriber':p?.rol?'admin':null;
   if(requestKind){const current=read(keys[requestKind]),live=payload(current);if(current&&live?.sid===p.sid){known.add(old);sent=current;}else if(known.has(old)){sent='';}}
   if(sent!==old){if(sent)headers.set('Authorization','Bearer '+sent);else headers.delete('Authorization');}
-  const r=await nativeFetch(input,{...options,headers});
+  const method=String(options?.method||(input instanceof Request?input.method:'GET')).toUpperCase();
+  let r;
+  for(let attempt=0;;attempt++){
+   r=await nativeFetch(input,{...options,headers});
+   if(method!=='GET'||r.status!==503||attempt>=5)break;
+   const pending=await r.clone().json().catch(()=>null);
+   if(pending?.code!=='COMMERCE_COPY_PREPARING')break;
+   await new Promise((resolve,reject)=>{
+    const signal=options?.signal||(input instanceof Request?input.signal:null);
+    if(signal?.aborted)return reject(signal.reason||new DOMException('Aborted','AbortError'));
+    const abort=()=>{clearTimeout(timer);reject(signal.reason||new DOMException('Aborted','AbortError'));};
+    const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},Math.min(5000,1000*2**attempt));
+    signal?.addEventListener('abort',abort,{once:true});
+   });
+  }
   const token=r.headers.get('X-GLD-Session-Token'),kind=r.headers.get('X-GLD-Session-Kind'),key=keys[kind];
   if(token&&key&&read(key)===sent){try{known.add(sent);known.add(token);localStorage.setItem(key,token);aliases.set(sent,token);window.dispatchEvent(new CustomEvent('gld-session-updated',{detail:{kind}}));}catch{}}
   return r;

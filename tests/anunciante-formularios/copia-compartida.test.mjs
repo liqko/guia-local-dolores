@@ -33,7 +33,7 @@ function fixture(){
   async panelAdministration(id){return structuredClone(sourceRows.get('anunciantes_administracion/'+id)||{});}
  };
  env.GLD_PUBLIC_CACHE={idFromName:x=>x,get(name){const aid=name.split(':').at(-1);if(!actors.has(aid))actors.set(aid,{
-  metrics:{rows_read:0,rows_written:0},repairGuide132:async()=>{},
+  metrics:{rows_read:0,rows_written:0},guideJob132:async()=>null,repairGuide132:async()=>{},
   query(sql,value){if(sql.startsWith('SELECT')){this.metrics.rows_read++;ops.push(['master-get',aid]);return masters.has(aid)?[{value:JSON.stringify(masters.get(aid))}]:[];}if(sql.startsWith('INSERT')){if(failWrite)throw Error('Escritura interrumpida');this.metrics.rows_written++;masters.set(aid,JSON.parse(value));ops.push(['master-put',aid]);}return [];},
   commerceMaster209:w.GldPublicCache119.prototype.commerceMaster209,
   commerceRequest209:w.GldPublicCache119.prototype.commerceRequest209

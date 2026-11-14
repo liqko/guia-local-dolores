@@ -50,7 +50,8 @@ seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
 values.set('catalogs:commerce:v1',JSON.stringify({niveles_anunciante:[{nivel_id:'CONFIG_GENERAL_ANUNCIANTES'}]}));
 let token='';
-async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
+async function call(path,body){calls.length=0;let r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})}),env);if(!body&&r.status===503&&(await r.clone().json()).code==='COMMERCE_COPY_PREPARING'){assert.equal(calls.length,0,'La consulta ausente no puede leer Firestore');await env.GLD_PUBLIC_CACHE.runAlarms();r=await worker.fetch(new Request('https://test.invalid'+path,{headers:token?{Authorization:'Bearer '+token}:{}}),env);}
+return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
 const reports=[],measures=[],physical={get:0,put:0,delete:0,list:0};
 globalThis.__circuitCapture=r=>reports.push(structuredClone(r));
@@ -149,6 +150,45 @@ try{
  assert.equal(recovered.datos.descripcion,'Guardado recuperable');
  assert.equal(allOperations.slice(recoveryStart).filter(x=>['PATCH','DELETE'].includes(x.op)).length,0,'Recovery must not repeat the source mutation');
  assert.equal(await env.GLD_PUBLIC_CACHE.job('guide-save-v132:A'),undefined);
- console.log(JSON.stringify({preparedReopen:{firestoreReads:sourceReads.length,advertiserRowsRead:warmReport.commerce_store209.rows_read,advertiserRowsWritten:warmReport.commerce_store209.rows_written,kv:warmReport.kv,auth:warmReport.auth_store201},after121Seconds:true,afterEviction:true,adminChangesVisible:true,globalRulesVisible:true,multiAccountIsolation:true,recoveryWithoutRepeatingMutation:true}));
+ // Missing snapshots only enqueue durable preparation; they never read sources.
+ seed('anunciantes','FIRST',{anunciante_id:'FIRST',nombre:'Primera copia'});
+ seed('anunciantes_administracion','FIRST',{nivel:3});
+ const firstActor=env.GLD_PUBLIC_CACHE.get('guide-save-v132:FIRST');
+ const initialSource=allOperations.length;
+ const absent=await firstActor.fetch(new Request('https://test.internal/',{method:'POST',body:JSON.stringify({op:'commerce-master-read209',aid:'FIRST'})}));
+ assert.equal(absent.status,503);assert.equal((await absent.json()).code,'COMMERCE_COPY_PREPARING');
+ assert.equal(allOperations.length,initialSource);
+ env.GLD_PUBLIC_CACHE.evict('guide-save-v132:FIRST');
+ await env.GLD_PUBLIC_CACHE.runAlarms();
+ const firstReady=await firstActor.fetch(new Request('https://test.internal/',{method:'POST',body:JSON.stringify({op:'commerce-master-read209',aid:'FIRST'})}));
+ assert.equal(firstReady.status,200);assert.equal((await firstReady.json()).response.advertiser.datos.nombre,'Primera copia');
+ // Install-time migration uses only the existing index, in resumable batches.
+ const ids=Array.from({length:7},(_,i)=>'MIG-'+i);
+ for(const aid of ids){seed('anunciantes',aid,{anunciante_id:aid,nombre:aid});seed('anunciantes_administracion',aid,{nivel:4});}
+ values.set('admin:index:advertisers:v2',JSON.stringify({results:ids.map(id=>({id}))}));
+ const background=[],beforeKick=allOperations.length;
+ const kick=await worker.fetch(new Request('https://test.invalid/'),env,{waitUntil:promise=>background.push(promise)});
+ assert.equal(kick.status,200);await Promise.all(background);
+ assert.equal(allOperations.length,beforeKick,'Starting migration must not query source documents');
+ await env.GLD_PUBLIC_CACHE.runAlarms();
+ let checkpoint=await env.GLD_PUBLIC_CACHE.stored('commerce-migration-v209','commerce-migration209');
+ assert.equal(checkpoint.cursor,5);assert.equal(checkpoint.done,false);
+ let interrupted=false;
+ env.GLD_PUBLIC_CACHE.failSql=sql=>!interrupted&&sql.startsWith('INSERT INTO commerce_master209')?(interrupted=true):false;
+ await env.GLD_PUBLIC_CACHE.runAlarms();
+ checkpoint=await env.GLD_PUBLIC_CACHE.stored('commerce-migration-v209','commerce-migration209');
+ assert.equal(interrupted,true);assert.equal(checkpoint.cursor,5);assert.equal(checkpoint.done,false);
+ env.GLD_PUBLIC_CACHE.failSql=null;env.GLD_PUBLIC_CACHE.evict('commerce-migration-v209');env.GLD_PUBLIC_CACHE.evict('guide-save-v132:MIG-5');
+ await env.GLD_PUBLIC_CACHE.runAlarms();
+ checkpoint=await env.GLD_PUBLIC_CACHE.stored('commerce-migration-v209','commerce-migration209');
+ assert.equal(checkpoint.cursor,7);assert.equal(checkpoint.done,true);
+ const afterMigration=allOperations.length,physicalAfter={...physical};
+ const migrationActor=env.GLD_PUBLIC_CACHE.get('commerce-migration-v209');
+ await migrationActor.fetch(new Request('https://migration.internal/',{method:'POST',body:JSON.stringify({op:'commerce-migration-start209'})}));
+ await env.GLD_PUBLIC_CACHE.runAlarms();
+ assert.equal(allOperations.length,afterMigration);assert.deepEqual(physical,physicalAfter,'Completed migration must not rescan the index or sources');
+ for(const aid of ids){const response=await env.GLD_PUBLIC_CACHE.get('guide-save-v132:'+aid).fetch(new Request('https://master.internal/',{method:'POST',body:JSON.stringify({op:'commerce-master-read209',aid})}));assert.equal(response.status,200);}
+ assert.equal(allOperations.length,afterMigration);
+ console.log(JSON.stringify({preparedReopen:{firestoreReads:sourceReads.length,advertiserRowsRead:warmReport.commerce_store209.rows_read,advertiserRowsWritten:warmReport.commerce_store209.rows_written,kv:warmReport.kv,auth:warmReport.auth_store201},after121Seconds:true,afterEviction:true,adminChangesVisible:true,globalRulesVisible:true,multiAccountIsolation:true,recoveryWithoutRepeatingMutation:true,initializationOutsideReads:true,migrationCheckpointRecovery:true}));
  console.log('PASS ficha completa: GH y anunciante confirman juntos; validación tardía no deja cambios parciales; concurrencia200/409; permisos conservados; caché administrativa coherente.');
 }finally{globalThis.fetch=original;delete globalThis.__circuitCapture;}

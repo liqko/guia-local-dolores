@@ -50,7 +50,8 @@ globalThis.fetch=async(url,options={})=>{
 seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
 let token='',publicationVersion='';
-async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:publicationVersion}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
+async function call(path,body){calls.length=0;let r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:publicationVersion}})}:{})}),env);if(!body&&r.status===503&&(await r.clone().json()).code==='COMMERCE_COPY_PREPARING'){assert.equal(calls.length,0,'La consulta ausente no puede leer Firestore');await env.GLD_PUBLIC_CACHE.runAlarms();r=await worker.fetch(new Request('https://test.invalid'+path,{headers:token?{Authorization:'Bearer '+token}:{}}),env);}
+return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
 const reports=[],measures=[],physical={get:0,put:0,delete:0,list:0};
 globalThis.__circuitCapture=r=>reports.push(structuredClone(r));
