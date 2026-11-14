@@ -8607,11 +8607,17 @@ document.addEventListener('DOMContentLoaded', ()=>{
       // Si realmente se cambió de anunciante, recargamos automáticamente la página.
       // Esto equivale al F5 que antes hacía falta y garantiza un DOM/estado totalmente limpio.
       if(idAnterior && idAnterior!==id){
+        // Conservar el anunciante elegido para abrirlo automáticamente tras limpiar el DOM.
+        try{sessionStorage.setItem('gld_anunciante_pendiente_reload',id);}catch(_){}
         window.location.reload();
         return;
       }
 
       if(await mostrarPanelDashboard())await abrirEventoFreeDirecto_();
+      else if(!document.querySelector('#panel-dashboard:not(.hidden-panel)')){
+        const msg=document.getElementById('anunciantes-autorizados-msg');
+        if(msg)msg.textContent='No se pudo abrir el panel del anunciante. Revisá los términos de acceso y reintentá.';
+      }
       const resumen170=document.getElementById('dashboard-limites-funcionalidades170');
       if(resumen170){
        resumen170.textContent='';
@@ -8638,6 +8644,13 @@ document.addEventListener('DOMContentLoaded', ()=>{
         resumen170.append(box170);
        }
       }
+    }catch(error){
+      console.error('Error al abrir el panel del anunciante:',error);
+      const msg=document.getElementById('anunciantes-autorizados-msg');
+      if(msg){msg.textContent='No se pudo abrir el anunciante: '+String(error?.message||error);msg.className='error';}
+      renderSeleccionAnunciante_();
+      if(msg){msg.textContent='No se pudo abrir el anunciante: '+String(error?.message||error);msg.className='error';}
+      mostrarPanel('seleccionar-anunciante');
     }finally{
       hideGlobalBlocking_();
     }
@@ -8709,7 +8722,18 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
     try{
       // abrirCuentaAutorizada_ valida la sesión y recupera sus permisos una sola vez.
-      await abrirCuentaAutorizada_({autoAbrir:false});
+      let pendiente='';
+      try{
+        pendiente=String(sessionStorage.getItem('gld_anunciante_pendiente_reload')||'');
+        sessionStorage.removeItem('gld_anunciante_pendiente_reload');
+      }catch(_){}
+      // Sólo autoseleccionar si la recarga fue provocada por cambiar de anunciante.
+      if(pendiente && autorizacionesAnunciante.some(x=>String(x.anunciante_id||'')===pendiente)){
+        gldPanelStorage.setItem(DASHBOARD_ADVERTISER_KEY,pendiente);
+        await abrirCuentaAutorizada_({autoAbrir:true});
+      }else{
+        await abrirCuentaAutorizada_({autoAbrir:false});
+      }
     }catch(e){
       if(e.status!==401){
         const msg=document.getElementById('login-msg');

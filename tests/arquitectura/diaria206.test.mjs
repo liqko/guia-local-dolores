@@ -137,3 +137,103 @@ test('el productor comparte una única lectura SQL de maestros para reconstrucci
  assert.equal(calls.filter(prefix=>prefix==='master/').length,1,'el mismo maestro no se relee para cada fase del productor');
  assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Cambio');
 });
+
+
+test('un único recorrido SQL de la edición abastece todos los compiladores y comparaciones',async t=>{
+ const f=fixture(t);f.rows.anunciantes.push(...Array.from({length:100},(_,i)=>({id:'B'+i,nombre:'Otro '+i})));
+ await f.publish();const q=w.DailyEdition206.prototype.q,queries=[];
+ t.mock.method(w.DailyEdition206.prototype,'q',function(sql,...args){queries.push(sql);return q.call(this,sql,...args);});
+ f.events.push({at:cutoff+1,entries:[{collection:'anunciantes',id:'A',patch:{nombre:'Final'}}]});
+ f.now=cutoff+day+60000;await f.op('stage');
+ assert.equal(queries.filter(sql=>sql.startsWith('SELECT r.key,r.cutoff,r.value')).length,1,'una sola lectura de la edición anterior');
+ assert.equal(queries.filter(sql=>sql.startsWith('SELECT key,cutoff,value FROM edition_records206')).length,0,'comparar cada paquete no vuelve a leer SQL');
+ await f.op('commit');assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Final');
+ assert.equal((await f.op('read',{key:'master/B99'})).datos.nombre,'Otro 99');
+});
+
+test('un fallo libera la copia del productor y elimina filas huérfanas de un corte abandonado',async t=>{
+ const f=fixture(t);await f.publish();
+ // An interrupted producer can have persisted rows before marking ready.
+ f.sql.prepare('INSERT INTO edition_records206(key,cutoff,value) VALUES(?,?,?)').run('cache/orphan-fixture',cutoff+day,JSON.stringify({stale:true}));
+ f.sql.prepare('INSERT INTO edition_state206(cutoff,ready,published) VALUES(?,1,0)').run(cutoff+day);
+ f.events.push({at:cutoff+1,entries:[{collection:'NO_REGISTRADA',id:'x',patch:{}}]});
+ f.now=cutoff+2*day+60000;await assert.rejects(f.op('stage'));
+ assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Original');
+ f.events.length=0;f.events.push({at:cutoff+day+1,entries:[{collection:'anunciantes',id:'A',patch:{nombre:'Recuperado'}}]});
+ f.restart();await f.publish();
+ assert.equal(await f.op('read',{key:'cache/orphan-fixture'}),null,'una publicación fallida no filtra datos en un corte posterior');
+ assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Recuperado');
+ assert.equal(f.sql.prepare('SELECT count(*) n FROM edition_state206 WHERE cutoff=?').get(cutoff+day).n,0);
+});
+
+test('las ocho familias llegan al paquete diario y conservan altas, cambios, bajas y reanudación',async t=>{
+ const f=fixture(t);
+ Object.assign(f.rows.anunciantes[0],{aprobado:true});
+ Object.assign(f.rows.anunciantes_administracion[0],{aprobado:true,nivel:6,funcionalidades:'EVENTOS,EVENTOS_FREE,PROMOS,ACTIVIDADES,PUBLICIDAD,TURNOS_FARMA',publicidad_activas_max:2});
+ Object.assign(f.rows,{
+  eventos:[{id:'E',evento_id:'E',anunciante_id:'A',nombre_evento:'Evento',nivel:'VIP',estado:'ACTIVA',estado_moderacion:'PUBLICADO',fecha_desde:'2026-11-01',fecha_hasta:'2040-01-01'}],
+  evento_programacion:[{id:'EP',evento_id:'E',ciudad_id:'D',fecha_desde:'2026-11-01',fecha_hasta:'2040-01-01',hora_desde:'20:00'}],
+  actividades:[{id:'ACT',actividad_id:'ACT',anunciante_id:'A',nombre:'Actividad',activo:true,aprobado:false,estado:'ACTIVA',estado_moderacion:'PUBLICADO'}],
+  actividad_horarios:[{id:'H',actividad_id:'ACT',ciudad_id:'D',dia:'LUNES',hora_desde:'10:00'}],
+  promos:[{id:'PR',promo_id:'PR',anunciante_id:'A',ciudad_id:'D',promo:'Promo',estado:'ACTIVA',estado_moderacion:'PUBLICADO'}],
+  publicidades:[{id:'PUB',publicidad_id:'PUB',anunciante_id:'A',estado:'ACTIVA',aprobado:true,titulo:'Pieza',formato:'IMAGEN',relaciones_version:1,cta_tipo:'FICHA_ANUNCIANTE'}],
+  publicidad_media:[{id:'M',publicidad_id:'PUB',url:'https://example.invalid/image.jpg',tipo_media:'IMAGEN',activo:true,orden:1}],
+  publicidad_segmentacion:[{id:'SG',publicidad_id:'PUB',ciudad_id:'D',ubicacion_id:'GUIA',activo:true}],
+  publicidad_ubicaciones:[{id:'GUIA',ubicacion_id:'GUIA',modulo:'GUIA',activo:true}],
+  farmacias_ciclos:[{id:'C',ciclo_id:'C',ciudad_id:'D',anunciante_id:'A',activo:true,fecha_inicio:'2026-11-01',hora_inicio:'00:00',duracion_horas:24,farmacias_por_turno:1}],
+  farmacias_ciclo_sedes:[{id:'CP',ciclo_id:'C',sede_id:'S',orden:1,activo:true}],
+  efemerides_bis:[{id:'EF',efemeride_id:'EF',tipo:'LOCAL',ciudad_id:'D',activo:true,nombre:'Efeméride'}],
+  empleos:[{id:'EMP',empleo_id:'EMP',tipo:'OFREZCO',nombre:'Empleo',ciudad_id:'D',ciudad_ids:['D'],hasta:'2040-01-01',estado_moderacion:'PUBLICADO'}]
+ });
+ const specs=w.PUBLIC_FEATURES191;
+ const packet=async cut=>{
+  const cache={get:async key=>(await w.editionCall206(f.env,{action:'staged-read',cutoff:cut,key:'cache/'+key})).value};
+  const out=await w.exportCityBookCut({env:f.env,cache,after:cut-day,cutoff:cut,known:[],report:{}});
+  return out.initial.find(x=>x.city==='D').modules;
+ };
+ await f.op('stage');const first=await packet(cutoff);
+ for(const [name,spec]of Object.entries(specs))assert.equal(first[name][spec.field].length,1,'falta alta pública en '+name);
+ await f.op('commit');const scans=f.metrics.sourceLists;
+ const states=[
+  ['anunciantes_administracion','A',{aprobado:false},{aprobado:true}],
+  ['eventos','E',{pausado:true},{pausado:false}],
+  ['actividades','ACT',{estado:'PAUSADA'},{estado:'ACTIVA'}],
+  ['promos','PR',{pausado:true},{pausado:false}],
+  ['publicidades','PUB',{estado:'INACTIVA'},{estado:'ACTIVA'}],
+  ['farmacias_ciclos','C',{activo:false},{activo:true}],
+  ['efemerides_bis','EF',{activo:false},{activo:true}],
+  ['empleos','EMP',{pausado:true},{pausado:false}]
+ ];
+ f.events.push({at:cutoff+1000,entries:states.map(([collection,id,patch])=>({collection,id,patch}))});
+ f.now=cutoff+day+60000;await f.op('stage');const hidden=await packet(cutoff+day);
+ for(const [name,spec]of Object.entries(specs))assert.equal(hidden[name][spec.field].length,0,'contenido deshabilitado en '+name);
+ assert.equal((await f.op('read',{key:'master/A'})).administracion.aprobado,true,'stage no adelanta la edición');await f.op('commit');
+ f.events.push({at:cutoff+day+1000,entries:states.map(([collection,id,,patch])=>({collection,id,patch}))});
+ f.now=cutoff+2*day+60000;await f.op('stage');const resumed=await packet(cutoff+2*day);
+ for(const [name,spec]of Object.entries(specs))assert.equal(resumed[name][spec.field].length,1,'falta reanudación de '+name);
+ await f.op('commit');
+ const restricted=['eventos','actividades','promos','publicidades'];
+ const ids=['E','ACT','PR','PUB'];
+ f.events.push({at:cutoff+2*day+1000,entries:restricted.map((collection,n)=>({collection,id:ids[n],patch:{estado_moderacion:'PENDIENTE'}}))});
+ f.now=cutoff+3*day+60000;await f.op('stage');const moderated=await packet(cutoff+3*day);
+ for(const name of ['events','activities','promos','ads'])assert.equal(moderated[name][specs[name].field].length,0,'restricción de moderación perdida en '+name);
+ await f.op('commit');
+ f.events.push({at:cutoff+3*day+1000,entries:[...states.map(([collection,id])=>({collection,id,remove:true})),{collection:'anunciantes',id:'A',remove:true}]});
+ f.now=cutoff+4*day+60000;await f.op('stage');const deleted=await packet(cutoff+4*day);
+ for(const [name,spec]of Object.entries(specs))assert.equal(deleted[name][spec.field].length,0,'baja perdida en '+name);
+ await f.op('commit');
+ assert.equal(f.metrics.sourceLists,scans,'los módulos no vuelven a Firestore por separado');
+});
+
+
+test('recompilar una ficha no reescribe las otras fichas sólo por cambiar su sello horario',async t=>{
+ const f=fixture(t);for(let i=0;i<100;i++)f.rows.anunciantes.push({id:'B'+i,nombre:'Otro '+i});
+ await f.publish();const old=await f.op('read',{key:'cache/guide:advertiser:v2:B99'});
+ f.events.push({at:cutoff+1,entries:[{collection:'anunciantes',id:'A',patch:{nombre:'Final',updated_at:'cambio-operativo'}}]});
+ f.now=cutoff+day+60000;await f.publish();
+ const keys=f.sql.prepare('SELECT key FROM edition_records206 WHERE cutoff=?').all(cutoff+day).map(x=>x.key);
+ assert.equal(keys.filter(key=>key.startsWith('cache/guide:advertiser:v2:B')).length,0,'las fichas sin cambios no crean versiones');
+ assert.deepEqual(await f.op('read',{key:'cache/guide:advertiser:v2:B99'}),old);
+ assert.equal((await f.op('read',{key:'master/A'})).datos.updated_at,'cambio-operativo','el sello del dato fuente sí se conserva');
+ assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Final');
+});

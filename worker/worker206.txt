@@ -1303,10 +1303,22 @@ var promoCityKey = (cityId) => "promos:city:v1:" + text5(cityId);
 function isPaused(p) {
   return bool3(p && p.pausado);
 }
+// Regla transversal de elegibilidad pública: una falta de aprobación histórica
+// no sustituye una restricción de moderación explícita. Publicidad conserva
+// aparte la autorización comercial exigida por su contratación.
+function gldPublicacionAdmisible206(row){
+ if(!row||row.eliminado===true||row.eliminada===true||row.borrado===true||row.borrada===true)return false;
+ if(row.pausado===true||row.pausada===true||row.suspendido===true||row.suspendida===true)return false;
+ const up=v=>String(v??'').trim().toUpperCase();
+ const blocked=new Set(['PAUSADA','PAUSADO','SUSPENDIDA','SUSPENDIDO','INACTIVA','INACTIVO','BORRADOR','ELIMINADA','ELIMINADO','RECHAZADA','RECHAZADO','PENDIENTE','EN_REVISION','EN REVISIÓN','REVISION']);
+ if(blocked.has(up(row.estado))||blocked.has(up(row.estado_moderacion)))return false;
+ if(adultFlag(row.contenido_adulto)){
+  if(!['APROBADO','APROBADA'].includes(up(row.revision_adulto)))return false;
+ }
+ return true;
+}
 function visible(p) {
-  if (isPaused(p) || promoPendingV91(p) || ['RECHAZADA','RECHAZADO'].includes(String(p?.estado_moderacion||'').toUpperCase()) || (adultFlag(p?.contenido_adulto)&&p?.revision_adulto!=='APROBADO')) return false;
-  const estado = text5(p && p.estado).toUpperCase();
-  return !estado || !["INACTIVA", "INACTIVO", "BORRADOR", "RECHAZADA", "RECHAZADO"].includes(estado);
+  return gldPublicacionAdmisible206(p) && !isPaused(p) && !promoPendingV91(p);
 }
 function publicPromo(p) {
   return {
@@ -1402,12 +1414,7 @@ var text7 = (v) => String(v ?? "").trim();
 var bool4 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x"].includes(text7(v).toLowerCase());
 var eventsCityKey = (cityId) => "events:city:v2:" + text7(cityId);
 function published(e) {
-  if(e?.eliminado===true)return false;
-  if (bool4(e && e.pausado)) return false;
-  const estado = text7(e && e.estado).toUpperCase();
-  const mod = text7(e && e.estado_moderacion).toUpperCase();
-  if (["RECHAZADA", "RECHAZADO", "BORRADOR", "INACTIVA", "INACTIVO"].includes(estado)) return false;
-  return ["APROBADO", "APROBADA", "PUBLICADO", "PUBLICADA"].includes(mod);
+  return gldPublicacionAdmisible206(e) && !bool4(e && e.pausado);
 }
 function cleanEvent(e, programacion = []) {
   const out2 = { ...e, programacion: [...programacion].sort(
@@ -1508,48 +1515,6 @@ async function rebuildEventsAllV2({ db, cache }) {
     events: sort2(rows)
   })));
   return { success: true, ciudades: byCity.size, eventos: events.length, updated_at: now };
-}
-
-// reconstruccion/worker/core/activities-read-model.js
-var text8 = (v) => String(v ?? "").trim();
-var bool5 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x"].includes(text8(v).toLowerCase());
-var activityCityKey = (cityId) => "activities:city:v1:" + text8(cityId);
-function isPublic(a) {
-  if (!a || !bool5(a.activo) || !bool5(a.aprobado)) return false;
-  const estado = text8(a.estado).toUpperCase();
-  if (["PAUSADA", "PAUSADO", "INACTIVA", "INACTIVO", "BORRADOR", "ELIMINADA", "ELIMINADO"].includes(estado)) return false;
-  const now = /* @__PURE__ */ new Date();
-  const hoy = new Date(now.getTime() - 3 * 60 * 60 * 1e3).toISOString().slice(0, 10);
-  if (text8(a.vigente_desde) && text8(a.vigente_desde) > hoy) return false;
-  if (text8(a.vigente_hasta) && text8(a.vigente_hasta) < hoy) return false;
-  return true;
-}
-function sort3(rows) {
-  return [...rows].sort((a, b) => text8(a.nombre).localeCompare(text8(b.nombre), "es", { sensitivity: "base" }));
-}
-async function syncActivity({ db, cache, activityId, previousCities = [] }) {
-  const id4 = text8(activityId);
-  const activity = await db.get("actividades", id4);
-  const horarios = activity ? await getPreparedRelationsV1({cache,type:"activity",id:id4,current:activity,load:()=>db.queryEqual("actividad_horarios","actividad_id",id4)}) : [];
-  const currentCities = [...new Set(horarios.map((h) => text8(h.ciudad_id)).filter(Boolean))];
-  const targets = [...new Set([...(previousCities || []).map(text8), ...currentCities].filter(Boolean))];
-  for (const cityId of targets) {
-    const key3 = activityCityKey(cityId);
-    const packet2 = await cache.get(key3) || { version: 1, ciudad_id: cityId, updated_at: "", actividades: [] };
-    let rows = (packet2.actividades || []).filter((x) => text8(x.actividad_id || x.id) !== id4);
-    if (activity && isPublic(activity)) {
-      const hs = horarios.filter((h) => text8(h.ciudad_id) === cityId && (h.activo === void 0 || bool5(h.activo)));
-      if (hs.length) rows.push({ ...activity, horarios: hs });
-    }
-    await cache.put(key3, { version: 1, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), actividades: sort3(rows) });
-  }
-  return { success: true, ciudades_actualizadas: targets };
-}
-async function getActivitiesCity({ cache, cityId }) {
-  const city = text8(cityId);
-  if (!city) return { success: false, message: "ciudad_id obligatorio", status: 400 };
-  const packet2 = await cache.get(activityCityKey(city));
-  return packet2 ? { success: true, ...packet2 } : { success: true, ciudad_id: city, actividades: [], cold: true };
 }
 
 // reconstruccion/worker/core/publicity-read-model.js
@@ -1734,10 +1699,6 @@ async function routePublicV4({ path, request: request2, url, cache }) {
     const r = await getEventsCityV2({ cache, cityId: city });
     if (r.status) return json(r, r.status);
     return publicJson({ success: true, events: r.events || [], data: r.events || [], ...r });
-  }
-  if (path === "/actividades" && request2.method === "GET") {
-    const action = text13(url.searchParams.get("action")).toLowerCase();
-    if (action === "publicas") return out(await getActivitiesCity({ cache, cityId: city }));
   }
   if (path === "/publicidad" && request2.method === "GET") {
     const action = text13(url.searchParams.get("action")).toLowerCase();
@@ -1956,7 +1917,8 @@ function isWithinValidity(p, now = Date.now()) {
   return true;
 }
 function isPublic2(p) {
-  return text14(p && p.estado).toUpperCase() === "ACTIVA" && bool7(p && p.aprobado) && isWithinValidity(p);
+  // Autorización comercial, distinta de la moderación de contenido.
+  return gldPublicacionAdmisible206(p) && text14(p && p.estado).toUpperCase()==="ACTIVA" && bool7(p && p.aprobado) && isWithinValidity(p);
 }
 function activeSeg(s) {
   return s && (s.activo === void 0 && s.activa === void 0 || bool7(s.activo ?? s.activa));
@@ -2019,12 +1981,10 @@ var text16 = (v) => String(v ?? "").trim();
 var bool8 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x"].includes(text16(v).toLowerCase());
 var activityCityKeyV2 = (cityId) => "activities:city:v2:" + text16(cityId);
 function isPublic3(a,at=Date.now()) {
-  if (!a || !bool8(a.activo) || !bool8(a.aprobado)) return false;
-  const estado = text16(a.estado).toUpperCase();
-  if (["PAUSADA", "PAUSADO", "INACTIVA", "INACTIVO", "BORRADOR", "ELIMINADA", "ELIMINADO", "RECHAZADA", "RECHAZADO"].includes(estado)) return false;
-  const hoy = new Date(at - 3 * 60 * 60 * 1e3).toISOString().slice(0, 10);
-  if (text16(a.vigente_desde) && text16(a.vigente_desde) > hoy) return false;
-  if (text16(a.vigente_hasta) && text16(a.vigente_hasta) < hoy) return false;
+  if(!a||!bool8(a.activo)||!gldPublicacionAdmisible206(a))return false;
+  const hoy=new Date(at-3*60*60*1e3).toISOString().slice(0,10);
+  if(text16(a.vigente_desde)&&text16(a.vigente_desde)>hoy)return false;
+  if(text16(a.vigente_hasta)&&text16(a.vigente_hasta)<hoy)return false;
   return true;
 }
 function sort5(rows) {
@@ -3950,97 +3910,6 @@ async function validateSchedule({ db, cache, advertiserId, h }) {
   }
   if (!text31(h.lugar_texto) || !text31(h.direccion)) throw new Error("El lugar físico necesita nombre y dirección.");
 }
-async function activitySaveV2({ db, cache, advertiserId, body }) {
-  const admin = await db.get("anunciantes_administracion", advertiserId);
-  if (!admin || !enabled(admin)) throw new Error("No tenés habilitado el módulo Actividades.");
-  const payload = body && body.payload && typeof body.payload === "object" ? body.payload : {};
-  const own = await db.queryEqual("actividades", "anunciante_id", advertiserId);
-  const max = quota3(admin), totalMax = cupoGuardado(max);
-  let activityId = text31(payload.actividad_id), current = null;
-  if (activityId) {
-    current = await db.get("actividades", activityId);
-    if (!current || text31(current.anunciante_id) !== text31(advertiserId)) throw new Error("Actividad no encontrada.");
-  } else {
-    const active4 = own.filter((a) => bool13(a.activo) && text31(a.estado).toUpperCase() !== "PAUSADA").length;
-    if (max <= 0) throw new Error("actividades_sin_cupo");
-    if (own.length >= totalMax) throw new Error("actividades_maximo_guardadas");
-    if (active4 >= max) throw new Error("actividades_cupo_activo_completo");
-    activityId = id2("ACT");
-  }
-  for (const h of Array.isArray(payload.horarios) ? payload.horarios : []) await validateSchedule({ db, cache, advertiserId, h });
-  const oldSchedules = activityId ? await db.queryEqual("actividad_horarios", "actividad_id", activityId) : [];
-  const oldCities = [...new Set(oldSchedules.map((h) => text31(h.ciudad_id)).filter(Boolean))];
-  const hoy = today();
-  const doc = {
-    ...current || {},
-    ...payload,
-    ...adultFields(current,payload),
-    actividad_id: activityId,
-    anunciante_id: advertiserId,
-    aprobado: current ? bool13(current.aprobado) : false,
-    activo: current ? bool13(current.activo) : true,
-    estado: current ? text31(current.estado || "ACTIVA") : "PENDIENTE",
-    vigente_desde: current ? text31(current.vigente_desde || hoy) : hoy,
-    vigente_hasta: current ? text31(current.vigente_hasta || addDays(hoy, 30)) : addDays(hoy, 30),
-    creado: current ? text31(current.creado || (/* @__PURE__ */ new Date()).toISOString()) : (/* @__PURE__ */ new Date()).toISOString(),
-    actualizado: (/* @__PURE__ */ new Date()).toISOString()
-  };
-  delete doc.horarios;
-  if (!text31(doc.nombre)) throw new Error("Falta nombre de la actividad.");
-  if (!text31(doc.categoria)) throw new Error("Falta categoría.");
-  await db.patch("actividades", activityId, doc, { mustExist: !!current, newDocument: !current });
-  if (Array.isArray(payload.horarios)) {
-    for (const h of oldSchedules) {
-      const hid = text31(h.actividad_horario_id || h.id);
-      if (hid) await db.delete("actividad_horarios", hid);
-    }
-    for (const h of payload.horarios) {
-      const hid = id2("AH");
-      await db.patch("actividad_horarios", hid, {
-        ...h,
-        actividad_horario_id: hid,
-        actividad_id: activityId,
-        ciudad_id: text31(h.ciudad_id),
-        activo: h.activo === void 0 ? true : bool13(h.activo),
-        actualizado: (/* @__PURE__ */ new Date()).toISOString()
-      });
-    }
-  }
-  await syncActivity({ db, cache, activityId, previousCities: oldCities });
-  return { success: true, actividad_id: activityId };
-}
-async function activityActionV2({ db, cache, advertiserId, action, activityId }) {
-  const current = await db.get("actividades", activityId);
-  if (!current || text31(current.anunciante_id) !== text31(advertiserId)) throw new Error("Actividad no encontrada.");
-  const hs = await db.queryEqual("actividad_horarios", "actividad_id", activityId);
-  const cities = [...new Set(hs.map((h) => text31(h.ciudad_id)).filter(Boolean))];
-  if (action === "eliminar") {
-    for (const h of hs) {
-      const hid = text31(h.actividad_horario_id || h.id);
-      if (hid) await db.delete("actividad_horarios", hid);
-    }
-    await db.delete("actividades", activityId, { mustExist: true });
-    await syncActivity({ db, cache, activityId, previousCities: cities });
-    return { success: true };
-  }
-  const patch = { actualizado: (/* @__PURE__ */ new Date()).toISOString() };
-  if (action === "pausar") {
-    patch.activo = false;
-    patch.estado = "PAUSADA";
-  }
-  if (action === "reanudar" || action === "renovar") {
-    patch.activo = true;
-    patch.estado = "ACTIVA";
-    if (action === "renovar") {
-      patch.vigente_desde = today();
-      patch.vigente_hasta = addDays(today(), 30);
-    }
-  }
-  await db.patch("actividades", activityId, patch, { mustExist: true });
-  await syncActivity({ db, cache, activityId, previousCities: cities });
-  return { success: true };
-}
-
 // reconstruccion/worker/modules/publicidad.js
 async function publicidadPanelData({ db, advertiserId, catalogs, featureEnabled: featureEnabled3, configFromAdmin: configFromAdmin2, cambiosHoy, enrichMany }) {
   const [admin, publicidades] = await Promise.all([
@@ -4596,16 +4465,6 @@ async function routePanelV3({ path, request: request2, url, env, db, cache }) {
       featureAllowed: (a) => featureEnabled(a, "ACTIVIDADES"),
       cupoMax: (a) => cupo(a, "ACTIVIDADES")
     }));
-  }
-  if (path === "/actividades" && request2.method === "POST") {
-    const body = await bodyOf(request2), action = actionOf(url, body), aid = aidOf(url, body);
-    const auth = await requirePanel(env, request2, aid, "actividades", true);
-    if (auth.response) return auth.response;
-    if (action === "guardar") return json(await activitySaveV2({ db, cache, advertiserId: aid, body }));
-    if (["renovar", "pausar", "reanudar", "eliminar"].includes(action)) {
-      return json(await activityActionV2({ db, cache, advertiserId: aid, action, activityId: text36(body.actividad_id) }));
-    }
-    return null;
   }
   if (path === "/publicidad" && request2.method === "GET" && actionOf(url) === "getpaneldata") {
     const aid = aidOf(url), auth = await requirePanel(env, request2, aid, "publicidad");
@@ -6536,8 +6395,14 @@ class DailyEdition206 {
   const encoded=parts.map(x=>x.value).join('');if(encoded.length!==manifest.length||this.checksum(encoded)!==manifest.checksum)throw editionUnavailable206();
   return JSON.parse(encoded);
  }
- get(key,cutoff){const row=this.q('SELECT key,cutoff,value FROM edition_records206 WHERE key=? AND cutoff<=? ORDER BY cutoff DESC LIMIT 1',key,cutoff)[0];return this.decode(row);}
+ get(key,cutoff){
+  const snapshot=this.stageSnapshot206;
+  if(snapshot&&cutoff>=snapshot.from&&cutoff<snapshot.to)return structuredClone(snapshot.records.get(key)??null);
+  const row=this.q('SELECT key,cutoff,value FROM edition_records206 WHERE key=? AND cutoff<=? ORDER BY cutoff DESC LIMIT 1',key,cutoff)[0];return this.decode(row);
+ }
  all(cutoff,prefix=''){
+  const snapshot=this.stageSnapshot206;
+  if(snapshot&&cutoff>=snapshot.from&&cutoff<snapshot.to)return [...snapshot.records].filter(([key])=>key.startsWith(prefix)).map(([key,value])=>[key,structuredClone(value)]);
   const end=prefix?prefix.slice(0,-1)+String.fromCharCode(prefix.charCodeAt(prefix.length-1)+1):'\u{10ffff}';
   return this.q('SELECT r.key,r.cutoff,r.value FROM edition_records206 r JOIN (SELECT key,max(cutoff) AS c FROM edition_records206 WHERE cutoff<=? AND key>=? AND key<? GROUP BY key) h ON r.key=h.key AND r.cutoff=h.c ORDER BY r.key',cutoff,prefix,end).filter(x=>x.value!==null).map(x=>[x.key,this.decode(x)]);
  }
@@ -6545,6 +6410,13 @@ class DailyEdition206 {
   const encoded=value===null?null:JSON.stringify(value);
   const previous=this.get(key,cutoff-1);
   if(JSON.stringify(previous)===JSON.stringify(value))return;
+  // Recompiling an unchanged derived packet does not create a new version
+  // merely because its preparation timestamp changed. Source timestamps and
+  // all nested business fields remain significant.
+  if(/^cache\/(?:guide:(?:city|advertiser):|events:city:|activities:city:|promos:city:|publicity:city:|farmacias:city:|efemerides:city:|employment:city:|admin:index:)/.test(key)&&previous&&value&&typeof previous==='object'&&typeof value==='object'&&!Array.isArray(previous)&&!Array.isArray(value)){
+   const {updated_at:beforeStamp,...beforeData}=previous,{updated_at:afterStamp,...afterData}=value;
+   if(JSON.stringify(beforeData)===JSON.stringify(afterData))return;
+  }
   this.q('DELETE FROM edition_chunks206 WHERE key=? AND cutoff=?',key,cutoff);
   let stored=encoded;
   if(encoded&&encoded.length>65536){
@@ -6638,10 +6510,22 @@ class DailyEdition206 {
   return {rows,cutoff:seed};
  }
  async stage(cutoff,previous){
+  // One immutable read of the last committed edition supplies every compiler,
+  // comparison and deletion check. This memory belongs only to this producer
+  // invocation; readers and later stages never retain it.
+  try{
+   if(previous!==null)this.stageSnapshot206={from:previous,to:cutoff,records:new Map(this.all(previous))};
+   return await this.prepareStage206(cutoff,previous);
+  }finally{this.stageSnapshot206=null;}
+ }
+ async prepareStage206(cutoff,previous){
   // A failed stage never changes the published pointer. Retrying reads the same
   // Firestore readTime and can replace incomplete, uncommitted rows safely.
-  this.q("DELETE FROM edition_records206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
-  this.q("DELETE FROM edition_chunks206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
+  // Remove abandoned unpublished days as well as this attempt. Otherwise an
+  // orphan row can be selected by cutoff<=day after a later successful commit.
+  this.q("DELETE FROM edition_records206 WHERE cutoff>? AND cutoff<=? AND key NOT LIKE 'bootstrap/%'",previous??-1,cutoff);
+  this.q("DELETE FROM edition_chunks206 WHERE cutoff>? AND cutoff<=? AND key NOT LIKE 'bootstrap/%'",previous??-1,cutoff);
+  this.q('DELETE FROM edition_state206 WHERE published=0 AND cutoff>? AND cutoff<=?',previous??-1,cutoff);
   let rows=Object.fromEntries([...EDITION_COLLECTIONS206].map(c=>[c,[]])),sourceCutoff=previous;
   const previousMasters=new Map(previous===null?[]:this.all(previous,'master/').map(([,m])=>[m.advertiser_id,m]));
   if(previous!==null){
@@ -8665,7 +8549,8 @@ async function resolvePendingV2({ db, cache, auth, tipo, id: id4, decision, nive
       moderado_en: (/* @__PURE__ */ new Date()).toISOString(),
       actualizado: (/* @__PURE__ */ new Date()).toISOString()
     }, { mustExist: true });
-    await syncActivity({ db, cache, activityId: itemId, previousCities: [] });
+    const horarios = await getPreparedRelationsV1({cache,type:"activity",id:itemId,current:saved,load:()=>db.queryEqual("actividad_horarios","actividad_id",itemId,500)});
+    await syncActivityPreparedV2({cache,activityId:itemId,current,next:saved,horarios,previousCities:[...new Set(horarios.map(h=>text75(h.ciudad_id)).filter(Boolean))]});
     return { success: true, tipo: kind, id: itemId, decision: dec, estado: saved.estado };
   }
   if (kind === "ANUNCIANTE") {

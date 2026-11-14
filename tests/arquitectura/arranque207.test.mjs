@@ -88,3 +88,16 @@ test('la preparación y la confirmación rechazan otra revisión, otro corte o u
   await assert.rejects(publicarPaquetes({mode:'commit',cutoff,identity:async()=> 'fixture',read:async()=>Response.json({...valid,publication})}),/no confirmó/);
  }
 });
+
+
+test('un primer arranque fallido de otro día no filtra fuentes o caches huérfanas',async t=>{
+ const f=fixture(t);let fail=true;
+ Object.defineProperty(f.rows,'categorias',{get(){if(fail)throw Error('interrupción inicial');return [];}});
+ await assert.rejects(f.op('stage'));
+ f.sql.prepare('INSERT INTO edition_records206(key,cutoff,value) VALUES(?,?,?)').run('source/promos/huérfana',cutoff,JSON.stringify({id:'huérfana'}));
+ f.sql.prepare('INSERT INTO edition_records206(key,cutoff,value) VALUES(?,?,?)').run('cache/huérfana',cutoff,JSON.stringify({stale:true}));
+ fail=false;f.now=cutoff+day+60000;f.restart();await f.publish();
+ assert.equal(await f.op('read',{key:'cache/huérfana'}),null);
+ assert.equal(await f.op('read',{key:'source/promos/huérfana'}),null);
+ assert.equal((await f.op('read',{key:'master/A'})).datos.nombre,'Original');
+});
