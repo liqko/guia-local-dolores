@@ -3,6 +3,8 @@
 // ║          VERSIÓN 207 · PENDIENTE DE DESPLIEGUE           ║
 // ║     Base: 194 + listado diario privado; vista de 7 días   ║
 // ╚════════════════════════════════════════════════════════════╝
+// Revisión de entrega: 207-arranque-recuperable-1. Preparación inicial
+// persistente en el publicador existente; nunca se inicia desde una lectura.
 // La etiqueta worker-v129.js que muestra Cloudflare es el nombre
 // técnico heredado del archivo de carga, no esta versión.
 // Comprobación sin Firestore ni KV: GET /__version
@@ -1902,7 +1904,7 @@ async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
     const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker 207</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 207</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
-    return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
+    return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','X-GLD-Build':'207-arranque-recuperable-1'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
     const [catalogo,precios,funciones]=await Promise.all([
@@ -6595,6 +6597,9 @@ class DailyEdition206 {
      this.state.storage.transactionSync(()=>{
       this.q('UPDATE edition_state206 SET published=1 WHERE cutoff=? AND ready=1 AND published=0',cutoff);
       this.q('DELETE FROM edition_cache_work206 WHERE at<?',cutoff);
+      // The source checkpoint exists only during initial preparation. The
+      // committed edition owns the canonical records and master from here on.
+      this.q("DELETE FROM edition_records206 WHERE key>=? AND key<?",'bootstrap/','bootstrap0');
       const oldest=cutoff-2*CITY_BOOK_DAY_MS;
       this.q('DELETE FROM edition_records206 WHERE cutoff<? AND (key,cutoff) NOT IN (SELECT key,max(cutoff) FROM edition_records206 WHERE cutoff<=? GROUP BY key)',oldest,oldest);
       this.q('DELETE FROM edition_chunks206 WHERE NOT EXISTS (SELECT 1 FROM edition_records206 r WHERE r.key=edition_chunks206.key AND r.cutoff=edition_chunks206.cutoff)');
@@ -6610,12 +6615,34 @@ class DailyEdition206 {
   finally{release();}
  }
  source(cutoff){return observeDbV41(createDb({...this.env,__gldRequestReport119:this.sourceReport206,__editionReadTime206:new Date(cutoff).toISOString()}),this.sourceReport206);}
+ async initialSources(cutoff){
+  // Only the producer enters here. Completed collection snapshots survive a
+  // failed build/restart; no reader can import or prepare operational sources.
+  const complete=this.q("SELECT cutoff FROM edition_records206 WHERE key=? AND cutoff<=? ORDER BY cutoff DESC LIMIT 1",'bootstrap/complete',cutoff)[0];
+  const seed=complete?.cutoff??cutoff,source=this.source(seed),rows={};
+  for(const c of EDITION_COLLECTIONS206){
+   const indexKey='bootstrap/index/'+c,index=this.get(indexKey,seed);
+   if(index?.cutoff===seed){
+    rows[c]=index.ids.map(id=>{const row=this.get('bootstrap/source/'+c+'/'+encodeURIComponent(id),seed);if(!row)throw Error('La captura inicial está incompleta; no se publica.');return row;});
+    continue;
+   }
+   const snapshot=(await source.listCollection(c)).map(row=>editionSafe206(c,row));
+   const ids=snapshot.map(row=>String(row.id));
+   if(ids.includes('undefined')||new Set(ids).size!==ids.length)throw Error('La captura inicial contiene identificadores inválidos.');
+   this.state.storage.transactionSync(()=>{
+    for(const row of snapshot)this.put('bootstrap/source/'+c+'/'+encodeURIComponent(row.id),seed,row);
+    this.put(indexKey,seed,{cutoff:seed,ids});
+   });rows[c]=snapshot;
+  }
+  this.put('bootstrap/complete',seed,{cutoff:seed});
+  return {rows,cutoff:seed};
+ }
  async stage(cutoff,previous){
   // A failed stage never changes the published pointer. Retrying reads the same
   // Firestore readTime and can replace incomplete, uncommitted rows safely.
-  this.q('DELETE FROM edition_records206 WHERE cutoff=?',cutoff);
-  this.q('DELETE FROM edition_chunks206 WHERE cutoff=?',cutoff);
-  const rows=Object.fromEntries([...EDITION_COLLECTIONS206].map(c=>[c,[]]));
+  this.q("DELETE FROM edition_records206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
+  this.q("DELETE FROM edition_chunks206 WHERE cutoff=? AND key NOT LIKE 'bootstrap/%'",cutoff);
+  let rows=Object.fromEntries([...EDITION_COLLECTIONS206].map(c=>[c,[]])),sourceCutoff=previous;
   if(previous!==null){
    for(const [key,row]of this.all(previous,'source/'))rows[key.split('/')[1]].push(row);
    for(const [,packet]of this.all(previous,'master/')){
@@ -6626,9 +6653,11 @@ class DailyEdition206 {
   }
   const source=this.source(cutoff),changed=new Set();
   if(previous===null){
-   for(const c of EDITION_COLLECTIONS206){rows[c]=(await source.listCollection(c)).map(row=>editionSafe206(c,row));changed.add(c);}
-  }else{
-   const entries=await source.editionOutbox206(previous,cutoff);
+   const initial=await this.initialSources(cutoff);rows=initial.rows;sourceCutoff=initial.cutoff;
+   for(const c of EDITION_COLLECTIONS206)changed.add(c);
+  }
+  if(sourceCutoff<cutoff){
+   const entries=await source.editionOutbox206(sourceCutoff,cutoff);
    const maps=new Map();
    for(const event of entries)for(const entry of event.entries||[]){
     const c=entry.collection;if(!EDITION_COLLECTIONS206.has(c))throw Error('Colección del outbox no registrada: '+c);

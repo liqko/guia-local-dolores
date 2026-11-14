@@ -25,7 +25,7 @@ test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, g
  for(const [c,rows]of Object.entries(fixtures))for(const row of rows)put(c,row.id,row,cutoff-1000);
  // Test-only, in-memory harness: source writes use the actual createDb adapter.
  // Production exports/routes are unchanged and no fixture endpoint is saved there.
- const script=source.replace('app_main_v35_default as default,','')+`\nlet fixtureClock206=${clock};Date.now=()=>fixtureClock206;export default {async fetch(request,env){const path=new URL(request.url).pathname;if(path==='/__fixture/clock'){fixtureClock206=(await request.json()).now;return Response.json({success:true});}if(path==='/__fixture/patch'){const b=await request.json();try{return Response.json(await createDb(env).patch(b.c,b.id,b.patch,b.options||{}));}catch(e){return Response.json({message:e.message},{status:e.status||500});}}return app_main_v35_default.fetch(request,env);}};`;
+ const script=source.replace('app_main_v35_default as default,','')+`\nlet fixtureClock206=${clock},fixtureFailBuild206=true;Date.now=()=>fixtureClock206;const fixturePut206=DailyEdition206.prototype.put;DailyEdition206.prototype.put=function(key,...args){if(fixtureFailBuild206&&key==='daily:entry:195')throw Error('fixture-first-build-interrupted');return fixturePut206.call(this,key,...args);};export default {async fetch(request,env){const path=new URL(request.url).pathname;if(path==='/__fixture/repair'){fixtureFailBuild206=false;return Response.json({success:true});}if(path==='/__fixture/clock'){fixtureClock206=(await request.json()).now;return Response.json({success:true});}if(path==='/__fixture/patch'){const b=await request.json();try{return Response.json(await createDb(env).patch(b.c,b.id,b.patch,b.options||{}));}catch(e){return Response.json({message:e.message},{status:e.status||500});}}return app_main_v35_default.fetch(request,env);}};`;
  const options={script,modules:true,compatibilityDate:'2026-07-01',log:new Log(LogLevel.NONE),kvNamespaces:['GLD_CACHE_KV'],kvPersist:join(root,'kv'),durableObjects:{GLD_PUBLIC_CACHE:{className:'GldPublicCache119',useSQLite:true}},durableObjectsPersist:join(root,'do'),bindings:{SERVER_SECRET:'fixture206-secret',GLD_CITY_BOOK_CAPTURE:'1',FIREBASE_PROJECT_ID:'fixture',FIREBASE_CLIENT_EMAIL:'fixture@fixture.iam.gserviceaccount.com',FIREBASE_PRIVATE_KEY:privateKey.export({format:'pem',type:'pkcs8'})},outboundService:async request=>{
   const url=new URL(request.url);calls.push({host:url.hostname,path:url.pathname,method:request.method});
   if(url.hostname==='token.actions.githubusercontent.com')return Response.json({keys:[jwk]});
@@ -51,7 +51,7 @@ test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, g
   if(id){const row=get(c,id,asOf);return row?Response.json(doc(c,id,row,history.get(c+'/'+id).findLast(x=>x.at<=asOf).at)):Response.json({}, {status:404});}
   return Response.json({documents:list(c,asOf).map(row=>doc(c,row.id,row,cutoff-1000))});
  }};
- const start=async()=>{mf=new Miniflare(options);await mf.ready;await mf.dispatchFetch('https://fixture/__fixture/clock',{method:'POST',body:JSON.stringify({now:clock})});};
+ const start=async()=>{mf=new Miniflare(options);await mf.ready;await mf.dispatchFetch('https://fixture/__fixture/clock',{method:'POST',body:JSON.stringify({now:clock})});if(clock>cutoff+3600000)await mf.dispatchFetch('https://fixture/__fixture/repair',{method:'POST'});};
  await start();t.after(()=>mf?.dispose());
  const send=(path,init)=>mf.dispatchFetch('https://fixture'+path,init);
  const advance=async now=>{clock=now;await send('/__fixture/clock',{method:'POST',body:JSON.stringify({now})});};
@@ -64,7 +64,8 @@ test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, g
  const login=()=>send('/superadmin/session/login',{method:'POST',body:JSON.stringify({mail:'principal@example.invalid',clave:'clave-fixture'})});
  const primed=await login(),primedBody=await primed.json();assert.equal(primed.status,200,JSON.stringify(primedBody));assert(primedBody.token);assert(primedBody.entrada_pendiente);admin.Authorization='Bearer '+primedBody.token;
  const noIdentity=await send('/internal/city-books',{method:'POST',body:JSON.stringify({op:'territory',cutoff})});assert.equal(noIdentity.status,401);
- await daily('territory');assert.equal((await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).status,503);
+ const interrupted=await send('/internal/city-books',{method:'POST',headers:{Authorization:'Bearer '+oidc()},body:JSON.stringify({op:'territory',cutoff})});assert.equal(interrupted.status,503);assert((await interrupted.text()).includes('fixture-first-build-interrupted'));
+ await advance(cutoff+2*3600000);await mf.dispose();await start();denyReads=true;const recoveredBefore=calls.length;await daily('territory');assert.equal(calls.slice(recoveredBefore).filter(c=>c.host==='firestore.googleapis.com').length,0,'captura inicial persistente recuperada sin Firestore tras reiniciar dos horas después');assert.equal((await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).status,503);
  await daily('commit');denyReads=true;
  const routes=[['/commerce?action=anunciante&advertiserId=A',subscriber],['/commerce?action=permisos_panel&advertiserId=A',subscriber],['/events-new?action=getpaneldata&advertiserId=A',subscriber],['/promos?action=getpromos&advertiserId=A',subscriber],['/actividades?action=getpaneldata&advertiserId=A',subscriber],['/publicidad?action=getpaneldata&advertiserId=A',subscriber],['/farmacias?action=getpaneldata&advertiserId=A',subscriber],['/superadmin/dashboard',admin],['/superadmin/advertisers/A',admin],['/territory/public',{}],['/guide?ciudad_id=D&compact=1',{}],
  ['/commerce/team?advertiserId=A',subscriber],['/support/mine',subscriber],['/notifications',subscriber],['/advertiser/terms',subscriber],['/suscriptores?action=perfil',subscriber],['/suscriptores?action=favoritos',subscriber],
@@ -85,7 +86,7 @@ test('workerd real, KV/SQLite persistentes, OIDC, lecturas de tres interfaces, g
  atomic.length=0; // Count the two adapter commits below separately.
  const initialOutboxCount=list('_gld_publication_outbox206',Infinity).length;
  const patch=async data=>{const r=await send('/__fixture/patch',{method:'POST',body:JSON.stringify({c:'anunciantes',id:'A',patch:data})});assert.equal(r.status,200,await r.clone().text());};
- await advance(cutoff+3600000);await patch({nombre:'Primera'});await advance(cutoff+3600001);await patch({nombre:'Final',nuevo_campo:{valor:17}});
+ await advance(cutoff+3*3600000);await patch({nombre:'Primera'});await advance(cutoff+3*3600000+1);await patch({nombre:'Final',nuevo_campo:{valor:17}});
  assert.equal(atomic.length,2);assert(atomic.every(writes=>writes.length===2&&writes[1].update.name.includes('/_gld_publication_outbox206/')));
  assert.equal((await (await send('/commerce?action=anunciante&advertiserId=A',{headers:subscriber})).json()).advertiser.datos.nombre,'Original');
  failCommit=true;const failed=await send('/__fixture/patch',{method:'POST',body:JSON.stringify({c:'anunciantes',id:'A',patch:{nombre:'NO_GUARDADO'}})});assert.equal(failed.status,503);failCommit=false;assert.equal(get('anunciantes','A').nombre,'Final');assert.equal(list('_gld_publication_outbox206',Infinity).length,initialOutboxCount+2);

@@ -1,8 +1,7 @@
 import {createHash} from 'node:crypto';
 import {appendFile,readFile,writeFile} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
-import {githubIdentity} from './publicar-paquetes-ciudad.mjs';
-import {ultimoCorte} from './aplicar-corte-paquetes-ciudad.mjs';
+import {githubIdentity,publicationCutoff} from './publicar-paquetes-ciudad.mjs';
 
 const WORKER='https://login.liqkoargentina.workers.dev/territory/public';
 const LIVE='https://anunciantes-guialocal.web.app/plataforma/territorio-cache.js';
@@ -31,7 +30,7 @@ async function readPublished(read){
  return response.text();
 }
 
-export async function preparePublicTerritory({file,read=fetch,scheduled=false,stageUnchanged=false,identity=githubIdentity,cutoff=ultimoCorte()}){
+export async function preparePublicTerritory({file,read=fetch,scheduled=false,stageUnchanged=false,identity=githubIdentity,cutoff=publicationCutoff()}){
  const source=await readFile(file,'utf8');
  if(source.split(MARKER).length!==2)throw Error('Marcador de catálogo público ausente o duplicado.');
  let prepared;

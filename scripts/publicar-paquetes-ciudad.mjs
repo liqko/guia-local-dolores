@@ -6,6 +6,13 @@ const worker = 'https://login.liqkoargentina.workers.dev/internal/city-books';
 const hosting = 'https://anunciantes-guialocal.web.app/';
 const audience = 'guialocal:publicacion-ciudades';
 
+export function publicationCutoff(value=process.env.GLD_PUBLICATION_CUTOFF) {
+  if(value===undefined||value==='')return ultimoCorte();
+  const cutoff=Number(value);
+  if(!Number.isSafeInteger(cutoff)||ultimoCorte(cutoff)!==cutoff||cutoff>ultimoCorte())throw Error('Corte fijo del trabajo diario inválido');
+  return cutoff;
+}
+
 async function readJson(read, url, options = {}) {
   const response = await read(url, {...options,redirect:'error',signal:AbortSignal.timeout(90000)});
   if (response.status === 404 && options.allowMissing) return null;
@@ -24,7 +31,7 @@ export async function githubIdentity(read) {
   return data.value;
 }
 
-export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,
+export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=publicationCutoff(),read=fetch,
   identity=githubIdentity}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,
