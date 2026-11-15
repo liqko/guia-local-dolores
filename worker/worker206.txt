@@ -1207,8 +1207,13 @@ async function saveCountry({ env, request: request2, db, cache, idFromPath = "" 
   const item = body.item && typeof body.item === "object" ? body.item : body;
   const id4 = text3(idFromPath || item.pais_id || item.id), nombre = text3(item.pais_visible || item.nombre || item.pais);
   if (!id4 || !nombre) return json({ success: false, message: "Faltan pais_id o nombre" }, 400);
+  const admin = packet(await cache.get(ADMIN_KEY));
+  if(item.activo!==undefined&&!bool(item.activo)||item.activa!==undefined&&!bool(item.activa)){
+    const assigned=admin.ciudades.some(city=>text3(city.pais_id)===id4&&active(city));
+    if(assigned)return json({success:false,message:"No se puede desactivar un país con ciudades activas."},409);
+  }
   const saved = await db.patch(C.paises, id4, { ...item, pais_id: id4, nombre, pais_visible: nombre, activo: item.activo !== void 0 ? bool(item.activo) : true, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() });
-  const admin = packet(await cache.get(ADMIN_KEY)), pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
+  const pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
   const nextAdmin = { ...admin, updated_at: now, paises: upsert(admin.paises, "pais_id", saved) };
   let paises = remove(pub.paises, "pais_id", id4);
   if (active(saved)) paises = upsert(paises, "pais_id", saved);
@@ -1228,6 +1233,11 @@ async function saveProvince({ env, request: request2, db, cache, idFromPath = ""
   const admin = packet(await cache.get(ADMIN_KEY));
   if (!id4 || !nombre || !pais_id) return json({ success: false, message: "Faltan provincia_id, nombre o pais_id" }, 400);
   if (!admin.paises.some((x) => text3(x.pais_id || x.id) === pais_id)) return json({ success: false, message: "pais_id inexistente" }, 400);
+  const current=admin.provincias.find(x=>text3(x.provincia_id||x.id)===id4);
+  if(current&&text3(current.pais_id)!==pais_id&&admin.ciudades.some(x=>text3(x.provincia_id)===id4))
+    return json({success:false,message:"No se puede trasladar una provincia vinculada a ciudades. Editá cada ciudad primero."},409);
+  if((item.activo!==undefined&&!bool(item.activo)||item.activa!==undefined&&!bool(item.activa))&&admin.ciudades.some(x=>text3(x.provincia_id)===id4&&active(x)))
+    return json({success:false,message:"No se puede desactivar una provincia con ciudades activas."},409);
   const saved = await db.patch(C.provincias, id4, { ...item, provincia_id: id4, nombre, provincia_visible: nombre, pais_id, activo: item.activo !== void 0 ? bool(item.activo) : true, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() });
   const pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
   const nextAdmin = { ...admin, updated_at: now, provincias: upsert(admin.provincias, "provincia_id", saved) };
