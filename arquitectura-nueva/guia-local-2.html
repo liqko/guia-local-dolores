@@ -1,0 +1,106 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guía Local 2 · Desarrollo paralelo</title>
+<style>
+:root{font-family:system-ui,-apple-system,sans-serif;color:#26313a;background:#f1f3f5}*{box-sizing:border-box}
+body{margin:0}header{background:#3b454f;color:#fff;padding:25px 5vw}header h1{margin:0;font-size:1.8rem}
+header p{margin:5px 0 0;color:#e1e5e8}main{max-width:1150px;padding:18px;margin:auto}
+nav{display:flex;flex-wrap:wrap;gap:10px;margin:15px 0}button{cursor:pointer;font:inherit}nav button{padding:10px 16px;border:1px solid #adb4bb;background:white;border-radius:20px}
+nav button[aria-current=true]{background:#333f49;color:white}
+section{display:none}section.active{display:block}
+.panel{background:white;padding:20px;border:1px solid #dbe0e4;border-radius:12px;margin-bottom:18px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(225px,1fr));gap:12px}
+label{display:grid;gap:6px;font-weight:600;font-size:.9rem}input,select,textarea{border:1px solid #a8b1ba;border-radius:8px;padding:11px;font:inherit;width:100%;background:#fff;color:#1c2830}
+button.action{background:#35404b;color:white;border:0;padding:11px 15px;border-radius:8px;margin-top:12px}
+.card{background:#f7f9fb;padding:13px;border:1px solid #dfe4e8;border-radius:8px}
+.card strong{display:block;overflow-wrap:anywhere}.muted{color:#596672}.tiny{font-size:.8rem}
+table{width:100%;border-collapse:collapse;font-size:.86rem}td,th{text-align:left;padding:9px;border-bottom:1px solid #ddd}
+#report{overflow:auto}.warning{background:#fff8eb;border:1px solid #e3cda0;padding:10px;border-radius:8px}
+#log{white-space:pre-wrap;overflow-wrap:anywhere;max-height:190px;overflow:auto;background:#f3f5f7;padding:12px;border-radius:8px}
+</style></head><body>
+<header><h1>Guía Local 2</h1><p>Desarrollo paralelo · Las tres interfaces sobre una misma estructura</p></header>
+<main>
+<div class="panel"><div class="grid"><label>Servidor de desarrollo GLD2<input id="server" placeholder="https://tu-worker-paralelo.workers.dev" type="url"></label><label>Sesión para funciones privadas<input id="token" type="password" autocomplete="off" placeholder="Token del servidor de identidad GLD2"></label></div>
+<p class="tiny muted">El token permanece en esta página; no se guarda en el navegador. Sólo se permiten consultas a un servidor GLD2 configurado. Esta pantalla NO usa datos de producción.</p></div>
+<nav><button data-tab="public" aria-current="true">Usuario</button><button data-tab="advertiser" aria-current="false">Anunciante</button><button data-tab="admin" aria-current="false">Gran Hermano</button><button data-tab="meter" aria-current="false">Consumos y costos</button></nav>
+<section id="public" class="active">
+<div class="panel"><h2>Información pública</h2><div class="grid"><label>Ciudad<input id="city" value="Dolores"></label><label>Funcionalidad<select id="kind"><option value="guide">Anunciantes</option><option value="event">Eventos</option><option value="activity">Actividades</option><option value="promotion">Promociones</option><option value="advertising">Publicidad</option></select></label></div><button class="action" id="loadCity">Consultar ciudad</button></div><div class="grid" id="publicRows"></div>
+</section>
+<section id="advertiser">
+<div class="panel"><h2>Mis anunciantes</h2><button class="action" id="loadManaged">Consultar mis anunciantes (máximo 25)</button><div id="managedRows"></div></div>
+<div class="panel"><h2>Abrir y modificar ficha</h2><div class="grid"><label>ID de ficha<input id="detailId" placeholder="Identificador"></label><label>Revisión<input id="revision" type="number" min="1" value="1"></label></div>
+<button class="action" id="loadDetail">Abrir detalle</button><label>Datos públicos (JSON)<textarea id="publicData" rows="4">{}</textarea></label><button class="action" id="saveDetail">Guardar modificación</button></div>
+</section>
+<section id="admin">
+<div class="panel"><h2>Gran Hermano · Accesos</h2><p class="muted">El sistema verifica los permisos en el servidor. El propietario también puede revocar a un administrador de su ficha.</p>
+<div class="grid"><label>ID de ficha<input id="grantEntity"></label><label>ID de persona<input id="grantPerson"></label><label>Permiso<select id="grantPermission"><option value="WRITE">Administrar</option><option value="READ">Consultar</option></select></label><label>Estado<select id="grantActive"><option value="false">Revocar inmediatamente</option><option value="true">Conceder</option></select></label></div><button class="action" id="changeGrant">Aplicar permiso</button>
+</div></section>
+<section id="meter">
+<div class="panel"><h2>Consumos de la sesión</h2><p class="warning">Los contadores provienen de las operaciones instrumentadas del servidor GLD2 cuando esté desplegado. No equivalen todavía a una factura completa: los recursos no observables aparecen como pendientes, nunca como cero.</p>
+<div class="grid"><div class="card"><strong id="actionsTotal">0</strong>Acciones realizadas</div><div class="card"><strong id="costTotal">USD 0 (parcial)</strong>Costo conocido</div><div class="card"><strong id="coverage">Sin mediciones</strong>Cobertura</div></div>
+<h3>Unidades acumuladas</h3><div id="report"></div><h3>Últimas operaciones</h3><div id="history"></div></div></section>
+<div class="panel"><h3>Resultado de la operación</h3><div id="log" role="status">Configurá el servidor de desarrollo para comenzar.</div></div>
+</main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id),records=[];
+function base(){const value=$('server').value.trim();if(!/^https:\/\/[a-z0-9.-]+(?::\d+)?\/?$/i.test(value))throw Error('Indicá una URL HTTPS válida del servidor GLD2');return value.replace(/\/$/,'');}
+function str(v){return typeof v==='string'?v:'';}
+async function call(path,{method='GET',body=null,privateAccess=false}={}){
+ const headers={'accept':'application/json'};if(body!==null)headers['content-type']='application/json';
+ if(privateAccess){const token=$('token').value.trim();if(!token)throw Error('Falta una sesión autenticada');headers.authorization='Bearer '+token;}
+ const res=await fetch(base()+path,{method,headers,...(body!==null?{body:JSON.stringify(body)}:{})});
+ const data=await res.json();
+ if(data.consumption){
+  records.push(data.consumption);renderMeter();
+ }
+ $('log').textContent=(data.ok?'OPERACIÓN REALIZADA':'ERROR')+' · HTTP '+res.status+'\n'+JSON.stringify(data,null,2).slice(0,3800);
+ if(!data.ok)throw Error(data.error||'Operación fallida');
+ return data.data;
+}
+function renderMeter(){
+ $('actionsTotal').textContent=records.length;
+ const names=new Set(records.flatMap(r=>Object.keys(r.units||{})));
+ const totals=Object.fromEntries([...names].map(k=>[k,records.reduce((n,r)=>n+Number(r.units?.[k]||0),0)]));
+ const cost=records.reduce((n,r)=>n+Number(r.knownUSD||0),0);
+ const missing=[...new Set(records.flatMap(r=>r.missing||[]))];
+ $('costTotal').textContent='USD '+cost.toFixed(8)+(missing.length?' (parcial)':'');
+ $('coverage').textContent=missing.length?missing.length+' magnitudes pendientes':'Cobertura completa';
+ const wrap=$('report');wrap.replaceChildren();const table=document.createElement('table');
+ for(const [name,val] of Object.entries(totals)){const row=table.insertRow();row.insertCell().textContent=name;row.insertCell().textContent=val;}
+ wrap.append(table);
+ $('history').textContent=records.slice(-20).map(r=>r.action+' · KV '+r.units?.kv_reads+' lecturas / '+r.units?.kv_writes+' escrituras · D1 '+r.units?.d1_rows_read+' filas leídas / '+r.units?.d1_rows_written+' escritas').join('\n');
+}
+function button(id,fn){$(id).addEventListener('click',async()=>{try{await fn()}catch(e){$('log').textContent='ERROR: '+e.message;}})}
+button('loadCity',async()=>{
+ const city=$('city').value.trim(),kind=$('kind').value;
+ const data=await call('/gld2/city?city='+encodeURIComponent(city)+'&kind='+encodeURIComponent(kind));
+ const target=$('publicRows');target.replaceChildren();
+ for(const item of (data.items||[]).slice(0,200)){
+  const card=document.createElement('article');card.className='card';
+  const title=document.createElement('strong');title.textContent=str(item.nombre||item.titulo)||item.id;
+  card.append(title);target.append(card);
+ }
+});
+button('loadManaged',async()=>{
+ const data=await call('/gld2/managed?limit=25',{privateAccess:true});
+ $('managedRows').textContent=(data.items||[]).map(x=>x.id+' · '+x.kind+' · '+x.city).join('\n')||'No hay fichas asignadas';
+});
+button('loadDetail',async()=>{
+ const d=await call('/gld2/detail?id='+encodeURIComponent($('detailId').value.trim()),{privateAccess:true});
+ $('revision').value=d.revision;$('publicData').value=JSON.stringify(d.data||{},null,2);
+});
+button('saveDetail',async()=>{
+ const id=$('detailId').value.trim(),expected_revision=Number($('revision').value);
+ const public_data=JSON.parse($('publicData').value);
+ const d=await call('/gld2/update',{method:'POST',privateAccess:true,body:{id,expected_revision,public_data}});
+ $('revision').value=d.revision;
+});
+button('changeGrant',async()=>call('/gld2/grant',{method:'POST',privateAccess:true,body:{
+ entity_id:$('grantEntity').value.trim(),principal_id:$('grantPerson').value.trim(),
+ permission:$('grantPermission').value,active:$('grantActive').value==='true'}}));
+document.querySelectorAll('[data-tab]').forEach(b=>b.addEventListener('click',()=>{
+ document.querySelectorAll('[data-tab]').forEach(el=>el.setAttribute('aria-current',String(el===b)));
+ document.querySelectorAll('section').forEach(el=>el.classList.toggle('active',el.id===b.dataset.tab));
+}));
+})();
+</script></body></html>
