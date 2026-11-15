@@ -406,7 +406,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
           <button class="tab" data-cfg="adultos">Moderación y contenido +18</button><button class="tab" data-cfg="terminos">Términos para anunciantes</button>
         </div>
       </div>
-      <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido (con país y provincia)</button></div><div id="territorioAlta"></div></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..." aria-label="Buscar ciudad o partido" aria-controls="ciuResultados"></div><div id="ciuResultados" aria-live="polite" hidden></div><select id="ciuSelect" aria-label="Seleccionar ciudad"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
+      <div class="cfgpane active" data-cfgpane="territorio"><div class="card"><h2>Países / Provincias / Ciudades</h2><div class="muted">La estructura territorial es País → Provincia/Estado → Ciudad/Partido.</div><div class="toolbar"><button id="btnCiudadesRefresh">Actualizar</button><button type="button" onclick="ghNuevoTerritorio('ciudad')">+ Ciudad / Partido (con país y provincia)</button></div><div id="territorioAlta"></div><p id="ghTerritoryMeasure211" class="muted" role="status">Medición territorial: sin operación registrada.</p></div><div class="card"><h2>Ciudades habilitadas</h2><div class="toolbar"><input id="ciuQ" placeholder="Buscar ciudad / partido..." aria-label="Buscar ciudad o partido" aria-controls="ciuResultados"></div><div id="ciuResultados" aria-live="polite" hidden></div><select id="ciuSelect" aria-label="Seleccionar ciudad"><option value="">Seleccioná una ciudad</option></select><div id="ciudadDetalle" class="muted">Seleccioná una ciudad para ver sus datos.</div></div></div>
       <div class="cfgpane hidden" data-cfgpane="roles_internos">
  <div class="card"><h2>Definición de roles · Funciones, alcances y límites</h2>
  <div class="card" style="border:1px solid #d5e2e8;box-shadow:none;background:#f9fbfc">
@@ -1206,6 +1206,16 @@ async function ghCargarEventosPublicos(){
   ghRenderEventos();
 }
 // Copia territorial mínima, por administrador autenticado. No guarda tokens ni datos privados.
+function ghTerritoryMeasure211(response,action){
+ const host=document.getElementById('ghTerritoryMeasure211');if(!host)return;
+ const raw=response?.headers?.get('X-GLD-Consumption');
+ if(!raw){host.textContent=action+': el servidor no informó consumos físicos.';return;}
+ try{
+  const c=JSON.parse(decodeURIComponent(raw)),fs=c.firestore||{},kv=c.cloudflare?.kv||{},store=c.cloudflare?.action_store||{};
+  const n=value=>typeof value==='number'?String(value):'sin dato';
+  host.textContent=action+' | Firestore: '+n(fs.read_calls)+' consultas, '+n(fs.write_calls)+' escrituras, '+n(fs.delete_calls)+' bajas | KV: '+n(kv.get_calls)+' lecturas, '+n(kv.put_calls)+' escrituras | Durable Object: '+n(store.calls)+' llamadas, '+n(store.rows_read)+' filas SQL leídas, '+n(store.rows_written)+' escritas | CPU/USD: no informados por este contador.';
+ }catch(_){host.textContent=action+': cabecera de consumo ilegible.';}
+}
 const GH_TERRITORY_STORE211='gld_gh_territorio_211_';
 function ghTerritoryKey211(){
  const a=GH_ADMIN_ACCESS;
@@ -1250,6 +1260,7 @@ async function ghCargarCiudades(force=false){
  if(GH_TERRITORY_PENDING195)return GH_TERRITORY_PENDING195;
  GH_TERRITORY_PENDING195=(async()=>{
   const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/territory',{headers:{Authorization:'Bearer '+TOKEN}}),j=await r.json();
+  ghTerritoryMeasure211(r,'Consulta territorial');
   if(!r.ok||!j.success)throw new Error(j.message||'No se pudo cargar Territorio.');
   ghTerritoryApply195(j);
  })().finally(()=>{GH_TERRITORY_PENDING195=null;});return GH_TERRITORY_PENDING195;
@@ -1359,6 +1370,7 @@ async function ghGuardarCambioCiudad(accion){
    body:JSON.stringify({item})
   });
   const j=await r.json();
+  ghTerritoryMeasure211(r,'Editar ciudad');
   if(!r.ok||!j.success||!j.ciudad)throw new Error(j.message||'No se pudo actualizar la ciudad.');
   ghInvalidarCatalogoPublicoCiudades();
   GH_CITIES=GH_CITIES.map(row=>String(row.ciudad_id||row.id)===id?j.ciudad:row);
@@ -1399,6 +1411,7 @@ async function ghEliminarCiudad146(){
    method:'DELETE',headers:{Authorization:'Bearer '+TOKEN,'Idempotency-Key':'city-delete-'+id.slice(-48)}
   });
   const data=await response.json();
+  ghTerritoryMeasure211(response,'Eliminar ciudad (segunda fase)');
   if(!response.ok||!data.success||!data.eliminada){
    const details=Array.isArray(data.referencias)&&data.referencias.length?' Referencias: '+data.referencias.join(', '):'';
    throw Error((data.message||'No se pudo eliminar la ciudad.')+details);
@@ -1599,6 +1612,7 @@ async function ghGuardarTerritorio(tipo,id){
   const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/territory/city-bundle',{method:'POST',
    headers:{Authorization:'Bearer '+TOKEN,'Content-Type':'application/json','Idempotency-Key':id},body:JSON.stringify(body)});
   const result=await r.json();
+  ghTerritoryMeasure211(r,'Crear ciudad');
   if(!r.ok||!result.success)throw Error(result.message||'No se pudo crear la ciudad.');
   if(!result.ciudad||String(result.ciudad.ciudad_id||result.ciudad.id)!==id){alert('El servidor aceptó el alta, pero no confirmó la ciudad. Usá Actualizar, no repitas el alta.');return;}
   if(result.pais)GH_COUNTRIES.push(result.pais);
