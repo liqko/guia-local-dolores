@@ -35,7 +35,7 @@ self.addEventListener('fetch',event=>{
       if(fresh.ok&&fresh.status===200&&
          (fresh.headers.get('Content-Type')||'').toLowerCase().includes('text/html')&&
          !fresh.headers.has('Set-Cookie')){
-        try{await cache.put(PAGE,fresh.clone());}catch(_){}
+        await cache.put(PAGE,fresh.clone());
       }
       return fresh;
     }catch(error){
