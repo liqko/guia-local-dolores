@@ -1,106 +1,116 @@
-# Guía Local 2 — mapa de dependencias funcionales (base viva v1)
+# GLD2 · MAPA DE DEPENDENCIAS — auditoría independiente de segundo pase
+Estado: **NO APROBADO PARA IMPLEMENTACIÓN GLOBAL**. Revisado el 15/11/2026 contra `AGENTS.md`, `docs/CONTROL_MODULOS.md`, `plataforma/administracion.html` y `docs/PUBLICIDAD_CONTRATACION_Y_DISTRIBUCION_PENDIENTE.md` de main. No implica prueba de ejecución ni exhaustividad de los campos.
 
-**Sentido de las flechas:** A → B = B necesita A; un cambio en A puede afectar B. Las relaciones detalladas se completan contra requisitos y comportamiento existentes, no se inventan. El diagrama es la base transversal, NO certifica haber inventariado cada campo actual.
+## Convención indispensable
+
+- **C — confirmada:** se ve expresamente en UI o contrato del repositorio.
+- **D — definida:** decisión de arquitectura GLD2, aún sin implementación ni prueba.
+- **P — pendiente:** relación posible, **NO afirmarla como obligatoria**.
+- Flecha A → B significa que **B consume el dato/regla A**. No significa automáticamente que un cambio de A exija reconstruir B: la invalidación depende de los campos realmente usados.
+- La relación puede ser bidireccional y transitar varios módulos. La explicación de cada ruta debe identificar lectura, escritura, regla, origen, actor, caducidad e instrumentación.
+- Cada dependencia debe tener identificador, evidencia y prueba de cambio. Un diagrama sin esas pruebas no acredita cobertura.
+
+## Mapa 1: estructura técnica transversal (D, diseño aún no probado)
 
 ```mermaid
 flowchart TD
-  C[Configuración general / versiones] --> T[Territorio]
-  C --> R[Motor único de reglas]
-  ID[Identidad / sesiones] --> P[Permisos vigentes]
-  P --> T
-  P --> R
-  P --> G[Gran Hermano]
-  P --> A[Anunciante]
-  P --> MOD[Moderación]
-  T --> F[Fichas / sedes]
-  T --> EV[Eventos]
-  T --> AC[Actividades]
-  T --> PR[Promociones]
-  T --> AD[Publicidad]
-  R --> F
-  R --> EV
-  R --> AC
-  R --> PR
-  R --> AD
-  R --> MOD
-  F --> EV
-  F --> AC
-  F --> PR
-  F --> AD
-  F --> PUB[Publicador de vistas]
-  EV --> PUB
-  AC --> PUB
-  PR --> PUB
-  AD --> PUB
-  MOD --> PUB
-  TX[Dato maestro + evento transaccional] --> PUB
-  T --> TX
-  F --> TX
-  EV --> TX
-  AC --> TX
-  PR --> TX
-  AD --> TX
-  PUB --> M[Manifiesto / versiones por ciudad]
-  M --> V[Caché y paquetes por módulo]
-  V --> U[Usuario / directorio / agenda]
-  F --> A
-  R --> G
-  T --> G
-  ID --> S[Suscriptores]
-  S --> FA[Favoritos]
-  S --> NO[Notificaciones]
-  FA --> U
-  NO --> U
-  O[Instrumentación por acción] -.-> ID
-  O -.-> G
-  O -.-> A
-  O -.-> U
-  O -.-> TX
-  O -.-> C
-  O -.-> P
-  O -.-> T
-  O -.-> F
-  O -.-> EV
-  O -.-> AC
-  O -.-> PR
-  O -.-> AD
-  O -.-> PUB
-  O -.-> M
-  O -.-> V
-  O --> Q[Cuotas / costos USD / conciliación]
-  Q --> MON[Visor: desglose / faltantes / comparativa]
-  X[Trabajo diferido / reintentos] --> PUB
-  O -.-> X
+  U[Usuario] --> API[API única]
+  A[Anunciante] --> API
+  GH[Gran Hermano] --> API
+  API --> ID[Identidad y sesión]
+  ID --> AUT[Permisos vigentes]
+  AUT --> VAL[Validación de acciones]
+  CFG[Configuraciones versionadas] --> VAL
+  VAL --> DOM[Servicios por dominio]
+  DOM --> DATA[Datos maestros y transacciones]
+  DATA --> OUT[Eventos de cambio / outbox]
+  OUT --> PROJ[Proyecciones de publicación]
+  PROJ --> MAN[Manifiestos versionados]
+  MAN --> CACHE[Caché de paquetes públicos]
+  CACHE --> U
+  API -. instrumentado .-> MET[Medición por operación]
+  DATA -. instrumentado .-> MET
+  OUT -. instrumentado .-> MET
+  PROJ -. instrumentado .-> MET
+  CACHE -. instrumentado .-> MET
+  MET --> COST[Cuotas, USD y conciliación]
 ```
 
-## Qué significa cada cambio
+La capa de autorización controla mutaciones y accesos privados, **no obliga a consultar una base de permisos por cada lectura pública anónima**. La identidad no se impone indiscriminadamente a contenido abierto. La publicación no se interpreta como permiso para difundir antes del corte previsto.
 
-| Origen de cambio | Quién lo inicia | Datos o reglas que consulta | Impacto posterior | Plazo | Medición imprescindible |
-|---|---|---|---|---|---|
-| País, provincia, ciudad | Gran Hermano autorizado | identidad y permiso vigente, territorio, reglas de unicidad | catálogo, selectores, índices de ciudad, paquetes pertinentes | maestro confirmado en transacción; paquete público solo tras publicación completa | autenticación, escritura, outbox, proyección, lecturas derivadas, bytes y reintentos |
-| Nivel/funcionalidad/valor | Gran Hermano autorizado | catálogo de planes, dependencias y excepciones | formulario, prestaciones, límites, publicidad, precio y presentación | según regla | escritura de versión, evaluaciones e invalidaciones |
-| Permiso del encargado | Propietario o Gran Hermano autorizado | identidad, relación con anunciante, rol | acceso a detalles, guardados y permisos delegados | **inmediato** | verificación, transacción, invalidación; prueba de acceso rechazado |
-| Ficha de anunciante | propietario, delegado o Gran Hermano autorizado | permisos, nivel, cupo de edición, sedes, clasificación | vista privada, ficha pública, búsqueda, eventos/actividades/promociones/publicidad relacionados | guardado inmediato; publicación según política | validación, lectura, escritura, proyección, distribución |
-| Sede | propietario, delegado o Gran Hermano autorizado | permisos de ficha, territorio, campos y reglas | ficha, búsqueda/localización, tarjetas públicas | según política | escritura, índices y paquetes afectados |
-| Evento | creador autorizado / moderación | anunciante, territorio, categoría, publicación y cupos | agenda, publicidad vinculada, información del anunciante | según aprobación/vigencia | alta, edición, revisión y visualizaciones |
-| Actividad | creador autorizado / moderación | anunciante, territorio, categorías, vigencia | agenda/actividades, publicidad, ficha relacionada | según política | alta, edición, revisión y visualizaciones |
-| Promoción | anunciante autorizado / moderación | ficha, nivel, condiciones y vigencia | tarjetas, buscadores, exposición pública | según política | creación, cambio, vencimiento, presentación |
-| Publicidad | anunciante elegible / Gran Hermano | niveles, contratos, formatos, frecuencia, relevancia | Guía, Eventos, Actividades y otros espacios habilitados | según contrato y vigencia | alta, edición, selección, impresiones si corresponde |
-| Favorito | suscriptor autenticado | sesión, identidad, registro público | favoritos propios, interfaz de Usuario | inmediato | lectura/alta/baja y control de sesión |
-| Cambio de ciudad en Usuario | usuario | catálogo/versiones y preferencias | descarga selectiva de datos públicos de ciudad | inmediato en cliente | peticiones, caché, transferencias, CPU disponible |
+## Mapa 2: configuración y producto (C en existencia; vínculos particulares P salvo que se indiquen)
 
-**Nota de dependencia:** un flujo puede volver sobre un módulo previo, por ejemplo `Fichas → Eventos → Publicador → vista del anunciante`. El grafo no impone linealidad ni exige reconsultar datos idénticos.
+```mermaid
+flowchart TD
+  GH[Gran Hermano] --> T[País / provincia / ciudad]
+  GH --> N[Nodos]
+  GH --> S[Segmentos]
+  GH --> L[Niveles]
+  GH --> PRES[Prestaciones disponibles]
+  GH --> F[Funcionalidades]
+  GH --> CAT[Categorías de anunciantes]
+  GH --> AK[Actividades clave]
+  GH --> ACC[Acciones]
+  GH --> CE[Categorías de eventos]
+  GH --> CA[Categorías de actividades]
+  GH --> RO[Roles internos]
+  GH --> MOD[Moderación y +18]
+  GH --> TER[Términos de anunciantes]
+  GH --> VAL[Valores y comerciales]
+  T --> SEL[Selector de ciudad]
+  T --> INDEX[Índices territoriales públicos]
+  RO --> AUTH[Autorizaciones vigentes]
+  L --> CONTR[Planes y condiciones]
+  F --> CONTR
+  PRES --> CONTR
+  CONTR --> ADV[Anuncios y fichas]
+  CAT --> ADV
+  S --> ADV
+  CE --> EVT[Eventos]
+  CA --> ACT[Actividades]
+  CONTR --> PUB[Publicidad]
+  PUB --> SPACE[Espacios de exhibición]
+  EVT --> DISPLAY[Vista pública de Eventos]
+  ACT --> DISPLAY2[Vista pública de Actividades]
+  ADV --> GUIDE[Vista pública de Guía]
+```
 
-## Resultado de la primera inspección supervisora
+**Precaución:** las flechas del mapa 2 representan candidatas de consumo por la función; las que no estén verificadas campo a campo siguen siendo **P**. Por ejemplo: `Nodos`, `Acciones`, `Actividades clave` y `Segmentos` existen, pero sus efectos exactos sobre cada pantalla deben localizarse en código y contrato antes de cerrar el mapa. El documento de Publicidad contiene explícitamente decisiones aún abiertas: no elevarlas a reglas técnicas aprobadas.
 
-- **CORREGIDO:** el primer recorrido territorial depende de autorización vigente.
-- **CORREGIDO:** fuente maestra y evento durable se confirman juntos; la vista pública se actualiza después sin exponer una versión a medias.
-- **CORREGIDO:** medición también comprende sesiones, los tres planos, operaciones diferidas, rechazos y reintentos.
-- **PENDIENTE DE VALIDACIÓN:** el grafo representa categorías, no todos los campos, reglas visuales, políticas de publicación, permisos y efectos cruzados actuales. Completar para cada dominio antes de programarlo.
-- **PENDIENTE DE PRUEBA:** ahorro de lecturas, consistencia ante fallos y conciliación con facturas; no son resultados medidos.
+## Matriz de impacto por operación: fuente, consecuencia, urgencia, estado
 
-## Reglas para completar el grafo
+| ID | Cambio | Quién y dónde | Lecturas/dependencias | Escritura o efecto | Cuándo | Evidencia/estado |
+|---|---|---|---|---|---|---|
+| DEP-01 | Crear/editar territorio | Gran Hermano, Configuración | sesión y rol; jerarquía territorial; reglas vigentes | maestro de país/provincia/ciudad, revisión de catálogo y vista pública | maestro al confirmar; publicación según política vigente | C existencia de controles y jerarquía; D mecanismo técnico |
+| DEP-02 | Actualizar reglas de plataforma | Gran Hermano, Configuración | rol, versión anterior, dependencias del campo | regla versionada; invalidación selectiva | confirmar escritura; distribución conforme a política | C categorías de configuración; P impactos por campo |
+| DEP-03 | Revocar encargado | propietario o Gran Hermano | relación con ficha, identidad, rol, permisos | permiso vigente y rechazo de posteriores accesos privados | **inmediato** | C requisito de negocio; D implementación |
+| DEP-04 | Cambiar nivel o beneficios | Gran Hermano/autorizado | niveles, prestaciones, funcionalidades, adicionales, excepciones y contratación | derechos efectivos, representación de ficha, exposición comercial | según vigencia y política | C existencia de niveles/prestaciones; P contratos concretos |
+| DEP-05 | Modificar ficha | propietario/delegado/GH con capacidad | permisos, límite de edición, clasificación, sede, versión | maestro y, si corresponde, futuras vistas públicas | límite de cambios al confirmar | C necesidad; P campos/efectos detallados |
+| DEP-06 | Crear/editar sede | titular autorizado/GH | ficha madre, territorio, permisos, versión | sede y proyección cuando corresponda | política del módulo | C entidad y dependencia de ficha; P campos |
+| DEP-07 | Crear/editar evento | anunciante u operador autorizado | reglas de evento, categoría, territorio, eventualmente anunciante | registro de evento, moderación, paquete de agenda | aprobación y corte aplicables | C funcionalidad; P vínculo obligatorio con anunciante, no asumirlo |
+| DEP-08 | Crear/editar actividad | anunciante u operador autorizado | categoría, territorio, vigencia y reglas | actividad, moderación, proyección | aprobación y corte aplicables | C funcionalidad; P otros cruces |
+| DEP-09 | Crear/editar promoción | anunciante autorizado | nivel, límites, ficha y catálogo aplicable | promoción y vistas habilitadas | política vigente | C funcionalidad; P relación exacta |
+| DEP-10 | Gestionar publicidad | anunciante/GH autorizado | nivel, elegibilidad, ciudad, contrato, posiciones, relevancia, formato | contratación/creatividad y distribución | contrato, vigencia y publicación | C conceptos; **P decisiones de reglas aún abiertas** |
+| DEP-11 | Favoritos | Usuario autenticado | identidad, anuncio publicado | relación privada Usuario↔registro | inmediato | C funcionalidad; P almacenamiento destino |
+| DEP-12 | Cambiar ciudad/navegar | Usuario | catálogo y manifiesto público | lectura de paquetes y preferencias | al elegir; reutilizar sin cambios | C producto; D segmentación/versionado |
+| DEP-13 | Notificaciones | Usuario/Anunciante/GH según caso | sesión y hechos relevantes | bandeja y estados de lectura | según evento | C funcionalidad; P disparadores exactos |
+| DEP-14 | Soporte y reclamos | Anunciante/Usuario/GH según circuito | identidad, tipo de solicitud, roles y asignaciones | solicitud, bandeja, estados y avisos | según flujo | C existencia; P detalle |
+| DEP-15 | Roles internos y asignaciones | Gran Hermano según capacidad | definición de rol, usuario y ámbito | permisos vigentes y efectos sobre acciones | seguridad inmediata | C UI; P matriz exhaustiva de capacidades |
+| DEP-16 | Suscriptores | Usuario/GH | sesión, consentimiento, ciudad, reglas | perfil, preferencias y vistas autorizadas | según tipo de dato | C funcionalidad; P dependencias restantes |
+| DEP-17 | Farmacias de turno | administración/fuente propia | ciclo/turno, territorio, vigencia | publicación específica de farmacia | vigencia/actualización propia | C funcionalidad diferenciada; P origen preciso |
+| DEP-18 | Efemérides | administración/fuente propia | calendario, categorías/territorio si aplican | calendario publicado | corte/vigencia específica | C funcionalidad diferenciada; P origen preciso |
+| DEP-19 | Empleo | módulos autorizados | reglas, clasificación y territorio | búsquedas/publicaciones de empleo | según política | C presencia en Gran Hermano; P contrato |
+| DEP-20 | Información visual/identidad | Usuario, Anunciante y GH | diseño, colores, formato de tarjetas y reglas de presentación | renderización, recursos estáticos y egreso | por versión de interfaz | C requisito de preservación; P inventario de elementos |
 
-Cada función debe registrar: **quién puede ejecutarla, disparador, entradas, fuente de verdad, reglas, escritura, evento emitido, módulos afectados, visibilidad, invalidez de caché y costo por operación**. Una dependencia no verificada se etiqueta pendiente, nunca se asume ausente.
+## Correcciones del supervisor 2 que invalidan el grafo anterior
 
-El primer recorrido verificable será `Gran Hermano crea ciudad → reglas la validan → se guarda → se versiona y publica → Usuario la encuentra → visor presenta consumos y cuotas reales`. El recorrido se prueba completo antes de agregar las siguientes funcionalidades.
+1. **Dependencias falsas:** se retiran como obligaciones universales `Ficha → Evento`, `Ficha → Actividad`, `Ficha → Publicidad`. Pueden existir vínculos por anunciante, pero no son universales ni obligan a reconstruir todos los módulos por cada cambio de ficha.
+2. **Configuración incompleta:** se agregan Nodos, Segmentos, Actividades clave, Acciones, Categorías específicas, Roles internos, Términos y Moderación +18; también Valores y prestaciones.
+3. **Módulos ausentes:** se incorporan Suscriptores, Notificaciones, Soporte, Farmacias, Efemérides, Empleo y relaciones visuales.
+4. **Seguridad y lectura pública:** no toda lectura pública requiere sesión o verificación privada. Las operaciones privadas sí deben comprobar permiso vigente.
+5. **Publicación diferida:** un outbox durable NO autoriza publicación inmediata si la regla comercial/operativa exige corte diario. Se separan escritura, autorización, programación y exposición.
+6. **Costos y cuotas:** cada acción incluye procesos indirectos y servidor, y el costo de entregar paquetes y medios; el grafo obliga a incluir ambas direcciones de cambios sólo cuando estén verificadas.
+
+## Puerta de aprobación del mapa
+
+Por cada fila anterior completar un contrato verificable: campos maestros afectados, reglas, roles, caso real, entradas/salidas, dependencias C/P, caducidad, caché, invalidación, costo de lectura/escritura/borrado y prueba de propagación. Se debe comprobar el circuito de cada funcionalidad en los **tres planos pertinentes**, sin inventar un cuarto plano llamado Carcasa. **No aprobado** si sólo hay diagrama sin relaciones verificadas a nivel de datos. Primera cadena propuesta: `identidad GH → alta de país/provincia/ciudad → fuente maestra → preparación según corte → lectura pública → medición`.
