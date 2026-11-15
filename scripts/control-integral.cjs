@@ -19,6 +19,10 @@ const groups = {
     ['Controles de acceso y revocaciones','node',['--test','tests/observabilidad/acceso-unificado201.test.mjs']],
     ['Reglas de publicación','node',['--test','tests/publicacion-reglas206.test.cjs']],
   ],
+  navegador: [
+    ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
+    ['Recorrido de interfaz de Eventos','node',['tests/eventos145/browser.cjs']],
+  ],
   compartido: [
     ['Integridad de los paquetes','node',['--test','tests/publicacion-generica.test.mjs','tests/recursos-publicos.test.mjs']],
     ['Cache de navegador pública','node',['tests/guia/public-cache.cjs']],
