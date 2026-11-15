@@ -21,7 +21,7 @@ const groups = {
   ],
   navegador: [
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
-    ['Recorrido de interfaz de Eventos','node',['tests/eventos145/browser.cjs']],
+    ['Recorrido de observabilidad en navegador aislado','node',['tests/observabilidad/browser-test.mjs']],
   ],
   compartido: [
     ['Integridad de los paquetes','node',['--test','tests/publicacion-generica.test.mjs','tests/recursos-publicos.test.mjs']],
