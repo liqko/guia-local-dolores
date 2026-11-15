@@ -3,49 +3,66 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const fs=require('node:fs');
 const source=fs.readFileSync('worker/worker206.txt','utf8');
-const start=source.indexOf('function ghAdminDetailKey203(id)');
-const end=source.indexOf('async function adminSubscriberDetailV2',start);
-assert(start>=0&&end>start,'Se deben probar funciones reales del único Worker');
+const start=source.indexOf('GldPublicCache119.prototype.ghDetail204=async function(body){');
+const end=source.indexOf('\nGldPublicCache119.prototype.commerceMaster209=',start);
+assert(start>0&&end>start,'La copia GH debe existir en el actor duradero real');
 function setup(){
- const storage=new Map(),calls={get:0,put:0,del:0,build:0};
- const cache={
- async get(k){calls.get++;return storage.get(k)||null;},
- async put(k,v,opts){calls.put++;assert.equal(opts,undefined,'No escribir expiración temporal');storage.set(k,v);},
- async del(k){calls.del++;storage.delete(k);}
+ const store=new Map(),calls={build:0,select:0,insert:0,delete:0,sql:0};
+ class GldPublicCache119{}
+ const ctx={GldPublicCache119,Response,JSON,String,Date,Error,
+  crypto:{randomUUID:()=> 'test-uuid'},
+  requestCache121:env=>env,observeKv117:env=>env,
+  roleSourceDb192:db=>db,requestDb119:db=>db,observeDbV41:db=>db,createDb:()=>({}),
+  withPrivateCacheV46:db=>db,
+  withPanelCacheV48:db=>({...db,flushLoginCache:async()=>{}}),
+  consumption136:()=>({}),
+  advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build};}
  };
- const ctx={encodeURIComponent,Date,advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build}}};
  vm.createContext(ctx);
  vm.runInContext(source.slice(start,end),ctx);
- return {cache,calls,ctx};
+ const actor=new GldPublicCache119();
+ actor.env={GLD_CACHE_KV:{}};
+ actor.metrics={rows_read:0,rows_written:0};
+ actor.query=(sql,...params)=>{
+  calls.sql++;
+  if(sql.startsWith('SELECT ')){calls.select++;return store.has('detail')?[{value:store.get('detail')}]:[];}
+  if(sql.startsWith('INSERT ')){calls.insert++;store.set('detail',params[0]);return [];}
+  if(sql.startsWith('DELETE ')){calls.delete++;store.delete('detail');return [];}
+  if(sql.startsWith('CREATE '))return [];
+  throw Error('SQL no esperado: '+sql);
+ };
+ return {actor,calls,store};
 }
-test('el detalle sigue disponible después de 121 segundos y 24 horas sin reconstrucción',async()=>{
- const {cache,calls,ctx}=setup();
- const date=Date.now;
+async function operation(actor,op='gh-detail-read204'){const response=await actor.ghDetail204({op,aid:'A1'});assert.equal(response.status,200);return response.json();}
+test('GH relee durante 24h sin reconstruir ni escribir',async()=>{
+ const {actor,calls}=setup();
+ const first=await operation(actor);
+ const clock=Date.now;
  try{
-   const original=await ctx.adminAdvertiserDetailV2({db:{},id:'ABC',cache});
-   Date.now=()=>date()+24*3600*1000;
-   const next=await ctx.adminAdvertiserDetailV2({db:{},id:'ABC',cache});
-   assert.equal(next.id,original.id);
-   assert.equal(next.revision,original.revision);
-   assert.equal(calls.build,1);
-   assert.equal(calls.put,1);
-   assert.equal(calls.get,2);
- }finally{Date.now=date;}
+  Date.now=()=>clock()+86400000;
+  const next=await operation(actor);
+  assert.equal(next.detail.revision,first.detail.revision);
+ }finally{Date.now=clock;}
+ assert.equal(calls.build,1);
+ assert.equal(calls.insert,1);
+ assert.equal(calls.select,2);
 });
-test('cambio confirmado invalida copia y nueva lectura reconstruye una sola vez',async()=>{
- const {cache,calls,ctx}=setup();
- await ctx.adminAdvertiserDetailV2({db:{},id:'ABC',cache});
- await ctx.ghAdminDetailInvalidate203(cache,'ABC');
- const second=await ctx.adminAdvertiserDetailV2({db:{},id:'ABC',cache});
- assert.equal(second.revision,2);
+test('un cambio confirmado invalida la copia del mismo anunciante y reconstruye una sola vez',async()=>{
+ const {actor,calls}=setup();
+ await operation(actor);
+ await operation(actor,'gh-detail-invalidate204');
+ const refreshed=await operation(actor);
+ assert.equal(refreshed.detail.revision,2);
  assert.equal(calls.build,2);
- assert.equal(calls.put,2);
- assert.equal(calls.del,1);
+ assert.equal(calls.insert,2);
+ assert.equal(calls.delete,1);
 });
-test('elimina caducidad antigua y no utiliza versión 203 previa',()=>{
- assert(!source.includes('GH_ADMIN_DETAIL_TTL203'),'El TTL120 debe desaparecer del código completo');
- assert(source.includes("admin:advertiser:detail:v204:"),'La nueva clave evita reutilizar copias antiguas');
- assert(source.includes('if(result.updated)await ghAdminDetailInvalidate203(cache,aid)'),'Los guardados deben invalidar el detalle');
- assert(source.includes('for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid)'),'Los cambios de cualquier panel deben invalidar la copia centralmente');
- for(const name of ['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades','publicidades'])assert(source.includes(name),'Falta dependencia '+name);
+test('la copia de GH no usa TTL120 ni la clave KV heredada',()=>{
+ assert(!source.includes('GH_ADMIN_DETAIL_TTL203'));
+ assert(!source.includes('admin:advertiser:detail:v203:'));
+ assert(!source.includes('admin:advertiser:detail:v204:'));
+ assert(source.includes('gh_advertiser_detail204'));
+ assert(source.includes("['gh-detail-read204','gh-detail-invalidate204']"));
+ assert(source.includes('for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid,env)'));
+ assert(source.includes('this.requestTail127=new Promise'),'el actor debe serializar lecturas y escrituras');
 });
