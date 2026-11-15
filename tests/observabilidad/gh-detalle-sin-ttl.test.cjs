@@ -46,4 +46,6 @@ test('elimina caducidad antigua y no utiliza versión 203 previa',()=>{
  assert(!source.includes('GH_ADMIN_DETAIL_TTL203'),'El TTL120 debe desaparecer del código completo');
  assert(source.includes("admin:advertiser:detail:v204:"),'La nueva clave evita reutilizar copias antiguas');
  assert(source.includes('if(result.updated)await ghAdminDetailInvalidate203(cache,aid)'),'Los guardados deben invalidar el detalle');
+ assert(source.includes('for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid)'),'Los cambios de cualquier panel deben invalidar la copia centralmente');
+ for(const name of ['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades','publicidades'])assert(source.includes(name),'Falta dependencia '+name);
 });
