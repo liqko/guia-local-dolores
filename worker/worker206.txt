@@ -910,6 +910,7 @@ function createDb(env) {
       const r=await fetch(base(env)+':commit',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({writes})});
       if(!r.ok){if([400,409,412].includes(r.status))throw httpError('Hubo otro cambio simultáneo. Actualizá la lista y reintentá.',409);throw httpError('No se pudieron guardar los cambios. Reintentá.',503);}
       const committed119=await r.json();
+      await invalidateGhDetailsFromWrites210(env,entries);
       entries.forEach((e,i)=>noteSource119(env,e.collection,e.id,{...e.before,...e.patch},committed119.writeResults?.[i]?.updateTime||committed119.commitTime));
       return entries.map(e=>e.remove?null:{...e.before,...e.patch,id:e.id});
     },
@@ -934,6 +935,7 @@ function createDb(env) {
       const fields = {};
       for (const [k, v] of Object.entries(clean2)) fields[k] = toFs(v);
       const d = await request(env, `${encodeURIComponent(collection)}/${encodeURIComponent(id4)}?${qs}`, { method: "PATCH", body: { fields } });
+      await invalidateGhDetailsFromWrites210(env,[{collection,id:id4,patch:clean2}]);
       noteSource119(env,collection,id4,docToJs(d,id4),d?.updateTime);
       return docToJs(d, id4);
     },
@@ -947,6 +949,7 @@ function createDb(env) {
       if (mustExist) qs.set("currentDocument.exists", "true");
       const suffix = qs.toString() ? "?" + qs.toString() : "";
       await request(env, `${encodeURIComponent(collection)}/${encodeURIComponent(id4)}${suffix}`, { method: "DELETE" });
+      await invalidateGhDetailsFromWrites210(env,[{collection,id:id4,remove:true}]);
       return true;
     },
     /**
@@ -979,6 +982,44 @@ function createDb(env) {
       return (Array.isArray(rows) ? rows : []).filter((x) => x.document).map((x) => {const row=docToJs(x.document);noteSource119(env,collection,row.id,row,x.document.updateTime);return row;});
     }
   };
+}
+
+/**
+ * Invalidación común en la capa de persistencia Firestore.
+ * Cubre escrituras que no pasan por withPanelCacheV48.flush (incluido código legado).
+ * Nunca caduca las fichas por reloj: la caché se invalida sólo tras un commit exitoso.
+ * La autorización y las sesiones siguen su propio ciclo de seguridad.
+ */
+async function invalidateGhDetailsFromWrites210(env,entries){
+ const kv=env.GLD_CACHE_KV;
+ if(!kv?.delete||!entries?.length)return;
+ const byAdvertiser=new Set();
+ const ownerSubscribers=new Set();
+ const direct=new Set(['anunciantes','anunciantes_administracion']);
+ const related=new Set(['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades',
+  'publicidades','farmacias_ciclos','publicidad_media','publicidad_segmentacion']);
+ for(const item of entries){
+  const c=String(item.collection||''),id=String(item.id||'');
+  if(direct.has(c)&&id)byAdvertiser.add(id);
+  if(related.has(c)){
+   for(const aid of [item.before?.anunciante_id,item.patch?.anunciante_id,item.row?.anunciante_id]){
+    if(aid)byAdvertiser.add(String(aid));
+   }
+   // En cambios de relación, la clave del suscriptor permite resolver
+   // el anunciante aunque la operación no transporte su anunciante_id.
+   if(c==='suscriptor_anunciante'&&item.patch?.suscriptor_id)ownerSubscribers.add(String(item.patch.suscriptor_id));
+  }
+  if(c==='suscriptores'&&id)ownerSubscribers.add(id);
+ }
+ if(ownerSubscribers.size){
+  const source=createDb(env);
+  for(const sid of ownerSubscribers){
+   const relations=await source.queryEqual('suscriptor_anunciante','suscriptor_id',sid,500);
+   for(const row of relations||[])if(row?.anunciante_id)byAdvertiser.add(String(row.anunciante_id));
+  }
+ }
+ await Promise.all([...byAdvertiser].map(aid=>
+  kv.delete('admin:advertiser:detail:v204:'+encodeURIComponent(aid))));
 }
 
 // reconstruccion/worker/core/cache.js
