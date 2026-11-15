@@ -10212,7 +10212,8 @@ function withPanelCacheV48(db,env,report){
     return copy(known.get(k)||null);
   }
   function queue(c,id,old,row){
-    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id});
+    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id,
+      ownerContactChanged:c==='suscriptores'&&['nombre','mail','whatsapp','telefono'].some(k=>old?.[k]!==row?.[k])});
     const entry=fields[c];if(!entry)return;
     for(const field of (Array.isArray(entry)?entry:[entry])){
       const prior=text(old?.[field]),next=text(row?.[field]);
@@ -10259,6 +10260,20 @@ function withPanelCacheV48(db,env,report){
       const ids=change.c==='anunciantes'||change.c==='anunciantes_administracion'
         ?[change.id]:[change.row?.anunciante_id,change.previousAdvertiser];
       for(const id of ids)if(id)detailChanged204.add(String(id));
+    }
+    // Los propietarios forman parte del detalle de GH. Una modificación de
+    // nombre o contacto debe actualizar sus fichas, sin barridos por tiempo.
+    for(const change of directoryChanges102.values()){
+      if(change.c!=='suscriptores'||!change.ownerContactChanged)continue;
+      const sid=String(change.id||'').trim();
+      if(!sid)continue;
+      const relations=typeof db.subscriberRelations==='function'
+        ?await db.subscriberRelations(sid)
+        :await db.queryEqual('suscriptor_anunciante','suscriptor_id',sid,500);
+      for(const relation of relations||[]){
+        if(roleName159(relation.rol)!=='PROPIETARIO'||!truthy(relation.activo))continue;
+        if(relation.anunciante_id)detailChanged204.add(String(relation.anunciante_id));
+      }
     }
     for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid);
     directoryChanges102.clear();
