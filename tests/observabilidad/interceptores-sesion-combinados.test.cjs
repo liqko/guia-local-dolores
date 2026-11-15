@@ -80,3 +80,10 @@ test('una respuesta de panel administrativo no debe sobrescribir la sesión pers
  assert.equal(h.calls[0].auth,'Bearer '+concedido,'el panel usa su concesión');
  assert.equal(h.storage.getItem('gld_suscriptor_token_v2'),personal,'no debe sustituirse la credencial personal por la del panel');
 });
+test('renovación personal auténtica actualiza sólo su sesión',async()=>{
+ const old=token('GLD_SUBSCRIBER','personal'),next=token('GLD_SUBSCRIBER','personal-renovado');
+ const h=harness({replies:[{status:200,body:{success:true},headers:{'X-GLD-Session-Token':next,'X-GLD-Session-Kind':'subscriber'}}]});
+ h.storage.setItem('gld_suscriptor_token_v2',old);
+ await h.win.fetch(WORKER+'/commerce',auth(old));
+ assert.equal(h.storage.getItem('gld_suscriptor_token_v2'),next);
+});
