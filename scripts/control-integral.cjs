@@ -26,6 +26,7 @@ const groups = {
     ['Descargas iniciales, navegación y modo sin conexión','node',['--test','tests/browser/sw-descargas-cache.cjs']],
   ],
   compartido: [
+    ['Sesiones, accesos administrativos y reintentos en fetch', 'node',['--test','tests/observabilidad/interceptores-sesion-combinados.test.cjs']],
     ['Integridad de los paquetes','node',['--test','tests/publicacion-generica.test.mjs','tests/recursos-publicos.test.mjs']],
     ['Cache de navegador pública','node',['tests/guia/public-cache.cjs']],
   ],
