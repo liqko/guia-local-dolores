@@ -21,7 +21,7 @@ function harness({adminPanel=false,replies=[]}={}){
   return {status:item.status,ok:item.status>=200&&item.status<300,headers:new Headers(item.headers||{}),clone(){return this},async json(){return item.body}};
  };
  const document={documentElement:{dataset:{}},head:{appendChild(){}},createElement(){return {textContent:''}},addEventListener(name,cb){events.set('document:'+name,cb)}};
- const context={window:win,document,location:{href:'https://anunciantes-guialocal.web.app/plataforma/login.html'+(adminPanel?'?administracion=nonce1':''),origin:'https://anunciantes-guialocal.web.app'},URL,Headers,Request,Promise,Map,Set,Date,JSON,Error,DOMException,console,atob:s=>Buffer.from(s,'base64').toString(),setTimeout:cb=>{return 1},clearTimeout:()=>{},};
+ const context={window:win,localStorage:storage,CustomEvent:class CustomEvent{constructor(type,options){this.type=type;this.detail=options?.detail;}},document,location:{href:'https://anunciantes-guialocal.web.app/plataforma/login.html'+(adminPanel?'?administracion=nonce1':''),origin:'https://anunciantes-guialocal.web.app'},URL,Headers,Request,Promise,Map,Set,Date,JSON,Error,DOMException,console,atob:s=>Buffer.from(s,'base64').toString(),setTimeout:cb=>{return 1},clearTimeout:()=>{},};
  // Avoid real time delays when testing finite retries.
  context.setTimeout=cb=>{queueMicrotask(cb);return 1};
  vm.runInNewContext(PANEL,context,{filename:'panel-administrativo155.js'});
