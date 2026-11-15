@@ -6,7 +6,7 @@
    red del proveedor y almacenamiento facturable se declaran desconocidos, NO cero.
 */
 const U=['worker_requests','kv_reads','kv_writes','kv_deletes','d1_queries','d1_rows_read','d1_rows_written','identity_requests','bytes_request','bytes_response'];
-const unknownProvider=['cpu_ms','do_gb_seconds','storage_gb_month','billable_egress_gb','firebase_reads','firebase_writes','firebase_deletes'];
+const unknownProvider=['worker_cpu_ms','billable_egress_gb','d1_storage_gb_month','kv_storage_gb_month','identity_service_cost'];
 const json=v=>JSON.stringify(v);
 const parse=s=>{try{return JSON.parse(s)}catch{return null}};
 const enc=new TextEncoder();
@@ -14,11 +14,15 @@ const validId=v=>typeof v==='string'&&/^[\w:-]{1,120}$/.test(v);
 function meter(action,env){
  const units=Object.fromEntries(U.map(k=>[k,0]));units.worker_requests=1;
  const rates=parse(env.GLD2_RATES_USD||'{}')||{};
+ const limits=parse(env.GLD2_QUOTAS||'{}')||{};
+ const absent=new Set();
  const db=env.GLD2_DB;
  const kv=env.GLD2_PUBLIC;
  function capture(result){
-  units.d1_rows_read+=Number(result.meta?.rows_read||0);
-  units.d1_rows_written+=Number(result.meta?.rows_written||0);
+  for(const [unit,field] of [['d1_rows_read','rows_read'],['d1_rows_written','rows_written']]){
+   if(Number.isFinite(result?.meta?.[field]))units[unit]+=result.meta[field];
+   else absent.add(unit);
+  }
   return result;
  }
  async function query(sql,...args){
@@ -27,19 +31,27 @@ function meter(action,env){
  }
  async function one(sql,...args){const r=await query(sql,...args);return r.results?.[0]??null;}
  async function write(sql,...args){return query(sql,...args);}
+ async function batch(statements){
+  units.d1_queries+=statements.length;
+  const results=await db.batch(statements);
+  for(const result of results)capture(result);
+  return results;
+ }
  const cache={
   async get(key){units.kv_reads++;return kv.get(key,'json')},
   async put(key,val){units.kv_writes++;return kv.put(key,json(val))},
   async delete(key){units.kv_deletes++;return kv.delete(key)}
  };
  function snapshot(){
-  const missing=[...unknownProvider,...U.filter(k=>!Number.isFinite(rates[k]))];
+  const missing=[...new Set([...unknownProvider,...absent,...U.filter(k=>!Number.isFinite(rates[k]))])];
   const priced=U.filter(k=>Number.isFinite(rates[k]));
   const knownUSD=priced.reduce((sum,k)=>sum+units[k]*rates[k],0);
-  return {action,units:{...units},knownUSD,complete:missing.length===0,missing,
-    mode:'REAL_OPERATIONS_INSTRUMENTED',note:'El coste es parcial hasta conectar métricas de facturación del proveedor'};
+  const quotaShare=Object.fromEntries(U.filter(k=>Number.isFinite(limits[k])&&limits[k]>0)
+   .map(k=>[k,{limit:limits[k],actionPercent:100*units[k]/limits[k]}]));
+  return {action,units:{...units},knownUSD,complete:missing.length===0,missing,quotaShare,
+    mode:'INSTRUMENTED_OPERATIONS',note:'Costo y cuota por acción; componentes faltantes no se consideran cero'};
  }
- return {query,one,write,cache,units,snapshot};
+ return {query,one,write,batch,cache,units,snapshot};
 }
 function headers(request,env){
  const origin=request.headers.get('origin')||'';
@@ -150,7 +162,7 @@ async function route(request,env,m,url){
   if(!admin)fail('Sólo Gran Hermano puede publicar en esta primera implementación',403);
   const entity=await m.one('SELECT city,kind FROM gld2_entities WHERE id=? AND removed=0',id);
   if(!entity)fail('Registro inexistente',404);
-  const result=await env.GLD2_DB.batch([
+  const result=await m.batch([
    env.GLD2_DB.prepare(`UPDATE gld2_entities SET revision=revision+1,published=?
      WHERE id=? AND revision=? AND EXISTS
       (SELECT 1 FROM gld2_roles WHERE principal_id=? AND role='GRAN_HERMANO' AND active=1)`)
@@ -158,8 +170,6 @@ async function route(request,env,m,url){
    env.GLD2_DB.prepare(`INSERT INTO gld2_revisions(city,kind,revision)
      SELECT ?,?,1 WHERE changes()=1
      ON CONFLICT(city,kind) DO UPDATE SET revision=revision+1`).bind(entity.city,entity.kind)]);
-  m.units.d1_queries+=2;
-  for(const item of result){m.units.d1_rows_read+=Number(item.meta?.rows_read||0);m.units.d1_rows_written+=Number(item.meta?.rows_written||0);}
   if(result[0]?.meta?.changes!==1)fail('La revisión o los permisos cambiaron',409);
   return {id,revision:expected_revision+1,published};
  }
@@ -177,7 +187,7 @@ async function route(request,env,m,url){
   // The transaction guarantees an atomic entity + publication revision. No KV invalidation required:
   // publication keys are immutable and versioned.
   // Revalidación de permiso DENTRO de la escritura atómica.
-  const rs=await env.GLD2_DB.batch([
+  const rs=await m.batch([
    env.GLD2_DB.prepare(`UPDATE gld2_entities SET revision=revision+1,public_json=?,data_json=?
      WHERE id=? AND revision=? AND
        (owner_id=? OR EXISTS(SELECT 1 FROM gld2_roles WHERE principal_id=? AND role='GRAN_HERMANO' AND active=1)
@@ -186,8 +196,6 @@ async function route(request,env,m,url){
    env.GLD2_DB.prepare(`INSERT INTO gld2_revisions(city,kind,revision)
      SELECT ?,?,1 WHERE changes()=1
      ON CONFLICT(city,kind) DO UPDATE SET revision=revision+1`).bind(e.city,e.kind)]);
-  m.units.d1_queries+=2;
-  for(const r of rs){m.units.d1_rows_read+=Number(r.meta?.rows_read||0);m.units.d1_rows_written+=Number(r.meta?.rows_written||0);}
   if(rs[0]?.meta?.changes!==1)fail('Revisión o permiso cambiado; no se guardó',409);
   return {id,revision:expected_revision+1};
  }
