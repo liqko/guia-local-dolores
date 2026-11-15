@@ -52,15 +52,20 @@ test('reutiliza HTML sin intervalos y actualiza al cambiar versión; datos priva
   const registrations=await page.evaluate(async()=>(await navigator.serviceWorker.getRegistrations()).map(r=>new URL(r.scope).pathname));
   assert(registrations.includes('/'), 'Falta caché pública');
   assert(registrations.includes('/plataforma/'), 'No debe perderse el Service Worker privado');
-  await page.reload({waitUntil:'load'});
+  // En la primera activación Chrome puede no controlar aún la navegación.
+  // Medimos recargas sólo después de que el SW haya guardado el HTML real.
+  let primed=false;
+  for(let attempt=0;attempt<5;attempt++){
+    await page.reload({waitUntil:'load'});
+    primed=await page.evaluate(async()=>{
+      const cache=await caches.open('gld-public-document-v1');
+      return !!await cache.match('/descubrir',{ignoreVary:true});
+    });
+    if(primed)break;
+  }
+  assert(primed,'El navegador debe haber guardado HTML público después de entrar');
   const requestsBeforeCache=counter.documentGET;
   await page.reload({waitUntil:'load'});
-  console.log('CACHE_DIAGNOSTIC',JSON.stringify({counter,cache:await page.evaluate(async()=>{
-    const cache=await caches.open('gld-public-document-v1');
-    const response=await cache.match('/descubrir',{ignoreVary:true});
-    const head=await fetch('/descubrir',{method:'HEAD',cache:'no-store'});
-    return {keys:(await cache.keys()).map(k=>k.url),storedETag:response?.headers.get('ETag'),headETag:head.headers.get('ETag'),headStatus:head.status,controller:navigator.serviceWorker.controller?.scriptURL};
-  })}));
   assert.equal(counter.documentGET,requestsBeforeCache,'El mismo HTML no debe descargarse de nuevo');
   assert(counter.documentHEAD>=1,'Al entrar hay que comprobar versión por cabeceras');
   assert.equal(await page.locator('#revision').innerText(),'1');
