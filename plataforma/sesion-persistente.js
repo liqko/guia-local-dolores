@@ -41,6 +41,9 @@
     signal?.addEventListener('abort',abort,{once:true});
    });
   }
+  // Una concesión temporal del panel administrativo nunca debe renovar ni
+  // sustituir el token de la sesión personal guardada en este navegador.
+  if(window.GLD_ADMIN_PANEL155?.grant)return r;
   const token=r.headers.get('X-GLD-Session-Token'),kind=r.headers.get('X-GLD-Session-Kind'),key=keys[kind];
   if(token&&key&&read(key)===sent){try{known.add(sent);known.add(token);localStorage.setItem(key,token);aliases.set(sent,token);window.dispatchEvent(new CustomEvent('gld-session-updated',{detail:{kind}}));}catch{}}
   return r;
