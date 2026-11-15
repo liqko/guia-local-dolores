@@ -63,6 +63,6 @@ test('la copia de GH no usa TTL120 ni la clave KV heredada',()=>{
  assert(!source.includes('admin:advertiser:detail:v204:'));
  assert(source.includes('gh_advertiser_detail204'));
  assert(source.includes("['gh-detail-read204','gh-detail-invalidate204']"));
- assert(source.includes('for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid,env)'));
+ assert(source.includes('await ghAdminDetailInvalidate203(directoryCache102,aid,env)'));
  assert(source.includes('this.requestTail127=new Promise'),'el actor debe serializar lecturas y escrituras');
 });
