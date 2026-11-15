@@ -6,8 +6,8 @@ const source=fs.readFileSync('worker/worker206.txt','utf8');
 const start=source.indexOf('GldPublicCache119.prototype.ghDetail204=async function(body){');
 const end=source.indexOf('\nGldPublicCache119.prototype.commerceMaster209=',start);
 assert(start>0&&end>start,'La copia GH debe existir en el actor duradero real');
-function setup(){
- const store=new Map(),calls={build:0,select:0,insert:0,delete:0,sql:0};
+function setup(existingStore=null){
+ const store=existingStore||new Map(),calls={build:0,select:0,insert:0,delete:0,sql:0};
  class GldPublicCache119{}
  const ctx={GldPublicCache119,Response,JSON,String,Date,Error,
   crypto:{randomUUID:()=> 'test-uuid'},
@@ -46,6 +46,15 @@ test('GH relee durante 24h sin reconstruir ni escribir',async()=>{
  assert.equal(calls.build,1);
  assert.equal(calls.insert,1);
  assert.equal(calls.select,2);
+});
+test('GH vuelve a abrir tras reiniciarse el actor sin reconstruir ni escribir datos',async()=>{
+ const first=setup();await operation(first.actor);
+ const again=setup(first.store);
+ const value=await operation(again.actor);
+ assert.equal(value.detail.revision,1);
+ assert.equal(again.calls.build,0);
+ assert.equal(again.calls.insert,0);
+ assert.equal(again.calls.select,1);
 });
 test('un cambio confirmado invalida la copia del mismo anunciante y reconstruye una sola vez',async()=>{
  const {actor,calls}=setup();
