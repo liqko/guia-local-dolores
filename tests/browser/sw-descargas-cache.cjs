@@ -17,7 +17,7 @@ test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión
       res.setHeader('Content-Type','text/javascript');
       return res.end(sw);
     }
-    if(path===OFFLINE)return res.end('<!doctype html><html><body>Disponible sin conexión</body></html>');
+    if(path===OFFLINE)return res.end('<!doctype html><html><body>GLD_OFFLINE_FALLBACK</body></html>');
     if(path.startsWith('/plataforma/') && path.endsWith('.html')){
       res.setHeader('Content-Type','text/html');
       return res.end('<!doctype html><html><body>'+path+'</body></html>');
@@ -49,7 +49,7 @@ test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión
     await page.reload();
     assert((await page.locator('body').innerText()).includes('/plataforma/eventos.html'),'Evento visitado debe seguir disponible offline');
     await page.goto(origin+'/plataforma/actividades.html');
-    assert((await page.locator('body').innerText()).includes('Disponible sin conexión'),'Ruta no visitada usa offline general');
+    assert((await page.locator('body').innerText()).includes('GLD_OFFLINE_FALLBACK'),'Ruta no visitada usa offline general');
     await context.close();
     console.log(JSON.stringify({verified:true,initialRequests:precached,offlineVisited:true,offlineUnvisitedFallback:true}));
   } finally {
