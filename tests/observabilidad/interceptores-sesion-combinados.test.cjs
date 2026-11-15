@@ -69,3 +69,14 @@ test('el límite de cinco reintentos se aplica exclusivamente a GET con señal e
  await h.win.fetch(WORKER+'/commerce',{method:'GET'});
  assert.equal(h.calls.length,6);
 });
+test('una respuesta de panel administrativo no debe sobrescribir la sesión personal',async()=>{
+ const personal=token('GLD_SUBSCRIBER','personal');
+ const concedido=token('GLD_SUBSCRIBER','administracion');
+ const renovado=token('GLD_SUBSCRIBER','administracion-nuevo');
+ const h=harness({adminPanel:true,replies:[{status:200,body:{success:true},headers:{'X-GLD-Session-Token':renovado,'X-GLD-Session-Kind':'subscriber'}}]});
+ h.storage.setItem('gld_suscriptor_token_v2',personal);
+ h.fireGrant({success:true,token:concedido,relacion:{anunciante_id:'a1'}});
+ await h.win.fetch(WORKER+'/commerce',auth(personal));
+ assert.equal(h.calls[0].auth,'Bearer '+concedido,'el panel usa su concesión');
+ assert.equal(h.storage.getItem('gld_suscriptor_token_v2'),personal,'no debe sustituirse la credencial personal por la del panel');
+});
