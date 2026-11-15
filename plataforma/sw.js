@@ -9,8 +9,7 @@ self.addEventListener('install',event=>{
  event.waitUntil((async()=>{
    const cache=await caches.open(SHELL_CACHE);
    await cache.add(OFFLINE_PAGE);
-   // Archivos públicos de la interfaz. Los fallos no impiden instalar el modo sin conexión.
-   await Promise.all(SHELL.filter(x=>x!==OFFLINE_PAGE).map(x=>cache.add(x).catch(()=>{})));
+   // Otras pantallas se guardan al visitarlas, sin precarga de archivos no solicitados.
    await self.skipWaiting();
  })());
 });
