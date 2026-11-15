@@ -994,6 +994,15 @@ function createDb(env) {
  * Nunca caduca las fichas por reloj: la caché se invalida sólo tras un commit exitoso.
  * La autorización y las sesiones siguen su propio ciclo de seguridad.
  */
+// El registro de invalidaciones dura UNA solicitud, nunca toda la vida del Worker.
+const GH_INVALIDATIONS204=new WeakMap();
+function ghInvalidatedForRequest204(env){
+ const scope=env.GLD_CACHE_KV;
+ if(!scope)return new Set();
+ let ids=GH_INVALIDATIONS204.get(scope);
+ if(!ids){ids=new Set();GH_INVALIDATIONS204.set(scope,ids);}
+ return ids;
+}
 async function invalidateGhDetailsFromWrites210(env,entries){
  if(!env.GLD_PUBLIC_CACHE||!entries?.length)return;
  const byAdvertiser=new Set(),publicityIds=new Set(),ownerSubscribers=new Set();
@@ -1027,7 +1036,7 @@ async function invalidateGhDetailsFromWrites210(env,entries){
   }
  }
  // La primera invalidación efectiva basta por anunciante y solicitud.
- const seen=env.__gldGhInvalidated204||(env.__gldGhInvalidated204=new Set());
+ const seen=ghInvalidatedForRequest204(env);
  for(const aid of byAdvertiser)if(!seen.has(aid)){
   await ghDetailActor204(env,aid,'gh-detail-invalidate204');
   seen.add(aid);
@@ -10349,7 +10358,7 @@ function withPanelCacheV48(db,env,report){
         if(relation.anunciante_id)detailChanged204.add(String(relation.anunciante_id));
       }
     }
-    const ghSeen204=env.__gldGhInvalidated204||(env.__gldGhInvalidated204=new Set());
+    const ghSeen204=ghInvalidatedForRequest204(env);
     for(const aid of detailChanged204)if(!ghSeen204.has(aid)){
       await ghAdminDetailInvalidate203(directoryCache102,aid,env);
       ghSeen204.add(aid);
