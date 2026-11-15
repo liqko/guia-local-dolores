@@ -13,7 +13,7 @@ function setup(){
   crypto:{randomUUID:()=> 'test-uuid'},
   requestCache121:env=>env,observeKv117:env=>env,
   roleSourceDb192:db=>db,requestDb119:db=>db,observeDbV41:db=>db,createDb:()=>({}),
-  withPrivateCacheV46:db=>db,
+  withPrivateCacheV46:db=>db,withAuthCacheV58:db=>db,
   withPanelCacheV48:db=>({...db,flushLoginCache:async()=>{}}),
   consumption136:()=>({}),
   advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build};}
