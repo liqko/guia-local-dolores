@@ -5,5 +5,8 @@
   window.addEventListener('load',function(){
     navigator.serviceWorker.register('/plataforma/sw.js',{scope:'/plataforma/'})
       .catch(err=>console.warn('Guía Local: modo sin conexión no disponible',err));
+    // El segundo registro controla sólo la navegación pública /descubrir.
+    navigator.serviceWorker.register('/descubrir-sw.js',{scope:'/'})
+      .catch(err=>console.warn('Guía Local: caché pública no disponible',err));
   },{once:true});
 })();
