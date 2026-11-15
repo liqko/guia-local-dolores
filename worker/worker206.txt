@@ -10212,7 +10212,7 @@ function withPanelCacheV48(db,env,report){
     return copy(known.get(k)||null);
   }
   function queue(c,id,old,row){
-    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id,
+    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id,previousPublicity:old?.publicidad_id,
       ownerContactChanged:c==='suscriptores'&&['nombre','mail','whatsapp','telefono'].some(k=>old?.[k]!==row?.[k])});
     const entry=fields[c];if(!entry)return;
     for(const field of (Array.isArray(entry)?entry:[entry])){
@@ -10263,6 +10263,19 @@ function withPanelCacheV48(db,env,report){
     }
     // Los propietarios forman parte del detalle de GH. Una modificación de
     // nombre o contacto debe actualizar sus fichas, sin barridos por tiempo.
+    // Las relaciones de publicidad identifican la pieza, no al anunciante.
+    // Resolver su titular una sola vez por pieza, exclusivamente tras cambios.
+    const publicityChildren204=new Set();
+    for(const change of directoryChanges102.values())
+      if(change.c==='publicidad_media'||change.c==='publicidad_segmentacion')
+        for(const id of [change.row?.publicidad_id,change.previousPublicity])
+          if(id)publicityChildren204.add(String(id));
+    for(const pid of publicityChildren204){
+      const parentChange=directoryChanges102.get('publicidades/'+pid);
+      const parent=parentChange?parentChange.row:await db.get('publicidades',pid);
+      for(const aid of [parent?.anunciante_id,parentChange?.previousAdvertiser])
+        if(aid)detailChanged204.add(String(aid));
+    }
     for(const change of directoryChanges102.values()){
       if(change.c!=='suscriptores'||!change.ownerContactChanged)continue;
       const sid=String(change.id||'').trim();
