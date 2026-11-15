@@ -52,8 +52,10 @@ test('sólo /descubrir entra a la caché breve del SW público',async()=>{
   await page.reload();
   assert.equal(await page.locator('#version').innerText(),'1');
   assert.equal(state.discoverRequests,2,'Primera recarga bajo control del SW obtiene la página y la guarda');
+  console.log('CACHE_DIAGNOSTIC_FIRST',JSON.stringify(await page.evaluate(async()=>({controller:navigator.serviceWorker.controller?.scriptURL,keys:await caches.keys(),entries:(await Promise.all((await caches.keys()).map(async k=>({name:k,items:(await (await caches.open(k)).keys()).map(x=>x.url)}))))}))));
   state.html=2;
   await page.reload();
+  console.log('CACHE_DIAGNOSTIC_SECOND',JSON.stringify(await page.evaluate(async()=>({controller:navigator.serviceWorker.controller?.scriptURL,keys:await caches.keys(),entries:(await Promise.all((await caches.keys()).map(async k=>({name:k,items:(await (await caches.open(k)).keys()).map(x=>x.url)}))))}))));
   assert.equal(state.discoverRequests,2,'Recargas posteriores dentro de 60 segundos no descargan HTML');
   await page.waitForTimeout(1600);
   await page.reload();
