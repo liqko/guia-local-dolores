@@ -2439,11 +2439,33 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
         }
         function renderRedesNivel3(item){return redesNivel_(item,3,false);}
         function renderRedesNivel4(item){return redesNivel_(item,4,false);}
+        // Un enlace común pertenece al anunciante; el diferente, a su sede.
+        const GLD_REDES_CAMPOS_=['instagram','facebook','youtube','tiktok','linkedin','x'];
+        function redesComunesSedes_(item,nivelVisual){
+          const sedes=sedesPublicables_(item,nivelVisual);
+          if(!sedes.length)return Object.fromEntries(GLD_REDES_CAMPOS_.map(k=>[k,String(item[k]||'').trim()]));
+          const configuradas=item.redes_web_comunes?.habilitado===true?item.redes_web_comunes:{};
+          const comunes={};
+          for(const campo of GLD_REDES_CAMPOS_){
+            const valores=sedes.map(s=>String(s[campo]||'').trim());
+            const iguales=valores.length>0&&valores.every(v=>v&&v===valores[0]);
+            const explicito=String(configuradas[campo]||'').trim();
+            if(iguales)comunes[campo]=valores[0];
+            else if(explicito && valores.every(v=>!v||v===explicito))comunes[campo]=explicito;
+          }
+          return comunes;
+        }
+        function redesParticularesSede_(item,sede,nivelVisual){
+          const comunes=redesComunesSedes_(item,nivelVisual);
+          const soloSede={...sede};
+          for(const campo of GLD_REDES_CAMPOS_){
+            if(String(soloSede[campo]||'').trim()===String(comunes[campo]||'').trim())soloSede[campo]='';
+          }
+          return redesNivel_(soloSede,nivelVisual,false);
+        }
         function renderRedesBloque(item,nivelVisual){
           if(contactoUnicoNivel_(nivelVisual))return '';
-          const sedes=sedesPublicables_(item,nivelVisual);
-          const fuentes=sedes.length?sedes:[item];
-          return fuentes.map(sede=>redesNivel_(sede,nivelVisual,false)).filter(Boolean).join('');
+          return redesNivel_(redesComunesSedes_(item,nivelVisual),nivelVisual,false);
         }
 
         function permisoNivel_(nivel,clave,base){const v=GLD_CLASSIFICATION.flag(reglaNivel_(nivel)[clave]);return v===null?base:v;}
@@ -2610,6 +2632,9 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             let markup='<div class="sede-ficha">';
             if(nombre)markup+='<div class="sede-nombre">'+nombre.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</div>';
             markup+=contenido.join(espacio);
+            // Los perfiles exclusivos se visualizan dentro de su sede.
+            const redesPropias=redesParticularesSede_(item,sede,nivelVisual);
+            if(redesPropias)markup+=redesPropias;
             markup+='</div>';
             tarjetas.push(markup);
           }
