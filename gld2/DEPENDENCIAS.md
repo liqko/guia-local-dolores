@@ -3,7 +3,7 @@ Estado: **NO APROBADO PARA IMPLEMENTACIÓN GLOBAL**. Revisado el 15/11/2026 cont
 
 ## Convención indispensable
 
-- **C — confirmada:** se ve expresamente en UI o contrato del repositorio.
+- **C — confirmada:** hay evidencia concreta del vínculo en un contrato o código inspeccionado (productor/campo/consumidor); **una pestaña visible solo confirma existencia de interfaz, no dependencia funcional**.
 - **D — definida:** decisión de arquitectura GLD2, aún sin implementación ni prueba.
 - **P — pendiente:** relación posible, **NO afirmarla como obligatoria**.
 - Flecha A → B significa que **B consume el dato/regla A**. No significa automáticamente que un cambio de A exija reconstruir B: la invalidación depende de los campos realmente usados.
@@ -38,7 +38,7 @@ flowchart TD
 
 La capa de autorización controla mutaciones y accesos privados, **no obliga a consultar una base de permisos por cada lectura pública anónima**. La identidad no se impone indiscriminadamente a contenido abierto. La publicación no se interpreta como permiso para difundir antes del corte previsto.
 
-## Mapa 2: configuración y producto (C en existencia; vínculos particulares P salvo que se indiquen)
+## Mapa 2: configuración y producto (EXISTENCIA DE CONTROLES comprobada; **todas las flechas funcionales no rastreadas son P**)
 
 ```mermaid
 flowchart TD
@@ -75,7 +75,7 @@ flowchart TD
   ADV --> GUIDE[Vista pública de Guía]
 ```
 
-**Precaución:** las flechas del mapa 2 representan candidatas de consumo por la función; las que no estén verificadas campo a campo siguen siendo **P**. Por ejemplo: `Nodos`, `Acciones`, `Actividades clave` y `Segmentos` existen, pero sus efectos exactos sobre cada pantalla deben localizarse en código y contrato antes de cerrar el mapa. El documento de Publicidad contiene explícitamente decisiones aún abiertas: no elevarlas a reglas técnicas aprobadas.
+**Precaución:** las flechas del mapa 2 que nacen de Gran Hermano representan controles visibles, no prueba de lectura, escritura ni invalidación. Las flechas entre catálogos y funciones son hipótesis **P** hasta identificar productor, nombre de campo, consumidor y acción concreta.  Por ejemplo: `Nodos`, `Acciones`, `Actividades clave` y `Segmentos` existen, pero sus efectos exactos sobre cada pantalla deben localizarse en código y contrato antes de cerrar el mapa. El documento de Publicidad contiene explícitamente decisiones aún abiertas: no elevarlas a reglas técnicas aprobadas.
 
 ## Matriz de impacto por operación: fuente, consecuencia, urgencia, estado
 
@@ -110,6 +110,26 @@ flowchart TD
 4. **Seguridad y lectura pública:** no toda lectura pública requiere sesión o verificación privada. Las operaciones privadas sí deben comprobar permiso vigente.
 5. **Publicación diferida:** un outbox durable NO autoriza publicación inmediata si la regla comercial/operativa exige corte diario. Se separan escritura, autorización, programación y exposición.
 6. **Costos y cuotas:** cada acción incluye procesos indirectos y servidor, y el costo de entregar paquetes y medios; el grafo obliga a incluir ambas direcciones de cambios sólo cuando estén verificadas.
+
+## Auditoría independiente 3: correcciones del grafo y cobertura
+
+**Hallazgo crítico 3.1 — confirmación falsa por presencia de botones.** Las filas que dicen «C funcionalidad» confirman la EXISTENCIA del módulo, pero NO sus relaciones ni sus efectos. Se prohíbe cambiar la marca de una dependencia a C basándose sólo en un rótulo de navegación. Para elevar a C se exige localizar el dato en origen, el punto exacto de consulta y su empleo en una acción. **Corrección aplicada a la convención y a la interpretación del mapa 2.**
+
+**Hallazgo crítico 3.2 — mapa unidireccional y omisión de efectos al administrar.** Usuario, Anunciante y Gran Hermano pueden actuar sobre datos compartidos, y el cambio resultante afecta proyecciones, colas de moderación o capacidad comercial según caso. La flecha gráfica aislada no basta: el contrato de cada operación debe incluir *quién escribe*, *a quién notifica*, *qué versión invalida*, *quién vuelve a consultar* y *qué datos privados deben permanecer aislados*. No completar flechas automáticas entre funcionalidades sin prueba.
+
+**Hallazgo crítico 3.3 — temporalidad confundida.** Separar cuatro fechas/revisiones: momento de escritura del maestro, momento de efecto de la regla, publicación de la copia diaria 01:00 y lectura/cache del usuario. Revocaciones y seguridad actúan inmediatamente, pero no sustituyen las reglas de publicación. La copia preparada ausente no equivale a lista vacía.
+
+**Hallazgo crítico 3.4 — grafo de consumo insuficiente.** El grafo debe cubrir *consulta del manifiesto*, *cache hit/miss*, *descarga de paquetes e imágenes*, *autorización*, *guardado*, *outbox*, *reintentos*, *tareas nocturnas* y *instrumentación misma*. Para cada circuito separar costo de ejecutar la acción, costo de publicar y costo de lecturas posteriores; las cifras posteriores se ponderan por volumen de usuarios, no se imputan arbitrariamente al autor de la publicación.
+
+**Hallazgo 3.5 — no confundir Carcasa con módulo.** Se conserva la distinción del contrato rector: Usuario/Anunciante/GH son los tres planos; Guía, Eventos, Actividades, Farmacias, Efemérides y demás son funciones; Carcasa es presentación. Compartir Carcasa no prueba dependencia.
+
+**Evidencia cotejada en la tercera revisión:**
+- `plataforma/administracion.html` contiene botones de `Configuración de plataforma` para territorio, nodos, segmentos, niveles, prestaciones, funcionalidades, categorías, actividades clave, acciones, categorías de eventos/actividades, roles, moderación +18 y términos. **Confirmación de controles, no de efectos reales sobre otros módulos**.
+- La misma interfaz muestra módulos de Eventos, Promociones, Publicidad, Actividades, Empleo, Farmacias y Efemérides; no acredita que todos tengan el mismo flujo ni el mismo almacenamiento.
+- `AGENTS.md` documenta separación de las tres interfaces y un corte diario común a las 01:00, con autorización y revocación inmediatas.
+- `docs/PUBLICIDAD_CONTRATACION_Y_DISTRIBUCION_PENDIENTE.md` advierte decisiones no cerradas: no presentar relaciones publicitarias pendientes como confirmadas.
+
+**Punto todavía NO resuelto:** las 20 filas son un mapa de alto nivel, no un inventario íntegro de relaciones. Ningún campo de producto puede migrarse usando sólo estas flechas. La siguiente verificación técnica es rastrear vínculos verdaderos por entidad/campo/endpoint y adjuntar casos comprobables.
 
 ## Puerta de aprobación del mapa
 
