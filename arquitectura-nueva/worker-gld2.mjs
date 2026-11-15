@@ -129,6 +129,40 @@ async function route(request,env,m,url){
   const {data_json,public_json,...fields}=entity;
   return {...fields,public_data:parse(public_json)||{},private_data:parse(data_json)||{}};
  }
+ if(method==='POST'&&path==='/gld2/create'){
+  const body=await request.json();
+  const {id,kind,city,public_data={},private_data={}}=body||{};
+  if(!validId(id)||!validId(city)||!['guide','event','activity','promotion','advertising'].includes(kind)||
+     !public_data||typeof public_data!=='object'||Array.isArray(public_data)||
+     !private_data||typeof private_data!=='object'||Array.isArray(private_data))fail('Datos de publicación inválidos');
+  const save=await m.write('INSERT OR IGNORE INTO gld2_entities(id,kind,city,owner_id,revision,published,removed,public_json,data_json) VALUES(?,?,?,?,1,0,0,?,?)',
+    id,kind,city,who,json(public_data),json(private_data));
+  if(save.meta?.changes!==1)fail('Ya existe ese identificador',409);
+  return {id,kind,city,revision:1,published:false};
+ }
+ if(method==='POST'&&path==='/gld2/publish'){
+  const body=await request.json();
+  const {id,expected_revision,published}=body||{};
+  if(!validId(id)||!Number.isSafeInteger(expected_revision)||expected_revision<1||typeof published!=='boolean')
+   fail('Estado de publicación inválido');
+  // Publicación moderada: sólo un administrador autorizado, nunca un permiso delegado.
+  const admin=await m.one('SELECT 1 AS ok FROM gld2_roles WHERE principal_id=? AND role=? AND active=1',who,'GRAN_HERMANO');
+  if(!admin)fail('Sólo Gran Hermano puede publicar en esta primera implementación',403);
+  const entity=await m.one('SELECT city,kind FROM gld2_entities WHERE id=? AND removed=0',id);
+  if(!entity)fail('Registro inexistente',404);
+  const result=await env.GLD2_DB.batch([
+   env.GLD2_DB.prepare(`UPDATE gld2_entities SET revision=revision+1,published=?
+     WHERE id=? AND revision=? AND EXISTS
+      (SELECT 1 FROM gld2_roles WHERE principal_id=? AND role='GRAN_HERMANO' AND active=1)`)
+      .bind(published?1:0,id,expected_revision,who),
+   env.GLD2_DB.prepare(`INSERT INTO gld2_revisions(city,kind,revision)
+     SELECT ?,?,1 WHERE changes()=1
+     ON CONFLICT(city,kind) DO UPDATE SET revision=revision+1`).bind(entity.city,entity.kind)]);
+  m.units.d1_queries+=2;
+  for(const item of result){m.units.d1_rows_read+=Number(item.meta?.rows_read||0);m.units.d1_rows_written+=Number(item.meta?.rows_written||0);}
+  if(result[0]?.meta?.changes!==1)fail('La revisión o los permisos cambiaron',409);
+  return {id,revision:expected_revision+1,published};
+ }
  if(method==='POST'&&path==='/gld2/update'){
   const body=await request.json();
   const {id,expected_revision,public_data,private_data}=body||{};
