@@ -1931,6 +1931,22 @@ let sesionSuscriptor = null;
 let autorizacionesAnunciante = [];
 let gldSubscriberToken = '';
 
+function gldActualizarFichaLocal210(body,result){
+ if(!sesion||String(body.advertiserId||body.advertiser_id||body.id||body.__id||'')!==String(sesion.id))return;
+ const packet=sesion.ficha_preparada?.advertiser;
+ if(!packet||result.success!==true||result.updated===false)return;
+ if(result.datos||result.advertiser)packet.datos=result.datos||result.advertiser;
+ else if(result.patch)packet.datos={...packet.datos,...result.patch};
+ if(result.revision_datos)packet.revision_datos=result.revision_datos;
+ if(result.sedes||result.changed_sedes){
+  const rows=new Map((packet.sedes||[]).map(row=>[String(row.sede_id||row.id),row]));
+  for(const row of result.sedes||result.changed_sedes||[])rows.set(String(row.sede_id||row.id),row);
+  packet.sedes=[...rows.values()];
+ }
+ if(result.deleted&&result.sede_id){packet.sedes=(packet.sedes||[]).filter(row=>String(row.sede_id||row.id)!==String(result.sede_id));if(packet.revision_sedes)delete packet.revision_sedes[result.sede_id];}
+ if(result.revision_sedes)packet.revision_sedes={...packet.revision_sedes,...result.revision_sedes};
+}
+window.addEventListener('gld-commerce-saved210',event=>gldActualizarFichaLocal210(event.detail.body,event.detail.result));
 function gldAuthHeaders_(extra={}){
   return {
     ...(gldSubscriberToken ? {Authorization:'Bearer '+gldSubscriberToken} : {}),
@@ -8681,6 +8697,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
     try{
       let administracion=(rel&&rel.administracion&&typeof rel.administracion==='object') ? rel.administracion : null;
       let parametrosFuncionales170=(rel&&rel.configuracion_funcionalidades&&typeof rel.configuracion_funcionalidades==='object')?rel.configuracion_funcionalidades:null;
+      let fichaPreparada210=rel?.ficha_preparada||null;
       if(!administracion||!parametrosFuncionales170){
         const url=`${WORKER_ORIGIN}/commerce?action=permisos_panel&id=${encodeURIComponent(id)}`;
         const r=await fetch(url,{method:'GET',mode:'cors',cache:'no-store',headers:gldAuthHeaders_()});
@@ -8690,6 +8707,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         }
         administracion=j.administracion||administracion||{};
         parametrosFuncionales170=j.configuracion_funcionalidades||parametrosFuncionales170;
+        fichaPreparada210=j.ficha_preparada||null;
       }
       sesion={
         id:id,
@@ -8700,6 +8718,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
         turnos_farma:administracion.turnos_farma||'',
         administracion:administracion,
         configuracion_funcionalidades:parametrosFuncionales170,
+        ficha_preparada:fichaPreparada210,
         relacion_autorizacion:rel
       };
       gldPanelStorage.setItem('comercio_id',id);
@@ -9470,13 +9489,15 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     mostrarPanel('dashboard');
     aplicarFuncionalidadesConfiguradas198();
     window.GLD_EQUIPO159?.mount({aid:sesion.id,role:sesion.relacion_autorizacion?.rol,administrativo:!!window.GLD_ADMIN_PANEL155,base:WORKER_ORIGIN,headers:()=>gldAuthHeaders_()});
-    if(!window.GLD_ADMIN_PANEL155)window.GLD_NOTIFICATIONS102?.load(true);
+    // Las bandejas se consultan al abrirlas, no al mostrar el inicio del anunciante.
 
     if(typeof window.updateDashboardModulesFromData === 'function'){
       window.updateDashboardModulesFromData({administracion:sesion.administracion || {}});
     }
-    if(typeof window.resetDashboardModuleRuntime === 'function'){
-      window.resetDashboardModuleRuntime();
+    const context210=String(sesionSuscriptor?.suscriptor_id||'')+':'+String(sesion.id);
+    if(window.__gldDashboardIdentity210!==context210){
+      window.__gldDashboardIdentity210=context210;
+      if(typeof window.resetDashboardModuleRuntime==='function')window.resetDashboardModuleRuntime();
     }
 
     if(btnLogin){
@@ -9495,8 +9516,12 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     const url = `${WORKER_ORIGIN}/commerce?action=anunciante&id=${encodeURIComponent(sesion.id)}`;
 
     try{
-      const r = await fetch(url, { method:'GET', mode:'cors', headers:gldAuthHeaders_() });
-      const rawResponse = await r.json().catch(()=>({ error:'Respuesta inválida'}));
+      let rawResponse=sesion.ficha_preparada||null;
+      if(!rawResponse){
+        const r=await fetch(url,{method:'GET',mode:'cors',headers:gldAuthHeaders_()});
+        rawResponse=await r.json().catch(()=>({error:'Respuesta inválida'}));
+        if(r.ok&&rawResponse?.success)sesion.ficha_preparada=rawResponse;
+      }
 
       if(rawResponse.error || rawResponse.success===false){
         if(box) box.innerHTML = `<b>Error:</b> ${htmlEscape(rawResponse.error || rawResponse.message || 'No se pudieron cargar los datos')}`;
