@@ -51,13 +51,13 @@ test('sólo /descubrir entra a la caché breve del SW público',async()=>{
   assert.equal(state.discoverRequests,1);
   await page.reload();
   assert.equal(await page.locator('#version').innerText(),'1');
-  assert.equal(state.discoverRequests,1,'Recarga dentro del plazo no debe solicitar HTML a Firebase');
+  assert.equal(state.discoverRequests,2,'Primera recarga bajo control del SW obtiene la página y la guarda');
   state.html=2;
   await page.reload();
-  assert.equal(state.discoverRequests,1,'Cambios HTML en 60 segundos no causan transferencias repetidas');
+  assert.equal(state.discoverRequests,2,'Recargas posteriores dentro de 60 segundos no descargan HTML');
   await page.waitForTimeout(1600);
   await page.reload();
-  assert.equal(state.discoverRequests,2,'Vencimiento vuelve a consultar el origen');
+  assert.equal(state.discoverRequests,3,'Vencimiento vuelve a consultar el origen');
   assert.equal(await page.locator('#version').innerText(),'2','No se conserva HTML viejo después del plazo');
   await page.goto(url+'/plataforma/administracion.html');
   assert.equal(state.adminRequests,1,'Panel administrativo debe seguir usando la red');
