@@ -20,6 +20,14 @@ test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión
       return res.end(sw);
     }
     if(path===OFFLINE)return res.end('<!doctype html><html><body>GLD_OFFLINE_FALLBACK</body></html>');
+    if(path.startsWith('/plataforma/assets/app/')&&path.endsWith('.js')){
+      res.setHeader('Content-Type','text/javascript');
+      return res.end('window.cachedVersion='+JSON.stringify(path));
+    }
+    if(path==='/plataforma/sesion-persistente.js'){
+      res.setHeader('Content-Type','text/javascript');
+      return res.end('window.liveScript=true');
+    }
     if(path.startsWith('/plataforma/') && path.endsWith('.html')){
       res.setHeader('Content-Type','text/html');
       return res.end('<!doctype html><html><body>'+path+'</body></html>');
@@ -47,6 +55,27 @@ test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión
     assert.equal(precached.filter(p=>p==='/plataforma/inicio.html').length,1,'Inicio no se descarga dos veces');
     await page.goto(origin+'/plataforma/eventos.html');
     assert((await page.locator('body').innerText()).includes('/plataforma/eventos.html'));
+    const hash1='/plataforma/assets/app/0123456789abcdefabcd-paquete-ciudad.js';
+    const hash2='/plataforma/assets/app/abcd0123456789abcdef-paquete-ciudad.js';
+    const normal='/plataforma/sesion-persistente.js?v=87';
+    async function requestAsset(path){
+      return page.evaluate(async p=>{
+        const response=await fetch(p);
+        if(!response.ok)throw Error('Recurso no disponible '+p);
+        return response.text();
+      },path);
+    }
+    await requestAsset(hash1);
+    await requestAsset(hash1);
+    assert.equal(accesses.filter(p=>p===hash1).length,1,
+      'Misma revisión inmutable: una sola descarga');
+    await requestAsset(hash2);
+    assert.equal(accesses.filter(p=>p===hash2).length,1,
+      'La nueva revisión se descarga y no reutiliza una anterior');
+    await requestAsset(normal);
+    await requestAsset(normal);
+    assert.equal(accesses.filter(p=>p==='/plataforma/sesion-persistente.js').length,2,
+      'Scripts sin hash deben seguir comprobando actualizaciones');
     // Simular una caída real del servidor; Chrome conserva el Service Worker.
     simulateOffline=true;
     await page.reload();
