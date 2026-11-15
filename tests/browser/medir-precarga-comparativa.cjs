@@ -57,8 +57,10 @@ async function measure(label,source){
 (async()=>{
   const actual=await measure('actual',OLD);
   const corregida=await measure('corregida',NEW);
-  assert(actual.additionalRequests>corregida.additionalRequests,'La corrección debe reducir solicitudes de instalación');
-  assert(actual.additionalBytes>corregida.additionalBytes,'La corrección debe reducir datos enviados');
+  // En revisiones posteriores la versión de main ya contiene la corrección de precargas.
+  // En ese caso comprobar que no regresó; no inventar ahorro incremental.
+  assert(actual.additionalRequests>=corregida.additionalRequests,'No debe aumentar solicitudes de instalación');
+  assert(actual.additionalBytes>=corregida.additionalBytes,'No debe aumentar bytes de instalación');
   assert.equal(corregida.additionalRequests,1,'Sólo debe descargar offline.html');
   console.log('COMPARACION_REAL_BYTES',JSON.stringify({actual,corregida,solicitudesEvitadas:actual.additionalRequests-corregida.additionalRequests,bytesEvitados:actual.additionalBytes-corregida.additionalBytes}));
 })().catch(e=>{console.error(e);process.exitCode=1});
