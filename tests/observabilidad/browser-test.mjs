@@ -12,7 +12,7 @@ const server=http.createServer((req,res)=>{res.setHeader('Content-Type',req.url.
 await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
 let browser;
 try{
-  browser=await chromium.launch({headless:true,args:['--no-sandbox']});const page=await browser.newPage();
+  browser=await chromium.launch({executablePath:process.env.GLD_CHROME || undefined,headless:true,args:['--no-sandbox']});const page=await browser.newPage();
   const batches=[],business=[];
   await page.route('https://login.liqkoargentina.workers.dev/**',async route=>{
     const req=route.request();
