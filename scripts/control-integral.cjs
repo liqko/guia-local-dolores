@@ -22,6 +22,8 @@ const groups = {
   navegador: [
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
     ['Carga, recarga y actualización de Guía en navegador aislado','node',['tests/browser/paquete-ciudad.cjs']],
+    ['Caché segura de Guía, versión y datos privados','node',['--test','tests/browser/descubrir-sin-descarga-repetida.cjs']],
+    ['Descargas iniciales, navegación y modo sin conexión','node',['--test','tests/browser/sw-descargas-cache.cjs']],
   ],
   compartido: [
     ['Integridad de los paquetes','node',['--test','tests/publicacion-generica.test.mjs','tests/recursos-publicos.test.mjs']],
