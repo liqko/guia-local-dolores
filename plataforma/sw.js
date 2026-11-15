@@ -47,6 +47,21 @@ self.addEventListener('fetch',event=>{
  }
  if(request.method!=='GET'||url.origin!==self.location.origin||
     !url.pathname.startsWith('/plataforma/'))return;
+ // Sólo los recursos con hash de contenido y caché inmutable pueden recuperarse
+ // directamente del dispositivo. Cada nueva publicación usa una URL diferente.
+ if(request.mode!=='navigate'&&
+    /^\/plataforma\/assets\/app\/[a-f0-9]{20}-[^/]+\.(?:js|css|woff2?|svg|png|jpe?g|webp)$/i.test(url.pathname)){
+   event.respondWith((async()=>{
+     const cache=await caches.open(SHELL_CACHE);
+     const saved=await cache.match(request);
+     if(saved)return saved;
+     const response=await fetch(request);
+     if(response.ok&&response.type!=='opaque')
+       event.waitUntil(cache.put(request,response.clone()).catch(()=>{}));
+     return response;
+   })());
+   return;
+ }
  if(request.mode==='navigate'){
    event.respondWith((async()=>{
      const cache=await caches.open(SHELL_CACHE);
