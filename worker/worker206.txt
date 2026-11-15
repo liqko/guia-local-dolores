@@ -1049,22 +1049,29 @@ function createCache(env) {
   if (!kv || typeof kv.get !== "function" || typeof kv.put !== "function") {
     throw new Error("Falta binding GLD_CACHE_KV.");
   }
+  // Una misma solicitud no debe pagar varias lecturas KV por la misma clave.
+  // Este almacenamiento es local a la solicitud: no comparte datos entre usuarios.
+  const pendingReads = new Map();
   return {
     invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(env,'pending-events-invalidate'):null,
     async get(key3) {
-      const raw = await kv.get(key3);
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw);
-      } catch (_) {
-        return null;
-      }
+      if (pendingReads.has(key3)) return pendingReads.get(key3);
+      const pending = (async () => {
+        const raw = await kv.get(key3);
+        if (!raw) return null;
+        try { return JSON.parse(raw); } catch (_) { return null; }
+      })();
+      pendingReads.set(key3, pending);
+      try { return await pending; }
+      catch (error) { if (pendingReads.get(key3) === pending) pendingReads.delete(key3); throw error; }
     },
     async put(key3, value, options) {
       await kv.put(key3, JSON.stringify(value), options);
+      pendingReads.set(key3, Promise.resolve(value));
     },
     async del(key3) {
       if (typeof kv.delete === "function") await kv.delete(key3);
+      pendingReads.set(key3, Promise.resolve(null));
     }
   };
 }
