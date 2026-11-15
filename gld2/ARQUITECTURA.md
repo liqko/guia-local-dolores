@@ -99,6 +99,28 @@ Primero cadena completa y observable, después siguiente módulo. Cada entrega r
 - **MEDIA:** un manifiesto consultado de forma costosa puede anular el ahorro de caché; se exige evaluar el costo de revalidación, no asumirlo.
 - **PENDIENTE:** reglas de los campos existentes, estado real de cada módulo, matriz completa de permisos, licencias/excepciones, modelo financiero/quotas y prueba de carga. Requieren inspección, trazabilidad y evidencia; no aprobación tácita.
 
+## Auditoría técnica 3 — condiciones faltantes halladas y subsanadas
+
+**Defecto A — DRY no es «una sola función gigante».** El contrato de lógica reutilizable debe distinguir:
+- servicios compartidos puros para formatos, validación básica de datos y cálculos;
+- reglas y autorización ejecutadas y verificadas en servidor, no en HTML;
+- presentadores de cada plano que reutilizan componentes sin exponer información privada.
+**Prueba:** cambiar una regla o formato una vez debe reflejarse en todos sus consumidores; no debe forzar a cargar módulos no relacionados.
+
+**Defecto B — identificación/costo de una acción incompleta.** Se separan CUATRO conceptos medidos: (i) costo de aceptar o rechazar la acción, (ii) costo de persistir y preparar su publicación, (iii) costo de distribuir y consultar sus resultados posteriormente, (iv) costo de observar, almacenar métricas y mantener servicios. No sumar arbitrariamente vistas de otros usuarios al costo de la creación del evento ni omitirlas del costo total del módulo. El reporte mostrará ambos: costo del ciclo de una acción y costo total de operación/uso bajo una hipótesis explícita de tráfico. Toda proyección debe declarar sus supuestos y evitar doble contabilización.
+
+**Defecto C — «contar» no basta para medir cuotas facturables.** Cada adaptador debe declarar la unidad de factura del proveedor, su unidad interna, fuente de comprobación, tarifa actualizable, cuota/plazo, grado de precisión y conversión documentada. Cuando no haya acceso a métrica de facturación por solicitud, asignar estimación o desconocido, no una cifra falsa de consumo facturado. La conciliación con factura mensual y contadores agregados debe ser automática cuando existan APIs o exportaciones accesibles; de lo contrario se indica explícitamente PENDIENTE. El costo de la propia medición no puede ocultarse.
+
+**Defecto D — seguridad incompleta en vistas derivadas.** No incluir nunca datos de propietario, permisos, tokens o contenido privado en paquetes públicos; los paquetes de Gran Hermano y Anunciante deben estar aislados por identidad, ámbito y revisión de autorización. Ni enlaces compartidos ni cachés entre cuentas pueden saltarse la revalidación. Revocación inmediata: bloqueo de toda nueva operación privada; no prometer borrar instantáneamente contenido ya descargado fuera del control del servidor.
+
+**Defecto E — publicación y corte diario bajo verificación.** La documentación actual exige edición pública diaria a la 01:00. Conservarla como comportamiento base hasta validar otro mecanismo, pero no asumir que constituye ahorro ni que tiene sentido económico. Separar estado del maestro, fecha de efectividad de reglas, revisión autorizada para publicación y revisión pública disponible. En una publicación parcial o fallida, no anunciar revisión nueva y mantener la última copia consistente. En la prueba comparar corte diario y alternativas de actualización, siempre con permisos inmediatos.
+
+**Defecto F — diseño sin matriz de fallas.** Antes de escribir el primer Worker, especificar y probar: doble clic, guardar sin cambios, operación concurrente, dos cuentas, revocación mientras se guarda, paquete parcial, modificación en dos módulos, caché fría/caliente, vencimiento, corte nocturno, reconexión, cambio de ciudad, 500 anunciantes, cuota agotada, métricas ausentes, lectura repetida y reintento. Deben verificarse los efectos funcionales Y los consumos de cada caso.
+
+**Defecto G — perímetro de la primera implementación.** Una pantalla aislada o una API aislada NO será llamada Guía Local 2 funcional. La primera entrega comprobable incorpora operaciones reales en el nuevo entorno, interfaz mínima para ejecutarlas y visor para desglosar solicitudes, operaciones físicas, cuotas y costos; la prueba del usuario no requiere inspeccionar Cloudflare. Las cifras observadas se distinguen de las estimaciones y de los cargos facturados.
+
+**Estado tercera supervisión:** controles de diseño incorporados, **NO certificación de implementación ni de cobertura total del producto**. Las dependencias particulares de cada campo continúan bajo comprobación de fuentes, según mapa.
+
 ## Política de continuidad
 
 Este archivo y el grafo constituyen el criterio rector de la rama nueva. Una implementación que no cumpla una regla de arriba es rechazada. Problemas detectados se resuelven en la capa correspondiente; no se añaden parches en pantallas como sustituto. Las decisiones nuevas se incorporan a la estructura antes del código. Cualquier punto de la plataforma anterior todavía no inventariado se marca PENDIENTE DE RELEVAMIENTO TÉCNICO; no se supone eliminado.
