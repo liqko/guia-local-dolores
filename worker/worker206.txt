@@ -8112,27 +8112,42 @@ async function adminSearchSubscribersV2({ cache, url, env }) {
 }
 // La ficha de GH vive en el mismo almacén duradero del anunciante.
  // La lectura y la invalidación comparten cola por anunciante (sin TTL ni KV de 120s).
-async function ghDetailActor204(env,id,op){
+async function ghDetailActor204(env,id,op,outerReport=null){
  const aid=String(id||'').trim();
  if(!aid||!env?.GLD_PUBLIC_CACHE)throw httpError('No está disponible la copia administrativa duradera.',503);
  const local=env.__gldGuideActor132;
- if(local&&String(local.guideAid132||aid)===aid){
-  const response=await local.ghDetail204({op,aid});
-  const result=await response.json();
-  if(!response.ok)throw httpError(result.error||'Copia administrativa no disponible.',503);
-  return result.detail;
+ let response;
+ if(local&&String(local.guideAid132||aid)===aid)
+  response=await local.ghDetail204({op,aid});
+ else{
+  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
+  response=await actor.fetch(new Request('https://gh-detail.internal/',{method:'POST',body:JSON.stringify({op,aid})}));
  }
- const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
- const response=await actor.fetch(new Request('https://gh-detail.internal/',{method:'POST',body:JSON.stringify({op,aid})}));
  const result=await response.json();
+ if(outerReport){
+  const metric=outerReport.gh_detail_store204??={calls:0,rows_read:0,rows_written:0,cache_misses:0};
+  metric.calls++;
+  metric.rows_read+=Number(result.metrics?.rows_read||0);
+  metric.rows_written+=Number(result.metrics?.rows_written||0);
+  if(result.prepared)metric.cache_misses++;
+  for(const [key,stat]of Object.entries(result.operations||{})){
+   const row=outerReport.operations[key]??={...stat,calls:0,documents_returned:0,failures:0};
+   for(const name of ['calls','documents_returned','failures'])row[name]+=Number(stat[name]||0);
+  }
+  if(result.kv){
+   metric.kv??={get_calls:0,put_calls:0,delete_calls:0,list_calls:0};
+   for(const key of ['get_calls','put_calls','delete_calls','list_calls'])
+    metric.kv[key]+=Number(result.kv[key]||0);
+  }
+ }
  if(!response.ok)throw httpError(result.error||'Copia administrativa no disponible.',503);
  return result.detail;
 }
 async function ghAdminDetailInvalidate203(cache,id,env){
  if(id)await ghDetailActor204(env,id,'gh-detail-invalidate204');
 }
-async function adminAdvertiserDetailV2({ id: id4,env }) {
- return ghDetailActor204(env,id4,'gh-detail-read204');
+async function adminAdvertiserDetailV2({ id: id4,env,report }) {
+ return ghDetailActor204(env,id4,'gh-detail-read204',report);
 }
 async function adminSubscriberDetailV2({ db, id: id4 }) {
   return subscriberDetailV2({ db, subscriberId: id4 });
@@ -8149,7 +8164,7 @@ async function routeAdminV8(ctx) {
   if (m && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
     if (!auth.ok) return json({ success: false, message: auth.message }, 401);
-    return json(await adminAdvertiserDetailV2({ env, id: decodeURIComponent(m[1]) }));
+    return json(await adminAdvertiserDetailV2({ env, report:ctx.report, id: decodeURIComponent(m[1]) }));
   }
   if (path === "/superadmin/subscribers/search" && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
@@ -12519,7 +12534,7 @@ GldPublicCache119.prototype.ghDetail204=async function(body){
  }
  if(body.op!=='gh-detail-read204')throw Error('Operación administrativa no admitida.');
  const stored=this.query('SELECT value FROM gh_advertiser_detail204 WHERE slot=1')[0];
- if(stored)return Response.json({detail:JSON.parse(stored.value),metrics:this.metrics});
+ if(stored)return Response.json({detail:JSON.parse(stored.value),prepared:false,metrics:this.metrics});
  const report={event:'gld_gh_detail_prepare204',worker_version:'209',path:'/internal/gh-detail/prepare',method:'PREPARE',started_at:new Date().toISOString(),request_id:crypto.randomUUID(),status:500,operations:{}};
  const scoped=requestCache121(observeKv117(this.env,report),report);
  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(scoped),report),scoped),report);
@@ -12528,7 +12543,7 @@ GldPublicCache119.prototype.ghDetail204=async function(body){
  await db.flushLoginCache();
  if(detail?.success===true)this.query('INSERT INTO gh_advertiser_detail204(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value',JSON.stringify(detail));
  report.status=200;report.consumption=consumption136(report);
- return Response.json({detail,metrics:this.metrics,operations:report.operations,kv:report.kv});
+ return Response.json({detail,prepared:true,metrics:this.metrics,operations:report.operations,kv:report.kv});
 };
 
 GldPublicCache119.prototype.commerceMaster209=async function(body){
@@ -13189,7 +13204,7 @@ var app_main_v35_default = {
       const action=await observationActionV43(request,url);
       if(action)report.action=action;
       cache.ensureGuideBaseInternal=aid=>ensureGuideBaseFromPrivateInternal({db,cache,advertiserId:aid});
-      const ctx={path,request,url,env,db,cache,request_id143:report.request_id};
+      const ctx={path,request,url,env,db,cache,report,request_id143:report.request_id};
       const advertiserAccess158=await routeAdvertiserAccess155(ctx);if(advertiserAccess158)return await traced(advertiserAccess158);
       const gate155=await roleGate155(ctx);if(gate155)return await traced(gate155);
       const territorialAction=await GLD_ACTIONS138.route(ctx,report);if(territorialAction)return await traced(territorialAction);
