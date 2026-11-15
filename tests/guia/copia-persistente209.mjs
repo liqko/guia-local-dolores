@@ -92,6 +92,12 @@ try{
  const terms=await ok('owner','/advertiser/terms');await ok('owner','/advertiser/terms',{aceptada:true,version:terms.j.actual?.version||terms.j.terms?.version||'2026-10-11',hash:terms.j.actual?.hash||terms.j.terms?.hash});
  const gh=()=>ok('admin','/superadmin/advertisers/A'),owner=()=>ok('owner','/commerce?action=anunciante&advertiserId=A');
  let g=(await gh()).j;
+ // GH, Anunciante y Usuario deben leer copias calientes sin volver a guardarlas.
+ const ghBaseline={...physical},sourceBaseline=allOperations.length;
+ const warmGh=(await gh()).j;
+ assert.equal(warmGh.anunciante.nombre,g.anunciante.nombre,'GH conserva la ficha sin reconstruir');
+ assert.equal(physical.put,ghBaseline.put,'GH no escribe KV al consultar copia caliente');
+ assert.equal(allOperations.slice(sourceBaseline).filter(x=>['GET','query'].includes(x.op)).length,0,'GH no vuelve a consultar Firestore en caliente');
  const beforeAdmin=structuredClone(rows.get('anunciantes_administracion/A')),beforeProfile=structuredClone(rows.get('anunciantes/A'));
  let bad=await as('admin','/superadmin/advertisers/A/save',{commercial:{revision_comercial:g.revision_comercial,funcionalidades_config:{EVENTOS:{cantidad:9}}},profile:{revision_perfil:'bad',pet:true}});
  assert.equal(bad.r.status,409);assert.deepEqual(rows.get('anunciantes_administracion/A'),beforeAdmin);assert.deepEqual(rows.get('anunciantes/A'),beforeProfile);
