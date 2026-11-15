@@ -9,9 +9,11 @@ const OFFLINE='/plataforma/offline.html';
 const SHELL=['inicio.html','carcasa.html','anunciantes.html','eventos.html','promos.html','actividades.html','pwa-web.js'];
 test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión',async()=>{
   const accesses=[];
+  let simulateOffline=false;
   const server=createServer((req,res)=>{
     const path=new URL(req.url,'http://localhost').pathname;
     accesses.push(path);
+    if(simulateOffline && path.endsWith('.html')){req.socket.destroy();return;}
     res.setHeader('Cache-Control','no-store');
     if(path==='/plataforma/sw.js'){
       res.setHeader('Content-Type','text/javascript');
@@ -45,7 +47,8 @@ test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión
     assert.equal(precached.filter(p=>p==='/plataforma/inicio.html').length,1,'Inicio no se descarga dos veces');
     await page.goto(origin+'/plataforma/eventos.html');
     assert((await page.locator('body').innerText()).includes('/plataforma/eventos.html'));
-    await context.setOffline(true);
+    // Simular una caída real del servidor; Chrome conserva el Service Worker.
+    simulateOffline=true;
     await page.reload();
     assert((await page.locator('body').innerText()).includes('/plataforma/eventos.html'),'Evento visitado debe seguir disponible offline');
     await page.goto(origin+'/plataforma/actividades.html');
