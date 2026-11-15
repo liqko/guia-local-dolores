@@ -21,7 +21,7 @@ const groups = {
   ],
   navegador: [
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
-    ['Recorrido de observabilidad en navegador aislado','node',['tests/observabilidad/browser-test.mjs']],
+    ['Carga, recarga y actualización de Guía en navegador aislado','node',['tests/browser/paquete-ciudad.cjs']],
   ],
   compartido: [
     ['Integridad de los paquetes','node',['--test','tests/publicacion-generica.test.mjs','tests/recursos-publicos.test.mjs']],
