@@ -59,6 +59,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: main
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -76,6 +77,15 @@ jobs:
           test -f hosting-public/plataforma/carcasa.html
           test -f hosting-public/plataforma/administracion.html
           test "$(find hosting-public -mindepth 1 -maxdepth 1 | wc -l)" -eq 1
+      - name: Detectar cambios de plataforma, sin publicar archivos idénticos
+        id: codigo
+        env:
+          ANTERIOR: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ] && \
+             git diff --name-only "$ANTERIOR" "$GITHUB_SHA" -- plataforma/ firebase.json | grep -q .; then
+            echo 'changed=true' >> "$GITHUB_OUTPUT"
+          fi
       - name: Preparar el catálogo público
         id: catalogo
         run: |
@@ -97,7 +107,7 @@ jobs:
       - name: Versionar recursos de Carcasa y sus módulos públicos
         run: node scripts/versionar-recursos-publicos.mjs hosting-public
       - uses: FirebaseExtended/action-hosting-deploy@v0
-        if: steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true'
+        if: steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true'
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
