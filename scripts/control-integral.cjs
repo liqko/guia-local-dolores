@@ -16,6 +16,8 @@ const groups = {
     ['Acceso por roles y niveles','node',['tests/guia/verify-panel-roles.mjs']],
   ],
   administrador: [
+    ['Detalle GH sin caducidad de 120 segundos', 'node',['--test','tests/observabilidad/gh-detalle-sin-ttl.test.cjs']],
+    ['Invalidación real al guardar datos, eventos y propietarios', 'node',['--test','tests/observabilidad/gh-mutaciones-invalida.test.cjs']],
     ['Controles de acceso y revocaciones','node',['--test','tests/observabilidad/acceso-unificado201.test.mjs']],
     ['Reglas de publicación','node',['--test','tests/publicacion-reglas206.test.cjs']],
   ],

@@ -910,6 +910,7 @@ function createDb(env) {
       const r=await fetch(base(env)+':commit',{method:'POST',headers:{Authorization:'Bearer '+await token(env),'Content-Type':'application/json'},body:JSON.stringify({writes})});
       if(!r.ok){if([400,409,412].includes(r.status))throw httpError('Hubo otro cambio simultáneo. Actualizá la lista y reintentá.',409);throw httpError('No se pudieron guardar los cambios. Reintentá.',503);}
       const committed119=await r.json();
+      await invalidateGhDetailsFromWrites210(env,entries);
       entries.forEach((e,i)=>noteSource119(env,e.collection,e.id,{...e.before,...e.patch},committed119.writeResults?.[i]?.updateTime||committed119.commitTime));
       return entries.map(e=>e.remove?null:{...e.before,...e.patch,id:e.id});
     },
@@ -933,7 +934,10 @@ function createDb(env) {
       if (mustNotExist) qs.set("currentDocument.exists", "false");
       const fields = {};
       for (const [k, v] of Object.entries(clean2)) fields[k] = toFs(v);
+      const previous210=['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades','publicidades','farmacias_ciclos','publicidad_media','publicidad_segmentacion'].includes(collection)&&!clean2.anunciante_id
+        ?docToJs(await sourceDocument119(collection,id4),id4):null;
       const d = await request(env, `${encodeURIComponent(collection)}/${encodeURIComponent(id4)}?${qs}`, { method: "PATCH", body: { fields } });
+      await invalidateGhDetailsFromWrites210(env,[{collection,id:id4,patch:clean2,before:previous210}]);
       noteSource119(env,collection,id4,docToJs(d,id4),d?.updateTime);
       return docToJs(d, id4);
     },
@@ -946,7 +950,10 @@ function createDb(env) {
       const qs = new URLSearchParams();
       if (mustExist) qs.set("currentDocument.exists", "true");
       const suffix = qs.toString() ? "?" + qs.toString() : "";
+      const previous210=['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades','publicidades','farmacias_ciclos','publicidad_media','publicidad_segmentacion'].includes(collection)
+        ?docToJs(await sourceDocument119(collection,id4),id4):null;
       await request(env, `${encodeURIComponent(collection)}/${encodeURIComponent(id4)}${suffix}`, { method: "DELETE" });
+      await invalidateGhDetailsFromWrites210(env,[{collection,id:id4,remove:true,before:previous210}]);
       return true;
     },
     /**
@@ -979,6 +986,61 @@ function createDb(env) {
       return (Array.isArray(rows) ? rows : []).filter((x) => x.document).map((x) => {const row=docToJs(x.document);noteSource119(env,collection,row.id,row,x.document.updateTime);return row;});
     }
   };
+}
+
+/**
+ * Invalidación común en la capa de persistencia Firestore.
+ * Cubre escrituras que no pasan por withPanelCacheV48.flush (incluido código legado).
+ * Nunca caduca las fichas por reloj: la caché se invalida sólo tras un commit exitoso.
+ * La autorización y las sesiones siguen su propio ciclo de seguridad.
+ */
+// El registro de invalidaciones dura UNA solicitud, nunca toda la vida del Worker.
+const GH_INVALIDATIONS204=new WeakMap();
+function ghInvalidatedForRequest204(env){
+ const scope=env.GLD_CACHE_KV;
+ if(!scope)return new Set();
+ let ids=GH_INVALIDATIONS204.get(scope);
+ if(!ids){ids=new Set();GH_INVALIDATIONS204.set(scope,ids);}
+ return ids;
+}
+async function invalidateGhDetailsFromWrites210(env,/** @type {any[]} */ entries){
+ if(!env.GLD_PUBLIC_CACHE||!entries?.length)return;
+ const byAdvertiser=new Set(),publicityIds=new Set(),ownerSubscribers=new Set();
+ const direct=new Set(['anunciantes','anunciantes_administracion']);
+ const related=new Set(['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades',
+  'publicidades','farmacias_ciclos','publicidad_media','publicidad_segmentacion']);
+ for(const item of entries){
+  const c=String(item.collection||''),id=String(item.id||'');
+  if(direct.has(c)&&id)byAdvertiser.add(id);
+  if(related.has(c)){
+   for(const aid of [item.before?.anunciante_id,item.patch?.anunciante_id,item.row?.anunciante_id])
+    if(aid)byAdvertiser.add(String(aid));
+   if(c==='suscriptor_anunciante')
+    for(const sid of [item.before?.suscriptor_id,item.patch?.suscriptor_id,item.row?.suscriptor_id])
+     if(sid)ownerSubscribers.add(String(sid));
+   if(c==='publicidad_media'||c==='publicidad_segmentacion')
+    for(const pid of [item.before?.publicidad_id,item.patch?.publicidad_id,item.row?.publicidad_id])
+     if(pid)publicityIds.add(String(pid));
+  }
+  if(c==='suscriptores'&&id)ownerSubscribers.add(id);
+ }
+ if(ownerSubscribers.size||publicityIds.size){
+  const source=createDb(env);
+  for(const pid of publicityIds){
+   const piece=await source.get('publicidades',pid);
+   if(piece?.anunciante_id)byAdvertiser.add(String(piece.anunciante_id));
+  }
+  for(const sid of ownerSubscribers){
+   const relations=await source.queryEqual('suscriptor_anunciante','suscriptor_id',sid,500);
+   for(const row of relations||[])if(row?.anunciante_id)byAdvertiser.add(String(row.anunciante_id));
+  }
+ }
+ // La primera invalidación efectiva basta por anunciante y solicitud.
+ const seen=ghInvalidatedForRequest204(env);
+ for(const aid of byAdvertiser)if(!seen.has(aid)){
+  await ghDetailActor204(env,aid,'gh-detail-invalidate204');
+  seen.add(aid);
+ }
 }
 
 // reconstruccion/worker/core/cache.js
@@ -8048,22 +8110,44 @@ async function adminSearchSubscribersV2({ cache, url, env }) {
     offset:url.searchParams.has("offset")?Number(url.searchParams.get("offset")):null
   });
 }
-// Respuesta administrativa completa en un solo paquete KV, no 18 búsquedas por ficha.
-const GH_ADMIN_DETAIL_TTL203=120;
-function ghAdminDetailKey203(id){
- return 'admin:advertiser:detail:v203:'+encodeURIComponent(String(id||'').trim());
+// La ficha de GH vive en el mismo almacén duradero del anunciante.
+ // La lectura y la invalidación comparten cola por anunciante (sin TTL ni KV de 120s).
+async function ghDetailActor204(env,id,op,outerReport=null){
+ const aid=String(id||'').trim();
+ if(!aid||!env?.GLD_PUBLIC_CACHE)throw httpError('No está disponible la copia administrativa duradera.',503);
+ const local=env.__gldGuideActor132;
+ let response;
+ if(local&&String(local.guideAid132||aid)===aid)
+  response=await local.ghDetail204({op,aid});
+ else{
+  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
+  response=await actor.fetch(new Request('https://gh-detail.internal/',{method:'POST',body:JSON.stringify({op,aid})}));
+ }
+ const result=await response.json();
+ if(outerReport){
+  const metric=outerReport.gh_detail_store204??={calls:0,rows_read:0,rows_written:0,cache_misses:0};
+  metric.calls++;
+  metric.rows_read+=Number(result.metrics?.rows_read||0);
+  metric.rows_written+=Number(result.metrics?.rows_written||0);
+  if(result.prepared)metric.cache_misses++;
+  for(const [key,stat]of Object.entries(result.operations||{})){
+   const row=outerReport.operations[key]??={...stat,calls:0,documents_returned:0,failures:0};
+   for(const name of ['calls','documents_returned','failures'])row[name]+=Number(stat[name]||0);
+  }
+  if(result.kv){
+   metric.kv??={get_calls:0,put_calls:0,delete_calls:0,list_calls:0};
+   for(const key of ['get_calls','put_calls','delete_calls','list_calls'])
+    metric.kv[key]+=Number(result.kv[key]||0);
+  }
+ }
+ if(!response.ok)throw httpError(result.error||'Copia administrativa no disponible.',503);
+ return result.detail;
 }
-async function ghAdminDetailInvalidate203(cache,id){
- if(id)await cache.del(ghAdminDetailKey203(id));
+async function ghAdminDetailInvalidate203(cache,id,env){
+ if(id)await ghDetailActor204(env,id,'gh-detail-invalidate204');
 }
-async function adminAdvertiserDetailV2({ db, id: id4,cache }) {
- const key=ghAdminDetailKey203(id4),packet=await cache.get(key);
- if(packet?.version===203&&packet.expires_at>Date.now()&&packet.detail?.success===true)
-  return packet.detail;
- const detail=await advertiserDetailV2({ db, advertiserId: id4 });
- if(detail?.success===true)
-  await cache.put(key,{version:203,expires_at:Date.now()+GH_ADMIN_DETAIL_TTL203*1000,detail},{expirationTtl:GH_ADMIN_DETAIL_TTL203});
- return detail;
+async function adminAdvertiserDetailV2({ id: id4,env,report }) {
+ return ghDetailActor204(env,id4,'gh-detail-read204',report);
 }
 async function adminSubscriberDetailV2({ db, id: id4 }) {
   return subscriberDetailV2({ db, subscriberId: id4 });
@@ -8080,7 +8164,7 @@ async function routeAdminV8(ctx) {
   if (m && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
     if (!auth.ok) return json({ success: false, message: auth.message }, 401);
-    return json(await adminAdvertiserDetailV2({ db, cache, id: decodeURIComponent(m[1]) }));
+    return json(await adminAdvertiserDetailV2({ env, report:ctx.report, id: decodeURIComponent(m[1]) }));
   }
   if (path === "/superadmin/subscribers/search" && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
@@ -10213,7 +10297,8 @@ function withPanelCacheV48(db,env,report){
     return copy(known.get(k)||null);
   }
   function queue(c,id,old,row){
-    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id});
+    directoryChanges102.set(c+'/'+id,{c,id,row,previousAdvertiser:old?.anunciante_id,previousPublicity:old?.publicidad_id,
+      ownerContactChanged:c==='suscriptores'&&['nombre','mail','whatsapp','telefono'].some(k=>old?.[k]!==row?.[k])});
     const entry=fields[c];if(!entry)return;
     for(const field of (Array.isArray(entry)?entry:[entry])){
       const prior=text(old?.[field]),next=text(row?.[field]);
@@ -10249,6 +10334,50 @@ function withPanelCacheV48(db,env,report){
       for(const aid of new Set(aids.filter(Boolean).map(String))){if(!masterChanges.has(aid))masterChanges.set(aid,[]);masterChanges.get(aid).push(change);}
     }
     for(const [aid,changes]of masterChanges)await commerceMasterActor209(env,report,{op:'commerce-master-update209',aid,changes});
+    // Invalidar las fichas de GH después del guardado confirmado, no por reloj.
+    // Incluye modificaciones hechas desde Anunciante, GH y módulos compartidos.
+    const detailCollections204=new Set(['anunciantes','anunciantes_administracion','anunciantes_sedes',
+      'suscriptor_anunciante','promos','eventos','actividades','publicidades',
+      'farmacias_ciclos','publicidad_media','publicidad_segmentacion']);
+    const detailChanged204=new Set();
+    for(const change of directoryChanges102.values()){
+      if(!detailCollections204.has(change.c))continue;
+      const ids=change.c==='anunciantes'||change.c==='anunciantes_administracion'
+        ?[change.id]:[change.row?.anunciante_id,change.previousAdvertiser];
+      for(const id of ids)if(id)detailChanged204.add(String(id));
+    }
+    // Los propietarios forman parte del detalle de GH. Una modificación de
+    // nombre o contacto debe actualizar sus fichas, sin barridos por tiempo.
+    // Las relaciones de publicidad identifican la pieza, no al anunciante.
+    // Resolver su titular una sola vez por pieza, exclusivamente tras cambios.
+    const publicityChildren204=new Set();
+    for(const change of directoryChanges102.values())
+      if(change.c==='publicidad_media'||change.c==='publicidad_segmentacion')
+        for(const id of [change.row?.publicidad_id,change.previousPublicity])
+          if(id)publicityChildren204.add(String(id));
+    for(const pid of publicityChildren204){
+      const parentChange=directoryChanges102.get('publicidades/'+pid);
+      const parent=parentChange?parentChange.row:await db.get('publicidades',pid);
+      for(const aid of [parent?.anunciante_id,parentChange?.previousAdvertiser])
+        if(aid)detailChanged204.add(String(aid));
+    }
+    for(const change of directoryChanges102.values()){
+      if(change.c!=='suscriptores'||!change.ownerContactChanged)continue;
+      const sid=String(change.id||'').trim();
+      if(!sid)continue;
+      const relations=typeof db.subscriberRelations==='function'
+        ?await db.subscriberRelations(sid)
+        :await db.queryEqual('suscriptor_anunciante','suscriptor_id',sid,500);
+      for(const relation of relations||[]){
+        if(roleName159(relation.rol)!=='PROPIETARIO'||!truthy(relation.activo))continue;
+        if(relation.anunciante_id)detailChanged204.add(String(relation.anunciante_id));
+      }
+    }
+    const ghSeen204=ghInvalidatedForRequest204(env);
+    for(const aid of detailChanged204)if(!ghSeen204.has(aid)){
+      await ghAdminDetailInvalidate203(directoryCache102,aid,env);
+      ghSeen204.add(aid);
+    }
     directoryChanges102.clear();
   }
   return {...db,
@@ -11837,7 +11966,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(['gh-detail-read204','gh-detail-invalidate204'].includes(body.op))return await this.ghDetail204(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12374,8 +12503,7 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
   });
-  if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
-  return json(result);
+   return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
  const auth=await requirePanel4(ctx.env,request,aid,true);if(auth.response)return auth.response;
@@ -12392,9 +12520,31 @@ async function routeAtomicAdvertiserInternal(ctx){
   if(body.sedes?.length){const r=await commerceSetSedesV3({db:stagedDb,cache:stagedCache,advertiserId:aid,body:{sedes:body.sedes}});if(r.updated)await patchGuideAdvertiserSedesFromCacheV2({cache:stagedCache,advertiserId:aid,savedSedes:r.changed_sedes});output.updated||=r.updated;output.sedes=r.sedes;output.revision_sedes=r.revision_sedes;}
   return output;
  });
- if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
  return json(result);
 }
+
+GldPublicCache119.prototype.ghDetail204=async function(body){
+ const aid=String(body.aid||'').trim();
+ if(!aid||this.guideAid132&&this.guideAid132!==aid)throw Error('Copia administrativa solicitada para otro anunciante.');
+ this.guideAid132=aid;
+ if(!this.ghDetailTable204){this.query('CREATE TABLE IF NOT EXISTS gh_advertiser_detail204(slot INTEGER PRIMARY KEY,value TEXT NOT NULL)');this.ghDetailTable204=true;}
+ if(body.op==='gh-detail-invalidate204'){
+  this.query('DELETE FROM gh_advertiser_detail204 WHERE slot=1');
+  return Response.json({success:true,detail:null,metrics:this.metrics});
+ }
+ if(body.op!=='gh-detail-read204')throw Error('Operación administrativa no admitida.');
+ const stored=this.query('SELECT value FROM gh_advertiser_detail204 WHERE slot=1')[0];
+ if(stored)return Response.json({detail:JSON.parse(stored.value),prepared:false,metrics:this.metrics});
+ const report={event:'gld_gh_detail_prepare204',worker_version:'209',path:'/internal/gh-detail/prepare',method:'PREPARE',started_at:new Date().toISOString(),request_id:crypto.randomUUID(),status:500,operations:{}};
+ const scoped=requestCache121(observeKv117(this.env,report),report);
+ const source=requestDb119(roleSourceDb192(observeDbV41(createDb(scoped),report),scoped),report);
+ const db=withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(source,scoped),scoped),scoped,report);
+ const detail=await advertiserDetailV2({db,advertiserId:aid});
+ await db.flushLoginCache();
+ if(detail?.success===true)this.query('INSERT INTO gh_advertiser_detail204(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value',JSON.stringify(detail));
+ report.status=200;report.consumption=consumption136(report);
+ return Response.json({detail,prepared:true,metrics:this.metrics,operations:report.operations,kv:report.kv});
+};
 
 GldPublicCache119.prototype.commerceMaster209=async function(body){
  const aid=String(body.aid||'').trim();
@@ -12534,12 +12684,7 @@ async function routeGuideDispatch132(ctx){
  else{const auth=await requirePanel4(env,request,aid,true);if(auth.response)return auth.response;}
  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
  const response=await actor.fetch(new Request('https://guide-write.internal/',{method:'POST',body:JSON.stringify({op:'guide-save132',aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body})}));
- // La copia integral se mantiene durante el guardado; aquí sólo se invalida el detalle administrativo heredado.
- if(response.ok){
-  const outcome=await response.clone().json().catch(()=>null);
-  if(outcome?.success===true&&outcome.updated!==false)
-   await ghAdminDetailInvalidate203(ctx.cache,aid);
- }
+ // La invalidación se ejecuta una sola vez dentro del guardado confirmado del actor.
  const renewal=SESSION_RENEWALS_V87.get(request);
  if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
  const headers=new Headers(response.headers);headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');
@@ -13059,7 +13204,7 @@ var app_main_v35_default = {
       const action=await observationActionV43(request,url);
       if(action)report.action=action;
       cache.ensureGuideBaseInternal=aid=>ensureGuideBaseFromPrivateInternal({db,cache,advertiserId:aid});
-      const ctx={path,request,url,env,db,cache,request_id143:report.request_id};
+      const ctx={path,request,url,env,db,cache,report,request_id143:report.request_id};
       const advertiserAccess158=await routeAdvertiserAccess155(ctx);if(advertiserAccess158)return await traced(advertiserAccess158);
       const gate155=await roleGate155(ctx);if(gate155)return await traced(gate155);
       const territorialAction=await GLD_ACTIONS138.route(ctx,report);if(territorialAction)return await traced(territorialAction);

@@ -36,8 +36,9 @@ function fixture(){
   metrics:{rows_read:0,rows_written:0},guideJob132:async()=>null,repairGuide132:async()=>{},
   query(sql,value){if(sql.startsWith('SELECT')){this.metrics.rows_read++;ops.push(['master-get',aid]);return masters.has(aid)?[{value:JSON.stringify(masters.get(aid))}]:[];}if(sql.startsWith('INSERT')){if(failWrite)throw Error('Escritura interrumpida');this.metrics.rows_written++;masters.set(aid,JSON.parse(value));ops.push(['master-put',aid]);}return [];},
   commerceMaster209:w.GldPublicCache119.prototype.commerceMaster209,
-  commerceRequest209:w.GldPublicCache119.prototype.commerceRequest209
- });return{async fetch(request){const actor=actors.get(aid);actor.metrics={rows_read:0,rows_written:0};return actor.commerceRequest209(await request.json());}};}};
+  commerceRequest209:w.GldPublicCache119.prototype.commerceRequest209,
+  ghDetail204:async()=>Response.json({detail:null,metrics:{rows_read:0,rows_written:0}})
+ });return{async fetch(request){const actor=actors.get(aid);actor.metrics={rows_read:0,rows_written:0};const body=await request.json();return body.op?.startsWith('gh-detail-')?actor.ghDetail204(body):actor.commerceRequest209(body);}};}};
  const panel=w.withPanelCacheV48(db,env,{operations:{}});
  return{env,cache,seed,add,sourceRows,ops,sourceOps,panel,db:panel,master:aid=>masters.get(aid),set failWrite(value){failWrite=value;}};
 }
