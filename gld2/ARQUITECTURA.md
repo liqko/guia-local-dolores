@@ -4,7 +4,7 @@ Objeto: reconstrucción en paralelo, desde cero en lo técnico, conservando TODO
 
 ## Decisión de estructura
 
-**Tres interfaces, un solo sistema de negocio.** Usuario, Anunciante y Gran Hermano comparten contratos, entidades, reglas y servicios. Ninguna pantalla decide permisos, límites o reglas comerciales. DRY y KISS son obligatorios. El código anterior es referencia de requisitos y comportamiento, NO base de código ni modelo de almacenamiento.
+**Tres interfaces, un solo sistema de negocio.** Usuario, Anunciante y Gran Hermano comparten contratos, entidades, reglas y servicios. Ninguna pantalla decide permisos, límites o reglas comerciales. **DRY** significa una única implementación de cada regla, permiso, formato o cálculo compartido; **KISS** obliga a rechazar capas, cachés, reconsultas y servicios que no justifiquen su costo y necesidad. Compartir código NO equivale a unificar por fuerza todos los datos ni a crear un motor universal complejo. El código anterior es referencia de requisitos y comportamiento, NO base de código ni modelo de almacenamiento.
 
 ```text
      USUARIO        ANUNCIANTE         GRAN HERMANO
@@ -26,7 +26,7 @@ Objeto: reconstrucción en paralelo, desde cero en lo técnico, conservando TODO
 
 ## Capas y contratos
 
-**0. Operación instrumentada (primera capa transversal).** Toda petición entra con id de operación, tipo de acción, sesión (seudonimizada), ámbito, origen y versión. Las operaciones internas, tareas posteriores, reintentos y errores heredan el mismo identificador de correlación. La operación termina con un recibo de consumo y costo; los efectos posteriores se anexan al recibo original. No se generan consultas de diagnóstico por cada visita. El propio medidor tiene consumo imputable.
+**0. Operación instrumentada (primera capa transversal).** Toda petición entra con id de operación, tipo de acción, sesión (seudonimizada), ámbito, origen y versión. Las operaciones internas, tareas posteriores, reintentos y errores heredan el mismo identificador de correlación. El costo de la petición original queda disponible de inmediato, y las tareas diferidas se agregan después al mismo recorrido con estado PENDIENTE hasta su conciliación; nunca se presenta un recibo parcial como costo final. No se generan consultas de diagnóstico por cada visita. El propio medidor tiene consumo imputable. Para no multiplicar gastos, los contadores se acumulan en memoria por petición y se consolidan en lotes; no se escribe un registro por cada lectura. Si el proceso falla y no se puede atribuir alguna operación, marcar cobertura INCOMPLETA.
 
 **1. Identidad y autorización.** Sesión verificada en el servidor, roles internos y delegaciones por recurso y capacidad. Propietario o Gran Hermano pueden revocar permisos de administración inmediatamente. Revocaciones y bloqueos se confirman antes de responder y se verifican contra fuente vigente antes de cada acción privada, particularmente dentro de la transacción de escritura. La copia privada del cliente nunca concede autorización. Evitar usar un paquete diario para permisos. Roles: Gran Hermano, supervisor, moderador, vendedor, propietario, administrador delegado; capacidades específicas configurables, sin inventar equivalencias.
 
@@ -36,7 +36,7 @@ Objeto: reconstrucción en paralelo, desde cero en lo técnico, conservando TODO
 
 **4. Servicios de dominio.** Territorio; anuncios/fichas/sedes; eventos; actividades; promociones; publicidad; usuarios/suscriptores; favoritos; notificaciones; soporte; moderación; comercial/niveles/valores; auditoría. Los servicios reutilizan las capas 0–3, no crean su propia autenticación, caché genérica, lógica de límites ni mecanismo de medición.
 
-**5. Publicación y distribución.** Cada cambio autorizado genera un evento interno durable de publicación, con revisión y dependencias afectadas. Se produce la vista pública mínima necesaria por ciudad, módulo y segmento. Un índice/manifiesto liviano anuncia versiones; el cliente descarga sólo segmentos que no conserva. Se puede elegir compilación diferida para contenido que admita espera; revocaciones y medidas de seguridad jamás se difieren. Proyecciones fallidas se reintentan de forma idempotente sin cobrar una supuesta segunda publicación a la cuenta.
+**5. Publicación y distribución.** Cada cambio autorizado confirma el dato maestro y registra el evento de publicación en la **misma transacción** (patrón outbox). Una tarea idempotente genera las proyecciones derivadas; confirma una revisión pública **sólo cuando todas las partes necesarias están disponibles**. Los consumidores siguen viendo la versión anterior completa durante un fallo y la tarea se reintenta sin publicar datos parciales. Se produce la vista pública mínima necesaria por ciudad, módulo y segmento. Un índice/manifiesto liviano anuncia versiones; el cliente descarga sólo segmentos que no conserva. Se puede elegir compilación diferida para contenido que admita espera; revocaciones y medidas de seguridad jamás se difieren. Proyecciones fallidas se reintentan de forma idempotente sin cobrar una supuesta segunda publicación a la cuenta.
 
 **6. Interfaces.** Tres clientes sobre una misma API. Reutilizan utilidades de fechas, validación de presentación, componentes y contratos; conservan colores, formatos de fichas, orden, textos y prestaciones vigentes tras relevamiento funcional. Gran Hermano configura y audita; Anunciante administra lo que le corresponde; Usuario consume datos publicados y ejecuta acciones autorizadas. No inventar una interfaz distinta para facilitar la implementación.
 
@@ -61,7 +61,7 @@ Para cada acción en los tres planos, emitir:
 4. consumo de cuota por operación, total por día/mes y proyección ante 1/1.000/100.000/700.000 operaciones;
 5. costo en USD por operación y costo total mensual usando tarifas efectivas, **sin descontar beneficios gratuitos**. El informe distingue medido, estimado, conciliado y desconocido; jamás convierte faltantes a cero.
 
-Las cuotas de distintos planes o servicios se informan separadas. Las métricas internas deben conciliarse con los agregados facturados por proveedor; si hay diferencias, se reportan, no se ocultan. Una lectura SQL y una lectura KV no son unidades intercambiables. Medir además la propia instrumentación para no hacer más caro el diagnóstico.
+Las cuotas de distintos planes o servicios se informan separadas. Los rechazos, fallos y accesos denegados también consumen recursos: registrarlos. Las métricas internas deben conciliarse con los agregados facturados por proveedor; si hay diferencias, se reportan, no se ocultan. Una lectura SQL y una lectura KV no son unidades intercambiables. Medir además la propia instrumentación para no hacer más caro el diagnóstico.
 
 ## Método de prueba por módulo
 
@@ -71,13 +71,23 @@ Primero cadena completa y observable, después siguiente módulo. Cada entrega r
 
 **Fase A: base**: arquitectura transversal + grafo de dependencias + modelo de datos/reglas/seguridad + definición de medición y costos. No pantallas ni Worker de negocio improvisados.
 
-**Fase B: mínimo completo**: infraestructura GLD2 aislada, medición que funcione en el propio servidor y visor operativo; ciclo `crear país → crear provincia → crear ciudad → publicar paquete → consultar como Usuario → actualizar configuración como Gran Hermano`. Antes de expandir, registrar operaciones reales, cuotas y costo.
+**Fase B: mínimo completo**: infraestructura GLD2 aislada, identidad y autorización mínimas de Gran Hermano, medición que funcione en el propio servidor y visor operativo; ciclo `autenticarse → crear país → crear provincia → crear ciudad → publicar paquete → consultar como Usuario → actualizar configuración como Gran Hermano`. Antes de expandir, registrar operaciones reales, cuotas y costo. No permitir un alta administrativa sin permiso verificado.
 
-**Fase C: accesos y anuncios**: sesión, propietario, delegación/revocación, índice paginado, ficha y sede, vista pública, control de modificaciones, prueba de todas las operaciones instrumentadas.
+**Fase C: accesos y anuncios**: ampliar la identidad ya implementada con propietario y delegación/revocación, índice paginado, ficha y sede, vista pública, control de modificaciones, prueba de todas las operaciones instrumentadas.
 
 **Fase D: ampliación por dependencias**: eventos, actividades, promociones, publicidad y el resto de funcionalidades según grafo y sin duplicar código.
 
 **Fase E: tres interfaces y migración por cortes comprobados**: preservar identidad visual y reglas; probar cadena completa; importación reversible y lanzamiento gradual sólo con resultados medidos.
+
+## Condiciones técnicas comprobables antes del primer Worker
+
+1. **DRY:** permisos, reglas, formato de fechas y cálculo de consumo existen en un solo módulo compartido. Las tres interfaces tienen llamadas a esas funciones, nunca copias con pequeñas diferencias.
+2. **KISS:** ningún cache adicional, cola, Durable Object o paquete duplicado se incorpora sin evidencia de que ahorra costo neto o garantiza un requisito funcional. Mantener separado el almacenamiento transaccional del caché de proyecciones públicas.
+3. **Escritura segura:** no se publican nuevas revisiones sin dato maestro y outbox confirmados juntos; las tareas asíncronas deben ser recuperables e idempotentes.
+4. **Seguridad:** rol y permiso se verifican en el servidor antes de modificar territorio, aun en el primer módulo. La revocación debe resistir acciones simultáneas; no puede depender de invalidación de navegador.
+5. **Medición confiable:** no llamar «real» al costo de una operación simulada. Separar contadores del código, datos observados del proveedor y facturación; expresar desconocidos. Medir inclusive caché, contenido, rechazos, tareas y el propio medidor.
+6. **Costo de lectura pública:** la estrategia de versiones debe evitar consultar la base maestra por cada visita para averiguar si la versión cambió; probar primero la entrega del manifiesto a través de distribución cacheable.
+7. **Reglas y aspecto:** inventariar todas las propiedades existentes y vínculos de comportamiento antes de migrar una función. Si la especificación no alcanza, no asumir que puede eliminarse.
 
 ## Política de continuidad
 
