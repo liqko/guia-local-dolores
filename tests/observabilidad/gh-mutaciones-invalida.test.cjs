@@ -38,6 +38,7 @@ function setup(relations=[{rol:'PROPIETARIO',activo:true,anunciante_id:'A1'}]){
   directoryDelta102:async()=>{},notify102:async()=>{},GUIDE_SOURCE132:new Set(),
   commerceMasterActor209:async()=>{},GLD_BUSINESS143:{quotaError:()=>false},
   ghAdminDetailInvalidate203:async(cache,id)=>cache.del('admin:advertiser:detail:v204:'+id),
+  ghInvalidatedForRequest204:()=>new Set(),
   roleName159:v=>String(v||'').trim().toUpperCase(),truthy:v=>v===true||v===1||v==='true',
   httpError:(s)=>new Error(s),rejectedActivity:()=>false,
  };
