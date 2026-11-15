@@ -81,3 +81,34 @@ test('public guide is network first and fallback is used only offline',async()=>
   assert.equal(response.source,'network');
   assert(h.cacheWrites.includes(req.url));
 });
+
+test('hashed immutable asset is fetched once and served offline without network',async()=>{
+  const h=harness();await h.fire('install');
+  const asset='/plataforma/assets/app/0123456789abcdefabcd-paquete-ciudad.js';
+  const req=h.request(asset,{mode:'no-cors'});
+  const first=await h.fire('fetch',{request:req});
+  const second=await h.fire('fetch',{request:req});
+  assert.equal(first.source,'network');
+  assert.equal(second.source,'network','Cached response retains original content');
+  assert.equal(h.downloads.filter(x=>x===req.url).length,1,'Repeated request does not access the network');
+  assert(h.cacheWrites.includes(req.url));
+});
+test('different content hash is a separate download, no old-version reuse',async()=>{
+  const h=harness();await h.fire('install');
+  const a=h.request('/plataforma/assets/app/0123456789abcdefabcd-paquete-ciudad.js',{mode:'no-cors'});
+  const b=h.request('/plataforma/assets/app/abcd0123456789abcdef-paquete-ciudad.js',{mode:'no-cors'});
+  await h.fire('fetch',{request:a});
+  await h.fire('fetch',{request:b});
+  assert.equal(h.downloads.filter(x=>x===a.url).length,1);
+  assert.equal(h.downloads.filter(x=>x===b.url).length,1);
+});
+test('unversioned scripts remain network-first and do not cache privileged endpoints',async()=>{
+  const h=harness();await h.fire('install');
+  const script=h.request('/plataforma/sesion-persistente.js?v=87',{mode:'no-cors'});
+  await h.fire('fetch',{request:script});
+  await h.fire('fetch',{request:script});
+  assert.equal(h.downloads.filter(x=>x===script.url).length,2);
+  const privateRequest=h.request('/plataforma/assets/app/0123456789abcdefabcd-session.js',{method:'POST',mode:'no-cors'});
+  assert.equal(await h.fire('fetch',{request:privateRequest}),undefined);
+  assert(!h.cacheWrites.includes(privateRequest.url));
+});
