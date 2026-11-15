@@ -111,6 +111,18 @@ flowchart TD
 5. **Publicación diferida:** un outbox durable NO autoriza publicación inmediata si la regla comercial/operativa exige corte diario. Se separan escritura, autorización, programación y exposición.
 6. **Costos y cuotas:** cada acción incluye procesos indirectos y servidor, y el costo de entregar paquetes y medios; el grafo obliga a incluir ambas direcciones de cambios sólo cuando estén verificadas.
 
+## Dependencias trazadas en código (evidencia nueva, no inferencia)
+
+El rastreo concreto de origen → campo → consumidor figura en `gld2/RELACIONES-VERIFICADAS.md`. Las siguientes relaciones se pueden marcar como **C (confirmadas en frontend)**:
+
+- **R-001:** catálogo territorial `GH_DAILY_ENTRY195.territory` o `GET /superadmin/territory` → `ghTerritoryApply195` → filtros `evCiudad` y `anuCiudad`.
+- **R-002:** alta de ciudad → `ghGuardarTerritorio` → `POST /superadmin/cities/create` → lista local `GH_CITIES` cuando se confirma el guardado. **Alta de País/Provincia está bloqueada en el frontend actual**, no considerarla implementada.
+- **R-003:** datos territoriales `paises, provincias, ciudades` → `territorio-cache.js` → `jsonpApi(action='ubicaciones')` de Guía; existe un preparador público que compara hash de catálogo.
+- **R-004:** identificador de ciudad → `GLD_PAQUETE_CIUDAD.get(city)` → `modules.guide` o fallback `GET /guide?compact=1`; cache versionada en IndexedDB.
+- **R-005:** definición de reglas generales de roles → `ghRolesGuardar183` → `ghAdminRequest_('/roles')` y `POST /roles`; **no equivale a asignar rol a una persona**.
+
+Los cinco son contratos observados de código existente; no certifican backend, factura ni todas las condiciones de concurrencia. Las demás relaciones conservan estado P hasta rastreo equivalente. No convertir «sección visible» en «dependencia confirmada».
+
 ## Auditoría independiente 3: correcciones del grafo y cobertura
 
 **Hallazgo crítico 3.1 — confirmación falsa por presencia de botones.** Las filas que dicen «C funcionalidad» confirman la EXISTENCIA del módulo, pero NO sus relaciones ni sus efectos. Se prohíbe cambiar la marca de una dependencia a C basándose sólo en un rótulo de navegación. Para elevar a C se exige localizar el dato en origen, el punto exacto de consulta y su empleo en una acción. **Corrección aplicada a la convención y a la interpretación del mapa 2.**
