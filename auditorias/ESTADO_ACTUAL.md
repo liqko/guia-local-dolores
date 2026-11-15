@@ -1,5 +1,20 @@
 # GUÍA LOCAL — ESTADO ÚNICO DE AUDITORÍA
 
+## REGLAS PERMANENTES DE TRABAJO — LEER ANTES DE INTERVENIR (15/11/2026)
+
+**Responsabilidad técnica:** el asistente/programador debe inspeccionar el código y sus dependencias, identificar causas y proponer e implementar soluciones; el usuario define objetivos funcionales y aprueba cambios de producción, pero NO debe diagnosticar ni diseñar las reparaciones técnicas.
+
+**Continuidad:** antes de cada intervención leer este archivo, el código vigente y las ramas/PR activos. No reiniciar auditorías, repetir preguntas resueltas, ni crear Workers numerados o versiones paralelas. Tras cada cambio registrar solamente el resultado técnico, prueba efectuada y próxima acción concreta. La continuidad debe estar en el repositorio, no en la memoria del chat.
+
+**Entrega:** modificar código real sobre la rama de trabajo existente; revisar dependencias de Usuario, Anunciante y Gran Hermano; ejecutar las pruebas pertinentes y entregar el resultado de forma breve y comprensible. Distinguir con precisión «modificado», «pruebas automáticas aprobadas», «desplegado» y «medido en producción». No declarar ahorros ni correcciones de producción sin evidencia. No postergar indefinidamente una entrega por abrir auditorías nuevas. El usuario conserva el control del despliegue.
+
+**Comunicación:** respuestas breves, sin jerga ni repetir diagnósticos. Informar qué cambió, qué falta y si puede instalarse; no cargar al usuario con decisiones de programación ni convertir registros de pendientes en resultados.
+
+**Prioridad activa:** corregir integralmente caducidades arbitrarias y regeneraciones innecesarias de copias de datos de las tres interfaces, asegurando actualización por cambios confirmados y seguridad de permisos. Investigar y bajar las lecturas y escrituras Cloudflare, con medición comparable. El trabajo sigue en PR #75 sobre `worker/worker206.txt` y NO está desplegado. Las tres verificaciones CI del commit 679f89183e74956835e38a695823295c320d46e7 terminaron con éxito; esto NO certifica todavía consumo real ni cobertura completa.
+
+**Reescritura total:** no demoler ni empezar de cero sin un diagnóstico comparativo verificable (fallas estructurales, costo/riesgo de reparar frente a reescribir, plan de migración y preservación de datos). Preferir mejoras puntuales o refactorización gradual cuando sean suficientes.
+
+
 > **15/11/2026 — AMPLIACIÓN DEL INVENTARIO TRANSVERSAL, SIN DESPLIEGUE.** Barrido estático del Worker único en PR75 detectó **144 apariciones de invocaciones `db.patch`, `db.delete` o `db.commitPatches` y variantes** (incluye implementaciones internas, rutas heredadas y operaciones no necesariamente alcanzables: NO equivalen a 144 escrituras reales). Abarcan Usuario, Anunciante, Gran Hermano, moderación, publicaciones y configuraciones. Demuestra que revisar solamente `withPanelCacheV48.flush` **no certifica cobertura transversal de todas las mutaciones**. Ejemplos observados: `saveCountry/saveProvince/saveCity`, `updateSubscriberProfileV2`, `updateSubscriberCityV2`, `subscriberMailBridgeV2`, `resolvePendingV2`, `saveAdminCatalogV2`, `gldFuncEndpoint166`, `roleProjection192`. **Decisión de seguridad:** PR75 se mantiene borrador y fuera de producción; cualquier nueva lógica debe detectar cambios confirmados independientemente de por cuál de estas rutas transcurrieron y comprobar dependencias de copias de las tres interfaces. Los controles CI del candidato no acreditan todavía esa cobertura y nunca deben equipararse a un cierre integral. **Próximo paso exacto:** clasificar las 144 apariciones por ruta efectiva y colección, distinguir implementación/legado de mutaciones activas, y vincular cada ruta a la actualización/invalidez de paquetes; sólo después consolidar corrección común y pruebas transversales antes del despliegue. Esta intervención sólo modifica registro maestro, no Worker ni producción.
 
 
