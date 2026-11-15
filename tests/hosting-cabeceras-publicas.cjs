@@ -7,5 +7,6 @@ const assert=require('node:assert/strict');
  const keep=['cache-control','etag','last-modified','age','vary','content-length','content-encoding','x-cache','server'];
  const headers=Object.fromEntries(keep.map(key=>[key,r.headers.get(key)]).filter(([,value])=>value!==null));
  console.log('HOSTING_LIVE_HEAD',JSON.stringify({url,status:r.status,headers}));
+ if(headers.etag){const conditional=await fetch(url,{method:'HEAD',headers:{'If-None-Match':headers.etag},redirect:'manual',signal:AbortSignal.timeout(20000)});console.log('HOSTING_CONDITIONAL_HEAD',JSON.stringify({status:conditional.status,cacheControl:conditional.headers.get('cache-control'),etag:conditional.headers.get('etag')}));}
  if(!headers.etag&&!headers['last-modified'])console.log('HOSTING_NO_VALIDATOR: no es posible asumir HTTP 304 en recargas');
 })().catch(e=>{console.error(e);process.exitCode=1;});
