@@ -1,0 +1,51 @@
+name: Auditar descargas Firebase y caché sin afectar producción
+on:
+  pull_request:
+    paths:
+      - 'plataforma/sw.js'
+      - 'plataforma/descubrir-sw.js'
+      - 'plataforma/pwa-web.js'
+      - 'firebase.json'
+      - 'scripts/control-integral.cjs'
+      - '.github/workflows/firebase-hosting-merge.yml'
+      - 'tests/browser/sw-descargas-cache.cjs'
+      - 'tests/browser/descubrir-sin-descarga-repetida.cjs'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  navegador:
+    name: Descargas, actualización y privacidad
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Comprobar reglas de instalación y modo sin conexión
+        run: node --test tests/service-worker-cache.test.cjs
+      - name: Preparar Chrome para pruebas locales
+        run: npm install --no-save --package-lock=false playwright@1.55.0
+      - name: Comprobar HTML actualizado, caché y aislamiento de cuentas
+        env:
+          GLD_CHROME: /usr/bin/google-chrome
+        run: node --test tests/browser/sw-descargas-cache.cjs tests/browser/descubrir-sin-descarga-repetida.cjs
+      - name: Cuantificar descargas eliminadas comparando con la versión publicada
+        env:
+          GLD_CHROME: /usr/bin/google-chrome
+        run: node tests/browser/medir-precarga-comparativa.cjs
+      - name: Verificar que la publicación sólo se active por cambios reales
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs'),assert=require('node:assert/strict');
+          const workflow=fs.readFileSync('.github/workflows/firebase-hosting-merge.yml','utf8');
+          assert(workflow.includes("needs: [control_integral_previo]"));
+          assert(workflow.includes("steps.codigo.outputs.changed == 'true'"));
+          assert(workflow.includes('git diff --name-only "$ANTERIOR" "$GITHUB_SHA" -- plataforma/ firebase.json'));
+          const hosting=JSON.parse(fs.readFileSync('firebase.json','utf8')).hosting;
+          assert(hosting.rewrites.some(r=>r.source==='/descubrir-sw.js'&&r.destination==='/plataforma/descubrir-sw.js'));
+          assert(hosting.rewrites.some(r=>r.source==='/descubrir'&&r.destination==='/plataforma/carcasa.html'));
+          NODE
