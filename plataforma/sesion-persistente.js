@@ -41,11 +41,11 @@
     signal?.addEventListener('abort',abort,{once:true});
    });
   }
-  if(method==='POST'&&url.pathname==='/commerce'&&r.ok){
+  if(method==='POST'&&url.pathname==='/commerce'&&(r.ok||r.status===409)){
    try{
     const result=await r.clone().json();
     const body=JSON.parse(options?.body||(input instanceof Request?await input.clone().text():'{}'));
-    window.dispatchEvent(new CustomEvent('gld-commerce-saved210',{detail:{body,result}}));
+    window.dispatchEvent(new CustomEvent('gld-commerce-saved210',{detail:{body,result,status:r.status}}));
    }catch{}
   }
   const token=r.headers.get('X-GLD-Session-Token'),kind=r.headers.get('X-GLD-Session-Kind'),key=keys[kind];

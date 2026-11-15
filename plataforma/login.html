@@ -1931,8 +1931,9 @@ let sesionSuscriptor = null;
 let autorizacionesAnunciante = [];
 let gldSubscriberToken = '';
 
-function gldActualizarFichaLocal210(body,result){
+function gldActualizarFichaLocal210(body,result,status){
  if(!sesion||String(body.advertiserId||body.advertiser_id||body.id||body.__id||'')!==String(sesion.id))return;
+ if(status===409){sesion.ficha_preparada=null;return;}
  const packet=sesion.ficha_preparada?.advertiser;
  if(!packet||result.success!==true||result.updated===false)return;
  if(result.datos||result.advertiser)packet.datos=result.datos||result.advertiser;
@@ -1944,9 +1945,13 @@ function gldActualizarFichaLocal210(body,result){
   packet.sedes=[...rows.values()];
  }
  if(result.deleted&&result.sede_id){packet.sedes=(packet.sedes||[]).filter(row=>String(row.sede_id||row.id)!==String(result.sede_id));if(packet.revision_sedes)delete packet.revision_sedes[result.sede_id];}
+ if(body.action==='set_relaciones_sede'&&body.sede_id){
+  const row=(packet.sedes||[]).find(row=>String(row.sede_id||row.id)===String(body.sede_id));
+  if(row)for(const key of ['actividad_ids','accion_ids','nodo_ids'])if(Object.hasOwn(body,key))row[key]=body[key];
+ }
  if(result.revision_sedes)packet.revision_sedes={...packet.revision_sedes,...result.revision_sedes};
 }
-window.addEventListener('gld-commerce-saved210',event=>gldActualizarFichaLocal210(event.detail.body,event.detail.result));
+window.addEventListener('gld-commerce-saved210',event=>gldActualizarFichaLocal210(event.detail.body,event.detail.result,event.detail.status));
 function gldAuthHeaders_(extra={}){
   return {
     ...(gldSubscriberToken ? {Authorization:'Bearer '+gldSubscriberToken} : {}),
@@ -9489,6 +9494,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     mostrarPanel('dashboard');
     aplicarFuncionalidadesConfiguradas198();
     window.GLD_EQUIPO159?.mount({aid:sesion.id,role:sesion.relacion_autorizacion?.rol,administrativo:!!window.GLD_ADMIN_PANEL155,base:WORKER_ORIGIN,headers:()=>gldAuthHeaders_()});
+    window.GLD_NOTIFICATIONS102?.setContext();
     // Las bandejas se consultan al abrirlas, no al mostrar el inicio del anunciante.
 
     if(typeof window.updateDashboardModulesFromData === 'function'){
