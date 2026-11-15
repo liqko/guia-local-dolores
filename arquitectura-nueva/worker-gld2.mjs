@@ -124,9 +124,10 @@ async function route(request,env,m,url){
   const id=url.searchParams.get('id');
   if(!validId(id))fail('ID inválido');
   if(!await allowed(m,who,id,'READ'))fail('Sin permiso',403);
-  const entity=await m.one('SELECT id,kind,city,owner_id,revision,data_json FROM gld2_entities WHERE id=? AND removed=0',id);
+  const entity=await m.one('SELECT id,kind,city,owner_id,revision,public_json,data_json FROM gld2_entities WHERE id=? AND removed=0',id);
   if(!entity)fail('Registro inexistente',404);
-  return {...entity,data:parse(entity.data_json)};
+  const {data_json,public_json,...fields}=entity;
+  return {...fields,public_data:parse(public_json)||{},private_data:parse(data_json)||{}};
  }
  if(method==='POST'&&path==='/gld2/update'){
   const body=await request.json();
