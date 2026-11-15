@@ -2569,19 +2569,32 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           const tipo=orden.find(k=>k===elegido&&values[k]&&permitida(k))||orden.find(k=>values[k]&&permitida(k));
           return tipo?{tipo,valor:values[tipo],sede}:null;
         }
+        function webComparable_(valor){
+          const raw=String(valor||'').trim();
+          if(!raw)return '';
+          try{
+            const url=new URL(/^https?:\/\//i.test(raw)?raw:'https://'+raw);
+            return (url.hostname.toLowerCase().replace(/^www\./,'')+url.pathname.replace(/\/+$/,'')+url.search).toLowerCase();
+          }catch(_){return raw.toLowerCase().replace(/\/+$/,'');}
+        }
         function webComunSedes_(item,nivelVisual){
           const sedes=sedesPublicables_(item,nivelVisual);
-          const propias=sedes.map(s=>String(s.web||'').trim());
-          const declarada=String(item.redes_web_comunes?.habilitado===true?(item.redes_web_comunes.web||item.link||''):'').trim();
+          const declarada=String(item.redes_web_comunes?.habilitado===true?(item.redes_web_comunes.web||''):'').trim();
+          const principal=String(item.link||'').trim();
+          if(!sedes.length)return declarada||principal;
+          const valores=sedes.map(s=>String(s.web||'').trim()).filter(Boolean);
+          // Solo compartir si todas las sedes publicadas tienen la misma web,
+          // o si el anunciante cargó expresamente un sitio común.
           if(declarada)return declarada;
-          if(!sedes.length)return String(item.link||'').trim();
-          const efectivas=propias.map(v=>v||String(item.link||'').trim());
-          return efectivas.length&&efectivas[0]&&efectivas.every(v=>v===efectivas[0])?efectivas[0]:'';
+          if(valores.length===sedes.length&&valores.every(v=>webComparable_(v)===webComparable_(valores[0])))return valores[0];
+          if(!valores.length)return principal;
+          if(principal&&valores.every(v=>webComparable_(v)===webComparable_(principal)))return principal;
+          return '';
         }
         function webDeSede_(item,sede,nivelVisual){
           const web=String(sede.web||'').trim();
           if(!web)return '';
-          return web===webComunSedes_(item,nivelVisual)?'':web;
+          return webComparable_(web)===webComparable_(webComunSedes_(item,nivelVisual))?'':web;
         }
         function renderWebComun_(item,nivelVisual){
           if(!permisoNivel_(nivelVisual,'web_habilitada',true))return '';
