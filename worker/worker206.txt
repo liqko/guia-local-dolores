@@ -8093,21 +8093,29 @@ async function adminSearchSubscribersV2({ cache, url, env }) {
     offset:url.searchParams.has("offset")?Number(url.searchParams.get("offset")):null
   });
 }
-// Copia administrativa sin vencimiento temporal: sólo se invalida ante cambios.
-function ghAdminDetailKey203(id){
- return 'admin:advertiser:detail:v204:'+encodeURIComponent(String(id||'').trim());
+// La ficha de GH vive en el mismo almacén duradero del anunciante.
+ // La lectura y la invalidación comparten cola por anunciante (sin TTL ni KV de 120s).
+async function ghDetailActor204(env,id,op){
+ const aid=String(id||'').trim();
+ if(!aid||!env?.GLD_PUBLIC_CACHE)throw httpError('No está disponible la copia administrativa duradera.',503);
+ const local=env.__gldGuideActor132;
+ if(local&&String(local.guideAid132||aid)===aid){
+  const response=await local.ghDetail204({op,aid});
+  const result=await response.json();
+  if(!response.ok)throw httpError(result.error||'Copia administrativa no disponible.',503);
+  return result.detail;
+ }
+ const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
+ const response=await actor.fetch(new Request('https://gh-detail.internal/',{method:'POST',body:JSON.stringify({op,aid})}));
+ const result=await response.json();
+ if(!response.ok)throw httpError(result.error||'Copia administrativa no disponible.',503);
+ return result.detail;
 }
-async function ghAdminDetailInvalidate203(cache,id){
- if(id)await cache.del(ghAdminDetailKey203(id));
+async function ghAdminDetailInvalidate203(cache,id,env){
+ if(id)await ghDetailActor204(env,id,'gh-detail-invalidate204');
 }
-async function adminAdvertiserDetailV2({ db, id: id4,cache }) {
- const key=ghAdminDetailKey203(id4),packet=await cache.get(key);
- if(packet?.version===204&&packet.detail?.success===true)
-  return packet.detail;
- const detail=await advertiserDetailV2({ db, advertiserId: id4 });
- if(detail?.success===true)
-  await cache.put(key,{version:204,detail});
- return detail;
+async function adminAdvertiserDetailV2({ id: id4,env }) {
+ return ghDetailActor204(env,id4,'gh-detail-read204');
 }
 async function adminSubscriberDetailV2({ db, id: id4 }) {
   return subscriberDetailV2({ db, subscriberId: id4 });
@@ -8124,7 +8132,7 @@ async function routeAdminV8(ctx) {
   if (m && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
     if (!auth.ok) return json({ success: false, message: auth.message }, 401);
-    return json(await adminAdvertiserDetailV2({ db, cache, id: decodeURIComponent(m[1]) }));
+    return json(await adminAdvertiserDetailV2({ env, id: decodeURIComponent(m[1]) }));
   }
   if (path === "/superadmin/subscribers/search" && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
@@ -10333,7 +10341,7 @@ function withPanelCacheV48(db,env,report){
         if(relation.anunciante_id)detailChanged204.add(String(relation.anunciante_id));
       }
     }
-    for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid);
+    for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid,env);
     directoryChanges102.clear();
   }
   return {...db,
@@ -11922,7 +11930,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(['gh-detail-read204','gh-detail-invalidate204'].includes(body.op))return await this.ghDetail204(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12459,8 +12467,7 @@ async function routeAtomicAdvertiserInternal(ctx){
    if(body.sedes?.length){const r=await updateAdvertiserSedeRelationsV2({db:stagedDb,cache:stagedCache,auth,advertiserId:aid,sedes:body.sedes});output.updated||=r.updated;output.revision_sedes=r.revision_sedes;}
    return output;
   });
-  if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
-  return json(result);
+   return json(result);
  }
  const aid=aidOf4(ctx.url,body);if(!aid)throw httpError('Falta el anunciante.',400);
  const auth=await requirePanel4(ctx.env,request,aid,true);if(auth.response)return auth.response;
@@ -12477,9 +12484,31 @@ async function routeAtomicAdvertiserInternal(ctx){
   if(body.sedes?.length){const r=await commerceSetSedesV3({db:stagedDb,cache:stagedCache,advertiserId:aid,body:{sedes:body.sedes}});if(r.updated)await patchGuideAdvertiserSedesFromCacheV2({cache:stagedCache,advertiserId:aid,savedSedes:r.changed_sedes});output.updated||=r.updated;output.sedes=r.sedes;output.revision_sedes=r.revision_sedes;}
   return output;
  });
- if(result.updated)await ghAdminDetailInvalidate203(cache,aid);
  return json(result);
 }
+
+GldPublicCache119.prototype.ghDetail204=async function(body){
+ const aid=String(body.aid||'').trim();
+ if(!aid||this.guideAid132&&this.guideAid132!==aid)throw Error('Copia administrativa solicitada para otro anunciante.');
+ this.guideAid132=aid;
+ if(!this.ghDetailTable204){this.query('CREATE TABLE IF NOT EXISTS gh_advertiser_detail204(slot INTEGER PRIMARY KEY,value TEXT NOT NULL)');this.ghDetailTable204=true;}
+ if(body.op==='gh-detail-invalidate204'){
+  this.query('DELETE FROM gh_advertiser_detail204 WHERE slot=1');
+  return Response.json({success:true,detail:null,metrics:this.metrics});
+ }
+ if(body.op!=='gh-detail-read204')throw Error('Operación administrativa no admitida.');
+ const stored=this.query('SELECT value FROM gh_advertiser_detail204 WHERE slot=1')[0];
+ if(stored)return Response.json({detail:JSON.parse(stored.value),metrics:this.metrics});
+ const report={event:'gld_gh_detail_prepare204',worker_version:'209',path:'/internal/gh-detail/prepare',method:'PREPARE',started_at:new Date().toISOString(),request_id:crypto.randomUUID(),status:500,operations:{}};
+ const scoped=requestCache121(observeKv117(this.env,report),report);
+ const source=requestDb119(roleSourceDb192(observeDbV41(createDb(scoped),report),scoped),report);
+ const db=withPanelCacheV48(withPrivateCacheV46(source,scoped),scoped,report);
+ const detail=await advertiserDetailV2({db,advertiserId:aid});
+ await db.flushLoginCache();
+ if(detail?.success===true)this.query('INSERT INTO gh_advertiser_detail204(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value',JSON.stringify(detail));
+ report.status=200;report.consumption=consumption136(report);
+ return Response.json({detail,metrics:this.metrics,operations:report.operations,kv:report.kv});
+};
 
 GldPublicCache119.prototype.commerceMaster209=async function(body){
  const aid=String(body.aid||'').trim();
@@ -12619,12 +12648,7 @@ async function routeGuideDispatch132(ctx){
  else{const auth=await requirePanel4(env,request,aid,true);if(auth.response)return auth.response;}
  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
  const response=await actor.fetch(new Request('https://guide-write.internal/',{method:'POST',body:JSON.stringify({op:'guide-save132',aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body})}));
- // La copia integral se mantiene durante el guardado; aquí sólo se invalida el detalle administrativo heredado.
- if(response.ok){
-  const outcome=await response.clone().json().catch(()=>null);
-  if(outcome?.success===true&&outcome.updated!==false)
-   await ghAdminDetailInvalidate203(ctx.cache,aid);
- }
+ // La invalidación se ejecuta una sola vez dentro del guardado confirmado del actor.
  const renewal=SESSION_RENEWALS_V87.get(request);
  if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
  const headers=new Headers(response.headers);headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');
