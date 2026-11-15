@@ -476,6 +476,8 @@ let GH_CATALOG_CACHE={};
 // El soporte se anuncia desde /superadmin/dashboard; Worker antiguo: sin solicitud extra.
 let GH_FIXED_SUPPORTED169=false,GH_FIXED_PACKET169=null,GH_FIXED_PROMISE169=null;
 let GH_DAILY_ENTRY195=null;
+// Catálogo territorial privado: una carga por sesión; altas y bajas actualizan GH_CITIES localmente.
+let GH_TERRITORY_LOADED211=false;
 function ghFixedApply195(j){
  GH_FIXED_PACKET169=j;
  for(const [tipo,rows]of Object.entries(j.catalogos||{}))if(Array.isArray(rows))GH_CATALOG_CACHE[tipo]=rows;
@@ -1063,6 +1065,8 @@ async function login(){
     const j=await r.json();
     if(!r.ok||!j.success||!j.token) throw new Error(j.message||'No se recibió una sesión válida.');
     TOKEN=j.token;
+    GH_TERRITORY_LOADED211=false;
+    GH_DAILY_ENTRY195=null;
     localStorage.setItem('gld_superadmin_token',TOKEN);
     await abrirApp(j.entry_version===195?(j.entrada?j:{success:false,code:j.entrada_pendiente?.code||'GH_DAILY_NOT_PREPARED',message:j.entrada_pendiente?.message||'La copia diaria de Inicio todavía no está preparada.'}):null);
   }catch(e){
@@ -1202,7 +1206,9 @@ async function ghCargarEventosPublicos(){
   ghRenderEventos();
 }
 function ghTerritoryApply195(j){
-  GH_CITIES=Array.isArray(j.ciudades)?j.ciudades:[];
+  if(!j||!Array.isArray(j.ciudades)||!Array.isArray(j.paises)||!Array.isArray(j.provincias))throw Error('Catálogo territorial incompleto.');
+  GH_TERRITORY_LOADED211=true;
+  GH_CITIES=j.ciudades;
   GH_COUNTRIES=Array.isArray(j.paises)?j.paises:[];
   GH_PROVINCES=Array.isArray(j.provincias)?j.provincias:[];
   const opts='<option value="">Todas las ciudades</option>'+GH_CITIES.map(function(x){
@@ -1216,6 +1222,8 @@ function ghTerritoryApply195(j){
 }
 let GH_TERRITORY_PENDING195=null;
 async function ghCargarCiudades(){
+ // No reutilizar el paquete diario anterior a una mutación: el estado en memoria es la autoridad de esta sesión.
+ if(GH_TERRITORY_LOADED211)return;
  if(GH_DAILY_ENTRY195?.territory){ghTerritoryApply195(GH_DAILY_ENTRY195.territory);return;}
  if(GH_TERRITORY_PENDING195)return GH_TERRITORY_PENDING195;
  GH_TERRITORY_PENDING195=(async()=>{
