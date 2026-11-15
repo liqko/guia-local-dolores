@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guía Local · Nueva interfaz pública (desarrollo)</title>
+<style>
+:root{font-family:Manrope,system-ui,sans-serif;color:#18212a;background:#f5f6f8}*{box-sizing:border-box}
+body{margin:0}header{background:linear-gradient(120deg,#303842,#626d77);color:white;padding:25px max(20px,calc((100vw - 1100px)/2))}
+header small{letter-spacing:.12em;text-transform:uppercase;opacity:.78}h1{font-size:clamp(1.5rem,4vw,2.5rem);margin:8px 0 4px}
+header p{margin:0;opacity:.9}main{max-width:1100px;margin:0 auto;padding:22px 18px 60px}
+.controls{display:flex;flex-wrap:wrap;gap:12px;align-items:end;background:white;padding:18px;border:1px solid #dddfe4;border-radius:14px}
+label{display:grid;gap:6px;font-weight:600;font-size:.9rem;flex:1;min-width:220px}
+input,select{width:100%;border:1px solid #aeb5be;border-radius:9px;padding:12px;font:inherit;color:#1b2832;background:white}
+nav{display:flex;gap:8px;margin:20px 0 14px;flex-wrap:wrap}nav button{border:1px solid #9ba5af;background:white;color:#1a2733;border-radius:22px;padding:9px 17px;font:inherit;cursor:pointer}nav button[aria-pressed=true]{background:#2e3943;color:white}
+#status{min-height:26px;font-size:.9rem;color:#46535e;margin:12px 0}#results{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:14px}
+article{border:1px solid #dde2e7;background:white;border-radius:12px;padding:18px;min-height:128px;display:grid;gap:8px;align-content:start}
+article h2{font-size:1.12rem;margin:0;overflow-wrap:anywhere}article p{margin:0;color:#505e69;font-size:.9rem;overflow-wrap:anywhere}
+article .meta{font-size:.77rem;letter-spacing:.04em;color:#626e79;text-transform:uppercase}
+#empty{padding:26px;border-radius:12px;background:white;border:1px dashed #bec6ce}
+[hidden]{display:none!important}footer{margin-top:28px;color:#66737f;font-size:.8rem}
+</style>
+<script src="/plataforma/territorio-cache.js?v=2"></script>
+<script src="/plataforma/paquete-ciudad.js?v=1"></script>
+</head><body>
+<header><small>Guía Local · Interfaz en desarrollo</small><h1>Todo lo que ofrece la ciudad, en un solo lugar</h1><p>Comercios, servicios y actividades de tu ciudad.</p></header>
+<main>
+<div class="controls"><label>Ciudad<select id="city"><option value="">Cargando ciudades…</option></select></label><label>Buscar en la guía<input id="search" type="search" placeholder="Nombre, rubro o palabra clave" autocomplete="off"></label></div>
+<nav aria-label="Secciones"><button data-section="guide" aria-pressed="true">Anunciantes</button><button data-section="events" aria-pressed="false">Eventos</button><button data-section="activities" aria-pressed="false">Actividades</button><button data-section="promos" aria-pressed="false">Promociones</button></nav>
+<div id="status" role="status" aria-live="polite"></div><div id="results" aria-live="polite"></div><div id="empty" hidden>No hay publicaciones para mostrar en esta sección.</div>
+<footer>Versión de desarrollo independiente. No permite modificar datos ni gestionar permisos.</footer>
+</main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id);
+const fields={guide:'results',events:'events',activities:'actividades',promos:'promos'};
+const state={city:'',section:'guide',book:null,seq:0,initial:new Map()};
+const safeText=value=>typeof value==='string'?value.trim():'';
+function label(row){return safeText(row.nombre)||safeText(row.nombre_comercial)||safeText(row.titulo)||safeText(row.title)||safeText(row.razon_social)||'Sin título';}
+function secondary(row){return safeText(row.descripcion)||safeText(row.rubro)||safeText(row.categoria)||safeText(row.actividad)||'';}
+function rows(){const m=state.book?.modules?.[state.section];return Array.isArray(m?.[fields[state.section]])?m[fields[state.section]]:[];}
+function message(text){$('status').textContent=text;}
+function render(){
+ const needle=$('search').value.toLocaleLowerCase('es-AR').trim();
+ const all=rows(),list=needle?all.filter(row=>[label(row),secondary(row),safeText(row.segmento),safeText(row.palabras_clave)].join(' ').toLocaleLowerCase('es-AR').includes(needle)):all;
+ const container=$('results');container.replaceChildren();$('empty').hidden=!!list.length;
+ const frag=document.createDocumentFragment();
+ for(const row of list.slice(0,250)){
+  const card=document.createElement('article'),title=document.createElement('h2'),description=document.createElement('p');
+  title.textContent=label(row);description.textContent=secondary(row);card.append(title);
+  if(description.textContent)card.append(description);frag.append(card);
+ }
+ container.append(frag);
+ message(list.length+' publicaciones'+(list.length>250?' (mostrando las primeras 250)':'')+' · '+(state.book?.city||''));
+}
+async function json(url){
+ const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),12000);
+ try{const r=await fetch(url,{signal:ctrl.signal});if(!r.ok)throw Error('HTTP '+r.status);return await r.json();}
+ finally{clearTimeout(timer);}
+}
+async function loadCity(city){
+ const seq=++state.seq;state.city=city;state.book=null;
+ if(!city){$('results').replaceChildren();message('Elegí una ciudad');return;}
+ message('Cargando publicaciones…');
+ try{
+  let book=await window.GLD_PAQUETE_CIUDAD?.get(city);
+  if(!book){
+   if(!state.initial.has(city))state.initial.set(city,json('https://login.liqkoargentina.workers.dev/guide?compact=1&ciudad_id='+encodeURIComponent(city))
+    .then(data=>({city,modules:{guide:data}})).catch(err=>{state.initial.delete(city);throw err;}));
+   book=await state.initial.get(city);
+  }
+  if(seq!==state.seq)return;
+  state.book=book;render();
+ }catch(error){if(seq!==state.seq)return;message('No fue posible consultar las publicaciones. '+error.message);}
+}
+function setSection(section){
+ state.section=section;
+ document.querySelectorAll('nav button').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.section===section)));
+ $('search').value='';render();
+}
+document.querySelectorAll('nav button').forEach(b=>b.addEventListener('click',()=>setSection(b.dataset.section)));
+$('search').addEventListener('input',render);
+$('city').addEventListener('change',e=>loadCity(e.target.value));
+async function init(){
+ try{
+  const territory=await window.GLD_CATALOGO_TERRITORIAL.load();
+  const cities=Array.isArray(territory?.ciudades)?territory.ciudades:[];
+  $('city').replaceChildren(new Option('Elegí una ciudad',''));
+  cities.map(c=>({id:String(c.ciudad_id??c.id??''),name:safeText(c.nombre)||safeText(c.ciudad)||'Ciudad'}))
+   .filter(c=>c.id).sort((a,b)=>a.name.localeCompare(b.name,'es'))
+   .forEach(c=>$('city').add(new Option(c.name,c.id)));
+  message('Elegí una ciudad');
+ }catch(e){$('city').replaceChildren(new Option('No se pudo cargar la lista de ciudades',''));message('No fue posible cargar ciudades');}
+}
+init();
+})();
+</script></body></html>
