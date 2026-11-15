@@ -32,9 +32,11 @@ self.addEventListener('fetch',event=>{
     }
     try{
       const fresh=await fetch(request,{cache:'no-store'});
-      if(fresh.ok&&fresh.status===200&&
-         (fresh.headers.get('Content-Type')||'').toLowerCase().includes('text/html')&&
-         !fresh.headers.has('Set-Cookie')){
+      // La ruta /descubrir sirve exclusivamente el documento público estático.
+      // Jamás guardar respuestas redirigidas hacia una pantalla de acceso.
+      if(fresh.ok&&fresh.status===200&&!fresh.redirected&&
+         new URL(fresh.url).origin===self.location.origin&&
+         new URL(fresh.url).pathname===PAGE){
         await cache.put(PAGE,fresh.clone());
       }
       return fresh;
