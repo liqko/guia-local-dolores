@@ -49,7 +49,9 @@ test('SW: no precarga otras pantallas; conserva navegación y modo sin conexión
     await page.reload();
     assert((await page.locator('body').innerText()).includes('/plataforma/eventos.html'),'Evento visitado debe seguir disponible offline');
     await page.goto(origin+'/plataforma/actividades.html');
-    assert((await page.locator('body').innerText()).includes('GLD_OFFLINE_FALLBACK'),'Ruta no visitada usa offline general');
+    const offlineBody=await page.locator('body').innerText();
+    console.log('OFFLINE_UNVISITED_TRACE',JSON.stringify({body:offlineBody.slice(0,350),url:page.url(),accesses}));
+    assert(offlineBody.includes('GLD_OFFLINE_FALLBACK'),'Ruta no visitada usa offline general');
     await context.close();
     console.log(JSON.stringify({verified:true,initialRequests:precached,offlineVisited:true,offlineUnvisitedFallback:true}));
   } finally {
