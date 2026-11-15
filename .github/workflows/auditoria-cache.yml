@@ -35,6 +35,17 @@ jobs:
         run: GLD_CHROME="$(command -v google-chrome)" node tests/browser/carcasa-eventos-consumo.cjs public
       - name: Verificar Carcasa y Eventos en navegador con código candidato
         run: GLD_CHROME="$(command -v google-chrome)" node tests/browser/carcasa-eventos-consumo.cjs candidate
+      - name: Identificar archivos de Hosting que siguen descargándose al recargar
+        run: |
+          node - <<'NODE'
+          const fs=require('node:fs');
+          for(const mode of ['public','candidate']){
+            const r=JSON.parse(fs.readFileSync('test-results/carcasa-eventos-'+mode+'.json','utf8'));
+            const s=r.steps.find(x=>x.action.includes('recarga con copia vigente'));
+            const rows=s.rows.filter(x=>x.bodyBytes>0&&x.url.includes('/plataforma/')).sort((a,b)=>b.bodyBytes-a.bodyBytes);
+            console.log(JSON.stringify({mode,hostingRequests:s.hostingRequests,observedBytes:s.hostingBodyBytesObserved,unknownRequests:s.hostingBodyBytesUnknown,largestBodyTransfers:rows.slice(0,12).map(x=>({path:new URL(x.url).pathname,bytes:x.bodyBytes,status:x.status,fromServiceWorker:x.fromServiceWorker}))}));
+          }
+          NODE
       - uses: actions/upload-artifact@v4
         if: always()
         with:
