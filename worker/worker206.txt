@@ -995,10 +995,8 @@ function createDb(env) {
  * La autorización y las sesiones siguen su propio ciclo de seguridad.
  */
 async function invalidateGhDetailsFromWrites210(env,entries){
- const kv=env.GLD_CACHE_KV;
- if(!kv?.delete||!entries?.length)return;
- const byAdvertiser=new Set();
- const ownerSubscribers=new Set();
+ if(!env.GLD_PUBLIC_CACHE||!entries?.length)return;
+ const byAdvertiser=new Set(),publicityIds=new Set(),ownerSubscribers=new Set();
  const direct=new Set(['anunciantes','anunciantes_administracion']);
  const related=new Set(['anunciantes_sedes','suscriptor_anunciante','promos','eventos','actividades',
   'publicidades','farmacias_ciclos','publicidad_media','publicidad_segmentacion']);
@@ -1006,24 +1004,34 @@ async function invalidateGhDetailsFromWrites210(env,entries){
   const c=String(item.collection||''),id=String(item.id||'');
   if(direct.has(c)&&id)byAdvertiser.add(id);
   if(related.has(c)){
-   for(const aid of [item.before?.anunciante_id,item.patch?.anunciante_id,item.row?.anunciante_id]){
+   for(const aid of [item.before?.anunciante_id,item.patch?.anunciante_id,item.row?.anunciante_id])
     if(aid)byAdvertiser.add(String(aid));
-   }
-   // En cambios de relación, la clave del suscriptor permite resolver
-   // el anunciante aunque la operación no transporte su anunciante_id.
-   if(c==='suscriptor_anunciante'&&item.patch?.suscriptor_id)ownerSubscribers.add(String(item.patch.suscriptor_id));
+   if(c==='suscriptor_anunciante')
+    for(const sid of [item.before?.suscriptor_id,item.patch?.suscriptor_id,item.row?.suscriptor_id])
+     if(sid)ownerSubscribers.add(String(sid));
+   if(c==='publicidad_media'||c==='publicidad_segmentacion')
+    for(const pid of [item.before?.publicidad_id,item.patch?.publicidad_id,item.row?.publicidad_id])
+     if(pid)publicityIds.add(String(pid));
   }
   if(c==='suscriptores'&&id)ownerSubscribers.add(id);
  }
- if(ownerSubscribers.size){
+ if(ownerSubscribers.size||publicityIds.size){
   const source=createDb(env);
+  for(const pid of publicityIds){
+   const piece=await source.get('publicidades',pid);
+   if(piece?.anunciante_id)byAdvertiser.add(String(piece.anunciante_id));
+  }
   for(const sid of ownerSubscribers){
    const relations=await source.queryEqual('suscriptor_anunciante','suscriptor_id',sid,500);
    for(const row of relations||[])if(row?.anunciante_id)byAdvertiser.add(String(row.anunciante_id));
   }
  }
- await Promise.all([...byAdvertiser].map(aid=>
-  kv.delete('admin:advertiser:detail:v204:'+encodeURIComponent(aid))));
+ // La primera invalidación efectiva basta por anunciante y solicitud.
+ const seen=env.__gldGhInvalidated204||(env.__gldGhInvalidated204=new Set());
+ for(const aid of byAdvertiser)if(!seen.has(aid)){
+  await ghDetailActor204(env,aid,'gh-detail-invalidate204');
+  seen.add(aid);
+ }
 }
 
 // reconstruccion/worker/core/cache.js
@@ -10341,7 +10349,11 @@ function withPanelCacheV48(db,env,report){
         if(relation.anunciante_id)detailChanged204.add(String(relation.anunciante_id));
       }
     }
-    for(const aid of detailChanged204)await ghAdminDetailInvalidate203(directoryCache102,aid,env);
+    const ghSeen204=env.__gldGhInvalidated204||(env.__gldGhInvalidated204=new Set());
+    for(const aid of detailChanged204)if(!ghSeen204.has(aid)){
+      await ghAdminDetailInvalidate203(directoryCache102,aid,env);
+      ghSeen204.add(aid);
+    }
     directoryChanges102.clear();
   }
   return {...db,
