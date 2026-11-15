@@ -1,0 +1,51 @@
+name: Control integral automático de Guía Local
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: control-integral-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verificar:
+    name: ${{ matrix.area }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        area: [usuario, anunciante, administrador, compartido, navegador]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Preparar navegador de pruebas (solo en ese grupo)
+        if: matrix.area == 'navegador'
+        run: npm install --no-save --package-lock=false playwright@1.55.0
+      - name: Ejecutar comprobaciones sin datos reales
+        env:
+          GLD_CHROME: /usr/bin/google-chrome
+          CHROME_PATH: /usr/bin/google-chrome
+        run: node scripts/control-integral.cjs ${{ matrix.area }}
+      - name: Guardar resultado por interfaz
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: control-integral-${{ matrix.area }}
+          path: test-results/control-*.json
+          retention-days: 14
+  resultado:
+    name: Resultado integral obligatorio
+    runs-on: ubuntu-latest
+    needs: [verificar]
+    if: always()
+    steps:
+      - name: Bloquear aprobación si alguna parte falla
+        env:
+          RESULTADO: ${{ needs.verificar.result }}
+        run: |
+          echo "Resultado de todas las interfaces: $RESULTADO"
+          test "$RESULTADO" = success
