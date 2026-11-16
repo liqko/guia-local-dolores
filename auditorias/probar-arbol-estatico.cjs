@@ -8,6 +8,7 @@ try{
  fs.mkdirSync(path.join(root,'plataforma'),{recursive:true});
  fs.writeFileSync(path.join(root,'plataforma/index.html'),[
   '<button id="alta" onclick="guardarCiudad()">Guardar ciudad</button>',
+  '<button id="soporte" onclick="enviarSoporte()">Soporte</button>',
   '<button id="global" onclick="usarGlobal()">Global inicializado</button>',
   '<script>function initGlobal(){window.gldTestGlobal=()=>fetch("/superadmin/cities/create")}initGlobal()</script>',
   '<script src="/plataforma/externo.js"></script>',
@@ -46,7 +47,7 @@ try{
   '<script>function guardarCiudad(){return enviarCiudad()}</script>'
  ].join('\n'));
  fs.writeFileSync(path.join(root,'plataforma/exports.js'),"(function(){window.realExport=function(){return fetch('/superadmin/cities/create')};window.aliasExport=window.realExport})()\n");
- fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\n");
+ fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\nasync function api(path,body){return fetch('https://login.test'+path,{method:body?'POST':'GET'})}\nfunction enviarSoporte(){return api('/support/requests',{tipo:'X'})}\n");
  fs.writeFileSync(path.join(root,'plataforma/externo.js'),"function usarGlobal(){return window.gldTestGlobal()}\n");
  fs.writeFileSync(path.join(root,'worker/worker206.txt'),[
  "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
@@ -54,6 +55,7 @@ try{
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
  "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
  "if(path==='/superadmin/subscribers/search')return alta(db);",
+ "if(path==='/support/requests'&&request.method==='POST')return alta(db);",
  "var {extra}=(()=>{async function extra(db){await db.patch('items','x',{});return 'ok'}return {extra}})();",
  "if(path==='/superadmin/iife-export')return extra(db);",
  "let m=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)$/);if(m)return alta(db);",
@@ -68,6 +70,8 @@ try{
  assert.equal(json.totals.endpointsExternal,1,'Destino HTTP externo explícito contado indebidamente como interno');
  const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
  assert(globalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='conditional_global_assignment'),'No siguió asignación condicional window desde script contenedor');
+ const supportTree=json.trees.find(x=>x.action.handler==='enviarSoporte()');
+ assert(supportTree?.nodes.some(n=>n.type==='http'&&n.target==='/support/requests'&&n.routeStatus==='backend_candidate'),'No dedujo POST desde el wrapper API con cuerpo');
  const good=json.trees.find(x=>x.action.handler==='guardarCiudad()');
  assert(good,'No encontró botón de guardar');
  assert(good.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No enlazó el manejador');
