@@ -116,7 +116,12 @@ function scan(){
      }
      if(isFetch){
       // Original expression retained: dynamic URLs must not be declared resolved.
-      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,
+      let verb=null;
+      const options=args[1];
+      if(options&&ts.isObjectLiteralExpression(options))for(const prop of options.properties){
+        if(ts.isPropertyAssignment(prop)&&name(prop.name)==='method')verb=staticValue(prop.initializer);
+      }
+      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,verb:verb||'GET',
         status:first&&first.startsWith('/')?'static':'dynamic'});
      }
     }
@@ -173,7 +178,10 @@ function scan(){
   const raw=srcs.get(file),lines=raw.split('\n');
   for(let i=0;i<lines.length;i++){
    const s=lines[i],match=[...s.matchAll(/['"](\/(?:superadmin|advertisers|login|api|public|guide|events|activities|territory|cities|countries|provinces)[^'"]*)['"]/g)];
-   for(const m of match){if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1});}
+   const routeVerb=/(?:request2|request)\.method\s*===?\s*['"](GET|POST|PATCH|DELETE|PUT)['"]/.exec(s)?.[1]||null;
+    const routeHandler=/\breturn\s+(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(s)?.[1]||null;
+    for(const m of match)if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1,verb:routeVerb,
+      handler:/\bpath\s*===?\s*['"]/.test(s)?routeHandler:null});
    const p=s.indexOf('path.match(/');
    if(p>=0){
      const fragment=s.slice(p+'path.match(/'.length);
@@ -204,7 +212,10 @@ function scan(){
     const regex=regexRoutes.filter(r=>{
       try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(v);}catch(_){return false;}
     });
-    for(const hit of [...direct,...regex,...prefix])ep.worker.push({...hit,target:v});
+    for(const hit of [...direct,...regex,...prefix]){
+      if(ep.verb&&hit.verb&&ep.verb!==hit.verb)continue;
+      ep.worker.push({...hit,target:v});
+    }
   }
   ep.worker=ep.worker.slice(0,30);
   ep.status=ep.worker.length?values.size>1?'multi_backend_candidate':'backend_candidate':'no_backend_match';
@@ -231,8 +242,16 @@ function scan(){
       if(treeNodes.length>2400){treeNodes.push({type:'limit',from:id,reason:'node_limit'});break;}
       if(c.kind==='http'){
         const e=httpById.get(c.id);
-        treeNodes.push({type:'http',from:id,file:c.file,line:c.line,target:e?.target||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
-        if(!e||!['backend_candidate','multi_backend_candidate'].includes(e.status))treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
+        treeNodes.push({type:'http',from:id,file:c.file,line:c.line,target:e?.target||null,verb:e?.verb||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
+        const matched=e?.worker||[],handlers=[...new Set(matched.map(x=>x.handler).filter(Boolean))];
+        for(const handler of handlers){
+          const found=(byName.get(handler)||[]).filter(f=>f.file.startsWith('worker/')&&!f.parent);
+          if(found.length!==1){treeNodes.push({type:'unresolved',from:c.id,reason:'backend_handler_ambiguo',handler});continue;}
+          treeNodes.push({type:'backend_candidate',from:c.id,handler,at:found[0].file+':'+found[0].line,depth:depth+2});
+          walk(found[0].id,depth+3);
+        }
+        if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
+        else if(!handlers.length)treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada'});
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
       }else if(c.to){
