@@ -267,6 +267,8 @@ function scan(){
    const definitions={},ctx={};
    const global=scopeDefinitions.get(file+':<top-level>')||[];
    for(const def of global)if(def.line<=beforeLine)definitions[def.name]=def.expression;
+   for(const [key,route] of actionRoutes.get(ownerId)||[])if(route.path&&!route.partial)
+     definitions['routes.'+key]=JSON.stringify(route.path);
    let cur=ownerId;const visited=new Set();
    while(cur&&!visited.has(cur)){
      visited.add(cur);
@@ -323,6 +325,14 @@ function scan(){
  }
  for(const ep of endpoints){
   const values=new Set();
+  const env=makeEnvironment(ep.owner,ep.file,ep.line);
+  const symbolic=resolveExpression(ep.expression,env.ctx,env.definitions);
+  for(const value of symbolic.values){
+    if(value.startsWith('/'))values.add(value);
+    else if(/^https?:\/\//.test(value))try{values.add(new URL(value).pathname);}catch(_){}
+  }
+  ep.symbolic={complete:symbolic.complete,unknown:symbolic.unknown.slice(0,24)};
+  if(!symbolic.complete)ep.partiallyUnknown=true;
   if(ep.requestKind==='api'&&ep.target&&!ep.target.startsWith('/')){
     const f=allFns.find(x=>x.file===ep.file&&x.name==='api'&&!x.parent);
     const selected=f&&actionRoutes.get(f.id)?.get(ep.target);
@@ -362,7 +372,7 @@ function scan(){
     }
   }
   ep.candidates=[...values].sort();
-  ep.partial=(ep.target===null&&values.size>0)||ep.actionPartial===true;
+  ep.partial=(ep.target===null&&values.size>0&&!symbolic.complete)||ep.actionPartial===true;
   ep.requireDynamicRemainder=ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
   if(!values.size){ep.status='dynamic_unresolved';continue;}
   ep.worker=[];
