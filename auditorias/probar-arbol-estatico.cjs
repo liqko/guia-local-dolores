@@ -50,7 +50,7 @@ try{
  "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
  "if(path==='/superadmin/subscribers/search')return alta(db);",
  "let m=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)$/);if(m)return alta(db);",
- "let match=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)\\/panel-access$/),other=path.match(/^\\/superadmin\\/subscribers\\/([^/]+)\\/reset-access$/); if(match)return alta(db);"
+ "let match=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)\\/panel-access$/),other=path.match(/^\\/superadmin\\/subscribers\\/([^/]+)\\/reset-access$/); if(match){const id=decodeURIComponent(match[1]);return alta(db);}",
  ].join('\n'));
  // Shared function via HTML script src must resolve to local imported file.
  fs.appendFileSync(path.join(root,'plataforma/index.html'),"\n<script src=\"/plataforma/enviar.js\"></script>\n");
@@ -85,6 +85,7 @@ try{
  const dynTree=json.trees.find(x=>x.action.handler==='dinamica()');
  assert(dynTree?.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access'))),'No enlazó la ruta dinámica con el patrón del Worker');
  assert(dynTree.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No siguió rama regex hasta la función ejecutada por el Worker');
+ assert(dynTree.nodes.some(n=>n.type==='builtin_call'&&n.handler==='decodeURIComponent'),'Función nativa del lenguaje confundida con una conexión sin resolver');
  assert(dynTree.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access')&&w.file==='worker/worker206.txt')),'No reconoció un patrón de ruta si hay dos expresiones regulares en la misma línea');
  const adminTree=json.trees.find(x=>x.action.handler==='buscarAdmin()');
  assert(adminTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No agregó el origen /superadmin a una solicitud relativa');
