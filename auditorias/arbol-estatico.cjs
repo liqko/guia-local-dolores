@@ -187,7 +187,7 @@ function scan(){
       if(ts.isPropertyAccessExpression(n.right)&&n.right.expression.getText(sf)==='window')
         target=n.right.name.text;
       else if(ts.isIdentifier(n.right))target=n.right.text;
-      if(target)exportAliases.push({file,alias,target,line:line(n)});
+      if(target)exportAliases.push({file,alias,target,line:line(n),scope:fnStack.at(-1)?.id||null});
     }
     if(ts.isPropertyAssignment(n)&&((ts.isIdentifier(n.name)&&n.name.text==='path')||literal(n.name)==='path')){
       const value=literal(n.initializer),owner=fnStack.at(-1)?.id;
@@ -347,6 +347,11 @@ function scan(){
   for(const h of hosts){visible.add(h);for(const src of scriptDependencies.get(h)||[])visible.add(src);}
   const matchingAliases=exportAliases.filter(a=>a.alias===name&&visible.has(a.file));
   if(matchingAliases.length===1&&!seenAliases.has(name)){
+    const exportedAlias=matchingAliases[0];
+    const direct=(byName.get(exportedAlias.target)||[]).filter(f=>
+      f.file===exportedAlias.file&&f.parent===exportedAlias.scope);
+    if(direct.length===1)return {to:direct[0].id,resolution:'exported_nested_window_function',
+      source:{file:exportedAlias.file,line:exportedAlias.line}};
     const further=new Set(seenAliases);further.add(name);
     const next=resolve(matchingAliases[0].target,file,further);
     if(next.to)return {...next,resolution:'explicit_window_alias'};
