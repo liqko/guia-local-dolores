@@ -11,13 +11,16 @@ try{
   '<button id="sinruta" onclick="noExiste()">Rota</button>',
   '<button id="obj" onclick="accionObjeto()">Objeto</button>',
   '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
+  '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
+  '<script>function crearTerritorio(tipo){const spec={pais:{path:"countries/create"},ciudad:{path:"cities/create"}}[tipo];return fetch("https://login.test"+"/superadmin/"+spec.path,{method:"POST"})}</script>',
   '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search"};return routes[action]}function hacerConsulta(){return api("buscar")}</script>',
   '<script>document.addEventListener("click",()=>{return guardarCiudad()})</script>',
   '<script>const obj={run(){return fetch("/superadmin/cities/create")}};function accionObjeto(){return obj.run()}</script>',
   '<script>function guardarCiudad(){return enviarCiudad()}</script>'
  ].join('\n'));
  fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\n");
- fs.writeFileSync(path.join(root,'worker/worker206.txt'),"async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}\nif(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);\n");
+ fs.writeFileSync(path.join(root,'worker/worker206.txt'),"async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}\nif(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);
+if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);\n");
  // Shared function via HTML script src must resolve to local imported file.
  fs.appendFileSync(path.join(root,'plataforma/index.html'),"\n<script src=\"/plataforma/enviar.js\"></script>\n");
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
@@ -31,6 +34,9 @@ try{
  assert(good.nodes.some(n=>n.type==='http'&&n.target==='/superadmin/cities/create'),'No detectó solicitud');
  assert(good.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No enlazó la ruta HTTP con el manejador del Worker');
  assert(good.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No recorrió la operación de persistencia');
+ const cityTree=json.trees.find(x=>x.action.handler.includes('crearTerritorio'));
+ assert(cityTree?.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No conectó spec.path con alta Worker');
+ assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
  const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
  assert(apiTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No resolvió API simbólica por su tabla de rutas');
  const listenerTree=json.trees.find(x=>x.action.kind==='listener'&&x.action.handler.startsWith('callback@'));
