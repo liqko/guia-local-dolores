@@ -27,6 +27,8 @@ try{
   '<button id="obj" onclick="accionObjeto()">Objeto</button>',
   '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
   '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
+  '<button id="wrapper" onclick="usarWrapper()">Wrapper</button>',
+  '<script>const ORIGIN="https://login.test";function wrapper(path){return fetch(ORIGIN+path)} function usarWrapper(){return wrapper("/superadmin/cities/create")}</script>',
   '<script>function crearTerritorio(tipo){const spec={pais:{path:"countries/create"},ciudad:{path:"cities/create"}}[tipo];return fetch("https://login.test"+"/superadmin/"+spec.path,{method:"POST"})}</script>',
   '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search"};return routes[action]}function hacerConsulta(){return api("buscar")}</script>',
   '<script>document.addEventListener("click",()=>{return guardarCiudad()})</script>',
@@ -72,6 +74,8 @@ try{
  const cityTree=json.trees.find(x=>x.action.handler.includes('crearTerritorio'));
  assert(cityTree?.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No conectó spec.path con alta Worker');
  assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
+ const wrapperTree=json.trees.find(x=>x.action.handler==='usarWrapper()');
+ assert(wrapperTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/cities/create')),'No resolvió dirección del wrapper desde el parámetro de su llamador');
  const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
  assert(apiTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No resolvió API simbólica por su tabla de rutas');
  const listenerTree=json.trees.find(x=>x.action.kind==='listener'&&x.action.handler.startsWith('callback@'));
