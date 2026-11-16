@@ -66,6 +66,7 @@ function scan(){
     if((ts.isVariableDeclaration(p)||ts.isPropertyAssignment(p)||ts.isPropertyDeclaration?.(p))&&ts.isIdentifier(p.name))return p.name.text;
     if(ts.isBinaryExpression(p))return p.left.getText(sf).slice(0,140);
     if(ts.isCallExpression(p))return 'callback@'+line(n);
+    if(ts.isParenthesizedExpression(p)&&ts.isCallExpression(p.parent))return 'iife@'+line(n);
     return 'anonymous@'+line(n);
    }
    function isFn(n){return ts.isFunctionDeclaration(n)||ts.isFunctionExpression(n)||ts.isArrowFunction(n)||ts.isMethodDeclaration(n)||ts.isConstructorDeclaration(n)||ts.isGetAccessor(n)||ts.isSetAccessor(n);}
@@ -216,7 +217,7 @@ function scan(){
  for(const c of allCalls){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
   if(!c.method){
-    const nested=(byFile.get(c.file)||[]).filter(f=>f.line===c.line&&f.name.startsWith('callback@'));
+    const nested=(byFile.get(c.file)||[]).filter(f=>f.line===c.line&&(f.name.startsWith('callback@')||f.name.startsWith('iife@')));
     if(nested.length===1){c.to=nested[0].id;c.resolution='immediate_callback';continue;}
     c.resolution='computed';continue;
   }
