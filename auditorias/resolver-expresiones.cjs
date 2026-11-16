@@ -49,7 +49,11 @@ function resolveExpression(expression,ctx={},definitions={},trail=new Set(),leve
        for(const v of baseResult.values){
          try{const u=new URL(v);
            values.push(n.name.text==='href'?u.href:n.name.text==='pathname'?u.pathname:n.name.text==='origin'?u.origin:u.search);
-         }catch(_){if(n.name.text==='pathname'&&v.startsWith('/'))values.push(v);}
+         }catch(_){
+           // Only the pathname is proven when the URL origin is not known.
+           // Keep the partial value for routing; never claim the full href.
+           if(['href','pathname'].includes(n.name.text)&&v.startsWith('/'))values.push(v);
+         }
        }
        return result(values,baseResult.complete,[...baseResult.unknown]);
      }
@@ -67,6 +71,12 @@ function resolveExpression(expression,ctx={},definitions={},trail=new Set(),leve
      const [a,b]=n.arguments||[],v=E(a,depth+1),base=b?E(b,depth+1):result([]);
      if(!b)return v;
      const values=[];for(const x of v.values)for(const y of base.values)try{values.push(new URL(x,y).href);}catch(_){}
+     // new URL('/absolute/path', unknownBase): origin is unknown but
+     // the pathname is independent of the origin. Preserve this evidence.
+     if(!base.complete&&!base.values.length){
+       const rooted=v.values.filter(x=>x.startsWith('/'));
+       if(rooted.length)return result(rooted,false,[...v.unknown,...base.unknown,'url_origin_unverified']);
+     }
      return result(values,v.complete&&base.complete,[...v.unknown,...base.unknown]);
    }
    if(ts.isCallExpression(n)){
