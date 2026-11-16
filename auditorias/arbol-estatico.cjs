@@ -831,7 +831,7 @@ function scan(){
         else if(!handlers.length){
           if(matched.some(x=>x.inlineTerminal))treeNodes.push({type:'backend_inline_return',from:c.id,
             reason:'el_despachador_retorna_respuesta_sin_funcion_auxiliar'});
-          else treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada'});
+          else treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada',evidence:matched.map(x=>({path:x.path,pattern:x.pattern,file:x.file,line:x.line,guard:x.guard,handlers:x.handlers,inlineTerminal:x.inlineTerminal,inlineResponse:x.inlineResponse}))});
         }
         if(e?.requireDynamicRemainder){
           const covered=e.candidates?.length&&e.candidates.every(v=>
