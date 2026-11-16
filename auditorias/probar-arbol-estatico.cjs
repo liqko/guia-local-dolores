@@ -90,7 +90,7 @@ try{
   assert(tree,'No se detectó el botón '+handler);
   assert.equal(tree.counts.missingHandlers,0,'Falso manejador ausente: '+handler);
   assert(tree.nodes.some(n=>n.type==='function'),'No se enlazó al archivo JS importado: '+handler);
-  assert(tree.nodes.some(n=>n.type==='function'&&n.file==='plataforma/gh-listados.js'),'No se reconoció la última exportación sincrónica: '+handler);
+  assert(tree.nodes.some(n=>n.type==='function'&&n.file==='plataforma/gh-listados.js'),'No se reconoció la última exportación sincrónica: '+handler+' '+JSON.stringify(tree.nodes.slice(0,8)));
  }
 
  const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
