@@ -255,7 +255,9 @@ function scan(){
        const code=arg0.getText(sf),end=code.lastIndexOf('/');
        if(end>0)regexRoutes.push({pattern:code.slice(1,end),flags:code.slice(end+1),file,line:at});
      }
-     const isFetch=(ts.isIdentifier(target)&&target.text==='fetch')||['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method);
+     const isFetch=(ts.isIdentifier(target)&&target.text==='fetch')||['ghAdminRequest_','ghAdminRequestRaw143'].includes(method);
+     // A local api(...) function is a regular function call: traverse its body
+     // and the real fetch instead of inventing an HTTP request at the caller.
      const dataOp=/^(get|put|set|add|patch|delete|list|query|commit|queryEqual|listCollection|setItem|removeItem)$/.test(method||'')&&/^(db|cache|kv|reader|storage|localStorage|sessionStorage|firestore)\b/.test(receiver);
      const invoked=ts.isParenthesizedExpression(target)?target.expression:target;
      const immediateId=isFn(invoked)?functionId(invoked):null;
