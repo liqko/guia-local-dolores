@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[];
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[];
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -195,6 +195,11 @@ function scan(){
      const target=n.expression,receiver=ts.isPropertyAccessExpression(target)?target.expression.getText(sf).slice(0,130):'';
      const method=name(target),args=n.arguments||[],arg0=args[0],first=staticValue(arg0),at=line(n);
      const expr=target.getText(sf).slice(0,180),owner=fnStack.at(-1)?.id||file+':<top-level>';
+     if(file.startsWith('worker/')&&method==='match'&&receiver==='path'&&
+        arg0&&ts.isRegularExpressionLiteral(arg0)){
+       const code=arg0.getText(sf),end=code.lastIndexOf('/');
+       if(end>0)regexRoutes.push({pattern:code.slice(1,end),flags:code.slice(end+1),file,line:at});
+     }
      const isFetch=(ts.isIdentifier(target)&&target.text==='fetch')||['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method);
      const dataOp=/^(get|put|set|add|patch|delete|list|query|commit|queryEqual|listCollection|setItem|removeItem)$/.test(method||'')&&/^(db|cache|kv|reader|storage|localStorage|sessionStorage|firestore)\b/.test(receiver);
      const invoked=ts.isParenthesizedExpression(target)?target.expression:target;
@@ -440,7 +445,7 @@ function scan(){
    rule.inlineTerminal=rule.inlineResponse&&!valid.length;
    delete rule.callNames;
  }
- const literalRoutes=[],regexRoutes=[];
+ const literalRoutes=[];
  for(const file of workerFiles){
   const raw=srcs.get(file),lines=raw.split('\n');
   for(let i=0;i<lines.length;i++){
@@ -449,12 +454,7 @@ function scan(){
     const routeHandler=/\breturn\s+(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(s)?.[1]||null;
     for(const m of match)if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1,verb:routeVerb,
       handler:/\bpath\s*===?\s*['"]/.test(s)?routeHandler:null});
-   const p=s.indexOf('path.match(/');
-   if(p>=0){
-     const fragment=s.slice(p+'path.match(/'.length);
-     const end=fragment.lastIndexOf('/)');
-     if(end>=0)regexRoutes.push({pattern:fragment.slice(0,end).replace(/\\\//g,'/'),file,line:i+1});
-   }
+   // Worker regular expressions are extracted from syntax nodes above.
   }
  }
  for(const ep of endpoints){
