@@ -50,7 +50,8 @@ function scan(){
     if(url.startsWith('/'))target=url.split(/[?#]/)[0].slice(1);
     else target=path.posix.normalize(path.posix.join(path.posix.dirname(file),url.split(/[?#]/)[0]));
     const matched=paths.includes(target);
-    externalScripts.push({file,target,matched});
+    const scriptTag=raw.slice(m.index,raw.indexOf('>',m.index)+1);
+    externalScripts.push({file,target,matched,order:m.index,nonSequential:/\b(?:async|defer)\b|\btype\s*=\s*['\"]module['\"]/i.test(scriptTag)});
     if(!matched&&!/^https?:\/\//.test(url))unresolved.push({kind:'script_sin_fuente',file,line:raw.slice(0,m.index).split('\n').length,target});
    }
   }
@@ -335,6 +336,20 @@ function scan(){
   const exported=candidates.filter(f=>(f.name==='window.'+name||f.name==='globalThis.'+name)&&
     (f.file===file||imported.has(f.file)));
   if(exported.length===1)return {to:exported[0].id,resolution:'explicit_window_export'};
+  // Two scripts may assign the same explicit window handler. For classic, synchronous
+  // script tags in the same HTML document, the last one replaces the earlier one.
+  // Preserve the overwritten implementation in evidence instead of declaring it absent.
+  if(exported.length>1 && exported.every(f=>f.name==='window.'+name||f.name==='globalThis.'+name)){
+    const sources=externalScripts.filter(x=>x.file===file&&x.matched&&exported.some(f=>f.file===x.target));
+    const lastBySource=new Map(sources.map(x=>[x.target,x]));
+    if(exported.every(f=>lastBySource.has(f.file)&&!lastBySource.get(f.file).nonSequential)){
+      const ordered=exported.slice().sort((a,b)=>lastBySource.get(a.file).order-lastBySource.get(b.file).order);
+      const winner=ordered.at(-1),previous=ordered.at(-2);
+      if(lastBySource.get(winner.file).order!==lastBySource.get(previous.file).order)
+        return {to:winner.id,resolution:'last_sync_script_global_override',shadowed:ordered.slice(0,-1).map(x=>x.id)};
+    }
+  }
+
   // A function deliberately assigned to window is callable after its enclosing
   // initializer runs. Preserve this as a conditional edge, NOT a proven runtime call.
   const hostsForExport=scriptHosts.get(file)||new Set();
