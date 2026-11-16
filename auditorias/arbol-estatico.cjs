@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map();
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[];
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -163,6 +163,7 @@ function scan(){
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
      const f={id:functionId(n),file,line:line(n),name:functionName(n),objectOwner,
+      promiseExecutor:ts.isNewExpression(n.parent)&&n.parent.expression.getText(sf)==='Promise',
       methodByBody:!!n.body&&/method\s*:\s*body\s*\?\s*['"]POST['"]\s*:\s*['"]GET['"]/.test(n.body.getText(sf)),
       parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>{
         const destructured=ts.isObjectBindingPattern(p.name);
@@ -189,6 +190,9 @@ function scan(){
         target=n.right.name.text;
       else if(ts.isIdentifier(n.right))target=n.right.text;
       if(target)exportAliases.push({file,alias,target,line:line(n),scope:fnStack.at(-1)?.id||null});
+      const executing=fnStack.at(-1);
+      if(target&&executing?.promiseExecutor&&executing.params.some(p=>p.name===target))
+        promiseResolverExports.push({file,alias,target,line:line(n)});
     }
     if(ts.isPropertyAssignment(n)&&((ts.isIdentifier(n.name)&&n.name.text==='path')||literal(n.name)==='path')){
       const value=literal(n.initializer),owner=fnStack.at(-1)?.id;
@@ -402,6 +406,10 @@ function scan(){
     }
   }
   if(!c.direct&&['window','globalThis'].includes(c.receiver)){
+    const hosts=scriptHosts.get(c.file)||new Set();
+    const exportedResolvers=promiseResolverExports.filter(p=>p.alias===c.method&&
+      (p.file===c.file||hosts.has(p.file)));
+    if(exportedResolvers.length===1){c.resolution='promise_resolver_export';c.promiseSource=exportedResolvers[0];continue;}
     const native=new Set(['open','scrollTo','confirm','prompt','alert','addEventListener','removeEventListener',
       'matchMedia','dispatchEvent','requestAnimationFrame','cancelAnimationFrame','setTimeout','clearTimeout',
       'setInterval','clearInterval','postMessage','focus','print','fetch','getComputedStyle']);
@@ -731,6 +739,9 @@ function scan(){
         }
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
+      }else if(c.resolution==='promise_resolver_export'){
+        treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,
+          exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.to){
         treeNodes.push({type:'edge',from:id,to:c.to,at:c.file+':'+c.line,resolution:c.resolution,depth:depth+1});
         walk(c.to,depth+2);
