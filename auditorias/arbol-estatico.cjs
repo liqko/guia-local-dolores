@@ -238,22 +238,22 @@ function scan(){
   if(ep.target?.startsWith('/')&&['ghAdminRequest_','ghAdminRequestRaw143'].includes(ep.requestKind)&&ep.apiBase){
     try{const u=new URL(ep.apiBase);values.clear();values.add(u.pathname.replace(/\/$/,'')+ep.target);}catch(_){}
   }
+  // Resolve bounded alternatives of a selected configuration record, not a
+  // made-up single outcome: e.g. spec.path selects country/province/city.
+  if(/\.path\b/.test(ep.expression)){
+    const prefix=ep.expression.match(/['"]([^'"]*\/(?:superadmin|api)\/?)['"]/);
+    const choices=symbolicRoutes.get(ep.owner);
+    if(prefix&&choices)for(const c of choices){
+      if(c.startsWith('/')||c.includes('..'))continue;
+      values.add(prefix[1]+c);
+    }
+  }
   // Recognize constant API paths inside concatenated expressions; only treat
   // the exact known segment as a candidate, never invent variable suffixes.
   if(!values.size&&ep.expression){
     const pathSegments=[...ep.expression.matchAll(/['"`](\/(?:superadmin|advertisers|api|public|events|activities|login|territory|countries|cities|provinces)[^'"`]*)['"`]/g)];
     for(const m of pathSegments){
       const v=m[1];if(v.length<180)values.add(v);
-    }
-  }
-  // Resolve bounded alternatives of a selected configuration record, not a
-  // made-up single outcome: e.g. spec.path selects country/province/city.
-  if(!values.size&&/\.path\b/.test(ep.expression)){
-    const prefix=ep.expression.match(/['"]([^'"]*\/(?:superadmin|api)\/?)['"]/);
-    const choices=symbolicRoutes.get(ep.owner);
-    if(prefix&&choices)for(const c of choices){
-      if(c.startsWith('/')||c.includes('..'))continue;
-      values.add(prefix[1]+c);
     }
   }
   ep.candidates=[...values].sort();
