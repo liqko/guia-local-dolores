@@ -99,7 +99,7 @@ function scan(){
      const expr=target.getText(sf).slice(0,180),owner=fnStack.at(-1)?.id||file+':<top-level>';
      const isFetch=(ts.isIdentifier(target)&&target.text==='fetch')||['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method);
      const dataOp=/^(get|put|set|add|patch|delete|list|query|commit|queryEqual|listCollection|setItem|removeItem)$/.test(method||'')&&/^(db|cache|kv|reader|storage|localStorage|sessionStorage|firestore)\b/.test(receiver);
-     const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,
+     const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),
       arg:first,argExpr:arg0?.getText(sf).slice(0,160)||'',kind:isFetch?'http':dataOp?'data':'call',to:null,resolution:'pending'};
      allCalls.push(call);
      if(method==='addEventListener'&&args.length>=2){
@@ -129,20 +129,32 @@ function scan(){
  }
  const resolve=(name,file)=>{
   const candidates=byName.get(name)||[];
-  const local=candidates.filter(f=>f.file===file);
+  const local=candidates.filter(f=>f.file===file&&f.parent===null);
   if(local.length===1)return {to:local[0].id,resolution:'static_file'};
   if(local.length>1)return {to:null,resolution:'ambiguous_local',candidates:local.length};
   const imported=scriptDependencies.get(file)||new Set();
-  const shared=candidates.filter(f=>imported.has(f.file));
+  const shared=candidates.filter(f=>imported.has(f.file)&&f.parent===null);
   if(shared.length===1)return {to:shared[0].id,resolution:'static_import'};
   if(shared.length>1)return {to:null,resolution:'ambiguous_import',candidates:shared.length};
-  if(candidates.length===1)return {to:candidates[0].id,resolution:'unique_global_candidate'};
-  return {to:null,resolution:candidates.length?'ambiguous_global':'unknown'};
+  return {to:null,resolution:candidates.length?'global_no_verificado':'unknown'};
  };
  for(const c of allCalls){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
   if(!c.method){c.resolution='computed';continue;}
-  Object.assign(c,resolve(c.method,c.file));
+  if(!c.direct&&!['window','globalThis'].includes(c.receiver)){
+    c.resolution=c.receiver==='this'?'this_sin_analisis_de_clase':'external_method';continue;
+  }
+  // Only direct calls or global window calls may bind to a standalone function.
+  // Searching every property method by name caused false cross-module paths.
+  const candidates=byName.get(c.method)||[];
+  let scope=c.from,lexical=null;
+  while(scope&&!lexical){
+    const matches=candidates.filter(f=>f.file===c.file&&f.parent===scope);
+    if(matches.length===1)lexical={to:matches[0].id,resolution:'lexical_child'};
+    else if(matches.length>1){lexical={to:null,resolution:'ambiguous_lexical'};break;}
+    scope=byId.get(scope)?.parent||null;
+  }
+  Object.assign(c,lexical||resolve(c.method,c.file));
  }
  // Discover backend route conditions without mistaking string references for dispatches.
  const workerFiles=paths.filter(p=>p.startsWith('worker/'));
@@ -191,7 +203,7 @@ function scan(){
       }else if(c.to){
         treeNodes.push({type:'edge',from:id,to:c.to,at:c.file+':'+c.line,resolution:c.resolution,depth:depth+1});
         walk(c.to,depth+2);
-      }else if(c.resolution==='unknown'){
+      }else if(['unknown','external_method'].includes(c.resolution)){
         // External standard DOM calls are expected; mark distinction from internal ambiguity.
         treeNodes.push({type:'external',from:id,method:c.method,at:c.file+':'+c.line,depth:depth+1});
       }else{
