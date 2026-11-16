@@ -80,6 +80,29 @@ function resolveExpression(expression,ctx={},definitions={},trail=new Set(),leve
      return result(values,v.complete&&base.complete,[...v.unknown,...base.unknown]);
    }
    if(ts.isCallExpression(n)){
+     // Immediately invoked arrow returning a URL object after searchParams.set()
+     // changes only the query, never the destination pathname.
+     const invoked=ts.isParenthesizedExpression(n.expression)?n.expression.expression:n.expression;
+     if(ts.isArrowFunction(invoked)&&ts.isBlock(invoked.body)&&invoked.parameters.length===0){
+       const statements=invoked.body.statements;
+       const returns=statements.filter(x=>ts.isReturnStatement(x));
+       const returned=returns.length===1?returns[0].expression:null;
+       if(returned&&ts.isCallExpression(returned)&&ts.isPropertyAccessExpression(returned.expression)&&
+          returned.expression.name.text==='toString'&&ts.isIdentifier(returned.expression.expression)){
+         const local=returned.expression.expression.text;
+         const vars=statements.flatMap(x=>ts.isVariableStatement(x)?[...x.declarationList.declarations]:[])
+           .filter(x=>ts.isIdentifier(x.name)&&x.name.text===local&&x.initializer&&ts.isNewExpression(x.initializer)&&x.initializer.expression.getText(sf)==='URL');
+         const allowed=statements.every(x=>ts.isVariableStatement(x)||ts.isReturnStatement(x)||
+           ts.isExpressionStatement(x)&&ts.isCallExpression(x.expression)&&
+           ts.isPropertyAccessExpression(x.expression.expression)&&x.expression.expression.name.text==='set'&&
+           ts.isPropertyAccessExpression(x.expression.expression.expression)&&
+           x.expression.expression.expression.name.text==='searchParams'&&
+           ts.isIdentifier(x.expression.expression.expression.expression)&&
+           x.expression.expression.expression.expression.text===local);
+         if(vars.length===1&&allowed){const base=E(vars[0].initializer,depth+1);
+           return result(base.values,base.complete,[...base.unknown,'url_query_values_runtime']);}
+       }
+     }
      const target=n.expression,text=target.getText(sf),fn=ts.isIdentifier(target)?target.text:ts.isPropertyAccessExpression(target)?target.name.text:'';
      const args=n.arguments||[];
      if(['String','decodeURIComponent'].includes(fn))return E(args[0],depth+1);
