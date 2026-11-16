@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[],promiseResolverBindings=[];
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[],promiseResolverBindings=[],urlAssignments=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -215,6 +215,11 @@ function scan(){
     }
     // Promise executors may assign their resolve/reject arguments to a local
     // variable later called from another nested listener in the same scope.
+    if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&ts.isIdentifier(n.left)){
+      const scope=fnStack.at(-1)?.id;
+      if(scope){const key=scope+'|'+n.left.text,items=urlAssignments.get(key)||[];
+        items.push({expression:n.right.getText(sf),line:line(n),guards:[...guardStack]});urlAssignments.set(key,items);}
+    }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isIdentifier(n.left)&&ts.isIdentifier(n.right)){
       const executor=fnStack.at(-1);
@@ -301,7 +306,7 @@ function scan(){
      const invoked=ts.isParenthesizedExpression(target)?target.expression:target;
      const immediateId=isFn(invoked)?functionId(invoked):null;
      const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),immediateId,
-      arg:first,argExpr:arg0?.getText(sf).slice(0,160)||'',guards:[...guardStack],
+      arg:first,argExpr:arg0?.getText(sf).slice(0,2048)||'',guards:[...guardStack],
       args:args.slice(0,8).map(x=>({
         value:staticValue(x),expression:x.getText(sf).slice(0,200),
         objectProps:ts.isObjectLiteralExpression(x)?x.properties.flatMap(p=>{
@@ -658,6 +663,23 @@ function scan(){
     if(value.startsWith('/'))values.add(value);
     else if(/^https?:\/\//.test(value))try{values.add(new URL(value).pathname);}catch(_){}
   }
+  // Local URL objects assigned in explicit branches and passed as u.toString().
+  // Keep every candidate: never select a single branch without runtime inputs.
+  const objectCall=/^([A-Za-z_$][\w$]*)\.toString\(\)$/.exec(ep.expression);
+  if(objectCall){
+    const assignments=(urlAssignments.get(ep.owner+'|'+objectCall[1])||[]).filter(x=>x.line<=ep.line);
+    if(assignments.length){
+      let complete=true;
+      for(const assignment of assignments){
+        const v=resolveExpression(assignment.expression,env.ctx,env.definitions);
+        complete&&=v.complete&&v.values.length>0;
+        for(const url of v.values){if(url.startsWith('/'))values.add(url);
+          else if(/^https?:\/\//.test(url))try{values.add(new URL(url).pathname);}catch(_){complete=false;}}
+      }
+      ep.urlAssignments=assignments.map(x=>({line:x.line,guards:x.guards,expression:x.expression}));
+      ep.provenAssignments=complete;
+    }
+  }
   ep.symbolic={complete:symbolic.complete,unknown:symbolic.unknown.slice(0,24)};
   if(!symbolic.complete)ep.partiallyUnknown=true;
   // Reconstruct alternatives of a common fetch wrapper using its real callers.
@@ -781,7 +803,7 @@ function scan(){
      (env.definitions.WORKER_ORIGIN||'').includes('WORKER_URL')){
     ep.dynamicQueryOnly=true;ep.queryEvidence=urlDefinition;ep.unknownQueryParameters=true;
   }
-  ep.partial=((ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete)||ep.actionPartial===true)&&!ep.dynamicQueryOnly;
+  ep.partial=((ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete&&!ep.provenAssignments)||ep.actionPartial===true)&&!ep.dynamicQueryOnly;
   ep.requireDynamicRemainder=!ep.dynamicQueryOnly && (ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression)));
   // External services: cite the source function or the environment key.
   if(ep.file.startsWith('worker/')&&/\bbase\s*\(\s*env\s*\)/.test(ep.expression)){
