@@ -19,6 +19,8 @@ try{
   '<button id="callback" onclick="entrarCallback()">Callback</button>',
   '<button id="routebad" onclick="rutaSinWorker()">Ruta ausente</button>',
   '<button id="export" onclick="aliasExport()">Exportado</button>',
+  '<button id="nestedExport" onclick="invocarOculta()">Exportación interna</button>',
+  '<script>function instalar(){function oculta(){return fetch("/superadmin/cities/create")}window.oculta=oculta} instalar();function invocarOculta(){return oculta()}</script>',
   '<script src="/plataforma/exports.js"></script>',
   '<script>function rutaSinWorker(){return fetch("/api/ruta-que-no-existe")}</script>',
   '<script>function aceptar({load}){return load()}function entrarCallback(){return aceptar({load:()=>fetch("/superadmin/cities/create")})}</script>',
@@ -71,6 +73,8 @@ try{
  assert(good.nodes.some(n=>n.type==='http'&&n.target==='/superadmin/cities/create'),'No detectó solicitud');
  assert(good.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No enlazó la ruta HTTP con el manejador del Worker');
  assert(good.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No recorrió la operación de persistencia');
+ const nestedExport=json.trees.find(x=>x.action.handler==='invocarOculta()');
+ assert(nestedExport?.nodes.some(n=>n.type==='edge'&&n.resolution==='exported_nested_window_function'),'No siguió función anidada publicada explícitamente en window');
  const exported=json.trees.find(x=>x.action.handler==='aliasExport()');
  assert(exported?.nodes.some(n=>n.type==='function'&&n.name==='window.realExport'),'No siguió exportación global alias');
  const brokenRoute=json.trees.find(x=>x.action.handler==='rutaSinWorker()');
