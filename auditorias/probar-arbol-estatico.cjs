@@ -38,6 +38,8 @@ try{
   '<script>function accionIifeExport(){return fetch("/superadmin/iife-export")}</script>',
   '<button id="adminwrapper" onclick="buscarAdmin()">Buscar admin</button>',
   '<button id="query" onclick="buscarConFiltro()">Buscar con filtro</button>',
+  '<button id="lexical" onclick="usarApply()">Léxico</button>',
+  '<script>function usarApply(){const apply=()=>fetch("/superadmin/cities/create");const objeto={apply:()=>apply()};return apply()}</script>',
   "<script>function gldToggleFavoritoAnunciante(x,y,z){return fetch(\"/superadmin/cities/create\")}const safeNombre=\"Ana\";const markup=`<button onclick=\"event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.id,'${safeNombre.replace(/'/g,\"&#039;\")}')\">Favorito</button>`;</script>",
   '<script>function buscarConFiltro(){const params=new URLSearchParams({ciudad_id:"dolores"});return fetch("/superadmin/subscribers/search?"+params)}</script>',
   '<script>const API="https://login.test/superadmin";function ghAdminRequest_(path){return fetch(API+path)}function buscarAdmin(){return ghAdminRequest_("/subscribers/search")}</script>',
@@ -113,6 +115,9 @@ try{
  const dynamicMarkup=json.trees.find(x=>x.action.handler?.includes('gldToggleFavoritoAnunciante'));
  assert(dynamicMarkup?.nodes.some(n=>n.type==='edge'&&n.resolution==='handler_inline'),'No recuperó función de evento interpolado');
  assert(dynamicMarkup.nodes.some(n=>n.type==='dynamic_markup_parameter'),'No registró parámetro de interpolación desconocido');
+ const lexicalTree=json.trees.find(x=>x.action.handler==='usarApply()');
+ assert(lexicalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='lexical_child'),'No distinguió variable local apply de propiedad objeto.apply');
+ assert(!lexicalTree.nodes.some(n=>n.type==='unresolved'&&n.reason==='ambiguous_lexical'),'Ambigüedad falsa entre variable y propiedad homónimas');
  const queryTree=json.trees.find(x=>x.action.handler==='buscarConFiltro()');
  assert(queryTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')&&n.routeStatus==='backend_candidate'),'No resolvió el endpoint con query dinámica de URLSearchParams');
  const adminTree=json.trees.find(x=>x.action.handler==='buscarAdmin()');
