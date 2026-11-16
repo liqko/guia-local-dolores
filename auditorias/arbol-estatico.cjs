@@ -255,9 +255,17 @@ function scan(){
     c.resolution='computed';continue;
   }
   if(!c.direct&&['window','globalThis'].includes(c.receiver)){
+    const native=new Set(['open','scrollTo','confirm','prompt','alert','addEventListener','removeEventListener',
+      'matchMedia','dispatchEvent','requestAnimationFrame','cancelAnimationFrame','setTimeout','clearTimeout',
+      'setInterval','clearInterval','postMessage','focus','print','fetch','getComputedStyle']);
+    if(native.has(c.method)){c.resolution='browser_native';continue;}
     const lookup=resolve(c.method,c.file);
     if(lookup.to){Object.assign(c,lookup);continue;}
-    c.resolution='browser_global_or_dynamic';continue;
+    c.resolution='window_function_not_in_sources';continue;
+  }
+  if(!c.direct&&['apply','call'].includes(c.method)&&/^[\w$]+$/.test(c.receiver)){
+    const lookup=resolve(c.receiver,c.file);
+    if(lookup.to){c.to=lookup.to;c.resolution='call_apply_function';continue;}
   }
   if(!c.direct){
     // Object literal methods are resolvable from their receiver's declaration.
@@ -484,7 +492,7 @@ function scan(){
       }else if(c.to){
         treeNodes.push({type:'edge',from:id,to:c.to,at:c.file+':'+c.line,resolution:c.resolution,depth:depth+1});
         walk(c.to,depth+2);
-      }else if(['unknown','external_method'].includes(c.resolution)){
+      }else if(['unknown','external_method','browser_native'].includes(c.resolution)){
         // External standard DOM calls are expected; mark distinction from internal ambiguity.
         treeNodes.push({type:'external',from:id,method:c.method,at:c.file+':'+c.line,depth:depth+1});
       }else{
