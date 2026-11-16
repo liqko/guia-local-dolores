@@ -624,10 +624,13 @@ function scan(){
   if(!values.size&&ep.expression){
     // A query parameter changes the query string but not the Worker endpoint.
     const knownQuery=/^['"]((?:\/[^'"]+)\?[^'"]*)['"]\s*\+/.exec(ep.expression);
-    if(knownQuery&&knownQuery[1].endsWith('=')){
+    if(knownQuery&&knownQuery[1].includes('?')){
+      // The exact request path is the literal prefix before '?'.
+      // Query contents remain unknown at runtime and are recorded separately.
       values.add(knownQuery[1]);
       ep.dynamicQueryOnly=true;
       ep.queryEvidence=ep.expression;
+      ep.unknownQueryParameters=true;
     }
     const pathSegments=[...ep.expression.matchAll(/['"`](\/(?:superadmin|advertisers|api|public|events|activities|login|territory|countries|cities|provinces)[^'"`]*)['"`]/g)];
     for(const m of pathSegments){
