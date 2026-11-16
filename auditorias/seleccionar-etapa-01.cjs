@@ -29,11 +29,24 @@ for(const group of domains){
 }
 if(unmatched.length)throw Error('No hay recorridos en '+unmatched.join(', '));
 selected.sort((a,b)=>a.interface.localeCompare(b.interface)||a.source.localeCompare(b.source)||a.treeId.localeCompare(b.treeId));
+// Las raíces no se eligen entre los 73 candidatos por contar solicitudes;
+// se identifican por el evento de entrada funcional real, conservando su ID de árbol.
+const rootRules=[
+ {name:'Usuario · inicio en carcasa',interface:'Usuario',file:'plataforma/carcasa.html',handler:/^gldLoginSubscriber$/},
+ {name:'Usuario · iniciar sesión',interface:'Usuario',file:'plataforma/suscriptores.html',handler:/^login$/},
+ {name:'Anunciante · seleccionar anuncio',interface:'Anunciante',file:'plataforma/login.html',handler:/^callback@8513$/},
+ {name:'Gran Hermano · abrir inicio',interface:'Gran Hermano',file:'plataforma/administracion.html',handler:/^ghGoView\('inicio'\)$/}
+];
+const roots=rootRules.map(rule=>{
+ const list=selected.filter(x=>x.interface===rule.interface&&x.source.startsWith(rule.file+':')&&rule.handler.test(x.handler));
+ if(list.length!==1)throw Error('Raíz ausente o ambigua: '+rule.name+' ('+list.length+')');
+ return {name:rule.name,...list[0]};
+});
 const result={schema:1,stage:'01-acceso-y-carga-compartida',generatedFrom:source,
  sources:report.sourceHashes,totals:{allTrees:report.trees.length,selectedTrees:selected.length,
- byInterface:Object.fromEntries(domains.map(g=>[g.name,selected.filter(x=>x.interface===g.name).length]))},
+ byInterface:Object.fromEntries(domains.map(g=>[g.name,selected.filter(x=>x.interface===g.name).length])),roots:roots.length},
  notice:'Selección estática, no equivale a ejecución, a doble lectura ni a factura; solo delimita qué recorridos medir y probar',
- trees:selected};
+ roots,candidates:selected,rootDisclaimer:'Las raíces son entradas identificadas; autenticación automática y carga inicial sin botón requieren traza complementaria antes de afirmar cobertura completa',trees:selected};
 const out='auditorias/transversal/ETAPA_01_ARBOL_SELECCIONADO.json';
 fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,JSON.stringify(result,null,2)+'\n');
-console.log('ETAPA_01_SELECCIONADA '+JSON.stringify({totals:result.totals,entries:selected.map(x=>({interface:x.interface,treeId:x.treeId,source:x.source,handler:x.handler,routes:x.routes})).slice(0,80)}));
+console.log('ETAPA_01_SELECCIONADA '+JSON.stringify({totals:result.totals,roots,entries:selected.map(x=>({interface:x.interface,treeId:x.treeId,source:x.source,handler:x.handler,routes:x.routes})).slice(0,80)}));
