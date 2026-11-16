@@ -392,6 +392,8 @@ function scan(){
  }
  for(const c of allCalls){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
+  // Browser-provided globals terminate at the JavaScript runtime, not at a project function.
+  if(c.direct&&['escape','unescape'].includes(c.method)){c.resolution='browser_native';continue;}
   if(!c.method){
     if(c.immediateId&&byId.has(c.immediateId)){c.to=c.immediateId;c.resolution='immediate_callback_ast';continue;}
     const nested=(byFile.get(c.file)||[]).filter(f=>f.line===c.line&&(f.name.startsWith('callback@')||f.name.startsWith('iife@')));
