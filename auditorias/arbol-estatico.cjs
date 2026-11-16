@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map();
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -196,6 +196,23 @@ function scan(){
         symbolicRoutes.get(owner).add(value);
       }
     }
+    if(ts.isVariableDeclaration(n)&&ts.isObjectBindingPattern(n.name)&&n.initializer){
+      const initializer=n.initializer,callee=ts.isCallExpression(initializer)?
+        (ts.isParenthesizedExpression(initializer.expression)?initializer.expression.expression:initializer.expression):null;
+      if(callee&&isFn(callee)){
+        for(const element of n.name.elements){
+          const local=element.name.getText(sf),exportedName=element.propertyName?.getText(sf)||local;
+          const matches=[];
+          const find=x=>{
+            if(ts.isFunctionDeclaration(x)&&x.name?.text===exportedName)matches.push(x);
+            ts.forEachChild(x,find);
+          };
+          find(callee.body);
+          if(matches.length===1)iifeExports.set(file+'|'+local,{
+            to:functionId(matches[0]),file,line:line(element),exportedName});
+        }
+      }
+    }
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
       const scope=fnStack.at(-1)?.id||file+':<top-level>';
       const init=n.initializer;
@@ -297,6 +314,8 @@ function scan(){
    const b=scriptHosts.get(s.target)||new Set();b.add(s.file);scriptHosts.set(s.target,b);
  }
  const resolve=(name,file,seenAliases=new Set())=>{
+  const iifeAlias=iifeExports.get(file+'|'+name);
+  if(iifeAlias)return {to:iifeAlias.to,resolution:'destructured_iife_export',source:{file:iifeAlias.file,line:iifeAlias.line}};
   const candidates=[...(byName.get(name)||[]),...(byName.get('window.'+name)||[]),...(byName.get('globalThis.'+name)||[])];
   const local=candidates.filter(f=>f.file===file&&f.parent===null);
   if(local.length===1)return {to:local[0].id,resolution:'static_file'};
