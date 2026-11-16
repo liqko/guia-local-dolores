@@ -8,6 +8,8 @@ try{
  fs.mkdirSync(path.join(root,'plataforma'),{recursive:true});
  fs.writeFileSync(path.join(root,'plataforma/index.html'),[
   '<button id="alta" onclick="guardarCiudad()">Guardar ciudad</button>',
+  '<button id="resolver" onclick="dispararResolve()">Resolver</button>',
+  '<script>const pendiente=new Promise(function(resolve){window.resolveDesdePromesa=resolve});function dispararResolve(){return window.resolveDesdePromesa?.()}</script>',
   '<button id="soporte" onclick="enviarSoporte()">Soporte</button>',
   '<button id="global" onclick="usarGlobal()">Global inicializado</button>',
   '<script>function initGlobal(){window.gldTestGlobal=()=>fetch("/superadmin/cities/create")}initGlobal()</script>',
@@ -70,6 +72,8 @@ try{
  assert.equal(json.totals.endpointsExternal,1,'Destino HTTP externo explícito contado indebidamente como interno');
  const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
  assert(globalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='conditional_global_assignment'),'No siguió asignación condicional window desde script contenedor');
+ const resolverTree=json.trees.find(x=>x.action.handler==='dispararResolve()');
+ assert(resolverTree?.nodes.some(n=>n.type==='promise_resolved'),'No reconoció callback de resolución de Promise exportado en window');
  const supportTree=json.trees.find(x=>x.action.handler==='enviarSoporte()');
  assert(supportTree?.nodes.some(n=>n.type==='http'&&n.target==='/support/requests'&&n.routeStatus==='backend_candidate'),'No dedujo POST desde el wrapper API con cuerpo');
  const good=json.trees.find(x=>x.action.handler==='guardarCiudad()');
