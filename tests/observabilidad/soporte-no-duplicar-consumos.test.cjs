@@ -50,7 +50,7 @@ test('el módulo real consulta notificaciones únicamente al abrirlo luego de in
  const element=id=>{if(!ids.has(id))ids.set(id,{textContent:'',dataset:{},replaceChildren(){},append(){}});return ids.get(id);};
  const ctx={window:{},sesion:{id:'A1',nombre:'Negocio'},
  sesionSuscriptor:{suscriptor_id:'S1'},document:{
-  getElementById:element,querySelectorAll:()=>[],addEventListener(){}},
+  getElementById:element,createElement:()=>({textContent:'',type:'',className:'',append(){},appendChild(){},replaceChildren(){},classList:{add(){},remove(){}}}),querySelectorAll:()=>[],addEventListener(){}},
  localStorage:{getItem:()=>null,setItem(){}},
  mostrarPanel:()=>{},soporteFetchV74_:async path=>{
   requests.push(path);return{success:true,results:[],revisiones:[]};
