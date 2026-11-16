@@ -172,8 +172,11 @@ function scan(){
   for(let i=0;i<lines.length;i++){
    const s=lines[i],match=[...s.matchAll(/['"](\/(?:superadmin|advertisers|login|api|public|guide|events|activities|territory|cities|countries|provinces)[^'"]*)['"]/g)];
    for(const m of match){if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1});}
-   for(const m of s.matchAll(/\/\^((?:\\\/|[^/])+?)\$?\//g)){
-     try{const pattern=m[1].replace(/\\\//g,'/');regexRoutes.push({pattern,file,line:i+1});}catch(_){}
+   const p=s.indexOf('path.match(/');
+   if(p>=0){
+     const fragment=s.slice(p+'path.match(/'.length);
+     const end=fragment.lastIndexOf('/)');
+     if(end>=0)regexRoutes.push({pattern:fragment.slice(0,end).replace(/\\\//g,'/'),file,line:i+1});
    }
   }
  }
