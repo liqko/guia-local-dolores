@@ -58,6 +58,9 @@ try{
  fs.writeFileSync(path.join(root,'plataforma/exports.js'),"(function(){window.realExport=function(){return fetch('/superadmin/cities/create')};window.aliasExport=window.realExport})()\n");
  fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\nasync function api(path,body){return fetch('https://login.test'+path,{method:body?'POST':'GET'})}\nfunction enviarSoporte(){return api('/support/requests',{tipo:'X'})}\n");
  fs.writeFileSync(path.join(root,'plataforma/externo.js'),"function usarGlobal(){return window.gldTestGlobal()}\n");
+ // Caso real: botones HTML llaman funciones exportadas desde un JS externo.
+ fs.appendFileSync(path.join(root,'plataforma/index.html'), '\n<button onclick="ghPromosLoadV91(true)">Actualizar promos</button><button onclick="ghPromosPrepareV91()">Preparar promos</button><script src="/plataforma/gh-promos.js?v=91"></script>\n');
+ fs.writeFileSync(path.join(root,'plataforma/gh-promos.js'), 'window.ghPromosLoadV91=function(force=false){return fetch("/superadmin/cities/create")};window.ghPromosPrepareV91=async function(){return window.ghPromosLoadV91(true)};\n');
  fs.writeFileSync(path.join(root,'worker/worker206.txt'),[
  "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
  "async function externo(){return fetch('https://oauth.test/token')}",
@@ -79,8 +82,15 @@ try{
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
  let r=run(['--write']);assert.equal(r.status,0,r.stderr);
  const json=JSON.parse(fs.readFileSync(path.join(root,'auditorias/transversal/ARBOL_ACCIONES.json'),'utf8'));
- assert.equal(json.totals.files,6);
+ assert.equal(json.totals.files,7);
  assert.equal(json.totals.endpointsExternal,1,'Destino HTTP externo explícito contado indebidamente como interno');
+ for(const handler of ['ghPromosLoadV91(true)','ghPromosPrepareV91()']){
+  const tree=json.trees.find(x=>x.action.handler===handler);
+  assert(tree,'No se detectó el botón '+handler);
+  assert.equal(tree.counts.missingHandlers,0,'Falso manejador ausente: '+handler);
+  assert(tree.nodes.some(n=>n.type==='function'),'No se enlazó al archivo JS importado: '+handler);
+ }
+
  const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
  assert(globalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='conditional_global_assignment'),'No siguió asignación condicional window desde script contenedor');
  const resolverTree=json.trees.find(x=>x.action.handler==='dispararResolve()');
