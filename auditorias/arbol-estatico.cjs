@@ -471,6 +471,36 @@ function scan(){
   }
   ep.symbolic={complete:symbolic.complete,unknown:symbolic.unknown.slice(0,24)};
   if(!symbolic.complete)ep.partiallyUnknown=true;
+  // Reconstruct alternatives of a common fetch wrapper using its real callers.
+  const wrapper=byId.get(ep.owner);
+  let callersComplete=false;
+  if(ep.requestKind==='fetch'&&wrapper?.params?.some(p=>p.name==='path')&&
+      /\bpath\b/.test(ep.expression)&&wrapper.name!=='<anon>'){
+    const callers=allCalls.filter(c=>c.file===ep.file&&c.method===wrapper.name&&
+      c.from!==ep.owner&&c.direct);
+    if(callers.length){
+      callersComplete=true;
+      const argIndex=wrapper.params.findIndex(p=>p.name==='path');
+      for(const caller of callers){
+        const argument=caller.args?.[argIndex];
+        const ctx=makeEnvironment(caller.from,caller.file,caller.line);
+        const passed=argument?.expression?
+          resolveExpression(argument.expression,ctx.ctx,ctx.definitions):
+          {values:[],complete:false};
+        if(!passed.complete||!passed.values.length)callersComplete=false;
+        for(const pathValue of passed.values){
+          const parsed=resolveExpression(ep.expression,{...env.ctx,path:pathValue},env.definitions);
+          if(!parsed.complete||!parsed.values.length)callersComplete=false;
+          for(const v of parsed.values){
+            if(v.startsWith('/'))values.add(v);
+            else if(/^https?:\/\//.test(v))try{values.add(new URL(v).pathname);}catch(_){}
+          }
+        }
+      }
+      ep.callerEvidence={wrapper:wrapper.name,count:callers.length,
+        complete:callersComplete,resolvedValues:values.size};
+    }
+  }
   if(ep.requestKind==='api'&&ep.target&&!ep.target.startsWith('/')){
     const f=allFns.find(x=>x.file===ep.file&&x.name==='api'&&!x.parent);
     const selected=f&&actionRoutes.get(f.id)?.get(ep.target);
@@ -513,7 +543,7 @@ function scan(){
   const matchPaths=new Set([...values].map(v=>v.startsWith('/')?v.split(/[?#]/)[0]:v));
   ep.candidates=[...matchPaths].sort();
   ep.queryTemplates=[...values].filter(v=>v.includes('?')).slice(0,16);
-  ep.partial=(ep.target===null&&values.size>0&&!symbolic.complete)||ep.actionPartial===true;
+  ep.partial=(ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete)||ep.actionPartial===true;
   ep.requireDynamicRemainder=ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
   if(ep.file.startsWith('worker/')&&[ep.target,...symbolic.values].some(v=>typeof v==='string'&&/^https?:\/\//.test(v))){
     ep.status='external_service_http';
