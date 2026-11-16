@@ -558,6 +558,10 @@ function scan(){
         }
         if(e&&['external_service_http','browser_forwarded_request'].includes(e.status)){
           treeNodes.push({type:'external_http',from:c.id,reason:e.status,hosts:e.externalHosts||[],depth:depth+2});
+        }else if(!matched.length&&e?.status==='no_backend_match'&&
+          e.symbolic?.complete&&e.candidates?.length&&!e.partial){
+          treeNodes.push({type:'possible_missing_worker_route',from:c.id,file:c.file,line:c.line,
+            candidates:e.candidates,reason:'sin_despacho_en_fuente_worker_analizada',depth:depth+2});
         }else if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
         else if(!handlers.length){
           if(matched.some(x=>x.inlineTerminal))treeNodes.push({type:'backend_inline_return',from:c.id,
@@ -637,6 +641,7 @@ function scan(){
     http:treeNodes.filter(x=>x.type==='http').length,data:treeNodes.filter(x=>x.type==='data').length,
     unresolved:treeNodes.filter(x=>x.type==='unresolved').length,
     missingHandlers:treeNodes.filter(x=>x.type==='missing_handler').length,
+    possibleMissingRoutes:treeNodes.filter(x=>x.type==='possible_missing_worker_route').length,
     externalObjects:treeNodes.filter(x=>x.type==='external_object').length,
     cycles:treeNodes.filter(x=>x.type==='cycle').length};
   trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':counts.missingHandlers?'posible_manejador_ausente':'ramas_estaticas_identificadas_sin_prueba_funcional'});
@@ -645,6 +650,7 @@ function scan(){
   trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
   treesWithMissingHandlers:trees.filter(t=>t.counts.missingHandlers).length,
+  treesWithPossibleMissingRoutes:trees.filter(t=>t.counts.possibleMissingRoutes).length,
   endpoints:endpoints.length,endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate','partial_backend_candidate'].includes(e.status)).length,astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
@@ -659,6 +665,20 @@ function md(r){
   const e=a.action,c=a.counts;
   lines.push('| '+e.file+':'+e.line+' | '+(e.label||e.handler||'').replace(/[|\r\n]/g,' ').slice(0,65)+' | '+c.functions+' | '+c.data+' | '+c.http+' | '+c.unresolved+' |');
  }
+ lines.push('','## Rutas sin despacho identificado en el Worker (posibles fallas)','','| Archivo y línea | Destino solicitado |','|---|---|');
+ const failures=new Map();
+ for(const tree of r.trees)for(const node of tree.nodes)if(node.type==='possible_missing_worker_route'){
+   const k=node.file+':'+node.line;
+   if(!failures.has(k))failures.set(k,node);
+ }
+ for(const n of failures.values())lines.push('| '+n.file+':'+n.line+' | '+n.candidates.join(', ').replace(/\\|/g,'/')+' |');
+ lines.push('','## Botones con función ausente en las fuentes rastreadas','','| Archivo y línea | Función |','|---|---|');
+ const missing=new Map();
+ for(const tree of r.trees)for(const node of tree.nodes)if(node.type==='missing_handler'){
+   const k=node.file+':'+node.line+':'+node.method;
+   if(!missing.has(k))missing.set(k,node);
+ }
+ for(const n of missing.values())lines.push('| '+n.file+':'+n.line+' | '+n.method+' |');
  lines.push('','## Árbol de muestra: creación de territorio','','Se muestran solo ramas detectadas, no resultados de un test de navegador.','');
  const selected=r.trees.find(x=>/ghGuardarTerritorio/.test(x.action.handler||''))||r.trees.find(x=>/ciudad/i.test(x.action.handler||''));
  if(selected){
