@@ -163,6 +163,7 @@ function scan(){
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
      const f={id:functionId(n),file,line:line(n),name:functionName(n),objectOwner,
+      methodByBody:!!n.body&&/method\s*:\s*body\s*\?\s*['"]POST['"]\s*:\s*['"]GET['"]/.test(n.body.getText(sf)),
       parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>{
         const destructured=ts.isObjectBindingPattern(p.name);
         return {name:destructured?null:p.name?.getText(sf)||null,
@@ -294,6 +295,7 @@ function scan(){
         }
       }
       endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,requestKind:method,apiBase:sym.get('API')||null,verb,
+        payloadObject:!!options&&ts.isObjectLiteralExpression(options),
         status:first&&first.startsWith('/')?'static':'dynamic'});
      }
     }
@@ -515,6 +517,11 @@ function scan(){
   }
  }
  for(const ep of endpoints){
+  // Infer method from the wrapper's actual source expression, not from its name.
+  if(ep.requestKind==='api'){
+    const helpers=allFns.filter(fn=>fn.file===ep.file&&fn.name==='api'&&fn.methodByBody);
+    if(helpers.length===1)ep.verb=ep.payloadObject?'POST':'GET';
+  }
   const values=new Set();
   const env=makeEnvironment(ep.owner,ep.file,ep.line);
   if(!ep.apiBase&&['ghAdminRequest_','ghAdminRequestRaw143'].includes(ep.requestKind)){
