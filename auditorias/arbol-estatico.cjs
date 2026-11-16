@@ -251,6 +251,57 @@ function scan(){
   }
   Object.assign(c,lexical||resolve(c.method,c.file));
  }
+
+ // Análisis interprocedimental acotado: reúne valores posibles de argumentos
+ // y los propaga a parámetros sin ejecutar funciones ni elegir ramas.
+ const possibleParams=new Map();
+ for(const f of allFns){
+   const slots=new Map();
+   for(const p of f.params||[])if(p.name){
+     const d=p.defaultExpression?resolveExpression(p.defaultExpression):null;
+     slots.set(p.name,new Set(d?.values||[]));
+   }
+   possibleParams.set(f.id,slots);
+ }
+ const makeEnvironment=(ownerId,file,beforeLine)=>{
+   const definitions={},ctx={};
+   const global=scopeDefinitions.get(file+':<top-level>')||[];
+   for(const def of global)if(def.line<=beforeLine)definitions[def.name]=def.expression;
+   let cur=ownerId;const visited=new Set();
+   while(cur&&!visited.has(cur)){
+     visited.add(cur);
+     const fn=byId.get(cur);
+     for(const def of scopeDefinitions.get(cur)||[])if(def.line<=beforeLine&&!(def.name in definitions))
+       definitions[def.name]=def.expression;
+     const slots=possibleParams.get(cur);
+     for(const [param,values] of slots||[])if(values.size&&!(param in ctx))
+       ctx[param]={values:[...values],complete:values.size<64,unknown:[]};
+     cur=fn?.parent||null;
+   }
+   return {ctx,definitions};
+ };
+ const candidateFunction=c=>{
+   if(c.to)return byId.get(c.to)||null;
+   if(!c.direct||!c.method)return null;
+   const candidates=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&!f.parent);
+   return candidates.length===1?candidates[0]:null;
+ };
+ for(let iteration=0;iteration<7;iteration++){
+   let changed=false;
+   for(const c of allCalls){
+     const callee=candidateFunction(c);if(!callee)continue;
+     const {ctx,definitions}=makeEnvironment(c.from,c.file,c.line);
+     const slots=possibleParams.get(callee.id);
+     for(let k=0;k<Math.min(8,callee.params.length,c.args.length);k++){
+       const p=callee.params[k];if(!p.name)continue;
+       const arg=c.args[k],v=resolveExpression(arg.expression,ctx,definitions);
+       const dest=slots.get(p.name)||new Set();
+       for(const value of v.values)if(dest.size<64&&!dest.has(value)){dest.add(value);changed=true;}
+       slots.set(p.name,dest);
+     }
+   }
+   if(!changed)break;
+ }
  // Discover backend route conditions without mistaking string references for dispatches.
  const workerFiles=paths.filter(p=>p.startsWith('worker/'));
  const literalRoutes=[],regexRoutes=[];
