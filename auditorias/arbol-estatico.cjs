@@ -519,14 +519,8 @@ function scan(){
    const s=lines[i],match=/(?:\bpath\b|\.pathname)/.test(s)?[...s.matchAll(/['"](\/[^'"]*)['"]/g)]:[];
    const routeVerb=/(?:request2|request)\.method\s*===?\s*['"](GET|POST|PATCH|DELETE|PUT)['"]/.exec(s)?.[1]||null;
     const routeHandler=/\breturn\s+(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(s)?.[1]||null;
-    // An includes(path) guard belongs to the smallest enclosing Worker function.
-    // Keep the guard text so the association is inspectable, not guessed.
-    const owner=/\.includes\s*\(\s*path\s*\)/.test(s)?
-      allFns.filter(f=>f.file===file&&f.bodyStart<=i+1&&f.bodyEnd>=i+1)
-        .sort((a,b)=>(a.bodyEnd-a.bodyStart)-(b.bodyEnd-b.bodyStart))[0]:null;
     for(const m of match)if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1,verb:routeVerb,
-      handler:/\bpath\s*===?\s*['"]/.test(s)?routeHandler:owner?.name||null,
-      ownerGuard:owner?s.trim().slice(0,240):null});
+      handler:/\bpath\s*===?\s*['"]/.test(s)?routeHandler:null});
    // Worker regular expressions are extracted from syntax nodes above.
   }
  }
