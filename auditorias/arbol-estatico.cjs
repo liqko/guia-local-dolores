@@ -118,8 +118,10 @@ function scan(){
      allCalls.push(call);
      if(method==='addEventListener'&&args.length>=2){
       const h=args[1],handler=ts.isIdentifier(h)?h.text:ts.isArrowFunction(h)||ts.isFunctionExpression(h)?'callback@'+line(h):h.getText(sf).slice(0,130);
+      const isCallback=ts.isArrowFunction(h)||ts.isFunctionExpression(h);
+      const entryId=isCallback?file+':'+line(h)+':'+functionName(h):null;
       actions.push({id:sha(file+':'+at+':listener').slice(0,16),file,line:at,kind:'listener',element:'dom',
-        elementId:null,label:first||null,handler,entry:null});
+        elementId:null,label:first||null,handler,entry:null,entryId,context:owner});
      }
      if(isFetch){
       // Original expression retained: dynamic URLs must not be declared resolved.
@@ -248,7 +250,18 @@ function scan(){
  for(const action of actions){
   const match=/^\s*(?:return\s+)?(?:await\s+)?([\w$]+)/.exec(action.handler||'');
   const entry=match?.[1]||null;
-  const resolved=entry?resolve(entry,action.file):{to:null,resolution:'handler_dinamico'};
+  let resolved=action.entryId?{to:action.entryId,resolution:'callback_directo'}:
+    entry?resolve(entry,action.file):{to:null,resolution:'handler_dinamico'};
+  if(!resolved.to&&action.kind==='listener'&&entry&&action.context){
+    // Resolve nested callback variable where the event listener is declared.
+    let scope=action.context;const visited=new Set();
+    while(scope&&!visited.has(scope)){
+      visited.add(scope);
+      const found=(byName.get(entry)||[]).filter(f=>f.file===action.file&&f.parent===scope);
+      if(found.length===1){resolved={to:found[0].id,resolution:'callback_lexico'};break;}
+      scope=byId.get(scope)?.parent||null;
+    }
+  }
   action.entry=resolved.to;action.resolution=resolved.resolution;
   const treeNodes=[],seen=new Set();
   const walk=(id,depth)=>{
