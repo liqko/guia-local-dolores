@@ -190,7 +190,7 @@ function scan(){
  for(const file of workerFiles){
   const raw=srcs.get(file),lines=raw.split('\n');
   for(let i=0;i<lines.length;i++){
-   const s=lines[i],match=[...s.matchAll(/['"](\/(?:superadmin|advertisers|login|api|public|guide|events|activities|territory|cities|countries|provinces)[^'"]*)['"]/g)];
+   const s=lines[i],match=/(?:\bpath\b|\.pathname)/.test(s)?[...s.matchAll(/['"](\/[^'"]*)['"]/g)]:[];
    const routeVerb=/(?:request2|request)\.method\s*===?\s*['"](GET|POST|PATCH|DELETE|PUT)['"]/.exec(s)?.[1]||null;
     const routeHandler=/\breturn\s+(?:await\s+)?([A-Za-z_$][\w$]*)\s*\(/.exec(s)?.[1]||null;
     for(const m of match)if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1,verb:routeVerb,
