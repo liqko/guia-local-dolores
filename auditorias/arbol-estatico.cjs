@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[];
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -89,6 +89,27 @@ function scan(){
    function visit(n){
     if(ts.isIfStatement(n)){
       if(file.startsWith('worker/')){
+        const cond=n.expression.getText(sf),scope=fnStack.at(-1)?.id||file+':<top-level>';
+        for(const [key,routeLine] of regexBindings){
+          if(!key.startsWith(scope+'|'))continue;
+          const variable=key.slice(scope.length+1);
+          const mentioned=new RegExp('\\b'+variable+'\\b').test(cond);
+          const negated=new RegExp('!\\s*'+variable+'\\b').test(cond);
+          if(!mentioned||negated)continue;
+          const targets=regexRoutes.filter(x=>x.file===file&&x.line===routeLine);
+          const calls=new Set();let returned=false;
+          const inspect=x=>{
+            if(ts.isCallExpression(x)&&ts.isIdentifier(x.expression))calls.add(x.expression.text);
+            if(ts.isReturnStatement(x)||ts.isThrowStatement(x))returned=true;
+            ts.forEachChild(x,inspect);
+          };
+          inspect(n.thenStatement);
+          for(const target of targets){
+            target.handlers=[...new Set([...(target.handlers||[]),...calls])];
+            target.inlineTerminal ||=returned;
+            target.guard=cond.slice(0,240);
+          }
+        }
         const condition=n.expression.getText(sf);
         const routePattern=/(?:\bpath\b|\.pathname)\s*===?\s*['"]([^'"]+)['"]/g;
         const routeMatches=[...condition.matchAll(routePattern)].map(m=>m[1]).filter(x=>x.startsWith('/'));
@@ -153,6 +174,13 @@ function scan(){
      allFns.push(f);fnStack.push(f);entered=true;
     }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+       ts.isIdentifier(n.left)&&ts.isCallExpression(n.right)&&
+       file.startsWith('worker/')&&n.right.expression.getText(sf)==='path.match'&&
+       n.right.arguments?.length&&ts.isRegularExpressionLiteral(n.right.arguments[0])){
+      const scope=fnStack.at(-1)?.id||file+':<top-level>';
+      regexBindings.set(scope+'|'+n.left.text,line(n.right));
+    }
+    if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
       ts.isPropertyAccessExpression(n.left)&&n.left.expression.getText(sf)==='window'){
       const alias=n.left.name.text;
       let target=null;
@@ -170,6 +198,11 @@ function scan(){
     }
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
       const scope=fnStack.at(-1)?.id||file+':<top-level>';
+      const init=n.initializer;
+      if(file.startsWith('worker/')&&init&&ts.isCallExpression(init)&&
+         init.expression.getText(sf)==='path.match'&&init.arguments?.length&&
+         ts.isRegularExpressionLiteral(init.arguments[0]))
+        regexBindings.set(scope+'|'+n.name.text,line(init));
       if(n.initializer){
         const arr=scopeDefinitions.get(scope)||[];
         arr.push({name:n.name.text,expression:n.initializer.getText(sf),line:line(n)});
