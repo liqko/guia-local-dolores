@@ -1090,12 +1090,56 @@ function scan(){
     linksToPage:pageLinks,directCallers:directCallers.slice(0,20),actions:actionsReferencingOwner.slice(0,20),
     warning:'Ruta sin salida comprobada en fuente; invocacion y respuesta en produccion no comprobadas'};
   }));
+ // Transversal analysis: deduplicate a call site across 546 trees and
+ // distinguish a reused request from two distinct requests in one action.
+ // Neither means two billable reads without an execution trace.
+ const routeByCall=new Map();
+ for(const ep of endpoints){
+   const names=(ep.candidates||[]).filter(x=>x.startsWith('/'));
+   routeByCall.set(ep.file+':'+ep.line,{ep,names});
+ }
+ const operationIndex=new Map(),sameActionRequests=[];
+ for(const tree of trees){
+   const actionId=tree.action.id;
+   const actionHttp=tree.nodes.filter(n=>n.type==='http'&&n.file&&!n.file.startsWith('worker/'));
+   const within=new Map();
+   for(const node of actionHttp){
+     const site=node.file+':'+node.line,entry=routeByCall.get(site);
+     if(!entry)continue;
+     const paths=entry.names.length?entry.names:['?'+site];
+     for(const route of paths){
+       const key=route+'|'+(node.verb||entry.ep.verb||'UNKNOWN'),record=operationIndex.get(key)||{
+         route,verb:node.verb||entry.ep.verb||'UNKNOWN',sites:new Map(),actions:new Map(),interfaces:new Set()};
+       record.sites.set(site,{file:node.file,line:node.line,owner:entry.ep.owner,status:entry.ep.status});
+       record.actions.set(actionId,{file:tree.action.file,line:tree.action.line,handler:tree.action.handler});
+       record.interfaces.add(tree.action.file);
+       operationIndex.set(key,record);
+       const local=within.get(key)||new Set();local.add(site);within.set(key,local);
+     }
+   }
+   for(const [key,sites]of within)if(sites.size>1){
+     const record=operationIndex.get(key);
+     sameActionRequests.push({action:{file:tree.action.file,line:tree.action.line,handler:tree.action.handler},
+       route:record.route,verb:record.verb,sites:[...sites],
+       classification:'posible_repeticion_en_una_accion_sin_prueba_de_ejecucion'});
+   }
+ }
+ const sharedRoutes=[...operationIndex.values()].filter(r=>r.sites.size>1||r.interfaces.size>1)
+  .map(r=>({route:r.route,verb:r.verb,distinctSites:r.sites.size,actions:r.actions.size,
+    interfaces:[...r.interfaces].sort(),sites:[...r.sites.values()].sort((a,b)=>a.file.localeCompare(b.file)||a.line-b.line),
+    classification:'reutilizacion_transversal_no_equivale_a_duplicacion_facturada'}))
+  .sort((a,b)=>b.distinctSites-a.distinctSites||b.actions-a.actions||a.route.localeCompare(b.route));
+ const transversal={routeGroups:operationIndex.size,sharedRoutes,
+   sameActionRequests:sameActionRequests.sort((a,b)=>a.route.localeCompare(b.route)||a.action.file.localeCompare(b.action.file)||a.action.line-b.action.line),
+   disclaimer:'Candidatos de consumo transversal, sin multiplicar lecturas por cantidad de árboles. Verificar condiciones, caché, llamadas y métricas efectivas.'};
  const totals={files:paths.length,functions:allFns.length,calls:allCalls.length,buttons:actions.length,
   trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
   treesWithMissingHandlers:trees.filter(t=>t.counts.missingHandlers).length,
   treesWithPossibleMissingRoutes:trees.filter(t=>t.counts.possibleMissingRoutes).length,
   endpoints:endpoints.length,
+  transversalSharedRoutes:transversal.sharedRoutes.length,
+  transversalSameActionCandidates:transversal.sameActionRequests.length,
   endpointsExternal:endpoints.filter(e=>e.status==='external_service_http').length,
   endpointsConfiguredExternal:endpoints.filter(e=>e.status==='external_configured_service').length,
   endpointsMissingWorker:endpoints.filter(e=>e.status==='missing_worker_dispatch').length,
@@ -1107,7 +1151,7 @@ function scan(){
   astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
-  trees,endpoints,deadEnds,unresolved};
+  trees,endpoints,deadEnds,transversal,unresolved};
 }
 function md(r){
  const t=r.totals,lines=['# Árbol automático de acciones','','**Resultado estático, NO prueba funcional.**','',
@@ -1125,6 +1169,12 @@ function md(r){
    if(!failures.has(k))failures.set(k,node);
  }
  for(const n of failures.values())lines.push('| '+n.file+':'+n.line+' | '+n.candidates.join(', ').replace(/\\|/g,'/')+' |');
+ lines.push('','## Consumos transversales: destinos compartidos','','Reutilizar un destino desde varias acciones NO acredita duplicación facturada.','',
+  '| Ruta | Método | Sitios HTTP distintos | Árboles que la alcanzan | Interfaces |','|---|---|---:|---:|---|');
+ for(const g of r.transversal.sharedRoutes.slice(0,120))lines.push('| '+g.route+' | '+g.verb+' | '+g.distinctSites+' | '+g.actions+' | '+g.interfaces.join(', ').replace(/\\|/g,'/')+' |');
+ lines.push('','## Candidatos de doble petición dentro de una acción','','Dos sitios de red para la misma ruta pueden depender de ramas alternativas; probar antes de corregir.','',
+ '| Acción | Ruta | Sitios de llamada |','|---|---|---|');
+ for(const v of r.transversal.sameActionRequests.slice(0,120))lines.push('| '+v.action.file+':'+v.action.line+' '+v.action.handler.replace(/\\|/g,'/')+' | '+v.route+' | '+v.sites.join(' ; ')+' |');
  lines.push('','## Caminos sin salida: solicitudes cuyo Worker no despacha','','| Inicio de red | Ruta | Alcanzabilidad identificada | Estado |','|---|---|---|---|');
  for(const deadEnd of r.deadEnds)lines.push('| '+deadEnd.source+':'+deadEnd.line+' | '+deadEnd.route+' | '+(deadEnd.linksToPage.map(x=>x.source+':'+x.line).join(', ')||deadEnd.reachability)+' | SIN DESPACHO |');
  lines.push('','## Destinos conocidos sin despacho en el Worker analizado (fallas de origen)','','| Archivo y línea | Ruta inexistente |','|---|---|');
