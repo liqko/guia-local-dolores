@@ -85,7 +85,14 @@ function scan(){
    function visit(n){
     let entered=false;
     if(isFn(n)){
-     const f={id:file+':'+line(n)+':'+functionName(n),file,line:line(n),name:functionName(n),
+     let objectOwner=null,ownerNode=n.parent;
+     if(ts.isPropertyAssignment(ownerNode)||ts.isMethodDeclaration(ownerNode))ownerNode=ownerNode.parent;
+     if(ts.isObjectLiteralExpression(ownerNode)){
+       const declaration=ownerNode.parent;
+       if(ts.isVariableDeclaration(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
+       else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
+     }
+     const f={id:file+':'+line(n)+':'+functionName(n),file,line:line(n),name:functionName(n),objectOwner,
       parent:fnStack.at(-1)?.id||null,bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
@@ -155,6 +162,10 @@ function scan(){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
   if(!c.method){c.resolution='computed';continue;}
   if(!c.direct&&!['window','globalThis'].includes(c.receiver)){
+    // Object literal methods are resolvable from their receiver's declaration.
+    const matched=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.objectOwner===c.receiver);
+    if(matched.length===1){c.to=matched[0].id;c.resolution='static_object_method';continue;}
+    if(matched.length>1){c.resolution='ambiguous_object_method';c.candidates=matched.map(f=>f.id);continue;}
     c.resolution=c.receiver==='this'?'this_sin_analisis_de_clase':'external_method';continue;
   }
   // Only direct calls or global window calls may bind to a standalone function.
