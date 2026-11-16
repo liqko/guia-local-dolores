@@ -740,6 +740,18 @@ function scan(){
   }
   ep.worker=ep.worker.slice(0,30);
   ep.status=ep.worker.length?(ep.partial?'partial_backend_candidate':matchPaths.size>1?'multi_backend_candidate':'backend_candidate'):'no_backend_match';
+  // Fetch of a navigation document from a service worker is not an API route.
+  // Require source evidence: SAME-ORIGIN check, navigate mode, and PAGE literal.
+  if(ep.status==='no_backend_match'&&ep.file.endsWith('-sw.js')&&matchPaths.size===1){
+    const code=srcs.get(ep.file)||'',page=[...matchPaths][0];
+    const declared=/\bconst\s+PAGE\s*=\s*(['"])(\/[^'"]+)\1/.exec(code);
+    if(declared?.[2]===page&&
+       /request\.mode\s*!==?\s*['"]navigate['"]/.test(code)&&
+       /url\.origin\s*!==?\s*self\.location\.origin/.test(code)){
+      ep.status='browser_document_candidate';
+      ep.documentEvidence={page,source:ep.file,sameOriginGuard:true,navigationGuard:true};
+    }
+  }
  }
  const outCalls=new Map(),outTerminals=new Map();
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
@@ -794,7 +806,7 @@ function scan(){
           treeNodes.push({type:'backend_candidate',from:c.id,handler,at:found[0].file+':'+found[0].line,depth:depth+2});
           walk(found[0].id,depth+3);
         }
-        if(e&&['external_service_http','browser_forwarded_request'].includes(e.status)){
+        if(e&&['external_service_http','browser_forwarded_request','browser_document_candidate'].includes(e.status)){
           treeNodes.push({type:'external_http',from:c.id,reason:e.status,hosts:e.externalHosts||[],depth:depth+2});
         }else if(!matched.length&&e?.status==='no_backend_match'&&
           e.symbolic?.complete&&e.candidates?.length&&!e.partial){
@@ -927,7 +939,7 @@ function scan(){
   endpointsExternal:endpoints.filter(e=>e.status==='external_service_http').length,
   endpointsBrowserForwarded:endpoints.filter(e=>e.status==='browser_forwarded_request').length,
   endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate',
-    'partial_backend_candidate','external_service_http','browser_forwarded_request'].includes(e.status)).length,
+    'partial_backend_candidate','external_service_http','browser_forwarded_request','browser_document_candidate'].includes(e.status)).length,
   astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
