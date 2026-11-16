@@ -158,9 +158,10 @@ function scan(){
   byId.set(f.id,f);const list=byName.get(f.name)||[];list.push(f);byName.set(f.name,list);
   const arr=byFile.get(f.file)||[];arr.push(f);byFile.set(f.file,arr);
  }
- const scriptDependencies=new Map();
+ const scriptDependencies=new Map(),scriptHosts=new Map();
  for(const s of externalScripts)if(s.matched){
    const a=scriptDependencies.get(s.file)||new Set();a.add(s.target);scriptDependencies.set(s.file,a);
+   const b=scriptHosts.get(s.target)||new Set();b.add(s.file);scriptHosts.set(s.target,b);
  }
  const resolve=(name,file)=>{
   const candidates=byName.get(name)||[];
@@ -171,11 +172,24 @@ function scan(){
   const shared=candidates.filter(f=>imported.has(f.file)&&f.parent===null);
   if(shared.length===1)return {to:shared[0].id,resolution:'static_import'};
   if(shared.length>1)return {to:null,resolution:'ambiguous_import',candidates:shared.length};
+  // Shared global names on a host HTML page are concrete script dependencies.
+  const hosts=scriptHosts.get(file)||new Set();
+  if(hosts.size){
+    const pool=new Set();
+    for(const host of hosts){pool.add(host);for(const dep of scriptDependencies.get(host)||[])pool.add(dep);}
+    const hosted=candidates.filter(f=>pool.has(f.file)&&f.parent===null);
+    if(hosted.length===1)return {to:hosted[0].id,resolution:'static_host_page'};
+    if(hosted.length>1)return {to:null,resolution:'ambiguous_host_page',candidates:hosted.length};
+  }
   return {to:null,resolution:candidates.length?'global_no_verificado':'unknown'};
  };
  for(const c of allCalls){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
-  if(!c.method){c.resolution='computed';continue;}
+  if(!c.method){
+    const nested=(byFile.get(c.file)||[]).filter(f=>f.line===c.line&&f.name.startsWith('callback@'));
+    if(nested.length===1){c.to=nested[0].id;c.resolution='immediate_callback';continue;}
+    c.resolution='computed';continue;
+  }
   if(!c.direct&&!['window','globalThis'].includes(c.receiver)){
     // Object literal methods are resolvable from their receiver's declaration.
     const matched=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.objectOwner===c.receiver);
