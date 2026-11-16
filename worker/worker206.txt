@@ -89,7 +89,6 @@ var GLD_ACTIONS138 = (() => {
  function identify(path,method){
   if(path==='/superadmin/territory/action-status'&&method==='GET')return {kind:'status'};
   if(path==='/superadmin/territory/rebuild-cache'&&method==='POST')return {kind:'rebuild'};
-  if(path==='/superadmin/territory/city-bundle'&&method==='POST')return {kind:'bundle',id:''};
   const create=path.match(/^\/superadmin\/(countries|provinces|cities)\/create$/);
   if(create&&method==='POST')return {kind:create[1],id:''};
   const edit=path.match(/^\/superadmin\/(countries|provinces|cities)\/([^/]+)$/);
@@ -126,8 +125,7 @@ var GLD_ACTIONS138 = (() => {
   const cache={async get(key){if(key===ADMIN_KEY)return clone(packets.admin);if(key===PUBLIC_KEY)return clone(packets.public);throw Error('Unexpected territorial cache dependency');},async put(key,value){updates.set(key,clone(value));}};
   const args={env:resources.env,request,db,cache,idFromPath:spec.id||''};
   const fn=spec.kind==='rebuild'?rebuildTerritory:spec.kind==='countries'?saveCountry:spec.kind==='provinces'?saveProvince:saveCity;
-  if(['countries','provinces'].includes(spec.kind)&&!spec.id)return {status:400,result:{success:false,message:'Países y provincias se crean junto con una ciudad.'},writes:[],updates:[],lists};
-  const response=spec.kind==='bundle'?await saveTerritorialCityBundle211(args):await fn(args),result=await response.json();
+  const response=await fn(args),result=await response.json();
   if(response.status>=400)return {status:response.status,result,writes:[],updates:[],lists};
   // Rebuilding explicitly still scans Firestore, but does not rewrite equal packets.
   const comparable=p=>p?Object.fromEntries(Object.entries(p).filter(([key])=>key!=='updated_at')):p;
@@ -1208,6 +1206,8 @@ async function saveCountry({ env, request: request2, db, cache, idFromPath = "" 
   const id4 = text3(idFromPath || item.pais_id || item.id), nombre = text3(item.pais_visible || item.nombre || item.pais);
   if (!id4 || !nombre) return json({ success: false, message: "Faltan pais_id o nombre" }, 400);
   const admin = packet(await cache.get(ADMIN_KEY));
+  if(!idFromPath&&admin.paises.some(row=>text3(row.pais_id||row.id)===id4))return json({success:false,message:'Ya existe un país con ese identificador.'},409);
+  if(!idFromPath&&admin.paises.some(row=>text3(row.nombre||row.pais_visible).toLocaleLowerCase('es')===nombre.toLocaleLowerCase('es')))return json({success:false,message:'Ya existe un país con ese nombre.'},409);
   if(item.activo!==undefined&&!bool(item.activo)||item.activa!==undefined&&!bool(item.activa)){
     const assigned=admin.ciudades.some(city=>text3(city.pais_id)===id4&&active(city));
     if(assigned)return json({success:false,message:"No se puede desactivar un país con ciudades activas."},409);
@@ -1232,7 +1232,11 @@ async function saveProvince({ env, request: request2, db, cache, idFromPath = ""
   const id4 = text3(idFromPath || item.provincia_id || item.id), nombre = text3(item.provincia_visible || item.nombre || item.provincia), pais_id = text3(item.pais_id);
   const admin = packet(await cache.get(ADMIN_KEY));
   if (!id4 || !nombre || !pais_id) return json({ success: false, message: "Faltan provincia_id, nombre o pais_id" }, 400);
-  if (!admin.paises.some((x) => text3(x.pais_id || x.id) === pais_id)) return json({ success: false, message: "pais_id inexistente" }, 400);
+  const parentCountry=admin.paises.find(x=>text3(x.pais_id||x.id)===pais_id);
+  if(!parentCountry)return json({success:false,message:'pais_id inexistente'},400);
+  if(!active(parentCountry))return json({success:false,message:'No se puede vincular una provincia a un país inactivo.'},409);
+  if(!idFromPath&&admin.provincias.some(x=>text3(x.provincia_id||x.id)===id4))return json({success:false,message:'Ya existe una provincia con ese identificador.'},409);
+  if(!idFromPath&&admin.provincias.some(x=>text3(x.pais_id)===pais_id&&text3(x.nombre||x.provincia_visible).toLocaleLowerCase('es')===nombre.toLocaleLowerCase('es')))return json({success:false,message:'Ya existe esa provincia en el país.'},409);
   const current=admin.provincias.find(x=>text3(x.provincia_id||x.id)===id4);
   if(current&&text3(current.pais_id)!==pais_id&&admin.ciudades.some(x=>text3(x.provincia_id)===id4))
     return json({success:false,message:"No se puede trasladar una provincia vinculada a ciudades. Editá cada ciudad primero."},409);
@@ -1260,6 +1264,10 @@ async function saveCity({ env, request: request2, db, cache, idFromPath = "" }) 
   if (!id4 || !nombre || !pais_id || !provincia_id) return json({ success: false, message: "Faltan datos obligatorios de ciudad" }, 400);
   const prov = admin.provincias.find((x) => text3(x.provincia_id || x.id) === provincia_id);
   if (!prov || text3(prov.pais_id) !== pais_id) return json({ success: false, message: "Provincia/país inválidos" }, 400);
+  const parentCountry=admin.paises.find(x=>text3(x.pais_id||x.id)===pais_id);
+  if(!parentCountry||!active(parentCountry)||!active(prov))return json({success:false,message:'El país y la provincia deben estar activos.'},409);
+  if(!idFromPath&&admin.ciudades.some(x=>text3(x.ciudad_id||x.id)===id4))return json({success:false,message:'Ya existe una ciudad con ese identificador.'},409);
+  if(!idFromPath&&admin.ciudades.some(x=>text3(x.provincia_id)===provincia_id&&text3(x.nombre||x.ciudad_visible||x.ciudad).toLocaleLowerCase('es')===nombre.toLocaleLowerCase('es')))return json({success:false,message:'Ya existe esa ciudad en la provincia.'},409);
   const saved = await db.patch(C.ciudades, id4, { ...item, ciudad_id: id4, ciudad_visible: nombre, pais_id, provincia_id, activa: item.activa !== void 0 ? bool(item.activa) : true, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() });
   const pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
   const nextAdmin = { ...admin, updated_at: now, ciudades: sortCities(upsert(admin.ciudades, "ciudad_id", saved)) };
@@ -1267,36 +1275,6 @@ async function saveCity({ env, request: request2, db, cache, idFromPath = "" }) 
   if (active(saved)) ciudades = upsert(ciudades, "ciudad_id", publicCity(saved, nextAdmin));
   await Promise.all([cache.put(ADMIN_KEY, nextAdmin), cache.put(PUBLIC_KEY, { ...pub, updated_at: now, ciudades: sortCities(ciudades) })]);
   return json({ success: true, ciudad: saved });
-}
-async function saveTerritorialCityBundle211({env,request,db,cache}){
- const auth=await authOr401(env,request);
- if(auth instanceof Response)return auth;
- if(!['SUPERADMIN','SUPERADMIN_PRINCIPAL'].includes(auth.rol))return json({success:false,message:'Permiso insuficiente'},403);
- const body=await GLD_ACTIONS138.readJson(request);
- const city=body?.ciudad,country=body?.pais||null,province=body?.provincia||null;
- if(!city||typeof city!=='object'||Array.isArray(city))return json({success:false,message:'Falta la ciudad'},400);
- const admin=packet(await cache.get(ADMIN_KEY)),pub=packet(await cache.get(PUBLIC_KEY));
- const id=(row,key)=>text3(row?.[key]||row?.id);
- const cid=id(city,'ciudad_id'),pid=text3(city.pais_id),prid=text3(city.provincia_id),name=text3(city.ciudad_visible||city.nombre||city.ciudad);
- if(!cid||!pid||!prid||!name)return json({success:false,message:'Completá ciudad, provincia y país'},400);
- if(admin.ciudades.some(x=>id(x,'ciudad_id')===cid))return json({success:false,message:'La ciudad ya existe'},409);
- const foundCountry=admin.paises.find(x=>id(x,'pais_id')===pid);
- const foundProvince=admin.provincias.find(x=>id(x,'provincia_id')===prid);
- if(Boolean(foundCountry)===Boolean(country)||Boolean(foundProvince)===Boolean(province))return json({success:false,message:'Los registros nuevos no pueden duplicar los existentes'},400);
- if(country&&id(country,'pais_id')!==pid||province&&(id(province,'provincia_id')!==prid||text3(province.pais_id)!==pid))return json({success:false,message:'Vinculación territorial inválida'},400);
- if(foundProvince&&text3(foundProvince.pais_id)!==pid)return json({success:false,message:'La provincia no pertenece al país'},400);
- const now=new Date().toISOString(),countryName=text3(country?.nombre||country?.pais_visible),provinceName=text3(province?.nombre||province?.provincia_visible);
- if(country&&!countryName||province&&!provinceName)return json({success:false,message:'Faltan nombres territoriales'},400);
- const newCountry=country?{pais_id:pid,nombre:countryName,pais_visible:countryName,activo:true}:null;
- const newProvince=province?{provincia_id:prid,nombre:provinceName,provincia_visible:provinceName,pais_id:pid,activo:true}:null;
- const newCity={ciudad_id:cid,nombre:name,ciudad_visible:name,ciudad:name,pais_id:pid,provincia_id:prid,activa:true};
- const next={...admin,updated_at:now,paises:newCountry?[...admin.paises,newCountry]:admin.paises,provincias:newProvince?[...admin.provincias,newProvince]:admin.provincias,ciudades:sortCities([...admin.ciudades,newCity])};
- const nextPublic={...pub,updated_at:now,paises:newCountry?[...pub.paises,newCountry]:pub.paises,provincias:newProvince?[...pub.provincias,newProvince]:pub.provincias,ciudades:sortCities([...pub.ciudades,publicCity(newCity,next)])};
- if(newCountry)await db.patch(C.paises,pid,{...newCountry,actualizado_en:now});
- if(newProvince)await db.patch(C.provincias,prid,{...newProvince,actualizado_en:now});
- const saved=await db.patch(C.ciudades,cid,{...newCity,actualizado_en:now});
- await cache.put(ADMIN_KEY,next);await cache.put(PUBLIC_KEY,nextPublic);
- return json({success:true,ciudad:saved,pais:newCountry,provincia:newProvince});
 }
 async function rebuildTerritory(ctx){
  if(GLD_ACTIONS138.isInternal(ctx.env))return rebuildTerritoryRaw138(ctx);
