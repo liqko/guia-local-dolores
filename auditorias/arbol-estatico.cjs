@@ -539,6 +539,18 @@ function scan(){
       const v=m[1];if(v.length<180)values.add(v);
     }
   }
+  // Administrative helpers receive paths relative to the explicit /superadmin
+  // API origin. Apply that base to EVERY derived alternative, not just literals.
+  if(['ghAdminRequest_','ghAdminRequestRaw143'].includes(ep.requestKind)&&ep.apiBase){
+    try{
+      const basePath=new URL(ep.apiBase).pathname.replace(/\/$/,'');
+      if(basePath&&basePath!=='/'){
+        const prefixed=[...values].map(v=>v.startsWith(basePath+'/')?v:v.startsWith('/')?basePath+v:v);
+        values.clear();for(const v of prefixed)values.add(v);
+        ep.wrapperBaseEvidence={base:ep.apiBase,pathPrefix:basePath};
+      }
+    }catch(_){}
+  }
   // Query strings and fragments do not participate in matching the Worker path.
   const matchPaths=new Set([...values].map(v=>v.startsWith('/')?v.split(/[?#]/)[0]:v));
   ep.candidates=[...matchPaths].sort();
