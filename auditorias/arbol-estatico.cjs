@@ -197,7 +197,9 @@ function scan(){
      const expr=target.getText(sf).slice(0,180),owner=fnStack.at(-1)?.id||file+':<top-level>';
      const isFetch=(ts.isIdentifier(target)&&target.text==='fetch')||['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method);
      const dataOp=/^(get|put|set|add|patch|delete|list|query|commit|queryEqual|listCollection|setItem|removeItem)$/.test(method||'')&&/^(db|cache|kv|reader|storage|localStorage|sessionStorage|firestore)\b/.test(receiver);
-     const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),
+     const invoked=ts.isParenthesizedExpression(target)?target.expression:target;
+     const immediateId=isFn(invoked)?functionId(invoked):null;
+     const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),immediateId,
       arg:first,argExpr:arg0?.getText(sf).slice(0,160)||'',guards:[...guardStack],
       args:args.slice(0,8).map(x=>({
         value:staticValue(x),expression:x.getText(sf).slice(0,200),
@@ -320,6 +322,7 @@ function scan(){
  for(const c of allCalls){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
   if(!c.method){
+    if(c.immediateId&&byId.has(c.immediateId)){c.to=c.immediateId;c.resolution='immediate_callback_ast';continue;}
     const nested=(byFile.get(c.file)||[]).filter(f=>f.line===c.line&&(f.name.startsWith('callback@')||f.name.startsWith('iife@')));
     if(nested.length===1){c.to=nested[0].id;c.resolution='immediate_callback';continue;}
     c.resolution='computed';continue;
