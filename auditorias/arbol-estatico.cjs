@@ -634,6 +634,32 @@ function scan(){
   ep.queryTemplates=[...values].filter(v=>v.includes('?')).slice(0,16);
   ep.partial=(ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete)||ep.actionPartial===true;
   ep.requireDynamicRemainder=ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
+  // External services: cite the source function or the environment key.
+  if(ep.file.startsWith('worker/')&&/\bbase\s*\(\s*env\s*\)/.test(ep.expression)){
+    const code=srcs.get(ep.file)||'';
+    const defined=/function\s+base\s*\(\s*env\s*\)\s*\{[\s\S]{0,260}?return\s+[\x60'"](https?:\/\/[^\x60'"]+)/.exec(code);
+    if(defined){
+      ep.status='external_service_http';
+      ep.externalHosts=[new URL(defined[1]).host];
+      ep.externalUrlTemplate=defined[1];
+      ep.runtimeFields=['env.FIREBASE_PROJECT_ID'];
+      ep.externalEvidence='worker_base_function';
+      continue;
+    }
+  }
+  if(ep.file.startsWith('worker/')&&ep.expression.trim()==='url'){
+    const fields=(scopeDefinitions.get(ep.owner)||[])
+      .filter(d=>d.name==='url'&&d.line<=ep.line)
+      .map(d=>/\benv\.([A-Z][A-Z0-9_]*_URL)\b/.exec(d.expression)?.[1])
+      .filter(Boolean);
+    if(fields.length===1){
+      ep.status='external_configured_service';
+      ep.externalConfiguration='env.'+fields[0];
+      ep.externalEvidence='worker_scope_variable';
+      ep.runtimeHostUnverified=true;
+      continue;
+    }
+  }
   if(ep.file.startsWith('worker/')&&[ep.target,...symbolic.values].some(v=>typeof v==='string'&&/^https?:\/\//.test(v))){
     ep.status='external_service_http';
     ep.externalHosts=[...new Set([ep.target,...symbolic.values].filter(v=>typeof v==='string'&&/^https?:\/\//.test(v)).map(v=>{
