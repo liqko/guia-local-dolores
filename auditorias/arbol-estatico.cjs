@@ -940,9 +940,9 @@ function scan(){
         }
         if(e&&['external_service_http','external_configured_service','browser_forwarded_request','browser_document_candidate'].includes(e.status)){
           treeNodes.push({type:'external_http',from:c.id,reason:e.status,hosts:e.externalHosts||[],depth:depth+2});
-        }else if(!matched.length&&e?.status==='missing_worker_dispatch'&&
+        }else if(!matched.length&&['missing_worker_dispatch','no_backend_match'].includes(e?.status)&&
           e.symbolic?.complete&&e.candidates?.length&&!e.partial){
-          treeNodes.push({type:'missing_worker_route_in_source',from:c.id,file:c.file,line:c.line,
+          treeNodes.push({type:e.status==='missing_worker_dispatch'?'missing_worker_route_in_source':'possible_missing_worker_route',from:c.id,file:c.file,line:c.line,
             candidates:e.candidates,reason:'sin_despacho_en_fuente_worker_analizada',depth:depth+2});
         }else if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
         else if(!handlers.length){
@@ -1062,7 +1062,7 @@ function scan(){
     http:treeNodes.filter(x=>x.type==='http').length,data:treeNodes.filter(x=>x.type==='data').length,
     unresolved:treeNodes.filter(x=>x.type==='unresolved').length,
     missingHandlers:treeNodes.filter(x=>x.type==='missing_handler').length,
-    possibleMissingRoutes:treeNodes.filter(x=>x.type==='missing_worker_route_in_source').length,
+    possibleMissingRoutes:treeNodes.filter(x=>['missing_worker_route_in_source','possible_missing_worker_route'].includes(x.type)).length,
     externalObjects:treeNodes.filter(x=>x.type==='external_object').length,
     cycles:treeNodes.filter(x=>x.type==='cycle').length};
   trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':counts.missingHandlers?'posible_manejador_ausente':'ramas_estaticas_identificadas_sin_prueba_funcional'});
@@ -1096,7 +1096,7 @@ function md(r){
  }
  lines.push('','## Rutas sin despacho identificado en el Worker (posibles fallas)','','| Archivo y línea | Destino solicitado |','|---|---|');
  const failures=new Map();
- for(const tree of r.trees)for(const node of tree.nodes)if(node.type==='missing_worker_route_in_source'){
+ for(const tree of r.trees)for(const node of tree.nodes)if(['missing_worker_route_in_source','possible_missing_worker_route'].includes(node.type)){
    const k=node.file+':'+node.line;
    if(!failures.has(k))failures.set(k,node);
  }
