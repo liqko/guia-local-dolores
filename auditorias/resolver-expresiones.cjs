@@ -43,7 +43,16 @@ function resolveExpression(expression,ctx={},definitions={},trail=new Set(),leve
      const base=n.expression.getText(sf),full=base+'.'+n.name.text;
      if(full in ctx)return lookup(full);
      if(full in definitions)return lookup(full);
-     if(n.name.text==='href'||n.name.text==='pathname')return E(n.expression,depth+1);
+     if(['href','pathname','origin','search'].includes(n.name.text)){
+       const baseResult=E(n.expression,depth+1);
+       const values=[];
+       for(const v of baseResult.values){
+         try{const u=new URL(v);
+           values.push(n.name.text==='href'?u.href:n.name.text==='pathname'?u.pathname:n.name.text==='origin'?u.origin:u.search);
+         }catch(_){if(n.name.text==='pathname'&&v.startsWith('/'))values.push(v);}
+       }
+       return result(values,baseResult.complete,[...baseResult.unknown]);
+     }
      return result([],false,[full]);
    }
    if(ts.isElementAccessExpression(n)){
