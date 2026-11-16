@@ -72,6 +72,10 @@ try{
  ].join('\n'));
  // Shared function via HTML script src must resolve to local imported file.
  fs.appendFileSync(path.join(root,'plataforma/index.html'),"\n<script src=\"/plataforma/enviar.js\"></script>\n");
+ fs.writeFileSync(path.join(root,'plataforma/descubrir-sw.js'),[
+  "const PAGE='/descubrir';",
+  "self.addEventListener('fetch',event=>{const request=event.request;if(request.mode!=='navigate')return;const url=new URL(request.url);if(url.origin!==self.location.origin)return;event.respondWith(fetch(PAGE));});"
+ ].join('\\n'));
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
  let r=run(['--write']);assert.equal(r.status,0,r.stderr);
  const json=JSON.parse(fs.readFileSync(path.join(root,'auditorias/transversal/ARBOL_ACCIONES.json'),'utf8'));
@@ -145,6 +149,8 @@ try{
  assert(composite?.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No siguio llamadas del manejador compuesto');
  const native=json.trees.find(x=>x.action.handler.includes('getElementById'));
  assert(native&&!native.counts.missingHandlers,'Confundio funcion del navegador con ausencia de codigo');
+ const doc=json.endpoints.find(e=>e.file==='plataforma/descubrir-sw.js'&&e.target==='/descubrir');
+ assert(doc?.status==='browser_document_candidate','No clasificó documento local del navegador respaldado por ruta y guards');
  const bad=json.trees.find(x=>x.action.handler==='noExiste()');
  assert(bad?.counts.missingHandlers,'No marcó botón sin función en fuentes rastreadas');
  r=run(['--check']);assert.equal(r.status,0,r.stderr);
