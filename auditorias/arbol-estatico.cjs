@@ -17,7 +17,7 @@ function parts(file,raw){
  return out;
 }
 function scan(){
- const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[];
+ const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[];
  const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
@@ -58,7 +58,7 @@ function scan(){
    const sf=ts.createSourceFile(file,frag.src,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
    astErrors+=sf.parseDiagnostics.length;
    const line=n=>frag.off+sf.getLineAndCharacterOfPosition(n.getStart(sf)).line+1;
-   const fnStack=[];
+   const fnStack=[],guardStack=[];
    const sym=new Map();
    function functionName(n){
     if(n.name&&ts.isIdentifier(n.name))return n.name.text;
@@ -83,6 +83,34 @@ function scan(){
     return null;
    }
    function visit(n){
+    if(ts.isIfStatement(n)){
+      visit(n.expression);
+      const guard=n.expression.getText(sf).slice(0,240);
+      guardStack.push(guard);visit(n.thenStatement);guardStack.pop();
+      if(n.elseStatement){guardStack.push('NOT ('+guard+')');visit(n.elseStatement);guardStack.pop();}
+      return;
+    }
+    if(ts.isConditionalExpression(n)){
+      visit(n.condition);
+      const guard=n.condition.getText(sf).slice(0,240);
+      guardStack.push(guard);visit(n.whenTrue);guardStack.pop();
+      guardStack.push('NOT ('+guard+')');visit(n.whenFalse);guardStack.pop();
+      return;
+    }
+    if(ts.isSwitchStatement(n)){
+      visit(n.expression);
+      const discriminant=n.expression.getText(sf).slice(0,160);
+      for(const clause of n.caseBlock.clauses){
+        const guard=ts.isCaseClause(clause)?discriminant+' === '+clause.expression.getText(sf):'default('+discriminant+')';
+        guardStack.push(guard);for(const item of clause.statements)visit(item);guardStack.pop();
+      }
+      return;
+    }
+    if(ts.isReturnStatement(n)||ts.isThrowStatement(n)){
+      terminals.push({from:fnStack.at(-1)?.id||file+':<top-level>',file,line:line(n),
+        kind:ts.isReturnStatement(n)?'return':'throw',expression:n.expression?.getText(sf).slice(0,180)||'',
+        guards:[...guardStack]});
+    }
     let entered=false;
     if(isFn(n)){
      let objectOwner=null,ownerNode=n.parent;
@@ -127,7 +155,9 @@ function scan(){
      const isFetch=(ts.isIdentifier(target)&&target.text==='fetch')||['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method);
      const dataOp=/^(get|put|set|add|patch|delete|list|query|commit|queryEqual|listCollection|setItem|removeItem)$/.test(method||'')&&/^(db|cache|kv|reader|storage|localStorage|sessionStorage|firestore)\b/.test(receiver);
      const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),
-      arg:first,argExpr:arg0?.getText(sf).slice(0,160)||'',kind:isFetch?'http':dataOp?'data':'call',to:null,resolution:'pending'};
+      arg:first,argExpr:arg0?.getText(sf).slice(0,160)||'',guards:[...guardStack],
+      args:args.slice(0,8).map(x=>({value:staticValue(x),expression:x.getText(sf).slice(0,160)})),
+      kind:isFetch?'http':dataOp?'data':'call',to:null,resolution:'pending'};
      allCalls.push(call);
      if(method==='addEventListener'&&args.length>=2){
       const h=args[1],handler=ts.isIdentifier(h)?h.text:ts.isArrowFunction(h)||ts.isFunctionExpression(h)?'callback@'+line(h):h.getText(sf).slice(0,130);
@@ -289,8 +319,9 @@ function scan(){
   ep.worker=ep.worker.slice(0,30);
   ep.status=ep.worker.length?(ep.partial?'partial_backend_candidate':values.size>1?'multi_backend_candidate':'backend_candidate'):'no_backend_match';
  }
- const outCalls=new Map();
+ const outCalls=new Map(),outTerminals=new Map();
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
+ for(const t of terminals){const a=outTerminals.get(t.from)||[];a.push(t);outTerminals.set(t.from,a);}
  const httpById=new Map(endpoints.map(e=>[e.callId,e]));
  const trees=[];
  for(const action of actions){
@@ -316,9 +347,13 @@ function scan(){
     seen.add(id);
     const fn=byId.get(id);if(!fn){treeNodes.push({type:'unresolved',from:id,reason:'missing_function'});return;}
     treeNodes.push({type:'function',id:fn.id,name:fn.name,file:fn.file,line:fn.line,depth});
-    const calls=outCalls.get(id)||[];
-    if(!calls.length)treeNodes.push({type:'terminal',from:id,reason:'sin_llamadas_detectadas',depth:depth+1});
+    const calls=outCalls.get(id)||[],ends=outTerminals.get(id)||[];
+    for(const t of ends)treeNodes.push({type:t.kind,from:id,file:t.file,line:t.line,
+      expression:t.expression,guards:t.guards,depth:depth+1});
+    if(!calls.length&&!ends.length)treeNodes.push({type:'terminal',from:id,reason:'sin_llamadas_ni_retorno_explicito',depth:depth+1});
     for(const c of calls){
+      treeNodes.push({type:'guarded_call',from:id,file:c.file,line:c.line,guards:c.guards,
+        method:c.method,kind:c.kind,depth:depth+1});
       if(treeNodes.length>2400){treeNodes.push({type:'limit',from:id,reason:'node_limit'});break;}
       if(c.kind==='http'){
         const e=httpById.get(c.id);
