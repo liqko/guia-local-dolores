@@ -351,6 +351,14 @@ function scan(){
    const definitions={},ctx={};
    const global=scopeDefinitions.get(file+':<top-level>')||[];
    for(const def of global)if(def.line<=beforeLine)definitions[def.name]=def.expression;
+   // Global variables declared by the HTML that imports this script are visible
+   // to it at runtime. Include those declarations, but never guess a host.
+   const hosts=scriptHosts.get(file)||new Set();
+   if(hosts.size===1){
+     const host=[...hosts][0];
+     for(const def of scopeDefinitions.get(host+':<top-level>')||[])
+       if(!(def.name in definitions))definitions[def.name]=def.expression;
+   }
    for(const [key,route] of actionRoutes.get(ownerId)||[])if(route.path&&!route.partial)
      definitions['routes.'+key]=JSON.stringify(route.path);
    let cur=ownerId;const visited=new Set();
