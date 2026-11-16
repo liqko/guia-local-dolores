@@ -3,6 +3,7 @@
 // Árbol estático reproducible: interfaz → manejador → funciones → red/Worker → datos.
 // Un enlace candidato no demuestra ejecución, persistencia ni éxito funcional.
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),crypto=require('node:crypto'),ts=require('typescript');
+const {resolveExpression}=require('./resolver-expresiones.cjs');
 const ROOT=process.env.GLD_GPS_ROOT?path.resolve(process.env.GLD_GPS_ROOT):path.resolve(__dirname,'..');
 const OUT='auditorias/transversal/ARBOL_ACCIONES.json',MD='auditorias/transversal/ARBOL_ACCIONES.md';
 const sha=x=>crypto.createHash('sha256').update(x).digest('hex');
@@ -18,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map();
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -122,7 +123,9 @@ function scan(){
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
      const f={id:file+':'+line(n)+':'+functionName(n),file,line:line(n),name:functionName(n),objectOwner,
-      parent:fnStack.at(-1)?.id||null,bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
+      parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>({
+        name:p.name?.getText(sf)||null,defaultExpression:p.initializer?.getText(sf)||null
+      })),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
     if(ts.isPropertyAssignment(n)&&((ts.isIdentifier(n.name)&&n.name.text==='path')||literal(n.name)==='path')){
@@ -133,6 +136,12 @@ function scan(){
       }
     }
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
+      const scope=fnStack.at(-1)?.id||file+':<top-level>';
+      if(n.initializer){
+        const arr=scopeDefinitions.get(scope)||[];
+        arr.push({name:n.name.text,expression:n.initializer.getText(sf),line:line(n)});
+        scopeDefinitions.set(scope,arr);
+      }
       if(n.name.text==='routes'&&n.initializer&&ts.isObjectLiteralExpression(n.initializer)){
         const scope=fnStack.at(-1)?.id,table=new Map();
         for(const p of n.initializer.properties)if(ts.isPropertyAssignment(p)){
