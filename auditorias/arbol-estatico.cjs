@@ -710,8 +710,7 @@ function scan(){
   ep.candidates=[...matchPaths].sort();
   ep.queryTemplates=[...values].filter(v=>v.includes('?')).slice(0,16);
   ep.partial=((ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete)||ep.actionPartial===true)&&!ep.dynamicQueryOnly;
-  if(ep.dynamicQueryOnly)ep.requireDynamicRemainder=false;
-  ep.requireDynamicRemainder=ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
+  ep.requireDynamicRemainder=!ep.dynamicQueryOnly && (ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression)));
   // External services: cite the source function or the environment key.
   if(ep.file.startsWith('worker/')&&/\bbase\s*\(\s*env\s*\)/.test(ep.expression)){
     const code=srcs.get(ep.file)||'';
