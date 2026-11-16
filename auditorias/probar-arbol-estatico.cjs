@@ -42,7 +42,7 @@ try{
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
  let r=run(['--write']);assert.equal(r.status,0,r.stderr);
  const json=JSON.parse(fs.readFileSync(path.join(root,'auditorias/transversal/ARBOL_ACCIONES.json'),'utf8'));
- assert.equal(json.totals.files,3);
+ assert.equal(json.totals.files,4);
  const good=json.trees.find(x=>x.action.handler==='guardarCiudad()');
  assert(good,'No encontró botón de guardar');
  assert(good.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No enlazó el manejador');
