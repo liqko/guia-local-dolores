@@ -469,12 +469,25 @@ function scan(){
       const v=m[1];if(v.length<180)values.add(v);
     }
   }
-  ep.candidates=[...values].sort();
+  // Query strings and fragments do not participate in matching the Worker path.
+  const matchPaths=new Set([...values].map(v=>v.startsWith('/')?v.split(/[?#]/)[0]:v));
+  ep.candidates=[...matchPaths].sort();
+  ep.queryTemplates=[...values].filter(v=>v.includes('?')).slice(0,16);
   ep.partial=(ep.target===null&&values.size>0&&!symbolic.complete)||ep.actionPartial===true;
   ep.requireDynamicRemainder=ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
+  if(ep.file.startsWith('worker/')&&[ep.target,...symbolic.values].some(v=>typeof v==='string'&&/^https?:\/\//.test(v))){
+    ep.status='external_service_http';
+    ep.externalHosts=[...new Set([ep.target,...symbolic.values].filter(v=>typeof v==='string'&&/^https?:\/\//.test(v)).map(v=>{
+      try{return new URL(v).host;}catch(_){return 'dynamic_host';}
+    }))];
+    continue;
+  }
+  if(!values.size&&/\b(?:sw|descubrir-sw)\.js$/.test(ep.file)&&ep.expression==='request'){
+    ep.status='browser_forwarded_request';continue;
+  }
   if(!values.size){ep.status='dynamic_unresolved';continue;}
   ep.worker=[];
-  for(const v of values){
+  for(const v of matchPaths){
     const direct=literalRoutes.filter(r=>r.path===v);
     const prefix=literalRoutes.filter(r=>v.startsWith(r.path+'/'));
     const analyzed=dispatchRules.filter(r=>r.path===v&&(!ep.verb||!r.verb||ep.verb===r.verb));
@@ -487,7 +500,7 @@ function scan(){
     }
   }
   ep.worker=ep.worker.slice(0,30);
-  ep.status=ep.worker.length?(ep.partial?'partial_backend_candidate':values.size>1?'multi_backend_candidate':'backend_candidate'):'no_backend_match';
+  ep.status=ep.worker.length?(ep.partial?'partial_backend_candidate':matchPaths.size>1?'multi_backend_candidate':'backend_candidate'):'no_backend_match';
  }
  const outCalls=new Map(),outTerminals=new Map();
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
@@ -535,7 +548,9 @@ function scan(){
           treeNodes.push({type:'backend_candidate',from:c.id,handler,at:found[0].file+':'+found[0].line,depth:depth+2});
           walk(found[0].id,depth+3);
         }
-        if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
+        if(e&&['external_service_http','browser_forwarded_request'].includes(e.status)){
+          treeNodes.push({type:'external_http',from:c.id,reason:e.status,hosts:e.externalHosts||[],depth:depth+2});
+        }else if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
         else if(!handlers.length){
           if(matched.some(x=>x.inlineTerminal))treeNodes.push({type:'backend_inline_return',from:c.id,
             reason:'el_despachador_retorna_respuesta_sin_funcion_auxiliar'});
