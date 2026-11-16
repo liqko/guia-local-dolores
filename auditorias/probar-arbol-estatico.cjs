@@ -21,8 +21,11 @@ try{
   '<script>function guardarCiudad(){return enviarCiudad()}</script>'
  ].join('\n'));
  fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\n");
- fs.writeFileSync(path.join(root,'worker/worker206.txt'),"async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}\nif(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);
-if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);\n");
+ fs.writeFileSync(path.join(root,'worker/worker206.txt'),[
+ "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
+ "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
+ "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);"
+ ].join('\n'));
  // Shared function via HTML script src must resolve to local imported file.
  fs.appendFileSync(path.join(root,'plataforma/index.html'),"\n<script src=\"/plataforma/enviar.js\"></script>\n");
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
