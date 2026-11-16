@@ -535,6 +535,11 @@ function scan(){
   if(!ep.apiBase&&['ghAdminRequest_','ghAdminRequestRaw143'].includes(ep.requestKind)){
     const globalBase=resolveExpression('API',env.ctx,env.definitions);
     if(globalBase.complete&&globalBase.values.length===1)ep.apiBase=globalBase.values[0];
+    // A script-level API origin can be outside the function's lexical environment.
+    if(!ep.apiBase){
+      const declaration=/\b(?:const|let|var)\s+API\s*=\s*(['"])(https?:\/\/[^'"\s]+)\1/.exec(srcs.get(ep.file)||'');
+      if(declaration)ep.apiBase=declaration[2];
+    }
   }
   const symbolic=resolveExpression(ep.expression,env.ctx,env.definitions);
   for(const value of symbolic.values){
