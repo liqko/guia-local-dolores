@@ -220,6 +220,10 @@ function scan(){
         }
       }else if(['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method)){
         verb=args.length<3?'GET':staticValue(args[2]);
+        if(method==='api'&&options&&ts.isObjectLiteralExpression(options)){
+          for(const prop of options.properties)if(ts.isPropertyAssignment(prop)&&name(prop.name)==='method')
+            verb=staticValue(prop.initializer);
+        }
       }
       endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,requestKind:method,apiBase:sym.get('API')||null,verb,
         status:first&&first.startsWith('/')?'static':'dynamic'});
@@ -424,6 +428,10 @@ function scan(){
  for(const ep of endpoints){
   const values=new Set();
   const env=makeEnvironment(ep.owner,ep.file,ep.line);
+  if(!ep.apiBase&&['ghAdminRequest_','ghAdminRequestRaw143'].includes(ep.requestKind)){
+    const globalBase=resolveExpression('API',env.ctx,env.definitions);
+    if(globalBase.complete&&globalBase.values.length===1)ep.apiBase=globalBase.values[0];
+  }
   const symbolic=resolveExpression(ep.expression,env.ctx,env.definitions);
   for(const value of symbolic.values){
     if(value.startsWith('/'))values.add(value);
