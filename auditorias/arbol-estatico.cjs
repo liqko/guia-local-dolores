@@ -804,7 +804,12 @@ function scan(){
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
   treesWithMissingHandlers:trees.filter(t=>t.counts.missingHandlers).length,
   treesWithPossibleMissingRoutes:trees.filter(t=>t.counts.possibleMissingRoutes).length,
-  endpoints:endpoints.length,endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate','partial_backend_candidate'].includes(e.status)).length,astErrors};
+  endpoints:endpoints.length,
+  endpointsExternal:endpoints.filter(e=>e.status==='external_service_http').length,
+  endpointsBrowserForwarded:endpoints.filter(e=>e.status==='browser_forwarded_request').length,
+  endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate',
+    'partial_backend_candidate','external_service_http','browser_forwarded_request'].includes(e.status)).length,
+  astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
   trees,endpoints,unresolved};
