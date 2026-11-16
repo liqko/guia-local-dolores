@@ -331,11 +331,6 @@ function scan(){
   if(local.length===1)return {to:local[0].id,resolution:'static_file'};
   if(local.length>1)return {to:null,resolution:'ambiguous_local',candidates:local.length};
   const imported=scriptDependencies.get(file)||new Set();
-  const shared=candidates.filter(f=>imported.has(f.file)&&f.parent===null);
-  if(shared.length===1)return {to:shared[0].id,resolution:'static_import'};
-  const exported=candidates.filter(f=>(f.name==='window.'+name||f.name==='globalThis.'+name)&&
-    (f.file===file||imported.has(f.file)));
-  if(exported.length===1)return {to:exported[0].id,resolution:'explicit_window_export'};
   // Two scripts may assign the same explicit window handler. For classic, synchronous
   // script tags in the same HTML document, the last one replaces the earlier one.
   // Preserve the overwritten implementation in evidence instead of declaring it absent.
@@ -350,6 +345,11 @@ function scan(){
     }
   }
 
+  const shared=candidates.filter(f=>imported.has(f.file)&&f.parent===null);
+  if(shared.length===1)return {to:shared[0].id,resolution:'static_import'};
+  const exported=candidates.filter(f=>(f.name==='window.'+name||f.name==='globalThis.'+name)&&
+    (f.file===file||imported.has(f.file)));
+  if(exported.length===1)return {to:exported[0].id,resolution:'explicit_window_export'};
   // A function deliberately assigned to window is callable after its enclosing
   // initializer runs. Preserve this as a conditional edge, NOT a proven runtime call.
   const hostsForExport=scriptHosts.get(file)||new Set();
