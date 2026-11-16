@@ -211,7 +211,7 @@ function scan(){
    const b=scriptHosts.get(s.target)||new Set();b.add(s.file);scriptHosts.set(s.target,b);
  }
  const resolve=(name,file)=>{
-  const candidates=byName.get(name)||[];
+  const candidates=[...(byName.get(name)||[]),...(byName.get('window.'+name)||[]),...(byName.get('globalThis.'+name)||[])];
   const local=candidates.filter(f=>f.file===file&&f.parent===null);
   if(local.length===1)return {to:local[0].id,resolution:'static_file'};
   if(local.length>1)return {to:null,resolution:'ambiguous_local',candidates:local.length};
@@ -237,7 +237,12 @@ function scan(){
     if(nested.length===1){c.to=nested[0].id;c.resolution='immediate_callback';continue;}
     c.resolution='computed';continue;
   }
-  if(!c.direct&&!['window','globalThis'].includes(c.receiver)){
+  if(!c.direct&&['window','globalThis'].includes(c.receiver)){
+    const lookup=resolve(c.method,c.file);
+    if(lookup.to){Object.assign(c,lookup);continue;}
+    c.resolution='browser_global_or_dynamic';continue;
+  }
+  if(!c.direct){
     // Object literal methods are resolvable from their receiver's declaration.
     const matched=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.objectOwner===c.receiver);
     if(matched.length===1){c.to=matched[0].id;c.resolution='static_object_method';continue;}
