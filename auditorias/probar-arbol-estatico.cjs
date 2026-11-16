@@ -12,7 +12,7 @@ try{
   '<script>function guardarCiudad(){return enviarCiudad()}</script>'
  ].join('\n'));
  fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\n");
- fs.writeFileSync(path.join(root,'worker/worker206.txt'),"async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}\nif(path==='/superadmin/cities/create') alta(db);\n");
+ fs.writeFileSync(path.join(root,'worker/worker206.txt'),"async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}\nif(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);\n");
  // Shared function via HTML script src must resolve to local imported file.
  fs.appendFileSync(path.join(root,'plataforma/index.html'),"\n<script src=\"/plataforma/enviar.js\"></script>\n");
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
@@ -24,6 +24,8 @@ try{
  assert(good.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No enlazó el manejador');
  assert(good.nodes.some(n=>n.type==='function'&&n.name==='enviarCiudad'),'No recorrió función importada');
  assert(good.nodes.some(n=>n.type==='http'&&n.target==='/superadmin/cities/create'),'No detectó solicitud');
+ assert(good.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No enlazó la ruta HTTP con el manejador del Worker');
+ assert(good.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No recorrió la operación de persistencia');
  const bad=json.trees.find(x=>x.action.handler==='noExiste()');
  assert(bad?.counts.unresolved,'No marcó botón sin función');
  r=run(['--check']);assert.equal(r.status,0,r.stderr);
