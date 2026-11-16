@@ -78,7 +78,7 @@ try{
  const resolverTree=json.trees.find(x=>x.action.handler==='dispararResolve()');
  assert(resolverTree?.nodes.some(n=>n.type==='promise_resolved'),'No reconoció callback de resolución de Promise exportado en window');
  const supportTree=json.trees.find(x=>x.action.handler==='enviarSoporte()');
- assert(supportTree?.nodes.some(n=>n.type==='http'&&n.target==='/support/requests'&&n.routeStatus==='backend_candidate'),'No dedujo POST desde el wrapper API con cuerpo');
+ assert(supportTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/support/requests')&&n.verb==='POST'&&n.routeStatus==='backend_candidate'),'No dedujo ruta y método POST desde el wrapper API con cuerpo');
  const good=json.trees.find(x=>x.action.handler==='guardarCiudad()');
  assert(good,'No encontró botón de guardar');
  assert(good.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No enlazó el manejador');
