@@ -79,7 +79,7 @@ try{
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
  let r=run(['--write']);assert.equal(r.status,0,r.stderr);
  const json=JSON.parse(fs.readFileSync(path.join(root,'auditorias/transversal/ARBOL_ACCIONES.json'),'utf8'));
- assert.equal(json.totals.files,5);
+ assert.equal(json.totals.files,6);
  assert.equal(json.totals.endpointsExternal,1,'Destino HTTP externo explícito contado indebidamente como interno');
  const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
  assert(globalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='conditional_global_assignment'),'No siguió asignación condicional window desde script contenedor');
