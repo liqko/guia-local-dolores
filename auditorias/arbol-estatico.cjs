@@ -818,7 +818,8 @@ function scan(){
     // Recover the complete HTML handler using the exact template AST.
     if(action.kind==='html_handler'&&raw.includes('$'+'{')){
       const sourceLine=(srcs.get(action.file)||'').split('\n')[action.line-1]||'';
-      const markupSf=ts.createSourceFile('markup.js',sourceLine,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+      const markupCode=sourceLine.replace(/<\/?script\b[^>]*>/gi,'');
+      const markupSf=ts.createSourceFile('markup.js',markupCode,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
       const recovered=[];
       const seek=n=>{
         if(ts.isTemplateExpression(n)){
