@@ -455,10 +455,11 @@ function scan(){
       if(parameterOwner.promiseExecutor&&parameterOwner.params[0]===parameter){
         c.resolution='promise_resolver_parameter';c.promiseSource={file:parameterOwner.file,line:parameterOwner.line};continue;
       }
+      // Nested parameter names must NOT shadow global action handlers without
+      // an actual supplied callback. Only follow mapped, concrete callers.
       const refs=[...(callbackTargets.get(parameterOwner.id+'|'+c.method)||[])];
       if(refs.length===1){c.to=refs[0];c.resolution='destructured_parameter_callback';continue;}
       if(refs.length>1){c.alternatives=refs;c.resolution='destructured_callback_alternatives';continue;}
-      c.resolution='callback_parameter_unbounded';continue;
     }
   }
   if(!c.direct&&['window','globalThis'].includes(c.receiver)){
