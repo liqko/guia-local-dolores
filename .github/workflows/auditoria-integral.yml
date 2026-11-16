@@ -62,6 +62,21 @@ jobs:
         run: |
           node auditorias/arbol-estatico.cjs --write
           node auditorias/arbol-estatico.cjs --check
+      - name: Verificar recorrido real en fuente de alta de ciudad hasta Worker y Firestore
+        run: |
+          node - <<'NODE'
+          const r=require('./auditorias/transversal/ARBOL_ACCIONES.json');
+          const city=r.trees.filter(t=>t.action.file==='plataforma/administracion.html'&&/ghGuardarTerritorio/.test(t.action.handler||''));
+          if(!city.length)throw Error('No se encontro boton de alta de territorio');
+          const nodes=city.flatMap(t=>t.nodes);
+          if(!nodes.some(n=>n.type==='backend_candidate'&&n.handler==='saveCity'))
+            throw Error('No se demostro conexion alta ciudad con saveCity Worker');
+          if(!nodes.some(n=>n.type==='data'&&n.operation==='patch'))
+            throw Error('No se encontro persistencia de ciudad');
+          const puts=nodes.filter(n=>n.type==='data'&&n.operation==='put');
+          if(puts.length<2)throw Error('No se rastrearon las dos publicaciones territoriales');
+          console.log('RUTA CIUDAD PASS: boton, Worker, Firestore, doble publicacion de catalogo');
+          NODE
       - name: Publicar arbol completo de acciones y conexiones
         uses: actions/upload-artifact@v4
         with:
