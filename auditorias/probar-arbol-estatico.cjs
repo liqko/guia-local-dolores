@@ -26,6 +26,7 @@ try{
   '<script>function accionIife(){return (function(){return guardarCiudad()})()}</script>',
   '<button id="obj" onclick="accionObjeto()">Objeto</button>',
   '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
+  '<button id="detalle" onclick="hacerDetalle()">Detalle</button>',
   '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
   '<button id="wrapper" onclick="usarWrapper()">Wrapper</button>',
   '<button id="adminwrapper" onclick="buscarAdmin()">Buscar admin</button>',
@@ -34,7 +35,7 @@ try{
   '<script>function dinamica(){return fetch("/superadmin/advertisers/"+encodeURIComponent(id)+"/panel-access")}</script>',
   '<script>const ORIGIN="https://login.test";function wrapper(path){return fetch(ORIGIN+path)} function usarWrapper(){return wrapper("/superadmin/cities/create")}</script>',
   '<script>function crearTerritorio(tipo){const spec={pais:{path:"countries/create"},ciudad:{path:"cities/create"}}[tipo];return fetch("https://login.test"+"/superadmin/"+spec.path,{method:"POST"})}</script>',
-  '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search"};return routes[action]}function hacerConsulta(){return api("buscar")}</script>',
+  '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search",detalle:"/advertisers/"+encodeURIComponent(id)};return routes[action]}function hacerConsulta(){return api("buscar")}function hacerDetalle(){return api("detalle")}</script>',
   '<script>document.addEventListener("click",()=>{return guardarCiudad()})</script>',
   '<script>function dosCallbacks(){const run=()=>{return fetch("/superadmin/cities/create")};return [1].forEach(x=>x&&run())}document.addEventListener("change",()=>{dosCallbacks(); [1].forEach(x=>dosCallbacks())})</script>',
   '<script>const obj={run(){return fetch("/superadmin/cities/create")}};function accionObjeto(){return obj.run()}</script>',
@@ -48,6 +49,7 @@ try{
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
  "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
  "if(path==='/superadmin/subscribers/search')return alta(db);",
+ "let m=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)$/);if(m)return alta(db);",
  "let match=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)\\/panel-access$/),other=path.match(/^\\/superadmin\\/subscribers\\/([^/]+)\\/reset-access$/); if(match)return alta(db);"
  ].join('\n'));
  // Shared function via HTML script src must resolve to local imported file.
@@ -87,6 +89,8 @@ try{
  assert(adminTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No agregó el origen /superadmin a una solicitud relativa');
  const wrapperTree=json.trees.find(x=>x.action.handler==='usarWrapper()');
  assert(wrapperTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/cities/create')),'No resolvió dirección del wrapper desde el parámetro de su llamador');
+ const detailTree=json.trees.find(x=>x.action.handler==='hacerDetalle()');
+ assert(detailTree?.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('advertisers'))),'No reconoció el último segmento dinámico de una ruta por el patrón del Worker');
  const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
  assert(apiTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No resolvió API simbólica por su tabla de rutas');
  const listenerTree=json.trees.find(x=>x.action.kind==='listener'&&x.action.handler.startsWith('callback@'));
