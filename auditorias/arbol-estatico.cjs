@@ -814,7 +814,30 @@ function scan(){
     seen.delete(id);
   };
   const scanInline=()=>{
-    const raw=String(action.handler||'').replace(/\\'/g,"'");
+    let raw=String(action.handler||'').replace(/\\'/g,"'");
+    // Recover the complete HTML handler using the exact template AST.
+    if(action.kind==='html_handler'&&raw.includes('$'+'{')){
+      const sourceLine=(srcs.get(action.file)||'').split('\n')[action.line-1]||'';
+      const markupSf=ts.createSourceFile('markup.js',sourceLine,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+      const recovered=[];
+      const seek=n=>{
+        if(ts.isTemplateExpression(n)){
+          let markup=n.head.text;
+          for(const span of n.templateSpans)markup+='__GLD_DYNAMIC_VALUE__'+span.literal.text;
+          const event=/\bon(?:click|submit|change|input)\s*=\s*"([^"]*)"/.exec(markup);
+          if(event)recovered.push(event[1]);
+        }
+        ts.forEachChild(n,seek);
+      };
+      seek(markupSf);
+      if(recovered.length===1){
+        raw=recovered[0];
+        treeNodes.push({type:'dynamic_markup_parameter',from:action.id,
+          file:action.file,line:action.line,
+          reason:'argumentos_renderizados_separados_del_manejador',
+          unknownRuntimeValues:true,depth:0});
+      }
+    }
     const sf=ts.createSourceFile('handler.js','function __handler(event){'+raw+'}',ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
     if(sf.parseDiagnostics.length){
       treeNodes.push({type:'unresolved',reason:'handler_dinamico_no_analizable',handler:raw.slice(0,180)});
