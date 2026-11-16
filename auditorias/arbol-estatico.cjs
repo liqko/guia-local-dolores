@@ -180,10 +180,17 @@ function scan(){
       // Original expression retained: dynamic URLs must not be declared resolved.
       let verb=null;
       const options=args[1];
-      if(options&&ts.isObjectLiteralExpression(options))for(const prop of options.properties){
-        if(ts.isPropertyAssignment(prop)&&name(prop.name)==='method')verb=staticValue(prop.initializer);
+      if(method==='fetch'){
+        if(!options)verb='GET';
+        else if(ts.isObjectLiteralExpression(options)){
+          verb='GET';
+          for(const prop of options.properties)if(ts.isPropertyAssignment(prop)&&name(prop.name)==='method')
+            verb=staticValue(prop.initializer);
+        }
+      }else if(['ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method)){
+        verb=args.length<3?'GET':staticValue(args[2]);
       }
-      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,requestKind:method,apiBase:sym.get('API')||null,verb:verb||'GET',
+      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,requestKind:method,apiBase:sym.get('API')||null,verb,
         status:first&&first.startsWith('/')?'static':'dynamic'});
      }
     }
