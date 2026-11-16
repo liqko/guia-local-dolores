@@ -50,6 +50,7 @@ try{
  fs.writeFileSync(path.join(root,'plataforma/externo.js'),"function usarGlobal(){return window.gldTestGlobal()}\n");
  fs.writeFileSync(path.join(root,'worker/worker206.txt'),[
  "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
+ "async function externo(){return fetch('https://oauth.test/token')}",
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
  "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
  "if(path==='/superadmin/subscribers/search')return alta(db);",
@@ -64,6 +65,7 @@ try{
  let r=run(['--write']);assert.equal(r.status,0,r.stderr);
  const json=JSON.parse(fs.readFileSync(path.join(root,'auditorias/transversal/ARBOL_ACCIONES.json'),'utf8'));
  assert.equal(json.totals.files,5);
+ assert.equal(json.totals.endpointsExternal,1,'Destino HTTP externo explícito contado indebidamente como interno');
  const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
  assert(globalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='conditional_global_assignment'),'No siguió asignación condicional window desde script contenedor');
  const good=json.trees.find(x=>x.action.handler==='guardarCiudad()');
