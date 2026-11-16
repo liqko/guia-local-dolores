@@ -74,3 +74,18 @@ OPERACIONES PRIVADAS: sedes, suscripciones, permisos, moderación,
 **Control de no dispersión:** un hallazgo nuevo se incorpora al grupo A-E y a su causa raíz antes de escribir un parche. Toda corrección requiere lista de lectores afectados y pruebas de regresión correspondientes. Si el mapa muestra otros módulos relacionados, se prueban como dependencias de Ciudades; no se abren nuevas acciones independientes.
 
 **Próximo paso exacto:** completar el inventario de todas las mutaciones y validaciones de `ciudad_id` para el grupo A; corregir el flujo independiente país→provincia→ciudad y su prueba de referencias antes de proceder al publicador B/C. Ningún grupo está cerrado.
+
+## Recorrido de los tres botones de alta: ejecución preparada 16/11/2026
+
+| Acción visible en Gran Hermano | Frontend | Ruta del Worker | Validaciones aplicadas | Operaciones planificadas en test simulado |
+|---|---|---|---|---|
+| + País → Guardar país | `ghNuevoTerritorio('pais')` → `ghGuardarTerritorio('pais', id)` | POST `/superadmin/countries/create` → coordinador `GLD_ACTIONS138` → `saveCountry` | ID y nombre; rechaza duplicados; privilegio administrador | Alta válida: 1 `db.patch('paises')`, 2 `cache.put` |
+| + Provincia → Guardar provincia | `ghNuevoTerritorio('provincia')` → `ghGuardarTerritorio('provincia', id)` | POST `/superadmin/provinces/create` → coordinador → `saveProvince` | ID, nombre, país existente y activo; rechaza duplicados | Alta válida: 1 `db.patch('provincias')`, 2 `cache.put` |
+| + Ciudad → Guardar ciudad | `ghNuevoTerritorio('ciudad')` → `ghGuardarTerritorio('ciudad', id)` | POST `/superadmin/cities/create` → coordinador → `saveCity` | ID, nombre, país y provincia activos, país correspondiente; rechaza duplicados | Alta válida: 1 `db.patch('ciudades')`, 2 `cache.put` |
+| Actualizar | `ghCargarCiudades(true)` | GET `/superadmin/territory` → `territoryAdmin` | Sesión administrativa | Lecturas físicas no medidas; reconsulta deliberada |
+| Editar / activar / desactivar ciudad | `ghGuardarCambioCiudad` | PATCH `/superadmin/cities/{id}` → coordinador → `saveCity` | Relaciones, estado, permiso | Escrituras según cambios; falta prueba física |
+| Eliminar ciudad | `ghEliminarCiudad146` | PATCH desactivar + DELETE `/superadmin/cities/{id}` | La ruta DELETE debe comprobarse antes de usar: aún no encontrada | No comprobado; NO DECLARAR FUNCIONAL |
+
+**Contrapruebas ejecutadas en JavaScript con DB/KV simulados**: alta país, duplicado de país, alta provincia, provincia sin país, alta ciudad y ciudad con provincia equivocada: **6/6 PASS**. Las altas correctas planifican 1 escritura de documento + 2 publicaciones KV; las tres rechazadas planifican 0 escrituras. **No son costos medidos ni pruebas de navegador.** Worker: commit `e0e830f51cfef431562a83eb5ef6f3e9692f551f`. HTML: commit `530b412c418524078591e3be09e39cd826a07492`. Sin despliegue.
+
+**Deuda de consumo sin ocultar:** los tres recorridos siguen escribiendo **dos paquetes KV** por cambio; el publicador único aún no está ejecutado. Próxima corrección central (grupo B/C): preparar un solo paquete público versionado y su distribución; conservar la administración autorizada sin duplicación innecesaria.  
