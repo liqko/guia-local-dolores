@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[];
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[],promiseResolverBindings=[];
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -200,6 +200,14 @@ function scan(){
        n.right.arguments?.length&&ts.isRegularExpressionLiteral(n.right.arguments[0])){
       const scope=fnStack.at(-1)?.id||file+':<top-level>';
       regexBindings.set(scope+'|'+n.left.text,line(n.right));
+    }
+    // Promise executors may assign their resolve/reject arguments to a local
+    // variable later called from another nested listener in the same scope.
+    if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+       ts.isIdentifier(n.left)&&ts.isIdentifier(n.right)){
+      const executor=fnStack.at(-1);
+      if(executor?.promiseExecutor&&executor.params.some(p=>p.name===n.right.text))
+        promiseResolverBindings.push({file,alias:n.left.text,scope:executor.parent,source:{file,line:line(n)}});
     }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
       ts.isPropertyAccessExpression(n.left)&&n.left.expression.getText(sf)==='window'){
@@ -461,6 +469,12 @@ function scan(){
       if(refs.length===1){c.to=refs[0];c.resolution='destructured_parameter_callback';continue;}
       if(refs.length>1){c.alternatives=refs;c.resolution='destructured_callback_alternatives';continue;}
     }
+  }
+  if(c.direct){
+    const scopes=new Set();let scope=c.from;
+    while(scope&&!scopes.has(scope)){scopes.add(scope);scope=byId.get(scope)?.parent||null;}
+    const matches=promiseResolverBindings.filter(x=>x.file===c.file&&x.alias===c.method&&(!x.scope||scopes.has(x.scope)));
+    if(matches.length===1){c.resolution='promise_resolver_binding';c.promiseSource=matches[0].source;continue;}
   }
   if(!c.direct&&['window','globalThis'].includes(c.receiver)){
     const hosts=scriptHosts.get(c.file)||new Set();
@@ -879,6 +893,8 @@ function scan(){
         }
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
+      }else if(c.resolution==='promise_resolver_binding'){
+        treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.resolution==='promise_resolver_parameter'){
         treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.resolution==='promise_resolver_export'){
