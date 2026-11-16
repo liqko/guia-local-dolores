@@ -111,6 +111,18 @@ function scan(){
             target.guard=cond.slice(0,240);
           }
         }
+        // Rejection on path !== '/route' is also a proven route gate for
+        // the enclosing function. The null response is only for OTHER routes.
+        if(ts.isBinaryExpression(n.expression)&&
+           [ts.SyntaxKind.ExclamationEqualsToken,ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(n.expression.operatorToken.kind)&&
+           n.expression.left.getText(sf)==='path'){
+          const route=literal(n.expression.right),owner=fnStack.at(-1);
+          const rejected=ts.isReturnStatement(n.thenStatement)&&n.thenStatement.expression?.kind===ts.SyntaxKind.NullKeyword||
+            ts.isBlock(n.thenStatement)&&n.thenStatement.statements.some(x=>ts.isReturnStatement(x)&&x.expression?.kind===ts.SyntaxKind.NullKeyword);
+          if(route?.startsWith('/')&&owner&&!owner.parent&&rejected)
+            dispatchRules.push({path:route,verb:null,file,line:line(n),callNames:[owner.name],
+              inlineResponse:false,guard:n.expression.getText(sf).slice(0,240),proof:'negative_equality_route_gate'});
+        }
         // A dispatch function may gate its routes using ['a','b'].includes(path).
         // A negated guard returning null proves that the enclosing named function
         // owns those routes; the return-null branch is NOT the route response.
@@ -761,6 +773,14 @@ function scan(){
   const matchPaths=new Set([...values].map(v=>v.startsWith('/')?v.split(/[?#]/)[0]:v));
   ep.candidates=[...matchPaths].sort();
   ep.queryTemplates=[...values].filter(v=>v.includes('?')).slice(0,16);
+  // A template whose known route is followed by '?' and variable query fields
+  // does not have a dynamic PATH suffix. Prove that the first substitution
+  // after the route marker is inside the query string, not a path segment.
+  const urlDefinition=env.definitions[ep.expression]||'';
+  if(!ep.dynamicQueryOnly&&matchPaths.size===1&&/^\s*\x60\$\{WORKER_ORIGIN\}\/[^?\x60]+\?[^\x60]*\$\{/.test(urlDefinition)&&
+     (env.definitions.WORKER_ORIGIN||'').includes('WORKER_URL')){
+    ep.dynamicQueryOnly=true;ep.queryEvidence=urlDefinition;ep.unknownQueryParameters=true;
+  }
   ep.partial=((ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete)||ep.actionPartial===true)&&!ep.dynamicQueryOnly;
   ep.requireDynamicRemainder=!ep.dynamicQueryOnly && (ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression)));
   // External services: cite the source function or the environment key.
