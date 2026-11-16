@@ -261,12 +261,45 @@ function scan(){
   }
   return {to:null,resolution:candidates.length?'global_no_verificado':'unknown'};
  };
+ const callbackTargets=new Map();
+ for(const call of allCalls){
+   if(!call.direct||!call.method)continue;
+   const fns=(byName.get(call.method)||[]).filter(f=>f.file===call.file&&!f.parent);
+   if(fns.length!==1)continue;
+   const callee=fns[0];
+   for(let p=0;p<(callee.params||[]).length;p++){
+     const param=callee.params[p],props=call.args?.[p]?.objectProps||[];
+     for(const member of param.members||[]){
+       const matches=props.filter(x=>x.property===member.property);
+       for(const property of matches){
+         let id=property.callbackId;
+         if(!id&&/^[\w$]+$/.test(property.expression)){
+           const matches=(byName.get(property.expression)||[]).filter(f=>f.file===call.file);
+           if(matches.length===1)id=matches[0].id;
+         }
+         if(!id||!byId.has(id))continue;
+         const key=callee.id+'|'+member.name,a=callbackTargets.get(key)||new Set();
+         a.add(id);callbackTargets.set(key,a);
+       }
+     }
+   }
+ }
  for(const c of allCalls){
   if(c.kind!=='call'){c.resolution=c.kind==='http'?'external_http':'external_data';continue;}
   if(!c.method){
     const nested=(byFile.get(c.file)||[]).filter(f=>f.line===c.line&&(f.name.startsWith('callback@')||f.name.startsWith('iife@')));
     if(nested.length===1){c.to=nested[0].id;c.resolution='immediate_callback';continue;}
     c.resolution='computed';continue;
+  }
+  if(c.direct){
+    const ownerFn=byId.get(c.from);
+    const isParam=(ownerFn?.params||[]).some(p=>(p.members||[]).some(m=>m.name===c.method));
+    if(isParam){
+      const refs=[...(callbackTargets.get(c.from+'|'+c.method)||[])];
+      if(refs.length===1){c.to=refs[0];c.resolution='destructured_parameter_callback';continue;}
+      if(refs.length>1){c.alternatives=refs;c.resolution='destructured_callback_alternatives';continue;}
+      c.resolution='callback_parameter_unbounded';continue;
+    }
   }
   if(!c.direct&&['window','globalThis'].includes(c.receiver)){
     const native=new Set(['open','scrollTo','confirm','prompt','alert','addEventListener','removeEventListener',
@@ -506,6 +539,12 @@ function scan(){
       }else if(c.to){
         treeNodes.push({type:'edge',from:id,to:c.to,at:c.file+':'+c.line,resolution:c.resolution,depth:depth+1});
         walk(c.to,depth+2);
+      }else if(c.alternatives?.length){
+        for(const to of c.alternatives){
+          treeNodes.push({type:'edge',from:id,to,at:c.file+':'+c.line,
+            resolution:'callback_alternativa_segun_llamador',depth:depth+1});
+          walk(to,depth+2);
+        }
       }else if(['unknown','external_method','browser_native'].includes(c.resolution)){
         // External standard DOM calls are expected; mark distinction from internal ambiguity.
         treeNodes.push({type:'external',from:id,method:c.method,at:c.file+':'+c.line,depth:depth+1});
