@@ -84,6 +84,7 @@ try{
  assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
  const dynTree=json.trees.find(x=>x.action.handler==='dinamica()');
  assert(dynTree?.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access'))),'No enlazó la ruta dinámica con el patrón del Worker');
+ assert(dynTree.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No siguió rama regex hasta la función ejecutada por el Worker');
  assert(dynTree.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access')&&w.file==='worker/worker206.txt')),'No reconoció un patrón de ruta si hay dos expresiones regulares en la misma línea');
  const adminTree=json.trees.find(x=>x.action.handler==='buscarAdmin()');
  assert(adminTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No agregó el origen /superadmin a una solicitud relativa');
