@@ -140,9 +140,14 @@ function scan(){
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
      const f={id:file+':'+line(n)+':'+functionName(n),file,line:line(n),name:functionName(n),objectOwner,
-      parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>({
-        name:p.name?.getText(sf)||null,defaultExpression:p.initializer?.getText(sf)||null
-      })),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
+      parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>{
+        const destructured=ts.isObjectBindingPattern(p.name);
+        return {name:destructured?null:p.name?.getText(sf)||null,
+          members:destructured?p.name.elements.map(e=>({
+            name:e.name.getText(sf),property:e.propertyName?.getText(sf)||e.name.getText(sf)
+          })):[],
+          defaultExpression:p.initializer?.getText(sf)||null};
+      }),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
     if(ts.isPropertyAssignment(n)&&((ts.isIdentifier(n.name)&&n.name.text==='path')||literal(n.name)==='path')){
@@ -183,7 +188,16 @@ function scan(){
      const dataOp=/^(get|put|set|add|patch|delete|list|query|commit|queryEqual|listCollection|setItem|removeItem)$/.test(method||'')&&/^(db|cache|kv|reader|storage|localStorage|sessionStorage|firestore)\b/.test(receiver);
      const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),
       arg:first,argExpr:arg0?.getText(sf).slice(0,160)||'',guards:[...guardStack],
-      args:args.slice(0,8).map(x=>({value:staticValue(x),expression:x.getText(sf).slice(0,160)})),
+      args:args.slice(0,8).map(x=>({
+        value:staticValue(x),expression:x.getText(sf).slice(0,200),
+        objectProps:ts.isObjectLiteralExpression(x)?x.properties.flatMap(p=>{
+          if(!ts.isPropertyAssignment(p)&&!ts.isShorthandPropertyAssignment(p))return [];
+          const property=name(p.name)||literal(p.name),value=ts.isPropertyAssignment(p)?p.initializer:p.name;
+          return [{property,expression:value.getText(sf).slice(0,180),
+            callbackId:(ts.isArrowFunction(value)||ts.isFunctionExpression(value))?
+              file+':'+line(value)+':'+functionName(value):null}];
+        }):null
+      })),
       kind:isFetch?'http':dataOp?'data':'call',to:null,resolution:'pending'};
      allCalls.push(call);
      if(method==='addEventListener'&&args.length>=2){
