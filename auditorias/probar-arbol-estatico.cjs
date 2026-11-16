@@ -10,6 +10,8 @@ try{
   '<button id="alta" onclick="guardarCiudad()">Guardar ciudad</button>',
   '<button id="sinruta" onclick="noExiste()">Rota</button>',
   '<button id="obj" onclick="accionObjeto()">Objeto</button>',
+  '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
+  '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search"};return routes[action]}function hacerConsulta(){return api("buscar")}</script>',
   '<script>document.addEventListener("click",()=>{return guardarCiudad()})</script>',
   '<script>const obj={run(){return fetch("/superadmin/cities/create")}};function accionObjeto(){return obj.run()}</script>',
   '<script>function guardarCiudad(){return enviarCiudad()}</script>'
@@ -29,6 +31,8 @@ try{
  assert(good.nodes.some(n=>n.type==='http'&&n.target==='/superadmin/cities/create'),'No detectó solicitud');
  assert(good.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No enlazó la ruta HTTP con el manejador del Worker');
  assert(good.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No recorrió la operación de persistencia');
+ const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
+ assert(apiTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No resolvió API simbólica por su tabla de rutas');
  const listenerTree=json.trees.find(x=>x.action.kind==='listener'&&x.action.handler.startsWith('callback@'));
  assert(listenerTree?.nodes.some(n=>n.type==='function'&&n.name.startsWith('callback@')),'No recorrió callback directamente desde evento');
  const objectTree=json.trees.find(x=>x.action.handler==='accionObjeto()');
