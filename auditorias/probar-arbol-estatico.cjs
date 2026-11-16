@@ -39,6 +39,8 @@ try{
   '<button id="adminwrapper" onclick="buscarAdmin()">Buscar admin</button>',
   '<button id="query" onclick="buscarConFiltro()">Buscar con filtro</button>',
   '<button id="lexical" onclick="usarApply()">Léxico</button>',
+  '<button id="escape" onclick="usarEscape()">Escape</button>',
+  '<script>function usarEscape(){return decodeURIComponent(escape("texto"))}</script>',
   '<script>function usarApply(){const apply=()=>fetch("/superadmin/cities/create");const objeto={apply:()=>apply()};return apply()}</script>',
   "<script>function gldToggleFavoritoAnunciante(x,y,z){return fetch(\"/superadmin/cities/create\")}const safeNombre=\"Ana\";const markup=`<button onclick=\"event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.id,'${safeNombre.replace(/'/g,\"&#039;\")}')\">Favorito</button>`;</script>",
   '<script>function buscarConFiltro(){const params=new URLSearchParams({ciudad_id:"dolores"});return fetch("/superadmin/subscribers/search?"+params)}</script>',
@@ -115,6 +117,9 @@ try{
  const dynamicMarkup=json.trees.find(x=>x.action.handler?.includes('gldToggleFavoritoAnunciante'));
  assert(dynamicMarkup?.nodes.some(n=>n.type==='edge'&&n.resolution==='handler_inline'),'No recuperó función de evento interpolado');
  assert(dynamicMarkup.nodes.some(n=>n.type==='dynamic_markup_parameter'),'No registró parámetro de interpolación desconocido');
+ const nativeEscape=json.trees.find(x=>x.action.handler==='usarEscape()');
+ assert(nativeEscape?.nodes.some(n=>n.type==='external'&&n.method==='escape'),'Marcó la función global escape del navegador como rama de proyecto faltante');
+ assert(!nativeEscape.nodes.some(n=>n.type==='unresolved'&&n.method==='escape'),'No cerró escape en el runtime nativo');
  const lexicalTree=json.trees.find(x=>x.action.handler==='usarApply()');
  assert(lexicalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='lexical_child'),'No distinguió variable local apply de propiedad objeto.apply');
  assert(!lexicalTree.nodes.some(n=>n.type==='unresolved'&&n.reason==='ambiguous_lexical'),'Ambigüedad falsa entre variable y propiedad homónimas');
