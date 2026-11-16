@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map();
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[];
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -150,6 +150,15 @@ function scan(){
       }),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
+    if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+      ts.isPropertyAccessExpression(n.left)&&n.left.expression.getText(sf)==='window'){
+      const alias=n.left.name.text;
+      let target=null;
+      if(ts.isPropertyAccessExpression(n.right)&&n.right.expression.getText(sf)==='window')
+        target=n.right.name.text;
+      else if(ts.isIdentifier(n.right))target=n.right.text;
+      if(target)exportAliases.push({file,alias,target,line:line(n)});
+    }
     if(ts.isPropertyAssignment(n)&&((ts.isIdentifier(n.name)&&n.name.text==='path')||literal(n.name)==='path')){
       const value=literal(n.initializer),owner=fnStack.at(-1)?.id;
       if(value&&owner){
@@ -245,7 +254,7 @@ function scan(){
    const a=scriptDependencies.get(s.file)||new Set();a.add(s.target);scriptDependencies.set(s.file,a);
    const b=scriptHosts.get(s.target)||new Set();b.add(s.file);scriptHosts.set(s.target,b);
  }
- const resolve=(name,file)=>{
+ const resolve=(name,file,seenAliases=new Set())=>{
   const candidates=[...(byName.get(name)||[]),...(byName.get('window.'+name)||[]),...(byName.get('globalThis.'+name)||[])];
   const local=candidates.filter(f=>f.file===file&&f.parent===null);
   if(local.length===1)return {to:local[0].id,resolution:'static_file'};
@@ -253,6 +262,9 @@ function scan(){
   const imported=scriptDependencies.get(file)||new Set();
   const shared=candidates.filter(f=>imported.has(f.file)&&f.parent===null);
   if(shared.length===1)return {to:shared[0].id,resolution:'static_import'};
+  const exported=candidates.filter(f=>(f.name==='window.'+name||f.name==='globalThis.'+name)&&
+    (f.file===file||imported.has(f.file)));
+  if(exported.length===1)return {to:exported[0].id,resolution:'explicit_window_export'};
   if(shared.length>1)return {to:null,resolution:'ambiguous_import',candidates:shared.length};
   // Shared global names on a host HTML page are concrete script dependencies.
   const hosts=scriptHosts.get(file)||new Set();
@@ -262,6 +274,14 @@ function scan(){
     const hosted=candidates.filter(f=>pool.has(f.file)&&f.parent===null);
     if(hosted.length===1)return {to:hosted[0].id,resolution:'static_host_page'};
     if(hosted.length>1)return {to:null,resolution:'ambiguous_host_page',candidates:hosted.length};
+  }
+  const visible=new Set([file,...imported]);
+  for(const h of hosts){visible.add(h);for(const src of scriptDependencies.get(h)||[])visible.add(src);}
+  const matchingAliases=exportAliases.filter(a=>a.alias===name&&visible.has(a.file));
+  if(matchingAliases.length===1&&!seenAliases.has(name)){
+    const further=new Set(seenAliases);further.add(name);
+    const next=resolve(matchingAliases[0].target,file,further);
+    if(next.to)return {...next,resolution:'explicit_window_alias'};
   }
   return {to:null,resolution:candidates.length?'global_no_verificado':'unknown'};
  };
