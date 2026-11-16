@@ -200,7 +200,13 @@ function scan(){
     const direct=literalRoutes.filter(r=>r.path===v);
     const prefix=literalRoutes.filter(r=>v.startsWith(r.path+'/'));
     const regex=regexRoutes.filter(r=>{
-      try{return new RegExp('^'+r.pattern+'
+      try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(v);}catch(_){return false;}
+    });
+    for(const hit of [...direct,...regex,...prefix])ep.worker.push({...hit,target:v});
+  }
+  ep.worker=ep.worker.slice(0,30);
+  ep.status=ep.worker.length?values.size>1?'multi_backend_candidate':'backend_candidate':'no_backend_match';
+ }
  const outCalls=new Map();
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
  const httpById=new Map(endpoints.map(e=>[e.callId,e]));
