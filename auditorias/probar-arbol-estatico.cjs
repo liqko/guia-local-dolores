@@ -28,6 +28,8 @@ try{
   '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
   '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
   '<button id="wrapper" onclick="usarWrapper()">Wrapper</button>',
+  '<button id="adminwrapper" onclick="buscarAdmin()">Buscar admin</button>',
+  '<script>const API="https://login.test/superadmin";function ghAdminRequest_(path){return fetch(API+path)}function buscarAdmin(){return ghAdminRequest_("/subscribers/search")}</script>',
   '<button id="dyn" onclick="dinamica()">Dinámica</button>',
   '<script>function dinamica(){return fetch("/superadmin/advertisers/"+encodeURIComponent(id)+"/panel-access")}</script>',
   '<script>const ORIGIN="https://login.test";function wrapper(path){return fetch(ORIGIN+path)} function usarWrapper(){return wrapper("/superadmin/cities/create")}</script>',
@@ -45,6 +47,7 @@ try{
  "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
  "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
+ "if(path==='/superadmin/subscribers/search')return alta(db);",
  "let match=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)\\/panel-access$/); if(match)return alta(db);"
  ].join('\n'));
  // Shared function via HTML script src must resolve to local imported file.
@@ -79,6 +82,8 @@ try{
  assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
  const dynTree=json.trees.find(x=>x.action.handler==='dinamica()');
  assert(dynTree?.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access'))),'No enlazó la ruta dinámica con el patrón del Worker');
+ const adminTree=json.trees.find(x=>x.action.handler==='buscarAdmin()');
+ assert(adminTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No agregó el origen /superadmin a una solicitud relativa');
  const wrapperTree=json.trees.find(x=>x.action.handler==='usarWrapper()');
  assert(wrapperTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/cities/create')),'No resolvió dirección del wrapper desde el parámetro de su llamador');
  const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
