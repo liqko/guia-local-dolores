@@ -111,6 +111,23 @@ function scan(){
             target.guard=cond.slice(0,240);
           }
         }
+        // A dispatch function may gate its routes using ['a','b'].includes(path).
+        // A negated guard returning null proves that the enclosing named function
+        // owns those routes; the return-null branch is NOT the route response.
+        const guardNode=ts.isPrefixUnaryExpression(n.expression)&&n.expression.operator===ts.SyntaxKind.ExclamationToken?n.expression.operand:n.expression;
+        const isNegated=guardNode!==n.expression;
+        if(ts.isCallExpression(guardNode)&&ts.isPropertyAccessExpression(guardNode.expression)&&
+           guardNode.expression.name.text==='includes'&&ts.isArrayLiteralExpression(guardNode.expression.expression)&&
+           guardNode.arguments.length===1&&guardNode.arguments[0].getText(sf)==='path'){
+          const literals=guardNode.expression.expression.elements.map(literal).filter(x=>x&&x.startsWith('/'));
+          const owner=fnStack.at(-1);
+          const rejected=isNegated&&ts.isReturnStatement(n.thenStatement)&&n.thenStatement.expression?.kind===ts.SyntaxKind.NullKeyword ||
+            isNegated&&ts.isBlock(n.thenStatement)&&n.thenStatement.statements.some(x=>ts.isReturnStatement(x)&&x.expression?.kind===ts.SyntaxKind.NullKeyword);
+          if(owner&&!owner.parent&&rejected){
+            for(const route of literals)dispatchRules.push({path:route,verb:null,file,line:line(n),callNames:[owner.name],
+              inlineResponse:false,guard:n.expression.getText(sf).slice(0,240),proof:'negative_includes_route_gate'});
+          }
+        }
         const condition=n.expression.getText(sf);
         const routePattern=/(?:\bpath\b|\.pathname)\s*===?\s*['"]([^'"]+)['"]/g;
         const routeMatches=[...condition.matchAll(routePattern)].map(m=>m[1]).filter(x=>x.startsWith('/'));
