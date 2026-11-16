@@ -156,7 +156,9 @@ function scan(){
   // Searching every property method by name caused false cross-module paths.
   const candidates=byName.get(c.method)||[];
   let scope=c.from,lexical=null;
-  while(scope&&!lexical){
+  const visitedScopes=new Set();
+  while(scope&&!lexical&&!visitedScopes.has(scope)){
+    visitedScopes.add(scope);
     const matches=candidates.filter(f=>f.file===c.file&&f.parent===scope);
     if(matches.length===1)lexical={to:matches[0].id,resolution:'lexical_child'};
     else if(matches.length>1){lexical={to:null,resolution:'ambiguous_lexical'};break;}
