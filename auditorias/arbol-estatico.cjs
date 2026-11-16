@@ -539,6 +539,17 @@ function scan(){
     if(!ep.apiBase){
       const declaration=/\b(?:const|let|var)\s+API\s*=\s*(['"])(https?:\/\/[^'"\s]+)\1/.exec(srcs.get(ep.file)||'');
       if(declaration)ep.apiBase=declaration[2];
+      if(!ep.apiBase&&!ep.file.endsWith('.html')){
+        const basename=path.basename(ep.file),matches=[];
+        for(const [host,html] of srcs)if(host.endsWith('.html')&&html.includes(basename)){
+          const scripts=[...html.matchAll(/<script\b[^>]*\bsrc\s*=\s*['"]([^'"]+)['"]/gi)];
+          if(!scripts.some(m=>m[1].split(/[?#]/)[0].split('/').pop()===basename))continue;
+          const hostApi=/\b(?:const|let|var)\s+API\s*=\s*(['"])(https?:\/\/[^'"\s]+)\1/.exec(html);
+          if(hostApi)matches.push({host,api:hostApi[2]});
+        }
+        const distinct=[...new Set(matches.map(m=>m.api))];
+        if(distinct.length===1){ep.apiBase=distinct[0];ep.apiBaseEvidence=matches;}
+      }
     }
   }
   const symbolic=resolveExpression(ep.expression,env.ctx,env.definitions);
@@ -611,6 +622,13 @@ function scan(){
   // Recognize constant API paths inside concatenated expressions; only treat
   // the exact known segment as a candidate, never invent variable suffixes.
   if(!values.size&&ep.expression){
+    // A query parameter changes the query string but not the Worker endpoint.
+    const knownQuery=/^['"]((?:\/[^'"]+)\?[^'"]*)['"]\s*\+/.exec(ep.expression);
+    if(knownQuery&&knownQuery[1].endsWith('=')){
+      values.add(knownQuery[1]);
+      ep.dynamicQueryOnly=true;
+      ep.queryEvidence=ep.expression;
+    }
     const pathSegments=[...ep.expression.matchAll(/['"`](\/(?:superadmin|advertisers|api|public|events|activities|login|territory|countries|cities|provinces)[^'"`]*)['"`]/g)];
     for(const m of pathSegments){
       const v=m[1];if(v.length<180)values.add(v);
