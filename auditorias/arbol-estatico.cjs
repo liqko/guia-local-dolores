@@ -1067,6 +1067,29 @@ function scan(){
     cycles:treeNodes.filter(x=>x.type==='cycle').length};
   trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':counts.missingHandlers?'posible_manejador_ausente':'ramas_estaticas_identificadas_sin_prueba_funcional'});
  }
+ // Every concrete front-end request without a dispatch is a DEAD END,
+ // even if the initiating function is not currently reachable from a button.
+ // Do not silently count it as a fully connected tree or pretend the route works.
+ const deadEnds=endpoints.filter(e=>e.status==='missing_worker_dispatch')
+  .flatMap(e=>(e.missingWorkerPaths||[]).map(route=>{
+   const pageLinks=[];
+   for(const [source,raw] of srcs){
+    if(!source.endsWith('.html')||source===e.file)continue;
+    const target='/'+e.file;
+    for(const m of raw.matchAll(/<a\\b[^>]*\\bhref\\s*=\\s*(['\"])(.*?)\\1[^>]*>/gi)){
+     if(m[2].split(/[?#]/)[0]===target)pageLinks.push({source,line:raw.slice(0,m.index).split('\\n').length,href:m[2]});
+    }
+   }
+   const directCallers=allCalls.filter(c=>c.to===e.owner).map(c=>({file:c.file,line:c.line}));
+   const actionsReferencingOwner=trees.filter(t=>t.nodes.some(n=>n.type==='function'&&n.id===e.owner))
+    .map(t=>({file:t.action.file,line:t.action.line,handler:t.action.handler}));
+   const reachableEvidence=pageLinks.length||directCallers.length||actionsReferencingOwner.length;
+   return {route,source:e.file,line:e.line,owner:e.owner,callId:e.callId,
+    terminal:true,classification:'sin_despacho_en_worker_analizado',
+    reachability:reachableEvidence?'entrada_identificada':'invocacion_no_identificada',
+    linksToPage:pageLinks,directCallers:directCallers.slice(0,20),actions:actionsReferencingOwner.slice(0,20),
+    warning:'Ruta sin salida comprobada en fuente; invocacion y respuesta en produccion no comprobadas'};
+  }));
  const totals={files:paths.length,functions:allFns.length,calls:allCalls.length,buttons:actions.length,
   trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
@@ -1076,6 +1099,7 @@ function scan(){
   endpointsExternal:endpoints.filter(e=>e.status==='external_service_http').length,
   endpointsConfiguredExternal:endpoints.filter(e=>e.status==='external_configured_service').length,
   endpointsMissingWorker:endpoints.filter(e=>e.status==='missing_worker_dispatch').length,
+  deadEndRoutes:deadEnds.length,deadEndReachableEntries:deadEnds.filter(x=>x.reachability==='entrada_identificada').length,
   missingWorkerPaths:[...new Set(endpoints.filter(e=>e.status==='missing_worker_dispatch').flatMap(e=>e.missingWorkerPaths||[]))].sort(),
   endpointsBrowserForwarded:endpoints.filter(e=>e.status==='browser_forwarded_request').length,
   endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate',
@@ -1083,7 +1107,7 @@ function scan(){
   astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
-  trees,endpoints,unresolved};
+  trees,endpoints,deadEnds,unresolved};
 }
 function md(r){
  const t=r.totals,lines=['# Árbol automático de acciones','','**Resultado estático, NO prueba funcional.**','',
@@ -1101,6 +1125,8 @@ function md(r){
    if(!failures.has(k))failures.set(k,node);
  }
  for(const n of failures.values())lines.push('| '+n.file+':'+n.line+' | '+n.candidates.join(', ').replace(/\\|/g,'/')+' |');
+ lines.push('','## Caminos sin salida: solicitudes cuyo Worker no despacha','','| Inicio de red | Ruta | Alcanzabilidad identificada | Estado |','|---|---|---|---|');
+ for(const deadEnd of r.deadEnds)lines.push('| '+deadEnd.source+':'+deadEnd.line+' | '+deadEnd.route+' | '+(deadEnd.linksToPage.map(x=>x.source+':'+x.line).join(', ')||deadEnd.reachability)+' | SIN DESPACHO |');
  lines.push('','## Destinos conocidos sin despacho en el Worker analizado (fallas de origen)','','| Archivo y línea | Ruta inexistente |','|---|---|');
  for(const ep of r.endpoints.filter(e=>e.status==='missing_worker_dispatch'))
    for(const route of ep.missingWorkerPaths||[])lines.push('| '+ep.file+':'+ep.line+' | '+route+' |');
