@@ -27,6 +27,7 @@ try{
   '<script>function crearTerritorio(tipo){const spec={pais:{path:"countries/create"},ciudad:{path:"cities/create"}}[tipo];return fetch("https://login.test"+"/superadmin/"+spec.path,{method:"POST"})}</script>',
   '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search"};return routes[action]}function hacerConsulta(){return api("buscar")}</script>',
   '<script>document.addEventListener("click",()=>{return guardarCiudad()})</script>',
+  '<script>function dosCallbacks(){const run=()=>{return fetch("/superadmin/cities/create")};return [1].forEach(x=>x&&run())}document.addEventListener("change",()=>{dosCallbacks(); [1].forEach(x=>dosCallbacks())})</script>',
   '<script>const obj={run(){return fetch("/superadmin/cities/create")}};function accionObjeto(){return obj.run()}</script>',
   '<script>function guardarCiudad(){return enviarCiudad()}</script>'
  ].join('\n'));
@@ -69,6 +70,8 @@ try{
  assert(apiTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No resolvió API simbólica por su tabla de rutas');
  const listenerTree=json.trees.find(x=>x.action.kind==='listener'&&x.action.handler.startsWith('callback@'));
  assert(listenerTree?.nodes.some(n=>n.type==='function'&&n.name.startsWith('callback@')),'No recorrió callback directamente desde evento');
+ const sameLine=json.trees.find(x=>x.action.kind==='listener'&&x.action.label==='change');
+ assert(sameLine?.nodes.some(n=>n.type==='function'&&n.name==='dosCallbacks'),'No sigue callback anidado cuando hay múltiples funciones en una línea');
  const objectTree=json.trees.find(x=>x.action.handler==='accionObjeto()');
  assert(objectTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='static_object_method'),'No siguió método del objeto local');
  const composite=json.trees.find(x=>x.action.handler.includes('event.stopPropagation'));
