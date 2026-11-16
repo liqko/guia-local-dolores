@@ -8,6 +8,9 @@ try{
  fs.mkdirSync(path.join(root,'plataforma'),{recursive:true});
  fs.writeFileSync(path.join(root,'plataforma/index.html'),[
   '<button id="alta" onclick="guardarCiudad()">Guardar ciudad</button>',
+  '<button id="global" onclick="usarGlobal()">Global inicializado</button>',
+  '<script>function initGlobal(){window.gldTestGlobal=()=>fetch("/superadmin/cities/create")}initGlobal()</script>',
+  '<script src="/plataforma/externo.js"></script>',
   '<button id="sinruta" onclick="noExiste()">Rota</button>',
   '<button id="nativo" onclick="document.getElementById(\'alta\').click()">Nativo</button>',
   '<button id="compuesto" onclick="event.stopPropagation();guardarCiudad()">Compuesto</button>',
@@ -33,6 +36,7 @@ try{
  ].join('\n'));
  fs.writeFileSync(path.join(root,'plataforma/exports.js'),"(function(){window.realExport=function(){return fetch('/superadmin/cities/create')};window.aliasExport=window.realExport})()\n");
  fs.writeFileSync(path.join(root,'plataforma/enviar.js'),"function enviarCiudad(){return fetch('/superadmin/cities/create')}\n");
+ fs.writeFileSync(path.join(root,'plataforma/externo.js'),"function usarGlobal(){return window.gldTestGlobal()}\n");
  fs.writeFileSync(path.join(root,'worker/worker206.txt'),[
  "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
@@ -43,7 +47,9 @@ try{
  cp.execFileSync('git',['init','-q'],{cwd:root});cp.execFileSync('git',['add','worker','plataforma'],{cwd:root});
  let r=run(['--write']);assert.equal(r.status,0,r.stderr);
  const json=JSON.parse(fs.readFileSync(path.join(root,'auditorias/transversal/ARBOL_ACCIONES.json'),'utf8'));
- assert.equal(json.totals.files,4);
+ assert.equal(json.totals.files,5);
+ const globalTree=json.trees.find(x=>x.action.handler==='usarGlobal()');
+ assert(globalTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='conditional_global_assignment'),'No siguió asignación condicional window desde script contenedor');
  const good=json.trees.find(x=>x.action.handler==='guardarCiudad()');
  assert(good,'No encontró botón de guardar');
  assert(good.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No enlazó el manejador');
