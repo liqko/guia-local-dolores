@@ -9,6 +9,7 @@ const root=process.cwd();
 cp.execFileSync(process.execPath,['auditorias/control-integridad.cjs','--check'],{cwd:root,stdio:'inherit'});
 // El grafo debe regenerarse sobre las fuentes actuales, nunca desde un informe escrito a mano.
 cp.execFileSync(process.execPath,['auditorias/generar-mapa-gps.cjs','--check'],{cwd:root,stdio:'inherit'});
+cp.execFileSync(process.execPath,['auditorias/arbol-estatico.cjs','--check'],{cwd:root,stdio:'inherit'});
 const file=p=>fs.readFileSync(p,'utf8');
 const plan=JSON.parse(file('auditorias/PLAN_EJECUCION_TRANSVERSAL.json'));
 const master=file('auditorias/ESTADO_ACTUAL.md');
