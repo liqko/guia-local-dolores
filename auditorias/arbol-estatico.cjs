@@ -401,8 +401,13 @@ function scan(){
  };
  const callbackTargets=new Map();
  for(const call of allCalls){
-   if(!call.direct||!call.method)continue;
-   const fns=(byName.get(call.method)||[]).filter(f=>f.file===call.file&&!f.parent);
+   if(!call.method)continue;
+   let fns=call.direct?(byName.get(call.method)||[]).filter(f=>f.file===call.file&&!f.parent):[];
+   // Explicit exported component: the caller supplies named callbacks to mount().
+   // Do not generalize by matching unrelated methods called "mount".
+   if(!call.direct&&call.method==='mount'&&/^(?:window\.)?GLDCoberturaProvincia$/.test(call.receiver||'')&&
+      (scriptDependencies.get(call.file)||new Set()).has('plataforma/cobertura-provincia.js'))
+     fns=(byName.get('mount')||[]).filter(f=>f.file==='plataforma/cobertura-provincia.js');
    if(fns.length!==1)continue;
    const callee=fns[0];
    for(let p=0;p<(callee.params||[]).length;p++){
@@ -433,10 +438,24 @@ function scan(){
     c.resolution='computed';continue;
   }
   if(c.direct){
-    const ownerFn=byId.get(c.from);
-    const isParam=(ownerFn?.params||[]).some(p=>(p.members||[]).some(m=>m.name===c.method));
-    if(isParam){
-      const refs=[...(callbackTargets.get(c.from+'|'+c.method)||[])];
+    // Callbacks may be captured by a nested event listener from an enclosing
+    // mount({aplicar,seleccion,error}) or Promise executor, not its own parameters.
+    let scope=c.from,parameterOwner=null,parameter=null;
+    const examined=new Set();
+    while(scope&&!examined.has(scope)){
+      examined.add(scope);
+      const ownerFn=byId.get(scope);
+      for(const p of ownerFn?.params||[])if(p.name===c.method||(p.members||[]).some(m=>m.name===c.method)){
+        parameterOwner=ownerFn;parameter=p;break;
+      }
+      if(parameterOwner)break;
+      scope=ownerFn?.parent||null;
+    }
+    if(parameterOwner){
+      if(parameterOwner.promiseExecutor&&parameterOwner.params[0]===parameter){
+        c.resolution='promise_resolver_parameter';c.promiseSource={file:parameterOwner.file,line:parameterOwner.line};continue;
+      }
+      const refs=[...(callbackTargets.get(parameterOwner.id+'|'+c.method)||[])];
       if(refs.length===1){c.to=refs[0];c.resolution='destructured_parameter_callback';continue;}
       if(refs.length>1){c.alternatives=refs;c.resolution='destructured_callback_alternatives';continue;}
       c.resolution='callback_parameter_unbounded';continue;
@@ -859,6 +878,8 @@ function scan(){
         }
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
+      }else if(c.resolution==='promise_resolver_parameter'){
+        treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.resolution==='promise_resolver_export'){
         treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,
           exportedFrom:c.promiseSource,depth:depth+1});
