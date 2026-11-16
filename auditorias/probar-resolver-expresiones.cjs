@@ -11,6 +11,10 @@ assert.deepEqual(R("routes[action]",{action:'buscar'},{'routes.buscar':"'/subscr
 assert.deepEqual(R("new URL('/search', origin)",{origin:'https://example.test'}).values,['https://example.test/search']);
 assert.deepEqual(R("(new URL(WORKER_URL)).origin",{},{WORKER_URL:"'https://login.example.com/login'"}).values,['https://login.example.com']);
 assert.deepEqual(R("(new URL(WORKER_URL)).pathname",{},{WORKER_URL:"'https://login.example.com/login'"}).values,['/login']);
+const partial=R("u.href",{}, {u:"new URL('/commerce/team'+path,current.base)",path:"'/search'"});
+assert(partial.values.includes('/commerce/team/search'),'No conserva ruta con origen dinámico');
+assert.equal(partial.complete,false,'No debe afirmar conocer URL completa sin origen');
+assert(partial.unknown.includes('url_origin_unverified'),'Falta marca de origen desconocido');
 assert.equal(R('unknown').complete,false);
 assert.equal(R('Math.random()').complete,false);
 console.log('RESOLUCION SIMBOLICA PASS: URL, tabla, ternario, template, parametro, desconexiones no inventadas');
