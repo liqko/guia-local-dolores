@@ -561,9 +561,13 @@ function scan(){
     const direct=literalRoutes.filter(r=>r.path===v);
     const prefix=literalRoutes.filter(r=>v.startsWith(r.path+'/'));
     const analyzed=dispatchRules.filter(r=>r.path===v&&(!ep.verb||!r.verb||ep.verb===r.verb));
+    // A dynamic route has a known dispatch pattern even when the ID is unknown.
+    // Substitute a sentinel ONLY for matching; never claim the ID was resolved.
+    const candidateForRegex=v.replace(/:[A-Za-z_][\w$]*(?=\/|$)/g,'__AUDIT_UNKNOWN_ID__');
     const regex=regexRoutes.filter(r=>{
-      try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(v);}catch(_){return false;}
+      try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(candidateForRegex);}catch(_){return false;}
     });
+    if(candidateForRegex!==v)ep.partial=true;
     for(const hit of [...analyzed,...direct,...regex,...prefix]){
       if(ep.verb&&hit.verb&&ep.verb!==hit.verb)continue;
       ep.worker.push({...hit,target:v});
