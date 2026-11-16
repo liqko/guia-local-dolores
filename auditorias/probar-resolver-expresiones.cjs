@@ -9,6 +9,8 @@ assert.deepEqual(R("url",{},{url:"API+path",API:"'https://example.test/superadmi
 assert.deepEqual(R("encodeURIComponent(id)").values,[':id']);
 assert.deepEqual(R("routes[action]",{action:'buscar'},{'routes.buscar':"'/subscribers/search'"}).values,['/subscribers/search']);
 assert.deepEqual(R("new URL('/search', origin)",{origin:'https://example.test'}).values,['https://example.test/search']);
+assert.deepEqual(R("(new URL(WORKER_URL)).origin",{},{WORKER_URL:"'https://login.example.com/login'"}).values,['https://login.example.com']);
+assert.deepEqual(R("(new URL(WORKER_URL)).pathname",{},{WORKER_URL:"'https://login.example.com/login'"}).values,['/login']);
 assert.equal(R('unknown').complete,false);
 assert.equal(R('Math.random()').complete,false);
 console.log('RESOLUCION SIMBOLICA PASS: URL, tabla, ternario, template, parametro, desconexiones no inventadas');
