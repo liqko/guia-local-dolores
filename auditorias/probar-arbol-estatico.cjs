@@ -38,6 +38,7 @@ try{
   '<script>function accionIifeExport(){return fetch("/superadmin/iife-export")}</script>',
   '<button id="adminwrapper" onclick="buscarAdmin()">Buscar admin</button>',
   '<button id="query" onclick="buscarConFiltro()">Buscar con filtro</button>',
+  "<script>function gldToggleFavoritoAnunciante(x,y,z){return fetch(\"/superadmin/cities/create\")}const safeNombre=\"Ana\";const markup=`<button onclick=\"event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.id,'${safeNombre.replace(/'/g,\"&#039;\")}')\">Favorito</button>`;</script>",
   '<script>function buscarConFiltro(){const params=new URLSearchParams({ciudad_id:"dolores"});return fetch("/superadmin/subscribers/search?"+params)}</script>',
   '<script>const API="https://login.test/superadmin";function ghAdminRequest_(path){return fetch(API+path)}function buscarAdmin(){return ghAdminRequest_("/subscribers/search")}</script>',
   '<button id="dyn" onclick="dinamica()">Dinámica</button>',
@@ -109,6 +110,9 @@ try{
  assert(dynTree.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access')&&w.file==='worker/worker206.txt')),'No reconoció un patrón de ruta si hay dos expresiones regulares en la misma línea');
  const iifeExportTree=json.trees.find(x=>x.action.handler==='accionIifeExport()');
  assert(iifeExportTree?.nodes.some(n=>n.type==='function'&&n.name==='extra'),'No enlazó función exportada por IIFE desestructurada');
+ const dynamicMarkup=json.trees.find(x=>x.action.handler?.includes('gldToggleFavoritoAnunciante'));
+ assert(dynamicMarkup?.nodes.some(n=>n.type==='edge'&&n.resolution==='handler_inline'),'No recuperó función de evento interpolado');
+ assert(dynamicMarkup.nodes.some(n=>n.type==='dynamic_markup_parameter'),'No registró parámetro de interpolación desconocido');
  const queryTree=json.trees.find(x=>x.action.handler==='buscarConFiltro()');
  assert(queryTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')&&n.routeStatus==='backend_candidate'),'No resolvió el endpoint con query dinámica de URLSearchParams');
  const adminTree=json.trees.find(x=>x.action.handler==='buscarAdmin()');
