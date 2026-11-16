@@ -130,7 +130,7 @@ function scan(){
       if(options&&ts.isObjectLiteralExpression(options))for(const prop of options.properties){
         if(ts.isPropertyAssignment(prop)&&name(prop.name)==='method')verb=staticValue(prop.initializer);
       }
-      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,verb:verb||'GET',
+      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,requestKind:method,apiBase:sym.get('API')||null,verb:verb||'GET',
         status:first&&first.startsWith('/')?'static':'dynamic'});
      }
     }
@@ -206,6 +206,13 @@ function scan(){
  for(const ep of endpoints){
   const values=new Set();
   if(ep.target?.startsWith('/'))values.add(ep.target);
+  else if(typeof ep.target==='string'&&/^https?:\/\//.test(ep.target)){
+    try{values.add(new URL(ep.target).pathname);}catch(_){}
+  }
+  // Wrapper calls are appended to the API base declared in the same source.
+  if(ep.target?.startsWith('/')&&['ghAdminRequest_','ghAdminRequestRaw143'].includes(ep.requestKind)&&ep.apiBase){
+    try{const u=new URL(ep.apiBase);values.clear();values.add(u.pathname.replace(/\/$/,'')+ep.target);}catch(_){}
+  }
   // Recognize constant API paths inside concatenated expressions; only treat
   // the exact known segment as a candidate, never invent variable suffixes.
   if(!values.size&&ep.expression){
