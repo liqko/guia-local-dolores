@@ -492,7 +492,7 @@ function scan(){
  // Discover backend route conditions without mistaking string references for dispatches.
  const workerFiles=paths.filter(p=>p.startsWith('worker/'));
  for(const rule of dispatchRules){
-   const valid=rule.callNames.filter(n=>(byName.get(n)||[]).some(f=>f.file===rule.file&&!f.parent));
+   const valid=rule.callNames.filter(n=>(byName.get(n)||[]).some(f=>f.file===rule.file&&!f.parent)||iifeExports.has(rule.file+'|'+n));
    rule.handlers=[...new Set(valid)];
    rule.inlineTerminal=rule.inlineResponse&&!valid.length;
    delete rule.callNames;
@@ -688,7 +688,10 @@ function scan(){
           const builtins=new Set(['decodeURIComponent','encodeURIComponent','parseInt','parseFloat',
             'isFinite','isNaN','String','Number','Boolean','BigInt','Array','Object','Date',
             'Error','TypeError','RangeError','Map','Set','WeakMap','WeakSet']);
-          const found=(byName.get(handler)||[]).filter(f=>f.file.startsWith('worker/')&&!f.parent);
+          const topLevel=(byName.get(handler)||[]).filter(f=>f.file.startsWith('worker/')&&!f.parent);
+          const aliasMatch=matched.map(x=>iifeExports.get(x.file+'|'+handler)).filter(Boolean);
+          const aliased=aliasMatch.length===1?byId.get(aliasMatch[0].to):null;
+          const found=topLevel.length?topLevel:aliased?[aliased]:[];
           if(!found.length&&builtins.has(handler)){treeNodes.push({type:'builtin_call',from:c.id,handler,depth:depth+2});continue;}
           if(found.length!==1){treeNodes.push({type:'unresolved',from:c.id,reason:'backend_handler_ambiguo',handler});continue;}
           treeNodes.push({type:'backend_candidate',from:c.id,handler,at:found[0].file+':'+found[0].line,depth:depth+2});
