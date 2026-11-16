@@ -18,7 +18,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[];
- const refs=new Map(),aliases=new Map(),routes=new Set();
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -89,6 +89,13 @@ function scan(){
       parent:fnStack.at(-1)?.id||null,bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
+    if(ts.isPropertyAssignment(n)&&((ts.isIdentifier(n.name)&&n.name.text==='path')||literal(n.name)==='path')){
+      const value=literal(n.initializer),owner=fnStack.at(-1)?.id;
+      if(value&&owner){
+        if(!symbolicRoutes.has(owner))symbolicRoutes.set(owner,new Set());
+        symbolicRoutes.get(owner).add(value);
+      }
+    }
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
       const v=staticValue(n.initializer);if(v!==null)sym.set(n.name.text,v);
       if(v!==null){const k=file+':'+n.name.text,found=aliases.get(k)||[];found.push({value:v,line:line(n)});aliases.set(k,found);}
@@ -109,7 +116,8 @@ function scan(){
      }
      if(isFetch){
       // Original expression retained: dynamic URLs must not be declared resolved.
-      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,status:first&&first.startsWith('/')?'static':'dynamic'});
+      endpoints.push({callId:call.id,file,line:at,target:first,expression:call.argExpr,owner,
+        status:first&&first.startsWith('/')?'static':'dynamic'});
      }
     }
     ts.forEachChild(n,visit);
@@ -158,21 +166,128 @@ function scan(){
  }
  // Discover backend route conditions without mistaking string references for dispatches.
  const workerFiles=paths.filter(p=>p.startsWith('worker/'));
- const literalRoutes=[];
+ const literalRoutes=[],regexRoutes=[];
  for(const file of workerFiles){
   const raw=srcs.get(file),lines=raw.split('\n');
   for(let i=0;i<lines.length;i++){
    const s=lines[i],match=[...s.matchAll(/['"](\/(?:superadmin|advertisers|login|api|public|guide|events|activities|territory|cities|countries|provinces)[^'"]*)['"]/g)];
    for(const m of match){if(m[1].length<180)literalRoutes.push({path:m[1],file,line:i+1});}
+   for(const m of s.matchAll(/\/\^((?:\\\/|[^/])+?)\$?\//g)){
+     try{const pattern=m[1].replace(/\\\//g,'/');regexRoutes.push({pattern,file,line:i+1});}catch(_){}
+   }
   }
  }
  for(const ep of endpoints){
-  if(!ep.target||!ep.target.startsWith('/')){ep.status='dynamic_unresolved';continue;}
-  const hit=literalRoutes.filter(r=>r.path===ep.target);
-  if(hit.length){ep.status='literal_backend_candidate';ep.worker=hit.slice(0,8);continue;}
-  const prefix=literalRoutes.filter(r=>ep.target.startsWith(r.path+'/'));
-  if(prefix.length){ep.status='prefix_backend_candidate';ep.worker=prefix.slice(0,8);}
-  else ep.status='no_backend_literal';
+  const values=new Set();
+  if(ep.target?.startsWith('/'))values.add(ep.target);
+  // Resolve bounded alternatives of a selected configuration record, not a
+  // made-up single outcome: e.g. spec.path selects country/province/city.
+  if(!values.size&&/\.path\b/.test(ep.expression)){
+    const prefix=ep.expression.match(/['"]([^'"]*\/(?:superadmin|api)\/?)['"]/);
+    const choices=symbolicRoutes.get(ep.owner);
+    if(prefix&&choices)for(const c of choices){
+      if(c.startsWith('/')||c.includes('..'))continue;
+      values.add(prefix[1]+c);
+    }
+  }
+  ep.candidates=[...values].sort();
+  if(!values.size){ep.status='dynamic_unresolved';continue;}
+  ep.worker=[];
+  for(const v of values){
+    const direct=literalRoutes.filter(r=>r.path===v);
+    const prefix=literalRoutes.filter(r=>v.startsWith(r.path+'/'));
+    const regex=regexRoutes.filter(r=>{
+      try{return new RegExp('^'+r.pattern+'
+ const outCalls=new Map();
+ for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
+ const httpById=new Map(endpoints.map(e=>[e.callId,e]));
+ const trees=[];
+ for(const action of actions){
+  const match=/^\s*(?:return\s+)?(?:await\s+)?([\w$]+)/.exec(action.handler||'');
+  const entry=match?.[1]||null;
+  const resolved=entry?resolve(entry,action.file):{to:null,resolution:'handler_dinamico'};
+  action.entry=resolved.to;action.resolution=resolved.resolution;
+  const treeNodes=[],seen=new Set();
+  const walk=(id,depth)=>{
+    if(depth>26){treeNodes.push({type:'limit',from:id,reason:'depth_limit'});return;}
+    if(seen.has(id)){treeNodes.push({type:'cycle',from:id});return;}
+    seen.add(id);
+    const fn=byId.get(id);if(!fn){treeNodes.push({type:'unresolved',from:id,reason:'missing_function'});return;}
+    treeNodes.push({type:'function',id:fn.id,name:fn.name,file:fn.file,line:fn.line,depth});
+    const calls=outCalls.get(id)||[];
+    if(!calls.length)treeNodes.push({type:'terminal',from:id,reason:'sin_llamadas_detectadas',depth:depth+1});
+    for(const c of calls){
+      if(treeNodes.length>2400){treeNodes.push({type:'limit',from:id,reason:'node_limit'});break;}
+      if(c.kind==='http'){
+        const e=httpById.get(c.id);
+        treeNodes.push({type:'http',from:id,file:c.file,line:c.line,target:e?.target||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
+        if(!e||!['backend_candidate','multi_backend_candidate'].includes(e.status))treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
+      }else if(c.kind==='data'){
+        treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
+      }else if(c.to){
+        treeNodes.push({type:'edge',from:id,to:c.to,at:c.file+':'+c.line,resolution:c.resolution,depth:depth+1});
+        walk(c.to,depth+2);
+      }else if(['unknown','external_method'].includes(c.resolution)){
+        // External standard DOM calls are expected; mark distinction from internal ambiguity.
+        treeNodes.push({type:'external',from:id,method:c.method,at:c.file+':'+c.line,depth:depth+1});
+      }else{
+        treeNodes.push({type:'unresolved',from:id,reason:c.resolution,method:c.method,at:c.file+':'+c.line,depth:depth+1});
+      }
+    }
+    seen.delete(id);
+  };
+  if(resolved.to)walk(resolved.to,0);
+  else treeNodes.push({type:'unresolved',reason:resolved.resolution,handler:action.handler});
+  const counts={functions:treeNodes.filter(x=>x.type==='function').length,
+    http:treeNodes.filter(x=>x.type==='http').length,data:treeNodes.filter(x=>x.type==='data').length,
+    unresolved:treeNodes.filter(x=>x.type==='unresolved').length,cycles:treeNodes.filter(x=>x.type==='cycle').length};
+  trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':'ramas_estaticas_identificadas_sin_prueba_funcional'});
+ }
+ const totals={files:paths.length,functions:allFns.length,calls:allCalls.length,buttons:actions.length,
+  trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
+  treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
+  endpoints:endpoints.length,endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate'].includes(e.status)).length,astErrors};
+ return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
+  disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
+  trees,endpoints,unresolved};
+}
+function md(r){
+ const t=r.totals,lines=['# Árbol automático de acciones','','**Resultado estático, NO prueba funcional.**','',
+  'Archivos: '+t.files+'; botones/eventos detectados: '+t.buttons+'; árboles con ramas pendientes: '+t.treesWithOpenBranches+'.',
+  'Funciones: '+t.functions+'; llamadas: '+t.calls+'; conexiones de red: '+t.endpoints+'; destinos de red pendientes: '+t.endpointsUnresolved+'.',
+  '','## Árboles por acción','','| Interfaz y línea | Acción | Funciones | Datos | Red | Ramas pendientes |','|---|---|---:|---:|---:|---:|'];
+ for(const a of r.trees){
+  const e=a.action,c=a.counts;
+  lines.push('| '+e.file+':'+e.line+' | '+(e.label||e.handler||'').replace(/[|\r\n]/g,' ').slice(0,65)+' | '+c.functions+' | '+c.data+' | '+c.http+' | '+c.unresolved+' |');
+ }
+ lines.push('','## Árbol de muestra: creación de territorio','','Se muestran solo ramas detectadas, no resultados de un test de navegador.','');
+ const selected=r.trees.find(x=>/ghGuardarTerritorio/.test(x.action.handler||''))||r.trees.find(x=>/ciudad/i.test(x.action.handler||''));
+ if(selected){
+  lines.push('Acción: '+selected.action.file+':'+selected.action.line+' — '+selected.action.handler,'');
+  for(const n of selected.nodes.slice(0,130)){
+   const indent='  '.repeat(Math.min(n.depth||0,10));
+   lines.push(indent+'- '+(n.type==='function'?n.name+' ('+n.file+':'+n.line+')':n.type==='data'?'DATOS '+n.operation+' '+n.key:n.type==='http'?'RED '+(n.target||'?')+' ['+n.routeStatus+']':n.type==='unresolved'?'PENDIENTE '+n.reason:n.type==='edge'?'↳ '+n.to:n.type+' '+(n.reason||'')));
+  }
+ }else lines.push('El generador no encontró un manejador de creación territorial; queda pendiente.');
+ return lines.join('\n')+'\n';
+}
+function render(r){return [[OUT,JSON.stringify(r,null,2)+'\n'],[MD,md(r)]];}
+function main(){
+ const mode=process.argv[2]||'--write',r=scan();
+ if(mode==='--write'){for(const [p,s] of render(r)){fs.mkdirSync(path.dirname(path.join(ROOT,p)),{recursive:true});fs.writeFileSync(path.join(ROOT,p),s);}}
+ else if(mode==='--check'){for(const [p,s] of render(r))if(!fs.existsSync(path.join(ROOT,p))||fs.readFileSync(path.join(ROOT,p),'utf8')!==s)throw Error('Árbol ausente u obsoleto: '+p);}
+ else if(mode!=='--test')throw Error('Modo inválido');
+ if(!r.totals.files||!r.totals.functions||!r.totals.calls)throw Error('Sin cobertura del código');
+ console.log('ARBOL '+mode.toUpperCase()+' PASS '+JSON.stringify(r.totals));
+}
+if(require.main===module)try{main();}catch(e){console.error('ARBOL ERROR '+e.stack);process.exitCode=1;}
+module.exports={scan,md};
+).test(v);}catch(_){return false;}
+    });
+    for(const hit of [...direct,...regex,...prefix])ep.worker.push({...hit,target:v});
+  }
+  ep.worker=ep.worker.slice(0,30);
+  ep.status=ep.worker.length?values.size>1?'multi_backend_candidate':'backend_candidate':'no_backend_match';
  }
  const outCalls=new Map();
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
