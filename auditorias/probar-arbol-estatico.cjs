@@ -9,6 +9,8 @@ try{
  fs.writeFileSync(path.join(root,'plataforma/index.html'),[
   '<button id="alta" onclick="guardarCiudad()">Guardar ciudad</button>',
   '<button id="sinruta" onclick="noExiste()">Rota</button>',
+  '<button id="nativo" onclick="document.getElementById(\'alta\').click()">Nativo</button>',
+  '<button id="compuesto" onclick="event.stopPropagation();guardarCiudad()">Compuesto</button>',
   '<button id="iife" onclick="accionIife()">IIFE</button>',
   '<button id="ramas" onclick="accionRamas(true)">Ramas</button>',
   '<script>function accionRamas(flag){if(flag)return enviarCiudad();else throw Error("sin permiso")}</script>',
@@ -55,8 +57,12 @@ try{
  assert(listenerTree?.nodes.some(n=>n.type==='function'&&n.name.startsWith('callback@')),'No recorrió callback directamente desde evento');
  const objectTree=json.trees.find(x=>x.action.handler==='accionObjeto()');
  assert(objectTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='static_object_method'),'No siguió método del objeto local');
+ const composite=json.trees.find(x=>x.action.handler.includes('event.stopPropagation'));
+ assert(composite?.nodes.some(n=>n.type==='function'&&n.name==='guardarCiudad'),'No siguio llamadas del manejador compuesto');
+ const native=json.trees.find(x=>x.action.handler.includes('getElementById'));
+ assert(native&&!native.counts.missingHandlers,'Confundio funcion del navegador con ausencia de codigo');
  const bad=json.trees.find(x=>x.action.handler==='noExiste()');
- assert(bad?.counts.unresolved,'No marcó botón sin función');
+ assert(bad?.counts.missingHandlers,'No marcó botón sin función en fuentes rastreadas');
  r=run(['--check']);assert.equal(r.status,0,r.stderr);
  fs.appendFileSync(path.join(root,'plataforma/enviar.js'),'\nconst cambiado=true;\n');
  r=run(['--check']);assert.notEqual(r.status,0,'No rechazó fuente modificada sin regenerar');
