@@ -576,10 +576,14 @@ function scan(){
     // A dynamic route has a known dispatch pattern even when the ID is unknown.
     // Substitute a sentinel ONLY for matching; never claim the ID was resolved.
     const candidateForRegex=v.replace(/:[A-Za-z_][\w$]*(?=\/|$)/g,'__AUDIT_UNKNOWN_ID__');
+    // A trailing slash can be the known prefix of a dynamic final segment.
+    // This validates a possible Worker dispatch, not the unknown ID.
+    const candidateTest=ep.partial&&v.endsWith('/')?
+      candidateForRegex+'__AUDIT_UNKNOWN_ID__':candidateForRegex;
     const regex=regexRoutes.filter(r=>{
-      try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(candidateForRegex);}catch(_){return false;}
+      try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(candidateTest);}catch(_){return false;}
     });
-    if(candidateForRegex!==v)ep.partial=true;
+    if(candidateTest!==v)ep.partial=true;
     for(const hit of [...analyzed,...direct,...regex,...prefix]){
       if(ep.verb&&hit.verb&&ep.verb!==hit.verb)continue;
       ep.worker.push({...hit,target:v});
