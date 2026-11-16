@@ -666,7 +666,11 @@ function scan(){
         treeNodes.push({type:'http',from:id,file:c.file,line:c.line,target:e?.target||null,verb:e?.verb||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
         const matched=e?.worker||[],handlers=[...new Set(matched.flatMap(x=>[...(x.handlers||[]),...(x.handler?[x.handler]:[])]))];
         for(const handler of handlers){
+          const builtins=new Set(['decodeURIComponent','encodeURIComponent','parseInt','parseFloat',
+            'isFinite','isNaN','String','Number','Boolean','BigInt','Array','Object','Date',
+            'Error','TypeError','RangeError','Map','Set','WeakMap','WeakSet']);
           const found=(byName.get(handler)||[]).filter(f=>f.file.startsWith('worker/')&&!f.parent);
+          if(!found.length&&builtins.has(handler)){treeNodes.push({type:'builtin_call',from:c.id,handler,depth:depth+2});continue;}
           if(found.length!==1){treeNodes.push({type:'unresolved',from:c.id,reason:'backend_handler_ambiguo',handler});continue;}
           treeNodes.push({type:'backend_candidate',from:c.id,handler,at:found[0].file+':'+found[0].line,depth:depth+2});
           walk(found[0].id,depth+3);
