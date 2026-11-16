@@ -163,6 +163,7 @@ function scan(){
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
      const f={id:functionId(n),file,line:line(n),name:functionName(n),objectOwner,
+      bindingKind:ts.isPropertyAssignment(n.parent)?'object_property':ts.isVariableDeclaration(n.parent)?'variable':ts.isFunctionDeclaration(n)?'declaration':'other',
       promiseExecutor:ts.isNewExpression(n.parent)&&n.parent.expression.getText(sf)==='Promise',
       methodByBody:!!n.body&&/method\s*:\s*body\s*\?\s*['"]POST['"]\s*:\s*['"]GET['"]/.test(n.body.getText(sf)),
       parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>{
@@ -438,7 +439,7 @@ function scan(){
   const visitedScopes=new Set();
   while(scope&&!lexical&&!visitedScopes.has(scope)){
     visitedScopes.add(scope);
-    const matches=candidates.filter(f=>f.file===c.file&&f.parent===scope);
+    const matches=candidates.filter(f=>f.file===c.file&&f.parent===scope&&f.bindingKind!=='object_property');
     if(matches.length===1)lexical={to:matches[0].id,resolution:'lexical_child'};
     else if(matches.length>1){lexical={to:null,resolution:'ambiguous_lexical'};break;}
     scope=byId.get(scope)?.parent||null;
