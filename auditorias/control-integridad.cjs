@@ -91,7 +91,7 @@ function validate(scanResult,certificate){
 }
 function claim(){
  const p=JSON.parse(fs.readFileSync(path.join(ROOT,'auditorias/PLAN_EJECUCION_TRANSVERSAL.json'),'utf8'));
- return p.status==='comprobado'||p.analysis_status==='comprobado'||(p.steps||[]).some(s=>s.status==='comprobado'&&s.analysis_integrity==='comprobado');
+ return p.status==='comprobado'||p.analysis_status==='comprobado'||(p.steps||[]).some(s=>s.status==='comprobado');
 }
 function selfTest(){
  const sample={schema:1,files:[{path:'worker/x.js',sha256:'abc'}],
