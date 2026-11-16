@@ -538,6 +538,24 @@ function scan(){
      for(const def of scopeDefinitions.get(host+':<top-level>')||[])
        if(!(def.name in definitions))definitions[def.name]=def.expression;
    }
+   // options.origin may be supplied by the only HTML host when mounting a
+   // shared component. Prove the origin through the caller's literal property,
+   // never by guessing a domain from a similarly named variable.
+   if(file==='plataforma/soporte-cuenta.js'){
+     const mounts=allCalls.filter(x=>x.method==='mount'&&/^(?:window\.)?GLD_SUPPORT$/.test(x.receiver||'')&&
+       (scriptDependencies.get(x.file)||new Set()).has(file));
+     const origins=[];
+     for(const call of mounts){
+       const prop=(call.args?.[1]?.objectProps||[]).find(x=>x.property==='origin');
+       if(!prop)continue;
+       const sourceDefs=Object.fromEntries((scopeDefinitions.get(call.file+':<top-level>')||[])
+         .filter(x=>x.line<=call.line).map(x=>[x.name,x.expression]));
+       const found=resolveExpression(prop.expression,{},sourceDefs);
+       if(found.complete)origins.push(...found.values);
+     }
+     const distinct=[...new Set(origins)];
+     if(mounts.length===1&&distinct.length===1)ctx['options.origin']={values:distinct,complete:true,unknown:[]};
+   }
    for(const [key,route] of actionRoutes.get(ownerId)||[])if(route.path&&!route.partial)
      definitions['routes.'+key]=JSON.stringify(route.path);
    let cur=ownerId;const visited=new Set();
