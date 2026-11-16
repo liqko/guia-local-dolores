@@ -93,6 +93,7 @@ try{
  assert(wrapperTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/cities/create')),'No resolvió dirección del wrapper desde el parámetro de su llamador');
  const detailTree=json.trees.find(x=>x.action.handler==='hacerDetalle()');
  assert(detailTree?.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('advertisers'))),'No reconoció el último segmento dinámico de una ruta por el patrón del Worker');
+ assert(detailTree.nodes.some(n=>n.type==='route_parameter'&&n.unknownValue),'El parámetro dinámico quedó sin clasificar aunque el Worker resuelve su patrón');
  const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
  assert(apiTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No resolvió API simbólica por su tabla de rutas');
  const listenerTree=json.trees.find(x=>x.action.kind==='listener'&&x.action.handler.startsWith('callback@'));
