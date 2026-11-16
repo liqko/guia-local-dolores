@@ -465,16 +465,66 @@ function scan(){
     }
     seen.delete(id);
   };
+  const scanInline=()=>{
+    const raw=String(action.handler||'').replace(/\\'/g,"'");
+    const sf=ts.createSourceFile('handler.js','function __handler(event){'+raw+'}',ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+    if(sf.parseDiagnostics.length){
+      treeNodes.push({type:'unresolved',reason:'handler_dinamico_no_analizable',handler:raw.slice(0,180)});
+      return;
+    }
+    let found=0;
+    const walkInline=n=>{
+      if(ts.isCallExpression(n)){
+        const target=n.expression;
+        if(ts.isIdentifier(target)){
+          found++;
+          const resolved=resolve(target.text,action.file);
+          const browserBuiltins=new Set(['alert','confirm','prompt','setTimeout','clearTimeout','setInterval','clearInterval','encodeURIComponent','decodeURIComponent','String','Number','Boolean','parseInt','parseFloat','isNaN','fetch']);
+          if(resolved.to){
+            treeNodes.push({type:'edge',from:action.id,to:resolved.to,resolution:'handler_inline',depth:0});
+            walk(resolved.to,1);
+          }else if(browserBuiltins.has(target.text)){
+            treeNodes.push({type:'external',from:action.id,method:target.text,depth:0});
+          }else{
+            treeNodes.push({type:'missing_handler',from:action.id,method:target.text,
+              file:action.file,line:action.line,reason:'sin_definicion_en_fuentes_rastreadas',depth:0});
+          }
+        }else if(ts.isPropertyAccessExpression(target)){
+          found++;
+          const method=target.name.text,receiver=target.expression.getText(sf);
+          const builtins=['window','document','history','location','event','this','console','navigator','localStorage','sessionStorage','JSON','Date','Math','CSS','crypto','performance'];
+          const options=(byName.get(method)||[]).filter(f=>f.objectOwner===receiver&&
+            (f.file===action.file||[...(scriptDependencies.get(action.file)||[])].includes(f.file)));
+          if(options.length===1){
+            treeNodes.push({type:'edge',from:action.id,to:options[0].id,resolution:'handler_method_object',depth:0});
+            walk(options[0].id,1);
+          }else if(builtins.includes(receiver)||receiver.startsWith('document.')||receiver.startsWith('this.')||receiver.startsWith('event.')){
+            treeNodes.push({type:'external',from:action.id,method:receiver+'.'+method,depth:0});
+          }else{
+            treeNodes.push({type:'external_object',from:action.id,method:receiver+'.'+method,
+              note:'referencia_objeto_debe_comprobarse_en_runtime',depth:0});
+          }
+        }
+      }
+      ts.forEachChild(n,walkInline);
+    };
+    walkInline(sf);
+    if(!found)treeNodes.push({type:'terminal',from:action.id,reason:'handler_sin_llamadas',depth:0});
+  };
   if(resolved.to)walk(resolved.to,0);
-  else treeNodes.push({type:'unresolved',reason:resolved.resolution,handler:action.handler});
+  else scanInline();
   const counts={functions:treeNodes.filter(x=>x.type==='function').length,
     http:treeNodes.filter(x=>x.type==='http').length,data:treeNodes.filter(x=>x.type==='data').length,
-    unresolved:treeNodes.filter(x=>x.type==='unresolved').length,cycles:treeNodes.filter(x=>x.type==='cycle').length};
-  trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':'ramas_estaticas_identificadas_sin_prueba_funcional'});
+    unresolved:treeNodes.filter(x=>x.type==='unresolved').length,
+    missingHandlers:treeNodes.filter(x=>x.type==='missing_handler').length,
+    externalObjects:treeNodes.filter(x=>x.type==='external_object').length,
+    cycles:treeNodes.filter(x=>x.type==='cycle').length};
+  trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':counts.missingHandlers?'posible_manejador_ausente':'ramas_estaticas_identificadas_sin_prueba_funcional'});
  }
  const totals={files:paths.length,functions:allFns.length,calls:allCalls.length,buttons:actions.length,
   trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
+  treesWithMissingHandlers:trees.filter(t=>t.counts.missingHandlers).length,
   endpoints:endpoints.length,endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate','partial_backend_candidate'].includes(e.status)).length,astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
