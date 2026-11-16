@@ -68,7 +68,7 @@ try{
  assert(branchTree?.nodes.some(n=>n.type==='return'&&n.guards.some(g=>g==='flag')),'No registró retorno de rama verdadera');
  assert(branchTree?.nodes.some(n=>n.type==='throw'&&n.guards.some(g=>g.includes('NOT'))),'No registró error de rama falsa');
  const iifeTree=json.trees.find(x=>x.action.handler==='accionIife()');
- assert(iifeTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='immediate_callback'),'No siguio funcion inmediatamente invocada');
+ assert(iifeTree?.nodes.some(n=>n.type==='edge'&&['immediate_callback','immediate_callback_ast'].includes(n.resolution)),'No siguio funcion inmediatamente invocada');
  const cityTree=json.trees.find(x=>x.action.handler.includes('crearTerritorio'));
  assert(cityTree?.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No conectó spec.path con alta Worker');
  assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
