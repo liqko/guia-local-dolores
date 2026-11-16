@@ -28,6 +28,8 @@ try{
   '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
   '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
   '<button id="wrapper" onclick="usarWrapper()">Wrapper</button>',
+  '<button id="dyn" onclick="dinamica()">Dinámica</button>',
+  '<script>function dinamica(){return fetch("/superadmin/advertisers/"+encodeURIComponent(id)+"/panel-access")}</script>',
   '<script>const ORIGIN="https://login.test";function wrapper(path){return fetch(ORIGIN+path)} function usarWrapper(){return wrapper("/superadmin/cities/create")}</script>',
   '<script>function crearTerritorio(tipo){const spec={pais:{path:"countries/create"},ciudad:{path:"cities/create"}}[tipo];return fetch("https://login.test"+"/superadmin/"+spec.path,{method:"POST"})}</script>',
   '<script>const API="https://example.test/superadmin";async function api(action){const routes={buscar:"/subscribers/search"};return routes[action]}function hacerConsulta(){return api("buscar")}</script>',
@@ -42,7 +44,8 @@ try{
  fs.writeFileSync(path.join(root,'worker/worker206.txt'),[
  "async function alta(db){await db.patch('ciudades','dolores',{});return 'ok';}",
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
- "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);"
+ "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
+ "let match=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)\\/panel-access$/); if(match)return alta(db);"
  ].join('\n'));
  // Shared function via HTML script src must resolve to local imported file.
  fs.appendFileSync(path.join(root,'plataforma/index.html'),"\n<script src=\"/plataforma/enviar.js\"></script>\n");
@@ -74,6 +77,8 @@ try{
  const cityTree=json.trees.find(x=>x.action.handler.includes('crearTerritorio'));
  assert(cityTree?.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No conectó spec.path con alta Worker');
  assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
+ const dynTree=json.trees.find(x=>x.action.handler==='dinamica()');
+ assert(dynTree?.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access'))),'No enlazó la ruta dinámica con el patrón del Worker');
  const wrapperTree=json.trees.find(x=>x.action.handler==='usarWrapper()');
  assert(wrapperTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/cities/create')),'No resolvió dirección del wrapper desde el parámetro de su llamador');
  const apiTree=json.trees.find(x=>x.action.handler==='hacerConsulta()');
