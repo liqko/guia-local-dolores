@@ -193,6 +193,14 @@ function scan(){
  for(const ep of endpoints){
   const values=new Set();
   if(ep.target?.startsWith('/'))values.add(ep.target);
+  // Recognize constant API paths inside concatenated expressions; only treat
+  // the exact known segment as a candidate, never invent variable suffixes.
+  if(!values.size&&ep.expression){
+    const pathSegments=[...ep.expression.matchAll(/['"`](\/(?:superadmin|advertisers|api|public|events|activities|login|territory|countries|cities|provinces)[^'"`]*)['"`]/g)];
+    for(const m of pathSegments){
+      const v=m[1];if(v.length<180)values.add(v);
+    }
+  }
   // Resolve bounded alternatives of a selected configuration record, not a
   // made-up single outcome: e.g. spec.path selects country/province/city.
   if(!values.size&&/\.path\b/.test(ep.expression)){
@@ -204,6 +212,8 @@ function scan(){
     }
   }
   ep.candidates=[...values].sort();
+  ep.partial=ep.target===null&&values.size>0;
+  ep.requireDynamicRemainder=ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
   if(!values.size){ep.status='dynamic_unresolved';continue;}
   ep.worker=[];
   for(const v of values){
@@ -218,7 +228,7 @@ function scan(){
     }
   }
   ep.worker=ep.worker.slice(0,30);
-  ep.status=ep.worker.length?values.size>1?'multi_backend_candidate':'backend_candidate':'no_backend_match';
+  ep.status=ep.worker.length?(ep.partial?'partial_backend_candidate':values.size>1?'multi_backend_candidate':'backend_candidate'):'no_backend_match';
  }
  const outCalls=new Map();
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
@@ -252,6 +262,7 @@ function scan(){
         }
         if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
         else if(!handlers.length)treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada'});
+        if(e?.requireDynamicRemainder)treeNodes.push({type:'unresolved',from:c.id,reason:'sufijo_de_ruta_dinamico'});
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
       }else if(c.to){
@@ -276,7 +287,7 @@ function scan(){
  const totals={files:paths.length,functions:allFns.length,calls:allCalls.length,buttons:actions.length,
   trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
-  endpoints:endpoints.length,endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate'].includes(e.status)).length,astErrors};
+  endpoints:endpoints.length,endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate','partial_backend_candidate'].includes(e.status)).length,astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
   trees,endpoints,unresolved};
