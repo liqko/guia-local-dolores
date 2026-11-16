@@ -689,8 +689,8 @@ function scan(){
             'isFinite','isNaN','String','Number','Boolean','BigInt','Array','Object','Date',
             'Error','TypeError','RangeError','Map','Set','WeakMap','WeakSet']);
           const topLevel=(byName.get(handler)||[]).filter(f=>f.file.startsWith('worker/')&&!f.parent);
-          const aliasMatch=matched.map(x=>iifeExports.get(x.file+'|'+handler)).filter(Boolean);
-          const aliased=aliasMatch.length===1?byId.get(aliasMatch[0].to):null;
+          const aliasIds=[...new Set(matched.map(x=>iifeExports.get(x.file+'|'+handler)?.to).filter(Boolean))];
+          const aliased=aliasIds.length===1?byId.get(aliasIds[0]):null;
           const found=topLevel.length?topLevel:aliased?[aliased]:[];
           if(!found.length&&builtins.has(handler)){treeNodes.push({type:'builtin_call',from:c.id,handler,depth:depth+2});continue;}
           if(found.length!==1){treeNodes.push({type:'unresolved',from:c.id,reason:'backend_handler_ambiguo',handler});continue;}
