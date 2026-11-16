@@ -687,7 +687,14 @@ function scan(){
             reason:'el_despachador_retorna_respuesta_sin_funcion_auxiliar'});
           else treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada'});
         }
-        if(e?.requireDynamicRemainder)treeNodes.push({type:'unresolved',from:c.id,reason:'sufijo_de_ruta_dinamico'});
+        if(e?.requireDynamicRemainder){
+          const covered=e.candidates?.length&&e.candidates.every(v=>
+            matched.some(w=>w.target===v&&w.pattern));
+          if(covered)treeNodes.push({type:'route_parameter',from:c.id,
+            unknownValue:true,matchedPatterns:matched.filter(w=>w.pattern).map(w=>({file:w.file,line:w.line,pattern:w.pattern})),
+            reason:'ruta_parametrizada_con_despacho_identificado'});
+          else treeNodes.push({type:'unresolved',from:c.id,reason:'sufijo_de_ruta_dinamico'});
+        }
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
       }else if(c.to){
