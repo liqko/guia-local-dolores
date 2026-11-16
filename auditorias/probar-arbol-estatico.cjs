@@ -29,6 +29,8 @@ try{
   '<button id="detalle" onclick="hacerDetalle()">Detalle</button>',
   '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
   '<button id="wrapper" onclick="usarWrapper()">Wrapper</button>',
+  '<button id="iifeexport" onclick="accionIifeExport()">IIFE export</button>',
+  '<script>function accionIifeExport(){return fetch("/superadmin/iife-export")}</script>',
   '<button id="adminwrapper" onclick="buscarAdmin()">Buscar admin</button>',
   '<script>const API="https://login.test/superadmin";function ghAdminRequest_(path){return fetch(API+path)}function buscarAdmin(){return ghAdminRequest_("/subscribers/search")}</script>',
   '<button id="dyn" onclick="dinamica()">Dinámica</button>',
@@ -49,6 +51,8 @@ try{
  "if(path==='/superadmin/cities/create' && request.method==='GET') return alta(db);",
  "if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db);",
  "if(path==='/superadmin/subscribers/search')return alta(db);",
+ "var {extra}=(()=>{async function extra(db){await db.patch('items','x',{});return 'ok'}return {extra}})();",
+ "if(path==='/superadmin/iife-export')return extra(db);",
  "let m=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)$/);if(m)return alta(db);",
  "let match=path.match(/^\\/superadmin\\/advertisers\\/([^/]+)\\/panel-access$/),other=path.match(/^\\/superadmin\\/subscribers\\/([^/]+)\\/reset-access$/); if(match){const id=decodeURIComponent(match[1]);return alta(db);}",
  ].join('\n'));
@@ -87,6 +91,8 @@ try{
  assert(dynTree.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No siguió rama regex hasta la función ejecutada por el Worker');
  assert(dynTree.nodes.some(n=>n.type==='builtin_call'&&n.handler==='decodeURIComponent'),'Función nativa del lenguaje confundida con una conexión sin resolver');
  assert(dynTree.nodes.some(n=>n.type==='http'&&n.worker?.some(w=>w.pattern?.includes('panel-access')&&w.file==='worker/worker206.txt')),'No reconoció un patrón de ruta si hay dos expresiones regulares en la misma línea');
+ const iifeExportTree=json.trees.find(x=>x.action.handler==='accionIifeExport()');
+ assert(iifeExportTree?.nodes.some(n=>n.type==='function'&&n.name==='extra'),'No enlazó función exportada por IIFE desestructurada');
  const adminTree=json.trees.find(x=>x.action.handler==='buscarAdmin()');
  assert(adminTree?.nodes.some(n=>n.type==='http'&&n.candidates?.includes('/superadmin/subscribers/search')),'No agregó el origen /superadmin a una solicitud relativa');
  const wrapperTree=json.trees.find(x=>x.action.handler==='usarWrapper()');
