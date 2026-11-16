@@ -18,7 +18,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[];
- const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map();
+ const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
  for(const file of paths){
@@ -104,6 +104,19 @@ function scan(){
       }
     }
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
+      if(n.name.text==='routes'&&n.initializer&&ts.isObjectLiteralExpression(n.initializer)){
+        const scope=fnStack.at(-1)?.id,table=new Map();
+        for(const p of n.initializer.properties)if(ts.isPropertyAssignment(p)){
+          const key=name(p.name)||literal(p.name);
+          const value=staticValue(p.initializer);
+          if(key&&value?.startsWith('/'))table.set(key,{path:value,partial:false});
+          else if(key){
+            const first=/['"`](\/[^'"`]*)['"`]/.exec(p.initializer.getText(sf));
+            if(first)table.set(key,{path:first[1],partial:true});
+          }
+        }
+        if(scope&&table.size)actionRoutes.set(scope,table);
+      }
       const v=staticValue(n.initializer);if(v!==null)sym.set(n.name.text,v);
       if(v!==null){const k=file+':'+n.name.text,found=aliases.get(k)||[];found.push({value:v,line:line(n)});aliases.set(k,found);}
     }
@@ -205,6 +218,18 @@ function scan(){
  }
  for(const ep of endpoints){
   const values=new Set();
+  if(ep.requestKind==='api'&&ep.target&&!ep.target.startsWith('/')){
+    const f=allFns.find(x=>x.file===ep.file&&x.name==='api'&&!x.parent);
+    const selected=f&&actionRoutes.get(f.id)?.get(ep.target);
+    if(selected){
+      const base=ep.apiBase;
+      let prefix='/superadmin';
+      if(base)try{prefix=new URL(base).pathname.replace(/\/$/,'');}catch(_){}
+      values.add(prefix+selected.path);
+      ep.actionResolution=selected.partial?'action_table_prefix':'action_table_literal';
+      ep.actionPartial=selected.partial;
+    }
+  }
   if(ep.target?.startsWith('/'))values.add(ep.target);
   else if(typeof ep.target==='string'&&/^https?:\/\//.test(ep.target)){
     try{values.add(new URL(ep.target).pathname);}catch(_){}
@@ -232,8 +257,8 @@ function scan(){
     }
   }
   ep.candidates=[...values].sort();
-  ep.partial=ep.target===null&&values.size>0;
-  ep.requireDynamicRemainder=ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
+  ep.partial=(ep.target===null&&values.size>0)||ep.actionPartial===true;
+  ep.requireDynamicRemainder=ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression));
   if(!values.size){ep.status='dynamic_unresolved';continue;}
   ep.worker=[];
   for(const v of values){
