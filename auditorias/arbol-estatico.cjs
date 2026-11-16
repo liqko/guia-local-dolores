@@ -895,7 +895,8 @@ function scan(){
             treeNodes.push({type:'external',from:action.id,method:target.text,depth:0});
           }else{
             treeNodes.push({type:'missing_handler',from:action.id,method:target.text,
-              file:action.file,line:action.line,reason:'sin_definicion_en_fuentes_rastreadas',depth:0});
+              file:action.file,line:action.line,reason:'sin_definicion_en_fuentes_rastreadas',depth:0,
+              diagnostic:{definitions:[...(byName.get(target.text)||[]),...(byName.get('window.'+target.text)||[])].map(x=>({name:x.name,file:x.file,parent:!!x.parent})),imports:[...(scriptDependencies.get(action.file)||[])]}});
           }
         }else if(ts.isPropertyAccessExpression(target)){
           found++;
