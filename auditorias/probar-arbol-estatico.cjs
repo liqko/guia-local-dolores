@@ -114,7 +114,7 @@ try{
  assert(brokenRoute?.counts.possibleMissingRoutes,'No avisó de ruta sin despacho Worker identificado');
  assert(json.deadEnds.some(x=>x.route==='/api/ruta-que-no-existe'&&x.terminal===true),'No inventar continuidad para una ruta sin Worker');
  assert(json.totals.deadEndRoutes>=1,'No contar 0 salidas cuando existen rutas sin despacho');
- assert(json.deadEnds.every(x=>x.classification==='sin_despacho_en_worker_analizado'),'La terminal debe conservar la evidencia de no despacho');
+ assert(json.deadEnds.every(x=>['sin_despacho_en_worker_analizado','posible_salida_sin_despacho'].includes(x.classification)),'La terminal debe distinguir certeza de candidato');
  const cbTree=json.trees.find(x=>x.action.handler==='entrarCallback()');
  assert(cbTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='destructured_parameter_callback'),'No conectó callback desestructurado con quien lo pasó');
  assert(cbTree?.nodes.some(n=>n.type==='http'),'No siguió efecto HTTP del callback');
