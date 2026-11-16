@@ -5,6 +5,8 @@ const fs=require('node:fs');
 const cp=require('node:child_process');
 const assert=(ok,msg)=>{if(!ok)throw Error(msg);};
 const root=process.cwd();
+// El validador habitual no puede aprobar cierres sin comprobar integridad de fuentes y pruebas.
+cp.execFileSync(process.execPath,['auditorias/control-integridad.cjs','--check'],{cwd:root,stdio:'inherit'});
 const file=p=>fs.readFileSync(p,'utf8');
 const plan=JSON.parse(file('auditorias/PLAN_EJECUCION_TRANSVERSAL.json'));
 const master=file('auditorias/ESTADO_ACTUAL.md');
