@@ -70,6 +70,8 @@ function scan(){
     if(ts.isParenthesizedExpression(p)&&ts.isCallExpression(p.parent))return 'iife@'+line(n);
     return 'anonymous@'+line(n);
    }
+   // Posición AST única: varias funciones pueden comenzar en la misma línea.
+   const functionId=n=>file+':'+line(n)+':'+n.getStart(sf)+':'+functionName(n);
    function isFn(n){return ts.isFunctionDeclaration(n)||ts.isFunctionExpression(n)||ts.isArrowFunction(n)||ts.isMethodDeclaration(n)||ts.isConstructorDeclaration(n)||ts.isGetAccessor(n)||ts.isSetAccessor(n);}
    function staticValue(n){
     const l=literal(n);if(l!==null)return l;
@@ -139,7 +141,7 @@ function scan(){
        if(ts.isVariableDeclaration(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
-     const f={id:file+':'+line(n)+':'+functionName(n),file,line:line(n),name:functionName(n),objectOwner,
+     const f={id:functionId(n),file,line:line(n),name:functionName(n),objectOwner,
       parent:fnStack.at(-1)?.id||null,params:(n.parameters||[]).map(p=>{
         const destructured=ts.isObjectBindingPattern(p.name);
         return {name:destructured?null:p.name?.getText(sf)||null,
@@ -204,7 +206,7 @@ function scan(){
           const property=name(p.name)||literal(p.name),value=ts.isPropertyAssignment(p)?p.initializer:p.name;
           return [{property,expression:value.getText(sf).slice(0,180),
             callbackId:(ts.isArrowFunction(value)||ts.isFunctionExpression(value))?
-              file+':'+line(value)+':'+functionName(value):null}];
+              functionId(value):null}];
         }):null
       })),
       kind:isFetch?'http':dataOp?'data':'call',to:null,resolution:'pending'};
@@ -212,7 +214,7 @@ function scan(){
      if(method==='addEventListener'&&args.length>=2){
       const h=args[1],handler=ts.isIdentifier(h)?h.text:ts.isArrowFunction(h)||ts.isFunctionExpression(h)?'callback@'+line(h):h.getText(sf).slice(0,130);
       const isCallback=ts.isArrowFunction(h)||ts.isFunctionExpression(h);
-      const entryId=isCallback?file+':'+line(h)+':'+functionName(h):null;
+      const entryId=isCallback?functionId(h):null;
       actions.push({id:sha(file+':'+at+':listener').slice(0,16),file,line:at,kind:'listener',element:'dom',
         elementId:null,label:first||null,handler,entry:null,entryId,context:owner});
      }
