@@ -18,7 +18,7 @@ function parts(file,raw){
  return out;
 }
 function scan(){
- const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[];
+ const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
  const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
@@ -86,6 +86,23 @@ function scan(){
    }
    function visit(n){
     if(ts.isIfStatement(n)){
+      if(file.startsWith('worker/')){
+        const condition=n.expression.getText(sf);
+        const routePattern=/(?:\bpath\b|\.pathname)\s*===?\s*['"]([^'"]+)['"]/g;
+        const routeMatches=[...condition.matchAll(routePattern)].map(m=>m[1]).filter(x=>x.startsWith('/'));
+        const verbMatch=/(?:request2|request)\.method\s*===?\s*['"](GET|POST|PATCH|DELETE|PUT)['"]/.exec(condition);
+        if(routeMatches.length){
+          const callees=new Set();let inlineResponse=false;
+          const collect=x=>{
+            if(ts.isCallExpression(x)&&ts.isIdentifier(x.expression))callees.add(x.expression.text);
+            if(ts.isReturnStatement(x)||ts.isThrowStatement(x))inlineResponse=true;
+            ts.forEachChild(x,collect);
+          };
+          collect(n.thenStatement);
+          for(const route of routeMatches)dispatchRules.push({path:route,verb:verbMatch?.[1]||null,
+            file,line:line(n),callNames:[...callees],inlineResponse,guard:condition.slice(0,240)});
+        }
+      }
       visit(n.expression);
       const guard=n.expression.getText(sf).slice(0,240);
       guardStack.push(guard);visit(n.thenStatement);guardStack.pop();
@@ -318,6 +335,12 @@ function scan(){
  }
  // Discover backend route conditions without mistaking string references for dispatches.
  const workerFiles=paths.filter(p=>p.startsWith('worker/'));
+ for(const rule of dispatchRules){
+   const valid=rule.callNames.filter(n=>(byName.get(n)||[]).some(f=>f.file===rule.file&&!f.parent));
+   rule.handlers=[...new Set(valid)];
+   rule.inlineTerminal=rule.inlineResponse&&!valid.length;
+   delete rule.callNames;
+ }
  const literalRoutes=[],regexRoutes=[];
  for(const file of workerFiles){
   const raw=srcs.get(file),lines=raw.split('\n');
@@ -391,10 +414,11 @@ function scan(){
   for(const v of values){
     const direct=literalRoutes.filter(r=>r.path===v);
     const prefix=literalRoutes.filter(r=>v.startsWith(r.path+'/'));
+    const analyzed=dispatchRules.filter(r=>r.path===v&&(!ep.verb||!r.verb||ep.verb===r.verb));
     const regex=regexRoutes.filter(r=>{
       try{return new RegExp('^'+r.pattern+String.fromCharCode(36)).test(v);}catch(_){return false;}
     });
-    for(const hit of [...direct,...regex,...prefix]){
+    for(const hit of [...analyzed,...direct,...regex,...prefix]){
       if(ep.verb&&hit.verb&&ep.verb!==hit.verb)continue;
       ep.worker.push({...hit,target:v});
     }
@@ -441,7 +465,7 @@ function scan(){
       if(c.kind==='http'){
         const e=httpById.get(c.id);
         treeNodes.push({type:'http',from:id,file:c.file,line:c.line,target:e?.target||null,verb:e?.verb||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
-        const matched=e?.worker||[],handlers=[...new Set(matched.map(x=>x.handler).filter(Boolean))];
+        const matched=e?.worker||[],handlers=[...new Set(matched.flatMap(x=>[...(x.handlers||[]),...(x.handler?[x.handler]:[])]))];
         for(const handler of handlers){
           const found=(byName.get(handler)||[]).filter(f=>f.file.startsWith('worker/')&&!f.parent);
           if(found.length!==1){treeNodes.push({type:'unresolved',from:c.id,reason:'backend_handler_ambiguo',handler});continue;}
@@ -449,7 +473,11 @@ function scan(){
           walk(found[0].id,depth+3);
         }
         if(!e||!matched.length)treeNodes.push({type:'unresolved',from:c.id,reason:'http_destino_no_demostrado'});
-        else if(!handlers.length)treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada'});
+        else if(!handlers.length){
+          if(matched.some(x=>x.inlineTerminal))treeNodes.push({type:'backend_inline_return',from:c.id,
+            reason:'el_despachador_retorna_respuesta_sin_funcion_auxiliar'});
+          else treeNodes.push({type:'unresolved',from:c.id,reason:'backend_dispatch_sin_funcion_identificada'});
+        }
         if(e?.requireDynamicRemainder)treeNodes.push({type:'unresolved',from:c.id,reason:'sufijo_de_ruta_dinamico'});
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
