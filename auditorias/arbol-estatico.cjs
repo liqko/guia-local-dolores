@@ -1070,8 +1070,8 @@ function scan(){
  // Every concrete front-end request without a dispatch is a DEAD END,
  // even if the initiating function is not currently reachable from a button.
  // Do not silently count it as a fully connected tree or pretend the route works.
- const deadEnds=endpoints.filter(e=>e.status==='missing_worker_dispatch')
-  .flatMap(e=>(e.missingWorkerPaths||[]).map(route=>{
+ const deadEnds=endpoints.filter(e=>['missing_worker_dispatch','no_backend_match'].includes(e.status)&&e.candidates?.length)
+  .flatMap(e=>(e.missingWorkerPaths||e.candidates||[]).map(route=>{
    const pageLinks=[];
    for(const [source,raw] of srcs){
     if(!source.endsWith('.html')||source===e.file)continue;
@@ -1085,7 +1085,7 @@ function scan(){
     .map(t=>({file:t.action.file,line:t.action.line,handler:t.action.handler}));
    const reachableEvidence=pageLinks.length||directCallers.length||actionsReferencingOwner.length;
    return {route,source:e.file,line:e.line,owner:e.owner,callId:e.callId,
-    terminal:true,classification:'sin_despacho_en_worker_analizado',
+    terminal:true,classification:e.status==='missing_worker_dispatch'?'sin_despacho_en_worker_analizado':'posible_salida_sin_despacho',
     reachability:reachableEvidence?'entrada_identificada':'invocacion_no_identificada',
     linksToPage:pageLinks,directCallers:directCallers.slice(0,20),actions:actionsReferencingOwner.slice(0,20),
     warning:'Ruta sin salida comprobada en fuente; invocacion y respuesta en produccion no comprobadas'};
@@ -1099,7 +1099,7 @@ function scan(){
   endpointsExternal:endpoints.filter(e=>e.status==='external_service_http').length,
   endpointsConfiguredExternal:endpoints.filter(e=>e.status==='external_configured_service').length,
   endpointsMissingWorker:endpoints.filter(e=>e.status==='missing_worker_dispatch').length,
-  deadEndRoutes:deadEnds.length,deadEndReachableEntries:deadEnds.filter(x=>x.reachability==='entrada_identificada').length,
+  deadEndRoutes:deadEnds.length,deadEndConfirmed:deadEnds.filter(x=>x.classification==='sin_despacho_en_worker_analizado').length,deadEndReachableEntries:deadEnds.filter(x=>x.reachability==='entrada_identificada').length,
   missingWorkerPaths:[...new Set(endpoints.filter(e=>e.status==='missing_worker_dispatch').flatMap(e=>e.missingWorkerPaths||[]))].sort(),
   endpointsBrowserForwarded:endpoints.filter(e=>e.status==='browser_forwarded_request').length,
   endpointsUnresolved:endpoints.filter(e=>!['backend_candidate','multi_backend_candidate',
