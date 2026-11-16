@@ -267,6 +267,13 @@ function scan(){
   const exported=candidates.filter(f=>(f.name==='window.'+name||f.name==='globalThis.'+name)&&
     (f.file===file||imported.has(f.file)));
   if(exported.length===1)return {to:exported[0].id,resolution:'explicit_window_export'};
+  // A function deliberately assigned to window is callable after its enclosing
+  // initializer runs. Preserve this as a conditional edge, NOT a proven runtime call.
+  const hostsForExport=scriptHosts.get(file)||new Set();
+  const visibleExports=new Set([file,...imported]);
+  for(const host of hostsForExport){visibleExports.add(host);for(const dep of scriptDependencies.get(host)||[])visibleExports.add(dep);}
+  const assignedExports=candidates.filter(f=>(f.name==='window.'+name||f.name==='globalThis.'+name)&&visibleExports.has(f.file));
+  if(assignedExports.length===1)return {to:assignedExports[0].id,resolution:'conditional_global_assignment'};
   if(shared.length>1)return {to:null,resolution:'ambiguous_import',candidates:shared.length};
   // Shared global names on a host HTML page are concrete script dependencies.
   const hosts=scriptHosts.get(file)||new Set();
