@@ -13,6 +13,8 @@ try{
   '<button id="compuesto" onclick="event.stopPropagation();guardarCiudad()">Compuesto</button>',
   '<button id="iife" onclick="accionIife()">IIFE</button>',
   '<button id="ramas" onclick="accionRamas(true)">Ramas</button>',
+  '<button id="callback" onclick="entrarCallback()">Callback</button>',
+  '<script>function aceptar({load}){return load()}function entrarCallback(){return aceptar({load:()=>fetch("/superadmin/cities/create")})}</script>',
   '<script>function accionRamas(flag){if(flag)return enviarCiudad();else throw Error("sin permiso")}</script>',
   '<script>function accionIife(){return (function(){return guardarCiudad()})()}</script>',
   '<button id="obj" onclick="accionObjeto()">Objeto</button>',
@@ -43,6 +45,9 @@ try{
  assert(good.nodes.some(n=>n.type==='http'&&n.target==='/superadmin/cities/create'),'No detectó solicitud');
  assert(good.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No enlazó la ruta HTTP con el manejador del Worker');
  assert(good.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No recorrió la operación de persistencia');
+ const cbTree=json.trees.find(x=>x.action.handler==='entrarCallback()');
+ assert(cbTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='destructured_parameter_callback'),'No conectó callback desestructurado con quien lo pasó');
+ assert(cbTree?.nodes.some(n=>n.type==='http'),'No siguió efecto HTTP del callback');
  const branchTree=json.trees.find(x=>x.action.handler==='accionRamas(true)');
  assert(branchTree?.nodes.some(n=>n.type==='return'&&n.guards.some(g=>g==='flag')),'No registró retorno de rama verdadera');
  assert(branchTree?.nodes.some(n=>n.type==='throw'&&n.guards.some(g=>g.includes('NOT'))),'No registró error de rama falsa');
