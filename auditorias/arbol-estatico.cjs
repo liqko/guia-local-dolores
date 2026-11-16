@@ -563,6 +563,25 @@ function scan(){
   if(!symbolic.complete)ep.partiallyUnknown=true;
   // Reconstruct alternatives of a common fetch wrapper using its real callers.
   const wrapper=byId.get(ep.owner);
+  if(ep.requestKind==='fetch'&&wrapper?.params?.some(p=>p.name==='body')){
+    const fnSource=srcs.get(ep.file)||'';
+    const declaredBody=wrapper.params.findIndex(p=>p.name==='body');
+    const scopeLines=fnSource.split('\n').slice(Math.max(0,wrapper.line-1),Math.min(wrapper.bodyEnd,wrapper.line+12)).join('\n');
+    if(/\bmethod\s*:\s*body\s*\?\s*['"]POST['"]\s*:\s*['"]GET['"]/.test(scopeLines)){
+      const callers=allCalls.filter(c=>c.file===ep.file&&c.method===wrapper.name&&
+        c.from!==ep.owner&&c.direct);
+      const modes=callers.map(c=>{
+        const argument=c.args?.[declaredBody];
+        if(!argument||argument.expression==='undefined'||argument.expression==='null')return 'GET';
+        if(argument.objectProps!==null||argument.expression?.startsWith('{'))return 'POST';
+        return null;
+      });
+      if(callers.length&&modes.every(Boolean)&&new Set(modes).size===1){
+        ep.verb=modes[0];
+        ep.verbEvidence={bodyParameter:'body',callers:callers.map(c=>c.file+':'+c.line),mode:ep.verb};
+      }else if(callers.length)ep.verbVariants=['GET','POST'];
+    }
+  }
   let callersComplete=false;
   if(ep.requestKind==='fetch'&&wrapper?.params?.some(p=>p.name==='path')&&
       /\bpath\b/.test(ep.expression)&&wrapper.name!=='<anon>'){
