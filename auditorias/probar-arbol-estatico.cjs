@@ -9,6 +9,8 @@ try{
  fs.writeFileSync(path.join(root,'plataforma/index.html'),[
   '<button id="alta" onclick="guardarCiudad()">Guardar ciudad</button>',
   '<button id="sinruta" onclick="noExiste()">Rota</button>',
+  '<button id="iife" onclick="accionIife()">IIFE</button>',
+  '<script>function accionIife(){return (function(){return guardarCiudad()})()}</script>',
   '<button id="obj" onclick="accionObjeto()">Objeto</button>',
   '<button id="accion" onclick="hacerConsulta()">Consultar</button>',
   '<button id="city" onclick="crearTerritorio(\'ciudad\')">Crear ciudad</button>',
@@ -34,6 +36,8 @@ if(path==='/superadmin/cities/create' && request.method==='POST') return alta(db
  assert(good.nodes.some(n=>n.type==='http'&&n.target==='/superadmin/cities/create'),'No detectó solicitud');
  assert(good.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No enlazó la ruta HTTP con el manejador del Worker');
  assert(good.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No recorrió la operación de persistencia');
+ const iifeTree=json.trees.find(x=>x.action.handler==='accionIife()');
+ assert(iifeTree?.nodes.some(n=>n.type==='edge'&&n.resolution==='immediate_callback'),'No siguio funcion inmediatamente invocada');
  const cityTree=json.trees.find(x=>x.action.handler.includes('crearTerritorio'));
  assert(cityTree?.nodes.some(n=>n.type==='backend_candidate'&&n.handler==='alta'),'No conectó spec.path con alta Worker');
  assert(cityTree?.nodes.some(n=>n.type==='data'&&n.operation==='patch'),'No siguió la escritura del alta territorial');
