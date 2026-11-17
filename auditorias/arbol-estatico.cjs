@@ -945,11 +945,14 @@ function scan(){
     }
   }
   action.entry=resolved.to;action.resolution=resolved.resolution;
-  const treeNodes=[],seen=new Set();
-  const walk=(id,depth)=>{
-    if(depth>26){treeNodes.push({type:'limit',from:id,reason:'depth_limit'});return;}
-    if(seen.has(id)){treeNodes.push({type:'cycle',from:id});return;}
+  const treeNodes=[],seen=new Set(),expanded=new Set();
+  // Each function body is represented once; all callers keep their edges.
+  // Explicit generator frames preserve DFS order without a JS recursion cap.
+  function* expand(id,depth){
+    if(seen.has(id)){treeNodes.push({type:'cycle',from:id,to:id,depth});return;}
+    if(expanded.has(id)){treeNodes.push({type:'reference',from:id,to:id,depth,reason:'cuerpo_compartido_ya_representado'});return;}
     seen.add(id);
+    expanded.add(id);
     const fn=byId.get(id);if(!fn){treeNodes.push({type:'unresolved',from:id,reason:'missing_function'});return;}
     treeNodes.push({type:'function',id:fn.id,name:fn.name,file:fn.file,line:fn.line,depth});
     const calls=outCalls.get(id)||[],ends=outTerminals.get(id)||[];
@@ -957,12 +960,11 @@ function scan(){
       expression:t.expression,guards:t.guards,depth:depth+1});
     if(!calls.length&&!ends.length)treeNodes.push({type:'terminal',from:id,reason:'sin_llamadas_ni_retorno_explicito',depth:depth+1});
     for(const c of calls){
-      treeNodes.push({type:'guarded_call',from:id,file:c.file,line:c.line,guards:c.guards,
+      treeNodes.push({type:'guarded_call',callId:c.id,from:id,file:c.file,line:c.line,guards:c.guards,
         method:c.method,kind:c.kind,depth:depth+1});
-      if(treeNodes.length>2400){treeNodes.push({type:'limit',from:id,reason:'node_limit'});break;}
       if(c.kind==='http'){
         const e=httpById.get(c.id);
-        treeNodes.push({type:'http',from:id,file:c.file,line:c.line,target:e?.target||null,verb:e?.verb||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
+        treeNodes.push({type:'http',callId:c.id,from:id,file:c.file,line:c.line,target:e?.target||null,verb:e?.verb||null,candidates:e?.candidates||[],routeStatus:e?.status||'unknown',worker:e?.worker||[],depth:depth+1});
         const matched=e?.worker||[],handlers=[...new Set(matched.flatMap(x=>[...(x.handlers||[]),...(x.handler?[x.handler]:[])]))];
         for(const handler of handlers){
           const builtins=new Set(['decodeURIComponent','encodeURIComponent','parseInt','parseFloat',
@@ -975,7 +977,7 @@ function scan(){
           if(!found.length&&builtins.has(handler)){treeNodes.push({type:'builtin_call',from:c.id,handler,depth:depth+2});continue;}
           if(found.length!==1){treeNodes.push({type:'unresolved',from:c.id,reason:'backend_handler_ambiguo',handler});continue;}
           treeNodes.push({type:'backend_candidate',from:c.id,handler,at:found[0].file+':'+found[0].line,depth:depth+2});
-          walk(found[0].id,depth+3);
+          yield [found[0].id,depth+3];
         }
         if(e&&['external_service_http','external_configured_service','browser_forwarded_request','browser_document_candidate'].includes(e.status)){
           treeNodes.push({type:'external_http',from:c.id,reason:e.status,hosts:e.externalHosts||[],depth:depth+2});
@@ -998,7 +1000,7 @@ function scan(){
           else treeNodes.push({type:'unresolved',from:c.id,reason:'sufijo_de_ruta_dinamico'});
         }
       }else if(c.kind==='data'){
-        treeNodes.push({type:'data',from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
+        treeNodes.push({type:'data',callId:c.id,from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
       }else if(c.resolution==='promise_resolver_binding'){
         treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.resolution==='promise_resolver_parameter'){
@@ -1008,12 +1010,12 @@ function scan(){
           exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.to){
         treeNodes.push({type:'edge',from:id,to:c.to,at:c.file+':'+c.line,resolution:c.resolution,depth:depth+1});
-        walk(c.to,depth+2);
+        yield [c.to,depth+2];
       }else if(c.alternatives?.length){
         for(const to of c.alternatives){
           treeNodes.push({type:'edge',from:id,to,at:c.file+':'+c.line,
             resolution:'callback_alternativa_segun_llamador',depth:depth+1});
-          walk(to,depth+2);
+          yield [to,depth+2];
         }
       }else if(['unknown','external_method','browser_native'].includes(c.resolution)){
         // External standard DOM calls are expected; mark distinction from internal ambiguity.
@@ -1023,6 +1025,14 @@ function scan(){
       }
     }
     seen.delete(id);
+  }
+  const walk=(id,depth)=>{
+    const stack=[expand(id,depth)];
+    while(stack.length){
+      const next=stack.at(-1).next();
+      if(next.done)stack.pop();
+      else stack.push(expand(...next.value));
+    }
   };
   const scanInline=()=>{
     let raw=String(action.handler||'').replace(/\\'/g,"'");
@@ -1103,7 +1113,9 @@ function scan(){
     missingHandlers:treeNodes.filter(x=>x.type==='missing_handler').length,
     possibleMissingRoutes:treeNodes.filter(x=>['missing_worker_route_in_source','possible_missing_worker_route'].includes(x.type)).length,
     externalObjects:treeNodes.filter(x=>x.type==='external_object').length,
-    cycles:treeNodes.filter(x=>x.type==='cycle').length};
+    cycles:treeNodes.filter(x=>x.type==='cycle').length,
+    references:treeNodes.filter(x=>x.type==='reference').length,
+    limits:treeNodes.filter(x=>x.type==='limit').length};
   trees.push({action,counts,nodes:treeNodes,status:counts.unresolved?'incompleto':counts.missingHandlers?'posible_manejador_ausente':'ramas_estaticas_identificadas_sin_prueba_funcional'});
  }
  // Every concrete front-end request without a dispatch is a DEAD END,
@@ -1172,7 +1184,7 @@ function scan(){
    sameActionRequests:sameActionRequests.sort((a,b)=>a.route.localeCompare(b.route)||a.action.file.localeCompare(b.action.file)||a.action.line-b.action.line),
    disclaimer:'Candidatos de consumo transversal, sin multiplicar lecturas por cantidad de árboles. Verificar condiciones, caché, llamadas y métricas efectivas.'};
  const totals={files:paths.length,functions:allFns.length,calls:allCalls.length,buttons:actions.length,
-  trees:trees.length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
+  trees:trees.length,treesWithLimits:trees.filter(t=>t.counts.limits).length,treesWithOpenBranches:trees.filter(t=>t.counts.unresolved).length,
   treesWithData:trees.filter(t=>t.counts.data).length,treesWithHttp:trees.filter(t=>t.counts.http).length,
   treesWithMissingHandlers:trees.filter(t=>t.counts.missingHandlers).length,
   treesWithPossibleMissingRoutes:trees.filter(t=>t.counts.possibleMissingRoutes).length,
@@ -1191,6 +1203,9 @@ function scan(){
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
   trees,endpoints,deadEnds,transversal,unresolved,workerEntrypoints,
+   functionGraph:allFns.map(f=>({id:f.id,name:f.name,file:f.file,line:f.line,
+     calls:(outCalls.get(f.id)||[]).map(c=>({id:c.id,file:c.file,line:c.line,method:c.method,kind:c.kind,to:c.to||null,alternatives:c.alternatives||[],guards:c.guards,resolution:c.resolution})),
+     terminals:(outTerminals.get(f.id)||[]).map(t=>({kind:t.kind,file:t.file,line:t.line,expression:t.expression,guards:t.guards}))})),
    startupCalls:allCalls.filter(c=>c.file.startsWith('plataforma/')&&c.from===c.file+':<top-level>').map(c=>({file:c.file,line:c.line,expression:c.expr})),
    workerRouteInventory:{regexRoutes:regexRoutes.map(x=>({file:x.file,line:x.line,pattern:x.pattern,flags:x.flags})),
      literalDispatchRules:dispatchRules.map(x=>({file:x.file,line:x.line,path:x.path,verb:x.verb}))}};
