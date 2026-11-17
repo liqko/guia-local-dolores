@@ -26,7 +26,7 @@ function scan(){
   const raw=fs.readFileSync(path.join(ROOT,file),'utf8');srcs.set(file,raw);
   if(file.endsWith('.html')){
    // Buttons and forms that declare handlers directly.
-   const tags=/<(button|input|select|form|a)\b([^>]*?)>/gi;let t;
+   const tags=/<(button|input|select|form|a|div)\b([^>]*?)>/gi;let t;
    while((t=tags.exec(raw))){
     const attr=t[2],event=/\bon(click|submit|change|input)\s*=\s*(['"])([\s\S]*?)\2/i.exec(attr);
     if(!event)continue;
