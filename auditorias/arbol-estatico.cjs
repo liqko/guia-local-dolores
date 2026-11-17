@@ -19,7 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[],workerEntrypoints=[];
- const objectExports=[],callbackAliases=[];
+ const objectExports=[],callbackAliases=[],extraRootActions=[];
  const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[],promiseResolverBindings=[],urlAssignments=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
@@ -241,12 +241,16 @@ function scan(){
       const owner=ts.isClassDeclaration(n.parent)?n.parent.name?.text:
         ts.isObjectLiteralExpression(n.parent)?'object':null;
       workerEntrypoints.push({file,line:line(n),owner,method:n.name.getText(sf)});
+      const expression=n.name.getText(sf);
+      extraRootActions.push({id:sha([file,line(n),'worker_entry',expression].join('|')).slice(0,16),file,line:line(n),kind:'worker_entry',handler:expression,entryId:functionId(n),method:expression,owner});
     }
     if(file==='worker/worker206.txt'&&ts.isBinaryExpression(n)&&
        n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isPropertyAccessExpression(n.left)&&['fetch','alarm'].includes(n.left.name.text)&&
        /\.prototype$/.test(n.left.expression.getText(sf))&&isFn(n.right)){
       workerEntrypoints.push({file,line:line(n),owner:n.left.expression.getText(sf).replace(/\.prototype$/,''),method:n.left.name.text});
+      const expression=n.left.getText(sf);
+      extraRootActions.push({id:sha([file,line(n),'worker_entry',expression].join('|')).slice(0,16),file,line:line(n),kind:'worker_entry',handler:expression,entryId:functionId(n.right),method:n.left.name.text});
     }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isIdentifier(n.left)&&ts.isCallExpression(n.right)&&
@@ -381,6 +385,11 @@ function scan(){
       })),
       kind:isFetch?'http':dataOp?'data':'call',to:null,resolution:'pending'};
      allCalls.push(call);
+     if(file.endsWith('.html')&&owner===file+':<top-level>'&&ts.isCallExpression(n)&&
+        (ts.isIdentifier(target)||ts.isPropertyAccessExpression(target))){
+       const expression=n.getText(sf).slice(0,180);
+       extraRootActions.push({id:sha([file,at,'startup_call',expression].join('|')).slice(0,16),file,line:at,kind:'startup_call',handler:expression,seedCallId:call.id});
+     }
      if(method==='addEventListener'&&args.length>=2){
       const h=args[1],handler=ts.isIdentifier(h)?h.text:ts.isArrowFunction(h)||ts.isFunctionExpression(h)?'callback@'+line(h):h.getText(sf).slice(0,130);
       const isCallback=ts.isArrowFunction(h)||ts.isFunctionExpression(h);
@@ -1009,8 +1018,17 @@ function scan(){
  for(const c of allCalls){const a=outCalls.get(c.from)||[];a.push(c);outCalls.set(c.from,a);}
  for(const t of terminals){const a=outTerminals.get(t.from)||[];a.push(t);outTerminals.set(t.from,a);}
  const httpById=new Map(endpoints.map(e=>[e.callId,e]));
+ // Keep 701 UI actions in their original order; append source-backed startup/Worker roots.
+ actions.push(...extraRootActions);
  const trees=[];
  for(const action of actions){
+  if(action.seedCallId){
+    const original=allCalls.find(c=>c.id===action.seedCallId);
+    if(!original)throw Error('Arranque sin llamada fuente: '+action.file+':'+action.line);
+    const synthetic='startup-root:'+action.seedCallId;
+    byId.set(synthetic,{id:synthetic,name:'arranque@'+action.line,file:action.file,line:action.line,parent:null});
+    outCalls.set(synthetic,[original]);outTerminals.set(synthetic,[]);action.entryId=synthetic;
+  }
   const match=/^\s*(?:return\s+)?(?:await\s+)?([\w$]+)/.exec(action.handler||'');
   const entry=match?.[1]||null;
   let resolved=action.entryId?{to:action.entryId,resolution:'callback_directo'}:
