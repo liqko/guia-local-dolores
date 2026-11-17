@@ -58,8 +58,8 @@ const automatedContracts=[
   steps:[['guardado de token',"localStorage.getItem('gld_superadmin_token')"],['arranque condicionado','if(TOKEN) abrirApp();'],['abrir aplicación','async function abrirApp(prefetched=null){'],['consulta principal',"+'/superadmin/dashboard'"],['carga de pendientes',"ghRevisionUnificada(GH_DAILY_ENTRY195?.inbox||null)"]],
   routeEvidence:'GET /superadmin/dashboard con token conservado; bandeja reutiliza copia si existe'},
  {name:'Gran Hermano · inicio de sesión nuevo',interface:'Gran Hermano',file:'plataforma/administracion.html',
-  steps:[['autenticar',"+'/superadmin/session/login'"],['abrir con respuesta autenticada','await abrirApp(j.entry_version===195?']],
-  routeEvidence:'POST /superadmin/session/login; si retorna entrada diaria precargada evita GET /superadmin/dashboard'}
+  steps:[['autenticar',"+'/superadmin/session/login'"],['abrir aplicación tras autenticar','await abrirApp();']],
+  routeEvidence:'Rama auditada: POST /superadmin/session/login y luego GET /superadmin/dashboard. Main actual tiene reutilización de respuesta prefetched; diferencias de versiones deben conciliarse antes de corregir'}
 ];
 const automated=automatedContracts.map(entry=>{
  const raw=fs.readFileSync(entry.file,'utf8'),lines=raw.split('\n'),events=[];
