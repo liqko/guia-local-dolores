@@ -30,6 +30,13 @@ for(const file of paths){
     }
    }
   }
+  function fragmentsCombined(n){
+   if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.PlusToken)
+     return fragmentsCombined(n.left)+fragmentsCombined(n.right);
+   if(ts.isStringLiteralLike(n))return n.text;
+   if(ts.isTemplateExpression(n))return n.head.text+n.templateSpans.map(s=>'__DYNAMIC__'+s.literal.text).join('');
+   return '__DYNAMIC__';
+  }
   function visit(n){
    if(ts.isTemplateExpression(n)){
     const str=n.head.text+n.templateSpans.map(s=>'__DYNAMIC__'+s.literal.text).join('');
@@ -47,6 +54,8 @@ for(const file of paths){
    if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
      ts.isPropertyAccessExpression(n.left)&&n.left.name.text==='innerHTML'&&
      !ts.isStringLiteralLike(n.right)&&!ts.isTemplateExpression(n.right)){
+     const assembled=fragmentsCombined(n.right);
+     markup(n,assembled,'concat');
      const src=n.right.getText(sf);
      if(/on(?:click|change|submit)\s*=/.test(src))uncertain.push({file,line:line(n),expression:src.slice(0,130)});
    }
