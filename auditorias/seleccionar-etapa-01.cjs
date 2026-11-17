@@ -62,7 +62,7 @@ const automatedContracts=[
   routeEvidence:'POST /superadmin/session/login; si retorna entrada diaria precargada evita GET /superadmin/dashboard'}
 ];
 const automated=automatedContracts.map(entry=>{
- const raw=fs.readFileSync(entry.file,'utf8'),lines=raw.split('\\n'),events=[];
+ const raw=fs.readFileSync(entry.file,'utf8'),lines=raw.split('\n'),events=[];
  for(const [label,needle] of entry.steps){
   const matches=[];
   for(let i=0;i<lines.length;i++)if(lines[i].includes(needle))matches.push(i+1);
