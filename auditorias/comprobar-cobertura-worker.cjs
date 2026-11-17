@@ -23,10 +23,14 @@ function visit(n){
  ts.forEachChild(n,visit);
 }
 visit(sf);
+const tree=JSON.parse(fs.readFileSync('auditorias/transversal/ARBOL_ACCIONES.json','utf8'));
+const known=tree.workerRouteInventory?.regexRoutes||[];
+const missingPatterns=patterns.filter(p=>!known.some(r=>r.file===file&&r.line===p.line));
 const missing=gates.filter(g=>!gps.routeMap.some(route=>route.path===g.path&&route.worker.some(w=>w.at.startsWith(file+':'))));
 const unique=[...new Set(gates.map(g=>g.path))];
 const sourceHash=gps.hashes[file];
 assert(sourceHash,'GPS no contiene el Worker');
-console.log('COBERTURA_WORKER_RUTAS '+JSON.stringify({literalGateSites:gates.length,uniqueLiteralRoutes:unique.length,regexRouteSites:patterns.length,missingLiteralRoutes:missing.slice(0,35),notCertifiedDynamicPatterns:patterns.slice(0,12)}));
+console.log('COBERTURA_WORKER_RUTAS '+JSON.stringify({literalGateSites:gates.length,uniqueLiteralRoutes:unique.length,regexRouteSites:patterns.length,missingLiteralRoutes:missing.slice(0,35),mappedRegexRoutes:known.length,missingRegexRoutes:missingPatterns}));
 assert(gates.length>0,'No se identificaron rutas del Worker');
 assert.equal(missing.length,0,'Rutas literales de Worker omitidas por el mapa');
+assert.equal(missingPatterns.length,0,'Rutas dinámicas no inventariadas en Worker');
