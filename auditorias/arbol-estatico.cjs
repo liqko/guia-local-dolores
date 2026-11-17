@@ -1165,7 +1165,9 @@ function scan(){
   astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
-  trees,endpoints,deadEnds,transversal,unresolved};
+  trees,endpoints,deadEnds,transversal,unresolved,
+   workerRouteInventory:{regexRoutes:regexRoutes.map(x=>({file:x.file,line:x.line,pattern:x.pattern,flags:x.flags})),
+     literalDispatchRules:dispatchRules.map(x=>({file:x.file,line:x.line,path:x.path,verb:x.verb}))}};
 }
 function md(r){
  const t=r.totals,lines=['# Árbol automático de acciones','','**Resultado estático, NO prueba funcional.**','',
