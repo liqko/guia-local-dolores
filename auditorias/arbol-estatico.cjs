@@ -645,7 +645,8 @@ function scan(){
       let owner=byId.get(c.from),depth=0;
       while(owner&&!owner.classOwner&&depth++<50)owner=byId.get(owner.parent);
       if(owner?.classOwner){
-        const scoped=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.classOwner===owner.classOwner);
+        const scoped=[...(byName.get(c.method)||[]),...(byName.get(owner.classOwner+'.prototype.'+c.method)||[])]
+          .filter(f=>f.file===c.file&&f.classOwner===owner.classOwner);
         if(scoped.length===1){c.to=scoped[0].id;c.resolution='this_metodo_misma_clase_comprobada';continue;}
         if(scoped.length>1){c.resolution='this_metodo_ambiguo_misma_clase';c.candidates=scoped.map(f=>f.id);continue;}
       }
