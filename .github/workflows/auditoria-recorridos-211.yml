@@ -1,0 +1,58 @@
+name: Auditoria recorridos 211
+on:
+  push:
+    branches: [audit/transversal-consumos-20261115]
+    paths:
+      - 'auditorias/**'
+      - 'worker/worker206.txt'
+      - 'plataforma/**'
+      - '.github/workflows/auditoria-recorridos-211.yml'
+  workflow_dispatch:
+jobs:
+  recorridos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar analizador
+        run: npm install --no-save --package-lock=false typescript@5.9.3
+      - name: Regenerar mapas sobre fuente 211
+        run: |
+          node auditorias/generar-mapa-gps.cjs --write
+          node auditorias/arbol-estatico.cjs --write
+          node auditorias/inventario-independiente.cjs --write
+          node auditorias/inventario-eventos-dinamicos.cjs --write
+          node auditorias/generar-catalogo-maestro.cjs --self-test --write
+      - name: Verificar 280 recorridos sin duplicados
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const base='auditorias/transversal/';
+          const map=JSON.parse(fs.readFileSync(base+'ARBOL_ACCIONES.json'));
+          const inv=JSON.parse(fs.readFileSync(base+'INVENTARIO_INDEPENDIENTE.json'));
+          const catalog=JSON.parse(fs.readFileSync(base+'CATALOGO_MAESTRO.json'));
+          const roots=inv.entries.filter(e=>['startup_call','worker_entry'].includes(e.kind));
+          const starts=roots.filter(e=>e.kind==='startup_call'),workers=roots.filter(e=>e.kind==='worker_entry');
+          const key=e=>[e.kind,e.id,e.file,e.line].join('|');
+          const treeRoots=map.trees.filter(t=>['startup_call','worker_entry'].includes(t.action.kind));
+          const expected=new Set(roots.map(key)),actual=new Set(treeRoots.map(t=>key(t.action)));
+          if(roots.length!==280||starts.length!==272||workers.length!==8)throw Error('Raices diferentes al inventario anterior: '+JSON.stringify({roots:roots.length,starts:starts.length,workers:workers.length}));
+          if(expected.size!==280||actual.size!==280||treeRoots.length!==280)throw Error('Raices duplicadas o faltantes');
+          for(const k of expected)if(!actual.has(k))throw Error('Raiz ausente: '+k);
+          if(map.trees.length!==catalog.entries.length)throw Error('Catalogo duplicado');
+          if(map.trees.filter(t=>!['startup_call','worker_entry'].includes(t.action.kind)).length!==701)throw Error('Los 701 recorridos UI cambiaron; requiere cotejo');
+          if(catalog.coverage.sourceEntries.some(e=>!e.units.length)||catalog.coverage.dynamicEntries.some(e=>!e.candidateUnits.length))throw Error('Cobertura estatica incompleta');
+          for(const root of treeRoots)if(!root.nodes.length||!root.nodes.some(n=>n.type==='function'))throw Error('Arbol sin cuerpo: '+root.action.id);
+          console.log('RECORRIDOS_211_PASS',JSON.stringify({total:map.trees.length,originales:701,nuevos:280,arranques:272,worker:8,limites:map.totals.treesWithLimits,abiertos:map.totals.treesWithOpenBranches}));
+          NODE
+      - name: Publicar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recorridos-auditoria-worker-211
+          path: |
+            auditorias/transversal/ARBOL_ACCIONES.json
+            auditorias/transversal/ARBOL_ACCIONES.md
+            auditorias/transversal/INVENTARIO_INDEPENDIENTE.json
+            auditorias/transversal/CATALOGO_MAESTRO.json
+            auditorias/transversal/CATALOGO_MAESTRO.md
+          if-no-files-found: warn
