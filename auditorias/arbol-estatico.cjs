@@ -388,7 +388,8 @@ function scan(){
      if(file.endsWith('.html')&&owner===file+':<top-level>'&&ts.isCallExpression(n)&&
         (ts.isIdentifier(target)||ts.isPropertyAccessExpression(target))){
        const expression=n.getText(sf).slice(0,180);
-       extraRootActions.push({id:sha([file,at,'startup_call',expression].join('|')).slice(0,16),file,line:at,kind:'startup_call',handler:expression,seedCallId:call.id});
+       const column=sf.getLineAndCharacterOfPosition(n.getStart(sf)).character;
+       extraRootActions.push({id:sha([file,at,'startup_call',expression,'column:'+column].join('|')).slice(0,16),file,line:at,column,kind:'startup_call',handler:expression,seedCallId:call.id});
      }
      if(method==='addEventListener'&&args.length>=2){
       const h=args[1],handler=ts.isIdentifier(h)?h.text:ts.isArrowFunction(h)||ts.isFunctionExpression(h)?'callback@'+line(h):h.getText(sf).slice(0,130);
