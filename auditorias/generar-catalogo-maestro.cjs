@@ -14,13 +14,14 @@ const actions=map.trees.map((tree,i)=>{
  const limits=n.filter(x=>['unresolved','limit','missing_handler','missing_worker_route_in_source','possible_missing_worker_route'].includes(x.type));
  return {id:'AUD-'+String(i+1).padStart(5,'0'),key:fingerprint([a.file,a.line,a.kind,a.handler||a.event||''].join('|')),interface:iface(a.file),start:{...a},status:'pendiente_de_auditoria',mapStatus:tree.status,counts,limitations:limits,files:[...new Set([a.file,...n.map(x=>x.file).filter(Boolean)])],network:n.filter(x=>x.type==='http'),data:n.filter(x=>x.type==='data'),checks:{duplicaciones:'pendiente',codigo_obsoleto_y_parches:'pendiente',errores:'pendiente',consumos_reales:'no_medidos'}};
 });
-// These are real source entry points, but no event tree certifies their traversal.
+// Startup and Worker roots are generated as actual graph trees by arbol-estatico.
+// Do not append placeholders and accidentally duplicate source entries.
 for(const entry of inventory.entries.filter(e=>['startup_call','worker_entry'].includes(e.kind))){
- actions.push({id:'AUD-'+String(actions.length+1).padStart(5,'0'),key:entry.id,interface:iface(entry.file),start:{...entry},status:'pendiente_de_auditoria',mapStatus:'entrada_sin_arbol_propio',counts:{},limitations:[{type:'unresolved',reason:'recorrido_de_entrada_pendiente'}],files:[entry.file],network:[],data:[],checks:{consumos_reales:'no_medidos'}});
+ if(!map.trees.some(t=>t.action.id===entry.id&&t.action.kind===entry.kind))throw Error('Entrada sin árbol propio: '+entry.file+':'+entry.line+' '+entry.kind);
 }
 function matchSource(e,units){
  return units.filter(u=>{const a=u.start;if(a.file!==e.file||a.line!==e.line)return false;
- if(['startup_call','worker_entry'].includes(e.kind))return a.id===e.id;
+ if(['startup_call','worker_entry'].includes(e.kind))return a.id===e.id&&a.kind===e.kind;
  if(e.kind==='event_property')return a.kind===e.kind&&a.event===e.event&&a.receiver===e.receiver;
  if(e.kind==='event_listener')return a.kind==='listener'&&norm(a.event)===norm(e.event)&&String(a.receiver||'').slice(0,130)===String(e.receiver||'').slice(0,130);
  if(e.kind==='html_attribute')return a.kind==='html_handler'&&norm(a.handler).slice(0,60)===norm(e.expression).slice(0,60);
