@@ -34,11 +34,11 @@ selected.sort((a,b)=>a.interface.localeCompare(b.interface)||a.source.localeComp
 const rootRules=[
  {name:'Usuario · inicio en carcasa',interface:'Usuario',file:'plataforma/carcasa.html',handler:/^gldLoginSubscriber$/},
  {name:'Usuario · iniciar sesión',interface:'Usuario',file:'plataforma/suscriptores.html',handler:/^login$/},
- {name:'Anunciante · seleccionar anuncio',interface:'Anunciante',file:'plataforma/login.html',handler:/^callback@\d+$/},
+ {name:'Anunciante · seleccionar anuncio',interface:'Anunciante',file:'plataforma/login.html',handler:/^callback@\d+$/,sourceNeedle:"btn.addEventListener('click',()=>seleccionarAnunciante_(rel));"},
  {name:'Gran Hermano · abrir inicio',interface:'Gran Hermano',file:'plataforma/administracion.html',handler:/^ghGoView\('inicio'\)$/}
 ];
 const roots=rootRules.map(rule=>{
- const list=selected.filter(x=>x.interface===rule.interface&&x.source.startsWith(rule.file+':')&&rule.handler.test(x.handler));
+ const list=selected.filter(x=>{if(x.interface!==rule.interface||!x.source.startsWith(rule.file+':')||!rule.handler.test(x.handler))return false;if(!rule.sourceNeedle)return true;const line=Number(x.source.slice(x.source.lastIndexOf(':')+1));return fs.readFileSync(rule.file,'utf8').split('\n')[line-1]?.includes(rule.sourceNeedle);});
  if(list.length!==1)throw Error('Raíz ausente o ambigua: '+rule.name+' ('+list.length+')');
  return {name:rule.name,...list[0]};
 });
