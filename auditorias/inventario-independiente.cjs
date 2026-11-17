@@ -3,7 +3,7 @@
 // Censo independiente: fuentes oficiales => entradas. No usa arbol-estatico.cjs.
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),ts=require('typescript'),crypto=require('node:crypto');
 const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
-const sources=['plataforma/suscriptores.html','plataforma/carcasa.html','plataforma/login.html','plataforma/administracion.html','worker/worker206.txt'];
+const sources=cp.execFileSync('git',['ls-files','-z','--','plataforma','worker/worker206.txt'],{encoding:'utf8'}).split('\0').filter(p=>/^(plataforma\/.*\.(?:html|js|cjs|mjs)|worker\/worker206\.txt)$/.test(p)&&fs.existsSync(p)).sort();
 const reportPath='auditorias/transversal/ARBOL_ACCIONES.json';
 const arr=[],sourceHashes={};
 const add=(file,line,kind,expression,extra={})=>arr.push({id:sha([file,line,kind,expression].join('|')).slice(0,16),file,line,kind,expression:expression.slice(0,250),...extra});
