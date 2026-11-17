@@ -8,9 +8,12 @@ const canonical=s=>String(s||'').replace(/\\(["'])/g,'$1').replace(/\s+/g,'').to
 const findings=[];
 for(const item of inv.entries){
  const starts=canonical(item.handler).slice(0,36);
+ const method=/([A-Za-z_$][\\w$]*)\\s*\\(/.exec(item.handler)?.[1]||null;
  const matches=actions.filter(a=>a.file===item.file&&(
   (Math.abs(a.line-item.line)<=2&&canonical(a.handler).includes(starts.slice(0,18)))||
-  (canonical(a.handler).includes(starts)&&Math.abs(a.line-item.line)<=15)
+  (canonical(a.handler).includes(starts)&&Math.abs(a.line-item.line)<=15)||
+  (item.source==='concat'&&method&&Math.abs(a.line-item.line)<=60&&
+    new RegExp('\\\\b'+method+'\\\\s*\\\\(').test(a.handler))
  ));
  const sorted=matches.sort((a,b)=>Math.abs(a.line-item.line)-Math.abs(b.line-item.line));
  findings.push({...item,represented:sorted.length>0,match:sorted[0]?{line:sorted[0].line,kind:sorted[0].kind,handler:sorted[0].handler}:null});
