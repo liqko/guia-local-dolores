@@ -352,7 +352,7 @@ function scan(){
       const isCallback=ts.isArrowFunction(h)||ts.isFunctionExpression(h);
       const entryId=isCallback?functionId(h):null;
       actions.push({id:sha(file+':'+at+':listener').slice(0,16),file,line:at,kind:'listener',element:'dom',
-        elementId:null,label:first||null,handler,entry:null,entryId,context:owner,event:first||null,receiver});
+        elementId:null,label:first||null,handler,entry:null,entryId,context:owner,event:first||arg0?.getText(sf)||null,receiver});
      }
      if(isFetch){
       // Original expression retained: dynamic URLs must not be declared resolved.
