@@ -1180,6 +1180,7 @@ function scan(){
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
   trees,endpoints,deadEnds,transversal,unresolved,workerEntrypoints,
+   startupCalls:allCalls.filter(c=>c.file.startsWith('plataforma/')&&c.from===c.file+':<top-level>').map(c=>({file:c.file,line:c.line,expression:c.expr})),
    workerRouteInventory:{regexRoutes:regexRoutes.map(x=>({file:x.file,line:x.line,pattern:x.pattern,flags:x.flags})),
      literalDispatchRules:dispatchRules.map(x=>({file:x.file,line:x.line,path:x.path,verb:x.verb}))}};
 }
