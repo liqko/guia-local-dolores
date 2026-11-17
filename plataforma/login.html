@@ -885,9 +885,30 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
           <div class="small-muted">Hasta 500 caracteres.</div>
         </div>
       </div>
-      <div id="alta-anunciante-completo" hidden aria-live="polite"></div><div id="alta-reclamo155" hidden><label>Buscar anuncio por nombre o ID<input id="alta-reclamo-buscar155" type="search"></label><button type="button" onclick="buscarAnuncioReclamo155()">Buscar anuncio</button><p id="alta-reclamo-status155" role="status"></p><label>Anuncio que querés reclamar<select id="alta-reclamo-id155"><option value="">Seleccioná un anuncio existente</option></select></label><label>¿Qué relación tenés con el anunciante y cómo podemos verificarla?<textarea id="alta-reclamo-motivo155" rows="4" minlength="20" maxlength="2000"></textarea></label><p>El reclamo se revisa en Panel de administración general. Enviarlo no concede acceso ni reemplaza a los responsables actuales.</p></div><div id="alta-anunciante-ayuda" class="small-muted" style="margin-top:8px"></div>
+      <div id="alta-anunciante-completo" hidden aria-live="polite"></div><div id="alta-anunciante-ayuda" class="small-muted" style="margin-top:8px"></div>
       <button id="btnEnviarAltaAnunciante" class="primary" type="button">Enviar solicitud</button>
       <button id="btnVolverDesdeAltaAnunciante" class="secondary" type="button">Volver</button>
+    </div>
+
+    <div id="panel-reclamar-anunciante" class="panel">
+      <h2>Reclamar un anuncio existente</h2>
+      <form id="form-reclamo-anunciante155" onsubmit="event.preventDefault();enviarReclamoAnunciante155()">
+        <div id="alta-reclamo155">
+          <label for="alta-reclamo-ciudad155">Ciudad</label>
+          <select id="alta-reclamo-ciudad155"><option value="">Seleccioná una ciudad</option></select>
+          <label for="alta-reclamo-buscar155">Buscar anuncio por nombre o ID</label>
+          <input id="alta-reclamo-buscar155" type="search" disabled>
+          <button id="alta-reclamo-boton155" type="button" onclick="buscarAnuncioReclamo155()" disabled>Buscar anuncio</button>
+          <p id="alta-reclamo-status155" role="status"></p>
+          <label for="alta-reclamo-id155">Resultados</label>
+          <select id="alta-reclamo-id155" disabled><option value="">Seleccioná un anuncio</option></select>
+          <label for="alta-reclamo-motivo155">¿Qué relación tenés con el anunciante y cómo podemos verificarla?</label>
+          <textarea id="alta-reclamo-motivo155" rows="4" minlength="20" maxlength="2000" required></textarea>
+          <p>El reclamo se somete a revisión. Enviarlo no concede acceso ni reemplaza a los responsables actuales. Su resolución puede demorar hasta 48 horas.</p>
+        </div>
+        <button id="btnEnviarReclamoAnunciante155" class="primary" type="submit">Enviar reclamo</button>
+        <button id="btnVolverDesdeReclamo155" class="secondary" type="button">Volver</button>
+      </form>
     </div>
 
     <div id="panel-soporte" class="panel">
@@ -2020,6 +2041,7 @@ function mostrarPanel(panel){
     'panel-acceso-administrativo',
     'panel-no-autorizado',
     'panel-alta-anunciante',
+    'panel-reclamar-anunciante',
     'panel-recuperar',
     'panel-soporte',
     'panel-notificaciones',
@@ -2117,57 +2139,81 @@ async function enviarSoporteV73_(){
  catch(e){msg.textContent=e.message;}finally{button.disabled=false;}
 }
 
-let claimSearchSequence155=0;
+let claimSearchSequence155=0,claimResults155=[];
+async function cargarCiudadesReclamo155(){
+ const city=document.getElementById('alta-reclamo-ciudad155'),status=document.getElementById('alta-reclamo-status155');
+ city.disabled=true;status.textContent='Cargando ciudades…';
+ try{
+  const territorio=await gldTerritoryPublic_();
+  if(!document.getElementById('panel-reclamar-anunciante').classList.contains('active'))return;
+  city.replaceChildren(new Option('Seleccioná una ciudad',''));
+  for(const row of territorio.ciudades.filter(c=>c.activo!==false)){
+   const id=String(row.ciudad_id||row.id||'');if(!id)continue;
+   city.add(new Option([row.ciudad||row.ciudad_visible||row.nombre||id,row.provincia,row.pais].filter(Boolean).join(' · '),id));
+  }
+  status.textContent='Elegí una ciudad para ver sus anuncios.';
+ }catch(error){status.textContent=error.message||'No se pudieron cargar las ciudades. Volvé a abrir el reclamo para reintentar.';}
+ finally{city.disabled=false;}
+}
 async function buscarAnuncioReclamo155(){
- const seq=++claimSearchSequence155,status=document.getElementById('alta-reclamo-status155');status.textContent='Buscando...';
- try{const r=await fetch(WORKER_ORIGIN+'/advertisers/claim-options?q='+encodeURIComponent(document.getElementById('alta-reclamo-buscar155').value.trim()),{headers:gldAuthHeaders_()});const j=await r.json();if(seq!==claimSearchSequence155)return;if(!r.ok||!j.success)throw Error(j.message||'No se pudo buscar el anuncio.');comercios=j.results||[];const select=document.getElementById('alta-reclamo-id155');select.replaceChildren(new Option('Seleccioná un anuncio existente',''));for(const item of comercios)select.add(new Option(item.nombre+' · '+(item.ciudad_ids||[]).join(', ')+' · '+item.id,item.id));status.textContent=j.hay_mas?'Hay más resultados. Escribí un nombre o ID más específico.':comercios.length?'Seleccioná el anuncio que corresponde.':'No encontramos anuncios con esa búsqueda.';}catch(error){status.textContent=error.message;}
+ const seq=++claimSearchSequence155,status=document.getElementById('alta-reclamo-status155'),city=document.getElementById('alta-reclamo-ciudad155').value,select=document.getElementById('alta-reclamo-id155');
+ select.replaceChildren(new Option('Seleccioná un anuncio',''));select.disabled=true;claimResults155=[];
+ if(!city){status.textContent='Elegí una ciudad para ver sus anuncios.';return;}
+ status.textContent='Buscando…';
+ const params=new URLSearchParams({ciudad_id:city,q:document.getElementById('alta-reclamo-buscar155').value.trim()});
+ try{
+  const r=await fetch(WORKER_ORIGIN+'/advertisers/claim-options?'+params,{headers:gldAuthHeaders_()}),j=await r.json();
+  if(seq!==claimSearchSequence155)return;
+  if(!r.ok||!j.success)throw Error(j.message||'No se pudo buscar el anuncio.');
+  claimResults155=(j.results||[]).filter(item=>(item.ciudad_ids||[item.ciudad_id]).map(String).includes(city));
+  for(const item of claimResults155)select.add(new Option(item.nombre+' · '+item.id,item.id));
+  select.disabled=!claimResults155.length;
+  status.textContent=j.hay_mas?'Hay más resultados. Escribí un nombre o ID más específico.':claimResults155.length?'Seleccioná el anuncio que corresponde.':'No encontramos anuncios con esa búsqueda en la ciudad elegida.';
+ }catch(error){if(seq===claimSearchSequence155)status.textContent=error.message;}
+}
+function abrirReclamoAnunciante155(){
+  ++claimSearchSequence155;claimResults155=[];
+  const city=document.getElementById('alta-reclamo-ciudad155'),query=document.getElementById('alta-reclamo-buscar155'),select=document.getElementById('alta-reclamo-id155'),button=document.getElementById('alta-reclamo-boton155');
+  city.value='';query.value='';query.disabled=true;button.disabled=true;
+  select.replaceChildren(new Option('Seleccioná un anuncio',''));select.disabled=true;
+  document.getElementById('alta-reclamo-motivo155').value='';
+  city.onchange=()=>{query.value='';query.disabled=!city.value;button.disabled=!city.value;buscarAnuncioReclamo155();};
+  mostrarPanel('reclamar-anunciante');cargarCiudadesReclamo155();
+}
+async function enviarReclamoAnunciante155(){
+  if(!sesionSuscriptor?.suscriptor_id||!gldSubscriberToken){mostrarPanel('login');return;}
+  const city=document.getElementById('alta-reclamo-ciudad155').value,id=document.getElementById('alta-reclamo-id155').value;
+  const selected=claimResults155.find(row=>String(row.id)===id&&(row.ciudad_ids||[row.ciudad_id]).map(String).includes(city));
+  const motivo=document.getElementById('alta-reclamo-motivo155').value.trim();
+  if(!city){alert('Seleccioná una ciudad.');return;}
+  if(!selected){alert('Seleccioná el anuncio que querés reclamar.');return;}
+  if(motivo.length<20||motivo.length>2000){alert('Explicá cómo podemos verificar tu relación con el anunciante (20 a 2000 caracteres).');return;}
+  const button=document.getElementById('btnEnviarReclamoAnunciante155');if(button.disabled)return;button.disabled=true;
+  try{
+    const contact=whatsappContextoCuenta_();
+    const result=await apiSuscriptores_({action:'solicitar_anunciante',modo:'RECLAMAR',anunciante_id:selected.id,nombre:selected.nombre,ciudad:city,motivo,mail:contact.mail||'',whatsapp:contact.whatsapp||''});
+    if(result?.success!==true)throw Error(result?.message||'No se pudo enviar el reclamo.');
+    alert('Reclamo enviado. Su resolución puede demorar hasta 48 horas.');mostrarPanel('seleccionar-anunciante');
+  }catch(error){alert(error.message||'No se pudo enviar el reclamo.');}
+  finally{button.disabled=false;}
 }
 function abrirSolicitudAnunciante_(modo){
-  // Nunca mostrar datos de alta/reclamo antes de autenticar la cuenta personal.
-  if(!sesionSuscriptor?.suscriptor_id || !gldSubscriberToken){
-    mostrarPanel('login');
-    const aviso=document.getElementById('login-msg');
+  if(!sesionSuscriptor?.suscriptor_id||!gldSubscriberToken){
+    mostrarPanel('login');const aviso=document.getElementById('login-msg');
     if(aviso)aviso.textContent='Primero ingresá con tu cuenta personal para crear o reclamar un anuncio.';
-    document.getElementById('login-mail')?.focus();
-    return false;
+    document.getElementById('login-mail')?.focus();return false;
   }
-  const esReclamo=String(modo||'').toUpperCase()==='RECLAMAR';
-  document.getElementById('alta-reclamo155').hidden=!esReclamo;
-  document.getElementById('alta-reclamo-motivo155').value='';
-  const select=document.getElementById('alta-reclamo-id155');select.replaceChildren(new Option('Seleccioná un anuncio existente',''));
-  for(const item of comercios||[])if(item.id)select.add(new Option(String(item.nombre||item.id)+' · '+String(item.ciudad_visible||item.ciudad_id||(item.ciudad_ids||[]).join(', ')||'')+' · '+item.id,item.id));
-  select.onchange=()=>{const item=(comercios||[]).find(x=>String(x.id)===select.value);if(item)document.getElementById('alta-anunciante-nombre').value=item.nombre;};
-  document.getElementById('alta-anunciante-modo').value=esReclamo?'RECLAMAR':'CREAR';
-  document.getElementById('alta-anunciante-titulo').textContent=esReclamo?'Reclamar un anuncio existente':'Crear un anuncio';
-  document.getElementById('btnEnviarAltaAnunciante').textContent=esReclamo?'Enviar reclamo':'Crear anuncio';
-  document.getElementById('alta-anunciante-ayuda').textContent=esReclamo
-    ? 'Seleccioná el anuncio por su nombre, ciudad e ID y explicá cómo verificar tu titularidad.'
-    : 'Completá los datos básicos para iniciar el alta. Se publica directamente salvo revisión por +18 o moderación.';
-  ['alta-anunciante-nombre','alta-anunciante-actividad','alta-anunciante-ciudad','alta-anunciante-direccion','alta-anunciante-whatsapp','alta-anunciante-mail','alta-anunciante-web','alta-anunciante-descripcion']
-    .forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
-  const ctx=whatsappContextoCuenta_();
-  const mail=document.getElementById('alta-anunciante-mail');
-  if(mail && ctx.mail) mail.value=ctx.mail;
-  const actividad=document.getElementById('alta-anunciante-actividad');
-  const direccion=document.getElementById('alta-anunciante-direccion');
-  const web=document.getElementById('alta-anunciante-web');
-  const descripcion=document.getElementById('alta-anunciante-descripcion');
-  if(actividad) actividad.closest('.data-field-card').style.display=esReclamo?'none':'';
-  if(direccion) direccion.closest('.data-field-card').style.display=esReclamo?'none':'';
-  if(web) web.closest('.data-field-card').style.display=esReclamo?'none':'';
-  if(descripcion) descripcion.closest('.data-field-card').style.display=esReclamo?'none':'';
-  const dl=document.getElementById('alta-anunciante-catalogo');
-  if(dl){
-    dl.innerHTML=(comercios||[]).map(x=>`<option value="${htmlEscape(x.nombre)}"></option>`).join('');
-  }
-  const boxCompleto=document.getElementById('alta-anunciante-completo');
-  const basicos=document.querySelector('#panel-alta-anunciante > .data-fields-grid');
-  if(basicos){basicos.hidden=!esReclamo;basicos.style.display=esReclamo?'':'none';}
-  if(boxCompleto){boxCompleto.hidden=esReclamo;boxCompleto.dataset.ready='';boxCompleto.replaceChildren();}
-  mostrarPanel('alta-anunciante');
-  if(!esReclamo)cargarAltaCompleta_();
+  if(String(modo||'').toUpperCase()==='RECLAMAR')return abrirReclamoAnunciante155();
+  document.getElementById('alta-anunciante-modo').value='CREAR';
+  document.getElementById('alta-anunciante-titulo').textContent='Crear un anuncio';
+  document.getElementById('btnEnviarAltaAnunciante').textContent='Crear anuncio';
+  document.getElementById('alta-anunciante-ayuda').textContent='Completá los datos básicos para iniciar el alta. Se publica directamente salvo revisión por +18 o moderación.';
+  ['alta-anunciante-nombre','alta-anunciante-actividad','alta-anunciante-ciudad','alta-anunciante-direccion','alta-anunciante-whatsapp','alta-anunciante-mail','alta-anunciante-web','alta-anunciante-descripcion'].forEach(id=>{const node=document.getElementById(id);if(node)node.value='';});
+  const contact=whatsappContextoCuenta_();if(contact.mail)document.getElementById('alta-anunciante-mail').value=contact.mail;
+  const basics=document.querySelector('#panel-alta-anunciante > .data-fields-grid');if(basics){basics.hidden=true;basics.style.display='none';}
+  const box=document.getElementById('alta-anunciante-completo');box.hidden=false;box.dataset.ready='';box.replaceChildren();
+  mostrarPanel('alta-anunciante');cargarAltaCompleta_();
 }
-
 
 async function cargarAltaCompleta_(){
  const box=document.getElementById('alta-anunciante-completo');if(!box)return;
@@ -2238,19 +2284,13 @@ async function enviarSolicitudAnunciante_(){
     if(aviso)aviso.textContent='La sesión no está iniciada. Ingresá para continuar.';
     return;
   }
-  const modo=String(document.getElementById('alta-anunciante-modo')?.value||'CREAR').toUpperCase();
+  const modo='CREAR';
   const nombre=String(document.getElementById('alta-anunciante-nombre')?.value||'').trim();
   if(!nombre){ alert('Completá el nombre del anunciante.'); return; }
   if(!sesionSuscriptor || !sesionSuscriptor.suscriptor_id){ alert('Primero iniciá sesión con tu cuenta.'); return; }
-  const coincidencia=(comercios||[]).find(x=>modo==='RECLAMAR'?String(x.id)===document.getElementById('alta-reclamo-id155').value:String(x.nombre||'').trim().toLowerCase()===nombre.toLowerCase());
-  if(modo==='RECLAMAR'&&document.getElementById('alta-reclamo-motivo155').value.trim().length<20){alert('Explicá cómo podemos verificar tu relación con el anunciante (al menos 20 caracteres).');return;}
-  if(modo==='RECLAMAR' && (!coincidencia || !coincidencia.id)){
-    alert('Para reclamar, seleccioná un anuncio que ya exista en Guía Local.');
-    return;
-  }
+  const coincidencia=(comercios||[]).find(x=>String(x.nombre||'').trim().toLowerCase()===nombre.toLowerCase());
   const payload={
     action:'solicitar_anunciante',
-    motivo:document.getElementById('alta-reclamo-motivo155').value.trim(),
     suscriptor_id:sesionSuscriptor.suscriptor_id,
     modo,
     nombre,
@@ -9487,7 +9527,6 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       document.getElementById('login-mail')?.focus();
       return;
     }
-    await cargarCatalogoComerciosSilencioso_();
     abrirSolicitudAnunciante_('RECLAMAR');
   });
   document.getElementById('btnCrearAnuncioDenegado')?.addEventListener('click',async()=>{
@@ -9495,7 +9534,6 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     abrirSolicitudAnunciante_('CREAR');
   });
   document.getElementById('btnReclamarAnuncioDenegado')?.addEventListener('click',async()=>{
-    await cargarCatalogoComerciosSilencioso_();
     abrirSolicitudAnunciante_('RECLAMAR');
   });
   document.getElementById('btnCrearOtroAnuncio')?.addEventListener('click',async()=>{
@@ -9503,10 +9541,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
     abrirSolicitudAnunciante_('CREAR');
   });
   document.getElementById('btnReclamarOtroAnuncio')?.addEventListener('click',async()=>{
-    await cargarCatalogoComerciosSilencioso_();
     abrirSolicitudAnunciante_('RECLAMAR');
   });
   document.getElementById('btnEnviarAltaAnunciante')?.addEventListener('click',enviarSolicitudAnunciante_);
+  document.getElementById('btnVolverDesdeReclamo155')?.addEventListener('click',()=>{
+    ++claimSearchSequence155;
+    if(sesionSuscriptor) abrirCuentaAutorizada_({autoAbrir:false}).catch(()=>mostrarPanel('login'));
+    else mostrarPanel('login');
+  });
   document.getElementById('btnVolverDesdeAltaAnunciante')?.addEventListener('click',()=>{
     if(sesionSuscriptor) abrirCuentaAutorizada_({autoAbrir:false}).catch(()=>mostrarPanel('login'));
     else mostrarPanel('login');
