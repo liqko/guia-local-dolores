@@ -26,9 +26,9 @@ function scan(){
   const raw=fs.readFileSync(path.join(ROOT,file),'utf8');srcs.set(file,raw);
   if(file.endsWith('.html')){
    // Buttons and forms that declare handlers directly.
-   const tags=/<(button|input|select|form|a|div)\b([^>]*?)>/gi;let t;
+   const tags=/<(button|input|select|form|a|div|img)\b([^>]*?)>/gi;let t;
    while((t=tags.exec(raw))){
-    const attr=t[2],event=/\bon(click|submit|change|input)\s*=\s*(['"])([\s\S]*?)\2/i.exec(attr);
+    const attr=t[2],event=/\bon(click|submit|change|input|error|load|keydown|keyup)\s*=\s*(['"])([\s\S]*?)\2/i.exec(attr);
     if(!event)continue;
     const id=/\bid\s*=\s*(['"])(.*?)\1/i.exec(attr);
     const label=/<button\b[^>]*>([\s\S]*?)<\/button>/i.exec(raw.slice(t.index));
@@ -53,6 +53,17 @@ function scan(){
     const scriptTag=raw.slice(m.index,raw.indexOf('>',m.index)+1);
     externalScripts.push({file,target,matched,order:m.index,nonSequential:/\b(?:async|defer)\b|\btype\s*=\s*['\"]module['\"]/i.test(scriptTag)});
     if(!matched&&!/^https?:\/\//.test(url))unresolved.push({kind:'script_sin_fuente',file,line:raw.slice(0,m.index).split('\n').length,target});
+   }
+  }
+  if(file.startsWith('plataforma/')&&/\\.(?:js|mjs|cjs)$/.test(file)){
+   const tags=/<(button|input|select|form|a|div|img)\\b([^>]*?)>/gi;let t;
+   while((t=tags.exec(raw))){
+    const attr=t[2],event=/\\bon(click|submit|change|input|error|load|keydown|keyup)\\s*=\\s*(['"])([\\s\\S]*?)\\2/i.exec(attr);
+    if(!event)continue;
+    const at=raw.slice(0,t.index).split('\\n').length;
+    actions.push({id:sha(file+':'+at+':dynamic_markup:'+event[3]).slice(0,16),
+     file,line:at,kind:'generated_markup',element:t[1],elementId:null,label:null,
+     handler:event[3].slice(0,240),entry:null});
    }
   }
   for(const frag of parts(file,raw)){
