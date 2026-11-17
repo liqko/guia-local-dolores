@@ -1331,7 +1331,8 @@ function scan(){
   trees,endpoints,deadEnds,transversal,unresolved,workerEntrypoints,
    callbackBindings:[...callbackTargets].map(([binding,targets])=>({binding,targets:[...targets]})),
    namespaceExports,
-   functionGraph:allFns.map(f=>({id:f.id,name:f.name,file:f.file,line:f.line,parent:f.parent,params:f.params,
+   functionGraph:[...allFns,...extraRootActions.filter(a=>a.seedCallId).map(a=>byId.get('startup-root:'+a.seedCallId))]
+     .map(f=>({id:f.id,name:f.name,file:f.file,line:f.line,parent:f.parent,params:f.params||[],synthetic:String(f.id).startsWith('startup-root:'),
      calls:(outCalls.get(f.id)||[]).map(c=>({id:c.id,file:c.file,line:c.line,method:c.method,kind:c.kind,to:c.to||null,alternatives:c.alternatives||[],guards:c.guards,resolution:c.resolution})),
      terminals:(outTerminals.get(f.id)||[]).map(t=>({kind:t.kind,file:t.file,line:t.line,expression:t.expression,guards:t.guards}))})),
    startupCalls:allCalls.filter(c=>c.file.startsWith('plataforma/')&&c.from===c.file+':<top-level>').map(c=>({file:c.file,line:c.line,expression:c.expr})),
