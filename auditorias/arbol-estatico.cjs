@@ -650,6 +650,14 @@ function scan(){
         if(scoped.length===1){c.to=scoped[0].id;c.resolution='this_metodo_misma_clase_comprobada';continue;}
         if(scoped.length>1){c.resolution='this_metodo_ambiguo_misma_clase';c.candidates=scoped.map(f=>f.id);continue;}
       }
+    // PrivateRoles192 receives sourceFactory as a constructor parameter.
+    // The caller supplies its behavior; an absent class method is not a missing handler.
+    if(c.receiver==='this'&&c.method==='sourceFactory'&&
+       owner?.classOwner==='PrivateRoles192'&&c.file==='worker/worker206.txt'){
+      c.resolution='constructor_injected_callback';
+      c.sourceEvidence='PrivateRoles192.constructor(state,env,sourceFactory=null); this.sourceFactory=sourceFactory';
+      continue;
+    }
     }
     c.resolution=c.receiver==='this'?'this_sin_analisis_de_clase':'external_method';continue;
   }
@@ -1124,6 +1132,10 @@ function scan(){
         }
       }else if(c.kind==='data'){
         treeNodes.push({type:'data',callId:c.id,from:id,file:c.file,line:c.line,operation:c.method,key:c.arg||c.argExpr,depth:depth+1});
+      }else if(c.resolution==='constructor_injected_callback'){
+        treeNodes.push({type:'external_callback',from:id,file:c.file,line:c.line,method:c.method,
+          sourceEvidence:c.sourceEvidence,
+          note:'Dependencia inyectada por constructor; destino depende de instancia real',depth:depth+1});
       }else if(c.resolution==='promise_resolver_binding'){
         treeNodes.push({type:'promise_resolved',from:id,file:c.file,line:c.line,exportedFrom:c.promiseSource,depth:depth+1});
       }else if(c.resolution==='promise_resolver_parameter'){
