@@ -34,6 +34,8 @@ function collect(file,raw){
       /^on[a-z]+$/i.test(n.left.name.text)&&n.right.kind!==ts.SyntaxKind.NullKeyword)
      add(file,loc(n),'event_property',n.left.getText(sf)+'='+n.right.getText(sf).slice(0,200),
        {event:n.left.name.text.toLowerCase(),receiver:n.left.expression.getText(sf).slice(0,130),handlerMode:isFn(n.right)?'inline':'reference'});
+   if(!html&&file.startsWith('worker/')&&ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&ts.isPropertyAccessExpression(n.left)&&['fetch','alarm'].includes(n.left.name.text)&&/\.prototype$/.test(n.left.expression.getText(sf))&&isFn(n.right))
+     add(file,loc(n),'worker_entry',n.left.getText(sf),{owner:n.left.expression.getText(sf).replace(/\.prototype$/,''),method:n.left.name.text});
    if(ts.isCallExpression(n)&&ts.isPropertyAccessExpression(n.expression)&&n.expression.name.text==='addEventListener')
      add(file,loc(n),'event_listener',n.getText(sf).slice(0,220),
        {event:n.arguments[0]?.getText(sf).slice(0,80)||'',receiver:n.expression.expression.getText(sf).slice(0,130)});
