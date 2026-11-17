@@ -34,7 +34,7 @@ function scan(){
     const id=/\bid\s*=\s*(['"])(.*?)\1/i.exec(attr);
     const label=/<button\b[^>]*>([\s\S]*?)<\/button>/i.exec(raw.slice(t.index));
     const line=raw.slice(0,t.index).split('\n').length;
-    actions.push({id:sha(file+':'+line+':'+event[3]).slice(0,16),file,line,kind:'html_handler',
+    actions.push({id:sha(file+':'+line+':'+t.index+':'+event[3]).slice(0,16),file,line,kind:'html_handler',
       element:t[1],elementId:id?.[2]||null,label:t[1]==='button'?label?.[1].replace(/<[^>]+>/g,'').trim().slice(0,80)||null:null,
       handler:event[3].slice(0,240),entry:null});
    }
@@ -395,7 +395,7 @@ function scan(){
       const h=args[1],handler=ts.isIdentifier(h)?h.text:ts.isArrowFunction(h)||ts.isFunctionExpression(h)?'callback@'+line(h):h.getText(sf).slice(0,130);
       const isCallback=ts.isArrowFunction(h)||ts.isFunctionExpression(h);
       const entryId=isCallback?functionId(h):null;
-      actions.push({id:sha(file+':'+at+':listener').slice(0,16),file,line:at,kind:'listener',element:'dom',
+      actions.push({id:sha(file+':'+at+':'+n.getStart(sf)+':listener').slice(0,16),file,line:at,kind:'listener',element:'dom',
         elementId:null,label:first||null,handler,entry:null,entryId,context:owner,event:first||arg0?.getText(sf)||null,receiver});
      }
      if(isFetch){
