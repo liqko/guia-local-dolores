@@ -10833,6 +10833,8 @@ function publicationDbV77(base,context,cache){
 async function preparePublicationV77(ctx){
  if(ctx.request.method!=='POST')return;
  const body=await GLD_ACTIONS138.readJson(ctx.request).catch(()=>({})),action=String(body?.action||body?.accion||ctx.url.searchParams.get('action')||'').toLowerCase();
+ // Reclamar una ficha existente solicita acceso; no publica contenido nuevo.
+ if(ctx.path==='/suscriptores'&&action==='solicitar_anunciante'&&String(body.modo||'').toUpperCase()==='RECLAMAR')return;
  const promoData=body.payload&&typeof body.payload==='object'?body.payload:body;
  const promoContent=action==='createpromo'||action==='updatepromo'&&Object.keys(promoData).some(key=>!['promo_id','pausado','action','accion','advertiserId','advertiser_id','declaracion_publicacion','operation_id','request_key'].includes(key));
  const collections=ctx.path==='/promos'&&promoContent?['promos']:ctx.path==='/events-new'&&['createfreeevent','updatefreeevent','createvipevent','updatevipevent'].includes(action)?['eventos']:ctx.path==='/actividades'&&action==='guardar'?['actividades']:ctx.path==='/publicidad'&&['guardar','save'].includes(action)?['publicidades']:ctx.path==='/commerce'&&action==='set_datos'?['anunciantes']:ctx.path==='/suscriptores'&&action==='crear'?['suscriptores']:ctx.path==='/suscriptores'&&action==='solicitar_anunciante'?['anunciantes']:[];
@@ -13306,8 +13308,8 @@ async function routeAdvertiserAccess155(ctx){
   if(request.method!=='GET')return json({success:false,message:'Método no permitido.'},405);
   const user=await verifySubscriberSession(env,request);if(!user.ok||user.admin_panel)return json({success:false,message:'Ingresá con tu cuenta personal para reclamar.'},401);
   const index=await cache.get(ADMIN_ADVERTISERS_KEY);if(!Array.isArray(index?.results))return json({success:false,message:'El catálogo de anuncios no está disponible. Reintentá más tarde.'},503);
-  const needle=norm6(ctx.url.searchParams.get('q')||'');
-  const rows=index.results.filter(r=>r.aprobado!==false&&(!needle||norm6([r.id,r.nombre,...r.ciudad_ids||[]].join(' ')).includes(needle)));
+  const needle=norm6(ctx.url.searchParams.get('q')||''),city=String(ctx.url.searchParams.get('ciudad_id')||'').trim();
+  const rows=index.results.filter(r=>r.aprobado!==false&&(!city||(r.ciudad_ids||[]).map(String).includes(city))&&(!needle||norm6([r.id,r.nombre,...r.ciudad_ids||[]].join(' ')).includes(needle)));
   return json({success:true,results:rows.slice(0,100).map(r=>({id:String(r.id),nombre:String(r.nombre||r.id),ciudad_ids:r.ciudad_ids||[]})),hay_mas:rows.length>100});
  }
 
