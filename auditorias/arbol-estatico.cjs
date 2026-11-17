@@ -19,6 +19,7 @@ function parts(file,raw){
 }
 function scan(){
  const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[],workerEntrypoints=[];
+ const objectExports=[],callbackAliases=[];
  const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[],promiseResolverBindings=[],urlAssignments=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
@@ -213,7 +214,7 @@ function scan(){
           members:destructured?p.name.elements.map(e=>({
             name:e.name.getText(sf),property:e.propertyName?.getText(sf)||e.name.getText(sf)
           })):[],
-          defaultExpression:p.initializer?.getText(sf)||null};
+          defaultExpression:p.initializer?.getText(sf)||null,defaultCallbackId:p.initializer&&isFn(p.initializer)?functionId(p.initializer):null};
       }),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
@@ -224,11 +225,13 @@ function scan(){
        ts.isPropertyAccessExpression(n.left)&&/^on[a-z]+$/i.test(n.left.name.text)&&
        n.right.kind!==ts.SyntaxKind.NullKeyword){
       const at=line(n),event=n.left.name.text.toLowerCase(),receiver=n.left.expression.getText(sf).slice(0,130);
-      const anonymous=isFn(n.right),handler=anonymous?'callback@'+line(n.right):n.right.getText(sf).slice(0,200);
+      let assigned=n.right;
+      while(ts.isBinaryExpression(assigned)&&assigned.operatorToken.kind===ts.SyntaxKind.EqualsToken)assigned=assigned.right;
+      const anonymous=isFn(assigned),handler=anonymous?'callback@'+line(assigned):assigned.getText(sf).slice(0,200);
       actions.push({id:sha(file+':'+at+':event_property:'+n.left.getText(sf)).slice(0,16),
         file,line:at,kind:'event_property',element:'dom_property',
         elementId:null,label:receiver,handler,entry:null,
-        entryId:anonymous?functionId(n.right):null,
+        entryId:anonymous?functionId(assigned):null,
         event,receiver,context:fnStack.at(-1)?.id||null});
     }
     // Worker entry boundaries are not buttons. Keep a separate source-backed
@@ -251,6 +254,20 @@ function scan(){
        n.right.arguments?.length&&ts.isRegularExpressionLiteral(n.right.arguments[0])){
       const scope=fnStack.at(-1)?.id||file+':<top-level>';
       regexBindings.set(scope+'|'+n.left.text,line(n.right));
+    }
+    // Record explicit namespace exports, including Object.freeze({method}).
+    if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&ts.isPropertyAccessExpression(n.left)){
+      let object=n.right;
+      if(ts.isCallExpression(object)&&object.expression.getText(sf)==='Object.freeze')object=object.arguments[0];
+      if(object&&ts.isObjectLiteralExpression(object)){
+        const root=n.left.expression.getText(sf),scope=fnStack.at(-1)?.id||null;
+        for(const property of object.properties){
+          const method=name(property.name)||literal(property.name);
+          const value=ts.isPropertyAssignment(property)?property.initializer:ts.isShorthandPropertyAssignment(property)?property.name:property;
+          if(method&&(isFn(value)||ts.isIdentifier(value)))objectExports.push({file,line:line(n),root,namespace:n.left.name.text,scope,method,
+            target:isFn(value)?functionId(value):null,binding:ts.isIdentifier(value)?value.text:null});
+        }
+      }
     }
     // Promise executors may assign their resolve/reject arguments to a local
     // variable later called from another nested listener in the same scope.
@@ -304,6 +321,11 @@ function scan(){
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
       const scope=fnStack.at(-1)?.id||file+':<top-level>';
       const init=n.initializer;
+      let callbackValue=init;
+      if(init&&ts.isConditionalExpression(init)&&init.whenFalse.kind===ts.SyntaxKind.NullKeyword)callbackValue=init.whenTrue;
+      if(callbackValue&&ts.isPropertyAccessExpression(callbackValue)&&ts.isIdentifier(callbackValue.expression))
+        callbackAliases.push({scope,file,alias:n.name.text,property:callbackValue.expression.text+'.'+callbackValue.name.text,line:line(n)});
+
       if(file.startsWith('worker/')&&init&&ts.isCallExpression(init)&&
          init.expression.getText(sf)==='path.match'&&init.arguments?.length&&
          ts.isRegularExpressionLiteral(init.arguments[0]))
@@ -347,7 +369,8 @@ function scan(){
      const call={id:file+':'+at+':'+allCalls.length,file,line:at,from:owner,method,receiver,expr,direct:ts.isIdentifier(target),immediateId,
       arg:first,argExpr:arg0?.getText(sf).slice(0,2048)||'',guards:[...guardStack],
       args:args.slice(0,8).map(x=>({
-        value:staticValue(x),expression:x.getText(sf).slice(0,200),
+        value:staticValue(x),expression:x.getText(sf).slice(0,200),callbackId:isFn(x)?functionId(x):null,
+        globalObject:(function known(y){return ts.isIdentifier(y)&&['window','globalThis'].includes(y.text)||ts.isConditionalExpression(y)&&known(y.whenTrue)&&known(y.whenFalse)})(x),
         objectProps:ts.isObjectLiteralExpression(x)?x.properties.flatMap(p=>{
           if(!ts.isPropertyAssignment(p)&&!ts.isShorthandPropertyAssignment(p))return [];
           const property=name(p.name)||literal(p.name),value=ts.isPropertyAssignment(p)?p.initializer:p.name;
@@ -463,26 +486,60 @@ function scan(){
   }
   return {to:null,resolution:candidates.length?'global_no_verificado':'unknown'};
  };
+ const lexicalCandidates=(method,file,from)=>{
+   const candidates=(byName.get(method)||[]).filter(f=>f.file===file&&f.bindingKind!=='object_property');
+   let scope=from;const visited=new Set();
+   while(scope&&!visited.has(scope)){
+     visited.add(scope);const matches=candidates.filter(f=>f.parent===scope);
+     if(matches.length)return matches;
+     scope=byId.get(scope)?.parent||null;
+   }
+   return candidates.filter(f=>!f.parent);
+ };
+ const namespaceExports=objectExports.filter(e=>{
+   if(['window','globalThis'].includes(e.root))return true;
+   const owner=byId.get(e.scope),index=owner?.params.findIndex(p=>p.name===e.root)??-1;
+   return index>=0&&allCalls.some(c=>c.immediateId===owner.id&&c.args[index]?.globalObject);
+ }).map(e=>({...e,targets:e.target?[e.target]:lexicalCandidates(e.binding,e.file,e.scope).map(f=>f.id)}));
+ const exportedTargets=call=>{
+   const namespace=String(call.receiver||'').replace(/^(window|globalThis)\./,'');
+   const visible=new Set([call.file,...(scriptDependencies.get(call.file)||[])]);
+   for(const host of scriptHosts.get(call.file)||[]){visible.add(host);for(const dep of scriptDependencies.get(host)||[])visible.add(dep);}
+   return [...new Set(namespaceExports.filter(e=>e.namespace===namespace&&e.method===call.method&&visible.has(e.file)).flatMap(e=>e.targets))];
+ };
  const callbackTargets=new Map();
  for(const call of allCalls){
    if(!call.method)continue;
-   let fns=call.direct?(byName.get(call.method)||[]).filter(f=>f.file===call.file&&!f.parent):[];
-   // Explicit exported component: the caller supplies named callbacks to mount().
-   // Do not generalize by matching unrelated methods called "mount".
-   if(!call.direct&&call.method==='mount'&&/^(?:window\.)?GLDCoberturaProvincia$/.test(call.receiver||'')&&
-      (scriptDependencies.get(call.file)||new Set()).has('plataforma/cobertura-provincia.js'))
-     fns=(byName.get('mount')||[]).filter(f=>f.file==='plataforma/cobertura-provincia.js');
+   let fns=call.direct?lexicalCandidates(call.method,call.file,call.from):exportedTargets(call).map(id=>byId.get(id));
+   if(call.direct&&!fns.length){const resolved=resolve(call.method,call.file);if(resolved.to)fns=[byId.get(resolved.to)];}
    if(fns.length!==1)continue;
    const callee=fns[0];
    for(let p=0;p<(callee.params||[]).length;p++){
-     const param=callee.params[p],props=call.args?.[p]?.objectProps||[];
+     const param=callee.params[p],argument=call.args?.[p],props=argument?.objectProps||[];
+     if(param.name){
+       let id=!argument||argument.expression==='undefined'?param.defaultCallbackId:argument.callbackId;
+       if(!id&&argument&&/^[\w$]+$/.test(argument.expression)){
+         const targets=lexicalCandidates(argument.expression,call.file,call.from);
+         id=targets.length===1?targets[0].id:resolve(argument.expression,call.file).to;
+       }
+       if(id&&byId.has(id)){const key=callee.id+'|'+param.name,set=callbackTargets.get(key)||new Set();set.add(id);callbackTargets.set(key,set);}
+     }
+     if(param.name)for(const property of props){
+       let id=property.callbackId;
+       if(!id&&/^[\w$]+$/.test(property.expression)){
+         const targets=lexicalCandidates(property.expression,call.file,call.from);
+         id=targets.length===1?targets[0].id:resolve(property.expression,call.file).to;
+       }
+       if(id&&byId.has(id)){const key=callee.id+'|'+param.name+'.'+property.property,set=callbackTargets.get(key)||new Set();set.add(id);callbackTargets.set(key,set);}
+     }
      for(const member of param.members||[]){
        const matches=props.filter(x=>x.property===member.property);
        for(const property of matches){
          let id=property.callbackId;
          if(!id&&/^[\w$]+$/.test(property.expression)){
-           const matches=(byName.get(property.expression)||[]).filter(f=>f.file===call.file);
+           const matches=lexicalCandidates(property.expression,call.file,call.from);
            if(matches.length===1)id=matches[0].id;
+           else if(!matches.length)id=resolve(property.expression,call.file).to;
          }
          if(!id||!byId.has(id))continue;
          const key=callee.id+'|'+member.name,a=callbackTargets.get(key)||new Set();
@@ -502,6 +559,17 @@ function scan(){
     c.resolution='computed';continue;
   }
   if(c.direct){
+    let scope=c.from;const visited=new Set();let targets=[];
+    while(scope&&!visited.has(scope)){
+      visited.add(scope);
+      const alias=callbackAliases.filter(a=>a.scope===scope&&a.alias===c.method&&a.line<=c.line);
+      if(alias.length===1){targets=[...(callbackTargets.get(scope+'|'+alias[0].property)||[])];break;}
+      scope=byId.get(scope)?.parent||null;
+    }
+    if(targets.length===1){c.to=targets[0];c.resolution='parameter_property_callback_alias';continue;}
+    if(targets.length>1){c.alternatives=targets;c.resolution='parameter_property_callback_alternatives';continue;}
+  }
+  if(c.direct){
     // Callbacks may be captured by a nested event listener from an enclosing
     // mount({aplicar,seleccion,error}) or Promise executor, not its own parameters.
     let scope=c.from,parameterOwner=null,parameter=null;
@@ -516,8 +584,8 @@ function scan(){
       scope=ownerFn?.parent||null;
     }
     if(parameterOwner){
-      if(parameterOwner.promiseExecutor&&parameterOwner.params[0]===parameter){
-        c.resolution='promise_resolver_parameter';c.promiseSource={file:parameterOwner.file,line:parameterOwner.line};continue;
+      if(parameterOwner.promiseExecutor&&parameterOwner.params.includes(parameter)){
+        c.resolution='promise_resolver_parameter';c.promiseSource={file:parameterOwner.file,line:parameterOwner.line,settlement:parameterOwner.params.indexOf(parameter)===0?'resolve':'reject'};continue;
       }
       // Nested parameter names must NOT shadow global action handlers without
       // an actual supplied callback. Only follow mapped, concrete callers.
@@ -550,6 +618,9 @@ function scan(){
     if(lookup.to){c.to=lookup.to;c.resolution='call_apply_function';continue;}
   }
   if(!c.direct){
+    const exported=exportedTargets(c);
+    if(exported.length===1){c.to=exported[0];c.resolution='explicit_namespace_export';continue;}
+    if(exported.length>1){c.alternatives=exported;c.resolution='namespace_export_alternatives';continue;}
     // Object literal methods are resolvable from their receiver's declaration.
     const matched=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.objectOwner===c.receiver);
     if(matched.length===1){c.to=matched[0].id;c.resolution='static_object_method';continue;}
@@ -569,6 +640,13 @@ function scan(){
     scope=byId.get(scope)?.parent||null;
   }
   Object.assign(c,lexical||resolve(c.method,c.file));
+  if(!c.to&&c.resolution==='global_no_verificado'){
+    const hidden=candidates.filter(f=>f.file===c.file&&f.parent);
+    if(hidden.length&&hidden.length===candidates.length){
+      c.resolution='inaccessible_lexical_function';
+      c.inaccessibleDefinitions=hidden.map(f=>({file:f.file,line:f.line,parent:f.parent,name:f.name}));
+    }
+  }
  }
 
  // Análisis interprocedimental acotado: reúne valores posibles de argumentos
@@ -842,7 +920,9 @@ function scan(){
      (env.definitions.WORKER_ORIGIN||'').includes('WORKER_URL')){
     ep.dynamicQueryOnly=true;ep.queryEvidence=urlDefinition;ep.unknownQueryParameters=true;
   }
-  ep.partial=((ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete&&!ep.provenAssignments)||ep.actionPartial===true)&&!ep.dynamicQueryOnly;
+  ep.pathnameComplete=symbolic.pathnameComplete===true;
+  if(ep.pathnameComplete)ep.runtimeOriginUnverified=true;
+  ep.partial=((ep.target===null&&values.size>0&&!symbolic.complete&&!callersComplete&&!ep.provenAssignments)||ep.actionPartial===true)&&!ep.dynamicQueryOnly&&!ep.pathnameComplete;
   ep.requireDynamicRemainder=!ep.dynamicQueryOnly && (ep.actionPartial===true||ep.partial&&!(/['"`]([^'"`]+)['"`]\s*$/.test(ep.expression)));
   // External services: cite the source function or the environment key.
   if(ep.file.startsWith('worker/')&&/\bbase\s*\(\s*env\s*\)/.test(ep.expression)){
@@ -902,7 +982,8 @@ function scan(){
       ep.worker.push({...hit,target:v});
     }
   }
-  ep.worker=ep.worker.slice(0,30);
+  // Preserve dispatch evidence for every candidate path; no arbitrary cap.
+  ep.worker=[...new Map(ep.worker.map(w=>[JSON.stringify(w),w])).values()];
   ep.status=ep.worker.length?(ep.partial?'partial_backend_candidate':matchPaths.size>1?'multi_backend_candidate':'backend_candidate'):'no_backend_match';
   // A complete, known Worker request whose route is absent in this exact Worker
   // is a mapped FAILURE, not an unknown destination. Preserve every missing URL.
@@ -1017,6 +1098,9 @@ function scan(){
             resolution:'callback_alternativa_segun_llamador',depth:depth+1});
           yield [to,depth+2];
         }
+      }else if(c.resolution==='inaccessible_lexical_function'){
+        treeNodes.push({type:'missing_handler',from:id,file:c.file,line:c.line,method:c.method,
+          reason:'funcion_declarada_en_ambito_inaccesible',definitions:c.inaccessibleDefinitions,depth:depth+1});
       }else if(['unknown','external_method','browser_native'].includes(c.resolution)){
         // External standard DOM calls are expected; mark distinction from internal ambiguity.
         treeNodes.push({type:'external',from:id,method:c.method,at:c.file+':'+c.line,depth:depth+1});
@@ -1203,7 +1287,9 @@ function scan(){
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
   trees,endpoints,deadEnds,transversal,unresolved,workerEntrypoints,
-   functionGraph:allFns.map(f=>({id:f.id,name:f.name,file:f.file,line:f.line,
+   callbackBindings:[...callbackTargets].map(([binding,targets])=>({binding,targets:[...targets]})),
+   namespaceExports,
+   functionGraph:allFns.map(f=>({id:f.id,name:f.name,file:f.file,line:f.line,parent:f.parent,params:f.params,
      calls:(outCalls.get(f.id)||[]).map(c=>({id:c.id,file:c.file,line:c.line,method:c.method,kind:c.kind,to:c.to||null,alternatives:c.alternatives||[],guards:c.guards,resolution:c.resolution})),
      terminals:(outTerminals.get(f.id)||[]).map(t=>({kind:t.kind,file:t.file,line:t.line,expression:t.expression,guards:t.guards}))})),
    startupCalls:allCalls.filter(c=>c.file.startsWith('plataforma/')&&c.from===c.file+':<top-level>').map(c=>({file:c.file,line:c.line,expression:c.expr})),

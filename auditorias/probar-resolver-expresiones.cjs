@@ -15,6 +15,9 @@ const partial=R("u.href",{}, {u:"new URL('/commerce/team'+path,current.base)",pa
 assert(partial.values.includes('/commerce/team/search'),'No conserva ruta con origen dinámico');
 assert.equal(partial.complete,false,'No debe afirmar conocer URL completa sin origen');
 assert(partial.unknown.includes('url_origin_unverified'),'Falta marca de origen desconocido');
+assert.equal(partial.pathnameComplete,true,'La ruta es completa aunque el origen no se conozca');
+assert.notEqual(R("new URL('/commerce/team'+unknown,current.base)").pathnameComplete,true,'No inventar sufijo desconocido');
+assert.notEqual(R("new URL('//otro.test/path',current.base)").pathnameComplete,true,'No confundir URL de red con ruta absoluta');
 const iife=R("(()=>{const p=new URL(PUBLICIDAD_URL);p.searchParams.set('action','publicas');p.searchParams.set('ciudad_id',city.ciudad_id);return p.toString()})()",{}, {PUBLICIDAD_URL:"'https://login.example.com/publicidad'"});
 assert(iife.complete,'La consulta no debe ocultar un destino URL conocido');
 assert.deepEqual(iife.values,['https://login.example.com/publicidad']);

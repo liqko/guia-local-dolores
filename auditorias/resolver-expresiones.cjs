@@ -55,7 +55,7 @@ function resolveExpression(expression,ctx={},definitions={},trail=new Set(),leve
            if(['href','pathname'].includes(n.name.text)&&v.startsWith('/'))values.push(v);
          }
        }
-       return result(values,baseResult.complete,[...baseResult.unknown]);
+       return {...result(values,baseResult.complete,[...baseResult.unknown]),...(baseResult.pathnameComplete?{pathnameComplete:true}:{})};
      }
      return result([],false,[full]);
    }
@@ -75,7 +75,7 @@ function resolveExpression(expression,ctx={},definitions={},trail=new Set(),leve
      // the pathname is independent of the origin. Preserve this evidence.
      if(!base.complete&&!base.values.length){
        const rooted=v.values.filter(x=>x.startsWith('/'));
-       if(rooted.length)return result(rooted,false,[...v.unknown,...base.unknown,'url_origin_unverified']);
+       if(rooted.length)return {...result(rooted,false,[...v.unknown,...base.unknown,'url_origin_unverified']),pathnameComplete:v.complete&&rooted.length===v.values.length&&rooted.every(x=>!x.startsWith('//'))};
      }
      return result(values,v.complete&&base.complete,[...v.unknown,...base.unknown]);
    }
