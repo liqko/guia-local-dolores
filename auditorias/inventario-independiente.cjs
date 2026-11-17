@@ -45,7 +45,7 @@ function collect(file,raw){
    }
    if(html&&ownerDepth===0&&ts.isCallExpression(n)&&
      (ts.isIdentifier(n.expression)||ts.isPropertyAccessExpression(n.expression))&&n.expression.getText(sf)!=='addEventListener')
-     add(file,loc(n),'startup_call',n.getText(sf).slice(0,180));
+     add(file,loc(n),'startup_call',n.getText(sf).slice(0,180),{callee:n.expression.getText(sf).slice(0,180)});
    const enters=isFn(n);if(enters)ownerDepth++;
    ts.forEachChild(n,visit);
    if(enters)ownerDepth--;
