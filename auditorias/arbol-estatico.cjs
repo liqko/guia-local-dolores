@@ -18,7 +18,7 @@ function parts(file,raw){
  return out;
 }
 function scan(){
- const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[];
+ const paths=files(),srcs=new Map(),allFns=[],allCalls=[],actions=[],endpoints=[],externalScripts=[],unresolved=[],terminals=[],dispatchRules=[],workerEntrypoints=[];
  const refs=new Map(),aliases=new Map(),routes=new Set(),symbolicRoutes=new Map(),actionRoutes=new Map(),scopeDefinitions=new Map(),exportAliases=[],regexRoutes=[],regexBindings=new Map(),iifeExports=new Map(),promiseResolverExports=[],promiseResolverBindings=[],urlAssignments=new Map();
  let astErrors=0;
  const point=(file,line)=>({file,line});
@@ -206,19 +206,33 @@ function scan(){
       }),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
-    // Event properties (button.onclick, checkbox.onchange) are independent UI
-    // entries, just like addEventListener and inline HTML handlers.
-    // Do not confuse assignment with execution of the callback.
-    if(file.endsWith('.html')&&ts.isBinaryExpression(n)&&
+    // Inventario de entradas de evento: abarca HTML y JS externos, tanto
+    // callbacks anónimos como funciones referenciadas por nombre.
+    if(file.startsWith('plataforma/')&&ts.isBinaryExpression(n)&&
        n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
-       ts.isPropertyAccessExpression(n.left)&&/^on(?:click|change|submit|input|blur|focus|keydown|keyup)$/.test(n.left.name.text)&&
-       (ts.isArrowFunction(n.right)||ts.isFunctionExpression(n.right))){
+       ts.isPropertyAccessExpression(n.left)&&/^on[a-z]+$/i.test(n.left.name.text)&&
+       n.right.kind!==ts.SyntaxKind.NullKeyword){
       const at=line(n),event=n.left.name.text,receiver=n.left.expression.getText(sf).slice(0,130);
-      const handler='callback@'+line(n.right);
+      const anonymous=isFn(n.right),handler=anonymous?'callback@'+line(n.right):n.right.getText(sf).slice(0,200);
       actions.push({id:sha(file+':'+at+':event_property:'+n.left.getText(sf)).slice(0,16),
         file,line:at,kind:'event_property',element:'dom_property',
         elementId:null,label:receiver,handler,entry:null,
-        entryId:functionId(n.right),event,receiver,context:fnStack.at(-1)?.id||null});
+        entryId:anonymous?functionId(n.right):null,
+        event,receiver,context:fnStack.at(-1)?.id||null});
+    }
+    // Worker entry boundaries are not buttons. Keep a separate source-backed
+    // entrypoint inventory, including DO fetch/alarm and prototype alarms.
+    if(file==='worker/worker206.txt'&&ts.isMethodDeclaration(n)&&
+       ['fetch','alarm'].includes(n.name.getText(sf))){
+      const owner=ts.isClassDeclaration(n.parent)?n.parent.name?.text:
+        ts.isObjectLiteralExpression(n.parent)?'object':null;
+      workerEntrypoints.push({file,line:line(n),owner,method:n.name.getText(sf)});
+    }
+    if(file==='worker/worker206.txt'&&ts.isBinaryExpression(n)&&
+       n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+       ts.isPropertyAccessExpression(n.left)&&['fetch','alarm'].includes(n.left.name.text)&&
+       /\\.prototype$/.test(n.left.expression.getText(sf))&&isFn(n.right)){
+      workerEntrypoints.push({file,line:line(n),owner:n.left.expression.getText(sf).replace(/\\.prototype$/,''),method:n.left.name.text});
     }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isIdentifier(n.left)&&ts.isCallExpression(n.right)&&
@@ -1165,7 +1179,7 @@ function scan(){
   astErrors};
  return {schema:1,sourceHashes:Object.fromEntries([...srcs.entries()].map(([p,s])=>[p,sha(s)])),totals,
   disclaimer:'Árbol estático: candidatos, no prueba de que el botón aparezca, se pulse, complete su función ni consume determinados recursos. Ramas pendientes explícitas.',
-  trees,endpoints,deadEnds,transversal,unresolved,
+  trees,endpoints,deadEnds,transversal,unresolved,workerEntrypoints,
    workerRouteInventory:{regexRoutes:regexRoutes.map(x=>({file:x.file,line:x.line,pattern:x.pattern,flags:x.flags})),
      literalDispatchRules:dispatchRules.map(x=>({file:x.file,line:x.line,path:x.path,verb:x.verb}))}};
 }
