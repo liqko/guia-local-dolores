@@ -34,7 +34,7 @@ selected.sort((a,b)=>a.interface.localeCompare(b.interface)||a.source.localeComp
 const rootRules=[
  {name:'Usuario · inicio en carcasa',interface:'Usuario',file:'plataforma/carcasa.html',handler:/^gldLoginSubscriber$/},
  {name:'Usuario · iniciar sesión',interface:'Usuario',file:'plataforma/suscriptores.html',handler:/^login$/},
- {name:'Anunciante · seleccionar anuncio',interface:'Anunciante',file:'plataforma/login.html',handler:/^callback@8513$/},
+ {name:'Anunciante · seleccionar anuncio',interface:'Anunciante',file:'plataforma/login.html',handler:/^callback@\d+$/},
  {name:'Gran Hermano · abrir inicio',interface:'Gran Hermano',file:'plataforma/administracion.html',handler:/^ghGoView\('inicio'\)$/}
 ];
 const roots=rootRules.map(rule=>{
