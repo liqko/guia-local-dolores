@@ -231,8 +231,8 @@ function scan(){
     if(file==='worker/worker206.txt'&&ts.isBinaryExpression(n)&&
        n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isPropertyAccessExpression(n.left)&&['fetch','alarm'].includes(n.left.name.text)&&
-       /\\.prototype$/.test(n.left.expression.getText(sf))&&isFn(n.right)){
-      workerEntrypoints.push({file,line:line(n),owner:n.left.expression.getText(sf).replace(/\\.prototype$/,''),method:n.left.name.text});
+       /\.prototype$/.test(n.left.expression.getText(sf))&&isFn(n.right)){
+      workerEntrypoints.push({file,line:line(n),owner:n.left.expression.getText(sf).replace(/\.prototype$/,''),method:n.left.name.text});
     }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isIdentifier(n.left)&&ts.isCallExpression(n.right)&&
