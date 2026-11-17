@@ -212,7 +212,7 @@ function scan(){
        n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isPropertyAccessExpression(n.left)&&/^on[a-z]+$/i.test(n.left.name.text)&&
        n.right.kind!==ts.SyntaxKind.NullKeyword){
-      const at=line(n),event=n.left.name.text,receiver=n.left.expression.getText(sf).slice(0,130);
+      const at=line(n),event=n.left.name.text.toLowerCase(),receiver=n.left.expression.getText(sf).slice(0,130);
       const anonymous=isFn(n.right),handler=anonymous?'callback@'+line(n.right):n.right.getText(sf).slice(0,200);
       actions.push({id:sha(file+':'+at+':event_property:'+n.left.getText(sf)).slice(0,16),
         file,line:at,kind:'event_property',element:'dom_property',
