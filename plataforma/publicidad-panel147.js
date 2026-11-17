@@ -7,7 +7,7 @@ async function pubTagsPerfil147(){
  try{
   // The profile is loaded only on request, through its existing panel route.
   let input=document.querySelector('#form-datos-comercio [name="tags"]');
-  if(!input){if(!await loadCommerceUI())throw Error('No se pudo consultar el perfil.');input=document.querySelector('#form-datos-comercio [name="tags"]');}
+  if(!input){if(typeof window.gldLoadCommerceProfileForTags147!=='function'||!await window.gldLoadCommerceProfileForTags147())throw Error('No se pudo consultar el perfil.');input=document.querySelector('#form-datos-comercio [name="tags"]');}
   const tags=pubTags107(input?.value||'');
   if(!tags.length){notice.textContent='Completá los tags de tu perfil: están incluidos en tu plan, sin costo adicional. También podés cargar tags específicos para esta campaña.';return;}
   document.getElementById('pub-tags').value=tags.join(', ');pubUiTags107();
