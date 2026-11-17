@@ -204,7 +204,13 @@ function scan(){
        if(ts.isVariableDeclaration(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
        else if(ts.isPropertyAssignment(declaration)&&ts.isIdentifier(declaration.name))objectOwner=declaration.name.text;
      }
-     const f={id:functionId(n),file,line:line(n),name:functionName(n),objectOwner,
+     const classDecl=ts.isMethodDeclaration(n)&&
+       (ts.isClassDeclaration(n.parent)||ts.isClassExpression(n.parent))?n.parent:null;
+     const prototypeAssignment=isFn(n)&&ts.isBinaryExpression(n.parent)&&
+       n.parent.operatorToken.kind===ts.SyntaxKind.EqualsToken?
+       /^([A-Za-z_$][\w$]*)\.prototype\.[A-Za-z_$][\w$]*$/.exec(n.parent.left.getText(sf)):null;
+     const classOwner=classDecl?.name?.text||prototypeAssignment?.[1]||null;
+     const f={id:functionId(n),file,line:line(n),name:functionName(n),classOwner,objectOwner,
       bindingKind:ts.isPropertyAssignment(n.parent)?'object_property':ts.isVariableDeclaration(n.parent)?'variable':ts.isFunctionDeclaration(n)?'declaration':'other',
       promiseExecutor:ts.isNewExpression(n.parent)&&n.parent.expression.getText(sf)==='Promise',
       methodByBody:!!n.body&&/method\s*:\s*body\s*\?\s*['"]POST['"]\s*:\s*['"]GET['"]/.test(n.body.getText(sf)),
@@ -635,6 +641,15 @@ function scan(){
     const matched=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.objectOwner===c.receiver);
     if(matched.length===1){c.to=matched[0].id;c.resolution='static_object_method';continue;}
     if(matched.length>1){c.resolution='ambiguous_object_method';c.candidates=matched.map(f=>f.id);continue;}
+    if(c.receiver==='this'){
+      let owner=byId.get(c.from),depth=0;
+      while(owner&&!owner.classOwner&&depth++<50)owner=byId.get(owner.parent);
+      if(owner?.classOwner){
+        const scoped=(byName.get(c.method)||[]).filter(f=>f.file===c.file&&f.classOwner===owner.classOwner);
+        if(scoped.length===1){c.to=scoped[0].id;c.resolution='this_metodo_misma_clase_comprobada';continue;}
+        if(scoped.length>1){c.resolution='this_metodo_ambiguo_misma_clase';c.candidates=scoped.map(f=>f.id);continue;}
+      }
+    }
     c.resolution=c.receiver==='this'?'this_sin_analisis_de_clase':'external_method';continue;
   }
   // Only direct calls or global window calls may bind to a standalone function.
@@ -929,6 +944,13 @@ function scan(){
   if(!ep.dynamicQueryOnly&&matchPaths.size===1&&/^\s*\x60\$\{WORKER_ORIGIN\}\/[^?\x60]+\?[^\x60]*\$\{/.test(urlDefinition)&&
      (env.definitions.WORKER_ORIGIN||'').includes('WORKER_URL')){
     ep.dynamicQueryOnly=true;ep.queryEvidence=urlDefinition;ep.unknownQueryParameters=true;
+  }
+  // A literal '?' closes the pathname before a dynamic URLSearchParams value.
+  // Only the query is dynamic; never discard uncertainty in the path itself.
+  if(!ep.dynamicQueryOnly&&ep.candidates?.length===1&&
+     ep.queryTemplates?.some(q=>q===ep.candidates[0]+'?')&&
+     /['"\x60]\/[^?'"\x60]+\?['"\x60]\s*\+/.test(ep.expression)){
+    ep.dynamicQueryOnly=true;ep.queryEvidence=ep.expression;ep.unknownQueryParameters=true;
   }
   ep.pathnameComplete=symbolic.pathnameComplete===true;
   if(ep.pathnameComplete)ep.runtimeOriginUnverified=true;
