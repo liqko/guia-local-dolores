@@ -1,0 +1,130 @@
+name: Auditoría integral - puerta de control
+on:
+  push:
+    branches:
+      - 'audit/**'
+  pull_request:
+    paths:
+      - 'worker/**'
+      - 'plataforma/**'
+      - 'auditorias/**'
+      - '.github/workflows/auditoria-integral.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  protocolo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preparar analizador AST
+        run: npm install --no-save --package-lock=false typescript@5.9.3
+      - name: Probar detección real y rechazo de mapas falsificados
+        run: node auditorias/probar-mapa-gps.cjs
+      - name: Generar mapa GPS del código completo
+        run: node auditorias/generar-mapa-gps.cjs --write
+      - name: Comprobar grafo y reproducibilidad del mapa GPS
+        run: |
+          node auditorias/generar-mapa-gps.cjs --test
+          node auditorias/generar-mapa-gps.cjs --check
+      - name: Publicar mapa GPS y rutas no resueltas
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapa-gps-dependencias
+          path: |
+            auditorias/transversal/MAPA_GPS_GENERADO.json
+            auditorias/transversal/MAPA_GPS_GENERADO.md
+          if-no-files-found: error
+      - name: Probar hallazgos automáticos y rechazo de informes falsos
+        run: node auditorias/probar-auditor-codigo.cjs
+      - name: Auditar duplicaciones, rutas y operaciones de todo el código
+        run: |
+          node auditorias/auditar-codigo.cjs --write
+          node auditorias/auditar-codigo.cjs --check
+      - name: Mostrar hallazgos de prioridad alta y catálogos territoriales
+        run: |
+          node -e "const r=require('./auditorias/transversal/AUDITORIA_AUTOMATICA.json'); console.log(JSON.stringify({altos:r.issues.filter(x=>x.severity==='alto'),territorio:Object.fromEntries(Object.entries(r.catalogs).filter(([k])=>k.includes('territorio:')).map(([k,v])=>[k,{lectores:v.readers.length,escritores:v.writers.length,escrituras:v.writers.slice(0,12)}]))},null,2))"
+      - name: Publicar informe integral de duplicaciones y conexiones
+        uses: actions/upload-artifact@v4
+        with:
+          name: auditoria-codigo-completo
+          path: |
+            auditorias/transversal/AUDITORIA_AUTOMATICA.json
+            auditorias/transversal/AUDITORIA_AUTOMATICA.md
+          if-no-files-found: error
+      - name: Comprobar soporte sin solicitudes duplicadas ni regresiones de interfaz
+        run: node --test tests/observabilidad/soporte-no-duplicar-consumos.test.cjs
+      - name: Probar las dos conexiones reales de Anunciantes
+        run: node --test tests/observabilidad/anunciantes-ramas-integradas.test.cjs
+      - name: Verificar resolución simbólica de parámetros y ramas HTTP
+        run: node auditorias/probar-resolver-expresiones.cjs
+      - name: Probar arbol estatico desde botones y rechazo de recorridos faltantes
+        run: node auditorias/probar-arbol-estatico.cjs
+      - name: Reconstruir ramificaciones de cada boton en el codigo completo
+        run: |
+          node auditorias/arbol-estatico.cjs --write
+          node auditorias/arbol-estatico.cjs --check
+      - name: Seleccionar etapa 01 desde identificadores reales del árbol
+        run: node auditorias/seleccionar-etapa-01.cjs
+      - name: Conservar los árboles exactos de la etapa de acceso
+        uses: actions/upload-artifact@v4
+        with:
+          name: etapa-01-arboles-reales
+          path: auditorias/transversal/ETAPA_01_ARBOL_SELECCIONADO.json
+          if-no-files-found: error
+      - name: Verificar recorrido real en fuente de alta de ciudad hasta Worker y Firestore
+        run: |
+          node - <<'NODE'
+          const r=require('./auditorias/transversal/ARBOL_ACCIONES.json');
+          const city=r.trees.filter(t=>t.action.file==='plataforma/administracion.html'&&/ghGuardarTerritorio/.test(t.action.handler||''));
+          if(!city.length)throw Error('No se encontro boton de alta de territorio');
+          const nodes=city.flatMap(t=>t.nodes);
+          if(!nodes.some(n=>n.type==='backend_candidate'&&n.handler==='saveCity'))
+            throw Error('No se demostro conexion alta ciudad con saveCity Worker');
+          if(!nodes.some(n=>n.type==='data'&&n.operation==='patch'))
+            throw Error('No se encontro persistencia de ciudad');
+          const puts=nodes.filter(n=>n.type==='data'&&n.operation==='put');
+          if(puts.length<2)throw Error('No se rastrearon las dos publicaciones territoriales');
+          console.log('RUTA CIUDAD PASS: boton, Worker, Firestore, doble publicacion de catalogo');
+          NODE
+      - name: Enumerar exactamente ramas y destinos sin resolver
+        run: |
+          node - <<'NODE'
+          const r=require('./auditorias/transversal/ARBOL_ACCIONES.json');
+          console.log('INVENTARIO_TRANSVERSAL '+JSON.stringify({
+            totals:r.totals,
+            shared:r.transversal.sharedRoutes.slice(0,35),
+            possibleDouble:r.transversal.sameActionRequests.slice(0,35)
+          }));
+          console.log('INVENTARIO_RESIDUAL '+JSON.stringify({
+            totals:r.totals,
+            trees:r.trees.filter(t=>t.counts.unresolved||t.counts.missingHandlers||t.counts.possibleMissingRoutes).map(t=>({
+              action:t.action.file+':'+t.action.line,handler:t.action.handler,
+              issues:t.nodes.filter(n=>['unresolved','missing_handler','possible_missing_worker_route'].includes(n.type)),
+              http:t.nodes.filter(n=>n.type==='http').map(n=>({file:n.file,line:n.line,target:n.target,verb:n.verb,candidates:n.candidates,routeStatus:n.routeStatus,worker:n.worker?.slice(0,4)}))
+            })),
+            endpoints:r.endpoints.filter(e=>!['backend_candidate','multi_backend_candidate','partial_backend_candidate','external_service_http','browser_forwarded_request','browser_document_candidate'].includes(e.status))
+          }));
+          NODE
+      - name: Publicar arbol completo de acciones y conexiones
+        uses: actions/upload-artifact@v4
+        with:
+          name: arbol-estatico-acciones
+          path: |
+            auditorias/transversal/ARBOL_ACCIONES.json
+            auditorias/transversal/ARBOL_ACCIONES.md
+          if-no-files-found: error
+      - name: Probar que el control rechaza pruebas falsas e incompletas
+        run: node auditorias/control-integridad.cjs --self-test
+      - name: Inventariar automáticamente todas las fuentes y entradas
+        run: node auditorias/control-integridad.cjs --scan
+      - name: Impedir cierre sin cobertura íntegra ni pruebas ejecutadas
+        run: node auditorias/control-integridad.cjs --check
+      - name: Comprobar protocolo y evidencias de cierre
+        env:
+          GLD_AUDIT_BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: node auditorias/validar-protocolo.cjs
