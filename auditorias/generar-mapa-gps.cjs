@@ -69,7 +69,7 @@ function scan(){
      if(method==='addEventListener')events.push({file,line:Number(at.split(':').pop()),kind:'listener',event:arg0,handler:args[1]?args[1].getText(sf).slice(0,140):''});
      if(['fetch','ghAdminRequest_','ghAdminRequestRaw143','api'].includes(method)&&!arg0)issue('ruta_dinamica',at,expr);
     }
-    if(ts.isStringLiteralLike(n)&&/^\/(?!\/)[A-Za-z0-9_/-]+(?:\?[^\s]*)?$/.test(n.text)&&n.text.length<220)routes.push({path:n.text,at:loc(n),owner:from});
+    if(ts.isStringLiteralLike(n)&&(n.text==='/'||/^\/(?!\/)[A-Za-z0-9_/-]+(?:\?[^\s]*)?$/.test(n.text))&&n.text.length<220)routes.push({path:n.text,at:loc(n),owner:from});
     ts.forEachChild(n,walk);
     if(opened)stack.pop();
    }
