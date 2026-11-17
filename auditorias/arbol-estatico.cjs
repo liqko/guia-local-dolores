@@ -331,6 +331,24 @@ function scan(){
     if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)){
       const scope=fnStack.at(-1)?.id||file+':<top-level>';
       const init=n.initializer;
+      // A named binding exported by a local IIFE is an accessible function,
+      // not a missing handler. Require an explicit return of the exact name.
+      if(init&&ts.isCallExpression(init)){
+        const callee=ts.isParenthesizedExpression(init.expression)?
+          init.expression.expression:init.expression;
+        if(isFn(callee)&&callee.body&&ts.isBlock(callee.body)){
+          const exportedName=n.name.text;
+          const candidates=callee.body.statements.filter(x=>
+            ts.isFunctionDeclaration(x)&&x.name?.text===exportedName);
+          const returns=callee.body.statements.some(x=>
+            ts.isReturnStatement(x)&&ts.isIdentifier(x.expression)&&
+            x.expression.text===exportedName);
+          if(candidates.length===1&&returns){
+            iifeExports.set(file+'|'+exportedName,{to:functionId(candidates[0]),
+              file,line:line(n),exportedName});
+          }
+        }
+      }
       let callbackValue=init;
       if(init&&ts.isConditionalExpression(init)&&init.whenFalse.kind===ts.SyntaxKind.NullKeyword)callbackValue=init.whenTrue;
       if(callbackValue&&ts.isPropertyAccessExpression(callbackValue)&&ts.isIdentifier(callbackValue.expression))
