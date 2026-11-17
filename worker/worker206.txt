@@ -1205,15 +1205,8 @@ async function saveCountry({ env, request: request2, db, cache, idFromPath = "" 
   const item = body.item && typeof body.item === "object" ? body.item : body;
   const id4 = text3(idFromPath || item.pais_id || item.id), nombre = text3(item.pais_visible || item.nombre || item.pais);
   if (!id4 || !nombre) return json({ success: false, message: "Faltan pais_id o nombre" }, 400);
-  const admin = packet(await cache.get(ADMIN_KEY));
-  if(!idFromPath&&admin.paises.some(row=>text3(row.pais_id||row.id)===id4))return json({success:false,message:'Ya existe un país con ese identificador.'},409);
-  if(!idFromPath&&admin.paises.some(row=>text3(row.nombre||row.pais_visible).toLocaleLowerCase('es')===nombre.toLocaleLowerCase('es')))return json({success:false,message:'Ya existe un país con ese nombre.'},409);
-  if(item.activo!==undefined&&!bool(item.activo)||item.activa!==undefined&&!bool(item.activa)){
-    const assigned=admin.ciudades.some(city=>text3(city.pais_id)===id4&&active(city));
-    if(assigned)return json({success:false,message:"No se puede desactivar un país con ciudades activas."},409);
-  }
   const saved = await db.patch(C.paises, id4, { ...item, pais_id: id4, nombre, pais_visible: nombre, activo: item.activo !== void 0 ? bool(item.activo) : true, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() });
-  const pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
+  const admin = packet(await cache.get(ADMIN_KEY)), pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
   const nextAdmin = { ...admin, updated_at: now, paises: upsert(admin.paises, "pais_id", saved) };
   let paises = remove(pub.paises, "pais_id", id4);
   if (active(saved)) paises = upsert(paises, "pais_id", saved);
@@ -1232,16 +1225,7 @@ async function saveProvince({ env, request: request2, db, cache, idFromPath = ""
   const id4 = text3(idFromPath || item.provincia_id || item.id), nombre = text3(item.provincia_visible || item.nombre || item.provincia), pais_id = text3(item.pais_id);
   const admin = packet(await cache.get(ADMIN_KEY));
   if (!id4 || !nombre || !pais_id) return json({ success: false, message: "Faltan provincia_id, nombre o pais_id" }, 400);
-  const parentCountry=admin.paises.find(x=>text3(x.pais_id||x.id)===pais_id);
-  if(!parentCountry)return json({success:false,message:'pais_id inexistente'},400);
-  if(!active(parentCountry))return json({success:false,message:'No se puede vincular una provincia a un país inactivo.'},409);
-  if(!idFromPath&&admin.provincias.some(x=>text3(x.provincia_id||x.id)===id4))return json({success:false,message:'Ya existe una provincia con ese identificador.'},409);
-  if(!idFromPath&&admin.provincias.some(x=>text3(x.pais_id)===pais_id&&text3(x.nombre||x.provincia_visible).toLocaleLowerCase('es')===nombre.toLocaleLowerCase('es')))return json({success:false,message:'Ya existe esa provincia en el país.'},409);
-  const current=admin.provincias.find(x=>text3(x.provincia_id||x.id)===id4);
-  if(current&&text3(current.pais_id)!==pais_id&&admin.ciudades.some(x=>text3(x.provincia_id)===id4))
-    return json({success:false,message:"No se puede trasladar una provincia vinculada a ciudades. Editá cada ciudad primero."},409);
-  if((item.activo!==undefined&&!bool(item.activo)||item.activa!==undefined&&!bool(item.activa))&&admin.ciudades.some(x=>text3(x.provincia_id)===id4&&active(x)))
-    return json({success:false,message:"No se puede desactivar una provincia con ciudades activas."},409);
+  if (!admin.paises.some((x) => text3(x.pais_id || x.id) === pais_id)) return json({ success: false, message: "pais_id inexistente" }, 400);
   const saved = await db.patch(C.provincias, id4, { ...item, provincia_id: id4, nombre, provincia_visible: nombre, pais_id, activo: item.activo !== void 0 ? bool(item.activo) : true, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() });
   const pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
   const nextAdmin = { ...admin, updated_at: now, provincias: upsert(admin.provincias, "provincia_id", saved) };
@@ -1264,10 +1248,6 @@ async function saveCity({ env, request: request2, db, cache, idFromPath = "" }) 
   if (!id4 || !nombre || !pais_id || !provincia_id) return json({ success: false, message: "Faltan datos obligatorios de ciudad" }, 400);
   const prov = admin.provincias.find((x) => text3(x.provincia_id || x.id) === provincia_id);
   if (!prov || text3(prov.pais_id) !== pais_id) return json({ success: false, message: "Provincia/país inválidos" }, 400);
-  const parentCountry=admin.paises.find(x=>text3(x.pais_id||x.id)===pais_id);
-  if(!parentCountry||!active(parentCountry)||!active(prov))return json({success:false,message:'El país y la provincia deben estar activos.'},409);
-  if(!idFromPath&&admin.ciudades.some(x=>text3(x.ciudad_id||x.id)===id4))return json({success:false,message:'Ya existe una ciudad con ese identificador.'},409);
-  if(!idFromPath&&admin.ciudades.some(x=>text3(x.provincia_id)===provincia_id&&text3(x.nombre||x.ciudad_visible||x.ciudad).toLocaleLowerCase('es')===nombre.toLocaleLowerCase('es')))return json({success:false,message:'Ya existe esa ciudad en la provincia.'},409);
   const saved = await db.patch(C.ciudades, id4, { ...item, ciudad_id: id4, ciudad_visible: nombre, pais_id, provincia_id, activa: item.activa !== void 0 ? bool(item.activa) : true, actualizado_en: (/* @__PURE__ */ new Date()).toISOString() });
   const pub = packet(await cache.get(PUBLIC_KEY)), now = (/* @__PURE__ */ new Date()).toISOString();
   const nextAdmin = { ...admin, updated_at: now, ciudades: sortCities(upsert(admin.ciudades, "ciudad_id", saved)) };
@@ -9432,8 +9412,12 @@ async function routeAdminV10(ctx) {
     }
     const out2 = await superadminLoginV2({ env, db, body });
     if(!out2.success)return json(out2,401);
-    // El login devuelve únicamente sesión e identidad; sin catálogos ni resumen.
-    return json(out2);
+    // The identity was just authenticated above. Use the permissions of the
+    // freshly issued server token; do not repeat authentication in another GET.
+    const issued=JSON.parse(b64decode(out2.token.split('.')[0]));
+    const prepared=await dailyDashboard195(env,{...issued,ok:true});
+    const entry=await prepared.json();
+    return json({...out2,...(prepared.ok?entry:{entry_version:195,entrada_pendiente:{code:entry.code||'GH_DAILY_NOT_PREPARED',message:entry.message}})},200);
   }
   if (path === "/superadmin/dashboard" && request2.method === "GET") {
     const auth = await verifyAdmin(env, request2);
@@ -11227,8 +11211,11 @@ async function dailyDashboard195(env,auth){
  const packet=await dailySubscribers195(env,'read');
  if(!packet?.preparado||!packet.admin)return json({success:false,entry_version:195,code:'GH_DAILY_NOT_PREPARED',message:'La copia diaria de Inicio todavía no está preparada.'},503);
  const top=isTopAdmin2(auth),inbox=await dailyInboxForAuth195(packet,auth);
+ if(!top&&!packet.admin.territory_public)throw httpError('La copia territorial pública todavía no está preparada.',503);
+ const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
+ if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
  const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:209,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,...(top?{fixed:packet.admin.fixed}:{})}});
+ return json({success:true,entry_version:195,worker_info:{version:209,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
