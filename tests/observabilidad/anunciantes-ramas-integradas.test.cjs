@@ -3,18 +3,22 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const login=fs.readFileSync('plataforma/login.html','utf8');
 const external=fs.readFileSync('plataforma/publicidad-panel147.js','utf8');
 const cut=(from,to)=>{const x=login.indexOf(from),y=login.indexOf(to,x);assert(x>=0&&y>x,from);return login.slice(x,y)};
-test('crear/reclamar: botón utiliza función global única que transmite un POST',async()=>{
- const code=cut('async function enviarSolicitudAnunciante_(){','\nfunction parseLevel(');
- const fields={'alta-anunciante-modo':'RECLAMAR','alta-anunciante-nombre':'Prueba','alta-reclamo-id155':'A1','alta-reclamo-motivo155':'Tengo documentación que acredita la titularidad.','alta-anunciante-ciudad':'Dolores'};
+test('reclamar: formulario propio transmite un solo POST con la ciudad validada',async()=>{
+ const code=cut('async function enviarReclamoAnunciante155(){','\nfunction abrirSolicitudAnunciante_(');
+ const fields={'alta-reclamo-ciudad155':'DOL','alta-reclamo-id155':'A1','alta-reclamo-motivo155':'Tengo documentación que acredita la titularidad.'};
  const btn={disabled:false},calls=[],panels=[];
- const ctx={sesionSuscriptor:{suscriptor_id:'S1'},gldSubscriberToken:'token',comercios:[{id:'A1',nombre:'Prueba'}],
- document:{getElementById:id=>id==='btnEnviarAltaAnunciante'?btn:{value:fields[id]||''}},
+ const ctx={sesionSuscriptor:{suscriptor_id:'S1'},gldSubscriberToken:'token',
+ claimResults155:[{id:'A1',nombre:'Prueba',ciudad_ids:['DOL']}],
+ whatsappContextoCuenta_:()=>({mail:'',whatsapp:''}),
+ document:{getElementById:id=>id==='btnEnviarReclamoAnunciante155'?btn:{value:fields[id]||''}},
  apiSuscriptores_:async p=>{calls.push(p);return{success:true,message:'Enviado'};},
  mostrarPanel:x=>panels.push(x),alert:()=>{}};
- vm.createContext(ctx);vm.runInContext(code+'\nthis.run=enviarSolicitudAnunciante_',ctx);
+ vm.createContext(ctx);vm.runInContext(code+'\nthis.run=enviarReclamoAnunciante155',ctx);
  await ctx.run();assert.equal(calls.length,1);assert.equal(calls[0].action,'solicitar_anunciante');
  assert.equal(calls[0].modo,'RECLAMAR');assert.equal(calls[0].anunciante_id,'A1');
+ assert.equal(calls[0].ciudad,'DOL');
  assert.deepEqual(panels,['seleccionar-anunciante']);assert.equal(btn.disabled,false);
+ assert.match(login,/async function enviarSolicitudAnunciante_\(\)\{[\s\S]*?const modo='CREAR'/);
 });
 test('solicitud compartida: POST /suscriptores una sola vez',async()=>{
  const code=cut('async function apiSuscriptores_(payload){','/* ====================== INIT ====================== */');
