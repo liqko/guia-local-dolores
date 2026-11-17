@@ -206,6 +206,20 @@ function scan(){
       }),bodyStart:line(n.body||n),bodyEnd:frag.off+sf.getLineAndCharacterOfPosition(n.getEnd()).line+1};
      allFns.push(f);fnStack.push(f);entered=true;
     }
+    // Event properties (button.onclick, checkbox.onchange) are independent UI
+    // entries, just like addEventListener and inline HTML handlers.
+    // Do not confuse assignment with execution of the callback.
+    if(file.endsWith('.html')&&ts.isBinaryExpression(n)&&
+       n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
+       ts.isPropertyAccessExpression(n.left)&&/^on(?:click|change|submit|input|blur|focus|keydown|keyup)$/.test(n.left.name.text)&&
+       (ts.isArrowFunction(n.right)||ts.isFunctionExpression(n.right))){
+      const at=line(n),event=n.left.name.text,receiver=n.left.expression.getText(sf).slice(0,130);
+      const handler='callback@'+line(n.right);
+      actions.push({id:sha(file+':'+at+':event_property:'+n.left.getText(sf)).slice(0,16),
+        file,line:at,kind:'event_property',element:'dom_property',
+        elementId:null,label:receiver,handler,entry:null,
+        entryId:functionId(n.right),event,receiver,context:fnStack.at(-1)?.id||null});
+    }
     if(ts.isBinaryExpression(n)&&n.operatorToken.kind===ts.SyntaxKind.EqualsToken&&
        ts.isIdentifier(n.left)&&ts.isCallExpression(n.right)&&
        file.startsWith('worker/')&&n.right.expression.getText(sf)==='path.match'&&
