@@ -6,7 +6,7 @@ const sha=s=>crypto.createHash('sha256').update(s).digest('hex');
 const sources=cp.execFileSync('git',['ls-files','-z','--','plataforma','worker/worker206.txt'],{encoding:'utf8'}).split('\0').filter(p=>/^(plataforma\/.*\.(?:html|js|cjs|mjs)|worker\/worker206\.txt)$/.test(p)&&fs.existsSync(p)).sort();
 const reportPath='auditorias/transversal/ARBOL_ACCIONES.json';
 const arr=[],sourceHashes={};
-const add=(file,line,kind,expression,extra={})=>arr.push({id:sha([file,line,kind,expression].join('|')).slice(0,16),file,line,kind,expression:expression.slice(0,250),...extra});
+const add=(file,line,kind,expression,extra={})=>arr.push({id:sha([file,line,kind,expression,...(kind==='startup_call'?['column:'+extra.column]:[])].join('|')).slice(0,16),file,line,kind,expression:expression.slice(0,250),...extra});
 function collect(file,raw){
  const html=file.endsWith('.html');
  if(html){
@@ -45,7 +45,7 @@ function collect(file,raw){
    }
    if(html&&ownerDepth===0&&ts.isCallExpression(n)&&
      (ts.isIdentifier(n.expression)||ts.isPropertyAccessExpression(n.expression))&&n.expression.getText(sf)!=='addEventListener')
-     add(file,loc(n),'startup_call',n.getText(sf).slice(0,180),{callee:n.expression.getText(sf).slice(0,180)});
+     add(file,loc(n),'startup_call',n.getText(sf).slice(0,180),{callee:n.expression.getText(sf).slice(0,180),column:sf.getLineAndCharacterOfPosition(n.getStart(sf)).character});
    const enters=isFn(n);if(enters)ownerDepth++;
    ts.forEachChild(n,visit);
    if(enters)ownerDepth--;
