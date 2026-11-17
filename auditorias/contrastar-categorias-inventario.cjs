@@ -19,7 +19,7 @@ const checks={
  startup_call:{
   source:inventory.entries.filter(x=>x.kind==='startup_call'),
   mapped:tree.startupCalls||[],
-  key:x=>x.file+'|'+x.line
+  key:x=>x.file+'|'+x.line+'|'+String(x.callee||x.expression).slice(0,180)
  }
 };
 function findMissing(source,mapped,key){
