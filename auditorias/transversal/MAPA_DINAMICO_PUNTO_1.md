@@ -101,3 +101,9 @@ Se mantienen las 15 entradas originales. Los controles adicionales de esta tabla
 | Servicios | Identificación de despachos y dependencias por fuente; Worker reportó versión 211 por HTTPS. | Sin medición por acción en Firestore, KV, Durable Objects/SQL, Worker o Hosting. Los contadores de los ensayos pertenecen a stubs. |
 
 Los estados abiertos se conservan en las filas, incluidas las 15 expresiones del inventario y la tabla sin invocador. La siguiente comprobación del punto 1 es ejecutar los controles con sesión autorizada y datos existentes, comenzando por las ramas de lectura o preparación sin guardado, y capturar destino, estado y si hubo solicitud en cada caso. Para cerrar los guardados hace falta evidencia de sus efectos con datos y permisos aptos. Los árboles y el catálogo vinculados corresponden al MAPA y al catálogo provisional de la misma revisión.
+
+## Comprobación de sesiones — 18/11/2026 (Argentina)
+
+- **Gran Hermano, Opera.** Sesión autenticada confirmada en `www.guialocal.ar/administracion`. Se vio la vista de Anunciantes con el estado de la copia diaria, la bandeja de altas y reclamos y los accesos a Configuración de plataforma y Roles internos. La pantalla indicó que no había altas ni reclamos pendientes en esa copia.
+- **Anunciante, Opera.** Sesión autenticada confirmada en `www.guialocal.ar/anunciantes`. Se vio el selector con relaciones de propietario, administrador y manager. Los módulos 36–38 requieren seleccionar un anunciante y accionar los controles correspondientes.
+- **Alcance de la prueba.** El conector de Opera permitió leer las páginas abiertas con sesión. El control interactivo devolvió falta de acceso al navegador de origen. Sigue pendiente ejecutar los controles desde ambas sesiones y verificar sus efectos. El punto 1 continúa abierto.
