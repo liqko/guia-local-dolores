@@ -12,6 +12,17 @@ Corte de código [`e6362836`](https://github.com/liqko/guia-local-dolores/commit
 
 El catálogo cruzaba nombres diferentes para la misma declaración: el GPS califica el nombre de callbacks con archivo y línea, y el árbol utiliza la línea. Las 329 están presentes en los árboles. Las otras 3.296 todavía requieren evidencia de recorrido o una clasificación comprobada. La mera declaración dentro de una función no acredita ejecución. El recuento por posición distingue 394 declaraciones con operación, frente a 392 identificadores antiguos del GPS. Los detectores incluyen operaciones locales, como búsquedas de elementos de pantalla.
 
+
+## Qué queda en revisión
+
+Una sola declaración puede tener dos etiquetas en los informes. Por ejemplo, el GPS y el árbol usan etiquetas diferentes para el callback de `plataforma/actividades.html:726`. La posición de la declaración coincide y el árbol ya lo incorpora a `AUD-00003`.
+
+- 1.867 declaraciones dentro de funciones mapeadas. Verificar qué evento, llamada o condición activa cada bloque.
+- 516 declaraciones con un llamador localizado cuyo origen sigue sin árbol. Rastrear ese origen hasta una entrada de la plataforma.
+- 913 declaraciones sin llamador resuelto automáticamente. Buscar disparadores indirectos y documentar, cuando corresponda, evidencia de falta de uso.
+
+Estas tres filas suman las 3.296 declaraciones restantes del cruce por identidad. Los candidatos con operaciones de red se revisan primero. Las comprobaciones directas documentadas abajo aportan evidencia de origen, aunque sus enlaces aún no están incorporados al catálogo generado. No se deduce una duplicación, un error ni un desuso sólo porque falte un enlace.
+
 ## Comprobaciones directas adicionales
 
 - `empleo-enlaces.js:1` se invoca al cargar el script desde `suscriptores.html:1623` y `login.html:10258`. Consulta la versión del Worker antes de habilitar enlaces de Empleo.
