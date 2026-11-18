@@ -96,10 +96,14 @@ for position,r in enumerate(pending,1):
         'unidadesDirectas':direct_aud,'unidadesExactas':exact_aud,
         'sitiosDeLlamada':callers,'entradasLocales':local_edges,
         'recorridoEstatico':r.get('recorridoEstatico'),
+        'identidadAST':r.get('cuerpoAST'), 'funcionPadre':r.get('padre'),
+        'ejecucionLocal':r.get('ejecucionLocalWorker'), 'comprobacion':r.get('comprobacion'),
         'falta':'No certificar recorrido completo sin entrada, condiciones y ejecución.' if category!='sin_activador_confirmado' else 'Determinar si se activa o es remanente de código.'
     })
 duplicates={k:v for k,v in collections.Counter(r['idGPS'] for r in results).items() if v>1}
-print('DUPLICADOS_ID_GPS',json.dumps(duplicates,ensure_ascii=False)[:4000])
+print('DUPLICADOS_ID_GPS_RESUMEN',json.dumps({'ids':len(duplicates),'filas':sum(duplicates.values()),'ejemplos':dict(list(duplicates.items())[:5])},ensure_ascii=False))
+for name in list(duplicates)[:5]:
+    print('DUPLICADO_EJEMPLO',name,json.dumps([{'fila':x['filaOriginal'],'AST':x['identidadAST'],'activacion':x['activacion'],'padre':x['funcionPadre']} for x in results if x['idGPS']==name],ensure_ascii=False)[:1800])
 assert len(results)==1691
 counts=dict(sorted(collections.Counter(r['categoria'] for r in results).items()))
 summary={
