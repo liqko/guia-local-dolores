@@ -30,9 +30,9 @@ Solo cuando estén ejecutadas todas las comprobaciones, con problemas resueltos 
 
 ## Estado de referencia, 18/11/2026
 
-- **Paso 1 MAPA: REVALIDACIÓN PENDIENTE FRENTE A `main`.** El [bloque de 44 entradas dinámicas](transversal/MAPA_DINAMICO_PUNTO_1.md) quedó cerrado el 18/11/2026 y los siete fallos conservan su lugar en ejecución. La corrida 44210648484 cotejó 983 árboles en `f6ea8fe2`. El [registro maestro](ESTADO_ACTUAL.md) identifica las diferencias de fuente pendientes de revalidar en el MAPA general.
-- **Paso 2 CATÁLOGO: PROVISIONAL** (generado durante el paso 1; pendiente de comprobación y consolidación). Última generación: 983 árboles, incluidos 280 arranques y entradas del Worker; los árboles de interfaz actuales son 703, frente a 701 en un corte anterior. No confundir árboles con unidades funcionalmente auditadas.
-- **Paso 3 COBERTURA: NO CERRADO.** Hay verificaciones estáticas, faltan controles efectivos de los elementos dinámicos y evidencias pertinentes.
+- **Paso 1 MAPA: CERRADO.** Se revalidaron 987 árboles sobre el código de main `e6362836`, sin truncamientos. El bloque de 44 acciones dinámicas conserva su evidencia y los fallos documentados.
+- **Paso 2 CATÁLOGO: GENERADO.** El [catálogo maestro](transversal/CATALOGO_MAESTRO.md) contiene 987 unidades numeradas, con fuente, árbol y dependencias. El catálogo anterior queda referenciado mediante equivalencias comprobadas.
+- **Paso 3 COBERTURA: PENDIENTE.** El barrido automático enlazó 923 entradas independientes y 44 candidatas dinámicas. Falta resolver las brechas de alcance, las funciones sin enlace a un árbol de evento y las equivalencias históricas pendientes que identifica el catálogo.
 - **Paso 4 EJECUCIÓN: NO INICIADO sistemáticamente desde 001.**
 - **Paso 5 CIERRE: PENDIENTE.**
 
