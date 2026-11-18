@@ -59,3 +59,20 @@ Se conservan los 34 candidatos del cruce automático de red y las cuatro declara
 | `worker/worker206.txt:12222` | `call` | Llamada localizada, origen aún sin árbol |
 | `worker/worker206.txt:12860` | `dispatch` | Sin llamador resuelto por el grafo |
 | `worker/worker206.txt:13123` | `dispatch` | Sin llamador resuelto por el grafo |
+
+## Origen comprobado en los diez candidatos de red del Worker
+
+| Declaración en `worker/worker206.txt` | Invocación comprobada en fuente |
+| --- | --- |
+| 270, `route` territorial | Despacho del Worker en 13217. El despachador verifica ruta y método antes de usar el coordinador. |
+| 799, `newToken` | Renovación por `tokenCache.pending` en 825. |
+| 869, `request` | Adaptador Firestore. Lo invocan las operaciones de documento y listado, por ejemplo 890, 939, 955 y 965. |
+| 889, `sourceDocument119` | Llamado por métodos del adaptador en 918, 923, 938 y 954. |
+| 901, `commitPatches` | Escritura agrupada, llamada por soporte en 444 y publicidad en 559. |
+| 980, `queryEqual` | Consulta por campo, llamada por soporte en 417 y publicidad en 545. |
+| 12021, `cityBookMarkShared` | Escritura y eliminación de claves compartidas en el adaptador KV, 12238 y 12256. |
+| 12222, `call` | Adaptador de paquetes de ciudad, usado por las ramas de lectura, escritura y eliminación del Proxy de 12236–12256. |
+| 12860, `dispatch` comercial | Exportado en 12924 e invocado por el Worker en 13218. Despacha también a Eventos. |
+| 13123, `dispatch` de Eventos | Exportado en 13173 e invocado en 12863. Valida rutas de escritura de eventos y moderación. |
+
+Estos diez casos tienen origen de uso comprobado estáticamente. Queda pendiente incorporar sus enlaces exactos al catálogo y comprobar los otros 20 candidatos de red. Las operaciones restantes del grupo y las declaraciones sin llamador estático también quedan en revisión.
