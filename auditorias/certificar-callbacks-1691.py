@@ -19,7 +19,7 @@ for r in rows:
     expr=str(a.get('expr') or '').strip()
     m=re.search(r'\.([A-Za-z]+)\s*$',expr)
     if not m or m.group(1) not in known:continue
-    file=Path(r['archivo']);line=int(r['linea']);method=m.group(1)
+    file=Path('baseline')/r['archivo'];line=int(r['linea']);method=m.group(1)
     if not file.exists():
         status='fuente_ausente'
         nearby=''
