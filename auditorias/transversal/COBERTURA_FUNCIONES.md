@@ -87,3 +87,21 @@ Se conservan los 34 candidatos del cruce automático de red y las cuatro declara
 | 13123, `dispatch` de Eventos | Exportado en 13173 e invocado en 12863. Valida rutas de escritura de eventos y moderación. |
 
 Estos diez casos tienen origen de uso comprobado estáticamente. Queda pendiente incorporar sus enlaces exactos al catálogo y comprobar los otros 20 candidatos de red. Las operaciones restantes del grupo y las declaraciones sin llamador estático también quedan en revisión.
+
+## Rastreo de disparadores en los tres grupos
+
+Se cotejó cada declaración por posición exacta en el código y se siguieron las llamadas con destino identificado en el grafo del corte `e6362836`. El [detalle por función](COBERTURA_ACTIVACIONES.zip) conserva archivo, línea, receptor, invocadores, unidades y, cuando se encontró, la cadena desde la carga del script.
+
+| Grupo inicial | Resultado en fuente | Casos |
+| --- | --- | ---: |
+| Dentro de funciones mapeadas | Se localizó el receptor al que se entrega la función | 1.660 |
+| Dentro de funciones mapeadas | Se encontró programación explícita con temporizador o cuadro de animación | 72 |
+| Dentro de funciones mapeadas | Disparador por resolver | 135 |
+| Con llamador identificado | Se obtuvo una cadena desde una función que se invoca al cargar un script | 28 |
+| Con llamador identificado | La cadena hacia una entrada de la plataforma sigue pendiente | 488 |
+| Sin llamador resuelto en el cruce anterior | Funciones que se invocan directamente al cargar su script | 74 |
+| Sin llamador resuelto en el cruce anterior | Se encontró programación explícita con temporizador o cuadro de animación | 17 |
+| Sin llamador resuelto en el cruce anterior | Se localizó el receptor al que se entrega la función | 622 |
+| Sin llamador resuelto en el cruce anterior | Disparador por resolver | 200 |
+
+Las 3.296 filas quedaron examinadas en este cruce. Encontrar el receptor de una función documenta el punto de entrega. Su ejecución aún depende de que el llamador la invoque y de las condiciones del recorrido. Los enlaces del rastreo conservan el tipo de resolución del grafo. Queda pendiente comprobar los receptores y orígenes aún abiertos, vincularlos al catálogo maestro y cotejar los 20 candidatos de red de Plataforma que siguen abiertos.
