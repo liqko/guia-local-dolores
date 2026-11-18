@@ -5,22 +5,24 @@ Corte `e6362836e6078a14a361732d79a8212258934056`. Se cotejaron las 3.625 declara
 | Evidencia por declaración | Cantidad |
 | --- | ---: |
 | El mismo cuerpo ya figura en un árbol AUD | 329 |
-| Cadena de llamadas o disparadores en fuente, enlazada a una unidad AUD | 1.318 |
-| Cadena desde código de nivel superior del script, sin enlace AUD en la traza guardada | 101 |
-| Llamada o registro de nivel superior, sin cadena asociada a una unidad AUD | 85 |
-| Invocador localizado en revisión directa, sin cadena asociada a una unidad AUD | 16 |
-| Invocador resuelto, entrada pendiente | 522 |
-| Registro, entrega o asignación con invocación pendiente | 1.103 |
-| Llamador registrado por el grafo, entrada pendiente | 7 |
-| Declaración con invocador pendiente | 138 |
-| Candidato a desuso con operación de red | 6 |
+| Cadena de llamadas o disparadores en fuente, enlazada a una unidad AUD | 1.406 |
+| Cadena desde el nivel superior del script, sin ID AUD en la traza guardada | 102 |
+| Sólo una llamada o registro en el nivel superior del script | 85 |
+| Sólo un invocador localizado en revisión directa | 12 |
+| Sin entrada o mecanismo de activación rastreado por completo | 1.691 |
 | Total | 3.625 |
 
-De las 1.849 declaraciones agrupadas en el informe previo, **1.647** tienen vínculo guardado con una unidad AUD. **101** tienen cadena rastreada desde el script y **101** tienen sólo una llamada, registro o invocador localizado. Otras **1.776** siguen con la activación o la entrada pendiente. La evidencia corresponde a cadenas estáticas hasta cada declaración. El lote no verificó en ejecución el recorrido completo de las acciones ni su consumo.
+El cotejo recuperó la entrada o el disparador para **85** declaraciones que estaban abiertas. Conserva las 3.625 identidades y ninguna declaración con cobertura anterior volvió a quedar abierta. Entre los enlaces nuevos se comprobó que el coordinador territorial usa `this.serialized` y llama al parámetro `fn` después de que termina la operación anterior. Esto conecta los callbacks de `fetch` y `alarm` con el coordinador y sus dependencias. También se verificaron llamadas a métodos de objetos devueltos por una clausura, funciones de configuración desestructuradas y símbolos únicos entre bloques de script clásicos. Las rutas de llamadas acreditan conexiones en fuente, sujetas a las condiciones de cada entrada.
 
-La verificación sigue identidades de archivo y posición AST, resuelve símbolos en el mismo bloque de script y usa los contratos reconocidos de la biblioteca estándar y los enlaces explícitos del árbol. El recuento se obtuvo del anexo. Se comprobó que cada salto comienza donde termina el anterior, que la cadena llega al cuerpo indicado y que cada ID AUD citado existe en el catálogo. El anexo conserva la primera traza encontrada por declaración. Un caso sin ID AUD en esa traza puede tener otro recorrido aún por rastrear.
+## Ejecución local del Worker
 
-Por ejemplo, **AUD-00332** nace al editar el formulario de Empleo. En `plataforma/empleo.js:52`, el evento comprueba identidad y que el formulario esté libre, programa el guardado y el callback llama `payload` en `:25`. Ese cuerpo arma los datos del borrador. El callback intenta guardarlos en `localStorage`. El recorrido está en la fuente. Falta probar su ejecución en la interfaz.
+Se importó el Worker del corte y se registró la ejecución de funciones por rango exacto de inicio y fin con V8. Se probaron 12 escenarios de solicitudes y alarma con la fixture de territorio y se registró también la carga del módulo. Pasaron 48 pruebas de cinco suites del repositorio. Cuatro de esas suites aportaron rangos del Worker con identidad comprobable. También pasaron las integraciones de copia persistente, roles del panel y costos públicos, con dos inserciones conocidas de observación, descontadas al cotejar los rangos. El [anexo](COBERTURA_ACTIVACIONES.zip) incluye la huella del Worker, las ejecuciones por declaración, los conteos de prueba y el procedimiento reproducible.
+
+Se observaron **507 declaraciones** del grupo original en ejecución local. **330** pertenecen a las 1.691 que todavía carecen de un recorrido estático completo. Para esas 330 hay evidencia de ejecución con datos simulados. Quedan **1.361** sin cadena demostrada ni ejecución observada en estas pruebas. La cobertura funcional en las interfaces y el consumo real siguen pendientes.
+
+Los resultados de tres integraciones que fallaron se conservaron y sus rangos no se sumaron a la evidencia. `verify-owner-costs` y `verify-user-guide-integrado` esperaban 200 al abrir la ficha y recibieron 503 con `COMMERCE_COPY_PREPARING`. `verify-whole-advertiser-save-integrado` esperaba 409 para un guardado con revisión de sede vieja y recibió 412. Las tres discrepancias se observaron en pruebas locales. Falta verificar si el montaje de cada prueba refleja el precalentamiento y el contrato de respuesta vigentes.
+
+Para continuar el cotejo, vincular las 330 declaraciones ejercitadas al disparador concreto de las pruebas y ejecutar los escenarios todavía ausentes, empezando por las ramas de `/commerce` con copia ausente, en preparación y lista. Para el caso de revisión de sede, confirmar primero el estado de la copia, comprobar la causa del 412 y verificar que el rechazo no deje escrituras parciales. Las demás declaraciones pendientes conservan su ubicación, invocador o registro, condición y prueba abierta en el anexo.
 
 ## Revisión de los 20 orígenes de red de Plataforma pendientes
 
