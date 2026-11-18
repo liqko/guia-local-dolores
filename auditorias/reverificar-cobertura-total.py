@@ -63,7 +63,7 @@ def detect_callback(r):
     return True,method,'fuente_y_contrato_estandar'
 
 results=[]
-for r in pending:
+for position,r in enumerate(pending,1):
     parent_aud=sorted(set(r.get('unidadesDelPadre') or []))
     direct_aud=sorted(set(r.get('unidades') or []))
     exact_aud=sorted(set(r.get('unidadesExactas') or []))
@@ -89,7 +89,7 @@ for r in pending:
         category='registro_local_sin_entrada_AUD'
     else:category='sin_activador_confirmado'
     results.append({
-        'idGPS':r['idGPS'],'nombre':r.get('nombre'),'archivo':r.get('archivo'),'linea':r.get('linea'),
+        'filaOriginal':position,'idGPS':r['idGPS'],'nombre':r.get('nombre'),'archivo':r.get('archivo'),'linea':r.get('linea'),
         'estadoOriginal':r.get('estadoDeCobertura'),'categoria':category,
         'fuente':status,'textoFuente':src_line,'metodo':method,'callbackFuente':callback,
         'evidenciaCallback':why,'activacion':act,'unidadesPadre':parent_aud,
@@ -98,13 +98,17 @@ for r in pending:
         'recorridoEstatico':r.get('recorridoEstatico'),
         'falta':'No certificar recorrido completo sin entrada, condiciones y ejecución.' if category!='sin_activador_confirmado' else 'Determinar si se activa o es remanente de código.'
     })
-assert len({r['idGPS'] for r in results})==1691,'Identidad GPS duplicada'
+duplicates={k:v for k,v in collections.Counter(r['idGPS'] for r in results).items() if v>1}
+print('DUPLICADOS_ID_GPS',json.dumps(duplicates,ensure_ascii=False)[:4000])
+assert len(results)==1691
 counts=dict(sorted(collections.Counter(r['categoria'] for r in results).items()))
 summary={
     'revision':data['revision'],'totalVerificadasContraFuente':len(results),
     'unidadesCatalogo':len(valid_aud),'categorias':counts,
     'funcionesConEvidenciaCallback':sum(r['callbackFuente'] for r in results),
     'faltantesFuente':sum(r['fuente']!='ubicacion_validada' for r in results),
+    'identificadoresGPSDuplicados':len(duplicates),
+    'filasAfectadasPorDuplicacion':sum(duplicates.values()),
     'recorridosCompletosCertificados':0,
     'nota':'Todas las 1691 se cotejan con el mismo código. Categoría de evidencia NO equivale a cadena de ejecución completa, ni se descuentan pendientes automáticamente.'
 }
