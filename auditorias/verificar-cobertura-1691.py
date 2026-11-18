@@ -10,7 +10,7 @@ with zipfile.ZipFile(BASE/"COBERTURA_ACTIVACIONES.zip") as z:
     document=json.loads(z.read("COBERTURA_ACTIVACIONES.json"))
 rows=document["filas"]
 catalog_text=(BASE/"CATALOGO_MAESTRO.md").read_text()
-valid_ids=set(re.findall(r"AUD-\\d{5}",catalog_text))
+valid_ids=set(re.findall(r"AUD-\d{5}",catalog_text))
 open_status={"invocador_identificado_sin_entrada","registro_o_asignacion_sin_invocacion_comprobada","declaracion_sin_invocador_resuelto","uso_no_localizado_revision_por_accion"}
 pending=[r for r in rows if r.get("estadoDeCobertura") in open_status]
 assert len(rows)==3625, len(rows)
@@ -27,7 +27,7 @@ for r in pending:
     if unrecognized:
         raise RuntimeError(f"Referencia AUD inexistente: {r.get('idGPS')} {unrecognized}")
     expr=str(act.get("expr") or "").strip()
-    method=(re.search(r"\\.([A-Za-z]+)\\s*$",expr) or [None,None])[1]
+    method=(re.search(r"\.([A-Za-z]+)\s*$",expr) or [None,None])[1]
     state=r["estadoDeCobertura"]
     if state=="registro_o_asignacion_sin_invocacion_comprobada" and parent_units and act.get("tipo")=="funcion_pasada_como_argumento" and method in known_array:
         verification="cadena_a_AUD_y_callback_de_metodo_estandar_candidato"
