@@ -1,3 +1,5 @@
+> **RECTIFICACIÓN OBLIGATORIA, 18/11/2026:** Este documento contiene una clasificación antigua de «608 conexiones cerradas». NO ES UN CIERRE DE RECORRIDO. Fue reemplazada por [la reverificación integral de las 1.691 funciones](COBERTURA_1691_REVERIFICACION_INTEGRAL.md), que conserva las 608 como pendientes de entrada y condiciones. No utilizar 1.083 como total verificado pendiente de recorridos completos.
+
 # Punto 3 — cruce automático reproducible de 1.691 declaraciones
 
 **Corte de código:** `e6362836e6078a14a361732d79a8212258934056`, catálogo de **987** unidades. No se editó ni desplegó código de plataforma. Se ejecutó el [script de cruce](../verificar-cobertura-1691.py) en [GitHub Actions](https://github.com/liqko/guia-local-dolores/actions/runs/44416541704), leyendo **todas** las identidades individuales de `COBERTURA_ACTIVACIONES.zip` y cotejando las unidades AUD con el catálogo. [Anexo exportado con 1.691 filas, JSON y CSV](https://github.com/liqko/guia-local-dolores/actions/runs/44416541704/artifacts/14479393699).
