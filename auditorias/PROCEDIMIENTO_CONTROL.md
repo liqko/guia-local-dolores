@@ -30,7 +30,7 @@ Solo cuando estén ejecutadas todas las comprobaciones, con problemas resueltos 
 
 ## Estado de referencia, 18/11/2026
 
-- **Paso 1 MAPA: CERRADO (18/11/2026).** El responsable del proyecto confirmó el cierre. El [informe](transversal/MAPA_DINAMICO_PUNTO_1.md) contiene las 44 entradas dinámicas relevadas, sus vínculos a árboles y catálogo, la evidencia y sus límites. Los siete fallos documentados quedan pendientes de diagnóstico o corrección en la etapa de ejecución.
+- **Paso 1 MAPA: REVALIDACIÓN PENDIENTE FRENTE A `main`.** El [bloque de 44 entradas dinámicas](transversal/MAPA_DINAMICO_PUNTO_1.md) quedó cerrado el 18/11/2026 y los siete fallos conservan su lugar en ejecución. La corrida 44210648484 cotejó 983 árboles en `f6ea8fe2`. El [registro maestro](ESTADO_ACTUAL.md) identifica las diferencias de fuente pendientes de revalidar en el MAPA general.
 - **Paso 2 CATÁLOGO: PROVISIONAL** (generado durante el paso 1; pendiente de comprobación y consolidación). Última generación: 983 árboles, incluidos 280 arranques y entradas del Worker; los árboles de interfaz actuales son 703, frente a 701 en un corte anterior. No confundir árboles con unidades funcionalmente auditadas.
 - **Paso 3 COBERTURA: NO CERRADO.** Hay verificaciones estáticas, faltan controles efectivos de los elementos dinámicos y evidencias pertinentes.
 - **Paso 4 EJECUCIÓN: NO INICIADO sistemáticamente desde 001.**
