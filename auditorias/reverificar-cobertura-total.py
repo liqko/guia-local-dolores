@@ -116,6 +116,50 @@ summary={
     'recorridosCompletosCertificados':0,
     'nota':'Todas las 1691 se cotejan con el mismo código. Categoría de evidencia NO equivale a cadena de ejecución completa, ni se descuentan pendientes automáticamente.'
 }
+
+# RASTREO REAL DE CONEXIONES DIRECTAS, SIN ATRIBUIR ACTIVACION A UNA FUNCION SOLO POR SU PADRE
+# Cada nodo usa identidad de AST para distinguir callbacks distintos en la misma linea.
+all_nodes={}
+for srcrow in rows:
+    ast=srcrow.get('cuerpoAST') or {}
+    if ast.get('inicio') is None: continue
+    nid=f"{srcrow.get('archivo')}:{srcrow.get('linea')}:{ast.get('inicio')}:{srcrow.get('nombre')}"
+    all_nodes[nid]=srcrow
+from collections import deque
+incoming=collections.defaultdict(list)
+for node_id, srcrow in all_nodes.items():
+    for edge in srcrow.get('entradasLocales') or []:
+        before=edge.get('desde');after=edge.get('hacia')
+        if before and after and after in all_nodes:
+            item=(before,edge.get('clase'),edge.get('sitio'))
+            if item not in incoming[after]:incoming[after].append(item)
+anchors={}
+for nid,srcrow in all_nodes.items():
+    units=srcrow.get('unidadesExactas') or srcrow.get('unidades') or []
+    if units:
+        anchors[nid]=sorted(set(u for u in units if u in valid_aud))
+def trace_exact(nid):
+    queue=deque([(nid,[nid])]);seen={nid}
+    while queue:
+        current,path=queue.popleft()
+        if current in anchors:
+            return {'estado':'cadena_directa_al_ancla_AUD','unidades':anchors[current],'cadena':path}
+        if len(path)>80:continue
+        for predecessor,clase,sitio in incoming.get(current,[]):
+            if predecessor in seen:continue
+            seen.add(predecessor);queue.append((predecessor,path+[predecessor]))
+    return {'estado':'sin_cadena_directa_hasta_AUD','alcanzados':len(seen)}
+for rec in results:
+    ast=rec.get('identidadAST') or {}
+    nid=f"{rec['archivo']}:{rec['linea']}:{ast.get('inicio')}:{rec['nombre']}"
+    rec['cadenaDirecta']=trace_exact(nid)
+graph_summary=collections.Counter(rec['cadenaDirecta']['estado'] for rec in results)
+summary['grafoDirecto']=dict(graph_summary)
+summary['nodosAST']=len(all_nodes)
+summary['aristasDirectasIdentificadas']=sum(len(v) for v in incoming.values())
+summary['anclasAUD']=len(anchors)
+print('TRAZADO_DIRECTO_1691',json.dumps({'grafo':dict(graph_summary),'nodosAST':len(all_nodes),'aristas':sum(len(v) for v in incoming.values()),'anclas':len(anchors),'ejemplos':[{k:x.get(k) for k in ['idGPS','cadenaDirecta']} for x in results if x['cadenaDirecta']['estado']=='cadena_directa_al_ancla_AUD'][:3]},ensure_ascii=False)[:3300])
+
 (OUT/'COBERTURA_1691_REVERIFICACION_COMPLETA.json').write_text(json.dumps({'resumen':summary,'filas':results},ensure_ascii=False,indent=2)+'\n')
 (OUT/'COBERTURA_1691_REVERIFICACION_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
 print('REVERIFICACION_TOTAL',json.dumps(summary,ensure_ascii=False))
