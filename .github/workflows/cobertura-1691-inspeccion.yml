@@ -1,0 +1,41 @@
+name: Cobertura 1691 inspeccion automatica
+on:
+  push:
+    branches: [audit/transversal-consumos-20261115]
+    paths:
+      - '.github/workflows/cobertura-1691-inspeccion.yml'
+  workflow_dispatch:
+jobs:
+  clasificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspeccionar anexo individual sin alterar plataforma
+        run: |
+          python3 - <<'PY'
+          import zipfile,json,os
+          p='auditorias/transversal/COBERTURA_ACTIVACIONES.zip'
+          with zipfile.ZipFile(p) as z:
+            rows=[]
+            for entry in z.infolist():
+              obj={'name':entry.filename,'size':entry.file_size}
+              if entry.filename.lower().endswith('.json') and entry.file_size<200000000:
+                try:
+                  x=json.loads(z.read(entry))
+                  obj['kind']=type(x).__name__
+                  if isinstance(x,dict):
+                    obj['keys']={k:(len(v) if isinstance(v,(list,dict)) else str(v)[:70]) for k,v in list(x.items())[:28]}
+                    for k,v in x.items():
+                      if isinstance(v,list) and v and isinstance(v[0],dict):
+                        obj['example_keys_'+k]=list(v[0].keys())[:30]
+                  elif isinstance(x,list) and x and isinstance(x[0],dict):obj['sample_keys']=list(x[0].keys())
+                except Exception as e:obj['error']=str(e)[:150]
+              rows.append(obj)
+            print('ZIP_INSPECT',json.dumps(rows,ensure_ascii=False))
+            os.makedirs('auditorias/temporal',exist_ok=True)
+            with open('auditorias/temporal/estructura_anexo.json','w') as f:json.dump(rows,f,ensure_ascii=False,indent=2)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-1691-estructura
+          path: auditorias/temporal/estructura_anexo.json
