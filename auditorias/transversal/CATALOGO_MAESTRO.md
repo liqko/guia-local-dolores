@@ -1,5 +1,7 @@
 # Catálogo maestro de auditoría
 
+El [cotejo de 3.625 declaraciones](COBERTURA_FUNCIONES.md) y su [anexo por identidad de árbol y unidad AUD](COBERTURA_ACTIVACIONES.zip) registran las relaciones agregadas y los recorridos que aún requieren verificación.
+
 Código de referencia [`e6362836`](https://github.com/liqko/guia-local-dolores/commit/e6362836e6078a14a361732d79a8212258934056). Los generadores se tomaron de la rama de auditoría. Se cotejaron **71 fuentes** del directorio Plataforma y el Worker.
 
 **987 unidades numeradas**, de `AUD-00001` a `AUD-00987`. El [catálogo completo](CATALOGO_MAESTRO.zip) contiene funciones, datos, llamadas de red, dependencias por unidad, inventarios y equivalencias con la numeración anterior. El [informe de las 44 acciones dinámicas](MAPA_DINAMICO_PUNTO_1.md) conserva la evidencia y sus IDs originales.

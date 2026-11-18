@@ -1,4 +1,55 @@
-# Paso 3 · Cotejo de funciones sin enlace
+# Cotejo de cobertura de funciones
+
+Corte `e6362836e6078a14a361732d79a8212258934056`. Se cotejaron las 3.625 declaraciones del desajuste original y se conservó cada identidad AST. El [anexo de activaciones](COBERTURA_ACTIVACIONES.zip) enlaza las declaraciones al [catálogo maestro](CATALOGO_MAESTRO.md) por identificador de árbol y unidad AUD cuando hay evidencia. Conserva llamadas del cuerpo, operaciones, sitio de registro, ruta estática y comprobación abierta.
+
+| Evidencia por declaración | Cantidad |
+| --- | ---: |
+| El mismo cuerpo ya figuraba en un árbol | 329 |
+| Recorrido estático a una entrada de catálogo o sitio de nivel superior | 1.504 |
+| Origen localizado en revisión directa de red, adicional al rastreo | 16 |
+| Invocador resuelto, entrada pendiente | 522 |
+| Registro, entrega o asignación con invocación pendiente | 1.103 |
+| Llamador registrado por el grafo, entrada pendiente | 7 |
+| Declaración con invocador pendiente | 138 |
+| Candidato a desuso con operación de red | 6 |
+| Total | 3.625 |
+
+Las últimas cinco categorías abiertas suman **1.776**. Las 3.625 declaraciones están inventariadas y la cobertura de recorrido sigue abierta para esas 1.776. Cada fila conserva su ubicación y el punto a comprobar. La resolución de símbolos en el mismo bloque de script, los contratos identificados de la biblioteca estándar y los enlaces explícitos del árbol aportan evidencia de fuente. Las condiciones reales de sesión, caché, datos y permisos requieren ejecución. Los controles comprobaron 5.638 identidades AST de la fuente, 987 unidades vinculadas e integridad del anexo.
+
+## Revisión de los 20 orígenes de red de Plataforma pendientes
+
+Se completó la inspección de los 34 casos de la lista prioritaria. **28** tienen uso localizado en fuente y **seis** son candidatos a desuso. Esos seis requieren observar la interfaz que carga el archivo y registrar si el cuerpo se ejecuta antes de considerar su eliminación. Los 34 corresponden al filtro prioritario de red y no representan todos los sitios de operaciones del catálogo.
+
+| Declaración | Resultado | Evidencia |
+| --- | --- | --- |
+| `plataforma/actividades.html:635` | Uso localizado | iniciarModuloActividades solicita actividades en :1056 y publicidad en :1072 si el paquete de ciudad no aporta los datos. |
+| `plataforma/administracion.html:958` | Candidato a desuso | ghBuscarModeradores sólo figura en su declaración en las fuentes de Plataforma. Revisar el acceso a Moderadores con datos antes de considerar su eliminación. |
+| `plataforma/administracion.html:1977` | Uso localizado | detalleAnu solicita nueve catálogos mediante catalogTypes.map y Promise.allSettled al abrir la ficha de un anunciante. Cada valor llama api('listar_catalogo',{tipo}). |
+| `plataforma/administracion.html:3641` | Uso localizado | ghCotizarRecalcular171 (:3602) programa POST /sales/quote al validar la selección comercial. Luego descarta una respuesta desplazada por cambios en la cotización. |
+| `plataforma/administracion.html:3764` | Candidato a desuso | ghComercialBuscar186 aparece como declaración y como ID leído en el cuerpo, sin llamador ni control con ese ID en Plataforma. Revisar la búsqueda comercial activa antes de eliminar. |
+| `plataforma/anunciantes.html:1226` | Uso localizado | La tarjeta solicita una imagen de Instagram en :2529. fetchInstagramImage (:1221–1224) usa el resolvedor de imágenes si está disponible o invoca la función directamente. |
+| `plataforma/carcasa.html:1022` | Candidato a desuso | fetchInstagramImage sólo aparece como declaración en Carcasa. Anunciantes tiene su propia declaración e invocación. Revisar tarjetas con Instagram en Carcasa. |
+| `plataforma/carcasa.html:1052` | Uso localizado | Adaptador JSON invocado para ciclo de farmacias (:1744, tras intentar el paquete), efemérides (:1945) y módulos de ciudad (:2008, cuando falta caché local). |
+| `plataforma/empleo.js:47` | Uso localizado | Formulario de publicación (onsubmit en :51); valida datos y contactos, usa identidad del anunciante y distingue alta, edición y renovación. |
+| `plataforma/empleo.js:49` | Uso localizado | Formulario de apelación (onsubmit en :51); exige publicación propia cargada y sin solicitud en curso. El flujo se ofrece para publicaciones rechazadas. |
+| `plataforma/empleo.js:57` | Uso localizado | Inicialización directa en :61; intenta el módulo público del paquete de ciudad según contexto de sesión y panel, con /empleo/catalogo como alternativa. |
+| `plataforma/eventos.html:773` | Candidato a desuso | fetchInstagramImage sólo aparece como declaración en Eventos. Anunciantes tiene una implementación aparte. Revisar tarjetas de Eventos con Instagram. |
+| `plataforma/gh-listados.js:66` | Uso localizado | Botones de los listados de Promociones/Publicidad (:67–69) y confirmación del operador. Envía POST con identificador y acción, luego recarga. |
+| `plataforma/gh-listados.js:93` | Uso localizado | buscarAnu y buscarSus (:98) usan este buscador. Consulta /advertisers/search o /subscribers/search si la página no está en caché. Script incluido en administracion.html:4098. |
+| `plataforma/login.html:2856` | Uso localizado | Selector de colaboradores de Eventos. eventPartnerLoadCity_ (:2893, disparadores :2948 y :2962–2963) pasa por eventPartnerAllRows_ y :2880. Consulta /guide por ciudad sin promesa cacheada. |
+| `plataforma/login.html:3089` | Candidato a desuso | events_get sólo aparece en su declaración en Plataforma. Revisar carga/edición de Eventos y comprobar el adaptador efectivamente usado. |
+| `plataforma/login.html:5904` | Candidato a desuso | farmacias_get sólo aparece en su declaración en Plataforma. Revisar módulo y edición de Farmacias y comprobar el adaptador efectivamente usado. |
+| `plataforma/panel-comercial.html:41` | Uso localizado | Gran Hermano enlaza el panel en administracion.html:174; botones y formulario invocan login, catálogo, cotización, búsqueda, cierre y equipo. Las seis rutas /commercial/* siguen sin despacho en el Worker del corte. |
+| `plataforma/paquete-ciudad.js:188` | Uso localizado | El cliente recibe fetchJson por desestructuración en :89 y lo llama en :102 por archivo de paquete. Descarga desde Hosting si necesita obtener la copia; Actividades, Eventos, Guía, Carcasa y Empleo cargan este script. |
+| `plataforma/planes-publicos.js:134` | Uso localizado | load() se invoca al cargar en :151. planes-servicios.html:67 incluye el script; la función reutiliza caché de sesión antes de consultar el catálogo. |
+
+## Prueba funcional y consumo
+
+Ejecutar `AUD-00001` desde una ficha de anunciante en Gran Hermano con un perfil autorizado y una cuenta de prueba. Registrar clic, apertura de pestaña, POST `/superadmin/advertisers/:id/panel-access`, canje del acceso y llegada al panel. Repetir con caché caliente y verificar solicitudes y métricas correlacionadas de Cloudflare y Firebase. Si hay error o duplicación, aislar la causa y repetir la misma prueba tras la corrección. Conservar las 1.776 comprobaciones pendientes en el anexo y vincularlas a las pruebas de acción que puedan resolverlas.
+
+El catálogo conserva las ubicaciones del corte. `main` en `9b7fd659e3b9f46e4a714955016df26ce3764c82` trae cambios posteriores en `plataforma/login.html` y `plataforma/publicacion.js`, en particular en Soporte y Reclamo. Antes de probar las unidades que alcancen esos tramos, cotejar su recorrido con la revisión vigente. Este lote no realizó pruebas reales ni medición de recursos.
+
+## Resultados históricos del cruce y revisión del Worker
 
 Corte de código [`e6362836`](https://github.com/liqko/guia-local-dolores/commit/e6362836e6078a14a361732d79a8212258934056). Se verificaron huellas iguales entre catálogo, GPS y árboles. Identidad contrastada por archivo, posición AST y convención de nombre del árbol. El cotejo sólo acredita cobertura estática.
 
