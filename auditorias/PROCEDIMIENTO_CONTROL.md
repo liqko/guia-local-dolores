@@ -28,10 +28,10 @@ Auditar las unidades estrictamente del 001 al último, conforme al catálogo. En
 ### 5. CIERRE
 Solo cuando estén ejecutadas todas las comprobaciones, con problemas resueltos o expresamente identificados y sus evidencias, determinar el estado real de la plataforma. No declarar una fase o auditoría completa a partir de un CI exitoso o de árboles estáticos únicamente.
 
-## Estado de referencia, 17/11/2026
+## Estado de referencia, 18/11/2026
 
-- **Paso 1 MAPA: ABIERTO.** Existen árboles estáticos reconstruidos sobre Worker 211; permanece trabajo de clasificación y comprobación de conexiones dinámicas, manejadores y rutas sin despacho. Los resultados estáticos no equivalen a pruebas reales.
-- **Paso 2 CATÁLOGO: PROVISIONAL** (generado antes del cierre del 1; no habilita a saltear el 1). Última generación: 983 árboles, incluidos 280 arranques y entradas del Worker; los árboles de interfaz actuales son 703, frente a 701 en un corte anterior. No confundir árboles con unidades funcionalmente auditadas.
+- **Paso 1 MAPA: CERRADO (18/11/2026).** El responsable del proyecto confirmó el cierre. El [informe](transversal/MAPA_DINAMICO_PUNTO_1.md) contiene las 44 entradas dinámicas relevadas, sus vínculos a árboles y catálogo, la evidencia y sus límites. Los siete fallos documentados quedan pendientes de diagnóstico o corrección en la etapa de ejecución.
+- **Paso 2 CATÁLOGO: PROVISIONAL** (generado durante el paso 1; pendiente de comprobación y consolidación). Última generación: 983 árboles, incluidos 280 arranques y entradas del Worker; los árboles de interfaz actuales son 703, frente a 701 en un corte anterior. No confundir árboles con unidades funcionalmente auditadas.
 - **Paso 3 COBERTURA: NO CERRADO.** Hay verificaciones estáticas, faltan controles efectivos de los elementos dinámicos y evidencias pertinentes.
 - **Paso 4 EJECUCIÓN: NO INICIADO sistemáticamente desde 001.**
 - **Paso 5 CIERRE: PENDIENTE.**
