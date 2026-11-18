@@ -4,9 +4,11 @@ Corte `e6362836e6078a14a361732d79a8212258934056`. Se cotejaron las 3.625 declara
 
 | Evidencia por declaración | Cantidad |
 | --- | ---: |
-| El mismo cuerpo ya figuraba en un árbol | 329 |
-| Recorrido estático a una entrada de catálogo o sitio de nivel superior | 1.504 |
-| Origen localizado en revisión directa de red, adicional al rastreo | 16 |
+| El mismo cuerpo ya figura en un árbol AUD | 329 |
+| Cadena de llamadas o disparadores en fuente, enlazada a una unidad AUD | 1.318 |
+| Cadena desde código de nivel superior del script, sin enlace AUD en la traza guardada | 101 |
+| Llamada o registro de nivel superior, sin cadena asociada a una unidad AUD | 85 |
+| Invocador localizado en revisión directa, sin cadena asociada a una unidad AUD | 16 |
 | Invocador resuelto, entrada pendiente | 522 |
 | Registro, entrega o asignación con invocación pendiente | 1.103 |
 | Llamador registrado por el grafo, entrada pendiente | 7 |
@@ -14,7 +16,11 @@ Corte `e6362836e6078a14a361732d79a8212258934056`. Se cotejaron las 3.625 declara
 | Candidato a desuso con operación de red | 6 |
 | Total | 3.625 |
 
-Las últimas cinco categorías abiertas suman **1.776**. Las 3.625 declaraciones están inventariadas y la cobertura de recorrido sigue abierta para esas 1.776. Cada fila conserva su ubicación y el punto a comprobar. La resolución de símbolos en el mismo bloque de script, los contratos identificados de la biblioteca estándar y los enlaces explícitos del árbol aportan evidencia de fuente. Las condiciones reales de sesión, caché, datos y permisos requieren ejecución. Los controles comprobaron 5.638 identidades AST de la fuente, 987 unidades vinculadas e integridad del anexo.
+De las 1.849 declaraciones agrupadas en el informe previo, **1.647** tienen vínculo guardado con una unidad AUD. **101** tienen cadena rastreada desde el script y **101** tienen sólo una llamada, registro o invocador localizado. Otras **1.776** siguen con la activación o la entrada pendiente. La evidencia corresponde a cadenas estáticas hasta cada declaración. El lote no verificó en ejecución el recorrido completo de las acciones ni su consumo.
+
+La verificación sigue identidades de archivo y posición AST, resuelve símbolos en el mismo bloque de script y usa los contratos reconocidos de la biblioteca estándar y los enlaces explícitos del árbol. El recuento se obtuvo del anexo. Se comprobó que cada salto comienza donde termina el anterior, que la cadena llega al cuerpo indicado y que cada ID AUD citado existe en el catálogo. El anexo conserva la primera traza encontrada por declaración. Un caso sin ID AUD en esa traza puede tener otro recorrido aún por rastrear.
+
+Por ejemplo, **AUD-00332** nace al editar el formulario de Empleo. En `plataforma/empleo.js:52`, el evento comprueba identidad y que el formulario esté libre, programa el guardado y el callback llama `payload` en `:25`. Ese cuerpo arma los datos del borrador. El callback intenta guardarlos en `localStorage`. El recorrido está en la fuente. Falta probar su ejecución en la interfaz.
 
 ## Revisión de los 20 orígenes de red de Plataforma pendientes
 
