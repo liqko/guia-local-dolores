@@ -829,3 +829,42 @@ gdata['declaracionesSinSegundaReferenciaEnCorte']=source_unreferenced
 gdata['resumen']['declaracionesSinSegundaReferenciaEnCorte']=len(source_unreferenced)
 gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(verified_unreferenced|source_unreferenced_ids)
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+
+# Solapamiento comprobado de exportaciones del listado GH: el script
+# gh-listados.js se carga DESPUÉS de gh-promos.js y reasigna dos nombres.
+# Es una clasificación estática, NO se declara inalcanzable al export anterior:
+# puede existir una carrera durante el arranque asincrónico del panel.
+admin_lines=(Path('baseline')/'plataforma/administracion.html').read_text().splitlines()
+promos_lines=(Path('baseline')/'plataforma/gh-promos.js').read_text().splitlines()
+lists_lines=(Path('baseline')/'plataforma/gh-listados.js').read_text().splitlines()
+assert 'src="/plataforma/gh-promos.js?v=91"' in admin_lines[161-1]
+assert 'src="/plataforma/gh-listados.js?v=119"' in admin_lines[4098-1]
+assert 'window.ghPromosLoadV91=function' in promos_lines[36-1]
+assert 'window.ghPromosPrepareV91=async function' in promos_lines[40-1]
+assert 'window.ghPromosLoadV91=' in lists_lines[92-1]
+assert 'window.ghPromosPrepareV91=' in lists_lines[92-1]
+shadowed=[]
+for name,line in [('window.ghPromosLoadV91',36),('window.ghPromosPrepareV91',40)]:
+    candidates=[rec for rec in missing_records if F[rec['idAST']]['file']=='plataforma/gh-promos.js'
+                and F[rec['idAST']]['line']==line and F[rec['idAST']]['name']==name]
+    assert len(candidates)==1,(name,len(candidates))
+    fid=candidates[0]['idAST']
+    assert fid not in verified_unreferenced|source_unreferenced_ids
+    shadowed.append({'idAST':fid,'export':name,'origen':'plataforma/gh-promos.js:'+str(line),
+                     'reasignadaEn':'plataforma/gh-listados.js:92',
+                     'limitacion':'Escritura posterior a la misma propiedad; un evento previo a la reasignación no queda descartado'})
+for row in gdata['funciones']:
+    if row['idAST'] in {x['idAST'] for x in shadowed}:
+        row['evaluacionFuente']='exportacion_sombreada_por_script_posterior_en_carga_normal'
+gdata['exportacionesSombreadasGH']=shadowed
+gdata['resumen']['exportacionesSombreadasGH']=len(shadowed)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(verified_unreferenced|source_unreferenced_ids|{x['idAST'] for x in shadowed})
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_GH_EXPORTACIONES_SOMBREADAS',json.dumps({
+    'sinEntradaBrutas':len(missing_records),
+    'sombreadas':len(shadowed),
+    'excepcionesFuenteAcumuladas':len(verified_unreferenced|source_unreferenced_ids|{x['idAST'] for x in shadowed}),
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'detalle':shadowed,
+    'sin_prueba_ejecucion_ni_consumo':True
+},ensure_ascii=False))
