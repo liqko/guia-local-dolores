@@ -226,6 +226,51 @@ SPECS.append({
   'description':'Acción delegada de Actividades: editar y duplicar sólo formularios; pausar/reanudar/renovar/eliminar POST /actividades autenticado, con validación de titularidad/cupo, horarios embebidos o preparados, eliminar o patch condicional y sincronizar copias por ciudad. 454 candidatos históricos conservados.'
 })
 
+# Paso 3: guardar Actividades, alta o edición
+SPECS.append({
+  'aud':'AUD-00450',
+  'entry':['plataforma/login.html',4346,"save.addEventListener('click'"],
+  'markers':[
+    ['plataforma/login.html',4347,"const cards="],
+    ['plataforma/login.html',4352,"const fullPayload"],
+    ['plataforma/login.html',4365,"runDashboardAction"],
+    ['plataforma/login.html',4366,"postJson(WORKER_ACTIVIDADES_URL"],
+    ['plataforma/login.html',3237,"fetch(url"],
+    ['worker/worker206.txt',6754,'"/actividades"'],
+    ['worker/worker206.txt',6758,'"guardar"'],
+    ['worker/worker206.txt',6763,'sessionAllows'],
+    ['worker/worker206.txt',6769,'activitySaveV3'],
+    ['worker/worker206.txt',6577,'async function activitySaveV3'],
+    ['worker/worker206.txt',6594,'db.queryEqual("actividades"'],
+    ['worker/worker206.txt',6602,'getPreparedRelationsV1'],
+    ['worker/worker206.txt',6660,'db.patch("actividades"'],
+    ['worker/worker206.txt',1952,'cache.put(key3'],
+  ],
+  'include':[1414,1422,1423,1946,1952,6557,6563,6578,6591,6594,6602,6618,6660,8473,8476,8478],
+  'includeOwner':['activitySaveV3','validateHorario','patchChildRowsV1','getPreparedRelationsV1','putPreparedRelationsV1','syncActivityPreparedV2'],
+  'excludeMode':'other_worker',
+  'includeOther':{
+    'plataforma/login.html':[3237],
+    'plataforma/publicacion-pedidos.js':[20,21,22],
+  },
+  'excludeOther':{
+    'plataforma/administracion.html':[536],
+    'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],
+    'plataforma/consumo-v44.js':[78],
+    'plataforma/territorio-cache.js':[18,32],
+  },
+  'extra':[
+    ['plataforma/login.html',4352,'alta o edición según id, patch parcial calculado en UI'],
+    ['plataforma/login.html',4358,'sin modificaciones devuelve sin POST'],
+    ['worker/worker206.txt',6594,'consulta de cupo sólo para alta'],
+    ['worker/worker206.txt',6602,'relación horarios embebida, KV preparada o lectura Firestore'],
+    ['worker/worker206.txt',6660,'patch sólo si hay cambios'],
+    ['worker/worker206.txt',1952,'cache por ciudad al sincronizar'],
+  ],
+  'description':'Guardar Actividad: formulario valida horarios, nombre y categoría; alta o edición con delta; POST autenticado; validación territorial de horarios, cupos y permisos; patch condicional y sincronización de caches. Se conservan y clasifican 454 sitios históricos.'
+})
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
