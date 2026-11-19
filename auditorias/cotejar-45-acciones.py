@@ -27,9 +27,17 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             ['worker/worker206.txt',9527,'db.patch("actividades"'],
             ['worker/worker206.txt',9552,'if (kind === "ANUNCIANTE")'],
         ],
-        'include':[7254,7259,7264,9515,9523,9527],
-        'exclude':[9553,9562,9569,9584,9595,9608,9623,9628,9638],
-        'description':'Moderación de EVENTO/ACTIVIDAD: POST por rol, rama EVENTO a resolveEventModerationV2 y rama ACTIVIDAD con lectura, horarios y patch; rama ANUNCIANTE descartada. Pendientes los otros sitios compartidos.',
+        'include':[1414,1422,1423,1467,1473,1479,1483,1485,1946,1952,7254,7259,7264,9515,9523,9527],
+        'exclude':[
+            496,517,603,604,639,646,730,743,
+            3618,3724,3744,3763,4383,4430,4431,
+            4818,4819,4820,4821,4822,4823,4846,4850,4852,
+            5062,5063,5064,5065,5070,6602,6691,7078,7081,
+            7883,7885,7892,7897,7903,7918,7929,7942,7957,7962,7971,
+            9553,9562,9569,9584,9595,9608,9623,9628,9638,
+            10796,10797,13142
+        ]+([1492] if decision=='RECHAZAR' else []),
+        'description':'Aprobar/rechazar EVENTO o ACTIVIDAD con POST y guardas verificadas; relaciones preparadas y sincronización de sus respectivas copias. Se descartan solicitudes de publicidad, edición/borrado del anunciante, módulo de farmacias, resolución V2 sustituida y ruta de soporte. Se conserva 1492 en aprobar por el GET público posterior condicionado a ciudad; quedan candidatas las operaciones de journal 12905-12906.',
     })
 
 base=Path('baseline')
@@ -71,6 +79,10 @@ for aud in sorted(pending):
             candidatosClasificados=classified,porTipo=dict(collections.Counter(c['estado'] for c in classified)),
             faltantesDeRama=outstanding)
     results.append(row)
+# No deducir la exclusión de un sitio por nombre: las dos acciones
+# conservan el inventario completo y reportan la clasificación por ID.
+# El GET público después de APROBAR EVENTO requiere cotejo de ruta propio.
+# El journal común del Worker permanece pendiente de vinculación concreta.
 # El cruce de raíz AST -> dueño de sitio, ejecutado sobre la misma
 # revisión y guardado por reconstruir-grafo-1691.py, acredita las
 # dependencias condicionales de las tres entradas Worker.
