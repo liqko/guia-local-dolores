@@ -609,7 +609,7 @@ for aud,entry,markers,description in [
   ['plataforma/login.html',8357,'async function apiSuscriptores_'],
   ['worker/worker206.txt',5872,'action === "login"'],
   ['worker/worker206.txt',5607,'async function subscriberLoginV2'],
-  ['worker/worker206.txt',5611,'db.loginAccount'],
+  ['worker/worker206.txt',5612,'db.loginAccount'],
   ['worker/worker206.txt',5647,'db.loginAuthorizationBundle161']
  ],'Ingreso cuenta personal: POST /suscriptores action login, autenticación de cuenta, consulta de relaciones autorizadas y token; no usa la función antigua subscriberLogin ni realiza operaciones publicitarias/de módulos. La lectura real de cuenta vía helper es distinta de las 493 candidatas de otros recorridos.'),
  ('AUD-00492',['plataforma/login.html',8731,"retry.addEventListener('click',restaurarSesionSuscriptor_)"],[
