@@ -391,6 +391,48 @@ while queue:
             queue.append((nxt,aud))
             # Guardar el primer predecesor para reconstruirlo al procesar el nodo.
             seen.setdefault('__pred__'+nxt,{'from':key,'edge':kind,'accion':aud})
+# Además de eventos de interfaz hay inicios reales por ejecución de script.
+# Son IIFE invocadas al evaluar el módulo, no meras declaraciones.
+# Mantener esta categoría SEPARADA de una acción AUD y conservar cada arista.
+startup_roots={}
+for call in tree['startupCalls']:
+    expr=call.get('expression','')
+    if not re.search(r'^\s*\(\s*(?:\(\s*\)?\s*=>|function\b)',expr):continue
+    candidates=[fid for fid,fn in F.items()
+        if fn['file']==call['file'] and fn['line']==call['line']
+        and fn['name'].startswith('iife@') and fn['parent'] is None]
+    assert len(candidates)==1,(call['file'],call['line'],candidates)
+    fid=candidates[0]
+    source=(Path('baseline')/call['file']).read_text().splitlines()
+    assert re.search(r'^\s*\(\s*(?:\(\s*\)?\s*=>|function\b)',source[call['line']-1])
+    startup_roots[fid]={'file':call['file'],'line':call['line'],
+                         'tipo':'iife_invocada_por_evaluacion_de_script'}
+assert len(startup_roots)==58,len(startup_roots)
+startup_predecessor={key:None for key in startup_roots}
+startup_conditional={}
+startup_queue=deque(startup_roots)
+while startup_queue:
+    current=startup_queue.popleft()
+    for child,reason in adj.get(current,{}).items():
+        if child in startup_predecessor:continue
+        startup_predecessor[child]=(current,reason)
+        startup_queue.append(child)
+def startup_route(fid):
+    route=[fid];conditions=[]
+    current=fid
+    while startup_predecessor[current] is not None:
+        previous,reason=startup_predecessor[current]
+        route.append(previous)
+        conditions.append(reason[0])
+        current=previous
+        assert len(route)<110
+    route.reverse()
+    return {'inicio':startup_roots[current],'cadena':route,
+            'aristas':list(reversed(conditions)),
+            'condicional':any('condicionado' in k for k in conditions)}
+print('INICIOS_SCRIPT_AST',json.dumps({'iife':len(startup_roots),
+    'funcionesAlcanzables':len(startup_predecessor)},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -411,6 +453,9 @@ for row in pending:
         record={'idAST':fid,'estado':status,'AUD':cur['accion'],
                 'cadena':chain,'aristas':list(reversed(guard)),
                 'condicional':any('condicionado' in x for x in guard)}
+    elif fid in startup_predecessor:
+        record={'idAST':fid,'estado':'cadena_desde_inicio_script_confirmada_estaticamente',
+                **startup_route(fid)}
     else:
         record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
                 'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
@@ -418,7 +463,7 @@ for row in pending:
 counts=collections.Counter(x['estado'] for x in records)
 summary={'revision':coverage['revision'],'catalogo':len(catalog['entries']),
          'funcionesExactas':len(F),'accionesConRaizAST':len(roots),
-         'grupoRevisado':1691,'callbacksFuente':callbacks_verified,'resultados':dict(counts),
-         'limitacion':'Traza estática a una acción; las condiciones de cada callback no se probaron en navegador.'}
+         'grupoRevisado':1691,'iniciosScriptIIFE':len(startup_roots),'callbacksFuente':callbacks_verified,'resultados':dict(counts),
+         'limitacion':'Traza estática a AUD o inicio de script inequívoco, categorías separadas; no prueba ejecución de callbacks ni carga real del módulo.'}
 (OUT/'GRAFO_COMPLETO_1691.json').write_text(json.dumps({'resumen':summary,'funciones':records},ensure_ascii=False,indent=2)+'\n')
 print('GRAFO_COMPLETO_1691',json.dumps(summary,ensure_ascii=False))
