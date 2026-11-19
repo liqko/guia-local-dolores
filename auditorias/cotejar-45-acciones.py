@@ -700,6 +700,59 @@ SPECS.append({
  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},
  'description':'DOMContentLoaded instala listeners y distingue acceso administrativo, acceso directo y restauración de sesión. Si hay token guardado valida sesión con POST session y puede seleccionar anunciante mediante GET permisos_panel/actor y catálogos. Los handlers instalados no ejecutan sus guardados hasta clic; no atribuir las operaciones históricas de esos módulos al bootstrap.'
 })
+
+# Gran Hermano: cinco entradas HISTÓRICAS con exactamente 257 candidatos comunes
+# pero orígenes distintos. Nunca atribuirles el mismo comportamiento por
+# compartir firma de sitios de operaciones en el árbol.
+GH_SHARED_EXCLUDE={'plataforma/administracion.html':[], 'plataforma/gh-promos.js':[]}
+for aud,entry,markers,owners,description in [
+ ('AUD-00138',['plataforma/administracion.html',4054,"ghGoPending("],[
+   ['plataforma/administracion.html',4030,'function ghGoPending(tipo)'],
+   ['plataforma/administracion.html',4033,'ghGoView(view,{pendingOnly:true})'],
+   ['plataforma/administracion.html',1475,'function ghGoView(name'],
+   ['plataforma/administracion.html',1498,"ghPublicidadLoad101()"],
+   ['plataforma/administracion.html',1499,"ghPromosLoadV91()"],
+   ['plataforma/administracion.html',1509,'!pendingOnly']
+ ],['routeAdminPublicityV101','getCommerceCatalogs','gldFuncPacket166'],
+ 'Atajo de pendientes GH: selecciona categoría y navega con pendingOnly, filtra eventos; visitas a publicidad/promos/territorio sólo cuando corresponde al tipo. No ejecuta aprobación ni escrituras de moderación.'),
+ ('AUD-00163',['plataforma/administracion.html',3200,"getElementById('ghTabs').addEventListener('click'"],[
+   ['plataforma/administracion.html',3201,'ghGoView(b.dataset.view)'],
+   ['plataforma/administracion.html',1475,'function ghGoView(name'],
+   ['plataforma/administracion.html',1503,"name==='configuracion'"],
+   ['plataforma/administracion.html',1498,"ghPublicidadLoad101()"]
+ ],['routeAdminPublicityV101','gldFuncEndpoint166','getCommerceCatalogs','gldFuncPacket166'],
+ 'Navegación GH por pestañas: cambia vistas y puede disparar GET diferidos según destino; no guarda cambios ni dispara la aprobación de pendientes.'),
+ ('AUD-00178',['plataforma/administracion.html',3955,"getElementById('btnLogin').onclick=login"],[
+   ['plataforma/administracion.html',1049,'async function login()'],
+   ['plataforma/administracion.html',1055,"'/superadmin/session/login'"],
+   ['plataforma/administracion.html',1067,'await abrirApp('],
+   ['worker/worker206.txt',9407,'"/superadmin/session/login"'],
+   ['worker/worker206.txt',9413,'superadminLoginV2'],
+   ['worker/worker206.txt',9418,'dailyDashboard195'],
+   ['worker/worker206.txt',11209,'async function dailyDashboard195']
+ ],[],
+ 'Login GH por botón: POST /superadmin/session/login, token, paquete diario precargado y abrirApp; no invoca por defecto escrituras de módulos de anuncios/publicaciones.'),
+ ('AUD-00185',['plataforma/administracion.html',3970,"getElementById('clave').addEventListener('keydown'"],[
+   ['plataforma/administracion.html',3971,"if(e.key==='Enter') login()"],
+   ['plataforma/administracion.html',1049,'async function login()'],
+   ['worker/worker206.txt',9407,'"/superadmin/session/login"'],
+   ['worker/worker206.txt',9418,'dailyDashboard195']
+ ],[],
+ 'Ingreso GH presionando Enter: reusa exactamente el manejador login del botón, sin segunda solicitud por pulsación ni ruta adicional.'),
+ ('AUD-00746',['plataforma/administracion.html',3993,'if(TOKEN) abrirApp()'],[
+   ['plataforma/administracion.html',1077,'async function abrirApp('],
+   ['plataforma/administracion.html',1079,"'/superadmin/dashboard'"],
+   ['plataforma/administracion.html',1104,'ghRevisionUnificada('],
+   ['worker/worker206.txt',9422,'"/superadmin/dashboard"'],
+   ['worker/worker206.txt',9425,'dailyDashboard195'],
+   ['worker/worker206.txt',11209,'async function dailyDashboard195']
+ ],[],
+ 'Recuperación GH con token guardado: GET /superadmin/dashboard consulta paquete privado diario; sin credenciales vuelve al login, no vuelve a ejecutar POST login ni carga escrituras ajenas.')
+]:
+ SPECS.append({'aud':aud,'entry':entry,'markers':markers,'include':[],
+   'includeOwner':owners,'excludeMode':'other_worker','description':description,
+   'extra':[['worker/worker206.txt',11209,'copia privada diaria para entrada GH sin Firestore directo si la copia está lista'],
+            ['plataforma/administracion.html',1475,'navegación y consultas de datos diferidas según vista']]})
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
