@@ -182,9 +182,30 @@ for raw,affected in external_origins.items():
         item=(raw,'ancla_externa_por_nombre_archivo',raw)
         if item not in incoming[target]:incoming[target].append(item)
 anchors.update(external_aud)
+# Las 987 entradas completas tienen identificador AST original (archivo:linea:offset:función).
+# Aquí NO se infiere por nombre: se ancla el mismo nodo del árbol.
+with zipfile.ZipFile(BASE/'CATALOGO_MAESTRO.zip') as archive:
+    catalog_full=json.loads(archive.read('CATALOGO_MAESTRO.json'))
+catalog_entry_anchors=collections.defaultdict(set)
+for entry in catalog_full.get('entries',[]):
+    raw=(entry.get('start') or {}).get('entry')
+    if raw and entry.get('id') in valid_aud:
+        catalog_entry_anchors[raw].add(entry['id'])
+for raw,units in catalog_entry_anchors.items():
+    anchors[raw]=sorted(set(anchors.get(raw,[]))|units)
+# Conectar llamadas hacia nodos externos que figuran como entradas verdaderas.
+catalog_entry_edges=0
+for raw,affected in external_origins.items():
+    if raw not in catalog_entry_anchors:continue
+    for target in affected:
+        item=(raw,'entrada_AST_987',raw)
+        if item not in incoming[target]:
+            incoming[target].append(item)
+            catalog_entry_edges+=1
 external_summary={'origenesExternos':len(external_origins),'externosConNombreCatalogo':len(external_aud),
 'conexionesExternasARecorridos':sum(len(v) for v in external_origins.values()),
-'conexionesAncladas':sum(len(external_origins[k]) for k in external_aud)}
+'conexionesAncladas':sum(len(external_origins[k]) for k in external_aud),
+'entradasASTCatalogo':len(catalog_entry_anchors),'aristasASTEntrada':catalog_entry_edges}
 print('ANCLAS_EXTERNAS',json.dumps(external_summary,ensure_ascii=False))
 def trace_exact(nid):
     queue=deque([(nid,[nid])]);seen={nid}
