@@ -626,6 +626,56 @@ for aud,entry,markers,description in [
  SPECS.append({'aud':aud,'entry':entry,'markers':markers,'include':[],'excludeMode':'other_worker','excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},'description':description,
   'extra':[['worker/worker206.txt',5872,'POST /suscriptores seleccionado por action'],['plataforma/login.html',8357,'POST helper de suscriptores']]})
 
+
+# Entradas delegadas, cada variante se discrimina por data-*-action.
+SPECS.append({
+ 'aud':'AUD-00474',
+ 'entry':['plataforma/login.html',5619,"box.querySelectorAll('[data-efem]')"],
+ 'markers':[
+  ['plataforma/login.html',5623,"action==='edit'"],
+  ['plataforma/login.html',5658,"action==='eliminar'"],
+  ['plataforma/login.html',5668,"action:'eliminar'"],
+  ['worker/worker206.txt',7022,'"/efemerides"'],
+  ['worker/worker206.txt',7026,'"eliminar"'],
+  ['worker/worker206.txt',7043,'efemDeleteV3'],
+  ['worker/worker206.txt',6968,'async function efemToggleV3'],
+  ['worker/worker206.txt',6981,'async function efemDeleteV3'],
+  ['worker/worker206.txt',6977,'db.patch("efemerides_bis"'],
+  ['worker/worker206.txt',6985,'db.delete("efemerides_bis"']
+ ],
+ 'include':[],
+ 'includeOwner':['efemToggleV3','efemDeleteV3','syncEfemeridePreparedV2','getPreparedRelationsV1'],
+ 'includeOther':{'plataforma/login.html':[3237]},
+ 'excludeMode':'other_worker',
+ 'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+                 'plataforma/login.html':[4240,5144,9410],
+                 'plataforma/consumo-v44.js':[78]},
+ 'description':'Delegación Efemérides: editar abre formulario sin escritura; activar/desactivar aplica patch sólo si hay cambios; eliminar borra tras confirmar; ambas mutaciones sincronizan copia territorial. Reconsulta GET sólo ante ausencia/error indeterminado.'
+})
+SPECS.append({
+ 'aud':'AUD-00464',
+ 'entry':['plataforma/login.html',5068,"btn.addEventListener('click',async()=>"],
+ 'markers':[
+  ['plataforma/login.html',5072,"action==='duplicate'"],
+  ['plataforma/login.html',5077,"action==='edit'"],
+  ['plataforma/login.html',5082,"action==='pausar'||action==='reanudar'"],
+  ['plataforma/login.html',5086,"action:'actualizar_activos'"],
+  ['plataforma/login.html',5096,"action:'eliminar'"],
+  ['worker/worker206.txt',12870,"'/publicidad'"],
+  ['worker/worker206.txt',12892,'business-save143'],
+  ['worker/worker206.txt',13218,'GLD_BUSINESS143.dispatch']
+ ],
+ 'include':[],
+ 'includeOwner':['publicityActiveMonthlyV101','publicityDeleteMonthlyV101','publicityCommitV101',
+                 'publicityActiveChangeV4','publicityDeleteV4','syncPublicityPreparedV2',
+                 'getPreparedRelationsV1','putPreparedRelationsV1',
+                 'GldPublicCache119.prototype.beginBusiness143',
+                 'GldPublicCache119.prototype.storeBusiness143',
+                 'GldPublicCache119.prototype.businessSave143'],
+ 'excludeMode':'other_worker',
+ 'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},
+ 'description':'Lista Publicidad, acción delegada: duplicar/editar sólo preparación local; pausar/reanudar POST actualizar_activos; eliminar POST eliminar, tras confirmación y verificación de estado; dispatcher Business143 y motor mensual V101. Sin confundirlo con guardar nuevo anuncio.'
+})
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
