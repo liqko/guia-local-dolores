@@ -582,8 +582,8 @@ for rec in missing_records:
     src=source_by_file[file];lines=src.splitlines();line=fn['line']
     if not (1<=line<=len(lines)):continue
     declaration=lines[line-1]
-    if not re.search(r'\\bfunction\\s+'+re.escape(name)+r'\\b',declaration):continue
-    uses=list(re.finditer(r'\\b'+re.escape(name)+r'\\b',src))
+    if not re.search(r'\bfunction\s+'+re.escape(name)+r'\b',declaration):continue
+    uses=list(re.finditer(r'\b'+re.escape(name)+r'\b',src))
     if len(uses)!=1:continue
     unused_local.append({'idAST':rec['idAST'],'file':file,'line':line,'name':name,'parent':parent,'referenciasEnArchivo':1})
 print('PASO3_583_DECLARACIONES_SIN_REFERENCIA',json.dumps({'grupoOriginal':583,'declaracionesLocalesSinReferencia':len(unused_local),'porArchivo':dict(collections.Counter(x['file'] for x in unused_local)),'muestras':unused_local[:25],'limitacion':'Sólo ausencia de referencias léxicas en archivo y ámbito local; no se atribuye automáticamente a error de producción ni a ahorro de consumo.'},ensure_ascii=False))
