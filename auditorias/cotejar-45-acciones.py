@@ -308,3 +308,7 @@ print('PASO3_PUBLICIDAD_GET_CANDIDATOS',json.dumps([{'linea':x['linea'],'fn':x.g
 for aud in ('AUD-00470','AUD-00471','AUD-00472'):
     row=next(x for x in results if x['AUD']==aud)
     print('PASO3_PUBLICIDAD_TRES',json.dumps({'AUD':aud,'estado':row['estado'],'porTipo':row.get('porTipo'),'sinClasificar':row.get('faltantesDeRama')},ensure_ascii=False))
+
+for aud in ('AUD-00445',):
+ a=actions[aud];rows=[sites[q['idSitio']] for q in a['dependenciasDelArbolSinCadena']]
+ print('PASO3_ACTIVIDADES_00445_SITIOS',json.dumps({'AUD':aud,'original':len(rows),'filas':[{'archivo':x['archivo'],'linea':x['linea'],'funcion':x.get('funcion'),'tipo':x.get('tipo')} for x in rows]},ensure_ascii=False))
