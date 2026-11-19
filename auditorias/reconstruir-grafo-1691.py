@@ -225,6 +225,24 @@ for file,(scope,alias_line) in plan_aliases.items():
                 plan_alias_links.append((file,line,method))
 print('PLANES_RESUMEN_ALIAS_VINCULADOS',len(plan_alias_links))
 
+# Los 34 callbacks "load" de relaciones preparadas se ejecutan desde
+# getPreparedRelationsV1 sólo si falta la relación en el documento o caché.
+# El rastreador AST veía db.queryEqual, pero perdía el salto al callback
+# cuando éste se pasaba como propiedad de un objeto.
+assert 'return load();' in worker_lines[1418-1]
+prepared_load_bindings=[]
+for fn in F.values():
+    if fn['file']!='worker/worker206.txt' or fn['name']!='load' or not fn.get('parent'):continue
+    n=fn['line']
+    fragment='\n'.join(worker_lines[max(0,n-6):min(len(worker_lines),n+2)])
+    if 'getPreparedRelationsV1' not in fragment:continue
+    if not re.search(r'\bload\s*:\s*\(?',fragment):continue
+    if fn['parent'] not in F:continue
+    adj[fn['parent']][fn['id']]=('callback_load_condicionado_a_cache_miss','worker/worker206.txt:'+str(n))
+    prepared_load_bindings.append(fn['id'])
+assert len(prepared_load_bindings)>=30,len(prepared_load_bindings)
+print('RELACIONES_PREPARADAS_CALLBACKS_VINCULADOS',len(prepared_load_bindings))
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
