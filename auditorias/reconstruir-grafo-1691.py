@@ -782,3 +782,50 @@ gdata['bloqueosDeInvocadoresLocales']={
     'total':len(locally_called),'grupos':len(clusters),
     'familias':[{'raices':list(k),'miembros':v} for k,v in sizes]}
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+
+# Paso 3: nombres sin segunda referencia en toda la fuente congelada
+# Este es un censo documental, NO elimina código ni prueba que no existan
+# invocaciones dinámicas. Sólo usa nombres suficientemente específicos y
+# exige referencia única en TODOS los archivos del corte, no solo su módulo.
+all_source_files=sorted({fn['file'] for fn in F.values()})
+eligible={}
+for rec in missing_records:
+    fn=F[rec['idAST']]
+    name=fn['name']
+    if (not name.isidentifier() or len(name)<7 or name.startswith('callback')
+        or fn['file'].startswith('worker/') and len(name)<15):continue
+    if fn['file'] not in src_cache:
+        src_cache[fn['file']]=(Path('baseline')/fn['file']).read_text().splitlines()
+    lines=src_cache[fn['file']]
+    if not 1<=fn['line']<=len(lines):continue
+    if not re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',lines[fn['line']-1]):continue
+    eligible[rec['idAST']]=name
+name_set=set(eligible.values())
+if name_set:
+    name_pattern=re.compile(r'\b(?:'+'|'.join(re.escape(n) for n in sorted(name_set,key=len,reverse=True))+r')\b')
+    all_occurrences=collections.Counter()
+    for file in all_source_files:
+        source=(Path('baseline')/file).read_text()
+        all_occurrences.update(m.group() for m in name_pattern.finditer(source))
+else:all_occurrences={}
+source_unreferenced=[{'idAST':fid,'nombre':name,'archivo':F[fid]['file'],
+                      'linea':F[fid]['line']} for fid,name in eligible.items()
+                     if all_occurrences[name]==1]
+source_unreferenced_ids={x['idAST'] for x in source_unreferenced}
+assert source_unreferenced_ids.issubset({x['idAST'] for x in missing_records})
+# Separar las declaraciones locales que ya estaban identificadas de
+# las nuevas funciones globales / locales con nombre único en todo el corte.
+new_source_unreferenced=source_unreferenced_ids-verified_unreferenced
+print('PASO3_REFERENCIA_UNICA_FUENTE',json.dumps({
+ 'brutoSinEntrada':len(missing_records),
+ 'nombresCandidatos':len(name_set),
+ 'sinSegundaReferenciaEnTodaFuente':len(source_unreferenced),
+ 'nuevosRespectoA16':len(new_source_unreferenced),
+ 'porArchivo':dict(collections.Counter(x['archivo'] for x in source_unreferenced)),
+ 'muestras':[x for x in source_unreferenced if x['idAST'] in new_source_unreferenced][:45],
+ 'limitacion':'Ausencia de otra referencia textual en archivos del corte; no excluye invocación dinámica externa, ni acredita funcionamiento, ni autoriza borrar código'
+},ensure_ascii=False))
+gdata['declaracionesSinSegundaReferenciaEnCorte']=source_unreferenced
+gdata['resumen']['declaracionesSinSegundaReferenciaEnCorte']=len(source_unreferenced)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(verified_unreferenced|source_unreferenced_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
