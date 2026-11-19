@@ -81,6 +81,43 @@ SPECS.append({
     'description':'Inicio de Anunciantes: /guide y favoritos con sesión; módulos secundarios eventos/promos/actividades sólo tras guía, mediante paquete o GET. Se excluyen territorio y bootstrap no invocados y rutas privadas de panel, precios y funcionalidades sin llamada desde el inicio. No se confunde precarga local con solicitud facturable.'
 })
 
+# Cotejo GET de actualización de lista del anunciante (Publicidad).
+# Guardas: click sobre refresh -> loadPublicidadUI(true) -> GET getpaneldata,
+# auth y cache. No confundir con POST guardar/eliminar ni con GH Promos.
+SPECS.append({
+  'aud':'AUD-00471',
+  'entry':['plataforma/login.html',5242,"refresh.addEventListener('click'"],
+  'markers':[
+    ['plataforma/login.html',5246,'loadPublicidadUI(true)'],
+    ['plataforma/login.html',5131,'async function loadPublicidadUI'],
+    ['plataforma/login.html',5144,"method"],
+    ['worker/worker206.txt',4633,'getpaneldata'],
+    ['worker/worker206.txt',4637,'publicidadPanelDataV2'],
+    ['worker/worker206.txt',4416,'async function publicidadPanelDataV2'],
+    ['worker/worker206.txt',4420,'commerceMaster205'],
+    ['worker/worker206.txt',4430,'getPreparedRelationsV1'],
+    ['worker/worker206.txt',4431,'getPreparedRelationsV1'],
+    ['worker/worker206.txt',4440,'cache.get(contractKey)'],
+    ['worker/worker206.txt',4441,'cache.put(contractKey'],
+    ['worker/worker206.txt',4444,"cache.get('publicity:usage"],
+    ['plataforma/login.html',1894,'GLD_CATALOGO_TERRITORIAL.load'],
+    ['plataforma/territorio-cache.js',32,'fetch(ENDPOINT'],
+  ],
+  'include':[1414,1753,1755,1770,4420,4430,4431,4440,4441,4444,8473,8476,8478],
+  'excludeMode':'other_worker',
+  'includeOther':{'plataforma/login.html':[5144],'plataforma/territorio-cache.js':[18,32]},
+  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/consumo-v44.js':[78],
+    'plataforma/gh-promos.js':[13],'plataforma/publicacion-pedidos.js':[20,21,22],
+    'plataforma/login.html':[3237,4240,9410]},
+  'extra':[
+    ['worker/worker206.txt',6132,'master por anunciante, que usa actor de copias'],
+    ['worker/worker206.txt',4420,'panel GET con relación al anunciante'],
+    ['worker/worker206.txt',4441,'KV put condicional si falta copia de contrato'],
+    ['plataforma/territorio-cache.js',32,'GET territorio sólo si no hay copia incluida o local'],
+  ],
+  'description':'Actualizar lista Publicidad: GET panel por anunciante con sesión; read del master y catálogos y relaciones preparadas, KV put sólo si falta contrato; territorio cacheado o GET adicional. POST y operaciones GH descartadas por método/ruta.'
+})
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
@@ -108,6 +145,8 @@ for aud in sorted(pending):
         for x in original:
             site=sites[x['idSitio']]
             if site['archivo']=='worker/worker206.txt' and site['linea'] in include: result='dependencia_condicional_vinculada'
+            elif site['archivo'] in spec.get('includeOther',{}) and site['linea'] in spec['includeOther'][site['archivo']]:result='dependencia_condicional_vinculada'
+            elif site['archivo'] in spec.get('excludeOther',{}) and site['linea'] in spec['excludeOther'][site['archivo']]:result='descartado_por_ruta_o_interfaz_ajena'
             elif site['archivo']=='worker/worker206.txt' and site['linea'] in exclude:result='descartado_por_metodo_o_guarda'
             elif site['archivo']=='worker/worker206.txt' and spec.get('excludeMode')=='other_worker':result='descartado_por_ruta_ajena'
             elif site['archivo']=='worker/worker206.txt' and spec.get('excludeMode')=='other_loads' and str(site.get('funcion','')).endswith(':load'):result='descartado_callback_de_otra_ruta'
