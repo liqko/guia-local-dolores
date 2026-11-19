@@ -90,11 +90,11 @@ SPECS.append({
   'markers':[
     ['plataforma/login.html',5246,'loadPublicidadUI(true)'],
     ['plataforma/login.html',5131,'async function loadPublicidadUI'],
-    ['plataforma/login.html',5144,"method"],
+    ['plataforma/login.html',5144,"fetch(url,{mode:'cors'"],
     ['worker/worker206.txt',4633,'getpaneldata'],
     ['worker/worker206.txt',4637,'publicidadPanelDataV2'],
     ['worker/worker206.txt',4416,'async function publicidadPanelDataV2'],
-    ['worker/worker206.txt',4420,'commerceMaster205'],
+    ['worker/worker206.txt',4419,'commerceMaster205'],
     ['worker/worker206.txt',4430,'getPreparedRelationsV1'],
     ['worker/worker206.txt',4431,'getPreparedRelationsV1'],
     ['worker/worker206.txt',4440,'cache.get(contractKey)'],
