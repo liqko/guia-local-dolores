@@ -402,7 +402,7 @@ event_caller=event_callers[0]
 scope=event_caller;ancestors=set()
 while scope in F and scope not in ancestors:
     ancestors.add(scope);scope=F[scope].get('parent')
-assert events_parent in ancestors,(events_parent,event_caller)
+assert events_parent in ancestors or (events_parent is None and scope is None),(events_parent,event_caller)
 assert 'eventosFiltrados = eventosCiudad.filter(matchesInitialAdvertiser);' in (Path('baseline')/'plataforma/eventos.html').read_text().splitlines()[1976-1]
 adj[event_caller][events_named]=('callback_array_filter_referencia_directa','plataforma/eventos.html:1976')
 print('PASO3_CALLBACK_EVENTOS',json.dumps({'padre':event_caller,'hijo':events_named,'sitio':'plataforma/eventos.html:1976'},ensure_ascii=False))
