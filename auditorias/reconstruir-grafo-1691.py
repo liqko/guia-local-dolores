@@ -330,7 +330,7 @@ for r in coverage['filas']:
         adj[parent][node[0]]=('invocacion_inmediata',a.get('sitio'))
 # Recuperar llamadas explícitas de la cobertura, con ubicación exacta.
 explicit_callsite_links=[]
-for row in pending:
+for row in coverage['filas']:
     ast=row.get('cuerpoAST') or {}
     hits=index.get((row['archivo'],row['linea'],ast.get('inicio')),[])
     if len(hits)!=1:continue
