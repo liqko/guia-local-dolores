@@ -26,7 +26,7 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             ['worker/worker206.txt',9518,'getPreparedRelationsV1'],
             ['worker/worker206.txt',9527,'db.patch("actividades"'],
             ['worker/worker206.txt',9552,'if (kind === "ANUNCIANTE")'],
-            ['worker/worker206.txt',13132,"'/superadmin/moderation/resolve'"],
+            ['worker/worker206.txt',13127,"'/superadmin/moderation/resolve'"],
             ['worker/worker206.txt',13209,'GLD_BUSINESS143.journal'],
             ['worker/worker206.txt',12905,"entry.collection==='publicidades'"],
             ['worker/worker206.txt',12906,"entry.collection==='eventos'"],
