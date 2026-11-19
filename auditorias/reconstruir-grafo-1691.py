@@ -25,7 +25,8 @@ F={f['id']:f for f in tree['functionGraph']}
 assert len(F)==len(tree['functionGraph'])
 index=collections.defaultdict(list)
 for fid,f in F.items():
-    p=re.match(r'^(.*):(\\d+):(\\d+):([^:]*)
+    p=re.match(r'^(.*):([0-9]+):([0-9]+):([^:]*)$',fid)
+    if p:index[(p.group(1),int(p.group(2)),int(p.group(3)))].append(fid)
 roots=collections.defaultdict(set)
 for e in catalog['entries']:
     raw=(e.get('start') or {}).get('entry')
