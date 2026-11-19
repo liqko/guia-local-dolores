@@ -404,7 +404,7 @@ for call in tree['startupCalls']:
     assert len(candidates)==1,(call['file'],call['line'],candidates)
     fid=candidates[0]
     source=(Path('baseline')/call['file']).read_text().splitlines()
-    assert re.search(r'^\s*\(\s*(?:\(\s*\)?\s*=>|function\b)',source[call['line']-1])
+    assert (re.search(r'^\s*\(\s*(?:\(\s*\)?\s*=>|function\b)',source[call['line']-1]) or re.search(r'=\s*\(\s*\(\s*\)?\s*=>',source[call['line']-1]) or re.search(r'=\s*\(\s*\(\s*\)?\s*=>\s*\{',source[call['line']-1])),(call['file'],call['line'])
     startup_roots[fid]={'file':call['file'],'line':call['line'],
                          'tipo':'iife_invocada_por_evaluacion_de_script'}
 assert len(startup_roots)==58,len(startup_roots)
