@@ -568,3 +568,22 @@ for rec in missing_records:
     missing_groups[reason].append((rec,fn,len(ins)))
 assert sum(map(len,missing_groups.values()))==583
 print('PASO3_583_CAUSAS',json.dumps({'total':583,'porCausa':{k:len(v) for k,v in missing_groups.items()},'porArchivo':dict(collections.Counter(F[r['idAST']]['file'] for r in missing_records)),'muestras':{k:[{'id':x['idAST'],'line':fn.get('line'),'activacion':(x.get('activacion') or {}).get('tipo'),'invocadoresAST':degree} for x,fn,degree in v[:12]] for k,v in missing_groups.items()}},ensure_ascii=False))
+
+# Censo conservador de declaraciones locales sin referencias textuales
+# Sólo es candidato a código no utilizado si la declaración es local a un
+# ámbito léxico AST existente y el nombre no vuelve a aparecer en el archivo.
+unused_local=[]
+source_by_file={}
+for rec in missing_records:
+    fn=F[rec['idAST']];name=fn['name'];file=fn['file'];parent=fn.get('parent')
+    if not name.isidentifier() or parent not in F:continue
+    if (rec.get('activacion') or {}).get('tipo')!='declaracion_local':continue
+    if file not in source_by_file:source_by_file[file]=(Path('baseline')/file).read_text()
+    src=source_by_file[file];lines=src.splitlines();line=fn['line']
+    if not (1<=line<=len(lines)):continue
+    declaration=lines[line-1]
+    if not re.search(r'\\bfunction\\s+'+re.escape(name)+r'\\b',declaration):continue
+    uses=list(re.finditer(r'\\b'+re.escape(name)+r'\\b',src))
+    if len(uses)!=1:continue
+    unused_local.append({'idAST':rec['idAST'],'file':file,'line':line,'name':name,'parent':parent,'referenciasEnArchivo':1})
+print('PASO3_583_DECLARACIONES_SIN_REFERENCIA',json.dumps({'grupoOriginal':583,'declaracionesLocalesSinReferencia':len(unused_local),'porArchivo':dict(collections.Counter(x['file'] for x in unused_local)),'muestras':unused_local[:25],'limitacion':'Sólo ausencia de referencias léxicas en archivo y ámbito local; no se atribuye automáticamente a error de producción ni a ahorro de consumo.'},ensure_ascii=False))
