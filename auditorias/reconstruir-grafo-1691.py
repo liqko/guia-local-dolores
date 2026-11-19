@@ -652,3 +652,44 @@ print('PASO3_583_DEPURADO',json.dumps({'sinEntradaBrutas':len(missing_records),
     'declaracionesLocalesSinReferencia':len(unused_local),
     'aunPorClasificar':len(missing_records)-len(unused_local),
     'evidencia':'identidad AST, ámbito padre local y única referencia de nombre en fuente; no es prueba funcional en navegador'},ensure_ascii=False))
+
+# PASO 3: veredicto de inspección de los 239 con padre conectado
+# El padre alcanzable NO prueba activación del hijo. Distinguir sin borrarlo:
+# a) sin referencia del nombre fuera de declaración,
+# b) callback programado o de evento cuyo enlace debe cotejarse,
+# c) referencia local comprobable, pero sin recorrido certificado.
+parent_attached=[(rec,F[rec['idAST']]) for rec in missing_records
+                 if F[rec['idAST']].get('parent') in reached]
+assert len(parent_attached)<=239,len(parent_attached)
+verdicts=collections.defaultdict(list)
+for rec,fn in parent_attached:
+    activation=(rec.get('activacion') or {})
+    t=activation.get('tipo') or 'sin_tipo'
+    fid=rec['idAST']
+    if fid in verified_unreferenced:
+        verdict='declaracion_local_sin_referencia_textual'
+    elif t in ('callback_programado','funcion_pasada_como_argumento',
+               'funcion_pasada_a_constructor','propiedad_de_objeto',
+               'metodo_o_accesor'):
+        verdict='callback_propiedad_o_metodo_sin_prueba_de_activacion'
+    elif t in ('declaracion_local','declaracion_global'):
+        verdict='declaracion_con_parent_alcanzado_pero_sin_invocacion'
+    else:
+        verdict='otra_activacion_sin_prueba'
+    verdicts[verdict].append({
+       'idAST':fid,'archivo':fn['file'],'linea':fn['line'],
+       'tipo':t,'padre':fn.get('parent'),
+       'invocadoresAST':len(reverse.get(fid,set())),
+       'sitiosDeLlamada':len(rec.get('sitiosDeLlamada') or [])
+    })
+assert sum(len(v) for v in verdicts.values())==len(parent_attached)
+print('PASO3_PADRES_ALCANZADOS_DESGLOSE',json.dumps({
+   'total':len(parent_attached),
+   'porVeredicto':{k:len(v) for k,v in verdicts.items()},
+   'porTipoActivacion':dict(collections.Counter((r.get('activacion') or {}).get('tipo') or 'sin_tipo' for r,_ in parent_attached)),
+   'muestras':{k:v[:14] for k,v in verdicts.items()}
+},ensure_ascii=False))
+gdata['revisionPadresAlcanzados']={'total':len(parent_attached),
+  'porVeredicto':{k:len(v) for k,v in verdicts.items()},
+  'casos':[{'veredicto':k,**x} for k,v in verdicts.items() for x in v]}
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
