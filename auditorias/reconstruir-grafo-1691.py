@@ -456,6 +456,31 @@ def startup_route(fid):
 print('INICIOS_SCRIPT_AST',json.dumps({'iife':len(startup_roots),
     'funcionesAlcanzables':len(startup_predecessor)},ensure_ascii=False))
 
+# Raíz real del servidor: Cloudflare invoca fetch por cada solicitud.
+# Mantenerla diferenciada de la acción de interfaz: conocer el Worker
+# no acredita todavía el enlace cliente -> ruta -> operación concreta.
+worker_fetch='worker/worker206.txt:13177:858197:fetch'
+assert worker_fetch in F
+assert 'var app_main_v35_default = {' in worker_lines[13176-1]
+assert 'async fetch(request,env,execution)' in worker_lines[13177-1]
+worker_reach={worker_fetch:None}
+worker_queue=deque([worker_fetch])
+while worker_queue:
+    current=worker_queue.popleft()
+    for child,edge in adj.get(current,{}).items():
+        if child in worker_reach:continue
+        worker_reach[child]=(current,edge)
+        worker_queue.append(child)
+print('WORKER_FETCH_ALCANZABLE',len(worker_reach))
+def worker_route(fid):
+    route=[fid]
+    reasons=[]
+    while worker_reach[route[-1]] is not None:
+        parent,edge=worker_reach[route[-1]]
+        reasons.append(edge[0])
+        route.append(parent)
+        assert len(route)<150
+    return {'inicio':'fetch Cloudflare Worker','cadena':list(reversed(route)),'aristas':list(reversed(reasons))}
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -479,6 +504,8 @@ for row in pending:
     elif fid in startup_predecessor:
         record={'idAST':fid,'estado':'cadena_desde_inicio_script_confirmada_estaticamente',
                 **startup_route(fid)}
+    elif fid in worker_reach:
+        record={'idAST':fid,'estado':'cadena_desde_fetch_worker_sin_cliente_asociado',**worker_route(fid)}
     else:
         record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
                 'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
