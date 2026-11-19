@@ -112,6 +112,14 @@ out=Path('auditorias/temporal');out.mkdir(exist_ok=True,parents=True)
 (out/'COTEJO_45_RESULTADO.json').write_text(json.dumps({'resumen':summary,'acciones':results},ensure_ascii=False,indent=2)+'\n')
 print('PASO3_COTEJO_45',json.dumps(summary,ensure_ascii=False))
 
+for aud in ('AUD-00095','AUD-00096'):
+    r=next(x for x in results if x['AUD']==aud)
+    print('PASO3_MODERACION_CLASIFICADA',json.dumps({
+        'AUD':aud,'total':r['totalSitiosOriginales'],
+        'porTipo':r.get('porTipo'),'restantes':r.get('faltantesDeRama'),
+        'restantesIds':[x['idSitio'] for x in r.get('candidatosClasificados',[]) if x['estado']=='requiere_cotejo']
+    },ensure_ascii=False))
+
 # Diagnóstico focalizado de las dos acciones de moderación de contenidos.
 for aud in ('AUD-00095','AUD-00096'):
     row=next(x for x in results if x['AUD']==aud)
