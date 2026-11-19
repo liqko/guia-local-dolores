@@ -377,6 +377,18 @@ for f in F.values():
         adj[f['id']][targets[0]]=('llamada_global_unica_verificada',file+':'+str(line))
         direct_global_links.append((f['id'],targets[0],line))
 print('LLAMADAS_GLOBALES_UNICAS_RECUPERADAS',len(direct_global_links))
+# Arista explícita de callback por nombre, Array.map(hidratarItem)
+# El cuerpo de cargarGuiaSeleccionada contiene data.map(hidratarItem),
+# y la definición hidratarItem es local al mismo cuerpo. El analizador
+# omite invocaciones al pasar la referencia, ya que no hay paréntesis.
+hidratar_parent='plataforma/anunciantes.html:1691:23211:cargarGuiaSeleccionada'
+hidratar_child='plataforma/anunciantes.html:2023:42775:hidratarItem'
+assert hidratar_parent in F and hidratar_child in F
+assert F[hidratar_child]['parent']==hidratar_parent
+assert 'const anunciantesData = data.map(hidratarItem);' in (Path('baseline')/'plataforma/anunciantes.html').read_text().splitlines()[2089-1]
+adj[hidratar_parent][hidratar_child]=('callback_array_map_referencia_directa','plataforma/anunciantes.html:2089')
+print('PASO3_CALLBACK_NOMBRADO',json.dumps({'padre':hidratar_parent,'hijo':hidratar_child,'sitio':'plataforma/anunciantes.html:2089','mecanismo':'Array.map(hidratarItem)'},ensure_ascii=False))
+
 # Resolver declaraciones locales por ámbito léxico comprobado.
 # No enlazar por nombre homónimo entre archivos: el destino debe ser una
 # declaración de función única en el ámbito de la función invocadora o uno
