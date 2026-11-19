@@ -41,6 +41,32 @@ for b in tree.get('callbackBindings',[]):
     src=b['binding'].split('|')[0]
     for target in b['targets']:
         if src in F and target in F:adj[src][target]=('vinculo_condicionado',b['binding'])
+# Enlace perdido por el analizador: el despacho de Durable Object usa
+# una única línea larga con llamadas condicionales this.metodo(...).
+# Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
+worker_lines=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+actor_dispatch='worker/worker206.txt:11974:759560:iife@11974'
+assert actor_dispatch in F
+assert 'class GldPublicCache119' in worker_lines[11735-1]
+assert 'async process127(request)' in worker_lines[11973-1]
+assert '(async()=>{' in worker_lines[11974-1]
+actor_source=worker_lines[11976-1]
+assert 'body.op' in actor_source and 'this.businessSave143(' in actor_source
+actor_prototypes={
+    f['name'].split('.prototype.',1)[1]:f['id']
+    for f in F.values()
+    if f['file']=='worker/worker206.txt' and
+       f['name'].startswith('GldPublicCache119.prototype.')
+}
+actor_resolved=[]
+for method in sorted(set(re.findall(r'\bthis\.([A-Za-z_$][\w$]*)\s*\(',actor_source))):
+    target=actor_prototypes.get(method)
+    if target:
+        adj[actor_dispatch][target]=('despacho_do_condicionado_por_op','worker/worker206.txt:11976')
+        actor_resolved.append(method)
+assert 'businessSave143' in actor_resolved and 'guideSave132' in actor_resolved
+print('DESPACHOS_DO_RECONSTRUIDOS',json.dumps(actor_resolved))
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
