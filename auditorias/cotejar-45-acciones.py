@@ -361,9 +361,9 @@ for aud,entry,entryNeedle,pauseLine,deleteLine,pauseRoute,deleteRoute,level in [
       'aud':aud,
       'entry':['plataforma/login.html',entry,entryNeedle],
       'markers':[
-        ['plataforma/login.html',entry+1,'action'],
-        ['plataforma/login.html',pauseLine,"events_post({action:"],
-        ['plataforma/login.html',deleteLine,"events_post({action:"],
+        ['plataforma/login.html',entry+(1 if level=='VIP' else 2),'action'],
+        ['plataforma/login.html',pauseLine,'events_post({'],
+        ['plataforma/login.html',deleteLine,'events_post({'],
         ['worker/worker206.txt',13126,"path==='/events-new'"],
         ['worker/worker206.txt',13132,pauseRoute],
         ['worker/worker206.txt',4597,'"/events-new"'],
