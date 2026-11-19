@@ -26,8 +26,12 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             ['worker/worker206.txt',9518,'getPreparedRelationsV1'],
             ['worker/worker206.txt',9527,'db.patch("actividades"'],
             ['worker/worker206.txt',9552,'if (kind === "ANUNCIANTE")'],
+            ['worker/worker206.txt',13132,"'/superadmin/moderation/resolve'"],
+            ['worker/worker206.txt',13209,'GLD_BUSINESS143.journal'],
+            ['worker/worker206.txt',12905,"entry.collection==='publicidades'"],
+            ['worker/worker206.txt',12906,"entry.collection==='eventos'"],
         ],
-        'include':[1414,1422,1423,1467,1473,1479,1483,1485,1946,1952,7254,7259,7264,9515,9523,9527],
+        'include':[1414,1422,1423,1467,1473,1479,1483,1485,1946,1952,7254,7259,7264,9515,9523,9527,12906],
         'exclude':[
             496,517,603,604,639,646,730,743,
             3618,3724,3744,3763,4383,4430,4431,
@@ -35,9 +39,9 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             5062,5063,5064,5065,5070,6602,6691,7078,7081,
             7883,7885,7892,7897,7903,7918,7929,7942,7957,7962,7971,
             9553,9562,9569,9584,9595,9608,9623,9628,9638,
-            10796,10797,13142
+            10796,10797,12905,13142
         ]+([1492] if decision=='RECHAZAR' else []),
-        'description':'Aprobar/rechazar EVENTO o ACTIVIDAD con POST y guardas verificadas; relaciones preparadas y sincronización de sus respectivas copias. Se descartan solicitudes de publicidad, edición/borrado del anunciante, módulo de farmacias, resolución V2 sustituida y ruta de soporte. Se conserva 1492 en aprobar por el GET público posterior condicionado a ciudad; quedan candidatas las operaciones de journal 12905-12906.',
+        'description':'Aprobar/rechazar EVENTO o ACTIVIDAD con POST y guardas verificadas; relaciones preparadas y sincronización de sus respectivas copias. Se descartan solicitudes de publicidad, edición/borrado del anunciante, módulo de farmacias, resolución V2 sustituida y ruta de soporte. Journal de evento condicionado al despacho por actor: 12906 sólo con programación anterior no embebida; se descarta 12905 porque exige colección publicidades. Se conserva 1492 en aprobar por el GET público posterior condicionado a ciudad.',
     })
 
 base=Path('baseline')
