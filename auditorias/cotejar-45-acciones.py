@@ -48,6 +48,39 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
         'description':'Aprobar/rechazar EVENTO o ACTIVIDAD con POST y guardas verificadas; relaciones preparadas y sincronización de sus respectivas copias. Se descartan solicitudes de publicidad, edición/borrado del anunciante, módulo de farmacias, resolución V2 sustituida y ruta de soporte. Journal de evento condicionado al despacho por actor: 12906 sólo con programación anterior no embebida; se descarta 12905 porque exige colección publicidades. El GET público posterior condicionado a aprobación de EVENTO y ciudad enlaza 1492 a /events-new; sin GET en rechazo.',
     })
 
+# Cotejo arranque Anunciantes 00766: las ramas se diferencian por la
+# URL exacta y por la condición de sesión/paquete. Las rutas de catálogos
+# privados, precios y funcionalidades no son solicitadas desde este arranque.
+SPECS.append({
+    'aud':'AUD-00766',
+    'entry':['plataforma/anunciantes.html',3640,'iniciarAnunciantes();'],
+    'markers':[
+        ['plataforma/anunciantes.html',3625,'async function iniciarAnunciantes'],
+        ['plataforma/anunciantes.html',3636,'prefetchGuia('],
+        ['plataforma/anunciantes.html',3637,'gldCargarFavoritosAnunciantes()'],
+        ['plataforma/anunciantes.html',1271,"'/guide'"],
+        ['plataforma/anunciantes.html',1375,'async function gldCargarFavoritosAnunciantes'],
+        ['plataforma/anunciantes.html',1387,'GLD_SUSCRIPTORES_API'],
+        ['plataforma/anunciantes.html',3461,'obtenerBannersPromise()'],
+        ['plataforma/anunciantes.html',3462,'obtenerEventosPromise()'],
+        ['plataforma/anunciantes.html',3463,'obtenerPromosPromise()'],
+        ['plataforma/anunciantes.html',3464,'obtenerActividadesPromise()'],
+        ['worker/worker206.txt',1705,'/guide'],
+        ['worker/worker206.txt',1707,'/promos'],
+        ['worker/worker206.txt',1710,'/events-new'],
+        ['worker/worker206.txt',2020,'/actividades'],
+        ['worker/worker206.txt',5352,'listFavoritesV2'],
+        ['worker/worker206.txt',1301,'cache.get(guideCityKey'],
+        ['worker/worker206.txt',1388,'cache.get(promoCityKey'],
+        ['worker/worker206.txt',1492,'cache.get(eventsCityKey'],
+        ['worker/worker206.txt',1959,'cache.get(activityCityKeyV2'],
+        ['worker/worker206.txt',5287,'subscriberFavorites'],
+    ],
+    'include':[1301,1388,1492,1959,5287],
+    'exclude':[1186,1753,1755,1767,3755,8383,8386,8388,8473,8476,8478],
+    'description':'Inicio de Anunciantes: /guide y favoritos con sesión; módulos secundarios eventos/promos/actividades sólo tras guía, mediante paquete o GET. Se excluyen territorio y bootstrap no invocados y rutas privadas de panel, precios y funcionalidades sin llamada desde el inicio. No se confunde precarga local con solicitud facturable.'
+})
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
