@@ -91,6 +91,31 @@ jobs:
           PY
       - name: Reverificar todas las 1691 identidades
         run: python3 auditorias/reverificar-cobertura-total.py
+      - name: Recuperar árboles completos del inventario original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p auditorias/temporal/arboles
+          gh run download 44210648484 --repo liqko/guia-local-dolores --name arbol-estatico-acciones --dir auditorias/temporal/arboles
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,zipfile
+          root=Path('auditorias/temporal/arboles')
+          for p in sorted(root.rglob('*')):
+            if not p.is_file():continue
+            print('ARBOL_FILE',str(p),p.stat().st_size)
+            if p.suffix=='.zip':
+              with zipfile.ZipFile(p) as z:print('ARBOL_ZIP',json.dumps([(i.filename,i.file_size) for i in z.infolist()])[:4000])
+            elif p.suffix=='.json' and p.stat().st_size<90000000:
+              obj=json.loads(p.read_text())
+              report={'type':type(obj).__name__,'size':len(obj),'keys':list(obj)[:20] if isinstance(obj,dict) else []}
+              if isinstance(obj,dict):
+                for k,v in list(obj.items())[:18]:
+                  if isinstance(v,(dict,list)):
+                    report[k]={'size':len(v),'sampleKeys':list(v[0])[:30] if isinstance(v,list) and v and isinstance(v[0],dict) else list(v)[:20] if isinstance(v,dict) else []}
+              elif isinstance(obj,list) and obj and isinstance(obj[0],dict):report['sampleKeys']=list(obj[0])[:50]
+              print('ARBOL_JSON',json.dumps(report,ensure_ascii=False)[:5000])
+          PY
       - name: Trazar cadenas desde las acciones a las dependencias
         run: python3 auditorias/trazar-cadenas-paso3.py
       - uses: actions/upload-artifact@v4
