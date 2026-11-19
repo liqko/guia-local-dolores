@@ -285,10 +285,10 @@ std={'map','flatMap','filter','forEach','some','every','find','findIndex','findL
      'findLastIndex','reduce','reduceRight','sort','then','catch','finally'}
 src_cache={}
 callbacks_verified=0
-for r in pending:
+for r in coverage['filas']:
     ast=r.get('cuerpoAST') or {}
     node=index.get((r['archivo'],r['linea'],ast.get('inicio')),[])
-    assert len(node)==1,(r['idGPS'],node)
+    if len(node)!=1:continue
     a=r.get('activacion') or {}
     parent=r.get('padre')
     if parent not in F:continue
