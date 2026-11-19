@@ -122,6 +122,66 @@ for i,r in enumerate(pending,1):
                 'traza':route,'padre':r.get('padre'),'operaciones':r.get('operaciones'),
                 'sitiosDeLlamada':r.get('sitiosDeLlamada'),
                 'candidatos':r.get('candidatos')})
+# Reconstrucción adicional desde pertenencia explícita al árbol y punto de activación.
+# Es distinta de una cadena de aristas: conservar ambas evidencias por separado.
+entry_by_id={entry['id']:entry for entry in entries}
+by_key={own_key(row):row for row in rows if own_key(row)}
+for item in out:
+    row=pending[item['fila']-1]
+    activation=row.get('activacion') or {}
+    parent=row.get('padre')
+    parent_key=ast_key(parent)
+    parent_row=by_key.get(parent_key)
+    direct=set(row.get('unidadesExactas') or row.get('unidades') or [])
+    parent_units=set(row.get('unidadesDelPadre') or [])
+    parent_units|=tree_membership.get(parent_key,set())
+    parent_units={u for u in parent_units if u in entry_by_id}
+    direct={u for u in direct if u in entry_by_id}
+    m=re.search(r'\.([A-Za-z]+)\s*
+cond_count=sum(x['traza'].get('condicional',False) for x in out)
+chain_states=collections.Counter(x['estadoCadena'] for x in out)
+summary={'revision':gps['revision'],'total':len(out),'acciones_catalogo':len(entries),
+         'entradasAST':len(roots),'aristas_individuales':sum(len(x) for x in incoming.values()),
+         'callbacksConContrato':sum(contract_count.values()),'candidatosLocalNoAsumidos':len(effect_candidates),
+         'resultados':dict(stats),'clasificacionCadenas':dict(chain_states),'cadenasConCondicion':cond_count,
+         'nota':'Se acredita recorrido estático a entrada cuando existe cadena; callbacks y ramas de ejecución siguen condicionados. No equivale a prueba funcional ni de consumo.'}
+(OUT/'CADENAS_PASO3_1691.json').write_text(json.dumps({'resumen':summary,'cadenas':out},ensure_ascii=False,indent=2)+'\n')
+(OUT/'CADENAS_PASO3_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
+print('CADENAS_PASO3',json.dumps(summary,ensure_ascii=False))
+print('EJEMPLOS_CADENAS',json.dumps([x for x in out if x['traza']['resultado']=='cadena_hasta_accion_de_catalogo'][:3],ensure_ascii=False)[:7000])
+,str(activation.get('expr') or ''))
+    method=m.group(1) if m else ''
+    typ=activation.get('tipo')
+    callback_known=(typ=='funcion_pasada_como_argumento' and method in callback_contracts) or (typ=='callback_programado' and method in callback_contracts) or typ=='invocada_en_su_declaracion'
+    if item['traza']['resultado']=='cadena_hasta_accion_de_catalogo':
+        state='cadena_de_aristas_hasta_accion'
+        possible=item['traza']['acciones']
+    elif direct:
+        state='funcion_en_arbol_sin_cadena_de_activacion'
+        possible=sorted(direct)
+    elif parent_units and callback_known:
+        state='accion_arbol_y_callback_vinculados_falta_tramo_intermedio'
+        possible=sorted(parent_units)
+    elif parent_units:
+        state='padre_en_arbol_sin_activacion_demostrada'
+        possible=sorted(parent_units)
+    else:
+        state='sin_enlace_a_accion_comprobado'
+        possible=[]
+    item['estadoCadena']=state
+    item['accionesCandidatas']=possible
+    item['evidenciaDeEnlace']={'padreAST':parent_key,'pertenenciaPadre':sorted(parent_units),
+      'metodoCallback':method if callback_known else None,'tipoActivacion':typ}
+    # Mostrar dependencias del árbol asociadas a las acciones, no atribuidas al callback específico.
+    item['accionesContexto']=[{
+       'AUD':u,
+       'accion':{k:entry_by_id[u]['start'].get(k) for k in ('file','line','kind','label','handler','event','receiver','entry')},
+       'dependenciasDelArbol':{
+           'red':[{'metodo':x.get('verb'),'destinos':x.get('candidates'),'estadoRuta':x.get('routeStatus')} for x in entry_by_id[u].get('network',[])],
+           'datos':[{'operacion':x.get('operation'),'coleccion':x.get('key')} for x in entry_by_id[u].get('data',[])]
+       }
+     } for u in possible[:8]]
+
 stats=collections.Counter(x['traza']['resultado'] for x in out)
 cond_count=sum(x['traza'].get('condicional',False) for x in out)
 summary={'revision':gps['revision'],'total':len(out),'acciones_catalogo':len(entries),
