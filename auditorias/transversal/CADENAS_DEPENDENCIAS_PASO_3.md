@@ -41,6 +41,16 @@ El cotejo pasó de **207 a 177 acciones** con sitios del árbol pendientes. Se a
 
 Pasaron las pruebas locales de paginación, preparación, navegación y operaciones de Promociones y Publicidad con transporte simulado; las de pestañas y coeficientes, recuperación del catálogo y soporte; y diez pruebas de regresión existentes de roles y configuración. El cotejo posterior confirmó las 987 acciones y las 3.625 identidades, con todos los sitios originales conservados. La ejecución en producción y el consumo real siguen pendientes.
 
+## Tercera ronda · 102 acciones cotejadas
+
+De las 177 acciones que quedaban, **102** tienen ahora documentado su trayecto hasta las rutas y dependencias correspondientes, incluidas las salidas locales y barreras. Quedan **75** con candidatos por resolver. Se conservaron los sitios originales. En esta ronda, 297 asociaciones acción–sitio quedan comprobadas bajo sus condiciones y 2636 se descartaron para esa acción tras comparar ruta, método, argumentos o guardas. El sitio permanece disponible para la acción que sí lo utiliza.
+
+- **Prestaciones, Gran Hermano.** La prueba local ejecuta los manejadores del HTML original. El alta agrega la fila a la copia local y luego la usa para comparar contra el formulario. La igualdad hace que omita el envío. La edición sí emite POST. En la misma prueba, dos niveles modificados emitieron dos POST y el guardado de ficha uno con control de versión.
+- **Borrado de ciudad, AUD-00101.** El frontend comprueba rol, confirmación y nombre. Suspende una ciudad activa por PATCH y luego envía DELETE. En el Worker de este corte se localizaron el POST de creación y PATCH de edición, sin despacho DELETE para esa ruta. Una falla tras el PATCH puede dejarla suspendida. Hallazgo estático, sin ejecutar borrados reales.
+- **Cobertura.** Se cotejaron guardados, roles, cuentas, soporte, Empleo público y administrativo, Farmacias, inicio de Eventos, Favoritos, entradas públicas y parte de la navegación de Gran Hermano. El anexo conserva la cadena propia de cada AUD y las condiciones de sesión, permisos, datos y estado comprobadas donde aplican.
+
+Prueba reproducible en el anexo: `probar-catalogos-paso3.cjs`. El cotejo verifica fragmentos exactos del código congelado y conserva funciones, sitios y saltos del anexo de entrada.
+
 ## Continuidad
 
-El paso 3 sigue abierto. Quedan **177 acciones** con sitios del árbol cuyo enlace exige cotejo. Quedan 12 de las 18 acciones de Gran Hermano que compartían la expansión de la consulta de búsqueda y el guardado de ficha. Las búsquedas ya se resolvieron. Filtrar las rutas que corresponden a cada llamador y conservar los sitios descartados con la condición que impide alcanzarlos. El cotejo de funciones y la revalidación final del paso 3 continúan abiertos.
+Quedan **75 acciones** con sitios pendientes, enumeradas en el anexo. Separar primero las ramas que comparten la navegación de Gran Hermano y los módulos de Anunciante. Resolver por vista, acción, método y contenido real de cada solicitud, y luego cruzar todas las rutas con las 1.691 funciones y revalidar contra las fuentes. El paso 3 sigue abierto. No hubo cambios productivos ni pruebas sobre datos reales.
