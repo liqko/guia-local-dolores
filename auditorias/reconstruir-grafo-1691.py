@@ -389,6 +389,24 @@ assert 'const anunciantesData = data.map(hidratarItem);' in (Path('baseline')/'p
 adj[hidratar_parent][hidratar_child]=('callback_array_map_referencia_directa','plataforma/anunciantes.html:2089')
 print('PASO3_CALLBACK_NOMBRADO',json.dumps({'padre':hidratar_parent,'hijo':hidratar_child,'sitio':'plataforma/anunciantes.html:2089','mecanismo':'Array.map(hidratarItem)'},ensure_ascii=False))
 
+# Evento: callback nominal de Array.filter(matchesInitialAdvertiser)
+# Solo vincular si la función de la que sale la referencia pertenece al
+# mismo ámbito léxico o a un ámbito hijo de la declaración llamada.
+events_named='plataforma/eventos.html:1012:11474:matchesInitialAdvertiser'
+assert events_named in F
+events_parent=F[events_named]['parent']
+event_callers=[x['id'] for x in F.values() if x['file']=='plataforma/eventos.html'
+               and x['name']=='procesarEventosResponse']
+assert len(event_callers)==1,len(event_callers)
+event_caller=event_callers[0]
+scope=event_caller;ancestors=set()
+while scope in F and scope not in ancestors:
+    ancestors.add(scope);scope=F[scope].get('parent')
+assert events_parent in ancestors,(events_parent,event_caller)
+assert 'eventosFiltrados = eventosCiudad.filter(matchesInitialAdvertiser);' in (Path('baseline')/'plataforma/eventos.html').read_text().splitlines()[1976-1]
+adj[event_caller][events_named]=('callback_array_filter_referencia_directa','plataforma/eventos.html:1976')
+print('PASO3_CALLBACK_EVENTOS',json.dumps({'padre':event_caller,'hijo':events_named,'sitio':'plataforma/eventos.html:1976'},ensure_ascii=False))
+
 # Resolver declaraciones locales por ámbito léxico comprobado.
 # No enlazar por nombre homónimo entre archivos: el destino debe ser una
 # declaración de función única en el ámbito de la función invocadora o uno
