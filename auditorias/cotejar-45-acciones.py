@@ -753,6 +753,69 @@ for aud,entry,markers,owners,description in [
    'includeOwner':owners,'excludeMode':'other_worker','description':description,
    'extra':[['worker/worker206.txt',11209,'copia privada diaria para entrada GH sin Firestore directo si la copia está lista'],
             ['plataforma/administracion.html',1475,'navegación y consultas de datos diferidas según vista']]})
+
+# Últimas cuatro entradas, cada ruta diferenciada y candidatos conservados.
+SPECS.extend([
+ {'aud':'AUD-00137',
+  'entry':['plataforma/administracion.html',4040,'ghResolverRevisionUnificada('],
+  'markers':[
+    ['plataforma/administracion.html',4089,'async function ghResolverRevisionUnificada'],
+    ['plataforma/administracion.html',4090,'if(!confirm('],
+    ['plataforma/administracion.html',4091,"'/superadmin/adult-review'"],
+    ['plataforma/administracion.html',4092,'method:\'POST\''],
+    ['worker/worker206.txt',10553,"'/superadmin/adult-review'"],
+    ['worker/worker206.txt',10892,"'/superadmin/publications/blocked'"],
+    ['worker/worker206.txt',13127,"'/superadmin/moderation/resolve'"],
+    ['worker/worker206.txt',10574,'db.commitPatches'],
+    ['worker/worker206.txt',10908,'db.patch(collection,ref,patch'],
+    ['worker/worker206.txt',10909,'syncPublicationReviewV77']
+  ],
+  'include':[],'includeOwner':['syncEventV2','syncActivityPreparedV2','syncPublicityPreparedV2','syncPromo','syncEmpleo109','getPreparedRelationsV1'],
+  'excludeMode':'other_worker',
+  'description':'Resolver revisión GH: confirmación y POST a revisión +18, moderación de eventos/actividades o contenido bloqueado según tipo y fuente. Worker distingue permisos, ámbito territorial, revisión vigente y operación de aprobación/rechazo; patch condicionado y sincronización de copias. No afecta colecciones ajenas a la categoría.'},
+ {'aud':'AUD-00158',
+  'entry':['plataforma/administracion.html',1635,'el.onclick=()=>detalleAnu'],
+  'markers':[
+    ['plataforma/administracion.html',1969,'async function detalleAnu'],
+    ['plataforma/administracion.html',1973,'ghCargarCiudades()'],
+    ['plataforma/administracion.html',1974,"api('detalle_anunciante'"],
+    ['plataforma/administracion.html',1977,"api('listar_catalogo'"],
+    ['plataforma/administracion.html',526,"detalle_anunciante:'/advertisers/"],
+    ['plataforma/administracion.html',527,"listar_catalogo:'/catalogs/"]
+  ],
+  'include':[],'includeOwner':['routeDirectories102','getCommerceCatalogs','gldFuncPacket166'],
+  'excludeMode':'other_worker',
+  'description':'Abrir detalle anunciante GH: GET territorio, ficha /advertisers/:id, catálogos seleccionados en paralelo y reglas funcionales si faltan; renderiza editor sin escribir. Carga de catálogos puede consultar copia si está disponible. No confundir con guardar datos.'},
+ {'aud':'AUD-00168',
+  'entry':['plataforma/administracion.html',3929,"getElementById('cfgTabs').addEventListener('click'"],
+  'markers':[
+    ['plataforma/administracion.html',3914,'function ghSelectConfig(name)'],
+    ['plataforma/administracion.html',3920,"name==='terminos'"],
+    ['plataforma/administracion.html',3923,"name==='territorio'"],
+    ['plataforma/administracion.html',3924,'ghCargarCatalogo(def)'],
+    ['plataforma/administracion.html',3025,'async function ghCargarCatalogo'],
+    ['plataforma/administracion.html',3033,"api('listar_catalogo'"]
+  ],
+  'include':[],'includeOwner':['getCommerceCatalogs','gldFuncEndpoint166','gldFuncPacket166','routeDirectories102','gldLeerPrecios162'],
+  'excludeMode':'other_worker',
+  'description':'Seleccionar configuración GH: cambia pestaña, carga diferida de términos/roles/nodos/territorio/catálogos según tipo y cache local; no ejecuta guardar ni reconstrucción de cachés por clic en pestaña.'},
+ {'aud':'AUD-00386',
+  'entry':['plataforma/gh-promos.js',33,'b.onclick=()=>act('],
+  'markers':[
+    ['plataforma/gh-promos.js',45,'async function act(id,action)'],
+    ['plataforma/gh-promos.js',47,'if(!confirm('],
+    ['plataforma/gh-promos.js',49,"request('/promos'"],
+    ['worker/worker206.txt',11114,'async function routeAdminPromosV91'],
+    ['worker/worker206.txt',11146,'const body=await request.json()'],
+    ['worker/worker206.txt',11147,"'pausar','reanudar','borrar','aprobar','rechazar'"],
+    ['worker/worker206.txt',11151,"db.delete('promos'"],
+    ['worker/worker206.txt',11164,"db.patch('promos'"],
+    ['worker/worker206.txt',11165,'syncPromo(']
+  ],
+  'include':[],'includeOwner':['syncPromo','quota','getCommerceCatalogs'],
+  'excludeMode':'other_worker',
+  'description':'Moderar o cambiar estado de promoción desde GH: confirmar; POST /superadmin/promos; sólo superadmin, opción válida, detalle vigente; borrar=delete, pausar/reanudar=patch sólo si cambio/cupo, aprobar/rechazar sólo pendiente; actualizar KV/copia de promos. No se confunde con crear/editar del anunciante.'}
+])
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
