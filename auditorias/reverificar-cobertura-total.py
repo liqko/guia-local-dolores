@@ -117,48 +117,65 @@ summary={
     'nota':'Todas las 1691 se cotejan con el mismo código. Categoría de evidencia NO equivale a cadena de ejecución completa, ni se descuentan pendientes automáticamente.'
 }
 
-# RASTREO REAL DE CONEXIONES DIRECTAS, SIN ATRIBUIR ACTIVACION A UNA FUNCION SOLO POR SU PADRE
-# Cada nodo usa identidad de AST para distinguir callbacks distintos en la misma linea.
+# GRAFO POR IDENTIDAD DE AST: cada callback tiene offset distinto incluso en la misma línea.
+# Las aristas proceden del anexo original; se normalizan etiquetas abreviadas del árbol.
+from collections import deque
 all_nodes={}
+by_position={}
 for srcrow in rows:
     ast=srcrow.get('cuerpoAST') or {}
-    if ast.get('inicio') is None: continue
-    nid=f"{srcrow.get('archivo')}:{srcrow.get('linea')}:{ast.get('inicio')}:{srcrow.get('nombre')}"
-    all_nodes[nid]=srcrow
-from collections import deque
+    if ast.get('inicio') is None:continue
+    key=f"{srcrow.get('archivo')}:{srcrow.get('linea')}:{ast['inicio']}"
+    assert key not in all_nodes, f"Colisión AST real: {key}"
+    all_nodes[key]=srcrow
+    by_position[key]=key
+def resolve_node(raw):
+    if not raw or not isinstance(raw,str):return None
+    # 'plataforma/a.html:30:8120:callback@30' y el GPS largo tienen la misma identidad AST
+    m=re.match(r'^(.*?:\\d+:\\d+):',raw)
+    return by_position.get(m.group(1)) if m else None
 incoming=collections.defaultdict(list)
-for node_id, srcrow in all_nodes.items():
+raw_edges=0
+unresolved_edges=[]
+for srcrow in rows:
     for edge in srcrow.get('entradasLocales') or []:
-        before=edge.get('desde');after=edge.get('hacia')
-        if before and after and after in all_nodes:
+        raw_edges+=1
+        before=resolve_node(edge.get('desde'))
+        after=resolve_node(edge.get('hacia'))
+        if before and after:
             item=(before,edge.get('clase'),edge.get('sitio'))
             if item not in incoming[after]:incoming[after].append(item)
+        else:
+            unresolved_edges.append({'desde':edge.get('desde'),'hacia':edge.get('hacia'),'sitio':edge.get('sitio')})
 anchors={}
 for nid,srcrow in all_nodes.items():
+    # El anclaje directo proviene de la identidad exacta (NO de unidadesDelPadre).
     units=srcrow.get('unidadesExactas') or srcrow.get('unidades') or []
-    if units:
-        anchors[nid]=sorted(set(u for u in units if u in valid_aud))
+    if units:anchors[nid]=sorted(set(u for u in units if u in valid_aud))
 def trace_exact(nid):
     queue=deque([(nid,[nid])]);seen={nid}
     while queue:
         current,path=queue.popleft()
         if current in anchors:
-            return {'estado':'cadena_directa_al_ancla_AUD','unidades':anchors[current],'cadena':path}
+            return {'estado':'traza_directa_hasta_nodo_AUD','unidades':anchors[current],'cadena':path}
         if len(path)>80:continue
         for predecessor,clase,sitio in incoming.get(current,[]):
             if predecessor in seen:continue
-            seen.add(predecessor);queue.append((predecessor,path+[predecessor]))
+            seen.add(predecessor)
+            queue.append((predecessor,path+[predecessor]))
     return {'estado':'sin_cadena_directa_hasta_AUD','alcanzados':len(seen)}
 for rec in results:
     ast=rec.get('identidadAST') or {}
-    nid=f"{rec['archivo']}:{rec['linea']}:{ast.get('inicio')}:{rec['nombre']}"
+    nid=f"{rec['archivo']}:{rec['linea']}:{ast.get('inicio')}"
     rec['cadenaDirecta']=trace_exact(nid)
 graph_summary=collections.Counter(rec['cadenaDirecta']['estado'] for rec in results)
 summary['grafoDirecto']=dict(graph_summary)
 summary['nodosAST']=len(all_nodes)
-summary['aristasDirectasIdentificadas']=sum(len(v) for v in incoming.values())
+summary['aristasCrudas']=raw_edges
+summary['aristasResueltas']=sum(len(v) for v in incoming.values())
+summary['aristasSinExtremosResueltos']=len(unresolved_edges)
 summary['anclasAUD']=len(anchors)
-print('TRAZADO_DIRECTO_1691',json.dumps({'grafo':dict(graph_summary),'nodosAST':len(all_nodes),'aristas':sum(len(v) for v in incoming.values()),'anclas':len(anchors),'ejemplos':[{k:x.get(k) for k in ['idGPS','cadenaDirecta']} for x in results if x['cadenaDirecta']['estado']=='cadena_directa_al_ancla_AUD'][:3]},ensure_ascii=False)[:3300])
+print('TRAZADO_DIRECTO_1691',json.dumps({'grafo':dict(graph_summary),'nodosAST':len(all_nodes),'aristasCrudas':raw_edges,'aristasResueltas':sum(len(v) for v in incoming.values()),'aristasSinResolver':len(unresolved_edges),'anclas':len(anchors),'ejemplos':[{k:x.get(k) for k in ['idGPS','cadenaDirecta']} for x in results if x['cadenaDirecta']['estado']=='traza_directa_hasta_nodo_AUD'][:3]},ensure_ascii=False)[:4500])
 
 (OUT/'COBERTURA_1691_REVERIFICACION_COMPLETA.json').write_text(json.dumps({'resumen':summary,'filas':results},ensure_ascii=False,indent=2)+'\n')
 (OUT/'COBERTURA_1691_REVERIFICACION_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
