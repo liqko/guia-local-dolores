@@ -118,6 +118,65 @@ SPECS.append({
   'description':'Actualizar lista Publicidad: GET panel por anunciante con sesión; read del master y catálogos y relaciones preparadas, KV put sólo si falta contrato; territorio cacheado o GET adicional. POST y operaciones GH descartadas por método/ruta.'
 })
 
+# POST Publicidad, dos acciones independientes de una misma ruta
+for action,aud,entryLine,entryNeedle,callLine,handlerLine,handlerName,workerMethod in [
+    ('actualizar_activos','AUD-00470',5237,"aplicarActivos.addEventListener('click'",4935,6854,'publicityActiveMonthlyV101','actualizar_activos'),
+    ('guardar','AUD-00472',5255,"save.addEventListener('click'",5300,6843,'publicitySaveMonthlyV101','guardar')
+]:
+    relevant={'publicityStateV101','publicityCommitV101','syncPublicityPreparedV2',
+              'getPreparedRelationsV1','putPreparedRelationsV1','gldFuncPacket166',
+              'GldPublicCache119.prototype.beginBusiness143',
+              'GldPublicCache119.prototype.businessState143',
+              'GldPublicCache119.prototype.storeBusiness143',
+              'GldPublicCache119.prototype.businessSave143'}
+    if action=='guardar':
+        relevant.update(['publicitySaveMonthlyV101','publicityScopeV101','publicitySaveV4',
+                         'getPublicidadCatalogs','getCommerceCatalogs','getEventsCityV2','getActivitiesCityV2'])
+    else:
+        relevant.update(['publicityActiveMonthlyV101','publicityActiveChangeV4'])
+    SPECS.append({
+      'aud':aud,
+      'entry':['plataforma/login.html',entryLine,entryNeedle],
+      'markers':[
+        ['plataforma/login.html',callLine,'postJson(WORKER_PUBLICIDAD_URL'],
+        ['plataforma/login.html',3237,'fetch(url'],
+        ['worker/worker206.txt',12869,"request.method!=='POST'"],
+        ['worker/worker206.txt',12870,"'/publicidad'"],
+        ['worker/worker206.txt',12873,workerMethod],
+        ['worker/worker206.txt',12892,'business-save143'],
+        ['worker/worker206.txt',13218,'GLD_BUSINESS143.dispatch'],
+        ['worker/worker206.txt',11976,'business-save143'],
+        ['worker/worker206.txt',6824,'/publicidad'],
+        ['worker/worker206.txt',handlerLine,workerMethod],
+        ['worker/worker206.txt',701 if action=='actualizar_activos' else 597,'async function '+handlerName],
+        ['worker/worker206.txt',559,'db.commitPatches'],
+        ['worker/worker206.txt',560,"cache.put('publicity:usage"],
+        ['worker/worker206.txt',12905,"entry.collection==='publicidades'"],
+      ],
+      'include':[],
+      'includeOwner':sorted(relevant),
+      'includeLine':([12905,8473,8476,8478,1414,1422,1423,2052,2057,2066] if action=='actualizar_activos' else
+                      [12905,8473,8476,8478,1414,1422,1423,1492,1959,2052,2057,2066]),
+      'excludeMode':'other_worker',
+      'includeOther':{
+        'plataforma/login.html':[3237,5144],
+        'plataforma/publicacion-pedidos.js':[20,21,22],
+        'plataforma/territorio-cache.js':[18,32],
+        'plataforma/consumo-v44.js':[78]
+      },
+      'excludeOther':{
+        'plataforma/administracion.html':[536],
+        'plataforma/gh-promos.js':[13],
+        'plataforma/login.html':[4240,9410]
+      },
+      'description':'POST /publicidad desde Anunciante: rama '+action+' despachada a BusinessActor143 y ruta V13, motor mensual V101 y copias; diferencias de GET y reintentos por recuperación conservadas. Rutas administrativas y handlers de otros módulos descartados.',
+      'extra':[
+        ['worker/worker206.txt',12892,'despacho a Durable Object business-save143'],
+        ['worker/worker206.txt',12905,'journal preparado para publicidad existente'],
+        ['worker/worker206.txt',560,'KV put de usage tras commit condicional'],
+      ]
+    })
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
@@ -144,7 +203,7 @@ for aud in sorted(pending):
         classified=[]
         for x in original:
             site=sites[x['idSitio']]
-            if site['archivo']=='worker/worker206.txt' and site['linea'] in include: result='dependencia_condicional_vinculada'
+            if site['archivo']=='worker/worker206.txt' and (site['linea'] in include or site['linea'] in spec.get('includeLine',[]) or str(site.get('funcion','')).rsplit(':',1)[-1] in spec.get('includeOwner',[])): result='dependencia_condicional_vinculada'
             elif site['archivo'] in spec.get('includeOther',{}) and site['linea'] in spec['includeOther'][site['archivo']]:result='dependencia_condicional_vinculada'
             elif site['archivo'] in spec.get('excludeOther',{}) and site['linea'] in spec['excludeOther'][site['archivo']]:result='descartado_por_ruta_o_interfaz_ajena'
             elif site['archivo']=='worker/worker206.txt' and site['linea'] in exclude:result='descartado_por_metodo_o_guarda'
@@ -245,3 +304,7 @@ aud='AUD-00471'
 xs=[sites[q['idSitio']] for q in actions[aud]['dependenciasDelArbolSinCadena']]
 selected=[x for x in xs if x['archivo']=='worker/worker206.txt' and (1400<=x['linea']<=1430 or 1750<=x['linea']<=1800 or 4400<=x['linea']<=4480 or 4600<=x['linea']<=4660 or any(word in str(x.get('funcion','')) for word in ['commerceMaster','getPublicidadCatalogs','publicidadPanelData','getPreparedRelations','publicityUsage']))]
 print('PASO3_PUBLICIDAD_GET_CANDIDATOS',json.dumps([{'linea':x['linea'],'fn':x.get('funcion'),'id':x.get('idSitio')} for x in selected],ensure_ascii=False))
+
+for aud in ('AUD-00470','AUD-00471','AUD-00472'):
+    row=next(x for x in results if x['AUD']==aud)
+    print('PASO3_PUBLICIDAD_TRES',json.dumps({'AUD':aud,'estado':row['estado'],'porTipo':row.get('porTipo'),'sinClasificar':row.get('faltantesDeRama')},ensure_ascii=False))
