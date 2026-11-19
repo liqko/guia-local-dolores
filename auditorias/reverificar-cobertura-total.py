@@ -137,13 +137,13 @@ def resolve_node(raw):
 # Catálogo de entradas. Comparar nombre de manejador Y archivo: nunca sólo nombre.
 catalog_handlers=collections.defaultdict(set)
 for line in (BASE/'CATALOGO_MAESTRO.md').read_text().splitlines():
-    m=re.match(r'^\\| (AUD-\\d{5}) \\| \\[([^\\]]+):\\d+\\]\\([^)]*\\) \\| (.*?) \\|',line)
+    m=re.match(r'^\| (AUD-\d{5}) \| \[([^\]]+):\d+\]\([^)]*\) \| (.*?) \|',line)
     if not m:continue
     aud,filename,handler=m.groups()
-    fun=re.match(r'^([A-Za-z_$][\\w$]*)\\s*(?:\\(|$)',handler)
+    fun=re.match(r'^([A-Za-z_$][\w$]*)\s*(?:\(|$)',handler)
     if fun:catalog_handlers[(filename,fun.group(1))].add(aud)
 def node_name(raw):
-    m=re.match(r'^.*?:\\d+:\\d+:(.*)$',str(raw))
+    m=re.match(r'^.*?:\d+:\d+:(.*)$',str(raw))
     return m.group(1) if m else ''
 incoming=collections.defaultdict(list)
 raw_edges=0
@@ -166,7 +166,7 @@ for srcrow in rows:
 # Se vincula sólo si coinciden archivo, nombre de función y el origen AST identifica la función.
 external_aud={}
 for raw in external_origins:
-    m=re.match(r'^(.*?):\\d+:\\d+:([A-Za-z_$][\\w$]*)$',raw)
+    m=re.match(r'^(.*?):\d+:\d+:([A-Za-z_$][\w$]*)$',raw)
     if not m:continue
     file,name=m.groups()
     if (file,name) in catalog_handlers:external_aud[raw]=sorted(catalog_handlers[(file,name)])
