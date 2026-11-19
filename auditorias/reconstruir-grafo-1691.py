@@ -8,7 +8,7 @@ from pathlib import Path
 ROOT=Path('auditorias/transversal')
 OUT=Path('auditorias/temporal')
 OUT.mkdir(exist_ok=True,parents=True)
-TREE=OUT/'arboles/ARBOL_ACCIONES.json'
+TREE=Path('baseline/auditorias/transversal/ARBOL_ACCIONES.json')
 with zipfile.ZipFile(ROOT/'CATALOGO_MAESTRO.zip') as z:
     catalog=json.loads(z.read('CATALOGO_MAESTRO.json'))
 with zipfile.ZipFile(ROOT/'COBERTURA_ACTIVACIONES.zip') as z:
