@@ -465,6 +465,78 @@ SPECS.extend([
  }
 ])
 
+# Paso 3: crear/editar PROMOCIÓN y guardar CICLO FARMACIAS
+SPECS.extend([
+ {
+   'aud':'AUD-00518',
+   'entry':['plataforma/login.html',8966,"promo-create"],
+   'markers':[
+    ['plataforma/login.html',8992,"action: 'updatePromo'"],
+    ['plataforma/login.html',9021,"action: 'createPromo'"],
+    ['plataforma/login.html',6164,"async function promos_post"],
+    ['plataforma/login.html',3237,"fetch(url"],
+    ['worker/worker206.txt',12870,"'/promos'"],
+    ['worker/worker206.txt',12873,"'createpromo'"],
+    ['worker/worker206.txt',12892,"business-save143"],
+    ['worker/worker206.txt',4310,"promoCreateV2"],
+    ['worker/worker206.txt',4311,"promoUpdateV2"],
+    ['worker/worker206.txt',3163,"async function promoCreateV2"],
+    ['worker/worker206.txt',3190,'db.patch("promos"'],
+    ['worker/worker206.txt',3194,"async function promoUpdateV2"],
+    ['worker/worker206.txt',3260,'db.patch("promos"'],
+    ['worker/worker206.txt',1380,'cache.put(key3'],
+   ],
+   'include':[1377,1380,3163,3170,3190,3199,3201,3260,8473,8476,8478,12905],
+   'includeOwner':['promoCreateV2','promoUpdateV2','syncPromo'],
+   'excludeMode':'other_worker',
+   'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+   'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],'plataforma/consumo-v44.js':[78],
+    'plataforma/territorio-cache.js':[18,32]},
+   'extra':[
+      ['plataforma/login.html',8966,'Validaciones de formulario, fecha, URL, sede y cupos antes del POST'],
+      ['plataforma/login.html',8992,'Actualizar promo sólo con patch de campos cambiados'],
+      ['plataforma/login.html',9021,'Crear promo sujeta a cupos'],
+      ['worker/worker206.txt',12892,'actor business-save143 idempotente'],
+      ['worker/worker206.txt',3190,'alta de promo con clave estable del intento'],
+      ['worker/worker206.txt',3260,'patch del registro sólo si procede'],
+   ],
+   'description':'Crear/editar Promoción por formulario, POST y despacho de actor hacia V2, validaciones y sync de cache por ciudad.'
+ },
+ {
+   'aud':'AUD-00523',
+   'entry':['plataforma/login.html',9056,"farma-save"],
+   'markers':[
+    ['plataforma/login.html',9056,"farma-save"],
+    ['plataforma/login.html',9089,"action:'guardar_ciclo'"],
+    ['plataforma/login.html',3237,"fetch(url"],
+    ['worker/worker206.txt',7205,'"/farmacias"'],
+    ['worker/worker206.txt',7209,'"guardar_ciclo"'],
+    ['worker/worker206.txt',7214,'sessionAllows'],
+    ['worker/worker206.txt',7217,'farmSaveCycleV3'],
+    ['worker/worker206.txt',7054,'async function farmSaveCycleV3'],
+    ['worker/worker206.txt',7078,'farmacias_ciclo_sedes'],
+    ['worker/worker206.txt',7156,'syncFarmCyclePreparedV2'],
+    ['worker/worker206.txt',2414,'async function syncFarmCyclePreparedV2'],
+    ['worker/worker206.txt',2440,'cache.put(key'],
+   ],
+   'include':[2386,2431,2438,2440,7057,7078,7081,7086,7104,7115,7122,7130,7153,8473,8476,8478],
+   'includeOwner':['farmSaveCycleV3','syncFarmCyclePreparedV2','prepareFarmSedes','allowedFarmCities2'],
+   'excludeMode':'other_worker',
+   'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+   'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],'plataforma/consumo-v44.js':[78],
+    'plataforma/territorio-cache.js':[18,32]},
+   'extra':[
+      ['plataforma/login.html',9056,'Valida ciudad, participantes, fechas y cantidad de farmacias simultáneas'],
+      ['worker/worker206.txt',7214,'Permiso turnos_farma y ciudades autorizadas'],
+      ['worker/worker206.txt',7054,'Ciclo nuevo o edición según id y cupos'],
+      ['worker/worker206.txt',7156,'caché y relaciones de ciclos sólo tras guardado'],
+   ],
+   'description':'Guardar ciclo de Farmacias: alta o actualización con permisos, fechas, ciudad y participantes, escritura condicional y sincronización de proyecciones por ciudad.'
+ }
+])
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
