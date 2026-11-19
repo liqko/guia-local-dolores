@@ -587,8 +587,8 @@ SPECS.append({
  'aud':'AUD-00491',
  'entry':['plataforma/login.html',8579,"btn.addEventListener('click'"],
  'markers':[
-   ['plataforma/login.html',8585,'async function seleccionarAnunciante_'],
-   ['plataforma/login.html',8596,'permisos_panel'],
+   ['plataforma/login.html',8584,'async function seleccionarAnunciante_'],
+   ['plataforma/login.html',8595,'permisos_panel'],
    ['worker/worker206.txt',6390,'permisos_panel'],
    ['worker/worker206.txt',6395,'commerceMaster205'],
    ['worker/worker206.txt',6132,'async function commerceMaster205'],
