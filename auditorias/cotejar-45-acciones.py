@@ -814,6 +814,9 @@ SPECS.extend([
   ],
   'include':[],'includeOwner':['syncPromo','quota','getCommerceCatalogs'],
   'excludeMode':'other_worker',
+  'excludeOther':{'plataforma/administracion.html':[536], 'plataforma/login.html':[3237],
+                  'plataforma/gh-promos.js':[13], 'plataforma/consumo-v44.js':[78],
+                  'plataforma/territorio-cache.js':[18,32]},
   'description':'Moderar o cambiar estado de promoción desde GH: confirmar; POST /superadmin/promos; sólo superadmin, opción válida, detalle vigente; borrar=delete, pausar/reanudar=patch sólo si cambio/cupo, aprobar/rechazar sólo pendiente; actualizar KV/copia de promos. No se confunde con crear/editar del anunciante.'}
 ])
 base=Path('baseline')
@@ -964,3 +967,6 @@ for ghid in ('AUD-00138','AUD-00163','AUD-00178','AUD-00185','AUD-00746'):
  for q in row['dependenciasDelArbolSinCadena']:
   x=sites[q['idSitio']];by_owner[str(x.get('funcion',''))].append(x['linea'])
  print('PASO3_GH_PENDIENTES',json.dumps({'AUD':ghid,'entrada':row['entrada'],'porDueno':{k:sorted(set(v)) for k,v in by_owner.items()}},ensure_ascii=False))
+
+for x in results:
+ if x['AUD']=='AUD-00386':print('PASO3_ULTIMA_PROMOS',json.dumps({'estado':x['estado'],'sinClasificar':x.get('faltantesDeRama'),'porTipo':x.get('porTipo'),'ids':[q['idSitio'] for q in x.get('candidatosClasificados',[]) if q['estado']=='requiere_cotejo']},ensure_ascii=False))
