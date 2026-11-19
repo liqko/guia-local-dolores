@@ -58,8 +58,14 @@ for r in pending:
     if parent not in F:continue
     kind=a.get('tipo')
     if kind=='funcion_pasada_como_argumento':
-        m=re.search(r'\.([A-Za-z]+)\s*$',str(a.get('expr') or ''))
+        expression=str(a.get('expr') or '')
+        m=re.search(r'[.]([A-Za-z]+)\s*$',expression)
         method=m.group(1) if m else ''
+        if method not in std:
+            # El AST registra ciertas expresiones completas, con callbacks
+            # encadenados y multilínea. Sólo aceptar métodos estándar.
+            candidates=re.findall(r'[.]([A-Za-z]+)\s*\(',expression)
+            method=next((name for name in reversed(candidates) if name in std),'')
         if method not in std:continue
         if r['archivo'] not in src_cache:
             src_cache[r['archivo']]=(Path('baseline')/r['archivo']).read_text().splitlines()
