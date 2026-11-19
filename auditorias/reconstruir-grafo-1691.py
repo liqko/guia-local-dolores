@@ -119,6 +119,20 @@ for src,dest in [
     adj[src][dest]=('adaptador_territorial_concreto_comprobado','worker/worker206.txt:148')
 print('ADAPTADOR_TERRITORIAL_VERIFICADO',2)
 
+# El Durable Object deriva a GLD_ACTIONS138.Coordinator si ya fue
+# inicializado; no es una llamada a un servicio externo.
+assert 'this.actions138.fetch(request)' in worker_lines[11965-1]
+assert 'this.actions138.alarm(' in worker_lines[12800-1]
+assert any('new GLD_ACTIONS138.Coordinator' in line for line in worker_lines[11973:11978])
+for src,dest,site,needle in [
+    ('worker/worker206.txt:11964:759119:fetch','worker/worker206.txt:236:16868:fetch',11965,'this.actions138.fetch(request)'),
+    ('worker/worker206.txt:12799:824441:GldPublicCache119.prototype.alarm','worker/worker206.txt:252:18134:alarm',12800,'this.actions138.alarm(')
+]:
+    assert src in F and dest in F
+    assert needle in worker_lines[site-1]
+    adj[src][dest]=('coordinador_actions138_con_tipo_verificado','worker/worker206.txt:'+str(site))
+print('COORDINADOR_ACTIONS138_CONECTADO',2)
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
