@@ -133,6 +133,36 @@ for src,dest,site,needle in [
     adj[src][dest]=('coordinador_actions138_con_tipo_verificado','worker/worker206.txt:'+str(site))
 print('COORDINADOR_ACTIONS138_CONECTADO',2)
 
+# Módulo de clasificación exportado a window.GLD_CLASSIFICATION.
+# Las llamadas desde otras pantallas eran etiquetadas "external_method"
+# pese a que la implementación se encuentra en clasificacion.js.
+classification_src=(Path('baseline')/'plataforma/clasificacion.js').read_text().splitlines()
+assert 'root.GLD_CLASSIFICATION=gldClassificationV86()' in classification_src[16-1]
+assert 'return {text,ids,flag,levelNumber,name,findLevel,rules,active:' in classification_src[15-1]
+cls_methods={f['name']:f['id'] for f in F.values()
+             if f['file']=='plataforma/clasificacion.js' and
+             f['parent']=='plataforma/clasificacion.js:2:17:gldClassificationV86'}
+assert len(cls_methods)>=10
+classification_links=[]
+src_files={}
+for f in F.values():
+    if f['file']=='plataforma/clasificacion.js':continue
+    for c in f.get('calls',[]):
+        method=c.get('method')
+        if method not in cls_methods:continue
+        path=f['file']
+        if path not in src_files:
+            fp=Path('baseline')/path
+            src_files[path]=fp.read_text().splitlines() if fp.exists() else []
+        line=c.get('line')
+        if not isinstance(line,int) or not (1<=line<=len(src_files[path])):continue
+        source=src_files[path][line-1]
+        # Identificar receptor, no coincidir sólo por el nombre del método.
+        if re.search(r'\bGLD_CLASSIFICATION\s*(?:\?\.)?\s*\.\s*'+re.escape(method)+r'\s*\(',source):
+            adj[f['id']][cls_methods[method]]=('namespace_exportado_y_llamada_comprobados',path+':'+str(line))
+            classification_links.append((f['id'],method,path,line))
+print('CLASIFICACION_EXPORTS_VINCULADOS',len(classification_links))
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
