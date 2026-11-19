@@ -352,6 +352,50 @@ SPECS.extend([
  }
 ])
 
+# Paso 3: eventos VIP y Free, acciones delegadas
+for aud,entry,entryNeedle,pauseLine,deleteLine,pauseRoute,deleteRoute,level in [
+  ('AUD-00488',7685,"btn.addEventListener('click'",7703,7731,'pausevipevent','deletevipevent','VIP'),
+  ('AUD-00489',8213,"btn.addEventListener('click'",8256,8273,'pausefreeevent','deletefreeevent','FREE')
+]:
+    SPECS.append({
+      'aud':aud,
+      'entry':['plataforma/login.html',entry,entryNeedle],
+      'markers':[
+        ['plataforma/login.html',entry+1,'action'],
+        ['plataforma/login.html',pauseLine,"events_post({action:"],
+        ['plataforma/login.html',deleteLine,"events_post({action:"],
+        ['worker/worker206.txt',13126,"path==='/events-new'"],
+        ['worker/worker206.txt',13132,pauseRoute],
+        ['worker/worker206.txt',4597,'"/events-new"'],
+        ['worker/worker206.txt',4624 if level=='VIP' else 4629,pauseRoute],
+        ['worker/worker206.txt',4625 if level=='VIP' else 4630,deleteRoute],
+        ['worker/worker206.txt',3685,'async function pauseEventV3'],
+        ['worker/worker206.txt',3717,'async function deleteEventV3'],
+        ['worker/worker206.txt',1467,'cache.get'],
+      ],
+      'include':[1414,1422,1423,1467,1473,1479,1483,1485,
+                 3694,3709,3712,3724,3728,3734,3735,12906,
+                 8473,8476,8478],
+      'includeOwner':['pauseEventV3','deleteEventV3','syncEventV2',
+         'getPreparedRelationsV1','putPreparedRelationsV1'],
+      'excludeMode':'other_worker',
+      'includeOther':{'plataforma/login.html':[3237],
+        'plataforma/publicacion-pedidos.js':[20,21,22]},
+      'excludeOther':{'plataforma/administracion.html':[536],
+        'plataforma/gh-promos.js':[13],'plataforma/login.html':[4240,5144,9410],
+        'plataforma/consumo-v44.js':[78],
+        'plataforma/territorio-cache.js':[18,32]},
+      'extra':[
+        ['plataforma/login.html',entry,'edición de formulario local, sin POST'],
+        ['plataforma/login.html',entry,'duplicación del VIP sólo prepara formulario; Free no ofrece duplicación en esta lista'],
+        ['worker/worker206.txt',13132,'dispatcher GLD_EVENTS145 con autorización por módulo y evento'],
+        ['worker/worker206.txt',3685,'pausar y reanudar: guardas de cupo por nivel'],
+        ['worker/worker206.txt',3717,'eliminar: preserva recibo de cupo Free si corresponde'],
+        ['worker/worker206.txt',1467,'actualización KV de eventos por ciudad condicionada'],
+      ],
+      'description':'Eventos '+level+': acciones de lista editar en UI, pausar/reanudar y borrar con POST /events-new, guardas de nivel, cupos, recibos/idempotencia, relaciones preparadas y sincronización por ciudad. VIP también permite duplicar en formulario. No se equiparan operaciones de otros módulos.'
+    })
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
