@@ -19,7 +19,7 @@ pending=[r for r in rows if r.get('estadoDeCobertura') in open_status]
 assert len(pending)==1691
 
 # Las aristas del anexo tienen AST file:line:offset:name. Reconstituir la misma identidad.
-PAT=re.compile(r'^(.*?:\\d+:\\d+):')
+PAT=re.compile(r'^(.*?:\d+:\d+):')
 def ast_key(raw):
     m=PAT.match(str(raw or ''))
     return m.group(1) if m else None
@@ -64,7 +64,7 @@ for r in rows:
     if not r.get('padre') or not own_key(r):continue
     typ=activation.get('tipo')
     expr=str(activation.get('expr') or '')
-    method_match=re.search(r'\\.([A-Za-z]+)\\s*$',expr)
+    method_match=re.search(r'\.([A-Za-z]+)\s*$',expr)
     method=method_match.group(1) if method_match else expr
     is_standard=(typ=='funcion_pasada_como_argumento' and method in callback_contracts)
     is_timer=(typ=='callback_programado' and method in callback_contracts)
@@ -129,7 +129,7 @@ summary={'revision':gps['revision'],'total':len(out),'acciones_catalogo':len(ent
          'callbacksConContrato':sum(contract_count.values()),'candidatosLocalNoAsumidos':len(effect_candidates),
          'resultados':dict(stats),'cadenasConCondicion':cond_count,
          'nota':'Se acredita recorrido estático a entrada cuando existe cadena; callbacks y ramas de ejecución siguen condicionados. No equivale a prueba funcional ni de consumo.'}
-(OUT/'CADENAS_PASO3_1691.json').write_text(json.dumps({'resumen':summary,'cadenas':out},ensure_ascii=False,indent=2)+'\\n')
-(OUT/'CADENAS_PASO3_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\\n')
+(OUT/'CADENAS_PASO3_1691.json').write_text(json.dumps({'resumen':summary,'cadenas':out},ensure_ascii=False,indent=2)+'\n')
+(OUT/'CADENAS_PASO3_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
 print('CADENAS_PASO3',json.dumps(summary,ensure_ascii=False))
 print('EJEMPLOS_CADENAS',json.dumps([x for x in out if x['traza']['resultado']=='cadena_hasta_accion_de_catalogo'][:3],ensure_ascii=False)[:7000])
