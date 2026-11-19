@@ -403,7 +403,7 @@ SPECS.extend([
   'entry':['plataforma/login.html',8781,"efemGuardar"],
   'markers':[
    ['plataforma/login.html',5831,'async function efemGuardar'],
-   ['plataforma/login.html',5868,"action:'guardar'"],
+   ['plataforma/login.html',5869,"action:'guardar'"],
    ['plataforma/login.html',3237,'fetch(url'],
    ['worker/worker206.txt',7022,'"/efemerides"'],
    ['worker/worker206.txt',7026,'"guardar"'],
