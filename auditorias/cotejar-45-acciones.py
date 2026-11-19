@@ -660,7 +660,7 @@ SPECS.append({
   ['plataforma/login.html',5077,"action==='edit'"],
   ['plataforma/login.html',5082,"action==='pausar'||action==='reanudar'"],
   ['plataforma/login.html',5086,"action:'actualizar_activos'"],
-  ['plataforma/login.html',5096,"action:'eliminar'"],
+  ['plataforma/login.html',5097,"action:'eliminar'"],
   ['worker/worker206.txt',12870,"'/publicidad'"],
   ['worker/worker206.txt',12892,'business-save143'],
   ['worker/worker206.txt',13218,'GLD_BUSINESS143.dispatch']
