@@ -71,3 +71,11 @@ summary={'pendientesIniciales':45,'cotejosCompletos':len(finished),'completados'
 out=Path('auditorias/temporal');out.mkdir(exist_ok=True,parents=True)
 (out/'COTEJO_45_RESULTADO.json').write_text(json.dumps({'resumen':summary,'acciones':results},ensure_ascii=False,indent=2)+'\n')
 print('PASO3_COTEJO_45',json.dumps(summary,ensure_ascii=False))
+
+# Diagnóstico focalizado de las dos acciones de moderación de contenidos.
+for aud in ('AUD-00095','AUD-00096'):
+    row=next(x for x in results if x['AUD']==aud)
+    exact=[{'archivo':sites[q['idSitio']]['archivo'],'linea':sites[q['idSitio']]['linea'],'funcion':sites[q['idSitio']].get('funcion'),'id':q['idSitio']} for q in actions[aud]['dependenciasDelArbolSinCadena']]
+    groups=collections.defaultdict(list)
+    for x in exact: groups[x['archivo']].append(x['linea'])
+    print('PASO3_MODERACION_PENDIENTE',json.dumps({'AUD':aud,'total':len(exact),'porArchivo':{k:sorted(set(v)) for k,v in groups.items()}},ensure_ascii=False))
