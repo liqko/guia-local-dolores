@@ -631,3 +631,24 @@ for rec in missing_records:
     if len(uses)!=1:continue
     unused_local.append({'idAST':rec['idAST'],'file':file,'line':line,'name':name,'parent':parent,'referenciasEnArchivo':1})
 print('PASO3_583_DECLARACIONES_SIN_REFERENCIA',json.dumps({'grupoOriginal':583,'sinEntradaActual':len(missing_records),'declaracionesLocalesSinReferencia':len(unused_local),'porArchivo':dict(collections.Counter(x['file'] for x in unused_local)),'muestras':unused_local[:25],'limitacion':'Sólo ausencia de referencias léxicas en archivo y ámbito local; no se atribuye automáticamente a error de producción ni a ahorro de consumo.'},ensure_ascii=False))
+
+# Mantener la evidencia de excepciones en el mismo resultado del grafo.
+# No se borran las 583 entradas originales ni se supone que toda función
+# sin enlace sea un defecto. Se separan sólo 16 declaraciones locales
+# cuya única referencia léxica en el archivo es su propia declaración.
+gpath=OUT/'GRAFO_COMPLETO_1691.json'
+gdata=json.loads(gpath.read_text())
+verified_unreferenced={x['idAST'] for x in unused_local}
+assert verified_unreferenced.issubset({r['idAST'] for r in missing_records})
+for row in gdata['funciones']:
+    if row['idAST'] in verified_unreferenced:
+        row['evaluacionFuente']='declaracion_local_sin_referencia_fuera_de_su_definicion'
+gdata['resumen']['funcionesSinEntradaBrutas']=len(missing_records)
+gdata['resumen']['declaracionesLocalesSinReferencia']=len(unused_local)
+gdata['resumen']['funcionesSinEntradaPorClasificar']=len(missing_records)-len(unused_local)
+gdata['excepcionesSinReferencia']=unused_local
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_583_DEPURADO',json.dumps({'sinEntradaBrutas':len(missing_records),
+    'declaracionesLocalesSinReferencia':len(unused_local),
+    'aunPorClasificar':len(missing_records)-len(unused_local),
+    'evidencia':'identidad AST, ámbito padre local y única referencia de nombre en fuente; no es prueba funcional en navegador'},ensure_ascii=False))
