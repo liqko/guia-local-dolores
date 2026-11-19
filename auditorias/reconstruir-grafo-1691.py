@@ -229,7 +229,7 @@ print('PLANES_RESUMEN_ALIAS_VINCULADOS',len(plan_alias_links))
 # getPreparedRelationsV1 sólo si falta la relación en el documento o caché.
 # El rastreador AST veía db.queryEqual, pero perdía el salto al callback
 # cuando éste se pasaba como propiedad de un objeto.
-assert 'return load();' in worker_lines[1418-1]
+assert 'return load();' in worker_lines[1416-1]
 prepared_load_bindings=[]
 for fn in F.values():
     if fn['file']!='worker/worker206.txt' or fn['name']!='load' or not fn.get('parent'):continue
