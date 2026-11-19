@@ -25,9 +25,9 @@ Los grupos de 266 y 207 pueden coincidir en una misma acción. Confirmar el env�
 
 En **73 acciones** se vincularon **91 sitios de solicitud** al despacho de dos rutas territoriales. `GET /territory/public` llega a `territoryPublic` y consulta `territorio:public:v1`; el Worker devuelve 503 si falta la copia. `GET /superadmin/territory` llega a `territoryAdmin` con sesión de administración general y consulta `territorio:admin:v1`. Para `ADMIN_LOCAL`, una rama anterior consulta la copia pública y filtra las ciudades autorizadas. El anexo identifica los AUD y los sitios exactos. Esta comprobación acredita el destino territorial por solicitud. Las otras dependencias de cada acción conservan su estado propio.
 
-## Segunda ronda · 24 acciones con sus dependencias pendientes resueltas
+## Segunda ronda · 30 acciones con sus dependencias pendientes resueltas
 
-El cotejo pasó de **207 a 183 acciones** con sitios del árbol pendientes. Se agruparon las 207 por conjuntos de sitios exactos. Los 57 grupos iniciales se redujeron a 55 con alguna acción pendiente. Los casos de cada grupo conservan su método, parámetros y condiciones propios.
+El cotejo pasó de **207 a 177 acciones** con sitios del árbol pendientes. Se agruparon las 207 por conjuntos de sitios exactos. Los 57 grupos iniciales se redujeron a 55 con alguna acción pendiente. Los casos de cada grupo conservan su método, parámetros y condiciones propios.
 
 | Grupo | Acciones cotejadas | Resultado |
 | --- | ---: | --- |
@@ -35,6 +35,7 @@ El cotejo pasó de **207 a 183 acciones** con sitios del árbol pendientes. Se a
 | Apertura de alta y reclamo | 6 | Alta usa el catálogo público de ficha y Territorio. Reclamo usa ciudades y opciones de anuncios. El catálogo público de ficha sólo consulta las copias de precios y reglas en las funciones auditadas. |
 | Conversación y respuesta de soporte | 2 | Abrir consulta la solicitud y los mensajes. Enviar agrega el mensaje y una marca de deduplicación si corresponde; luego consulta la conversación. |
 | Personal comercial y moderadores | 10 | Las lecturas, el guardado individual, la baja comercial y el guardado conjunto quedaron asociados a su ruta y método. |
+| Búsquedas de Gran Hermano | 6 | Anunciantes consultan el índice y suscriptores consultan la copia diaria. Abrir o editar un resultado exige un clic independiente. |
 
 **AUD-00382 resuelto como constructor.** Se identificaron las 12 invocaciones a `button` y los tres contextos de paginación. Anterior y Siguiente pueden repintar una lista local o solicitar otra página, según quién crea el botón. Preparar el listado puede leer la colección y publicar su copia. Los botones de Promociones y Publicidad ejecutan el envío que corresponde según el estado. El control «Editar permisos» de este constructor exige una clave de moderadores ausente del conjunto de listados que lo alimenta. El editor permanece disponible por su recorrido independiente. El anexo conserva los casos por botón y las dependencias de cada uno.
 
@@ -42,4 +43,4 @@ Pasaron las pruebas locales de paginación, preparación, navegación y operacio
 
 ## Continuidad
 
-El paso 3 sigue abierto. Quedan **183 acciones** con sitios del árbol cuyo enlace exige cotejo. Priorizar el grupo de 18 acciones de Gran Hermano que comparte la expansión de la consulta de búsqueda y el guardado de ficha. Filtrar las rutas que corresponden a cada llamador y conservar los sitios descartados con la condición que impide alcanzarlos. El cotejo de funciones y la revalidación final del paso 3 continúan abiertos.
+El paso 3 sigue abierto. Quedan **177 acciones** con sitios del árbol cuyo enlace exige cotejo. Quedan 12 de las 18 acciones de Gran Hermano que compartían la expansión de la consulta de búsqueda y el guardado de ficha. Las búsquedas ya se resolvieron. Filtrar las rutas que corresponden a cada llamador y conservar los sitios descartados con la condición que impide alcanzarlos. El cotejo de funciones y la revalidación final del paso 3 continúan abiertos.
