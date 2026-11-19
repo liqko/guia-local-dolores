@@ -88,6 +88,19 @@ for src,dest,site,call,return_line,export in namespace_links:
     adj[src][dest]=('llamada_exportada_namespace_comprobada','worker/worker206.txt:'+str(site))
 print('DESPACHOS_NAMESPACE_VERIFICADOS',len(namespace_links))
 
+# El coordinador territorial recibe un callback en serialized(fn)
+# y lo ejecuta mediante fn(). Enlazar sus dos invocaciones reales.
+assert 'await fn()' in worker_lines[235-1]
+for line,owner,callback in [
+    (236,'worker/worker206.txt:236:16868:fetch','worker/worker206.txt:236:16923:callback@236'),
+    (252,'worker/worker206.txt:252:18134:alarm','worker/worker206.txt:252:18184:callback@252')
+]:
+    assert owner in F and callback in F
+    assert 'this.serialized(async()=>{' in worker_lines[line-1]
+    assert F[callback]['parent']==owner
+    adj[owner][callback]=('callback_serializado_con_invocacion_fn_verificada','worker/worker206.txt:'+str(line))
+print('CALLBACKS_COORDINADOR_VERIFICADOS',2)
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
