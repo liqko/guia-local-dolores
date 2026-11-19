@@ -163,6 +163,33 @@ for f in F.values():
             classification_links.append((f['id'],method,path,line))
 print('CLASIFICACION_EXPORTS_VINCULADOS',len(classification_links))
 
+# El paquete de ciudad exporta el objeto que devuelve client(...).
+# Resolver sus dos métodos públicos, distinguiéndolos del homónimo
+# storage.get() interno que no es el API usado por las interfaces.
+package_src=(Path('baseline')/'plataforma/paquete-ciudad.js').read_text().splitlines()
+assert 'root.GLD_PAQUETE_CIUDAD = client({' in package_src[185-1]
+assert 'const api = { get(cityId)' in package_src[112-1]
+assert '},async module(cityId,family,context)' in package_src[127-1]
+package_api={'get':'plataforma/paquete-ciudad.js:112:6551:get',
+             'module':'plataforma/paquete-ciudad.js:127:7200:module'}
+assert all(target in F for target in package_api.values())
+package_links=[]
+for f in F.values():
+    if f['file']=='plataforma/paquete-ciudad.js':continue
+    for c in f.get('calls',[]):
+        method=c.get('method')
+        if method not in package_api:continue
+        file=f['file'];line=c.get('line')
+        if file not in src_files:
+            fp=Path('baseline')/file
+            src_files[file]=fp.read_text().splitlines() if fp.exists() else []
+        if not isinstance(line,int) or not 1<=line<=len(src_files[file]):continue
+        source=src_files[file][line-1]
+        if re.search(r'\bGLD_PAQUETE_CIUDAD\s*(?:\?\.|\.)\s*'+method+r'\s*\(',source):
+            adj[f['id']][package_api[method]]=('api_paquete_ciudad_exportada_y_uso_comprobados',file+':'+str(line))
+            package_links.append((file,line,method))
+print('PAQUETE_CIUDAD_EXPORTS_VINCULADOS',len(package_links))
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
