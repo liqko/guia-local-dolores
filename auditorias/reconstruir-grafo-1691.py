@@ -401,6 +401,29 @@ for row in pending:
         adj[caller][target]=('invocacion_fuente_verificada',file+':'+str(line))
         explicit_callsite_links.append((caller,target,file,line))
 print('INVOCACIONES_EXPLICITAS_RECUPERADAS',len(explicit_callsite_links))
+# Resolver llamadas directas aún etiquetadas externas por el analizador:
+# únicamente nombres globales únicos dentro del mismo archivo.
+globals_by_file=collections.defaultdict(list)
+for f in F.values():
+    if f['parent'] is None:globals_by_file[(f['file'],f['name'])].append(f['id'])
+direct_global_links=[]
+for f in F.values():
+    for call in f.get('calls',[]):
+        if call.get('to') in F:continue
+        name=call.get('method')
+        targets=globals_by_file.get((f['file'],name),[])
+        if len(targets)!=1 or not name or not name.isidentifier():continue
+        file=f['file'];line=call.get('line')
+        if not isinstance(line,int):continue
+        if file not in src_cache:
+            fp=Path('baseline')/file
+            src_cache[file]=fp.read_text().splitlines() if fp.exists() else []
+        if not 1<=line<=len(src_cache[file]):continue
+        source_line=src_cache[file][line-1]
+        if not re.search(r'(?<![.\w])'+re.escape(name)+r'\s*\(',source_line):continue
+        adj[f['id']][targets[0]]=('llamada_global_unica_verificada',file+':'+str(line))
+        direct_global_links.append((f['id'],targets[0],line))
+print('LLAMADAS_GLOBALES_UNICAS_RECUPERADAS',len(direct_global_links))
 # Trazas: una ruta reproducible hasta una acción, no ejecución del callback.
 from collections import deque
 queue=deque([(key,aud) for key,auds in roots.items() for aud in sorted(auds)])
