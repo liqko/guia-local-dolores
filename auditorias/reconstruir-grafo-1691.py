@@ -243,6 +243,56 @@ for fn in F.values():
 assert len(prepared_load_bindings)>=30,len(prepared_load_bindings)
 print('RELACIONES_PREPARADAS_CALLBACKS_VINCULADOS',len(prepared_load_bindings))
 
+# Cotejo de las 37 acciones aún no cerradas con el mismo grafo:
+# llegar realmente al dueño AST del sitio, no inferir por coincidir
+# su nombre ("load", "get", etc.). Conserva todas las brechas.
+with zipfile.ZipFile(ROOT/'CADENAS_DEPENDENCIAS_PASO_3.zip') as z:
+    action_data=json.loads(z.read('CADENAS_DEPENDENCIAS_PASO_3.json'))
+with_existing={x['AUD']:x for x in action_data['acciones']}
+pending_actions=list(action_data['rondaCompleta']['pendientes'])
+completed_static={'AUD-00013','AUD-00074','AUD-00097','AUD-00098',
+                  'AUD-00136','AUD-00154','AUD-00155','AUD-00387'}
+assert len(pending_actions)==45 and completed_static.issubset(pending_actions)
+pending_actions=[x for x in pending_actions if x not in completed_static]
+assert len(pending_actions)==37
+sites_by_id=action_data['sitios']
+from collections import deque
+cross_result=[]
+for aud in pending_actions:
+    action=with_existing[aud]
+    source=(action.get('entrada') or {}).get('entry')
+    if source not in F:
+        cross_result.append({'AUD':aud,'estado':'sin_raiz_AST',
+                             'sitiosPendientes':len(action['dependenciasDelArbolSinCadena'])})
+        continue
+    visited={source};q=deque([source])
+    while q:
+        for nxt in adj.get(q.popleft(),{}):
+            if nxt not in visited:
+                visited.add(nxt);q.append(nxt)
+    found=[];missing=[]
+    for gap in action['dependenciasDelArbolSinCadena']:
+        target=gap['idSitio']
+        entry=sites_by_id[target]
+        owner=entry.get('funcion')
+        item={'idSitio':target,'funcionAST':owner}
+        if owner in visited:
+            found.append(item)
+        else:missing.append(item)
+    cross_result.append({'AUD':aud,'estado':'cruce_AST_por_entrada','sitiosPendientes':len(found)+len(missing),
+      'sitiosAlcanzablesConCondiciones':len(found),'sinTrayectoResuelto':len(missing),
+      'vinculados':found,'noVinculados':missing})
+cross_summary={'accionesRestantes':len(cross_result),'sitiosConTrayectoDeFuncion':
+    sum(x.get('sitiosAlcanzablesConCondiciones',0) for x in cross_result),
+    'sitiosSinTrayectoDeFuncion':sum(x.get('sinTrayectoResuelto',0) for x in cross_result),
+    'sinRaiz':sum(x['estado']=='sin_raiz_AST' for x in cross_result),
+    'nota':'Propagación de aristas estáticas; no acredita condiciones verdaderas, ejecución real ni consume cuotas.'}
+(OUT/'CRUCE_DIRECTO_37_ACCIONES.json').write_text(json.dumps(
+    {'resumen':cross_summary,'acciones':cross_result},ensure_ascii=False,indent=2)+'\n')
+print('CRUCE_37_ACCIONES_AST',json.dumps(cross_summary,ensure_ascii=False))
+print('CRUCE_37_MUESTRAS',json.dumps([{'AUD':x['AUD'],'s':x.get('sitiosAlcanzablesConCondiciones'),
+   'f':x.get('sinTrayectoResuelto')} for x in cross_result],ensure_ascii=False)[:3500])
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
