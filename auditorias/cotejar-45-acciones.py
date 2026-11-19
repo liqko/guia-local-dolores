@@ -200,3 +200,9 @@ source=actions[family[0]]['dependenciasDelArbolSinCadena']
 counts=collections.Counter(sites[q['idSitio']]['archivo'] for q in source)
 functions=collections.Counter(sites[q['idSitio']].get('funcion') for q in source)
 print('PASO3_FAMILY_454',json.dumps({'candidatos':len(source),'archivos':dict(counts),'funcionesMasFrecuentes':functions.most_common(35),'muestrasPorArchivo':{file:[{'line':sites[q['idSitio']]['linea'],'owner':sites[q['idSitio']].get('funcion')} for q in source if sites[q['idSitio']]['archivo']==file][:18] for file in counts}},ensure_ascii=False))
+
+# PASO3 PUBLICIDAD GET: sitios candidatos reales
+aud='AUD-00471'
+xs=[sites[q['idSitio']] for q in actions[aud]['dependenciasDelArbolSinCadena']]
+selected=[x for x in xs if x['archivo']=='worker/worker206.txt' and (1400<=x['linea']<=1430 or 1750<=x['linea']<=1800 or 4400<=x['linea']<=4480 or 4600<=x['linea']<=4660 or any(word in str(x.get('funcion','')) for word in ['commerceMaster','getPublicidadCatalogs','publicidadPanelData','getPreparedRelations','publicityUsage']))]
+print('PASO3_PUBLICIDAD_GET_CANDIDATOS',json.dumps([{'linea':x['linea'],'fn':x.get('funcion'),'id':x.get('idSitio')} for x in selected],ensure_ascii=False))
