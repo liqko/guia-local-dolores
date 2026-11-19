@@ -190,6 +190,41 @@ for f in F.values():
             package_links.append((file,line,method))
 print('PAQUETE_CIUDAD_EXPORTS_VINCULADOS',len(package_links))
 
+# La interfaz renombra GLD_PLANES_RESUMEN como "fmt"; resolver el
+# alias sólo en los dos ámbitos donde la asignación está demostrada.
+plans_src=(Path('baseline')/'plataforma/planes-resumen.js').read_text().splitlines()
+assert 'root.GLD_PLANES_RESUMEN={number,flag,active,summary,sections,glossary,name,price,publishPrice,definitions}' in plans_src[135-1]
+plan_methods={f['name']:f['id'] for f in F.values()
+              if f['file']=='plataforma/planes-resumen.js' and
+                 f['parent']=='plataforma/planes-resumen.js:2:86:iife@2'}
+plan_method_names=set('number flag active summary sections name price publishPrice'.split())
+assert plan_method_names.issubset(plan_methods)
+plan_aliases={
+  'plataforma/planes-publicos.js':('plataforma/planes-publicos.js:1:1:iife@1',6),
+  'plataforma/administracion.html':('plataforma/administracion.html:3700:236285:ghRenderResumenNiveles108',3702)
+}
+plan_alias_links=[]
+for file,(scope,alias_line) in plan_aliases.items():
+    if file not in src_files:src_files[file]=(Path('baseline')/file).read_text().splitlines()
+    assert 'fmt=window.GLD_PLANES_RESUMEN' in src_files[file][alias_line-1]
+    for f in F.values():
+        if f['file']!=file:continue
+        cur=f['id'];belongs=False
+        for i in range(55):
+            if cur==scope:belongs=True;break
+            cur=(F.get(cur) or {}).get('parent')
+            if cur is None:break
+        if not belongs:continue
+        for c in f.get('calls',[]):
+            method=c.get('method')
+            if method not in plan_method_names:continue
+            line=c.get('line')
+            if not isinstance(line,int) or line<alias_line or line>len(src_files[file]):continue
+            if re.search(r'\bfmt\s*\.\s*'+re.escape(method)+r'\s*\(',src_files[file][line-1]):
+                adj[f['id']][plan_methods[method]]=('alias_global_planes_verificado',file+':'+str(line))
+                plan_alias_links.append((file,line,method))
+print('PLANES_RESUMEN_ALIAS_VINCULADOS',len(plan_alias_links))
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
