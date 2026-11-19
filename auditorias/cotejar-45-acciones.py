@@ -30,8 +30,12 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             ['worker/worker206.txt',13209,'GLD_BUSINESS143.journal'],
             ['worker/worker206.txt',12905,"entry.collection==='publicidades'"],
             ['worker/worker206.txt',12906,"entry.collection==='eventos'"],
+            ['plataforma/administracion.html',1166,"decision==='APROBAR'"],
+            ['plataforma/administracion.html',458,"/events-new"],
+            ['worker/worker206.txt',1710,'/events-new'],
+            ['worker/worker206.txt',1711,'getEventsCityV2'],
         ],
-        'include':[1414,1422,1423,1467,1473,1479,1483,1485,1946,1952,7254,7259,7264,9515,9523,9527,12906],
+        'include':[1414,1422,1423,1467,1473,1479,1483,1485,1946,1952,7254,7259,7264,9515,9523,9527,12906]+([1492] if decision=='APROBAR' else []),
         'exclude':[
             496,517,603,604,639,646,730,743,
             3618,3724,3744,3763,4383,4430,4431,
@@ -41,7 +45,7 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             9553,9562,9569,9584,9595,9608,9623,9628,9638,
             10796,10797,12905,13142
         ]+([1492] if decision=='RECHAZAR' else []),
-        'description':'Aprobar/rechazar EVENTO o ACTIVIDAD con POST y guardas verificadas; relaciones preparadas y sincronización de sus respectivas copias. Se descartan solicitudes de publicidad, edición/borrado del anunciante, módulo de farmacias, resolución V2 sustituida y ruta de soporte. Journal de evento condicionado al despacho por actor: 12906 sólo con programación anterior no embebida; se descarta 12905 porque exige colección publicidades. Se conserva 1492 en aprobar por el GET público posterior condicionado a ciudad.',
+        'description':'Aprobar/rechazar EVENTO o ACTIVIDAD con POST y guardas verificadas; relaciones preparadas y sincronización de sus respectivas copias. Se descartan solicitudes de publicidad, edición/borrado del anunciante, módulo de farmacias, resolución V2 sustituida y ruta de soporte. Journal de evento condicionado al despacho por actor: 12906 sólo con programación anterior no embebida; se descarta 12905 porque exige colección publicidades. El GET público posterior condicionado a aprobación de EVENTO y ciudad enlaza 1492 a /events-new; sin GET en rechazo.',
     })
 
 base=Path('baseline')
