@@ -186,6 +186,19 @@ anchors.update(external_aud)
 # Aquí NO se infiere por nombre: se ancla el mismo nodo del árbol.
 with zipfile.ZipFile(BASE/'CATALOGO_MAESTRO.zip') as archive:
     catalog_full=json.loads(archive.read('CATALOGO_MAESTRO.json'))
+# Cotejar las 1691 identidades contra el catálogo COMPLETO (5638 funciones).
+catalog_fun_index=collections.defaultdict(list)
+for function in catalog_full.get('functions',[]):
+    catalog_fun_index[(function.get('file'),function.get('line'),function.get('name'))].append(function)
+catalog_match=collections.Counter()
+catalog_examples=collections.defaultdict(list)
+for rec in results:
+    matches=catalog_fun_index.get((rec.get('archivo'),rec.get('linea'),rec.get('nombre')),[])
+    rec['funcionesCatalogoCoincidentes']=[{'id':x.get('id'),'padre':x.get('parent'),'unidades':x.get('units'),'clasificacion':x.get('classification')} for x in matches]
+    kind='no_coincide' if not matches else 'multiples_en_misma_linea' if len(matches)>1 else 'unica'
+    catalog_match[kind]+=1
+    if len(catalog_examples[kind])<3:catalog_examples[kind].append({'GPS':rec.get('idGPS'),'matches':rec['funcionesCatalogoCoincidentes']})
+print('COINCIDENCIAS_CATALOGO_5638',json.dumps({'grupos':dict(catalog_match),'muestras':dict(catalog_examples)},ensure_ascii=False)[:5200])
 catalog_entry_anchors=collections.defaultdict(set)
 for entry in catalog_full.get('entries',[]):
     raw=(entry.get('start') or {}).get('entry')
