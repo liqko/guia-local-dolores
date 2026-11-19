@@ -393,7 +393,7 @@ for fn in F.values():
     n=fn.get('line')
     if not isinstance(n,int) or not 1<=n<=len(src_cache[file]):continue
     decl=src_cache[file][n-1]
-    if not re.search(r'\\b(?:async\\s+)?function\\s+'+re.escape(name)+r'\\s*\\(',decl):continue
+    if not re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',decl):continue
     local_decl[(file,scope,name)].append(fn['id'])
 local_edges=[]
 for caller in F.values():
@@ -405,8 +405,8 @@ for caller in F.values():
         if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
         if not 1<=line<=len(src_cache[file]):continue
         snippet=src_cache[file][line-1]
-        if not re.search(r'(?<![.\\w$])'+re.escape(name)+r'\\s*\\(',snippet):continue
-        if re.search(r'(?:\\.|\\?\\.)\\s*'+re.escape(name)+r'\\s*\\(',snippet):continue
+        if not re.search(r'(?<![.\w$])'+re.escape(name)+r'\s*\(',snippet):continue
+        if re.search(r'(?:\.|\?\.)\s*'+re.escape(name)+r'\s*\(',snippet):continue
         scope=caller['id']
         for _ in range(80):
             choices=local_decl.get((file,scope,name),[])
