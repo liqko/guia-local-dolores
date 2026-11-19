@@ -62,6 +62,26 @@ jobs:
           path: baseline
       - name: Certificar callbacks en fuente
         run: python3 auditorias/certificar-callbacks-1691.py
+      - name: Inspeccionar estructuras de árboles del catálogo
+        run: |
+          python3 - <<'PY'
+          import zipfile,json
+          p='auditorias/transversal/CATALOGO_MAESTRO.zip'
+          with zipfile.ZipFile(p) as z:
+            print('TREE_ZIP_MEMBERS',json.dumps([(i.filename,i.file_size) for i in z.infolist()])[:3500])
+            for i in z.infolist():
+              if i.filename.endswith('.json') and i.file_size<40000000:
+                try:
+                  o=json.loads(z.read(i))
+                  detail={'name':i.filename,'type':type(o).__name__,'keys':list(o.keys())[:30] if isinstance(o,dict) else None,'length':len(o)}
+                  if isinstance(o,dict):
+                    detail['members']={k:len(v) if isinstance(v,(list,dict)) else str(v)[:90] for k,v in list(o.items())[:14]}
+                    for k,v in o.items():
+                      if isinstance(v,list) and v and isinstance(v[0],dict): detail['sample_'+k]=list(v[0].keys())[:40]
+                  elif isinstance(o,list) and o and isinstance(o[0],dict):detail['sample_keys']=list(o[0].keys())[:40]
+                  print('TREE_ZIP_JSON',json.dumps(detail,ensure_ascii=False)[:3000])
+                except Exception as e:print('TREE_ZIP_ERR',str(e))
+          PY
       - name: Reverificar todas las 1691 identidades
         run: python3 auditorias/reverificar-cobertura-total.py
       - uses: actions/upload-artifact@v4
