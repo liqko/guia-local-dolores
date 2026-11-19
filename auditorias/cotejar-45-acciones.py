@@ -231,8 +231,8 @@ SPECS.append({
   'aud':'AUD-00450',
   'entry':['plataforma/login.html',4346,"save.addEventListener('click'"],
   'markers':[
-    ['plataforma/login.html',4347,"const cards="],
-    ['plataforma/login.html',4352,"const fullPayload"],
+    ['plataforma/login.html',4348,"const cards="],
+    ['plataforma/login.html',4351,"const fullPayload"],
     ['plataforma/login.html',4365,"runDashboardAction"],
     ['plataforma/login.html',4366,"postJson(WORKER_ACTIVIDADES_URL"],
     ['plataforma/login.html',3237,"fetch(url"],
