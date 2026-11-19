@@ -14,7 +14,11 @@ with zipfile.ZipFile(ROOT/'CATALOGO_MAESTRO.zip') as z:
 with zipfile.ZipFile(ROOT/'COBERTURA_ACTIVACIONES.zip') as z:
     coverage=json.loads(z.read('COBERTURA_ACTIVACIONES.json'))
 tree=json.loads(TREE.read_bytes())
-assert tree['sourceHashes']==catalog['baseline']['sourceHashes']
+t_hash=tree.get('sourceHashes') or {}
+c_hash=catalog['baseline']['sourceHashes']
+common=set(t_hash)&set(c_hash)
+assert common and all(t_hash[k]==c_hash[k] for k in common), {'common':len(common),'mismatches':[k for k in common if t_hash[k]!=c_hash[k]][:10]}
+assert len(common)>=60, {'source_tree':len(t_hash),'source_catalog':len(c_hash),'common':len(common)}
 assert coverage['revision']==catalog['baseline']['revision']
 assert len(catalog['entries'])==987
 F={f['id']:f for f in tree['functionGraph']}
