@@ -107,8 +107,8 @@ print('CALLBACKS_COORDINADOR_VERIFICADOS',2)
 assert 'const territoryAdapter={' in worker_lines[136-1]
 assert 'identify,prepare,' in worker_lines[137-1]
 assert 'async bootstrap(' in worker_lines[140-1]
-assert 'adapter=territoryAdapter' in worker_lines[148-1]
-assert 'this.adapter=adapter' in worker_lines[149-1]
+assert 'adapter=territoryAdapter' in worker_lines[147-1]
+assert 'this.adapter=adapter' in worker_lines[148-1]
 assert 'this.adapter.bootstrap(' in worker_lines[156-1] or 'this.adapter.bootstrap(' in worker_lines[157-1]
 assert any('this.adapter.prepare(' in l for l in worker_lines[215:238])
 for src,dest in [
