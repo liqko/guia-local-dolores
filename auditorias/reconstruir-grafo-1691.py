@@ -282,7 +282,7 @@ OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
 assert len(pending)==1691
 std={'map','flatMap','filter','forEach','some','every','find','findIndex','findLast',
-     'findLastIndex','reduce','reduceRight','sort','then','catch','finally'}
+     'findLastIndex','reduce','reduceRight','sort','then','catch','finally','replace','replaceAll','from'}
 src_cache={}
 callbacks_verified=0
 for r in coverage['filas']:
@@ -313,6 +313,9 @@ for r in coverage['filas']:
         valid=[method for method in sorted(candidates) if method in std and
                (re.search(r'[.]\s*'+re.escape(method)+r'\s*\(',local) or
                 re.search(r'[.]\s*'+re.escape(method)+r'\s*\(',invocation))]
+        if not valid:continue
+        if 'from' in valid and not (expression.startswith('Array.from') or expression.startswith('Uint8Array.from')):
+            valid=[method for method in valid if method!='from']
         if not valid:continue
         adj[parent][node[0]]=('callback_estandar_condicionado',a.get('sitio'))
         callbacks_verified+=1
