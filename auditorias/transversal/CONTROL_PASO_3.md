@@ -9,6 +9,8 @@
 - [ ] **3.3. Resolver las brechas.** Para cada función sin recorrido comprobado: verificar su uso, posibles reemplazos, disparadores indirectos y condiciones; clasificarla individualmente como vinculada, posible código antiguo con evidencia o caso pendiente con prueba específica. **Hecho:** seis candidatos a desuso identificados pero **no confirmados**; el anexo mantiene todas las brechas. **Falta:** resolver y clasificar individualmente las brechas restantes. Evidencia: [cotejo de funciones](COBERTURA_FUNCIONES.md).
 - [ ] **3.4. Revalidación independiente final, EJECUTADA POR CHATGPT.** Usar una comprobación cruzada distinta de la que produjo el catálogo, contra el código original, para detectar entradas, funciones, operaciones y dependencias omitidas. **Hecho:** controles automáticos anteriores de ubicación e identidad. **Falta:** revalidar **todo** después de resolver 3.1–3.3, comprobar que no falte nada, publicar diferencias y cerrar sólo con pruebas reproducibles.
 
+**Avance 19/11/2026, ítems 3.1 y 3.2.** El [cotejo de cadenas](CADENAS_DEPENDENCIAS_PASO_3.md) recupera 17 manejadores y contrasta las 20 entradas restantes sin raíz de función. En 19 documenta la operación o barrera. Queda el callback de `AUD-00382` por botón creado y 207 acciones con al menos un sitio del árbol cuyo enlace requiere contraste. Las cuatro casillas continúan abiertas.
+
 ## Reglas para marcar [x]
 
 1. **Responsable de todas las acciones: ChatGPT.** Sólo solicitar al usuario intervención si una prueba real requiere permisos/acción que no pueda ejecutar.
