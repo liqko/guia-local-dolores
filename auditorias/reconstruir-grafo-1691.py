@@ -137,7 +137,7 @@ print('COORDINADOR_ACTIONS138_CONECTADO',2)
 # Las llamadas desde otras pantallas eran etiquetadas "external_method"
 # pese a que la implementación se encuentra en clasificacion.js.
 classification_src=(Path('baseline')/'plataforma/clasificacion.js').read_text().splitlines()
-assert 'root.GLD_CLASSIFICATION=gldClassificationV86()' in classification_src[16-1]
+assert 'root.GLD_CLASSIFICATION=gldClassificationV86()' in classification_src[17-1]
 assert 'return {text,ids,flag,levelNumber,name,findLevel,rules,active:' in classification_src[15-1]
 cls_methods={f['name']:f['id'] for f in F.values()
              if f['file']=='plataforma/clasificacion.js' and
@@ -158,7 +158,7 @@ for f in F.values():
         if not isinstance(line,int) or not (1<=line<=len(src_files[path])):continue
         source=src_files[path][line-1]
         # Identificar receptor, no coincidir sólo por el nombre del método.
-        if re.search(r'\bGLD_CLASSIFICATION\s*(?:\?\.)?\s*\.\s*'+re.escape(method)+r'\s*\(',source):
+        if re.search(r'\bGLD_CLASSIFICATION\s*(?:\?\.|\.)\s*'+re.escape(method)+r'\s*\(',source):
             adj[f['id']][cls_methods[method]]=('namespace_exportado_y_llamada_comprobados',path+':'+str(line))
             classification_links.append((f['id'],method,path,line))
 print('CLASIFICACION_EXPORTS_VINCULADOS',len(classification_links))
