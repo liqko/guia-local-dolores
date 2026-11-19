@@ -293,6 +293,40 @@ print('CRUCE_37_ACCIONES_AST',json.dumps(cross_summary,ensure_ascii=False))
 print('CRUCE_37_MUESTRAS',json.dumps([{'AUD':x['AUD'],'s':x.get('sitiosAlcanzablesConCondiciones'),
    'f':x.get('sinTrayectoResuelto')} for x in cross_result],ensure_ascii=False)[:3500])
 
+# Cruce general del índice AST de exportaciones de namespaces. En
+# lugar de añadir módulo por módulo, resolver los 74 registros de
+# namespaceExports que el árbol ya extrajo del mismo código congelado.
+namespace_index=collections.defaultdict(list)
+for export in tree.get('namespaceExports',[]):
+    targets=[target for target in export.get('targets',[]) if target in F]
+    if len(targets)==1:
+        namespace_index[(export['namespace'],export['method'])].append((targets[0],export))
+namespace_linked=set()
+namespace_unresolved=[]
+for fn in F.values():
+    for call in fn.get('calls',[]):
+        method=call.get('method');line=call.get('line')
+        if not method or not isinstance(line,int):continue
+        file=fn['file']
+        if file not in src_files:
+            fp=Path('baseline')/file
+            src_files[file]=fp.read_text().splitlines() if fp.exists() else []
+        if line<1 or line>len(src_files[file]):continue
+        source=src_files[file][line-1]
+        for (namespace,exported),destinations in namespace_index.items():
+            if exported!=method:continue
+            if not re.search(r'\b'+re.escape(namespace)+r'\s*(?:\?\.|\.)\s*'+re.escape(method)+r'\s*\(',source):continue
+            if len({x[0] for x in destinations})!=1:
+                namespace_unresolved.append((file,line,namespace,method));continue
+            target=destinations[0][0]
+            adj[fn['id']][target]=('namespace_export_AST_verificado',file+':'+str(line))
+            namespace_linked.add((fn['id'],target,file,line))
+print('EXPORTACIONES_AST_GLOBALES',json.dumps({
+    'exports':len(tree.get('namespaceExports',[])),
+    'enlacesExactos':len(namespace_linked),
+    'ambiguos':len(namespace_unresolved),
+    'muestras':list(namespace_linked)[:8]},ensure_ascii=False)[:2100])
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
