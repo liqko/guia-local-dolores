@@ -508,7 +508,7 @@ SPECS.extend([
    'entry':['plataforma/login.html',9056,"farma-save"],
    'markers':[
     ['plataforma/login.html',9056,"farma-save"],
-    ['plataforma/login.html',9089,"action:'guardar_ciclo'"],
+    ['plataforma/login.html',9090,"action:'guardar_ciclo'"],
     ['plataforma/login.html',3237,"fetch(url"],
     ['worker/worker206.txt',7205,'"/farmacias"'],
     ['worker/worker206.txt',7209,'"guardar_ciclo"'],
