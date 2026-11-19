@@ -714,3 +714,9 @@ for aud in ('AUD-00470','AUD-00471','AUD-00472'):
 for aud in ('AUD-00445',):
  a=actions[aud];rows=[sites[q['idSitio']] for q in a['dependenciasDelArbolSinCadena']]
  print('PASO3_ACTIVIDADES_00445_SITIOS',json.dumps({'AUD':aud,'original':len(rows),'filas':[{'archivo':x['archivo'],'linea':x['linea'],'funcion':x.get('funcion'),'tipo':x.get('tipo')} for x in rows]},ensure_ascii=False))
+
+# Diagnóstico focalizado de las entradas restantes: sitios candidatos sin recenso.
+for aud in ('AUD-00491','AUD-00490','AUD-00492','AUD-00537','AUD-00547'):
+ if aud not in actions:continue
+ row=actions[aud]
+ print('PASO3_SIGUIENTE_ACCION',json.dumps({'AUD':aud,'entrada':row.get('entrada'),'sitios':[{'id':q['idSitio'],'file':sites[q['idSitio']]['archivo'],'line':sites[q['idSitio']]['linea'],'owner':sites[q['idSitio']].get('funcion')} for q in row['dependenciasDelArbolSinCadena']]},ensure_ascii=False))
