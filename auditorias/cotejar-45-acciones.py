@@ -30,7 +30,7 @@ for action,decision in [('AUD-00095','APROBAR'),('AUD-00096','RECHAZAR')]:
             ['worker/worker206.txt',13209,'GLD_BUSINESS143.journal'],
             ['worker/worker206.txt',12905,"entry.collection==='publicidades'"],
             ['worker/worker206.txt',12906,"entry.collection==='eventos'"],
-            ['plataforma/administracion.html',1166,"decision==='APROBAR'"],
+            ['plataforma/administracion.html',1165,"decision==='APROBAR'"],
             ['plataforma/administracion.html',458,"/events-new"],
             ['worker/worker206.txt',1710,'/events-new'],
             ['worker/worker206.txt',1711,'getEventsCityV2'],
