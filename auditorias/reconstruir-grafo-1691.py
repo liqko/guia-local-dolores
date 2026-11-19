@@ -378,6 +378,120 @@ for r in pending:
         adj[parent][node[0]]=('callback_temporizador_condicionado',a.get('sitio'))
     elif kind=='invocada_en_su_declaracion':
         adj[parent][node[0]]=('invocacion_inmediata',a.get('sitio'))
+# Recuperar sitios de llamada presentes en el anexo de cobertura.
+# Sólo unir una función si el llamador AST existe y la línea exacta
+# contiene la invocación explícita de su nombre; evita falsos positivos.
+explicit_callsite_links=[]
+for row in pending:
+    ast=row.get('cuerpoAST') or {}
+    matches=index.get((row['archivo'],row['linea'],ast.get('inicio')),[])
+    if len(matches)!=1:continue
+    target=matches[0]
+    name=F[target]['name']
+    if not re.match(r'^[A-Za-z_$][\w$]*
+from collections import deque
+queue=deque([(key,aud) for key,auds in roots.items() for aud in sorted(auds)])
+seen={}
+while queue:
+    key,aud=queue.popleft()
+    if key in seen:continue
+    seen[key]={'accion':aud,'from':None,'edge':None}
+    for nxt,kind in adj.get(key,{}).items():
+        if nxt not in seen:
+            queue.append((nxt,aud))
+            # Guardar el primer predecesor para reconstruirlo al procesar el nodo.
+            seen.setdefault('__pred__'+nxt,{'from':key,'edge':kind,'accion':aud})
+# Además de eventos de interfaz hay inicios reales por ejecución de script.
+# Son IIFE invocadas al evaluar el módulo, no meras declaraciones.
+# Mantener esta categoría SEPARADA de una acción AUD y conservar cada arista.
+startup_roots={}
+for call in tree['startupCalls']:
+    expr=call.get('expression','')
+    if not re.search(r'^\s*\(\s*(?:\(\s*\)?\s*=>|function\b)',expr):continue
+    candidates=[fid for fid,fn in F.items()
+        if fn['file']==call['file'] and fn['line']==call['line']
+        and fn['name'].startswith('iife@') and fn['parent'] is None]
+    assert len(candidates)==1,(call['file'],call['line'],candidates)
+    fid=candidates[0]
+    source=(Path('baseline')/call['file']).read_text().splitlines()
+    assert (re.search(r'^\s*\(\s*(?:\(\s*\)?\s*=>|function\b)',source[call['line']-1]) or re.search(r'=\s*\(\s*\(\s*\)?\s*=>',source[call['line']-1]) or re.search(r'=\s*\(\s*\(\s*\)?\s*=>\s*\{',source[call['line']-1])),(call['file'],call['line'])
+    startup_roots[fid]={'file':call['file'],'line':call['line'],
+                         'tipo':'iife_invocada_por_evaluacion_de_script'}
+assert len(startup_roots)==58,len(startup_roots)
+startup_predecessor={key:None for key in startup_roots}
+startup_conditional={}
+startup_queue=deque(startup_roots)
+while startup_queue:
+    current=startup_queue.popleft()
+    for child,reason in adj.get(current,{}).items():
+        if child in startup_predecessor:continue
+        startup_predecessor[child]=(current,reason)
+        startup_queue.append(child)
+def startup_route(fid):
+    route=[fid];conditions=[]
+    current=fid
+    while startup_predecessor[current] is not None:
+        previous,reason=startup_predecessor[current]
+        route.append(previous)
+        conditions.append(reason[0])
+        current=previous
+        assert len(route)<110
+    route.reverse()
+    return {'inicio':startup_roots[current],'cadena':route,
+            'aristas':list(reversed(conditions)),
+            'condicional':any('condicionado' in k for k in conditions)}
+print('INICIOS_SCRIPT_AST',json.dumps({'iife':len(startup_roots),
+    'funcionesAlcanzables':len(startup_predecessor)},ensure_ascii=False))
+
+# El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
+records=[]
+for row in pending:
+    ast=row['cuerpoAST']
+    fid=index[(row['archivo'],row['linea'],ast['inicio'])][0]
+    cur=seen.get(fid)
+    if cur:
+        chain=[fid]
+        guard=[]
+        while True:
+            pred=seen.get('__pred__'+chain[-1])
+            if pred is None:break
+            guard.append(pred['edge'][0])
+            chain.append(pred['from'])
+            if len(chain)>100:raise RuntimeError('Ciclo en traza '+fid)
+        chain.reverse()
+        status='cadena_desde_accion_confirmada_estaticamente'
+        record={'idAST':fid,'estado':status,'AUD':cur['accion'],
+                'cadena':chain,'aristas':list(reversed(guard)),
+                'condicional':any('condicionado' in x for x in guard)}
+    elif fid in startup_predecessor:
+        record={'idAST':fid,'estado':'cadena_desde_inicio_script_confirmada_estaticamente',
+                **startup_route(fid)}
+    else:
+        record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
+                'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
+    records.append(record)
+counts=collections.Counter(x['estado'] for x in records)
+summary={'revision':coverage['revision'],'catalogo':len(catalog['entries']),
+         'funcionesExactas':len(F),'accionesConRaizAST':len(roots),
+         'grupoRevisado':1691,'iniciosScriptIIFE':len(startup_roots),'callbacksFuente':callbacks_verified,'resultados':dict(counts),
+         'limitacion':'Traza estática a AUD o inicio de script inequívoco, categorías separadas; no prueba ejecución de callbacks ni carga real del módulo.'}
+(OUT/'GRAFO_COMPLETO_1691.json').write_text(json.dumps({'resumen':summary,'funciones':records},ensure_ascii=False,indent=2)+'\n')
+print('GRAFO_COMPLETO_1691',json.dumps(summary,ensure_ascii=False))
+,name):continue
+    for site in row.get('sitiosDeLlamada') or []:
+        if not isinstance(site,(list,tuple)) or len(site)<3:continue
+        caller,file,line=site[:3]
+        if caller not in F or not isinstance(line,int):continue
+        fp=Path('baseline')/file
+        if not fp.exists():continue
+        if file not in src_cache:src_cache[file]=fp.read_text().splitlines()
+        if not (1<=line<=len(src_cache[file])):continue
+        source_line=src_cache[file][line-1]
+        if not re.search(r'(?<![\w$])'+re.escape(name)+r'\s*\(',source_line):continue
+        adj[caller][target]=('sitio_invocacion_explicitamente_verificado',file+':'+str(line))
+        explicit_callsite_links.append({'origen':caller,'destino':target,'ubicacion':file+':'+str(line)})
+print('INVOCACIONES_EXPLICITAS_RECUPERADAS',len(explicit_callsite_links))
+
 # Trazas: una ruta reproducible hasta una acción, no ejecución del callback.
 from collections import deque
 queue=deque([(key,aud) for key,auds in roots.items() for aud in sorted(auds)])
