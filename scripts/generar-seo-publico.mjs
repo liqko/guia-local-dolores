@@ -109,6 +109,45 @@ export async function generarSeoPublico(hostingDir){
         await add('categorias/'+catSlug,t,d,'<h1>'+escapeHtml(category+' en '+town)+'</h1><p>'+escapeHtml(d)+'</p>'+
           safeRows(rows,category)+'<p><a href="'+appLink(city)+'">Abrir Guía Local</a></p>');
       }
+      // Reutilizar las mismas clasificaciones públicas que usa el buscador.
+      const dimensions=[
+        ['segmentos', 'Segmento', row=>row.segmento?[row.segmento]:[]],
+        ['actividades-clave', 'Actividad', row=>row.actividad?[row.actividad]:[]],
+        ['acciones', 'Acción', row=>Array.isArray(row.acciones)?row.acciones:
+          typeof row.acciones==='string'?row.acciones.split(/[;,]/):[]]
+      ];
+      for(const [folder,label,getValues] of dimensions){
+        const groups=new Map();
+        for(const row of guide)for(const value of getValues(row)){
+          const name=typeof value==='string'?value.trim():String(value?.nombre||value?.descripcion||'').trim();
+          if(!name)continue;
+          if(!groups.has(name))groups.set(name,[]);
+          groups.get(name).push(row);
+        }
+        const slugs=new Set();
+        for(const [name,rows] of groups){
+          const key=slug(name);
+          if(!key||slugs.has(key)||rows.length<2)continue;
+          slugs.add(key);
+          const title=name+' en '+town+' | Guía Local';
+          const description='Descubrí opciones relacionadas con '+name.toLowerCase()+' en '+place+'.';
+          await add(folder+'/'+key,title,description,'<h1>'+escapeHtml(name+' en '+town)+'</h1><p>'+escapeHtml(description)+
+            '</p>'+safeRows(rows,label)+'<p><a href="'+appLink(city)+'">Explorar en Guía Local</a></p>');
+        }
+      }
+      const temas=[
+        ['turismo-lgbt','Turismo LGBT',/\b(lgbt|lgbti|lgbtq|diversidad sexual)\b/i],
+        ['pet-friendly','Comercios que aceptan mascotas',/\b(pet friendly|acepta mascotas|admite mascotas)\b/i],
+        ['accesibilidad','Accesibilidad',/\b(accesibilidad|accesible|rampa)\b/i]
+      ];
+      for(const [key,name,pattern] of temas){
+        const rows=guide.filter(row=>pattern.test(String(row.tags||'')+' '+String(row.adicionales||'')));
+        if(rows.length<2)continue;
+        const title=name+' en '+town+' | Guía Local';
+        const description='Explorá establecimientos relacionados con '+name.toLowerCase()+' en '+place+'.';
+        await add('temas/'+key,title,description,'<h1>'+escapeHtml(name+' en '+town)+'</h1><p>'+escapeHtml(description)+
+          '</p>'+safeRows(rows,name)+'<p><a href="'+appLink(city)+'">Ver más en Guía Local</a></p>');
+      }
     }
     // Farmacias: crear únicamente para ciudades con programación pública.
     const pharmacies=list(book,'pharmacy');
