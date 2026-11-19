@@ -451,6 +451,28 @@ for caller in F.values():
 print('PASO3_LLAMADAS_LOCALES_AST',json.dumps({'declaracionesUnicas':sum(len(x)==1 for x in local_decl.values()),
     'enlacesNuevos':len(local_edges),'muestras':local_edges[:15]},ensure_ascii=False))
 
+# Censo de referencias a funciones nominales como callback de colecciones
+# Inspección: no agregar aristas hasta cotejar dueño AST, método y ámbito.
+nominal_candidates=[]
+for fn in F.values():
+    name=fn['name']
+    if not name.isidentifier() or name.startswith('callback@'):continue
+    file=fn['file']
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    lines=src_cache[file]
+    for n,line in enumerate(lines,1):
+        if n==fn['line']:continue
+        for method in ('map','filter','flatMap','forEach','some','every','find','sort','then','catch','finally'):
+            if re.search(r'\\.\\s*'+method+r'\\s*\\(\\s*'+re.escape(name)+r'\\s*\\)',line):
+                owners=[x['id'] for x in F.values() if x['file']==file and any(c.get('line')==n and c.get('method')==method for c in x.get('calls',[]))]
+                if owners:
+                    nominal_candidates.append({'idAST':fn['id'],'archivo':file,'linea':n,'metodo':method,
+                         'invocadoresAST':owners[:10],'declaracion':fn['line']})
+print('PASO3_CALLBACKS_NOMINALES_CANDIDATOS',json.dumps({
+ 'cantidad':len(nominal_candidates),
+ 'sinEntradaActual':len(missing_records),
+ 'filas':nominal_candidates[:80]},ensure_ascii=False))
+
 # Cotejo de las 37 acciones aún no cerradas con el mismo grafo:
 # llegar realmente al dueño AST del sitio, no inferir por coincidir
 # su nombre ("load", "get", etc.). Conserva todas las brechas.
