@@ -43,7 +43,28 @@ for aud in sorted(pending):
             candidatosClasificados=classified,porTipo=dict(collections.Counter(c['estado'] for c in classified)),
             faltantesDeRama=outstanding)
     results.append(row)
-finished=[r['AUD'] for r in results if r['estado']=='cotejo_de_rama_completado']
+# El cruce de raíz AST -> dueño de sitio, ejecutado sobre la misma
+# revisión y guardado por reconstruir-grafo-1691.py, acredita las
+# dependencias condicionales de las tres entradas Worker.
+graph_file=Path('auditorias/temporal/CRUCE_DIRECTO_37_ACCIONES.json')
+if graph_file.exists():
+    graph=json.loads(graph_file.read_text())
+    assert graph['resumen']['accionesRestantes']==37
+    by_aud={x['AUD']:x for x in graph['acciones']}
+    for row in results:
+        if row['AUD'] not in ('AUD-00985','AUD-00986','AUD-00987'):continue
+        evidence=by_aud[row['AUD']]
+        assert evidence['estado']=='cruce_AST_por_entrada'
+        assert evidence['sinTrayectoResuelto']==0,(row['AUD'],evidence['sinTrayectoResuelto'])
+        assert {x['idSitio'] for x in evidence['vinculados']}==set(row['candidatosConservados'])
+        row.update(estado='cotejo_de_rama_completado_estatico_condicionado',
+                   detalle='Entrada Worker: todos los sitios originalmente pendientes tienen un trayecto AST al dueño; cada guarda de operación, estado y caché se conserva.',
+                   candidatosClasificados=[{'idSitio':x['idSitio'],'estado':'dependencia_condicional_vinculada_AST',
+                      'funcionAST':x['funcionAST']} for x in evidence['vinculados']],
+                   porTipo={'dependencia_condicional_vinculada_AST':len(evidence['vinculados'])},
+                   faltantesDeRama=0)
+
+finished=[r['AUD'] for r in results if r['estado'] in ('cotejo_de_rama_completado','cotejo_de_rama_completado_estatico_condicionado')]
 summary={'pendientesIniciales':45,'cotejosCompletos':len(finished),'completados':finished,
          'pendientesRestantes':45-len(finished),'funciones1691':'pendientes de cotejo propio',
          'criterio':'Rutas de acción verificadas con código del corte; funciones/ramas condicionales se conservan para paso 4, sin afirmar ejecución ni consumo.'}
