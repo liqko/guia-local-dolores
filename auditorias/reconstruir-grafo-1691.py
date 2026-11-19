@@ -86,7 +86,7 @@ for r in pending:
         if r['archivo'] not in src_cache:
             src_cache[r['archivo']]=(Path('baseline')/r['archivo']).read_text().splitlines()
         line=src_cache[r['archivo']][r['linea']-1]
-        if re.search(r'new\\s+Promise\\s*\\(',line):
+        if re.search(r'new\s+Promise\s*\(',line):
             adj[parent][node[0]]=('constructor_promise_sincronico',a.get('sitio'))
     elif kind=='callback_programado':
         adj[parent][node[0]]=('callback_temporizador_condicionado',a.get('sitio'))
