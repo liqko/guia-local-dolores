@@ -841,3 +841,10 @@ for aud in ('AUD-00491','AUD-00490','AUD-00492','AUD-00537','AUD-00547'):
  if aud not in actions:continue
  row=actions[aud]
  print('PASO3_SIGUIENTE_ACCION',json.dumps({'AUD':aud,'entrada':row.get('entrada'),'sitios':[{'id':q['idSitio'],'file':sites[q['idSitio']]['archivo'],'line':sites[q['idSitio']]['linea'],'owner':sites[q['idSitio']].get('funcion')} for q in row['dependenciasDelArbolSinCadena']]},ensure_ascii=False))
+
+# Diagnóstico del grupo GH (sin volver a construir el inventario).
+for ghid in ('AUD-00138','AUD-00163','AUD-00178','AUD-00185','AUD-00746'):
+ row=actions[ghid]; by_owner=collections.defaultdict(list)
+ for q in row['dependenciasDelArbolSinCadena']:
+  x=sites[q['idSitio']];by_owner[str(x.get('funcion',''))].append(x['linea'])
+ print('PASO3_GH_PENDIENTES',json.dumps({'AUD':ghid,'entrada':row['entrada'],'porDueno':{k:sorted(set(v)) for k,v in by_owner.items()}},ensure_ascii=False))
