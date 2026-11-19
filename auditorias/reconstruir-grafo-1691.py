@@ -101,6 +101,24 @@ for line,owner,callback in [
     adj[owner][callback]=('callback_serializado_con_invocacion_fn_verificada','worker/worker206.txt:'+str(line))
 print('CALLBACKS_COORDINADOR_VERIFICADOS',2)
 
+# El coordinador recibe territoryAdapter por defecto; sus métodos
+# prepare y bootstrap están definidos en el mismo cierre y utilizados
+# por execute/load. El AST no resolvió this.adapter.metodo.
+assert 'const territoryAdapter={' in worker_lines[136-1]
+assert 'identify,prepare,' in worker_lines[137-1]
+assert 'async bootstrap(' in worker_lines[140-1]
+assert 'adapter=territoryAdapter' in worker_lines[148-1]
+assert 'this.adapter=adapter' in worker_lines[149-1]
+assert 'this.adapter.bootstrap(' in worker_lines[156-1] or 'this.adapter.bootstrap(' in worker_lines[157-1]
+assert any('this.adapter.prepare(' in l for l in worker_lines[215:238])
+for src,dest in [
+  ('worker/worker206.txt:153:10764:load','worker/worker206.txt:140:9649:bootstrap'),
+  ('worker/worker206.txt:216:15111:execute','worker/worker206.txt:105:7100:prepare')
+]:
+    assert src in F and dest in F
+    adj[src][dest]=('adaptador_territorial_concreto_comprobado','worker/worker206.txt:148')
+print('ADAPTADOR_TERRITORIAL_VERIFICADO',2)
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
