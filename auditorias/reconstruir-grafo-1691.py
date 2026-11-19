@@ -67,6 +67,27 @@ for method in sorted(set(re.findall(r'\bthis\.([A-Za-z_$][\w$]*)\s*\(',actor_sou
 assert 'businessSave143' in actor_resolved and 'guideSave132' in actor_resolved
 print('DESPACHOS_DO_RECONSTRUIDOS',json.dumps(actor_resolved))
 
+# Exportaciones de namespaces IIFE realmente utilizadas por el despacho
+# principal. El AST marcaba como externas estas llamadas pese a que
+# return {route/dispatch} identifica el destino inequívocamente.
+namespace_links=[
+  ('worker/worker206.txt:13177:858197:fetch',
+   'worker/worker206.txt:270:19337:route',
+   13217,'GLD_ACTIONS138.route(ctx,report)',294,'return {readJson,authenticate,changed,equal,actorName,Coordinator,route,'),
+  ('worker/worker206.txt:13177:858197:fetch',
+   'worker/worker206.txt:12860:829695:dispatch',
+   13218,'GLD_BUSINESS143.dispatch(ctx)',12924,'return {dispatch,journal,equal,quotaError,restoreContract,trusted}'),
+  ('worker/worker206.txt:12860:829695:dispatch',
+   'worker/worker206.txt:13123:853381:dispatch',
+   12863,'GLD_EVENTS145.dispatch(ctx)',13173,'return {scope,publicRows,matches,geo,hasVirtual,dispatch,repair,revision,result}')
+]
+for src,dest,site,call,return_line,export in namespace_links:
+    assert src in F and dest in F,(src,dest)
+    assert call in worker_lines[site-1],(site,call)
+    assert export in worker_lines[return_line-1],(return_line,export)
+    adj[src][dest]=('llamada_exportada_namespace_comprobada','worker/worker206.txt:'+str(site))
+print('DESPACHOS_NAMESPACE_VERIFICADOS',len(namespace_links))
+
 OPEN={'invocador_identificado_sin_entrada','registro_o_asignacion_sin_invocacion_comprobada',
       'declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion'}
 pending=[r for r in coverage['filas'] if r.get('estadoDeCobertura') in OPEN]
