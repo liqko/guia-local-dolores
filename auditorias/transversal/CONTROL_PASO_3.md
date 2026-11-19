@@ -11,6 +11,8 @@
 
 **Avance 19/11/2026, ítems 3.1 y 3.2.** El [cotejo de cadenas](CADENAS_DEPENDENCIAS_PASO_3.md) recupera 17 manejadores y contrasta las 20 entradas restantes sin raíz de función. En 19 documenta la operación o barrera. Queda el callback de `AUD-00382` por botón creado y 207 acciones con al menos un sitio del árbol cuyo enlace requiere contraste. Las cuatro casillas continúan abiertas.
 
+**Segunda ronda, 3.1–3.2.** Se resolvió el constructor de `AUD-00382` y se cotejaron los sitios pendientes de 24 acciones. Quedan 183 acciones con enlaces por contrastar. Los casos y las pruebas están en el anexo enlazado arriba. Las cuatro casillas de cierre siguen abiertas.
+
 ## Reglas para marcar [x]
 
 1. **Responsable de todas las acciones: ChatGPT.** Sólo solicitar al usuario intervención si una prueba real requiere permisos/acción que no pueda ejecutar.
