@@ -684,7 +684,7 @@ SPECS.append({
  'aud':'AUD-00490',
  'entry':['plataforma/login.html',8373,"document.addEventListener('DOMContentLoaded'"],
  'markers':[
-  ['plataforma/login.html',8383,'const rutasDirectas='],
+  ['plataforma/login.html',8381,'const rutasDirectas='],
   ['plataforma/login.html',8699,'async function restaurarSesionSuscriptor_'],
   ['plataforma/login.html',8752,'window.GLD_ADMIN_PANEL155.ready.then'],
   ['plataforma/login.html',8765,'}else{'],
