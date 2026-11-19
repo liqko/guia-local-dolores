@@ -535,6 +535,31 @@ print('PASO3_PUENTES_DE_PROPEDADES_CONFIRMADOS',json.dumps({
     'puentes':[[app_owner,prefetched_json],[farm_caller[0],farm_get]],
     'condicional':True,
     'sin_prueba_de_navegador':True},ensure_ascii=False))
+
+# Métodos del mismo Durable Object: el receptor 'this' dentro de un método
+# GldPublicCache119.prototype.* es la instancia de esa clase. El AST no
+# siempre resuelve this.otroMetodo, pero la identidad del receptor sí es fija.
+actor_by_method={}
+for f in F.values():
+    if f['file']=='worker/worker206.txt' and f['name'].startswith('GldPublicCache119.prototype.'):
+        actor_by_method[f['name'].split('.prototype.',1)[1]]=f['id']
+typed_this_links=[]
+for f in F.values():
+    if f['file']!='worker/worker206.txt' or not f['name'].startswith('GldPublicCache119.prototype.'):continue
+    for c in f.get('calls',[]):
+        method=c.get('method')
+        target=actor_by_method.get(method)
+        line=c.get('line')
+        if not target or not isinstance(line,int) or not 1<=line<=len(worker_lines):continue
+        source=worker_lines[line-1]
+        if not re.search(r'\bthis\s*\.\s*'+re.escape(method)+r'\s*\(',source):continue
+        if target in adj[f['id']]:continue
+        adj[f['id']][target]=('metodo_this_prototype_misma_instancia_comprobado','worker/worker206.txt:'+str(line))
+        typed_this_links.append({'de':f['id'],'a':target,'linea':line})
+print('PASO3_ACTOR_THIS_TIPADO',json.dumps({'vinculos':len(typed_this_links),
+    'ejemplos':typed_this_links[:30],
+    'metodo':'receptor exacto this, llamada AST con línea en mismo prototype',
+    'condicional':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
