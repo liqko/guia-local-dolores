@@ -579,6 +579,26 @@ for aud,entry,needle,requestLines,createLine,updateLine,kind in [
     'description':'Guardar evento '+kind+' con ramas de creación y actualización; verificación de cupos, duplicados, permisos y programación, patch condicional y cache por ciudad; 454 candidatos históricos preservados.'
   })
 
+
+# Selector de anunciante autorizado: GET de permisos y carga de copia maestra.
+# Sólo las lecturas de catálogo preparatorio del Worker pertenecen al conjunto
+# de operaciones inventariadas; los otros candidatos provienen de rutas ajenas.
+SPECS.append({
+ 'aud':'AUD-00491',
+ 'entry':['plataforma/login.html',8579,"btn.addEventListener('click'"],
+ 'markers':[
+   ['plataforma/login.html',8585,'async function seleccionarAnunciante_'],
+   ['plataforma/login.html',8596,'permisos_panel'],
+   ['worker/worker206.txt',6390,'permisos_panel'],
+   ['worker/worker206.txt',6395,'commerceMaster205'],
+   ['worker/worker206.txt',6132,'async function commerceMaster205'],
+   ['worker/worker206.txt',6136,'getCommerceCatalogs(cache)'],
+ ],
+ 'include':[1753,1755],
+ 'excludeMode':'other_worker',
+ 'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},
+ 'description':'Elegir anunciante autorizado: GET permisos_panel sólo cuando relación no trae datos administrativos y reglas; verifica token, relación y rol, lee copia maestra por actor y catálogos, después prepara panel; demás sitios de otros módulos no son ejecutados por la selección. No se confunde con inicio de sesión ni escritura.'
+})
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
