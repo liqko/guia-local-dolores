@@ -134,33 +134,58 @@ def resolve_node(raw):
     # 'plataforma/a.html:30:8120:callback@30' y el GPS largo tienen la misma identidad AST
     m=re.match(r'^(.*?:\d+:\d+):',raw)
     return by_position.get(m.group(1)) if m else None
+# Catálogo de entradas. Comparar nombre de manejador Y archivo: nunca sólo nombre.
+catalog_handlers=collections.defaultdict(set)
+for line in (BASE/'CATALOGO_MAESTRO.md').read_text().splitlines():
+    m=re.match(r'^\\| (AUD-\\d{5}) \\| \\[([^\\]]+):\\d+\\]\\([^)]*\\) \\| (.*?) \\|',line)
+    if not m:continue
+    aud,filename,handler=m.groups()
+    fun=re.match(r'^([A-Za-z_$][\\w$]*)\\s*(?:\\(|$)',handler)
+    if fun:catalog_handlers[(filename,fun.group(1))].add(aud)
+def node_name(raw):
+    m=re.match(r'^.*?:\\d+:\\d+:(.*)$',str(raw))
+    return m.group(1) if m else ''
 incoming=collections.defaultdict(list)
 raw_edges=0
 unresolved_edges=[]
+external_origins=collections.defaultdict(set)
 for srcrow in rows:
     for edge in srcrow.get('entradasLocales') or []:
         raw_edges+=1
-        before=resolve_node(edge.get('desde'))
-        after=resolve_node(edge.get('hacia'))
+        before_raw=edge.get('desde');after_raw=edge.get('hacia')
+        before=resolve_node(before_raw)
+        after=resolve_node(after_raw)
         if before and after:
             item=(before,edge.get('clase'),edge.get('sitio'))
             if item not in incoming[after]:incoming[after].append(item)
+        elif after and before_raw:
+            external_origins[before_raw].add(after)
         else:
-            unresolved_edges.append({'desde':edge.get('desde'),'hacia':edge.get('hacia'),'sitio':edge.get('sitio')})
-from collections import Counter
-edge_gap_types=Counter()
-edge_gap_samples={}
-for item in unresolved_edges:
-    a=resolve_node(item.get('desde'));b=resolve_node(item.get('hacia'))
-    kind=('sin_origen' if not a else 'sin_destino' if not b else 'ambos_presentes')
-    edge_gap_types[kind]+=1
-    edge_gap_samples.setdefault(kind,item)
-print('EXTREMOS_EXTERNOS',json.dumps({'tipos':dict(edge_gap_types),'ejemplos':edge_gap_samples},ensure_ascii=False)[:3200])
+            unresolved_edges.append({'desde':before_raw,'hacia':after_raw,'sitio':edge.get('sitio')})
+# Una entrada de catálogo puede estar fuera de las 3625 declaraciones pendientes.
+# Se vincula sólo si coinciden archivo, nombre de función y el origen AST identifica la función.
+external_aud={}
+for raw in external_origins:
+    m=re.match(r'^(.*?):\\d+:\\d+:([A-Za-z_$][\\w$]*)$',raw)
+    if not m:continue
+    file,name=m.groups()
+    if (file,name) in catalog_handlers:external_aud[raw]=sorted(catalog_handlers[(file,name)])
 anchors={}
 for nid,srcrow in all_nodes.items():
-    # El anclaje directo proviene de la identidad exacta (NO de unidadesDelPadre).
     units=srcrow.get('unidadesExactas') or srcrow.get('unidades') or []
     if units:anchors[nid]=sorted(set(u for u in units if u in valid_aud))
+    additional=catalog_handlers.get((srcrow.get('archivo'),srcrow.get('nombre')),set())
+    if additional:anchors[nid]=sorted(set(anchors.get(nid,[]))|additional)
+for raw,affected in external_origins.items():
+    if raw not in external_aud:continue
+    for target in affected:
+        item=(raw,'ancla_externa_por_nombre_archivo',raw)
+        if item not in incoming[target]:incoming[target].append(item)
+anchors.update(external_aud)
+external_summary={'origenesExternos':len(external_origins),'externosConNombreCatalogo':len(external_aud),
+'conexionesExternasARecorridos':sum(len(v) for v in external_origins.values()),
+'conexionesAncladas':sum(len(external_origins[k]) for k in external_aud)}
+print('ANCLAS_EXTERNAS',json.dumps(external_summary,ensure_ascii=False))
 def trace_exact(nid):
     queue=deque([(nid,[nid])]);seen={nid}
     while queue:
@@ -184,6 +209,7 @@ summary['aristasCrudas']=raw_edges
 summary['aristasResueltas']=sum(len(v) for v in incoming.values())
 summary['aristasSinExtremosResueltos']=len(unresolved_edges)
 summary['anclasAUD']=len(anchors)
+summary['anclasExternas']=external_summary
 print('TRAZADO_DIRECTO_1691',json.dumps({'grafo':dict(graph_summary),'nodosAST':len(all_nodes),'aristasCrudas':raw_edges,'aristasResueltas':sum(len(v) for v in incoming.values()),'aristasSinResolver':len(unresolved_edges),'anclas':len(anchors),'ejemplos':[{k:x.get(k) for k in ['idGPS','cadenaDirecta']} for x in results if x['cadenaDirecta']['estado']=='traza_directa_hasta_nodo_AUD'][:3]},ensure_ascii=False)[:4500])
 
 (OUT/'COBERTURA_1691_REVERIFICACION_COMPLETA.json').write_text(json.dumps({'resumen':summary,'filas':results},ensure_ascii=False,indent=2)+'\n')
