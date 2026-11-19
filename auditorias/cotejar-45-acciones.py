@@ -135,3 +135,20 @@ for aud in ('AUD-00095','AUD-00096'):
     groups=collections.defaultdict(list)
     for x in exact: groups[x['archivo']].append(x['linea'])
     print('PASO3_MODERACION_PENDIENTE',json.dumps({'AUD':aud,'total':len(exact),'porArchivo':{k:sorted(set(v)) for k,v in groups.items()}},ensure_ascii=False))
+
+# Agrupación de acciones aún pendientes por conjuntos idénticos de sitios.
+open_rows=[r for r in results if r['estado']=='pendiente']
+clusters=collections.defaultdict(list)
+for r in open_rows:
+    candidates=actions[r['AUD']]['dependenciasDelArbolSinCadena']
+    signature=tuple(sorted(sites[q['idSitio']]['linea'] for q in candidates))
+    clusters[signature].append(r['AUD'])
+print('PASO3_GRUPOS_32',json.dumps({
+    'acciones':len(open_rows),
+    'gruposDeSitios':len(clusters),
+    'grupos':[{'AUD':aud_list,'sitiosPorAccion':len(signature),
+      'sitiosPrimeraAccion':[(sites[q['idSitio']]['archivo'],sites[q['idSitio']]['linea'])
+       for q in actions[aud_list[0]]['dependenciasDelArbolSinCadena'][:12]],
+      'entrada':actions[aud_list[0]].get('entrada')}
+      for signature,aud_list in sorted(clusters.items(),key=lambda kv:(-len(kv[1]),kv[1][0]))]
+},ensure_ascii=False))
