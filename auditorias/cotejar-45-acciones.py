@@ -177,6 +177,55 @@ for action,aud,entryLine,entryNeedle,callLine,handlerLine,handlerName,workerMeth
       ]
     })
 
+# Paso 3: acción múltiple de Actividades (6 variantes de UI)
+SPECS.append({
+  'aud':'AUD-00445',
+  'entry':['plataforma/login.html',4125,"btn.addEventListener('click'"],
+  'markers':[
+    ['plataforma/login.html',4126,'btn.dataset.id'],
+    ['plataforma/login.html',4127,'btn.dataset.actAction'],
+    ['plataforma/login.html',4130,"action==='edit'"],
+    ['plataforma/login.html',4135,"action==='duplicate'"],
+    ['plataforma/login.html',4155,"action==='eliminar'"],
+    ['plataforma/login.html',4164,'postJson(WORKER_ACTIVIDADES_URL'],
+    ['plataforma/login.html',3237,'fetch(url'],
+    ['worker/worker206.txt',6754,'"/actividades"'],
+    ['worker/worker206.txt',6759,'"guardar"'],
+    ['worker/worker206.txt',6765,'sessionAllows'],
+    ['worker/worker206.txt',6771,'activityActionV3'],
+    ['worker/worker206.txt',6677,'async function activityActionV3'],
+    ['worker/worker206.txt',6684,'queryEqual("actividades"'],
+    ['worker/worker206.txt',6691,'getPreparedRelationsV1'],
+    ['worker/worker206.txt',6696,'db.delete("actividad_horarios"'],
+    ['worker/worker206.txt',6698,'db.delete("actividades"'],
+    ['worker/worker206.txt',6718,'db.patch("actividades"'],
+    ['worker/worker206.txt',1952,'cache.put(key3'],
+  ],
+  'include':[1414,1422,1423,1946,1952,6679,6682,6684,6691,6696,6698,6718,6722,8473,8476,8478],
+  'includeOwner':['activityActionV3','syncActivityPreparedV2','getPreparedRelationsV1','putPreparedRelationsV1'],
+  'excludeMode':'other_worker',
+  'includeOther':{
+     'plataforma/login.html':[3237],
+     'plataforma/publicacion-pedidos.js':[20,21,22]
+  },
+  'excludeOther':{
+     'plataforma/administracion.html':[536],
+     'plataforma/gh-promos.js':[13],
+     'plataforma/login.html':[4240,5144,9410],
+     'plataforma/consumo-v44.js':[78],
+     'plataforma/territorio-cache.js':[18,32]
+  },
+  'extra':[
+      ['plataforma/login.html',4130,'editar abre formulario local sin POST inmediato'],
+      ['plataforma/login.html',4135,'duplicar abre formulario tras verificar cupos locales; guardar es otra acción'],
+      ['worker/worker206.txt',6677,'solo pausar, reanudar, renovar y eliminar'],
+      ['worker/worker206.txt',6691,'horarios embebidos o relación preparada / lectura alternativa'],
+      ['worker/worker206.txt',6718,'patch sólo si changedFieldsV1 arroja delta'],
+      ['worker/worker206.txt',1952,'KV put sólo por ciudad afectada en sincronización'],
+  ],
+  'description':'Acción delegada de Actividades: editar y duplicar sólo formularios; pausar/reanudar/renovar/eliminar POST /actividades autenticado, con validación de titularidad/cupo, horarios embebidos o preparados, eliminar o patch condicional y sincronizar copias por ciudad. 454 candidatos históricos conservados.'
+})
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
