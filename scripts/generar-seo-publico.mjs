@@ -42,7 +42,7 @@ const safeRows = (items,caption) => {
 const parsePublished = source => {
   const match=source.match(/^const published = (.+);$/m);
   if(!match)throw Error('No se encuentra el catálogo territorial publicado');
-  const published=JSON.parse(match[1]);
+  const published=JSON.parse(match[1].replace(/^\s*\/\* GLD_TERRITORY_SNAPSHOT \*\/\s*/,''));
   const cityMatch=source.match(/^const paquetes = .*?JSON\.parse\(("(?:\\.|[^"\\])*")\);$/m);
   if(!cityMatch)throw Error('No se encuentra el manifiesto de paquetes de ciudad');
   return {cities:published.data.ciudades.filter(c=>c.activa!==false), manifest:JSON.parse(JSON.parse(cityMatch[1]))};
