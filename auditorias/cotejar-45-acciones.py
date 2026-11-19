@@ -271,6 +271,87 @@ SPECS.append({
   'description':'Guardar Actividad: formulario valida horarios, nombre y categoría; alta o edición con delta; POST autenticado; validación territorial de horarios, cupos y permisos; patch condicional y sincronización de caches. Se conservan y clasifican 454 sitios históricos.'
 })
 
+# Paso 3: dos controles delegados de Sedes y Promociones
+SPECS.extend([
+ {
+  'aud':'AUD-00477',
+  'entry':['plataforma/login.html',6514,"document.addEventListener('click'"],
+  'markers':[
+    ['plataforma/login.html',6515,'.btn-agregar-sede'],
+    ['plataforma/login.html',6520,'.btn-duplicar-sede'],
+    ['plataforma/login.html',6525,'.btn-eliminar-sede'],
+    ['plataforma/login.html',6482,'async function deleteSedeCard'],
+    ['plataforma/login.html',6494,"action:'delete_sede'"],
+    ['plataforma/login.html',6172,'async function commerce_post'],
+    ['plataforma/login.html',6179,'revision_sede'],
+    ['plataforma/login.html',3237,'fetch(url'],
+    ['worker/worker206.txt',12687,"'delete_sede'"],
+    ['worker/worker206.txt',12692,"guide-save-v132:"],
+    ['worker/worker206.txt',6434,'"delete_sede"'],
+    ['worker/worker206.txt',6435,'commerceDeleteSedeV3'],
+    ['worker/worker206.txt',6108,'async function commerceDeleteSedeV3'],
+    ['worker/worker206.txt',6113,'revision_sede'],
+    ['worker/worker206.txt',6114,'db.commitPatches'],
+    ['worker/worker206.txt',6436,'patchGuideAdvertiserSedesFromCacheV2']
+  ],
+  'include':[4818,4819,4820,4821,4822,4823,4846,4850,4852,6190,6193,6301,6307,6315,6316,6358],
+  'includeOwner':['commerceDeleteSedeV3','patchGuideAdvertiserSedesFromCacheV2'],
+  'excludeMode':'other_worker',
+  'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],'plataforma/consumo-v44.js':[78],
+    'plataforma/territorio-cache.js':[18,32]},
+  'extra':[
+     ['plataforma/login.html',6515,'Agregar sede es UI local, no POST inmediato'],
+     ['plataforma/login.html',6520,'Duplicar sede es UI local, no POST inmediato'],
+     ['plataforma/login.html',6179,'commerce_post adjunta revisión de sede e idempotencia'],
+     ['worker/worker206.txt',6113,'borra sólo con titularidad y revisión coincidente'],
+     ['worker/worker206.txt',6114,'commitPatches elimina una sede'],
+     ['worker/worker206.txt',6436,'sincroniza proyección del anunciante']
+  ],
+  'description':'Clic delegado en sedes: agregar/duplicar son preparaciones locales, borrar es POST /commerce delete_sede con sesión, control de versión, actor por anunciante, eliminación y sincronización. 454 sitios originales clasificados por ruta.'
+ },
+ {
+  'aud':'AUD-00478',
+  'entry':['plataforma/login.html',6835,"btn.addEventListener('click'"],
+  'markers':[
+    ['plataforma/login.html',6836,'data-promo-action'],
+    ['plataforma/login.html',6839,"action === 'pause'"],
+    ['plataforma/login.html',6852,"action: 'updatePromo'"],
+    ['plataforma/login.html',6877,"action === 'delete'"],
+    ['plataforma/login.html',6881,"action: 'deletePromo'"],
+    ['plataforma/login.html',6898,"action === 'edit'"],
+    ['plataforma/login.html',6903,"action === 'duplicate'"],
+    ['plataforma/login.html',6164,'async function promos_post'],
+    ['plataforma/login.html',3237,'fetch(url'],
+    ['worker/worker206.txt',12870,"'/promos'"],
+    ['worker/worker206.txt',12873,"'updatepromo'"],
+    ['worker/worker206.txt',12892,'business-save143'],
+    ['worker/worker206.txt',4311,'promoUpdateV2'],
+    ['worker/worker206.txt',4312,'promoDeleteV2'],
+    ['worker/worker206.txt',3194,'async function promoUpdateV2'],
+    ['worker/worker206.txt',3264,'async function promoDeleteV2'],
+    ['worker/worker206.txt',1380,'cache.put(key3']
+  ],
+  'include':[1377,1380,1414,1422,1423,3199,3201,3268,3270,8473,8476,8478,12905],
+  'includeOwner':['promoUpdateV2','promoDeleteV2','syncPromo','getPreparedRelationsV1','putPreparedRelationsV1'],
+  'excludeMode':'other_worker',
+  'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],'plataforma/consumo-v44.js':[78],
+    'plataforma/territorio-cache.js':[18,32]},
+  'extra':[
+    ['plataforma/login.html',6839,'pausar y reanudar comparten updatePromo con valor pausado'],
+    ['plataforma/login.html',6877,'eliminar exige confirmación'],
+    ['plataforma/login.html',6898,'editar abre formulario local'],
+    ['plataforma/login.html',6903,'duplicar verifica cupos y abre formulario local'],
+    ['worker/worker206.txt',12892,'dispatcher per-anunciante con recibo idempotente y recuperación'],
+    ['worker/worker206.txt',3270,'elimina fuente y actualiza proyección'],
+  ],
+  'description':'Clic delegado en promociones: pausar/reanudar ejecutan updatePromo, eliminar deletePromo vía Durable Object business-save143; editar/duplicar preparan formulario sin escritura inmediata. 454 candidatos conservados.'
+ }
+])
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
