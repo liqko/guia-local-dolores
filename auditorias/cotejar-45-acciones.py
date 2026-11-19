@@ -190,3 +190,13 @@ print('PASO3_GRUPOS_32',json.dumps({
 for aud in ('AUD-00766',):
     row=actions[aud]
     print('PASO3_ARRANQUE_ANUNCIANTES',json.dumps({'AUD':aud,'entrada':row['entrada'],'sitios':[{'id':q['idSitio'],'file':sites[q['idSitio']]['archivo'],'line':sites[q['idSitio']]['linea'],'funcion':sites[q['idSitio']].get('funcion')} for q in row['dependenciasDelArbolSinCadena']]},ensure_ascii=False))
+
+# PASO3 FAMILIA COMPARTIDA
+family=['AUD-00445','AUD-00450','AUD-00470','AUD-00471','AUD-00472','AUD-00477','AUD-00478','AUD-00488','AUD-00489','AUD-00499','AUD-00502','AUD-00518','AUD-00523','AUD-00533','AUD-00536']
+for aud in family:
+    a=actions[aud];e=a.get('entrada') or {}
+    print('PASO3_FAMILY_ENTRY',json.dumps({'AUD':aud,'file':e.get('file'),'line':e.get('line'),'handler':e.get('handler'),'entry':e.get('entry'),'kind':e.get('kind')},ensure_ascii=False))
+source=actions[family[0]]['dependenciasDelArbolSinCadena']
+counts=collections.Counter(sites[q['idSitio']]['archivo'] for q in source)
+functions=collections.Counter(sites[q['idSitio']].get('funcion') for q in source)
+print('PASO3_FAMILY_454',json.dumps({'candidatos':len(source),'archivos':dict(counts),'funcionesMasFrecuentes':functions.most_common(35),'muestrasPorArchivo':{file:[{'line':sites[q['idSitio']]['linea'],'owner':sites[q['idSitio']].get('funcion')} for q in source if sites[q['idSitio']]['archivo']==file][:18] for file in counts}},ensure_ascii=False))
