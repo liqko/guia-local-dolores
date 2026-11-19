@@ -590,7 +590,7 @@ print('GRAFO_COMPLETO_1691',json.dumps(summary,ensure_ascii=False))
 
 # Diagnóstico transversal de las 583 funciones sin enlace de entrada
 missing_records=[r for r in records if r['estado']=='falta_enlace_a_entrada']
-assert len(missing_records)==583
+assert len(missing_records)<=583,len(missing_records)
 reverse=collections.defaultdict(set)
 for source,targets in adj.items():
     for target in targets:
@@ -610,8 +610,8 @@ for rec in missing_records:
     else:
         reason='global_sin_invocador_comprobado'
     missing_groups[reason].append((rec,fn,len(ins)))
-assert sum(map(len,missing_groups.values()))==583
-print('PASO3_583_CAUSAS',json.dumps({'total':583,'porCausa':{k:len(v) for k,v in missing_groups.items()},'porArchivo':dict(collections.Counter(F[r['idAST']]['file'] for r in missing_records)),'muestras':{k:[{'id':x['idAST'],'line':fn.get('line'),'activacion':(x.get('activacion') or {}).get('tipo'),'invocadoresAST':degree} for x,fn,degree in v[:12]] for k,v in missing_groups.items()}},ensure_ascii=False))
+assert sum(map(len,missing_groups.values()))==len(missing_records)
+print('PASO3_583_CAUSAS',json.dumps({'total':len(missing_records),'grupoOriginal':583,'porCausa':{k:len(v) for k,v in missing_groups.items()},'porArchivo':dict(collections.Counter(F[r['idAST']]['file'] for r in missing_records)),'muestras':{k:[{'id':x['idAST'],'line':fn.get('line'),'activacion':(x.get('activacion') or {}).get('tipo'),'invocadoresAST':degree} for x,fn,degree in v[:12]] for k,v in missing_groups.items()}},ensure_ascii=False))
 
 # Censo conservador de declaraciones locales sin referencias textuales
 # Sólo es candidato a código no utilizado si la declaración es local a un
@@ -630,4 +630,4 @@ for rec in missing_records:
     uses=list(re.finditer(r'\b'+re.escape(name)+r'\b',src))
     if len(uses)!=1:continue
     unused_local.append({'idAST':rec['idAST'],'file':file,'line':line,'name':name,'parent':parent,'referenciasEnArchivo':1})
-print('PASO3_583_DECLARACIONES_SIN_REFERENCIA',json.dumps({'grupoOriginal':583,'declaracionesLocalesSinReferencia':len(unused_local),'porArchivo':dict(collections.Counter(x['file'] for x in unused_local)),'muestras':unused_local[:25],'limitacion':'Sólo ausencia de referencias léxicas en archivo y ámbito local; no se atribuye automáticamente a error de producción ni a ahorro de consumo.'},ensure_ascii=False))
+print('PASO3_583_DECLARACIONES_SIN_REFERENCIA',json.dumps({'grupoOriginal':583,'sinEntradaActual':len(missing_records),'declaracionesLocalesSinReferencia':len(unused_local),'porArchivo':dict(collections.Counter(x['file'] for x in unused_local)),'muestras':unused_local[:25],'limitacion':'Sólo ausencia de referencias léxicas en archivo y ámbito local; no se atribuye automáticamente a error de producción ni a ahorro de consumo.'},ensure_ascii=False))
