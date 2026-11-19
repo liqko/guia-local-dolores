@@ -504,6 +504,37 @@ print('CRUCE_37_MUESTRAS',json.dumps([{'AUD':x['AUD'],'s':x.get('sitiosAlcanzabl
 # Trazas: una ruta reproducible hasta una acción, no ejecución del callback.
 from collections import deque
 queue=deque([(key,aud) for key,auds in roots.items() for aud in sorted(auds)])
+
+# Puentes concretos entre funciones pasadas como propiedades: no se unen
+# por coincidencia genérica de nombres get/json, sólo por receptor y línea.
+def exact_function(file,name,line):
+    ids=[f['id'] for f in F.values() if f['file']==file and f['name']==name and f['line']==line]
+    assert len(ids)==1,(file,name,line,ids)
+    return ids[0]
+admin_src=(Path('baseline')/'plataforma/administracion.html').read_text().splitlines()
+assert 'json:async()=>prefetched' in admin_src[1079-1]
+assert 'await r.json()' in admin_src[1082-1]
+app_owner=exact_function('plataforma/administracion.html','abrirApp',1077)
+prefetched_json=exact_function('plataforma/administracion.html','json',1079)
+assert F[prefetched_json]['parent']==app_owner
+adj[app_owner][prefetched_json]=('propiedad_json_prefetched_invocada_por_r_condicionada','plataforma/administracion.html:1079,1082')
+
+carcasa_src=(Path('baseline')/'plataforma/carcasa.html').read_text().splitlines()
+farma_src=(Path('baseline')/'plataforma/farmacias-ciclo.js').read_text().splitlines()
+assert 'src="/plataforma/farmacias-ciclo.js?v=147"' in carcasa_src[3-1]
+assert 'farmaCycles=GLDFarmCycle.client(' in carcasa_src[1740-1]
+assert 'await farmaCycles.get(city)' in carcasa_src[1837-1]
+assert 'root.GLDFarmCycle={turns,client}' in farma_src[41-1]
+assert 'async get(city,' in farma_src[25-1]
+farm_get=exact_function('plataforma/farmacias-ciclo.js','get',25)
+farm_caller=[f['id'] for f in F.values() if f['file']=='plataforma/carcasa.html'
+             and any(c.get('line')==1837 and c.get('method')=='get' for c in f.get('calls',[]))]
+assert len(farm_caller)==1,farm_caller
+adj[farm_caller[0]][farm_get]=('cliente_farmacia_devuelto_y_metodo_get_invocado','plataforma/carcasa.html:1740,1837')
+print('PASO3_PUENTES_DE_PROPEDADES_CONFIRMADOS',json.dumps({
+    'puentes':[[app_owner,prefetched_json],[farm_caller[0],farm_get]],
+    'condicional':True,
+    'sin_prueba_de_navegador':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
