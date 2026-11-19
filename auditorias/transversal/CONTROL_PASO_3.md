@@ -13,7 +13,7 @@
 
 **Segunda ronda, 3.1–3.2.** Se resolvió el constructor de `AUD-00382` y se cotejaron los sitios pendientes de 30 acciones. Quedan 177 acciones con enlaces por contrastar. Los casos y las pruebas están en el anexo enlazado arriba. Las cuatro casillas de cierre siguen abiertas.
 
-**Tercera ronda, 3.1–3.2.** Se cotejaron 102 de las 177 acciones que quedaban. Permanecen 75 con sitios por contrastar. Las 1.691 funciones mantienen su propio control de recorridos. Las cuatro casillas siguen abiertas.
+**Tercera ronda, 3.1–3.2.** Se cotejaron 132 de las 177 acciones que quedaban. Permanecen 45 con sitios por contrastar. Las 1.691 funciones mantienen su propio control de recorridos. Las cuatro casillas siguen abiertas.
 
 ## Reglas para marcar [x]
 

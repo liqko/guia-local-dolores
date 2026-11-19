@@ -41,9 +41,9 @@ El cotejo pasó de **207 a 177 acciones** con sitios del árbol pendientes. Se a
 
 Pasaron las pruebas locales de paginación, preparación, navegación y operaciones de Promociones y Publicidad con transporte simulado; las de pestañas y coeficientes, recuperación del catálogo y soporte; y diez pruebas de regresión existentes de roles y configuración. El cotejo posterior confirmó las 987 acciones y las 3.625 identidades, con todos los sitios originales conservados. La ejecución en producción y el consumo real siguen pendientes.
 
-## Tercera ronda · 102 acciones cotejadas
+## Tercera ronda · 132 acciones cotejadas
 
-De las 177 acciones que quedaban, **102** tienen ahora documentado su trayecto hasta las rutas y dependencias correspondientes, incluidas las salidas locales y barreras. Quedan **75** con candidatos por resolver. Se conservaron los sitios originales. En esta ronda, 297 asociaciones acción–sitio quedan comprobadas bajo sus condiciones y 2636 se descartaron para esa acción tras comparar ruta, método, argumentos o guardas. El sitio permanece disponible para la acción que sí lo utiliza.
+De las 177 acciones que quedaban, **132** tienen ahora documentado su trayecto hasta las rutas y dependencias correspondientes, incluidas las salidas locales y barreras. Quedan **45** con candidatos por resolver. Se conservaron los sitios originales. En esta ronda, 550 asociaciones acción–sitio quedan comprobadas bajo sus condiciones y 11142 se descartaron para esa acción tras comparar ruta, método, argumentos o guardas. El sitio permanece disponible para la acción que sí lo utiliza.
 
 - **Prestaciones, Gran Hermano.** La prueba local ejecuta los manejadores del HTML original. El alta agrega la fila a la copia local y luego la usa para comparar contra el formulario. La igualdad hace que omita el envío. La edición sí emite POST. En la misma prueba, dos niveles modificados emitieron dos POST y el guardado de ficha uno con control de versión.
 - **Borrado de ciudad, AUD-00101.** El frontend comprueba rol, confirmación y nombre. Suspende una ciudad activa por PATCH y luego envía DELETE. En el Worker de este corte se localizaron el POST de creación y PATCH de edición, sin despacho DELETE para esa ruta. Una falla tras el PATCH puede dejarla suspendida. Hallazgo estático, sin ejecutar borrados reales.
@@ -51,6 +51,10 @@ De las 177 acciones que quedaban, **102** tienen ahora documentado su trayecto h
 
 Prueba reproducible en el anexo: `probar-catalogos-paso3.cjs`. El cotejo verifica fragmentos exactos del código congelado y conserva funciones, sitios y saltos del anexo de entrada.
 
+
+Se cruzaron las **1.691 funciones** con las cadenas por identidad de archivo y rango AST. Las 1.691 coinciden con identidades únicas en el corte. Para **2** hay una traza estática desde una entrada. Las demás aún necesitan ese enlace exacto. Ninguna se declara cerrada integralmente por este cruce. El resultado por función queda en el anexo.
+
+
 ## Continuidad
 
-Quedan **75 acciones** con sitios pendientes, enumeradas en el anexo. Separar primero las ramas que comparten la navegación de Gran Hermano y los módulos de Anunciante. Resolver por vista, acción, método y contenido real de cada solicitud, y luego cruzar todas las rutas con las 1.691 funciones y revalidar contra las fuentes. El paso 3 sigue abierto. No hubo cambios productivos ni pruebas sobre datos reales.
+Quedan **45 acciones** con sitios pendientes, enumeradas en el anexo. Separar primero las ramas que comparten la navegación de Gran Hermano y los módulos de Anunciante. Resolver por vista, acción, método y contenido real de cada solicitud, y luego cruzar todas las rutas con las 1.691 funciones y revalidar contra las fuentes. El paso 3 sigue abierto. No hubo cambios productivos ni pruebas sobre datos reales.
