@@ -539,6 +539,46 @@ SPECS.extend([
  }
 ])
 
+# Paso 3: Guardar Eventos FREE y VIP por formulario
+for aud,entry,needle,requestLines,createLine,updateLine,kind in [
+  ('AUD-00533',9158,'evf-guardar',[9181,9191],4627,4628,'FREE'),
+  ('AUD-00536',9217,'ev-create',[9253,9287],4622,4623,'VIP')
+]:
+  SPECS.append({
+    'aud':aud,
+    'entry':['plataforma/login.html',entry,needle],
+    'markers':[
+      ['plataforma/login.html',requestLines[0],'events_post'],
+      ['plataforma/login.html',requestLines[1],('createFreeEvent' if kind=='FREE' else 'createVipEvent')],
+      ['plataforma/login.html',3237,'fetch(url'],
+      ['worker/worker206.txt',13126,"path==='/events-new'"],
+      ['worker/worker206.txt',13136,'requirePanel'],
+      ['worker/worker206.txt',4597,'"/events-new"'],
+      ['worker/worker206.txt',createLine,'createEventV3'],
+      ['worker/worker206.txt',updateLine,'updateEventV3'],
+      ['worker/worker206.txt',3500,'async function createEventV3'],
+      ['worker/worker206.txt',3594,'async function updateEventV3'],
+      ['worker/worker206.txt',3583,'db.patch("eventos"'],
+      ['worker/worker206.txt',1483,'cache.put(key3'],
+    ],
+    'include':[],
+    'includeLine':[1414,1422,1423,1467,1473,1479,1483,1485,1492,3507,3583,3618,3631,3639,3671,3674,8473,8476,8478,12906],
+    'includeOwner':['createEventV3','updateEventV3','syncEventV2','getPreparedRelationsV1','putPreparedRelationsV1','validateLocation','replaceProgramacion','quota2'],
+    'excludeMode':'other_worker',
+    'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+    'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+      'plataforma/login.html':[4240,5144,9410],'plataforma/consumo-v44.js':[78],
+      'plataforma/territorio-cache.js':[18,32]},
+    'extra':[
+      ['plataforma/login.html',entry,'alta o edición con controles locales específicos por nivel'],
+      ['plataforma/login.html',requestLines[0],'envío de evento con estado y revisión de formulario'],
+      ['worker/worker206.txt',13136,'sesión autorizada según EVENTOS_FREE/EVENTOS'],
+      ['worker/worker206.txt',3583,'create con idempotencia y control de identificador'],
+      ['worker/worker206.txt',1483,'caché por ciudad sólo cuando cambia la proyección']
+    ],
+    'description':'Guardar evento '+kind+' con ramas de creación y actualización; verificación de cupos, duplicados, permisos y programación, patch condicional y cache por ciudad; 454 candidatos históricos preservados.'
+  })
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
