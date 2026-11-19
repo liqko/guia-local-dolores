@@ -152,3 +152,8 @@ print('PASO3_GRUPOS_32',json.dumps({
       'entrada':actions[aud_list[0]].get('entrada')}
       for signature,aud_list in sorted(clusters.items(),key=lambda kv:(-len(kv[1]),kv[1][0]))]
 },ensure_ascii=False))
+
+# Censo exacto del arranque de Anunciantes AUD-00766.
+for aud in ('AUD-00766',):
+    row=actions[aud]
+    print('PASO3_ARRANQUE_ANUNCIANTES',json.dumps({'AUD':aud,'entrada':row['entrada'],'sitios':[{'id':q['idSitio'],'file':sites[q['idSitio']]['archivo'],'line':sites[q['idSitio']]['linea'],'funcion':sites[q['idSitio']].get('funcion')} for q in row['dependenciasDelArbolSinCadena']]},ensure_ascii=False))
