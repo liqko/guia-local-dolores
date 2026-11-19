@@ -693,3 +693,38 @@ gdata['revisionPadresAlcanzados']={'total':len(parent_attached),
   'porVeredicto':{k:len(v) for k,v in verdicts.items()},
   'casos':[{'veredicto':k,**x} for k,v in verdicts.items() for x in v]}
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+
+# PASO 3: bloqueos compartidos de invocación, sin duplicar 223 inspecciones
+# Para cada nodo con invocadores locales pero sin entrada, remontar las
+# llamadas dentro del subgrafo no alcanzado, conservando ciclos y múltiples
+# posibles raíces, para distinguir causas comunes de casos independientes.
+blocked={r['idAST'] for r in missing_records}
+locally_called=[r['idAST'] for r in missing_records
+                if reverse.get(r['idAST'],set()) and F[r['idAST']].get('parent') not in reached]
+def root_obstacles(fid):
+    todo=[fid];seen_local=set();heads=set()
+    while todo:
+        node=todo.pop()
+        if node in seen_local:continue
+        seen_local.add(node)
+        sources=[x for x in reverse.get(node,()) if x in blocked]
+        if not sources:heads.add(node)
+        else:todo.extend(sources)
+        if len(seen_local)>1691:raise AssertionError('Ciclo de análisis')
+    return heads or {fid}
+clusters=collections.defaultdict(list)
+for fid in locally_called:
+    heads=root_obstacles(fid)
+    key=tuple(sorted(heads))
+    clusters[key].append(fid)
+sizes=sorted(clusters.items(),key=lambda x:-len(x[1]))
+print('PASO3_BLOQUEOS_223',json.dumps({
+    'funcionesConInvocadorLocalNoAlcanzado':len(locally_called),
+    'conjuntosRaizCompartida':len(clusters),
+    'familiasMayores':[{'raices':list(key)[:5],'cantidad':len(members),
+       'muestras':members[:4]} for key,members in sizes[:20]]
+},ensure_ascii=False))
+gdata['bloqueosDeInvocadoresLocales']={
+    'total':len(locally_called),'grupos':len(clusters),
+    'familias':[{'raices':list(k),'miembros':v} for k,v in sizes]}
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
