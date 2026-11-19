@@ -137,19 +137,7 @@ for item in out:
     parent_units|=tree_membership.get(parent_key,set())
     parent_units={u for u in parent_units if u in entry_by_id}
     direct={u for u in direct if u in entry_by_id}
-    m=re.search(r'\.([A-Za-z]+)\s*
-cond_count=sum(x['traza'].get('condicional',False) for x in out)
-chain_states=collections.Counter(x['estadoCadena'] for x in out)
-summary={'revision':gps['revision'],'total':len(out),'acciones_catalogo':len(entries),
-         'entradasAST':len(roots),'aristas_individuales':sum(len(x) for x in incoming.values()),
-         'callbacksConContrato':sum(contract_count.values()),'candidatosLocalNoAsumidos':len(effect_candidates),
-         'resultados':dict(stats),'clasificacionCadenas':dict(chain_states),'cadenasConCondicion':cond_count,
-         'nota':'Se acredita recorrido estático a entrada cuando existe cadena; callbacks y ramas de ejecución siguen condicionados. No equivale a prueba funcional ni de consumo.'}
-(OUT/'CADENAS_PASO3_1691.json').write_text(json.dumps({'resumen':summary,'cadenas':out},ensure_ascii=False,indent=2)+'\n')
-(OUT/'CADENAS_PASO3_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
-print('CADENAS_PASO3',json.dumps(summary,ensure_ascii=False))
-print('EJEMPLOS_CADENAS',json.dumps([x for x in out if x['traza']['resultado']=='cadena_hasta_accion_de_catalogo'][:3],ensure_ascii=False)[:7000])
-,str(activation.get('expr') or ''))
+    m=re.search(r'[.]([A-Za-z]+)$',str(activation.get('expr') or '').strip())
     method=m.group(1) if m else ''
     typ=activation.get('tipo')
     callback_known=(typ=='funcion_pasada_como_argumento' and method in callback_contracts) or (typ=='callback_programado' and method in callback_contracts) or typ=='invocada_en_su_declaracion'
@@ -172,7 +160,7 @@ print('EJEMPLOS_CADENAS',json.dumps([x for x in out if x['traza']['resultado']==
     item['accionesCandidatas']=possible
     item['evidenciaDeEnlace']={'padreAST':parent_key,'pertenenciaPadre':sorted(parent_units),
       'metodoCallback':method if callback_known else None,'tipoActivacion':typ}
-    # Mostrar dependencias del árbol asociadas a las acciones, no atribuidas al callback específico.
+    # Las dependencias de red/datos son del árbol entero, no necesariamente del callback.
     item['accionesContexto']=[{
        'AUD':u,
        'accion':{k:entry_by_id[u]['start'].get(k) for k in ('file','line','kind','label','handler','event','receiver','entry')},
@@ -184,10 +172,11 @@ print('EJEMPLOS_CADENAS',json.dumps([x for x in out if x['traza']['resultado']==
 
 stats=collections.Counter(x['traza']['resultado'] for x in out)
 cond_count=sum(x['traza'].get('condicional',False) for x in out)
+chain_states=collections.Counter(x['estadoCadena'] for x in out)
 summary={'revision':gps['revision'],'total':len(out),'acciones_catalogo':len(entries),
          'entradasAST':len(roots),'aristas_individuales':sum(len(x) for x in incoming.values()),
          'callbacksConContrato':sum(contract_count.values()),'candidatosLocalNoAsumidos':len(effect_candidates),
-         'resultados':dict(stats),'cadenasConCondicion':cond_count,
+         'resultados':dict(stats),'clasificacionCadenas':dict(chain_states),'cadenasConCondicion':cond_count,
          'nota':'Se acredita recorrido estático a entrada cuando existe cadena; callbacks y ramas de ejecución siguen condicionados. No equivale a prueba funcional ni de consumo.'}
 (OUT/'CADENAS_PASO3_1691.json').write_text(json.dumps({'resumen':summary,'cadenas':out},ensure_ascii=False,indent=2)+'\n')
 (OUT/'CADENAS_PASO3_RESUMEN.json').write_text(json.dumps(summary,ensure_ascii=False,indent=2)+'\n')
