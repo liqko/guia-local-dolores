@@ -377,6 +377,50 @@ for f in F.values():
         adj[f['id']][targets[0]]=('llamada_global_unica_verificada',file+':'+str(line))
         direct_global_links.append((f['id'],targets[0],line))
 print('LLAMADAS_GLOBALES_UNICAS_RECUPERADAS',len(direct_global_links))
+# Resolver declaraciones locales por ámbito léxico comprobado.
+# No enlazar por nombre homónimo entre archivos: el destino debe ser una
+# declaración de función única en el ámbito de la función invocadora o uno
+# de sus ancestros. Excluir llamadas por propiedad, constructor y casos
+# con nombre ambiguo en una misma línea.
+local_decl=collections.defaultdict(list)
+for fn in F.values():
+    name=fn['name'];scope=fn.get('parent')
+    if not scope or scope not in F or not name.isidentifier():continue
+    file=fn['file']
+    if file not in src_cache:
+        fp=Path('baseline')/file
+        src_cache[file]=fp.read_text().splitlines() if fp.exists() else []
+    n=fn.get('line')
+    if not isinstance(n,int) or not 1<=n<=len(src_cache[file]):continue
+    decl=src_cache[file][n-1]
+    if not re.search(r'\\b(?:async\\s+)?function\\s+'+re.escape(name)+r'\\s*\\(',decl):continue
+    local_decl[(file,scope,name)].append(fn['id'])
+local_edges=[]
+for caller in F.values():
+    file=caller['file']
+    for call in caller.get('calls',[]):
+        if call.get('to') in F:continue
+        name=call.get('method');line=call.get('line')
+        if not name or not name.isidentifier() or not isinstance(line,int):continue
+        if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+        if not 1<=line<=len(src_cache[file]):continue
+        snippet=src_cache[file][line-1]
+        if not re.search(r'(?<![.\\w$])'+re.escape(name)+r'\\s*\\(',snippet):continue
+        if re.search(r'(?:\\.|\\?\\.)\\s*'+re.escape(name)+r'\\s*\\(',snippet):continue
+        scope=caller['id']
+        for _ in range(80):
+            choices=local_decl.get((file,scope,name),[])
+            if choices:
+                if len(choices)==1:
+                    target=choices[0]
+                    adj[caller['id']][target]=('llamada_lexica_local_comprobada',file+':'+str(line))
+                    local_edges.append((caller['id'],target,file,line))
+                break
+            scope=(F.get(scope) or {}).get('parent')
+            if not scope:break
+print('PASO3_LLAMADAS_LOCALES_AST',json.dumps({'declaracionesUnicas':sum(len(x)==1 for x in local_decl.values()),
+    'enlacesNuevos':len(local_edges),'muestras':local_edges[:15]},ensure_ascii=False))
+
 # Cotejo de las 37 acciones aún no cerradas con el mismo grafo:
 # llegar realmente al dueño AST del sitio, no inferir por coincidir
 # su nombre ("load", "get", etc.). Conserva todas las brechas.
