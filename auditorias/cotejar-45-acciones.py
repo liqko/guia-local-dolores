@@ -622,10 +622,10 @@ for aud,entry,markers,description in [
   ['plataforma/login.html',8650,'async function abrirCuentaAutorizada_'],
   ['plataforma/login.html',8548,"action:'session'"]
  ],'Volver desde alta a la selección de cuenta: si hay sesión, recupera autorizaciones con POST session, y si no, vuelve al login; no envía alta/reclamo ni crea documento.')
-]){
- SPECS.append({aud,entry,markers,include:[],excludeMode:'other_worker',excludeOther:{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},description,
-  extra:[['worker/worker206.txt',5872,'POST /suscriptores seleccionado por action'],['plataforma/login.html',8357,'POST helper de suscriptores']]})
-}
+ ]:
+ SPECS.append({'aud':aud,'entry':entry,'markers':markers,'include':[],'excludeMode':'other_worker','excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},'description':description,
+  'extra':[['worker/worker206.txt',5872,'POST /suscriptores seleccionado por action'],['plataforma/login.html',8357,'POST helper de suscriptores']]})
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
