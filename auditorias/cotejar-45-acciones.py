@@ -396,6 +396,75 @@ for aud,entry,entryNeedle,pauseLine,deleteLine,pauseRoute,deleteRoute,level in [
       'description':'Eventos '+level+': acciones de lista editar en UI, pausar/reanudar y borrar con POST /events-new, guardas de nivel, cupos, recibos/idempotencia, relaciones preparadas y sincronización por ciudad. VIP también permite duplicar en formulario. No se equiparan operaciones de otros módulos.'
     })
 
+# Paso 3: EFEMERIDES y GUARDAR FICHA son acciones distintas
+SPECS.extend([
+ {
+  'aud':'AUD-00499',
+  'entry':['plataforma/login.html',8781,"efemGuardar"],
+  'markers':[
+   ['plataforma/login.html',5831,'async function efemGuardar'],
+   ['plataforma/login.html',5868,"action:'guardar'"],
+   ['plataforma/login.html',3237,'fetch(url'],
+   ['worker/worker206.txt',7022,'"/efemerides"'],
+   ['worker/worker206.txt',7026,'"guardar"'],
+   ['worker/worker206.txt',7029,'verifySubscriberSession'],
+   ['worker/worker206.txt',7037,'efemSaveV3'],
+   ['worker/worker206.txt',6941,'async function efemSaveV3'],
+   ['worker/worker206.txt',6944,'efemerides_bis'],
+   ['worker/worker206.txt',6964,'db.patch("efemerides_bis"'],
+   ['worker/worker206.txt',2277,'cache.put(key3']
+  ],
+  'include':[2270,2274,2277,6944,6964,8473,8476,8478],
+  'includeOwner':['efemSaveV3','syncEfemeridePreparedV2','getPreparedRelationsV1'],
+  'excludeMode':'other_worker',
+  'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],
+    'plataforma/consumo-v44.js':[78],'plataforma/territorio-cache.js':[18,32]},
+  'extra':[
+    ['plataforma/login.html',5831,'validación local de tipo, territorio, fechas, nombre y no-cambios'],
+    ['worker/worker206.txt',7037,'guardar efeméride con permisos y alcance territorial'],
+    ['worker/worker206.txt',6964,'escritura sólo si patch distinto'],
+    ['worker/worker206.txt',2277,'KV para localidades afectadas tras sincronización']
+  ],
+  'description':'Guardar Efemérides: alta o edición con permisos, validación de fecha/territorio, patch opcional y sincronización de copias, sin ejecución funcional.'
+ },
+ {
+  'aud':'AUD-00502',
+  'entry':['plataforma/login.html',8795,"btnGuardarDatosComercio"],
+  'markers':[
+    ['plataforma/login.html',8810,'gldValidarCargaNivel198_'],
+    ['plataforma/login.html',8823,'const hayDatos'],
+    ['plataforma/login.html',8833,"action:'save_ficha'"],
+    ['plataforma/login.html',6172,'async function commerce_post'],
+    ['plataforma/login.html',3237,'fetch(url'],
+    ['worker/worker206.txt',12687,"'save_ficha'"],
+    ['worker/worker206.txt',12692,"guide-save-v132:"],
+    ['worker/worker206.txt',12498,"'save_ficha'"],
+    ['worker/worker206.txt',12517,'stageAdvertiserSaveInternal'],
+    ['worker/worker206.txt',12524,'patchGuideAdvertiserDataFromCacheV2'],
+    ['worker/worker206.txt',12527,'commerceSetSedesV3']
+  ],
+  'include':[4818,4819,4820,4821,4822,4823,4846,4850,4852,
+             6016,6032,6039,6044,6056,6301,6307,6315,6316,6358],
+  'includeOwner':['commerceSetDatosV3','commerceSetSedesV3','patchGuideAdvertiserDataFromCacheV2','patchGuideAdvertiserSedesFromCacheV2','stageAdvertiserSaveInternal'],
+  'excludeMode':'other_worker',
+  'includeOther':{'plataforma/login.html':[3237],'plataforma/publicacion-pedidos.js':[20,21,22]},
+  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13],
+    'plataforma/login.html':[4240,5144,9410],
+    'plataforma/consumo-v44.js':[78],'plataforma/territorio-cache.js':[18,32]},
+  'extra':[
+    ['plataforma/login.html',8823,'se omite POST si datos y sedes no cambiaron'],
+    ['plataforma/login.html',8833,'save_ficha agrupa datos y sedes en un solo POST'],
+    ['worker/worker206.txt',12692,'actor guide-save132 por anunciante y recibo durable'],
+    ['worker/worker206.txt',12517,'stageAdvertiserSaveInternal agrupa cambios fuente'],
+    ['worker/worker206.txt',12524,'proyección guía si datos cambiaron'],
+    ['worker/worker206.txt',12527,'proyección guía si sedes cambiaron']
+  ],
+  'description':'Guardar ficha de Anunciante: datos y sedes en un mismo comando, control de revisiones, etapa atómica y proyecciones actualizadas sólo si cambian. No es acción de Efemérides pese a proximidad de código.'
+ }
+])
+
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
