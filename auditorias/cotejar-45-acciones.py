@@ -676,6 +676,30 @@ SPECS.append({
  'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},
  'description':'Lista Publicidad, acción delegada: duplicar/editar sólo preparación local; pausar/reanudar POST actualizar_activos; eliminar POST eliminar, tras confirmación y verificación de estado; dispatcher Business143 y motor mensual V101. Sin confundirlo con guardar nuevo anuncio.'
 })
+
+# Arranque de panel: evento de bootstrap, no operación de guardado.
+# La restauración sí puede disparar validación de sesión y selección,
+# cuya carga de catálogos es condicional a contar con token y relación.
+SPECS.append({
+ 'aud':'AUD-00490',
+ 'entry':['plataforma/login.html',8373,"document.addEventListener('DOMContentLoaded'"],
+ 'markers':[
+  ['plataforma/login.html',8383,'const rutasDirectas='],
+  ['plataforma/login.html',8699,'async function restaurarSesionSuscriptor_'],
+  ['plataforma/login.html',8752,'window.GLD_ADMIN_PANEL155.ready.then'],
+  ['plataforma/login.html',8765,'}else{'],
+  ['plataforma/login.html',8771,'restaurarSesionSuscriptor_()'],
+  ['plataforma/login.html',8548,"action:'session'"],
+  ['plataforma/login.html',8595,'permisos_panel'],
+  ['worker/worker206.txt',4245,'action === "session"'],
+  ['worker/worker206.txt',6390,'permisos_panel'],
+  ['worker/worker206.txt',6136,'getCommerceCatalogs(cache)']
+ ],
+ 'include':[1753,1755],
+ 'excludeMode':'other_worker',
+ 'excludeOther':{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},
+ 'description':'DOMContentLoaded instala listeners y distingue acceso administrativo, acceso directo y restauración de sesión. Si hay token guardado valida sesión con POST session y puede seleccionar anunciante mediante GET permisos_panel/actor y catálogos. Los handlers instalados no ejecutan sus guardados hasta clic; no atribuir las operaciones históricas de esos módulos al bootstrap.'
+})
 base=Path('baseline')
 src_cache={}
 def match(file,line,needle):
