@@ -58,22 +58,26 @@ for r in pending:
     if parent not in F:continue
     kind=a.get('tipo')
     if kind=='funcion_pasada_como_argumento':
-        expression=str(a.get('expr') or '')
-        m=re.search(r'[.]([A-Za-z]+)\s*$',expression)
-        method=m.group(1) if m else ''
-        if method not in std:
-            # El AST registra ciertas expresiones completas, con callbacks
-            # encadenados y multilínea. Sólo aceptar métodos estándar.
-            candidates=re.findall(r'[.]([A-Za-z]+)\s*\(',expression)
-            method=next((name for name in reversed(candidates) if name in std),'')
-        if method not in std:continue
         if r['archivo'] not in src_cache:
             src_cache[r['archivo']]=(Path('baseline')/r['archivo']).read_text().splitlines()
         lines=src_cache[r['archivo']]
         n=r['linea']
-        fragment='\n'.join(lines[max(0,n-4):min(len(lines),n+4)])
-        if not re.search(r'\.\s*'+re.escape(method)+r'\s*\(',fragment):
-            continue
+        # Un callback multilinea puede declararse muchas lineas despues del
+        # inicio de la llamada. Verificar su localizacion exacta y el sitio de
+        # activacion AST, no depender del final de la expresion.
+        site=a.get('sitio') or ''
+        msite=re.search(r':([0-9]+)$',site)
+        site_line=int(msite.group(1)) if msite else n
+        local='\n'.join(lines[max(0,n-3):min(len(lines),n+4)])
+        invocation='\n'.join(lines[max(0,site_line-3):min(len(lines),site_line+4)])
+        expression=str(a.get('expr') or '')
+        candidates=set(re.findall(r'[.]([A-Za-z]+)\s*\(',expression))
+        candidates|=set(re.findall(r'[.]([A-Za-z]+)\s*\(',local))
+        candidates|=set(re.findall(r'[.]([A-Za-z]+)\s*\(',invocation))
+        valid=[method for method in sorted(candidates) if method in std and
+               (re.search(r'[.]\s*'+re.escape(method)+r'\s*\(',local) or
+                re.search(r'[.]\s*'+re.escape(method)+r'\s*\(',invocation))]
+        if not valid:continue
         adj[parent][node[0]]=('callback_estandar_condicionado',a.get('sitio'))
         callbacks_verified+=1
     elif kind=='callback_programado':
