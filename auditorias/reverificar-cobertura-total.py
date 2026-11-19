@@ -132,7 +132,7 @@ for srcrow in rows:
 def resolve_node(raw):
     if not raw or not isinstance(raw,str):return None
     # 'plataforma/a.html:30:8120:callback@30' y el GPS largo tienen la misma identidad AST
-    m=re.match(r'^(.*?:\\d+:\\d+):',raw)
+    m=re.match(r'^(.*?:\d+:\d+):',raw)
     return by_position.get(m.group(1)) if m else None
 incoming=collections.defaultdict(list)
 raw_edges=0
