@@ -605,22 +605,22 @@ SPECS.append({
 # candidatas que el grafo agrupó indiscriminadamente por DOMContentLoaded.
 for aud,entry,markers,description in [
  ('AUD-00537',['plataforma/login.html',9476,"document.getElementById('login-form').onsubmit"],[
-  ['plataforma/login.html',9488,"action:'login'"],
+  ['plataforma/login.html',9489,"action:'login'"],
   ['plataforma/login.html',8357,'async function apiSuscriptores_'],
   ['worker/worker206.txt',5872,'action === "login"'],
   ['worker/worker206.txt',5607,'async function subscriberLoginV2'],
   ['worker/worker206.txt',5611,'db.loginAccount'],
-  ['worker/worker206.txt',5645,'db.loginAuthorizationBundle161']
+  ['worker/worker206.txt',5647,'db.loginAuthorizationBundle161']
  ],'Ingreso cuenta personal: POST /suscriptores action login, autenticación de cuenta, consulta de relaciones autorizadas y token; no usa la función antigua subscriberLogin ni realiza operaciones publicitarias/de módulos. La lectura real de cuenta vía helper es distinta de las 493 candidatas de otros recorridos.'),
  ('AUD-00492',['plataforma/login.html',8731,"retry.addEventListener('click',restaurarSesionSuscriptor_)"],[
   ['plataforma/login.html',8699,'async function restaurarSesionSuscriptor_'],
-  ['plataforma/login.html',8657,'obtenerAutorizaciones_()'],
-  ['plataforma/login.html',8546,"action:'session'"]
+  ['plataforma/login.html',8656,'obtenerAutorizaciones_()'],
+  ['plataforma/login.html',8548,"action:'session'"]
  ],'Reintentar recuperación: usa token y sesión local, POST /suscriptores action session vía obtenerAutorizaciones_; sólo reintenta validación, no ejecuta login con clave ni módulos de edición.'),
  ('AUD-00547',['plataforma/login.html',9578,"btnVolverDesdeAltaAnunciante"],[
   ['plataforma/login.html',9579,"abrirCuentaAutorizada_({autoAbrir:false})"],
   ['plataforma/login.html',8650,'async function abrirCuentaAutorizada_'],
-  ['plataforma/login.html',8546,"action:'session'"]
+  ['plataforma/login.html',8548,"action:'session'"]
  ],'Volver desde alta a la selección de cuenta: si hay sesión, recupera autorizaciones con POST session, y si no, vuelve al login; no envía alta/reclamo ni crea documento.')
 ]){
  SPECS.append({aud,entry,markers,include:[],excludeMode:'other_worker',excludeOther:{'plataforma/administracion.html':[536],'plataforma/gh-promos.js':[13]},description,
