@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {generarSeoPublico} from '../scripts/generar-seo-publico.mjs';
+import {generarSeoPublico} from '../plataforma/seo-generador.mjs';
 
 test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', async()=>{
   const root=await mkdtemp(join(tmpdir(),'gld-seo-'));
