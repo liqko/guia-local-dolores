@@ -147,6 +147,15 @@ for srcrow in rows:
             if item not in incoming[after]:incoming[after].append(item)
         else:
             unresolved_edges.append({'desde':edge.get('desde'),'hacia':edge.get('hacia'),'sitio':edge.get('sitio')})
+from collections import Counter
+edge_gap_types=Counter()
+edge_gap_samples={}
+for item in unresolved_edges:
+    a=resolve_node(item.get('desde'));b=resolve_node(item.get('hacia'))
+    kind=('sin_origen' if not a else 'sin_destino' if not b else 'ambos_presentes')
+    edge_gap_types[kind]+=1
+    edge_gap_samples.setdefault(kind,item)
+print('EXTREMOS_EXTERNOS',json.dumps({'tipos':dict(edge_gap_types),'ejemplos':edge_gap_samples},ensure_ascii=False)[:3200])
 anchors={}
 for nid,srcrow in all_nodes.items():
     # El anclaje directo proviene de la identidad exacta (NO de unidadesDelPadre).
