@@ -543,3 +543,28 @@ summary={'revision':coverage['revision'],'catalogo':len(catalog['entries']),
          'limitacion':'Traza estática a AUD o inicio de script inequívoco, categorías separadas; no prueba ejecución de callbacks ni carga real del módulo.'}
 (OUT/'GRAFO_COMPLETO_1691.json').write_text(json.dumps({'resumen':summary,'funciones':records},ensure_ascii=False,indent=2)+'\n')
 print('GRAFO_COMPLETO_1691',json.dumps(summary,ensure_ascii=False))
+
+# Diagnóstico transversal de las 583 funciones sin enlace de entrada
+missing_records=[r for r in records if r['estado']=='falta_enlace_a_entrada']
+assert len(missing_records)==583
+reverse=collections.defaultdict(set)
+for source,targets in adj.items():
+    for target in targets:
+        if target in F:reverse[target].add(source)
+reached=set(seen)|set(startup_predecessor)|set(worker_reach)
+missing_groups=collections.defaultdict(list)
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];parent=fn.get('parent');ins=reverse.get(fid,set())
+    if parent in reached:
+        reason='padre_con_entrada_sin_callback_comprobado'
+    elif ins:
+        reason='invocadores_locales_sin_entrada'
+    elif parent and parent in F:
+        reason='anidada_en_cierre_sin_entrada'
+    elif parent:
+        reason='padre_sin_identidad_ast'
+    else:
+        reason='global_sin_invocador_comprobado'
+    missing_groups[reason].append((rec,fn,len(ins)))
+assert sum(map(len,missing_groups.values()))==583
+print('PASO3_583_CAUSAS',json.dumps({'total':583,'porCausa':{k:len(v) for k,v in missing_groups.items()},'porArchivo':dict(collections.Counter(F[r['idAST']]['file'] for r in missing_records)),'muestras':{k:[{'id':x['idAST'],'line':fn.get('line'),'activacion':(x.get('activacion') or {}).get('tipo'),'invocadoresAST':degree} for x,fn,degree in v[:12]] for k,v in missing_groups.items()}},ensure_ascii=False))
