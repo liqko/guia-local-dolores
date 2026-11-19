@@ -454,14 +454,15 @@ print('PASO3_LLAMADAS_LOCALES_AST',json.dumps({'declaracionesUnicas':sum(len(x)=
 # Censo de referencias a funciones nominales como callback de colecciones
 # Inspección: no agregar aristas hasta cotejar dueño AST, método y ámbito.
 nominal_candidates=[]
-for fn in F.values():
+for rec in missing_records:
+    fn=F[rec['idAST']]
     name=fn['name']
     if not name.isidentifier() or name.startswith('callback@'):continue
     file=fn['file']
     if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
     lines=src_cache[file]
     for n,line in enumerate(lines,1):
-        if n==fn['line']:continue
+        if n==fn['line'] or name not in line:continue
         for method in ('map','filter','flatMap','forEach','some','every','find','sort','then','catch','finally'):
             if re.search(r'\\.\\s*'+method+r'\\s*\\(\\s*'+re.escape(name)+r'\\s*\\)',line):
                 owners=[x['id'] for x in F.values() if x['file']==file and any(c.get('line')==n and c.get('method')==method for c in x.get('calls',[]))]
