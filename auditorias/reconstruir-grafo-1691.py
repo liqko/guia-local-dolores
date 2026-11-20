@@ -1264,7 +1264,7 @@ for file,decl_line,method,call_sites in [
     assert owner in F,(file,target_name,owner)
     src=(Path('baseline')/file).read_text().splitlines()
     for call_site in call_sites:
-        assert re.search(r'\\.'+method+r'\\(\\s*'+target_name+r'\\s*\\)',src[call_site-1]),(file,call_site)
+        assert re.search(r'\.'+method+r'\(\s*'+target_name+r'\s*\)',src[call_site-1]),(file,call_site)
     adj[owner][target]=('callback_nominal_coleccion_mismo_cierre',';'.join(file+':'+str(x) for x in call_sites))
 print('SORT_MAP_NOMINAL_CALLBACKS_VERIFIED',2)
 
