@@ -2273,3 +2273,29 @@ print('PASO3_MIEMBROS_CIERRES_SIN_ENTRADA',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':member_closed,
     'limitacion':'La declaración y el padre AST son verificables. La entrada del padre y la activación de sus miembros no lo son.'},ensure_ascii=False))
+
+# Diagnóstico exhaustivo de los no clasificados, sin restarlos.
+remaining_unclassified=[r for r in missing_records if r['idAST'] not in
+    classified_prior|member_closed_ids]
+remaining_details=[]
+for rec in remaining_unclassified:
+    fn=F[rec['idAST']]
+    parent=fn.get('parent')
+    local_inv=sorted(reverse.get(rec['idAST'],set()))
+    remaining_details.append({'idAST':rec['idAST'],'archivo':fn['file'],
+        'linea':fn['line'],'nombre':fn['name'],
+        'activacion':(rec.get('activacion') or {}).get('tipo') or 'sin_tipo',
+        'padre':parent,'padreAlcanzable':parent in reached,
+        'cantidadInvocadoresLocales':len(local_inv),
+        'tipoBloqueo':('padre_alcanzable' if parent in reached else
+            'invocadores_no_alcanzados' if local_inv else
+            'anidada_sin_invocador' if parent in F else 'global_sin_invocador')})
+assert len(remaining_details)==gdata['resumen']['aunSinClasificacionFuente']
+gdata['pendientesFuenteDetallados']=remaining_details
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_PENDIENTES_138_DETALLE',json.dumps({
+    'total':len(remaining_details),
+    'porArchivo':dict(collections.Counter(z['archivo'] for z in remaining_details)),
+    'porBloqueo':dict(collections.Counter(z['tipoBloqueo'] for z in remaining_details)),
+    'porActivacion':dict(collections.Counter(z['activacion'] for z in remaining_details)),
+    'filas':remaining_details},ensure_ascii=False))
