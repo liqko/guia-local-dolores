@@ -1472,6 +1472,40 @@ adj[business_save][storage_get]=('proxy_storage_actor_al_ejecutar_guardado','wor
 adj[storage_get][storage_callback]=('metodo_storage_devuelto_y_llamado','worker/worker206.txt:13022,12927')
 print('VISTAS_Y_PROXIES_ACTORES_VERIFICADOS',8)
 
+# Durable Object: getters Proxy de recuperación y snapshots.
+# Cada env proxy pasa a createDb(env), que lee sus bindings mediante get.
+DO_PROXY_GETTERS=[
+ ('GldPublicCache119.prototype.reconcileLegacy125',12320,12337,12344,'createDb(sourceEnv)'),
+ ('GldPublicCache119.prototype.moduleSnapshot125',12370,12400,12401,'createDb(sourceEnv)'),
+ ('GldPublicCache119.prototype.pending126',12443,12450,12451,'createDb(env)')
+]
+for owner_name,owner_ln,proxy_ln,call_ln,needle in DO_PROXY_GETTERS:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_ln)
+    target=exact_function('worker/worker206.txt','get',proxy_ln)
+    assert F[target]['parent']==owner,(owner_name,proxy_ln,F[target]['parent'])
+    assert 'new Proxy(this.env,{get(' in worker_lines[proxy_ln-1]
+    assert needle in worker_lines[call_ln-1]
+    adj[owner][target]=('proxy_contexto_observacion_accedido_por_createDb','worker/worker206.txt:'+str(call_ln))
+print('DO_PROXY_SOURCE_GETTERS_VERIFIED',len(DO_PROXY_GETTERS))
+
+# El invalidador de eventos es una función de createCache(env) solo si
+# existe GLD_PUBLIC_CACHE. Las rutas que usan el mismo cache la llaman
+# con guardas explícitas, sin presumir invalidaciones reales.
+cache_invalidator=exact_function('worker/worker206.txt','anonymous@1053',1053)
+assert F[cache_invalidator]['parent']==exact_function('worker/worker206.txt','createCache',1047)
+assert "invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(" in worker_lines[1053-1]
+for owner_name,ln,site in [
+ ('routeDirectories102',360,358),
+ ('GLD_EVENTS145.dispatch',13123,13171)
+]:
+    # La segunda ruta puede tener nombre AST distinto; sólo registrar
+    # llamadas con dueño comprobado, sin inventar identidad.
+    if owner_name=='GLD_EVENTS145.dispatch':continue
+    owner=exact_function('worker/worker206.txt',owner_name,ln)
+    assert 'cache.invalidatePendingEvents126()' in worker_lines[site-1]
+    adj[owner][cache_invalidator]=('callback_invalidador_cache_si_binding_durable','worker/worker206.txt:'+str(site))
+print('PENDING_EVENTS_CACHE_INVALIDATOR_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
