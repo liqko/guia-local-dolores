@@ -560,6 +560,32 @@ print('PASO3_ACTOR_THIS_TIPADO',json.dumps({'vinculos':len(typed_this_links),
     'ejemplos':typed_this_links[:30],
     'metodo':'receptor exacto this, llamada AST con línea en mismo prototype',
     'condicional':True},ensure_ascii=False))
+
+# Los wrappers de escritura journalDb retornan objetos con métodos de
+# persistencia; esos métodos llaman al actor vía un receptor verificado.
+# El enlace es POTENCIAL/CONDICIONAL: construir el wrapper no escribe.
+guide_wrapper='worker/worker206.txt:12700:'
+biz_wrapper='worker/worker206.txt:12911:'
+guide_ids=[f['id'] for f in F.values() if f['file']=='worker/worker206.txt' and f['name']=='guideJournalDb132' and f['line']==12700]
+biz_ids=[f['id'] for f in F.values() if f['file']=='worker/worker206.txt' and f['name']=='journal' and f['line']==12911]
+assert len(guide_ids)==len(biz_ids)==1
+guide_target='GldPublicCache119.prototype.beginGuide132'
+biz_target='GldPublicCache119.prototype.beginBusiness143'
+actor_names={f['name']:f['id'] for f in F.values() if f['file']=='worker/worker206.txt' and f['name'].startswith('GldPublicCache119.prototype.')}
+assert guide_target in actor_names and biz_target in actor_names
+assert "const begin=entries=>actor.beginGuide132(" in worker_lines[12703-1]
+assert "GLD_BUSINESS143.journal(guideJournalDb132(db,env),env)" in worker_lines[13209-1]
+assert "actor.beginBusiness143(" in worker_lines[12914-1]
+assert "actor.beginBusiness143(" in worker_lines[12915-1]
+assert "actor.beginBusiness143(" in worker_lines[12916-1]
+assert "key==='__gldBusinessActor143'?this" in worker_lines[13011-1]
+assert "key==='__gldGuideActor132'?this" in worker_lines[12788-1]
+for from_id,target in [(guide_ids[0],guide_target),(biz_ids[0],biz_target)]:
+    adj[from_id][actor_names[target]]=('wrapper_de_escritura_expuesto_con_actor_tipado_condicional','worker/worker206.txt:12703,12914-12916')
+print('PASO3_JOURNALS_ACTOR_TIPADOS',json.dumps({
+ 'wrappers':[guide_ids[0],biz_ids[0]],
+ 'destinos':[actor_names[guide_target],actor_names[biz_target]],
+ 'nota':'Métodos retornados invocados únicamente si se realiza operación; no se infiere escritura por la construcción del wrapper'},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
