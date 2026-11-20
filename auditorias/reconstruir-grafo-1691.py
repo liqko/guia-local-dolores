@@ -2083,7 +2083,7 @@ for rec in worker_missing:
         fn.get('parent') in reached or not reverse.get(fid)):
         continue
     line=worker_lines[fn['line']-1]
-    methods=sorted(set(re.findall(r'\\.(map|flatMap|filter|some|every|find|findIndex|sort|forEach|then|catch|finally)\\s*\\(',line)))
+    methods=sorted(set(re.findall(r'\.(map|flatMap|filter|some|every|find|findIndex|sort|forEach|then|catch|finally)\s*\(',line)))
     if not methods:
         continue
     # El grafo AST ya acredita la propiedad parent y el vínculo local reverse;
@@ -2103,7 +2103,7 @@ gdata['resumen']['callbacksWorkerFuenteClasificados']=len(new_worker_classified)
 gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
     verified_unreferenced|source_unreferenced_ids|orphan_family_members|
     {y['idAST'] for y in shadowed}|new_worker_classified)
-gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\\n')
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 print('PASO3_WORKER_CALLBACKS_CLASIFICADOS',json.dumps({
     'cantidad':len(new_worker_classified),
     'funcionesSinEntradaBrutas':len(missing_records),
