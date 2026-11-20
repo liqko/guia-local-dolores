@@ -2425,3 +2425,45 @@ print('PASO3_CONTRATOS_LOCALES',json.dumps({
  'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
  'casos':standard_contract_unreached,
  'limitacion':'Contrato estándar de callback visible en el código. No acredita la cadena de inicio ni ejecución en producción.'},ensure_ascii=False))
+
+# Funciones locales dentro de padres alcanzados, sin referencia textual
+# fuera de la declaración en su archivo: se mantiene explícito que
+# sus padres sí se ejecutan potencialmente y no se descarta acceso dinámico.
+nested_single_reference=[]
+already_nested=already_standard|standard_contract_ids
+nested_candidates={}
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name'];file=fn['file']
+    if (fid in already_nested or fn.get('parent') not in reached or
+        not name.isidentifier() or len(name)<3 or reverse.get(fid)):
+        continue
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    if re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',line):
+        nested_candidates[fid]=(file,name)
+file_by_name=collections.defaultdict(set)
+for fid,(file,name) in nested_candidates.items():
+    file_by_name[file].add(name)
+file_counts={}
+for file,names in file_by_name.items():
+    pat=re.compile(r'\b(?:'+'|'.join(re.escape(n) for n in sorted(names,key=len,reverse=True))+r')\b')
+    file_counts[file]=collections.Counter(m.group() for m in pat.finditer((Path('baseline')/file).read_text()))
+for fid,(file,name) in nested_candidates.items():
+    if file_counts[file][name]==1:
+        nested_single_reference.append({'idAST':fid,'archivo':file,'linea':F[fid]['line'],
+         'nombre':name,'padreAlcanzado':F[fid]['parent'],'referenciasEnArchivo':1})
+nested_single_ids={x['idAST'] for x in nested_single_reference}
+assert len(nested_single_ids)==len(nested_single_reference)
+for row in gdata['funciones']:
+    if row['idAST'] in nested_single_ids:
+        row['evaluacionFuente']='declaracion_anidada_padre_alcanzado_sin_consumidor_textual_local'
+gdata['declaracionesAnidadasSinConsumidorLocal']=nested_single_reference
+gdata['resumen']['declaracionesAnidadasSinConsumidorLocal']=len(nested_single_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(already_nested|nested_single_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_ANIDADAS_SIN_CONSUMIDOR_LOCAL',json.dumps({
+    'nuevas':len(nested_single_ids),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':nested_single_reference,
+    'limitacion':'Padre alcanzado, pero ausencia textual local de consumidor. No descarta referencias externas ni indica ejecución o desuso.'},ensure_ascii=False))
