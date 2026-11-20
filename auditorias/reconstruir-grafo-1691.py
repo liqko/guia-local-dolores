@@ -936,6 +936,26 @@ for p_name,p_line,inner_name,inner_line,site,needle in DB_PRIVATE_REQUEST:
     db_private_links.append((p_name,site,inner_line))
 print('REQUESTDB119_WRAPPER_LINKS_VERIFIED',json.dumps(db_private_links))
 
+# Segunda capa debajo de requestDb119: roleSourceDb192 despacha
+# solamente colecciones privadas al actor; el resto sigue hacia observeDbV41.
+assert 'requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report)' in worker_lines[13208-1]
+ROLE_REQUEST_DB_EDGES=[
+ ('patch',12314,'patch',9036,12314,'db.patch(c,id,patch,options)'),
+ ('delete',12315,'delete',9037,12315,'db.delete(c,id,options)'),
+ ('commitPatches',12316,'commitPatches',9038,12316,'db.commitPatches(entries)')
+]
+role_request_edges=[]
+for outer,outer_line,inner,inner_line,site,needle in ROLE_REQUEST_DB_EDGES:
+    source=exact_function('worker/worker206.txt',outer,outer_line)
+    dest=exact_function('worker/worker206.txt',inner,inner_line)
+    assert needle in worker_lines[site-1]
+    assert 'ROLE_SOURCE192.has' in worker_lines[inner_line-1]
+    assert F[source]['parent']==exact_function('worker/worker206.txt','requestDb119',12296)
+    assert F[dest]['parent']==exact_function('worker/worker206.txt','roleSourceDb192',9035)
+    adj[source][dest]=('requestDb119_a_roleSourceDb192_condicionada_por_coleccion','worker/worker206.txt:'+str(site))
+    role_request_edges.append((outer,site,inner_line))
+print('ROLE_SOURCE_WRAPPER_LINKS_VERIFIED',json.dumps(role_request_edges))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
