@@ -997,12 +997,12 @@ for method,line in OBS_NATIVE_OPERATIONS:
     assert F[target]['parent']==native_db
     adj[obs_dispatch][target]=('observador_operacion_tipado_por_clave','worker/worker206.txt:9847-9856')
     obs_native_pairs.append((method,line))
-commit_native=exact_function('worker/worker206.txt','commitPatches',905)
+commit_native=exact_function('worker/worker206.txt','commitPatches',901)
 obs_commit=exact_function('worker/worker206.txt','observed.commitPatches',9869)
 assert 'db.commitPatches(entries)' in worker_lines[9871-1]
 assert F[commit_native]['parent']==native_db
 adj[obs_commit][commit_native]=('observador_commitPatches_especifico','worker/worker206.txt:9871')
-print('OBSERVE_NATIVE_METHODS_VERIFIED',json.dumps(obs_native_pairs+ [('commitPatches',905)]))
+print('OBSERVE_NATIVE_METHODS_VERIFIED',json.dumps(obs_native_pairs+ [('commitPatches',901)]))
 
 seen={}
 while queue:
