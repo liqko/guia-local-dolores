@@ -2092,9 +2092,8 @@ for rec in worker_missing:
         'padre':fn.get('parent'),'metodosEnLinea':methods,
         'clase':'callback_coleccion_o_promesa_con_invocador_sin_entrada'})
 assert len({r['idAST'] for r in worker_callbacks_source})==len(worker_callbacks_source)
-assert all(x['idAST'] not in known_source_exceptions|orphan_family_members|{y['idAST'] for y in shadowed}
-           for x in worker_callbacks_source)
-new_worker_classified={x['idAST'] for x in worker_callbacks_source}
+already_classified_worker=known_source_exceptions|orphan_family_members|{y['idAST'] for y in shadowed}
+new_worker_classified={x['idAST'] for x in worker_callbacks_source}-already_classified_worker
 for row in gdata['funciones']:
     if row['idAST'] in new_worker_classified:
         row['evaluacionFuente']='callback_coleccion_o_promesa_con_invocador_sin_entrada'
@@ -2105,7 +2104,7 @@ gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
     {y['idAST'] for y in shadowed}|new_worker_classified)
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 print('PASO3_WORKER_CALLBACKS_CLASIFICADOS',json.dumps({
-    'cantidad':len(new_worker_classified),
+    'candidatosTotales':len(worker_callbacks_source),\n    'solapadosConClasificacionesPrevias':len(worker_callbacks_source)-len(new_worker_classified),\n    'cantidad':len(new_worker_classified),
     'funcionesSinEntradaBrutas':len(missing_records),
     'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
     'aunSinClasificacionFuente':gdata['resumen']['aunSinClasificacionFuente'],
