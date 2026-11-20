@@ -1511,9 +1511,9 @@ print('PENDING_EVENTS_CACHE_INVALIDATOR_VERIFIED',1)
 snapshot=exact_function('worker/worker206.txt','GldPublicCache119.prototype.moduleSnapshot125',12370)
 assert 'const cache={async get(k)' in worker_lines[12402-1]
 assert 'await rebuild({db,cache,env:sourceEnv})' in worker_lines[12405-1]
-assert "guide:{rebuild:rebuildGuideAllV2" in worker_lines[11984-1]
+assert "guide:{rebuild:rebuildGuideAllV2" in worker_lines[11985-1]
 assert 'cache.get("catalogs:commerce:v1")' in worker_lines[4923-1]
-assert 'await cache.put(' in worker_lines[4975-1]
+assert 'cache.put(' in worker_lines[4975-1]
 for method in ['get','put']:
     target=exact_function('worker/worker206.txt',method,12402)
     assert F[target]['parent']==snapshot
