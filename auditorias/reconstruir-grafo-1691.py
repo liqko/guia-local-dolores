@@ -2193,3 +2193,39 @@ print('PASO3_UI_CALLBACKS_FUENTE',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':ui_callback_candidates,
     'limitacion':'El callback y el invocador local están en fuente; permanece no probada la cadena hasta entrada y el tipo receptor en ejecución.'},ensure_ascii=False))
+
+# Distinguir exportaciones explícitas al objeto global de funciones
+# nominales inalcanzables. La exportación es verificable, pero un
+# consumidor externo / ejecución no se deduce de ella.
+exported_missing=[]
+already_classified_exports=already_classified_ui|ui_callback_ids
+export_pattern=re.compile(r'\b(?:window|globalThis|self)\.([A-Za-z_$][\w$]*)\s*=')
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name'];file=fn['file']
+    if fid in already_classified_exports or file.startswith('worker/'):continue
+    p=re.fullmatch(r'(window|globalThis|self)\.([A-Za-z_$][\w$]*)',name)
+    if not p:continue
+    if file not in src_cache:
+        src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    if not export_pattern.search(line):continue
+    exported_missing.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+        'exportacion':name,'referenciasTextualesEnLinea':line.count(name),
+        'categoria':'exportacion_global_con_activacion_externa_no_comprobada'})
+exported_missing_ids={r['idAST'] for r in exported_missing}
+assert len(exported_missing_ids)==len(exported_missing)
+for row in gdata['funciones']:
+    if row['idAST'] in exported_missing_ids:
+        row['evaluacionFuente']='exportacion_global_sin_activacion_externa_probada'
+gdata['exportacionesGlobalesSinActivacionExterna']=exported_missing
+gdata['resumen']['exportacionesGlobalesFuenteClasificadas']=len(exported_missing_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
+    already_classified_exports|exported_missing_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_EXPORTACIONES_GLOBALES_FUENTE',json.dumps({
+    'nuevas':len(exported_missing_ids),
+    'porArchivo':dict(collections.Counter(r['archivo'] for r in exported_missing)),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':exported_missing,
+    'limitacion':'Asignación global verificada, consumidor externo e invocación real no demostrados. No catalogar como código muerto.'},ensure_ascii=False))
