@@ -692,7 +692,7 @@ assert "db.patch('solicitudes_anunciante',id" in worker_lines[10941-1]
 assert "db.patch('anunciantes',aid" in worker_lines[11019-1]
 assert "db.patch('anunciantes_administracion',aid" in worker_lines[11020-1]
 publication_links=[]
-for method,ln in [('getVersioned',922),('get',10410),('patch',10412)]:
+for method,ln in [('getVersioned',12312),('get',10410),('patch',10412)]:
     target=exact_function('worker/worker206.txt',method,ln)
     adj[publication_route][target]=('ctx_db_compuesto_publicaciones_guardado_por_subruta','worker/worker206.txt:10902-11024')
     publication_links.append(target)
