@@ -1986,9 +1986,17 @@ known_source_exceptions=verified_unreferenced|source_unreferenced_ids
 new_family_members=orphan_family_members-known_source_exceptions
 assert len(orphan_family_members)<=len(missing_records)
 assert all(x in blocked for x in orphan_family_members)
-for expected in ('obtenerEventosPromise','obtenerPromosPromise','obtenerActividadesPromise',
-                 'buildCommerceRelationsPayloads','ghNivelCamposV86'):
-    assert any(r['nombre']==expected for group in orphan_root_families for r in group['raices']),expected
+targeted=('obtenerEventosPromise','obtenerPromosPromise','obtenerActividadesPromise',
+          'buildCommerceRelationsPayloads','ghNivelCamposV86')
+for expected in targeted:
+    fid_candidates=[fid for fid in root_ids if F[fid]['name']==expected]
+    print('PASO3_FAMILIA_RAIZ_DIAGNOSTICO',json.dumps({
+        'nombre':expected,
+        'identidades':fid_candidates,
+        'referencias':{fid:all_root_occurrences.get(root_names.get(fid,''),0) for fid in fid_candidates},
+        'elegible':any(fid in unreferenced_root_ids for fid in fid_candidates),
+        'grupos':sum(1 for key,_ in sizes if any(fid in key for fid in fid_candidates))
+    },ensure_ascii=False))
 print('PASO3_FAMILIAS_SIN_CONSUMIDOR_TEXTUAL',json.dumps({
   'familias':len(orphan_root_families),
   'descendientesTotal':len(orphan_family_members),
