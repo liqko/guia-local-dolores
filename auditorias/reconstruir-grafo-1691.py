@@ -1506,6 +1506,56 @@ for owner_name,ln,site in [
     adj[owner][cache_invalidator]=('callback_invalidador_cache_si_binding_durable','worker/worker206.txt:'+str(site))
 print('PENDING_EVENTS_CACHE_INVALIDATOR_VERIFIED',1)
 
+# Snapshot de migración: el módulo se elige por spec.store.module y
+# usa cache.get/put locales, no KV global. Guía demuestra ambos métodos.
+snapshot=exact_function('worker/worker206.txt','GldPublicCache119.prototype.moduleSnapshot125',12370)
+assert 'const cache={async get(k)' in worker_lines[12402-1]
+assert 'await rebuild({db,cache,env:sourceEnv})' in worker_lines[12405-1]
+assert "guide:{rebuild:rebuildGuideAllV2" in worker_lines[11984-1]
+assert 'cache.get("catalogs:commerce:v1")' in worker_lines[4923-1]
+assert 'await cache.put(' in worker_lines[4975-1]
+for method in ['get','put']:
+    target=exact_function('worker/worker206.txt',method,12402)
+    assert F[target]['parent']==snapshot
+    adj[snapshot][target]=('cache_snapshot_rebuild_guia_recibe_objeto_local','worker/worker206.txt:11984,12402,12405,4923,4975')
+print('SNAPSHOT_CANONICAL_CACHE_VERIFIED',2)
+
+# El actor de roles usa source=sourceFactory() o createDb(env). La
+# segunda rama lee los bindings del Proxy de informe de request.
+roles_fetch=exact_function('worker/worker206.txt','fetch',9009)
+roles_env_get=exact_function('worker/worker206.txt','get',9012)
+assert F[roles_env_get]['parent']==roles_fetch
+assert 'new Proxy(this.env,{get:' in worker_lines[9012-1]
+assert 'this.sourceFactory?this.sourceFactory():createDb(env)' in worker_lines[9014-1]
+adj[roles_fetch][roles_env_get]=('roles_actor_proxy_request_report_si_createDb','worker/worker206.txt:9012,9014')
+
+# El cierre de la cola de solicitudes de DO almacena release como
+# lambda en el constructor Promise y la invoca en finally del mismo
+# método, después de la asignación sincrónica del executor Promise.
+for owner_name,owner_ln,release_ln,call_ln in [
+ ('fetch',11964,11969,11971),
+ ('GldPublicCache119.prototype.alarm',12799,12802,12820)
+]:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_ln)
+    release=exact_function('worker/worker206.txt','release',release_ln)
+    assert 'release=()=>resolve(undefined)' in worker_lines[release_ln-1]
+    assert 'finally{release();}' in worker_lines[call_ln-1]
+    adj[owner][release]=('promise_release_cola_durable_al_finalizar','worker/worker206.txt:'+str(call_ln))
+print('DURABLE_QUEUE_RELEASE_VERIFIED',2)
+
+# La vista creada para el alta del anunciante modifica sólo queryEqual
+# de sedes y es enviada a dos funciones que consultan exactamente eso.
+publish_route=exact_function('worker/worker206.txt','routePublicationsV77',10890)
+created_query=exact_function('worker/worker206.txt','queryEqual',11025)
+assert F[created_query]['parent']==publish_route
+assert "const createdDb={...db,queryEqual:" in worker_lines[11025-1]
+assert 'syncGuideAdvertiserV2({db:createdDb' in worker_lines[11026-1]
+assert 'syncAdvertiserIndexV2({db:createdDb' in worker_lines[11027-1]
+assert 'db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500)' in worker_lines[4820-1]
+assert 'db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500)' in worker_lines[5064-1]
+adj[publish_route][created_query]=('vista_consulta_sedes_de_alta_publicacion','worker/worker206.txt:11025-11027,4820,5064')
+print('CREATED_ADVERTISER_VIEW_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
