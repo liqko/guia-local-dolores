@@ -230,6 +230,28 @@ for method in sorted(set(re.findall(r'\bthis\.([A-Za-z_$][\w$]*)\s*\(',actor_sou
 assert 'businessSave143' in actor_resolved and 'guideSave132' in actor_resolved
 print('DESPACHOS_DO_RECONSTRUIDOS',json.dumps(actor_resolved))
 
+# Constructores realmente invocados por new en el dispatcher de DO.
+ctor_classes={
+ 'AccessRecord201':'worker/worker206.txt:2648:171575:anonymous@2648',
+ 'PrivateDaily195':'worker/worker206.txt:11223:691375:anonymous@11223',
+ 'PrivateRoles192':'worker/worker206.txt:8946:515144:anonymous@8946'}
+for name,ctor in ctor_classes.items():
+    assert ctor in F and 'constructor(' in worker_lines[F[ctor]['line']-1]
+    assert 'new '+name+'(' in worker_lines[11976-1]
+    adj[actor_dispatch][ctor]=('instanciacion_clase_condicionada_por_op','worker/worker206.txt:11976')
+# Coordinador de alarmas: se crea bajo la guarda de acción pendiente.
+alarm_handlers=[x['id'] for x in F.values() if x['file']=='worker/worker206.txt'
+    and x['name']=='GldPublicCache119.prototype.alarm']
+assert len(alarm_handlers)==1,alarm_handlers
+ctor_coordinator='worker/worker206.txt:147:10062:anonymous@147'
+assert ctor_coordinator in F
+assert 'class Coordinator' in worker_lines[146-1]
+assert 'new GLD_ACTIONS138.Coordinator(' in worker_lines[12809-1]
+adj[alarm_handlers[0]][ctor_coordinator]=('instanciacion_coordinador_alarma_condicionada','worker/worker206.txt:12809')
+print('PASO3_CONSTRUCTORES_ENLAZADOS',json.dumps({
+    'aristas':4,'tresDO':list(ctor_classes),'coordinador':'Coordinator',
+    'limitacion':'Se acreditó la instrucción new y la guarda de operación/alarma; no implica que una instancia se cree en cada request.'},ensure_ascii=False))
+
 # Exportaciones de namespaces IIFE realmente utilizadas por el despacho
 # principal. El AST marcaba como externas estas llamadas pese a que
 # return {route/dispatch} identifica el destino inequívocamente.
