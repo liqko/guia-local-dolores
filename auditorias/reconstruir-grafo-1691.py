@@ -1192,6 +1192,33 @@ adj[business_commit][guide_commit]=('delegacion_de_business_journal_a_guide_jour
 adj[guide_commit][guide_begin]=('beginGuide132_antes_de_commit','worker/worker206.txt:12705')
 print('COMPOSED_BUSINESS_GUIDE_JOURNAL_LINKS_VERIFIED',4)
 
+
+# Ruta administrativa de promociones: el db recibido procede del fetch
+# después de envolver requestDb119 en guideJournalDb132 y business journal.
+# Sólo se activan las llamadas POST permitidas (borrar o modificar).
+assert 'db=GLD_BUSINESS143.journal(guideJournalDb132(db,env),env)' in worker_lines[13209-1]
+assert "await db.delete('promos',id,{mustExist:true})" in worker_lines[11151-1]
+assert "await db.patch('promos',id," in worker_lines[11164-1]
+promos_owner=exact_function('worker/worker206.txt','routeAdminPromosV91',11114)
+for method,site,bline,gline,rline in [
+ ('delete',11151,12916,12707,12315),
+ ('patch',11164,12915,12706,12314)
+]:
+    business_method=exact_function('worker/worker206.txt',method,bline)
+    guide_method=exact_function('worker/worker206.txt',method,gline)
+    request_method=exact_function('worker/worker206.txt',method,rline)
+    assert F[business_method]['parent']==exact_function('worker/worker206.txt','journal',12911)
+    assert F[guide_method]['parent']==exact_function('worker/worker206.txt','guideJournalDb132',12700)
+    assert F[request_method]['parent']==exact_function('worker/worker206.txt','requestDb119',12296)
+    assert 'return db.'+method+'(' in worker_lines[bline-1]
+    assert 'return db.'+method+'(' in worker_lines[gline-1]
+    adj[promos_owner][business_method]=('promos_post_a_journal_business_si_actor','worker/worker206.txt:'+str(site))
+    adj[promos_owner][guide_method]=('promos_post_a_journal_guide_si_no_business_actor','worker/worker206.txt:'+str(site))
+    adj[business_method][guide_method]=('journal_business_delega_guia','worker/worker206.txt:'+str(bline))
+    adj[guide_method][request_method]=('journal_guia_delega_requestdb','worker/worker206.txt:'+str(gline))
+    adj[guide_method][guide_begin]=('journal_guia_registra_intencion_si_actor','worker/worker206.txt:'+str(gline))
+print('PROMOS_POST_JOURNALS_VERIFICADOS',2)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
