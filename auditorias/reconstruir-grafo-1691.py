@@ -1398,41 +1398,48 @@ def worker_route(fid):
         route.append(parent)
         assert len(route)<150
     return {'inicio':'fetch Cloudflare Worker','cadena':list(reversed(route)),'aristas':list(reversed(reasons))}
-# Entradas DOM inline que el catálogo no enlazó: aceptar sólo
-# onclick/onchange/oninput/onsubmit con llamada simple a función window.X
-# exportada mediante window.X=function() en un JS importado explícitamente
-# por ese HTML. Es evidencia ESTÁTICA del contrato, no de carga en producción.
+# Raíces DOM explícitas: el atributo invoca global window.X y su última
+# ASIGNACIÓN en los scripts importados determina el receptor. Se respetan
+# el orden de carga y los sobrescritos (GH listados sustituye GH promos);
+# si no hay identidad AST inequívoca del último valor, no crear raíz.
 dom_export_roots={}
 for html_file in sorted((Path('baseline')/'plataforma').glob('*.html')):
     html_path='plataforma/'+html_file.name
     html_lines=html_file.read_text().splitlines()
-    imported=set()
+    imported=[]
     for line in html_lines:
         for m in re.finditer(r'<script\b[^>]*\bsrc=["\']/?(plataforma/[^?\'"]+)',line,re.I):
-            imported.add(m.group(1))
+            imported.append(m.group(1))
     available={}
-    for js_file in sorted(imported):
+    for js_file in imported:
         full=Path('baseline')/js_file
         if not full.is_file():continue
         for ln,content in enumerate(full.read_text().splitlines(),1):
-            m=re.search(r'\bwindow\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\(',content)
-            if not m:continue
-            name=m.group(1)
-            targets=[fid for fid,fn in F.items() if fn['file']==js_file and fn['line']==ln and fn['name']=='window.'+name]
-            if len(targets)==1:available[name]=(targets[0],js_file,ln)
-    if not available:continue
+            for m in re.finditer(r'\bwindow\.([A-Za-z_$][\w$]*)\s*=',content):
+                name=m.group(1)
+                rest=content[m.end():].lstrip()
+                is_fn=bool(re.match(r'(?:async\s+)?function\s*\(',rest) or
+                           re.match(r'(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>',rest))
+                targets=[fid for fid,fn in F.items() if fn['file']==js_file and
+                         fn['line']==ln and fn['name']=='window.'+name]
+                # También una asignación de alias/no función sombrea la previa.
+                available[name]=(targets[0],js_file,ln) if is_fn and len(targets)==1 else None
     for line_no,line in enumerate(html_lines,1):
         for event in re.finditer(r'\bon(click|change|input|submit)\s*=\s*["\']([^"\']+)["\']',line,re.I):
             script=event.group(2).strip()
             m=re.match(r'^(?:return\s+)?([A-Za-z_$][\w$]*)\s*\(',script)
-            if not m or m.group(1) not in available:continue
+            if not m:continue
             name=m.group(1)
+            if not available.get(name):continue
             fid,js_file,export_line=available[name]
             dom_export_roots.setdefault(fid,{'html':html_path,'linea':line_no,
-               'evento':event.group(1).lower(),'llamada':name,
-               'archivoExportado':js_file,'lineaExportacion':export_line,
-               'tipo':'evento_dom_inline_a_export_window_importado'})
-assert any(x['llamada']=='ghPromosPrepareV91' and x['html']=='plataforma/administracion.html' for x in dom_export_roots.values())
+                'evento':event.group(1).lower(),'llamada':name,
+                'archivoExportado':js_file,'lineaExportacion':export_line,
+                'tipo':'evento_dom_inline_export_final_segun_orden_de_scripts'})
+assert any(x['llamada']=='ghBirthdayRefreshV83' for x in dom_export_roots.values())
+assert not any(F[fid]['file']=='plataforma/gh-promos.js' and
+    F[fid]['name'] in ('window.ghPromosLoadV91','window.ghPromosPrepareV91')
+    for fid in dom_export_roots), 'Se enlazó una exportación GH sombreada por gh-listados.js'
 dom_pred={fid:None for fid in dom_export_roots}
 dom_queue=deque(dom_export_roots)
 while dom_queue:
@@ -1452,9 +1459,10 @@ def dom_event_route(fid):
             'cadena':nodes,'aristas':list(reversed(aristas)),
             'condicional':True}
 print('PASO3_DOM_INLINE_EXPORTS_VERIFICADOS',json.dumps({
-  'raíces':len(dom_export_roots),'alcanzables':len(dom_pred),
-  'muestras':list(dom_export_roots.values())[:24],
-  'sinAtribuirCargaReal':True},ensure_ascii=False))
+    'raíces':len(dom_export_roots),'alcanzables':len(dom_pred),
+    'muestras':list(dom_export_roots.values())[:24],
+    'respetaSobrescriturasDeScripts':True,'sinAtribuirCargaReal':True
+},ensure_ascii=False))
 
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
