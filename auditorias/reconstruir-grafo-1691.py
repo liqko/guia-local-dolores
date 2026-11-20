@@ -58,6 +58,29 @@ print('PASO3_GH_EVENTO_Y_TIMER_ENLAZADOS',json.dumps({
     'aristas':2,'identidades':[gh_owner,gh_change,gh_timer],
     'limitacion':'La ruta hasta el cuerpo está comprobada bajo evento DOM o temporizador; no supone clic ni ejecución en producción.'},ensure_ascii=False))
 
+# GH: tres pares de callbacks de paginación. Navigation recibe las
+# funciones Previous/Next y button asigna cada una a b.onclick.
+gh_nav_lines=(Path('baseline')/'plataforma/gh-listados.js').read_text().splitlines()
+assert "b.onclick=fn" in gh_nav_lines[31-1]
+assert "button('Anterior',previous" in gh_nav_lines[32-1]
+assert "button('Siguiente',next" in gh_nav_lines[32-1]
+gh_page_pairs=[
+ ('plataforma/gh-listados.js:33:2979:localPage',
+  ['plataforma/gh-listados.js:33:3400:anonymous@33','plataforma/gh-listados.js:33:3458:anonymous@33'],33),
+ ('plataforma/gh-listados.js:55:5968:render',
+  ['plataforma/gh-listados.js:74:8763:anonymous@74','plataforma/gh-listados.js:74:8822:anonymous@74'],74),
+ ('plataforma/gh-listados.js:93:11223:search',
+  ['plataforma/gh-listados.js:96:12915:anonymous@96','plataforma/gh-listados.js:96:12992:anonymous@96'],96),
+]
+for parent,callbacks,line_number in gh_page_pairs:
+    assert parent in F and 'navigation(' in gh_nav_lines[line_number-1]
+    for cb in callbacks:
+        assert cb in F and F[cb]['parent']==parent
+        adj[parent][cb]=('callback_boton_paginacion_condicionado','plataforma/gh-listados.js:'+str(line_number))
+print('PASO3_GH_PAGINACION_EVENTOS_ENLAZADOS',json.dumps({
+    'aristas':6,'grupos':3,
+    'limitacion':'Enlaces estáticos condicionales a la creación y clic en botones de paginación; no prueba ocurrencia del clic.'},ensure_ascii=False))
+
 # Enlace perdido por el analizador: el despacho de Durable Object usa
 # una única línea larga con llamadas condicionales this.metodo(...).
 # Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
