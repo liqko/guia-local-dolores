@@ -1237,6 +1237,21 @@ for owner_name,owner_line,site,target,method in [
     adj[owner][target]=('adaptador_territorial_por_defecto_receptor_tipado','worker/worker206.txt:'+str(site))
 print('TERRITORY_ADAPTER_KEYS_AUTH_VERIFIED',3)
 
+# Proyección pública Guía: Array.map invoca la función nominal
+# tarjetaConRedesComunes y ésta ejecuta su lambda de sedes, que a su vez
+# llama sedeConRedesComunes. No son accesos remotos adicionales.
+assert 'map(tarjetaConRedesComunes)' in worker_lines[1303-1]
+assert 'map(s=>sedeConRedesComunes(s,cfg))' in worker_lines[1295-1]
+guide_city=exact_function('worker/worker206.txt','getGuideCity',1298)
+guide_card=exact_function('worker/worker206.txt','tarjetaConRedesComunes',1293)
+guide_sede=exact_function('worker/worker206.txt','sedeConRedesComunes',1289)
+guide_sede_lambdas=[f['id'] for f in F.values() if f['file']=='worker/worker206.txt' and f['line']==1295 and f['parent']==guide_card and f['name'].startswith('callback@')]
+assert len(guide_sede_lambdas)==1,guide_sede_lambdas
+adj[guide_city][guide_card]=('callback_nominal_array_map_tarjetas_guia','worker/worker206.txt:1303')
+adj[guide_card][guide_sede_lambdas[0]]=('callback_array_map_sedes_guia','worker/worker206.txt:1295')
+adj[guide_sede_lambdas[0]][guide_sede]=('llamada_directa_lambda_sedes_guia','worker/worker206.txt:1295')
+print('GUIA_REDES_COMUNES_CALLBACKS_VERIFICADOS',3)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
