@@ -2071,3 +2071,44 @@ worker_report={'total':len(worker_missing),
        'casos':v[:25]} for k,v in sorted(worker_groups.items(),key=lambda t:-len(t[1]))]}
 (OUT/'WORKER_FUNCIONES_SIN_ENTRADA.json').write_text(json.dumps(worker_report,ensure_ascii=False,indent=2)+'\n')
 print('PASO3_WORKER_SIN_ENTRADA_DESGLOSE',json.dumps(worker_report,ensure_ascii=False))
+
+# Clasificación documental adicional: callbacks de colecciones/promesas del Worker
+# contenidos en un invocador local no alcanzado. No crear aristas ni declarar
+# ejecución: la ausencia de entrada sigue siendo una limitación independiente.
+worker_callbacks_source=[]
+for rec in worker_missing:
+    fid=rec['idAST'];fn=F[fid]
+    if (fn['name']!=f"callback@{fn['line']}" or
+        (rec.get('activacion') or {}).get('tipo')!='funcion_pasada_como_argumento' or
+        fn.get('parent') in reached or not reverse.get(fid)):
+        continue
+    line=worker_lines[fn['line']-1]
+    methods=sorted(set(re.findall(r'\\.(map|flatMap|filter|some|every|find|findIndex|sort|forEach|then|catch|finally)\\s*\\(',line)))
+    if not methods:
+        continue
+    # El grafo AST ya acredita la propiedad parent y el vínculo local reverse;
+    # este cotejo sólo agrega la clase léxica de receptor observable en la línea.
+    worker_callbacks_source.append({'idAST':fid,'linea':fn['line'],
+        'padre':fn.get('parent'),'metodosEnLinea':methods,
+        'clase':'callback_coleccion_o_promesa_con_invocador_sin_entrada'})
+assert len({r['idAST'] for r in worker_callbacks_source})==len(worker_callbacks_source)
+assert all(x['idAST'] not in known_source_exceptions|orphan_family_members|{y['idAST'] for y in shadowed}
+           for x in worker_callbacks_source)
+new_worker_classified={x['idAST'] for x in worker_callbacks_source}
+for row in gdata['funciones']:
+    if row['idAST'] in new_worker_classified:
+        row['evaluacionFuente']='callback_coleccion_o_promesa_con_invocador_sin_entrada'
+gdata['callbacksWorkerConInvocadorSinEntrada']=worker_callbacks_source
+gdata['resumen']['callbacksWorkerFuenteClasificados']=len(new_worker_classified)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
+    verified_unreferenced|source_unreferenced_ids|orphan_family_members|
+    {y['idAST'] for y in shadowed}|new_worker_classified)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\\n')
+print('PASO3_WORKER_CALLBACKS_CLASIFICADOS',json.dumps({
+    'cantidad':len(new_worker_classified),
+    'funcionesSinEntradaBrutas':len(missing_records),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunSinClasificacionFuente':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':worker_callbacks_source,
+    'limitacion':'Clase sintáctica e invocador local acreditados, pero no hay cadena desde entrada. No son funciones enlazadas ni consumos reales.'
+},ensure_ascii=False))
