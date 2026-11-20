@@ -2575,3 +2575,47 @@ print('PASO3_REFERENCIAS_LEXICAS_AMBIGUAS',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':lexical_ambiguous,
     'limitacion':'Coincidencias textuales, incluidas posibles cadenas, homónimos y cierres distintos. No se convierten en aristas ni en pruebas de invocación.'},ensure_ascii=False))
+
+# Última inspección de forma declarativa: funciones anónimas de
+# constructor, flecha/closure, asignación de variable, o declaración
+# nombrada. Registrar exactamente la fuente y padre AST.
+declaration_forms=[]
+prior_form=already_lexical|lexical_ambiguous_ids
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name'];file=fn['file']
+    if fid in prior_form:continue
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    if name.startswith('anonymous@'):
+        if re.search(r'\bconstructor\s*\(',line):kind='constructor_de_clase'
+        elif '=>' in line:kind='flecha_anonima_en_expresion_o_argumento'
+        elif re.search(r'\bfunction\s*\(',line):kind='funcion_anonima'
+        else:continue
+    elif name.isidentifier():
+        if re.search(r'\b(?:const|var|let)\s+'+re.escape(name)+r'\s*=',line):
+            kind='variable_de_funcion'
+        elif re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',line):
+            kind='declaracion_funcion_nominal'
+        else:continue
+    else:continue
+    declaration_forms.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+        'nombre':name,'forma':kind,'padre':fn.get('parent'),
+        'padreAlcanzado':fn.get('parent') in reached,
+        'fragmentoDeclaracion':line.strip()[:240],
+        'categoria':'declaracion_sintactica_con_entrada_sin_probar'})
+form_ids={x['idAST'] for x in declaration_forms}
+assert len(form_ids)==len(declaration_forms)
+for row in gdata['funciones']:
+    if row['idAST'] in form_ids:
+        row['evaluacionFuente']='forma_sintactica_verificada_sin_entrada_acreditada'
+gdata['formasDeclarativasFinales']=declaration_forms
+gdata['resumen']['formasDeclarativasFinales']=len(form_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(prior_form|form_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_FORMAS_DECLARATIVAS_FINALES',json.dumps({
+  'nuevas':len(form_ids),
+  'porForma':dict(collections.Counter(x['forma'] for x in declaration_forms)),
+  'casos':declaration_forms,
+  'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+  'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+  'limitacion':'Sólo se acreditó la forma sintáctica de declaración y dueño AST, no invocación ni enlace desde entrada.'},ensure_ascii=False))
