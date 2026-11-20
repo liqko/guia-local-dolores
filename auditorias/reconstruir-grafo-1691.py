@@ -1321,6 +1321,22 @@ for caller,caller_line,callback_name,decl_line,calls in [
     adj[source][target]=('callback_nominal_array_map_carcasa','plataforma/carcasa.html:'+','.join(str(i) for i in calls))
 print('CARCASA_MAP_FARMACIA_EFEMERIDES_VERIFIED',2)
 
+# exportCityBookCut proyecta farmacia con cache:internal. El módulo
+# pharmacy de PUBLIC_FEATURES191 carece de spec.project y usa ruta
+# /farmacias?action=ciclo, cuyo routePublicV12 lee cache.get. El método
+# concreto es internal.get de projection, no createCache.get.
+assert "pharmacy:{rebuild:rebuildFarmAllV2" in worker_lines[11988-1]
+assert "path:'/farmacias',query:{action:'ciclo'}" in worker_lines[11988-1]
+assert "spec.project?Response.json(await spec.project({cache:internal" in worker_lines[12113-1]
+assert "await routePublicV12({path:spec.path" in worker_lines[12113-1]
+assert 'if (path === "/farmacias" && request2.method === "GET")' in worker_lines[2604-1]
+assert 'const packet=await cache.get(farmCityKeyV2(city))' in worker_lines[2609-1]
+cut_projection=exact_function('worker/worker206.txt','projection',12092)
+cut_get=exact_function('worker/worker206.txt','get',12097)
+assert F[cut_get]['parent']==cut_projection
+adj[cut_projection][cut_get]=('proyeccion_farmacia_usa_cache_interno_en_routePublicV12','worker/worker206.txt:11988,12097,12113,2604,2609')
+print('CITY_BOOK_PHARMACY_INTERNAL_CACHE_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
