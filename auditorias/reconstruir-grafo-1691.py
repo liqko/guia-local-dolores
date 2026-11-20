@@ -2540,3 +2540,38 @@ print('PASO3_INVOCADORES_BLOQUEADOS_ESPECIFICOS',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':blocked_local_invocators,
     'limitacion':'Arista de invocación local probada; raíz sin entrada probada. No determina si se ejecuta dinámicamente.'},ensure_ascii=False))
+
+# Candidatos léxicos locales con sitios concretos que el grafo AST
+# todavía no atribuye a una entrada. No afirmar que sean llamadas:
+# pueden ser cadenas, propiedades, homónimos o diferentes cierres.
+lexical_ambiguous=[]
+already_lexical=already_blocked|blocked_inv_ids
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name'];file=fn['file']
+    if fid in already_lexical or not name.isidentifier() or len(name)<3:continue
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    lines=src_cache[file]
+    pat=re.compile(r'\b'+re.escape(name)+r'\b')
+    hits=[{'linea':i,'fragmento':line.strip()[:160]} for i,line in enumerate(lines,1)
+          if i!=fn['line'] and pat.search(line)]
+    if not hits:continue
+    lexical_ambiguous.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+      'nombre':name,'cantidadSitiosTextuales':len(hits),'sitios':hits[:15],
+      'tipoActivacion':(rec.get('activacion') or {}).get('tipo'),
+      'categoria':'referencia_lexica_con_binding_ast_no_resuelto'})
+lexical_ambiguous_ids={x['idAST'] for x in lexical_ambiguous}
+assert len(lexical_ambiguous_ids)==len(lexical_ambiguous)
+for row in gdata['funciones']:
+    if row['idAST'] in lexical_ambiguous_ids:
+        row['evaluacionFuente']='referencia_textual_local_sin_destino_ast_demostrado'
+gdata['referenciasTextualesSinBindingAst']=lexical_ambiguous
+gdata['resumen']['referenciasTextualesSinBindingAst']=len(lexical_ambiguous_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(already_lexical|lexical_ambiguous_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_REFERENCIAS_LEXICAS_AMBIGUAS',json.dumps({
+    'nuevas':len(lexical_ambiguous_ids),
+    'porArchivo':dict(collections.Counter(x['archivo'] for x in lexical_ambiguous)),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':lexical_ambiguous,
+    'limitacion':'Coincidencias textuales, incluidas posibles cadenas, homónimos y cierres distintos. No se convierten en aristas ni en pruebas de invocación.'},ensure_ascii=False))
