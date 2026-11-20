@@ -2151,3 +2151,45 @@ print('PASO3_WORKER_RAICES_NOMINALES_BREVES',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':worker_short_unreferenced,
     'limitacion':'Sólo ausencia de otra referencia textual dentro del corte completo, sin inferir desuso o borrado.'},ensure_ascii=False))
+
+# Carcasa y otras interfaces: callbacks de colecciones/promesas en
+# invocadores locales no alcanzados. Clasificación de evidencia léxica,
+# sin afirmar que el receptor o el callback se ejecuten desde UI.
+ui_callback_candidates=[]
+ui_method_pattern=re.compile(r'\.(map|flatMap|filter|some|every|find|findIndex|sort|forEach|reduce|reduceRight|then|catch|finally)\s*\(')
+already_classified_ui=(verified_unreferenced|source_unreferenced_ids|
+    orphan_family_members|{y['idAST'] for y in shadowed}|
+    new_worker_classified|worker_short_ids)
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];file=fn['file']
+    if (file.startswith('worker/') or fid in already_classified_ui or
+        not fn['name'].startswith('callback@') or
+        (rec.get('activacion') or {}).get('tipo')!='funcion_pasada_como_argumento' or
+        fn.get('parent') in reached or not reverse.get(fid)):
+        continue
+    if file not in src_cache:
+        src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    lines=src_cache[file]
+    line=lines[fn['line']-1]
+    methods=sorted(set(ui_method_pattern.findall(line)))
+    if not methods:continue
+    ui_callback_candidates.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+        'padre':fn.get('parent'),'metodosEnLinea':methods,
+        'categoria':'callback_estandar_con_invocador_local_sin_entrada'})
+ui_callback_ids={x['idAST'] for x in ui_callback_candidates}
+assert len(ui_callback_ids)==len(ui_callback_candidates)
+for row in gdata['funciones']:
+    if row['idAST'] in ui_callback_ids:
+        row['evaluacionFuente']='callback_estandar_ui_con_invocador_local_sin_entrada'
+gdata['callbacksUiInvocadorSinEntrada']=ui_callback_candidates
+gdata['resumen']['callbacksUiClasificados']=len(ui_callback_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
+    already_classified_ui|ui_callback_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_UI_CALLBACKS_FUENTE',json.dumps({
+    'nuevas':len(ui_callback_ids),
+    'porArchivo':dict(collections.Counter(x['archivo'] for x in ui_callback_candidates)),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':ui_callback_candidates,
+    'limitacion':'El callback y el invocador local están en fuente; permanece no probada la cadena hasta entrada y el tipo receptor en ejecución.'},ensure_ascii=False))
