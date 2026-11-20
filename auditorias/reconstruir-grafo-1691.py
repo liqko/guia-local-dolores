@@ -924,3 +924,25 @@ print('PASO3_GH_EXPORTACIONES_SOMBREADAS',json.dumps({
     'detalle':shadowed,
     'sin_prueba_ejecucion_ni_consumo':True
 },ensure_ascii=False))
+
+# Diagnóstico reproducible de las funciones del Worker sin camino a entrada:
+# agrupa por forma de activación y dueño léxico, con identidades AST completas.
+worker_missing=[rec for rec in missing_records if F[rec['idAST']]['file']=='worker/worker206.txt']
+worker_groups=collections.defaultdict(list)
+for rec in worker_missing:
+    fn=F[rec['idAST']]
+    a=(rec.get('activacion') or {})
+    kind=a.get('tipo') or 'sin_tipo'
+    parent=fn.get('parent')
+    reason=('padre_alcanzable' if parent in reached else
+        'invocador_sin_entrada' if reverse.get(rec['idAST']) else
+        'anidada' if parent in F else 'global_sin_invocador')
+    worker_groups[(reason,kind)].append({'idAST':rec['idAST'],'nombre':fn['name'],
+        'linea':fn['line'],'padre':parent,'invocadores':len(reverse.get(rec['idAST'],set()))})
+worker_report={'total':len(worker_missing),
+    'porMotivo':dict(collections.Counter(k[0] for k,v in worker_groups.items() for _ in v)),
+    'porActivacion':dict(collections.Counter(k[1] for k,v in worker_groups.items() for _ in v)),
+    'grupos':[{'motivo':k[0],'activacion':k[1],'cantidad':len(v),
+       'casos':v[:25]} for k,v in sorted(worker_groups.items(),key=lambda t:-len(t[1]))]}
+(OUT/'WORKER_FUNCIONES_SIN_ENTRADA.json').write_text(json.dumps(worker_report,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_WORKER_SIN_ENTRADA_DESGLOSE',json.dumps(worker_report,ensure_ascii=False))
