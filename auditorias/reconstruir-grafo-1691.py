@@ -867,6 +867,26 @@ assert 'withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(' in worker_lines
 adj[dir_owner][dir_list_page]=('listado_paginado_directorio_con_receptor_db_nativo','worker/worker206.txt:372')
 print('DIRECTORY_LISTPAGE102_VERIFIED',1)
 
+# Cache KV retornada por createCache(env) en fetch: enlaces a del.
+# delete ocurre sólo en las ramas de finalización/invalidación indicadas.
+assert 'const cache=createCache(env)' in worker_lines[13210-1]
+cache_del=exact_function('worker/worker206.txt','del',1066)
+assert F[cache_del]['parent']==exact_function('worker/worker206.txt','createCache',1047)
+cache_del_links=[]
+for name,origin,site,needle in [
+ ('routeAdminPromosV91',11114,11135,'await cache.del(key)'),
+ ('routeEmpleo109',11587,11562,'await cache.del(key)')
+]:
+    # Verificar que el punto realmente pertenece al ámbito de la función
+    # antes de afirmar una conexión del router.
+    if site<origin:continue
+    assert needle in worker_lines[site-1]
+    source=exact_function('worker/worker206.txt',name,origin)
+    adj[source][cache_del]=('cache_createCache_del_con_guarda','worker/worker206.txt:'+str(site))
+    cache_del_links.append((name,site))
+assert cache_del_links==[('routeAdminPromosV91',11135)]
+print('CREATECACHE_DEL_TYPED',json.dumps(cache_del_links))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
