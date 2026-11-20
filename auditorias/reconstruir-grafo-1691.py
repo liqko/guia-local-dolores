@@ -790,6 +790,28 @@ adj[login_builder][login_map[0]]=('callback_array_map_relaciones_login_condicion
 adj[login_map[0]][login_advertiser]=('lectura_advertiser_login_condicionada_por_relacion','worker/worker206.txt:5631,5632,10196')
 print('BUNDLE_LOGIN_CALLBACK_COTEJADO',5)
 
+# Segundo bloque: métodos concretos de DB compuesto, sólo en llamadas
+# con receptor db explícito y parámetros recibidos por las rutinas listadas.
+# Cada rama es condicional; no se cuenta como petición efectivamente realizada.
+PRIVATE_DB_CALLS=[
+ ('listFavoritesV2',5282,'subscriberFavorites',10175,5287,'db.subscriberFavorites?db.subscriberFavorites('),
+ ('subscriberDetailV2',5163,'subscriberRelations',10184,5167,'db.subscriberRelations(sid)'),
+ ('ensureGuideBaseFromPrivateInternal',4862,'panelAdministration',10190,4866,'db.panelAdministration?db.panelAdministration('),
+ ('commerceMaster205',6132,'commerceMasterRead209',10391,6134,'db.commerceMasterRead209(advertiserId)'),
+ ('GldPublicCache119.prototype.repairGuide132',12756,'repairPrivateGuide132',10110,12770,'db.repairPrivateGuide132(')
+]
+private_db_edges=[]
+for owner_name,owner_line,method,method_line,site,needle in PRIVATE_DB_CALLS:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_line)
+    target=exact_function('worker/worker206.txt',method,method_line)
+    assert needle in worker_lines[site-1],(owner_name,site)
+    assert F[target]['parent'] in (
+        exact_function('worker/worker206.txt','withPrivateCacheV46',9953),
+        exact_function('worker/worker206.txt','withPanelCacheV48',10227))
+    adj[owner][target]=('metodo_db_compuesto_con_receptor_db_condicionado','worker/worker206.txt:'+str(site))
+    private_db_edges.append((owner_name,method,site))
+print('PRIVATE_DB_METODOS_VERIFICADOS',json.dumps(private_db_edges))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
