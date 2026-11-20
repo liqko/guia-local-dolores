@@ -1121,6 +1121,16 @@ for method,line,site in [('get',9045,9093),('queryEqual',9051,9097)]:
     role_view_pairs.append((method,line,site))
 print('ROLES_VIEW_METHODS_VERIFIED',json.dumps(role_view_pairs))
 
+# El listado de roles GET obtiene una vista rolesRead192 y llama
+# a sus dos listCollection con snapshot, evitando un listado remoto directo.
+assert 'read=await rolesRead192(ctx)' in worker_lines[9233-1]
+assert "read.listCollection('superadmins'),read.listCollection('personal_comercial')" in worker_lines[9235-1]
+roles_get_list=exact_function('worker/worker206.txt','rolesInternosRoute188',9156)
+roles_list_method=exact_function('worker/worker206.txt','listCollection',9050)
+assert F[roles_list_method]['parent']==exact_function('worker/worker206.txt','rolesRead192',9040)
+adj[roles_get_list][roles_list_method]=('vista_snapshot_roles_listCollection','worker/worker206.txt:9235')
+print('ROLES_SNAPSHOT_LIST_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
