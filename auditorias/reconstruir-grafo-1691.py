@@ -2510,3 +2510,33 @@ print('PASO3_MIEMBROS_DECLARADOS',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':owned_members,
     'limitacion':'Propiedad, método o retorno probado en declaración y AST. No se infiere llegada desde la UI o Worker ni se propone eliminación.'},ensure_ascii=False))
+
+# Declaraciones con invocador AST inequívoco pero cadena bloqueada
+# antes de llegar a entrada. Guardar raíz concreta, no sólo una categoría.
+blocked_local_invocators=[]
+already_blocked=already_owned|owned_member_ids
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid]
+    if fid in already_blocked or fn.get('parent') in reached:continue
+    inv=sorted(x for x in reverse.get(fid,set()) if x in F)
+    if not inv:continue
+    heads=sorted(root_obstacles(fid))
+    if not heads or not all(h in F and h in blocked for h in heads):continue
+    blocked_local_invocators.append({'idAST':fid,'archivo':fn['file'],
+      'linea':fn['line'],'nombre':fn['name'],'invocadoresLocales':inv,
+      'raicesBloqueantes':heads,'categoria':'invocador_local_con_raiz_no_alcanzada'})
+blocked_inv_ids={x['idAST'] for x in blocked_local_invocators}
+assert len(blocked_inv_ids)==len(blocked_local_invocators)
+for row in gdata['funciones']:
+    if row['idAST'] in blocked_inv_ids:
+        row['evaluacionFuente']='invocador_local_probado_con_raiz_sin_entrada'
+gdata['invocadoresLocalesConRaizBloqueada']=blocked_local_invocators
+gdata['resumen']['invocadoresLocalesConRaizBloqueada']=len(blocked_inv_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(already_blocked|blocked_inv_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_INVOCADORES_BLOQUEADOS_ESPECIFICOS',json.dumps({
+    'nuevas':len(blocked_inv_ids),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':blocked_local_invocators,
+    'limitacion':'Arista de invocación local probada; raíz sin entrada probada. No determina si se ejecuta dinámicamente.'},ensure_ascii=False))
