@@ -857,6 +857,16 @@ for caller,caller_line,method,method_line,site,needle in PANEL_MORE_TYPED_CALLS:
     panel_more_edges.append((caller,method,site))
 print('PANEL_MORE_TYPED_CALLS_VERIFIED',json.dumps(panel_more_edges))
 
+# El listado paginado del directorio usa el método listPage102 del
+# createDb nativo. Los wrappers con spread no lo reemplazan.
+dir_owner=exact_function('worker/worker206.txt','routeDirectories102',360)
+dir_list_page=exact_function('worker/worker206.txt','listPage102',963)
+assert 'db.listPage102(DIRECTORY102[kind],progress.pageToken)' in worker_lines[372-1]
+assert F[dir_list_page]['parent']==exact_function('worker/worker206.txt','createDb',888)
+assert 'withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(' in worker_lines[13208-1]
+adj[dir_owner][dir_list_page]=('listado_paginado_directorio_con_receptor_db_nativo','worker/worker206.txt:372')
+print('DIRECTORY_LISTPAGE102_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
