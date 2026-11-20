@@ -1421,6 +1421,57 @@ assert 'db.listCollection(C.paises)' in worker_lines[1269-1]
 adj[rebuild_owner][prepared_list]=('rebuild_interno_usa_vista_db_de_prepare','worker/worker206.txt:1269')
 print('TERRITORY_STAGED_DB_CACHE_METHODS_VERIFIED',7)
 
+# Adaptadores con funciones exportadas como propiedades concretas:
+# adminSearchSubscribersV2 entrega cache.get a searchSubscribersV2;
+# panelReadDb retorna get a routeAdminPromosV91. No confundir con DB nativo.
+admin_sub_search=exact_function('worker/worker206.txt','adminSearchSubscribersV2',8103)
+admin_sub_get=exact_function('worker/worker206.txt','get',8107)
+panel_view=exact_function('worker/worker206.txt','panelReadDb',10408)
+panel_view_get=exact_function('worker/worker206.txt','get',10408)
+promos_route=exact_function('worker/worker206.txt','routeAdminPromosV91',11114)
+assert F[admin_sub_get]['parent']==admin_sub_search
+assert F[panel_view_get]['parent']==panel_view
+assert 'cache:{...cache,get:key=>key===ADMIN_SUBSCRIBERS_KEY?' in worker_lines[8107-1]
+assert 'return searchSubscribersV2({' in worker_lines[8106-1]
+assert 'await cache.get(ADMIN_SUBSCRIBERS_KEY)' in worker_lines[5105-1]
+assert 'get:(c,id)=>panelGet(c,id,scope)' in worker_lines[10408-1]
+assert "read.get('promos',id)" in worker_lines[11148-1]
+adj[admin_sub_search][admin_sub_get]=('vista_cache_local_get_invocada_por_searchSubscribers','worker/worker206.txt:8106,8107,5105')
+adj[promos_route][panel_view_get]=('vista_panel_read_get_receptor_tipado_promos','worker/worker206.txt:10408,11148')
+
+# Los actores reinyectan Proxy env al fetch; la lectura de flags del
+# fetch o del observador ejecuta el trap get de la instancia concreta.
+assert 'env.__gldGuideActor132' in worker_lines[13178-1]
+assert 'env.__gldBusinessActor143' in worker_lines[13178-1]
+for owner_name,owner_ln,get_ln,probe_line in [
+ ('GldPublicCache119.prototype.repairGuide132',12756,12759,12760),
+ ('GldPublicCache119.prototype.guideSave132',12780,12788,12789),
+ ('GldPublicCache119.prototype.businessExecute143',13000,13011,13012)
+]:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_ln)
+    trap=exact_function('worker/worker206.txt','get',get_ln)
+    assert F[trap]['parent']==owner
+    assert 'new Proxy(this.env' in worker_lines[get_ln-1]
+    assert 'env' in worker_lines[probe_line-1],probe_line
+    adj[owner][trap]=('getter_proxy_env_actor_cuando_se_usa_env_inyectado','worker/worker206.txt:'+str(probe_line))
+# El contenedor de métricas businessSave143 envuelve state y storage
+# con dos getters: businessExecute143 usa this.state.storage en los
+# journals; acceder al método storage.get/put dispara el callback wrapper.
+business_save=exact_function('worker/worker206.txt','GldPublicCache119.prototype.businessSave143',13019)
+state_get=exact_function('worker/worker206.txt','get',13023)
+storage_get=exact_function('worker/worker206.txt','get',13022)
+storage_callback=exact_function('worker/worker206.txt','anonymous@13022',13022)
+assert F[state_get]['parent']==F[storage_get]['parent']==business_save
+assert F[storage_callback]['parent']==storage_get
+assert 'new Proxy(original.storage,{get(' in worker_lines[13022-1]
+assert 'new Proxy(original,{get(' in worker_lines[13023-1]
+assert 'this.businessExecute143(command)' in worker_lines[13026-1]
+assert 'this.state.storage' in worker_lines[12927-1]
+adj[business_save][state_get]=('proxy_estado_actor_al_ejecutar_guardado','worker/worker206.txt:13023,13026')
+adj[business_save][storage_get]=('proxy_storage_actor_al_ejecutar_guardado','worker/worker206.txt:13022,12927')
+adj[storage_get][storage_callback]=('metodo_storage_devuelto_y_llamado','worker/worker206.txt:13022,12927')
+print('VISTAS_Y_PROXIES_ACTORES_VERIFICADOS',8)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
