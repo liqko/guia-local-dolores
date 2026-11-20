@@ -663,6 +663,22 @@ assert 'db.patch(\'promos\'' in worker_lines[11164-1]
 for method,line in [('delete',10422),('patch',10412)]:
     adj[promos_route][exact_function('worker/worker206.txt',method,line)]=('ctx_db_compuesto_en_fetch_y_ruta_promos_condicionada','worker/worker206.txt:11151,11164')
 print('PASO3_PROMOS_DB_WRAPPER',{ 'enlaces':2,'ruta':'routeAdminPromosV91','guardas':'confirmación, permisos y estado' })
+
+# Vista privada de sólo lectura de los paneles: 'panelReadDb' retorna
+# get:panelGet y queryEqual:panelQuery (no escritura). Las rutas invocan
+# esos métodos sólo si el readback no viene de otra fuente.
+panel_reader=exact_function('worker/worker206.txt','panelReadDb',10408)
+panel_get=exact_function('worker/worker206.txt','panelGet',10260)
+panel_query=exact_function('worker/worker206.txt','panelQuery',10246)
+assert "panelReadDb(scope={}){return {...db,get:(c,id)=>panelGet(c,id,scope),queryEqual:panelQuery};}" in worker_lines[10408-1]
+for target in [panel_get,panel_query]:
+    adj[panel_reader][target]=('vista_panel_lectura_devuelta_por_metodo_con_destino_exacto','worker/worker206.txt:10408')
+for route_name,line,site in [('routePublicationsV77',10890,10895),('routeAdminPromosV91',11114,11148)]:
+    route=exact_function('worker/worker206.txt',route_name,line)
+    assert 'db.panelReadDb?db.panelReadDb():db' in worker_lines[site-1]
+    assert ('routePublicationsV77(ctx)' if route_name=='routePublicationsV77' else 'routeAdminPromosV91(ctx)') in worker_lines[(13235 if route_name=='routePublicationsV77' else 13232)-1]
+    adj[route][panel_reader]=('ctx_db_panelread_condicionado_por_ruta','worker/worker206.txt:'+str(site))
+print('PASO3_PANEL_READ_DB',json.dumps({'vista':panel_reader,'destinos':[panel_get,panel_query],'rutas':['routePublicationsV77','routeAdminPromosV91'],'solo_lectura':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
