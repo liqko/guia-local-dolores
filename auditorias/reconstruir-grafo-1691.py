@@ -1284,6 +1284,28 @@ for file,decl_line,callback_name,owner_name,owner_line,constructor_line in [
     adj[owner][target]=('callback_evento_youtube_contrato_tercero_condicional',file+':'+str(constructor_line))
 print('YOUTUBE_PLAYER_EVENT_CALLBACKS_VERIFIED',3)
 
+# El actor empresarial recibido por journal es la instancia this del
+# Durable Object: businessExecute143 lo inyecta con Proxy antes de fetch.
+assert "key==='__gldBusinessActor143'?this" in worker_lines[13011-1]
+assert "const actor=env.__gldBusinessActor143;if(!actor)return db" in worker_lines[12912-1]
+assert 'app_main_v35_default.fetch(' in worker_lines[13012-1]
+business_begin=exact_function('worker/worker206.txt','GldPublicCache119.prototype.beginBusiness143',12934)
+business_journal=exact_function('worker/worker206.txt','journal',12911)
+for method,ln in [('commitPatches',12914),('patch',12915),('delete',12916)]:
+    owner=exact_function('worker/worker206.txt',method,ln)
+    assert F[owner]['parent']==business_journal
+    assert 'actor.beginBusiness143(' in worker_lines[ln-1]
+    adj[owner][business_begin]=('actor_business_inyectado_a_journal_y_comienzo_guardado','worker/worker206.txt:'+str(ln))
+# En Guía, el Proxy equivalente apunta a this de guideSave132
+# y begin es la lambda del journal que invoca beginGuide132.
+assert "key==='__gldGuideActor132'?this" in worker_lines[12788-1]
+assert 'const actor=env.__gldGuideActor132' in worker_lines[12701-1]
+guide_begin_fn=exact_function('worker/worker206.txt','begin',12703)
+guide_begin_actor=exact_function('worker/worker206.txt','GldPublicCache119.prototype.beginGuide132',12714)
+assert 'actor.beginGuide132(' in worker_lines[12703-1]
+adj[guide_begin_fn][guide_begin_actor]=('actor_guia_inyectado_a_journal_y_begin','worker/worker206.txt:12703')
+print('ACTOR_JOURNALS_BEGIN_VERIFIED',4)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
