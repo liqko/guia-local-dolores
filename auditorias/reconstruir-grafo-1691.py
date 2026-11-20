@@ -1036,6 +1036,28 @@ for owner,owner_line,helper,helper_line,site,needle in REQUEST_HELPER_EDGES:
     request_helpers.append((owner,helper,site))
 print('REQUESTDB119_HELPERS_VERIFIED',json.dumps(request_helpers))
 
+# Vaciado al salir de fetch y encadenamiento de los dos niveles
+# de caché privada/panel. Los métodos flushLoginCache son exportaciones
+# del mismo db compuesto (no escrituras implícitas al crearlo).
+assert 'const traced=async' in worker_lines[13182-1]
+assert 'await db.flushLoginCache()' in worker_lines[13183-1]
+assert 'flushLoginCache:flush' in worker_lines[10409-1]
+assert 'flushLoginCache:flush' in worker_lines[10097-1]
+assert 'if(db.flushLoginCache)await db.flushLoginCache()' in worker_lines[10337-1]
+tracer=exact_function('worker/worker206.txt','traced',13182)
+panel_flush=exact_function('worker/worker206.txt','flush',10317)
+private_flush=exact_function('worker/worker206.txt','flush',10029)
+assert F[panel_flush]['parent']==exact_function('worker/worker206.txt','withPanelCacheV48',10227)
+assert F[private_flush]['parent']==exact_function('worker/worker206.txt','withPrivateCacheV46',9953)
+adj[tracer][panel_flush]=('salida_fetch_flushLoginCache_tipado','worker/worker206.txt:13183')
+adj[panel_flush][private_flush]=('flush_panel_delega_flush_private','worker/worker206.txt:10337')
+event_duplicate=exact_function('worker/worker206.txt','eventDuplicateCheckV75',3412)
+panel_note=exact_function('worker/worker206.txt','notePanelCacheCheck',10398)
+assert 'db.notePanelCacheCheck?.(' in worker_lines[3417-1]
+assert F[panel_note]['parent']==exact_function('worker/worker206.txt','withPanelCacheV48',10227)
+adj[event_duplicate][panel_note]=('marca_memoria_duplicados_si_coincidencia','worker/worker206.txt:3417')
+print('PANEL_FLUSH_AND_NOTE_VERIFIED',3)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
