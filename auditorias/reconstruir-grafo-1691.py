@@ -1219,6 +1219,24 @@ for method,site,bline,gline,rline in [
     adj[guide_method][guide_begin]=('journal_guia_registra_intencion_si_actor','worker/worker206.txt:'+str(gline))
 print('PROMOS_POST_JOURNALS_VERIFICADOS',2)
 
+# Métodos del adaptador territorial concreto por defecto del Coordinator.
+# No representan operaciones KV hasta que se ejecute la ruta correspondiente.
+assert 'adapter=territoryAdapter' in worker_lines[147-1]
+assert 'this.adapter=adapter' in worker_lines[148-1]
+assert 'keys:()=>({admin:ADMIN_KEY,public:PUBLIC_KEY})' in worker_lines[138-1]
+assert 'authorize:auth=>auth?.ok===true' in worker_lines[139-1]
+territory_keys=exact_function('worker/worker206.txt','keys',138)
+territory_auth=exact_function('worker/worker206.txt','authorize',139)
+for owner_name,owner_line,site,target,method in [
+ ('publication',173,175,territory_keys,'keys'),
+ ('resume',178,202,territory_keys,'keys'),
+ ('fetch',236,241,territory_auth,'authorize')
+]:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_line)
+    assert 'this.adapter.'+method+'(' in worker_lines[site-1],(site,worker_lines[site-1])
+    adj[owner][target]=('adaptador_territorial_por_defecto_receptor_tipado','worker/worker206.txt:'+str(site))
+print('TERRITORY_ADAPTER_KEYS_AUTH_VERIFIED',3)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
