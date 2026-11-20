@@ -2229,3 +2229,47 @@ print('PASO3_EXPORTACIONES_GLOBALES_FUENTE',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':exported_missing,
     'limitacion':'Asignación global verificada, consumidor externo e invocación real no demostrados. No catalogar como código muerto.'},ensure_ascii=False))
+
+# Clasificación conservadora de funciones propiedad/miembro anidadas:
+# únicamente cuando el analizador marca expresamente propiedad o método,
+# el padre AST existe y no tiene entrada, y el mismo origen incluye el
+# nombre del miembro (no se infiere consumo, ejecución ni ausencia de uso).
+member_closed=[]
+classified_prior=(already_classified_exports|exported_missing_ids)
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];file=fn['file']
+    if fid in classified_prior or fn.get('parent') not in F or fn.get('parent') in reached:
+        continue
+    activation=(rec.get('activacion') or {}).get('tipo')
+    if activation not in ('propiedad_de_objeto','metodo_o_accesor','asignada_a_propiedad_o_variable'):
+        continue
+    if file not in src_cache:
+        src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    name=fn['name']
+    if name.startswith('anonymous@') or name.startswith('callback@'):
+        # En anónimos basta una construcción de función en el origen.
+        credible=bool(re.search(r'\bfunction\b|=>|:\s*(?:async\s*)?\(',line))
+    else:
+        credible=bool(re.search(r'\b'+re.escape(name.split('.')[-1])+r'\b',line))
+    if not credible:continue
+    member_closed.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+        'padre':fn['parent'],'tipoActivacion':activation,
+        'categoria':'miembro_funcional_en_cierre_sin_entrada'})
+member_closed_ids={r['idAST'] for r in member_closed}
+assert len(member_closed_ids)==len(member_closed)
+for row in gdata['funciones']:
+    if row['idAST'] in member_closed_ids:
+        row['evaluacionFuente']='miembro_funcional_anidado_sin_entrada_del_padre'
+gdata['miembrosEnCierresSinEntrada']=member_closed
+gdata['resumen']['miembrosEnCierresFuenteClasificados']=len(member_closed_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
+    classified_prior|member_closed_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_MIEMBROS_CIERRES_SIN_ENTRADA',json.dumps({
+    'nuevas':len(member_closed_ids),
+    'porArchivo':dict(collections.Counter(r['archivo'] for r in member_closed)),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':member_closed,
+    'limitacion':'La declaración y el padre AST son verificables. La entrada del padre y la activación de sus miembros no lo son.'},ensure_ascii=False))
