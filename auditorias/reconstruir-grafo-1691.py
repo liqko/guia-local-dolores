@@ -2044,7 +2044,7 @@ gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 print('PASO3_GH_EXPORTACIONES_SOMBREADAS',json.dumps({
     'sinEntradaBrutas':len(missing_records),
     'sombreadas':len(shadowed),
-    'excepcionesFuenteAcumuladas':len(verified_unreferenced|source_unreferenced_ids|{x['idAST'] for x in shadowed}),
+    'excepcionesFuenteAcumuladas':len(verified_unreferenced|source_unreferenced_ids|orphan_family_members|{x['idAST'] for x in shadowed}),
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'detalle':shadowed,
     'sin_prueba_ejecucion_ni_consumo':True
