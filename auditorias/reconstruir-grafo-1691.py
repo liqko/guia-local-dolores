@@ -1252,6 +1252,38 @@ adj[guide_card][guide_sede_lambdas[0]]=('callback_array_map_sedes_guia','worker/
 adj[guide_sede_lambdas[0]][guide_sede]=('llamada_directa_lambda_sedes_guia','worker/worker206.txt:1295')
 print('GUIA_REDES_COMUNES_CALLBACKS_VERIFICADOS',3)
 
+# Callbacks nominales que Array.sort/map reciben desde el mismo cierre.
+# Identidad por archivo+línea+padre, nunca por nombre aislado.
+for file,decl_line,method,call_sites in [
+ ('plataforma/anunciantes.html',2133,'sort',[2134,2135,2136]),
+ ('plataforma/administracion.html',980,'map',[981])
+]:
+    target_name='ordenarNombre' if method=='sort' else 'cityInput'
+    target=exact_function(file,target_name,decl_line)
+    owner=F[target]['parent']
+    assert owner in F,(file,target_name,owner)
+    src=(Path('baseline')/file).read_text().splitlines()
+    for call_site in call_sites:
+        assert re.search(r'\\.'+method+r'\\(\\s*'+target_name+r'\\s*\\)',src[call_site-1]),(file,call_site)
+    adj[owner][target]=('callback_nominal_coleccion_mismo_cierre',';'.join(file+':'+str(x) for x in call_sites))
+print('SORT_MAP_NOMINAL_CALLBACKS_VERIFIED',2)
+
+# YouTube IFrame API recibe callbacks dentro de la configuración events
+# al crear un Player; sólo pueden ejecutarse ante eventos del reproductor.
+for file,decl_line,callback_name,owner_name,owner_line,constructor_line in [
+ ('plataforma/anunciantes.html',2795,'onStateChange','createPendingYouTubePlayers',2787,2793),
+ ('plataforma/promos.html',710,'onReady','attach',708,710),
+ ('plataforma/promos.html',710,'onError','attach',708,710)
+]:
+    target=exact_function(file,callback_name,decl_line)
+    owner=F[target]['parent']
+    assert owner in F,(file,callback_name,owner)
+    src=(Path('baseline')/file).read_text().splitlines()
+    assert 'new YT.Player(' in src[constructor_line-1],(file,constructor_line)
+    assert callback_name+':' in src[decl_line-1]
+    adj[owner][target]=('callback_evento_youtube_contrato_tercero_condicional',file+':'+str(constructor_line))
+print('YOUTUBE_PLAYER_EVENT_CALLBACKS_VERIFIED',3)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
