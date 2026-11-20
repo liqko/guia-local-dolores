@@ -1950,6 +1950,41 @@ gdata['resumen']['declaracionesSinSegundaReferenciaEnCorte']=len(source_unrefere
 gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(verified_unreferenced|source_unreferenced_ids)
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 
+# Clasificar familias completas cuyo(s) nodo(s) raíz no tiene(n) segunda
+# referencia nominal en TODAS las fuentes congeladas del inventario.
+# Los descendientes sí pueden tener invocadores dentro de esa familia:
+# esta clasificación NO afirma código muerto ni descarta accesos dinámicos.
+orphan_root_families=[]
+orphan_family_members=set()
+for roots,members in sizes:
+    if not roots or not all(root in source_unreferenced_ids for root in roots):continue
+    if not all(root in blocked for root in roots):continue
+    records=[{'idAST':root,'nombre':F[root]['name'],'archivo':F[root]['file'],
+              'linea':F[root]['line']} for root in roots]
+    orphan_root_families.append({'raices':records,'descendientes':members,
+                                 'descendientesCantidad':len(members)})
+    orphan_family_members.update(members)
+known_source_exceptions=verified_unreferenced|source_unreferenced_ids
+new_family_members=orphan_family_members-known_source_exceptions
+assert len(orphan_family_members)<=len(missing_records)
+assert all(x in blocked for x in orphan_family_members)
+for expected in ('obtenerEventosPromise','obtenerPromosPromise','obtenerActividadesPromise',
+                 'buildCommerceRelationsPayloads','ghNivelCamposV86'):
+    assert any(r['nombre']==expected for group in orphan_root_families for r in group['raices']),expected
+print('PASO3_FAMILIAS_SIN_CONSUMIDOR_TEXTUAL',json.dumps({
+  'familias':len(orphan_root_families),
+  'descendientesTotal':len(orphan_family_members),
+  'descendientesNuevosSinOtraExcepcion':len(new_family_members),
+  'ejemplos':orphan_root_families[:18],
+  'limitacion':'Ausencia de referencia nominal fuera de la declaración en todos los archivos del corte; no descarta reflexión, ejecución dinámica, importación fuera del corte ni autoriza borrar.'
+},ensure_ascii=False))
+gdata['familiasSinConsumidorTextual']=orphan_root_families
+gdata['resumen']['familiasSinConsumidorTextual']=len(orphan_root_families)
+gdata['resumen']['descendientesDeFamiliasSinConsumidorTextual']=len(orphan_family_members)
+gdata['resumen']['descendientesDeFamiliasNuevos']=len(new_family_members)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(known_source_exceptions|orphan_family_members)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\\n')
+
 # Solapamiento comprobado de exportaciones del listado GH: el script
 # gh-listados.js se carga DESPUÉS de gh-promos.js y reasigna dos nombres.
 # Es una clasificación estática, NO se declara inalcanzable al export anterior:
