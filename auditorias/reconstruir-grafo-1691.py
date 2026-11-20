@@ -679,6 +679,39 @@ for route_name,line,site in [('routePublicationsV77',10890,10895),('routeAdminPr
     assert ('routePublicationsV77(ctx)' if route_name=='routePublicationsV77' else 'routeAdminPromosV91(ctx)') in worker_lines[(13235 if route_name=='routePublicationsV77' else 13232)-1]
     adj[route][panel_reader]=('ctx_db_panelread_condicionado_por_ruta','worker/worker206.txt:'+str(site))
 print('PASO3_PANEL_READ_DB',json.dumps({'vista':panel_reader,'destinos':[panel_get,panel_query],'rutas':['routePublicationsV77','routeAdminPromosV91'],'solo_lectura':True},ensure_ascii=False))
+
+# Otras operaciones del dispatcher de publicaciones y moderación:
+# ctx.db es la pila de wrappers del fetch (13208), y cada ruta aplica
+# guardas propias antes de invocar la operación.
+publication_route=exact_function('worker/worker206.txt','routePublicationsV77',10890)
+assert 'const publications=await routePublicationsV77(ctx)' in worker_lines[13235-1]
+assert "db.getVersioned(collection,ref)" in worker_lines[10902-1]
+assert "db.patch(collection,ref,patch" in worker_lines[10908-1]
+assert "db.get('anunciantes',aid)" in worker_lines[10939-1]
+assert "db.patch('solicitudes_anunciante',id" in worker_lines[10941-1]
+assert "db.patch('anunciantes',aid" in worker_lines[11019-1]
+assert "db.patch('anunciantes_administracion',aid" in worker_lines[11020-1]
+publication_links=[]
+for method,ln in [('getVersioned',922),('get',10410),('patch',10412)]:
+    target=exact_function('worker/worker206.txt',method,ln)
+    adj[publication_route][target]=('ctx_db_compuesto_publicaciones_guardado_por_subruta','worker/worker206.txt:10902-11024')
+    publication_links.append(target)
+admin_route=exact_function('worker/worker206.txt','routeAdminV10',9405)
+assert 'const admin=await routeAdminV11(ctx)' in worker_lines[13243-1]
+assert 'superadminLoginV2({ env, db, body })' in worker_lines[9413-1]
+assert 'dailyDashboard195(env' in worker_lines[9418-1]
+assert 'dailyDashboard195(env,auth)' in worker_lines[9425-1]
+# Login/dashboard ya poseen llamadas AST, no asignarles operaciones que
+# sólo pertenecen al productor diario. No se crea arista de escritura.
+panel_route=exact_function('worker/worker206.txt','routePanelV10',6385)
+assert "commerceSetDatosV3({ db, cache" in worker_lines[6414-1]
+assert "commerceSetSedesV3({ db, cache" in worker_lines[6421-1]
+assert "commerceDeleteSedeV3({ db," in worker_lines[6435-1]
+print('PASO3_RUTAS_PUB_DB',json.dumps({'publicaciones':publication_route,
+    'metodos_compuestos':publication_links,
+    'admin':admin_route,'panel':panel_route,
+    'guardas':['/superadmin/publications/blocked','/superadmin/publications/recent','/suscriptores action solicitar_anunciante'],
+    'sin_inferir_escrituras':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
