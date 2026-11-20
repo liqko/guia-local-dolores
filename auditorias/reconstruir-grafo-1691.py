@@ -2113,3 +2113,41 @@ print('PASO3_WORKER_CALLBACKS_CLASIFICADOS',json.dumps({
     'casos':worker_callbacks_source,
     'limitacion':'Clase sintáctica e invocador local acreditados, pero no hay cadena desde entrada. No son funciones enlazadas ni consumos reales.'
 },ensure_ascii=False))
+
+# Worker: declaraciones nominales breves que sólo aparecen en su propia
+# definición en el corte completo. No usar la mera ausencia de arista:
+# cotejar coincidencia de palabra en cada archivo y forma de declaración.
+worker_short_unreferenced=[]
+for rec in worker_missing:
+    fid=rec['idAST'];fn=F[fid];name=fn['name']
+    if (not name.isidentifier() or not 5<=len(name)<15 or
+        fn.get('parent') in F or reverse.get(fid) or
+        fid in (verified_unreferenced|source_unreferenced_ids|
+                orphan_family_members|{y['idAST'] for y in shadowed}|
+                new_worker_classified)):
+        continue
+    origin=worker_lines[fn['line']-1]
+    if not re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',origin):
+        continue
+    pat=re.compile(r'\b'+re.escape(name)+r'\b')
+    refs=sum(len(pat.findall((Path('baseline')/source).read_text())) for source in all_source_files)
+    if refs==1:
+        worker_short_unreferenced.append({'idAST':fid,'nombre':name,'linea':fn['line'],
+            'referenciasEnCorte':refs,'categoria':'declaracion_nominal_sin_consumidor_textual'})
+worker_short_ids={r['idAST'] for r in worker_short_unreferenced}
+assert len(worker_short_ids)==len(worker_short_unreferenced)
+for row in gdata['funciones']:
+    if row['idAST'] in worker_short_ids:
+        row['evaluacionFuente']='declaracion_nominal_breve_sin_segunda_referencia_en_corte'
+gdata['declaracionesBrevesWorkerSinConsumidorTextual']=worker_short_unreferenced
+gdata['resumen']['declaracionesBrevesWorkerSinConsumidorTextual']=len(worker_short_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
+    verified_unreferenced|source_unreferenced_ids|orphan_family_members|
+    {y['idAST'] for y in shadowed}|new_worker_classified|worker_short_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_WORKER_RAICES_NOMINALES_BREVES',json.dumps({
+    'nuevas':len(worker_short_ids),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':worker_short_unreferenced,
+    'limitacion':'Sólo ausencia de otra referencia textual dentro del corte completo, sin inferir desuso o borrado.'},ensure_ascii=False))
