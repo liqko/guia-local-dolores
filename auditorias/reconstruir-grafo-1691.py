@@ -1954,11 +1954,29 @@ gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 # referencia nominal en TODAS las fuentes congeladas del inventario.
 # Los descendientes sí pueden tener invocadores dentro de esa familia:
 # esta clasificación NO afirma código muerto ni descarta accesos dinámicos.
+# Las raíces de una familia pueden NO pertenecer al subconjunto de
+# las 1691 funciones pendientes. Por eso no basta source_unreferenced_ids.
+root_ids={root for roots,_ in sizes for root in roots if root in F}
+root_names={}
+for fid in root_ids:
+    fn=F[fid];name=fn['name']
+    if not name.isidentifier() or len(name)<7:continue
+    file=fn['file']
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    lines=src_cache[file]
+    if not 1<=fn['line']<=len(lines):continue
+    if not re.search(r'\\b(?:async\\s+)?function\\s+'+re.escape(name)+r'\\s*\\(',lines[fn['line']-1]):continue
+    root_names[fid]=name
+all_root_occurrences=collections.Counter()
+if root_names:
+    root_pattern=re.compile(r'\\b(?:'+'|'.join(re.escape(n) for n in sorted(set(root_names.values()),key=len,reverse=True))+r')\\b')
+    for file in all_source_files:
+        all_root_occurrences.update(m.group() for m in root_pattern.finditer((Path('baseline')/file).read_text()))
+unreferenced_root_ids={fid for fid,name in root_names.items() if all_root_occurrences[name]==1}
 orphan_root_families=[]
 orphan_family_members=set()
 for roots,members in sizes:
-    if not roots or not all(root in source_unreferenced_ids for root in roots):continue
-    if not all(root in blocked for root in roots):continue
+    if not roots or not all(root in unreferenced_root_ids for root in roots):continue
     records=[{'idAST':root,'nombre':F[root]['name'],'archivo':F[root]['file'],
               'linea':F[root]['line']} for root in roots]
     orphan_root_families.append({'raices':records,'descendientes':members,
