@@ -114,6 +114,37 @@ print('PASO3_INTERCEPTORES_FETCH_INSTALADOS',json.dumps({
     'aristas':len(wrapper_installations),'casos':wrapper_installations,
     'limitacion':'Instalación de handler comprobada, no prueba que cada rama de fetch se ejecute ni que todo módulo cargue en otros HTML.'},ensure_ascii=False))
 
+# Imagen pública: accionImagenNivel_ construye un atributo onclick
+# que invoca el global mostrarModalGaleria en modo ampliar.
+anunc_lines=(Path('baseline')/'plataforma/anunciantes.html').read_text().splitlines()
+src_image=next(x['id'] for x in F.values() if x['file']=='plataforma/anunciantes.html'
+               and x['name']=='accionImagenNivel_' and x['line']==2475)
+modal_image='plataforma/anunciantes.html:3059:108605:window.mostrarModalGaleria'
+timer_image='plataforma/anunciantes.html:3081:110285:callback@3081'
+assert all(x in F for x in (src_image,modal_image,timer_image))
+assert "'mostrarModalGaleria(this,'" in anunc_lines[2475-1]
+assert 'onclick=' in anunc_lines[2475-1] and "modo==='ampliar'" in anunc_lines[2475-1]
+assert 'window.mostrarModalGaleria = function' in anunc_lines[3059-1]
+assert F[timer_image]['parent']==modal_image
+assert 'setTimeout(()=>modal.scrollIntoView' in anunc_lines[3081-1]
+adj[src_image][modal_image]=('evento_imagen_onclick_condicionado','plataforma/anunciantes.html:2475')
+adj[modal_image][timer_image]=('callback_timer_modal_condicionado','plataforma/anunciantes.html:3081')
+
+# Carcasa: al pulsar paginación, el listener del frame programa el
+# global de scroll como callback, sin invocarlo hasta el clic/timer.
+carcasa_lines=(Path('baseline')/'plataforma/carcasa.html').read_text().splitlines()
+src_scroll=next(x['id'] for x in F.values() if x['file']=='plataforma/carcasa.html'
+                and x['name']=='enlazarAccesosTarjetasGuia_')
+dest_scroll='plataforma/carcasa.html:2625:3770:window.gldScrollResultadosGuia_'
+assert src_scroll in F and dest_scroll in F
+assert 'window.gldScrollResultadosGuia_=function' in carcasa_lines[2625-1]
+assert 'doc.addEventListener' in '\n'.join(carcasa_lines[2635:2650])
+assert 'setTimeout(window.gldScrollResultadosGuia_,80)' in '\n'.join(carcasa_lines[2635:2650])
+adj[src_scroll][dest_scroll]=('callback_scroll_tras_paginacion_condicionado','plataforma/carcasa.html:2648')
+print('PASO3_GLOBALES_UI_CON_CONSUMIDOR',json.dumps({
+    'aristas':3,'eventos':['click ampliar imagen','temporizador modal','click paginacion scroll'],
+    'limitacion':'Ruta nominal y manejadores comprobados en código, no prueba clic o temporizador real.'},ensure_ascii=False))
+
 # Enlace perdido por el analizador: el despacho de Durable Object usa
 # una única línea larga con llamadas condicionales this.metodo(...).
 # Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
