@@ -2104,7 +2104,9 @@ gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
     {y['idAST'] for y in shadowed}|new_worker_classified)
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 print('PASO3_WORKER_CALLBACKS_CLASIFICADOS',json.dumps({
-    'candidatosTotales':len(worker_callbacks_source),\n    'solapadosConClasificacionesPrevias':len(worker_callbacks_source)-len(new_worker_classified),\n    'cantidad':len(new_worker_classified),
+    'candidatosTotales':len(worker_callbacks_source),
+    'solapadosConClasificacionesPrevias':len(worker_callbacks_source)-len(new_worker_classified),
+    'cantidad':len(new_worker_classified),
     'funcionesSinEntradaBrutas':len(missing_records),
     'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
     'aunSinClasificacionFuente':gdata['resumen']['aunSinClasificacionFuente'],
