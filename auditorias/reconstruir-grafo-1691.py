@@ -41,6 +41,23 @@ for b in tree.get('callbackBindings',[]):
     src=b['binding'].split('|')[0]
     for target in b['targets']:
         if src in F and target in F:adj[src][target]=('vinculo_condicionado',b['binding'])
+# GH: el manejador change se asigna a tres eventos DOM concretos;
+# su propia función registra un callback setTimeout en la misma línea.
+# Son aristas condicionales desde ensure, no ejecuciones automáticas.
+gh_owner='plataforma/gh-listados.js:35:3535:ensure'
+gh_change='plataforma/gh-listados.js:46:4834:change'
+gh_timer='plataforma/gh-listados.js:46:4876:callback@46'
+gh_line=(Path('baseline')/'plataforma/gh-listados.js').read_text().splitlines()[46-1]
+assert all(x in F for x in (gh_owner,gh_change,gh_timer))
+assert F[gh_change]['parent']==gh_owner and F[gh_timer]['parent']==gh_change
+assert all(part in gh_line for part in ('q.oninput=change','city.onchange=change',
+    'status.onchange=change','timer=setTimeout(()=>'))
+adj[gh_owner][gh_change]=('registro_dom_condicionado','plataforma/gh-listados.js:46')
+adj[gh_change][gh_timer]=('callback_temporizador_condicionado','plataforma/gh-listados.js:46')
+print('PASO3_GH_EVENTO_Y_TIMER_ENLAZADOS',json.dumps({
+    'aristas':2,'identidades':[gh_owner,gh_change,gh_timer],
+    'limitacion':'La ruta hasta el cuerpo está comprobada bajo evento DOM o temporizador; no supone clic ni ejecución en producción.'},ensure_ascii=False))
+
 # Enlace perdido por el analizador: el despacho de Durable Object usa
 # una única línea larga con llamadas condicionales this.metodo(...).
 # Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
