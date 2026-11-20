@@ -1306,6 +1306,21 @@ assert 'actor.beginGuide132(' in worker_lines[12703-1]
 adj[guide_begin_fn][guide_begin_actor]=('actor_guia_inyectado_a_journal_y_begin','worker/worker206.txt:12703')
 print('ACTOR_JOURNALS_BEGIN_VERIFIED',4)
 
+# Render público de farmacias y efemérides: Array.map recibe
+# funciones locales nominales. Su activación depende de que se cargue la
+# sección, llegue el paquete y haya tarjetas; no implica llamadas extra.
+carcasa_lines=(Path('baseline')/'plataforma/carcasa.html').read_text().splitlines()
+for caller,caller_line,callback_name,decl_line,calls in [
+ ('cargarFarmaciasTurnoGuia',1829,'farmaCardHtml',1819,[1840,1841]),
+ ('cargarEfemeridesHoyGuia',1948,'efemHoyCardHtml',1934,[1956])
+]:
+    source=exact_function('plataforma/carcasa.html',caller,caller_line)
+    target=exact_function('plataforma/carcasa.html',callback_name,decl_line)
+    for site in calls:
+        assert '.map('+callback_name+')' in carcasa_lines[site-1],(site,callback_name)
+    adj[source][target]=('callback_nominal_array_map_carcasa','plataforma/carcasa.html:'+','.join(str(i) for i in calls))
+print('CARCASA_MAP_FARMACIA_EFEMERIDES_VERIFIED',2)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
