@@ -760,6 +760,22 @@ for route_name,route_line,entry_line,methods in ROUTE_DB_CONTRACT:
 print('PASO3_OTRAS_RUTAS_DB',json.dumps({'rutas':len(ROUTE_DB_CONTRACT),
  'operaciones_condicionales':len(route_db_edges),
  'evidencia':route_db_edges,'lecturas_escrituras_reales_no_medidas':True},ensure_ascii=False))
+# Login: contrato exacto del callback buildRelations161 y del método
+# retornado por withPrivateCacheV46, conservado por los wrappers externos.
+# En cache hit el callback NO se ejecuta ni consulta las relaciones.
+assert 'const buildRelations161=async()=>{' in worker_lines[5624-1]
+assert 'db.loginAuthorizationBundle161(sid,Number(state.version||0),buildRelations161)' in worker_lines[5647-1]
+assert 'async loginAuthorizationBundle161(sid,sv,build)' in worker_lines[10098-1]
+assert 'const relations=await build();' in worker_lines[10104-1]
+login_caller=exact_function('worker/worker206.txt','subscriberLoginV2',5607)
+login_bundle=exact_function('worker/worker206.txt','loginAuthorizationBundle161',10098)
+login_builder=exact_function('worker/worker206.txt','buildRelations161',5624)
+assert F[login_builder]['parent']==login_caller
+assert F[login_bundle]['parent']==exact_function('worker/worker206.txt','withPrivateCacheV46',9953)
+adj[login_caller][login_bundle]=('metodo_bundle_login_con_receptor_tipado','worker/worker206.txt:5647,10098')
+adj[login_bundle][login_builder]=('callback_build_condicionado_a_cache_miss','worker/worker206.txt:5647,10104')
+print('BUNDLE_LOGIN_CALLBACK_COTEJADO',2)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
