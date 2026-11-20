@@ -727,6 +727,39 @@ authenticate_owner=exact_function('worker/worker206.txt','authenticate',79)
 adj[verify_parent][verify_child]=('callback_autenticacion_nominal_por_GLDACTIONS138_condicionado','worker/worker206.txt:79,81,1113')
 print('PASO3_AUTH_CALLBACK_VERIFICADO',json.dumps({'desde':verify_parent,'hacia':verify_child,
  'intermediario':authenticate_owner,'cache':'Promise por request/env','condicional':True},ensure_ascii=False))
+
+# Despacho transversal de rutas independientes al MISMO ctx.db compuesto,
+# con chequeo de invocación en cada rama y comprobación del dispatcher.
+# No equivale a ejecutar todas las rutas ni a duplicar lecturas/escrituras.
+ROUTE_DB_CONTRACT=[
+ ('routeDirectories102',360,13229,[
+    ('get',10410,408),('getVersioned',922,436),('commitPatches',10400,444),('queryEqual',10411,417)]),
+ ('routeAdminPublicityV101',482,13231,[
+    ('listCollection',968,491),('getVersioned',922,510),('queryEqual',10411,545),('commitPatches',10400,559)]),
+ ('routeSupportV73',10632,13237,[
+    ('get',10410,10651),('patch',10412,10656),('queryEqual',10411,10668)]),
+ ('routeModeratorsV72',10690,13242,[
+    ('get',10410,10757),('queryEqual',10411,10758),('getVersioned',922,10762),('patch',10412,10737),('delete',10422,10716)]),
+ ('routeEmpleo109',11587,13228,[
+    ('getVersioned',922,11598),('commitPatches',10400,11605),('get',10410,11612)]),
+ ('routePanelV15',7203,13240,[
+    ('queryEqual',10411,7232),('get',10410,7254),('patch',10412,7264)])
+]
+route_db_edges=[]
+for route_name,route_line,entry_line,methods in ROUTE_DB_CONTRACT:
+    route=exact_function('worker/worker206.txt',route_name,route_line)
+    assert 'await '+route_name+'(ctx)' in worker_lines[entry_line-1],(route_name,entry_line)
+    for method,target_line,call_line in methods:
+        target=exact_function('worker/worker206.txt',method,target_line)
+        source=worker_lines[call_line-1]
+        assert re.search(r'\b(?:db|read)\.'+re.escape(method)+r'\s*\(',source),(route_name,method,call_line,source)
+        # 'read' is the optional panelReadDb view; the method name and
+        # contract are still part of the same typed ctx.db composition.
+        adj[route][target]=('ctx_db_compuesto_guardado_por_ruta_y_metodo','worker/worker206.txt:'+str(call_line))
+        route_db_edges.append({'ruta':route_name,'operacion':method,'linea':call_line,'destino':target})
+print('PASO3_OTRAS_RUTAS_DB',json.dumps({'rutas':len(ROUTE_DB_CONTRACT),
+ 'operaciones_condicionales':len(route_db_edges),
+ 'evidencia':route_db_edges,'lecturas_escrituras_reales_no_medidas':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
