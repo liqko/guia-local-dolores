@@ -1397,9 +1397,9 @@ print('KV_PROXY_PIPELINE_VERIFIED',3)
 # GLD_ACTIONS138.prepare inyecta vistas locales db/cache al handler
 # de países, provincias, ciudades o reconstrucción. Su uso real es
 # explícito en esos handlers, y no son los métodos de createDb/createCache.
-assert "const args={env:resources.env,request,db,cache" in worker_lines[127-1]
-assert "const fn=spec.kind==='rebuild'?rebuildTerritory" in worker_lines[128-1]
-assert 'const response=await fn(args)' in worker_lines[129-1]
+assert "const args={env:resources.env,request,db,cache" in worker_lines[126-1]
+assert "const fn=spec.kind==='rebuild'?rebuildTerritory" in worker_lines[127-1]
+assert 'const response=await fn(args)' in worker_lines[128-1]
 assert 'seed(resources.env,request,command.auth,command.body)' in worker_lines[108-1]
 territory_prepare=exact_function('worker/worker206.txt','prepare',105)
 prepared_list=exact_function('worker/worker206.txt','listCollection',120)
