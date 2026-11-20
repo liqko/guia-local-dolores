@@ -1169,6 +1169,29 @@ for func,func_line,method,method_line,site,needle in atomic_ops:
     atomic_links.append((func,method,site))
 print('ATOMIC_ADVERTISER_STAGING_LINKS_VERIFIED',json.dumps(atomic_links))
 
+# Doble journal de recuperación: el fetch envuelve
+# guideJournalDb132(db,env) con GLD_BUSINESS143.journal(...).
+# Cuando se activa el actor, las operaciones delegan al journal interno;
+# sin actor, el factory devuelve directamente db. No se equiparan ambos
+# flujos ni se afirma que las dos ramas ocurran simultáneamente.
+assert 'db=GLD_BUSINESS143.journal(guideJournalDb132(db,env),env)' in worker_lines[13209-1]
+assert 'if(!actor)return db' in worker_lines[12702-1]
+assert 'if(!actor)return db' in worker_lines[12912-1]
+assert 'if(pending.size)await db.commitPatches([...pending.values()])' in worker_lines[12488-1]
+assert 'return db.commitPatches(entries)' in worker_lines[12914-1]
+assert 'await begin(entries);return db.commitPatches(entries)' in worker_lines[12705-1]
+stage_save=exact_function('worker/worker206.txt','stageAdvertiserSaveInternal',12462)
+business_commit=exact_function('worker/worker206.txt','commitPatches',12914)
+guide_commit=exact_function('worker/worker206.txt','commitPatches',12705)
+guide_begin=exact_function('worker/worker206.txt','begin',12703)
+assert F[business_commit]['parent']==exact_function('worker/worker206.txt','journal',12911)
+assert F[guide_commit]['parent']==F[guide_begin]['parent']==exact_function('worker/worker206.txt','guideJournalDb132',12700)
+adj[stage_save][business_commit]=('commit_atomico_journal_business_si_actor','worker/worker206.txt:12488')
+adj[stage_save][guide_commit]=('commit_atomico_journal_guide_si_actor','worker/worker206.txt:12488')
+adj[business_commit][guide_commit]=('delegacion_de_business_journal_a_guide_journal_si_ambos_actores','worker/worker206.txt:12914')
+adj[guide_commit][guide_begin]=('beginGuide132_antes_de_commit','worker/worker206.txt:12705')
+print('COMPOSED_BUSINESS_GUIDE_JOURNAL_LINKS_VERIFIED',4)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
