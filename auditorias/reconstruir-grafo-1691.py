@@ -1104,6 +1104,23 @@ for method,ln,site,needle in [
     publication_wrapper_pairs.append((method,ln,site))
 print('PUBLICATION_WRAPPER_POST_VERIFIED',json.dumps(publication_wrapper_pairs))
 
+# rolesRead192 crea una vista de lectura con métodos propios.
+# gldRolesGuardarConjunto191 obtiene precisamente esa vista en 9091;
+# las consultas subsiguientes usan read.get/read.queryEqual de su retorno.
+assert 'read=await rolesRead192(ctx,sid)' in worker_lines[9091-1]
+assert "read.get('superadmins',sid)" in worker_lines[9093-1]
+assert "read.queryEqual('superadmins','suscriptor_id',sid,5)" in worker_lines[9097-1]
+assert 'return {...base,' in worker_lines[9044-1]
+roles_owner=exact_function('worker/worker206.txt','rolesRead192',9040)
+roles_save=exact_function('worker/worker206.txt','gldRolesGuardarConjunto191',9082)
+role_view_pairs=[]
+for method,line,site in [('get',9045,9093),('queryEqual',9051,9097)]:
+    dest=exact_function('worker/worker206.txt',method,line)
+    assert F[dest]['parent']==roles_owner
+    adj[roles_save][dest]=('metodo_vista_rolesRead192_con_receptor_read','worker/worker206.txt:'+str(site))
+    role_view_pairs.append((method,line,site))
+print('ROLES_VIEW_METHODS_VERIFIED',json.dumps(role_view_pairs))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
