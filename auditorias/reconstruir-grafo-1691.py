@@ -836,6 +836,27 @@ for owner_name,owner_line,method,method_line,site,needle in AUTH_PANEL_DB_CALLS:
     auth_panel_db_edges.append((owner_name,method,site))
 print('AUTH_PANEL_DB_METODOS_VERIFICADOS',json.dumps(auth_panel_db_edges))
 
+# Paso 3, continuación: métodos concretos de los paneles y relaciones
+# preparadas. Distinguir los destinos reales del objeto db de otras
+# propiedades homónimas; estas aristas no significan operaciones cobradas.
+PANEL_MORE_TYPED_CALLS=[
+ ('eventDuplicateCheckV75',3412,'cachedPanelRows',10399,3415,'db.cachedPanelRows(\'eventos\''),
+ ('advertiserUsageV62',5120,'cachedPanelRows',10399,5123,'db.cachedPanelRows(c,'),
+ ('deleteEventV3',3717,'rememberPanelRows',10406,3725,'db.rememberPanelRows(\'evento_programacion\''),
+ ('patchChildRowsV1',6494,'rememberPanelRows',10406,6495,'db.rememberPanelRows(collection,previous)'),
+ ('routePublicationsV77',10890,'rememberPanelRows',10406,11024,'db.rememberPanelRows(\'anunciantes\''),
+ ('routePublicationsV77',10890,'prepareNewPanelList',10407,11017,'db.prepareNewPanelList(\'anunciantes_sedes\''),
+]
+panel_more_edges=[]
+for caller,caller_line,method,method_line,site,needle in PANEL_MORE_TYPED_CALLS:
+    source=exact_function('worker/worker206.txt',caller,caller_line)
+    dest=exact_function('worker/worker206.txt',method,method_line)
+    assert needle in worker_lines[site-1],(caller,method,site)
+    assert F[dest]['parent']==exact_function('worker/worker206.txt','withPanelCacheV48',10227)
+    adj[source][dest]=('panel_db_method_call_with_guard','worker/worker206.txt:'+str(site))
+    panel_more_edges.append((caller,method,site))
+print('PANEL_MORE_TYPED_CALLS_VERIFIED',json.dumps(panel_more_edges))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
