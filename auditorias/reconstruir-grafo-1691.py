@@ -586,6 +586,38 @@ print('PASO3_JOURNALS_ACTOR_TIPADOS',json.dumps({
  'wrappers':[guide_ids[0],biz_ids[0]],
  'destinos':[actor_names[guide_target],actor_names[biz_target]],
  'nota':'Métodos retornados invocados únicamente si se realiza operación; no se infiere escritura por la construcción del wrapper'},ensure_ascii=False))
+
+# Resolver receptor local inequívoco para readback de invalidación GH:
+# source = createDb(env) (1028), luego source.get/queryEqual (1030,1034).
+# Las llamadas sólo se realizan bajo el condicional de invalidación.
+source_owner=exact_function('worker/worker206.txt','invalidateGhDetailsFromWrites210',1006)
+db_get=exact_function('worker/worker206.txt','get',917)
+db_query=exact_function('worker/worker206.txt','queryEqual',980)
+assert 'const source=createDb(env);' in worker_lines[1028-1]
+assert "source.get('publicidades',pid)" in worker_lines[1030-1]
+assert "source.queryEqual('suscriptor_anunciante'" in worker_lines[1034-1]
+for target,site in [(db_get,1030),(db_query,1034)]:
+    assert F[target]['parent']==exact_function('worker/worker206.txt','createDb',888)
+    adj[source_owner][target]=('receptor_source_createDb_contrato_comprobado_condicional','worker/worker206.txt:'+str(site))
+print('PASO3_CREATE_DB_RECEPTORES_VERIFICADOS',json.dumps({
+    'origen':source_owner,'destinos':[db_get,db_query],
+    'llamadasCondicionales':[1030,1034],'sinInferirConsumos':True},ensure_ascii=False))
+
+# KV preparado: cache=createCache(scoped) y accesos explícitos cache.get/put.
+# Sólo vincular en el proceso de preparación de paquete diario, no ingreso.
+prepared_owner=exact_function('worker/worker206.txt','prepareEntry195',11168)
+kv_get=exact_function('worker/worker206.txt','get',1054)
+kv_put=exact_function('worker/worker206.txt','put',1063)
+assert 'cache=createCache(scoped)' in worker_lines[11169-1]
+assert "cache.get('territorio:admin:v1')" in worker_lines[11173-1]
+assert "cache.put('territorio:admin:v1'" in worker_lines[11178-1]
+assert F[kv_get]['parent']==F[kv_put]['parent']==exact_function('worker/worker206.txt','createCache',1047)
+for target,site in [(kv_get,11173),(kv_put,11178)]:
+    adj[prepared_owner][target]=('receptor_cache_createCache_en_preparacion_diaria','worker/worker206.txt:'+str(site))
+print('PASO3_CREATE_CACHE_RECEPTORES_VERIFICADOS',json.dumps({
+    'origen':prepared_owner,'destinos':[kv_get,kv_put],
+    'lecturaCondicional':11173,'escrituraSoloAlFaltarPaquete':11178,
+    'sinInferirConsumos':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
