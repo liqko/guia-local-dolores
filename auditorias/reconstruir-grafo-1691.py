@@ -1099,7 +1099,7 @@ for method,ln,site,needle in [
 ]:
     assert needle in worker_lines[site-1]
     dest=exact_function('worker/worker206.txt',method,ln)
-    assert F[dest]['parent']==publication_owner
+    assert F[dest]['parent']==exact_function('worker/worker206.txt','wrap',10810)
     adj[publish_route][dest]=('post_preprocesado_db_publicacion_condicional','worker/worker206.txt:'+str(site))
     publication_wrapper_pairs.append((method,ln,site))
 print('PUBLICATION_WRAPPER_POST_VERIFIED',json.dumps(publication_wrapper_pairs))
