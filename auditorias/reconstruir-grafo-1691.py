@@ -618,6 +618,51 @@ print('PASO3_CREATE_CACHE_RECEPTORES_VERIFICADOS',json.dumps({
     'origen':prepared_owner,'destinos':[kv_get,kv_put],
     'lecturaCondicional':11173,'escrituraSoloAlFaltarPaquete':11178,
     'sinInferirConsumos':True},ensure_ascii=False))
+
+# Contrato de envoltorios compuesto en el fetch principal:
+# withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(...))).
+# Los métodos no se activan por crear los envoltorios: las aristas
+# representan la delegación condicional al llamarse la operación.
+assert 'withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(' in worker_lines[13208-1]
+assert 'return {...db,' in worker_lines[10390-1]
+assert 'return {...db,' in worker_lines[10449-1]
+assert 'return {' in worker_lines[10095-1]
+wrapper_methods=[
+ ('get',10410,'get',10473,'get',10114,10410,10473),
+ ('patch',10412,'patch',10482,'patch',10134,10417,10482),
+ ('delete',10422,'delete',10483,'delete',10158,10424,10483),
+ ('commitPatches',10400,'commitPatches',10474,'commitPatches',10116,10402,10480),
+ ('queryEqual',10411,None,None,'queryEqual',10115,10411,10115)
+]
+validated_wrapper=[]
+for outer,outer_line,middle,middle_line,inner,inner_line,outer_call,middle_call in wrapper_methods:
+    src=exact_function('worker/worker206.txt',outer,outer_line)
+    dest=exact_function('worker/worker206.txt',middle,middle_line) if middle else exact_function('worker/worker206.txt',inner,inner_line)
+    # Es un método del objeto envuelto. Para los métodos interceptados,
+    # comprobar que el cuerpo delega explícitamente a db.metodo.
+    if middle:
+        assert any('db.'+middle+'(' in worker_lines[i-1] for i in range(outer_line,min(outer_line+15,10436)))
+        assert any('db.'+middle+'(' in worker_lines[i-1] for i in range(middle_line,min(middle_line+13,10485)))
+    else:
+        assert 'db.queryEqual(' in worker_lines[10411-1]
+        assert 'async queryEqual(' not in '\n'.join(worker_lines[10449-1:10485])
+    adj[src][dest]=('contrato_metodo_retornado_delegado_y_receptor_tipado','worker/worker206.txt:'+str(outer_call))
+    validated_wrapper.append([src,dest])
+    if middle:
+        nested=exact_function('worker/worker206.txt',inner,inner_line)
+        adj[dest][nested]=('delegacion_auth_a_privateCache_verificada','worker/worker206.txt:'+str(middle_call))
+        validated_wrapper.append([dest,nested])
+print('PASO3_WRAPPERS_DB_TIPADOS',json.dumps({'aristas':len(validated_wrapper),'pares':validated_wrapper,'condicion':'sólo si método devuelto se invoca'},ensure_ascii=False))
+
+# Las rutas que guardan Promos se despachan desde fetch con ctx.db
+# compuesto; conectar sólo acciones realmente presentes en esa ruta.
+promos_route=exact_function('worker/worker206.txt','routeAdminPromosV91',11114)
+assert 'const promosAdmin=await routeAdminPromosV91(ctx)' in worker_lines[13232-1]
+assert 'db.delete(\'promos\'' in worker_lines[11151-1]
+assert 'db.patch(\'promos\'' in worker_lines[11164-1]
+for method,line in [('delete',10422),('patch',10412)]:
+    adj[promos_route][exact_function('worker/worker206.txt',method,line)]=('ctx_db_compuesto_en_fetch_y_ruta_promos_condicionada','worker/worker206.txt:11151,11164')
+print('PASO3_PROMOS_DB_WRAPPER',{ 'enlaces':2,'ruta':'routeAdminPromosV91','guardas':'confirmación, permisos y estado' })
 seen={}
 while queue:
     key,aud=queue.popleft()
