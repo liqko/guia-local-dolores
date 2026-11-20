@@ -2340,3 +2340,45 @@ print('PASO3_UI_NOMBRES_BREVES',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':short_ui_names,
     'limitacion':'Búsqueda textual exhaustiva en el corte congelado. No acredita desuso ni permite eliminar funciones.'},ensure_ascii=False))
+
+# Diferenciar nombres de declaraciones repetidos entre módulos independientes.
+# El nombre debe existir solamente una vez en SU archivo, pero aparecer en
+# otro archivo distinto: no se conectan homónimos por coincidencia de texto.
+homonymous_local=[]
+already_classified_homonyms=classified_so_far|short_ui_ids
+eligible_homonyms={}
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name'];file=fn['file']
+    if (fid in already_classified_homonyms or file.startswith('worker/') or
+        not name.isidentifier() or len(name)<4 or
+        fn.get('parent') in F or reverse.get(fid)):
+        continue
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    if re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',line):
+        eligible_homonyms[fid]=(file,name)
+if eligible_homonyms:
+    names=set(n for _,n in eligible_homonyms.values())
+    pat=re.compile(r'\b(?:'+'|'.join(re.escape(n) for n in sorted(names,key=len,reverse=True))+r')\b')
+    by_file={}
+    for file in all_source_files:
+        by_file[file]=collections.Counter(m.group() for m in pat.finditer((Path('baseline')/file).read_text()))
+    for fid,(file,name) in eligible_homonyms.items():
+        others=[src for src in all_source_files if src!=file and by_file[src][name]>0]
+        if by_file[file][name]==1 and others:
+            homonymous_local.append({'idAST':fid,'nombre':name,'archivo':file,
+              'linea':F[fid]['line'],'aparicionesEnArchivo':1,
+              'otrosArchivosConNombre':others[:20]})
+homonymous_ids={x['idAST'] for x in homonymous_local}
+assert len(homonymous_ids)==len(homonymous_local)
+for row in gdata['funciones']:
+    if row['idAST'] in homonymous_ids:
+        row['evaluacionFuente']='declaracion_sin_consumidor_en_archivo_y_homonimos_en_otros_modulos'
+gdata['declaracionesHomonimasSinConsumidorLocal']=homonymous_local
+gdata['resumen']['declaracionesHomonimasFuenteClasificadas']=len(homonymous_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(already_classified_homonyms|homonymous_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_HOMONIMOS_INTERMODULO',json.dumps({
+  'nuevas':len(homonymous_ids),'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+  'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],'casos':homonymous_local,
+  'limitacion':'Ausencia local de consumidor y coincidencia nominal en otros archivos; no prueba identidad de ámbito ni permite enlazarlas.'},ensure_ascii=False))
