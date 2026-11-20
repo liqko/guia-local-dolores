@@ -1394,6 +1394,33 @@ for operation,cache_ln,city_ln,request_ln,call_ln in [
     adj[request_callback][observed_call]=('callback_observador_kv_si_delegacion_real','worker/worker206.txt:11675')
 print('KV_PROXY_PIPELINE_VERIFIED',3)
 
+# GLD_ACTIONS138.prepare inyecta vistas locales db/cache al handler
+# de países, provincias, ciudades o reconstrucción. Su uso real es
+# explícito en esos handlers, y no son los métodos de createDb/createCache.
+assert "const args={env:resources.env,request,db,cache" in worker_lines[127-1]
+assert "const fn=spec.kind==='rebuild'?rebuildTerritory" in worker_lines[128-1]
+assert 'const response=await fn(args)' in worker_lines[129-1]
+assert 'seed(resources.env,request,command.auth,command.body)' in worker_lines[108-1]
+territory_prepare=exact_function('worker/worker206.txt','prepare',105)
+prepared_list=exact_function('worker/worker206.txt','listCollection',120)
+prepared_get=exact_function('worker/worker206.txt','get',125)
+prepared_put=exact_function('worker/worker206.txt','put',125)
+assert all(F[dest]['parent']==territory_prepare for dest in (prepared_list,prepared_get,prepared_put))
+for owner_name,owner_line,get_site,put_site in [
+ ('saveCountry',1197,1209,1213),
+ ('saveProvince',1216,1226,1234),
+ ('saveCity',1237,1246,1256)
+]:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_line)
+    assert 'cache.get(' in worker_lines[get_site-1],get_site
+    assert 'cache.put(' in worker_lines[put_site-1],put_site
+    adj[owner][prepared_get]=('handler_territorial_recibe_cache_local_de_prepare','worker/worker206.txt:'+str(get_site))
+    adj[owner][prepared_put]=('handler_territorial_guarda_paquete_local_en_prepare','worker/worker206.txt:'+str(put_site))
+rebuild_owner=exact_function('worker/worker206.txt','rebuildTerritoryRaw138',1265)
+assert 'db.listCollection(C.paises)' in worker_lines[1269-1]
+adj[rebuild_owner][prepared_list]=('rebuild_interno_usa_vista_db_de_prepare','worker/worker206.txt:1269')
+print('TERRITORY_STAGED_DB_CACHE_METHODS_VERIFIED',7)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
