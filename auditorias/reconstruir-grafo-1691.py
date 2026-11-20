@@ -812,6 +812,30 @@ for owner_name,owner_line,method,method_line,site,needle in PRIVATE_DB_CALLS:
     private_db_edges.append((owner_name,method,site))
 print('PRIVATE_DB_METODOS_VERIFICADOS',json.dumps(private_db_edges))
 
+# Tercer bloque: autenticación (ambas interfaces), lectura del perfil,
+# soporte y reparación de la guía. Mismo objeto ctx.db y guardas explícitas.
+AUTH_PANEL_DB_CALLS=[
+ ('subscriberLoginV2',5607,'loginAccount',10450,5612,'db.loginAccount(mail,clave,originalMail)'),
+ ('superadminLoginV2',9336,'loginAccount',10450,9341,'db.loginAccount(mail,clave,original)'),
+ ('superadminLoginV2',9336,'loginAdminBundle',10460,9348,'db.loginAdminBundle(sid)'),
+ ('subscriberDetailV2',5163,'cachedSubscriberProjection',10472,5166,'db.cachedSubscriberProjection(sid)'),
+ ('routeSupportV73',10632,'prepareNewPanelList',10407,10657,'db.prepareNewPanelList('),
+ ('routeSupportV73',10632,'rememberPanelRows',10406,10681,'db.rememberPanelRows('),
+ ('GldPublicCache119.prototype.repairGuide132',12756,'repairPanelGuide132',10393,12771,'db.repairPanelGuide132('),
+ ('prepareEntry195',11168,'cachedPanelRows',10399,11187,'db.cachedPanelRows(')
+]
+auth_panel_db_edges=[]
+for owner_name,owner_line,method,method_line,site,needle in AUTH_PANEL_DB_CALLS:
+    owner=exact_function('worker/worker206.txt',owner_name,owner_line)
+    target=exact_function('worker/worker206.txt',method,method_line)
+    assert needle in worker_lines[site-1],(owner_name,site)
+    assert F[target]['parent'] in (
+        exact_function('worker/worker206.txt','withAuthCacheV58',10436),
+        exact_function('worker/worker206.txt','withPanelCacheV48',10227))
+    adj[owner][target]=('ctx_db_tipado_con_guarda_y_receptor','worker/worker206.txt:'+str(site))
+    auth_panel_db_edges.append((owner_name,method,site))
+print('AUTH_PANEL_DB_METODOS_VERIFICADOS',json.dumps(auth_panel_db_edges))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
