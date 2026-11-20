@@ -1058,6 +1058,17 @@ assert F[panel_note]['parent']==exact_function('worker/worker206.txt','withPanel
 adj[event_duplicate][panel_note]=('marca_memoria_duplicados_si_coincidencia','worker/worker206.txt:3417')
 print('PANEL_FLUSH_AND_NOTE_VERIFIED',3)
 
+# La rama de propietarios que vive DENTRO de app_main_v35_default.fetch
+# utiliza el método panelAdministration del db compuesto, no createDb.
+# Esta lectura es sólo potencial en la rama de gestión de relaciones.
+fetch_entry=exact_function('worker/worker206.txt','fetch',13177)
+private_panel_admin=exact_function('worker/worker206.txt','panelAdministration',10190)
+assert 'db.panelAdministration?db.panelAdministration(aid)' in worker_lines[13278-1]
+assert 'withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(' in worker_lines[13208-1]
+assert F[private_panel_admin]['parent']==exact_function('worker/worker206.txt','withPrivateCacheV46',9953)
+adj[fetch_entry][private_panel_admin]=('lectura_admin_relaciones_condicional','worker/worker206.txt:13278')
+print('FETCH_OWNER_PANEL_ADMIN_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
