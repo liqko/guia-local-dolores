@@ -1143,6 +1143,32 @@ assert F[guide_bound]['parent']==exact_function('worker/worker206.txt','fetch',1
 adj[guide_mutation][guide_bound]=('propiedad_tipificada_solo_si_cache_fetch_y_no_existe_base','worker/worker206.txt:4877')
 print('GUIDE_ENSURE_BOUND_CACHE_VERIFIED',1)
 
+# Guardado atómico de ficha: routeAtomicAdvertiserInternal crea un
+# staging por única operación y pasa stagedDb/stagedCache a las funciones
+# de datos, sedes y perfil. Las conexiones sólo valen en esas ramas POST.
+assert 'stageAdvertiserSaveInternal(db,cache,async(stagedDb,stagedCache)=>' in worker_lines[12503-1]
+assert 'stageAdvertiserSaveInternal(db,cache,async(stagedDb,stagedCache)=>' in worker_lines[12517-1]
+atomic_ops=[
+ ('updateAdvertiserCommercialV2',7497,'get',12478,7582,'cache.get(KEYS.publicidad)'),
+ ('updateAdvertiserCommercialV2',7497,'patch',12471,7621,'db.patch("anunciantes_administracion"'),
+ ('updateAdvertiserCommercialV2',7497,'put',12483,7625,'cache.put("publicity:contract:v101:"'),
+ ('updateAdvertiserProfileV2',7690,'patch',12471,7716,'db.patch("anunciantes"'),
+ ('updateAdvertiserSedeRelationsV2',7726,'commitPatches',12475,7760,'db.commitPatches(entries)'),
+ ('commerceSetDatosV3',6007,'patch',12471,6032,'db.patch("anunciantes"'),
+ ('commerceSetSedesV3',6036,'get',12478,6039,"cache.get('territorio:public:v1')"),
+ ('commerceSetSedesV3',6036,'commitPatches',12475,6103,'db.commitPatches(entries)')
+]
+atomic_links=[]
+owner=exact_function('worker/worker206.txt','stageAdvertiserSaveInternal',12462)
+for func,func_line,method,method_line,site,needle in atomic_ops:
+    source=exact_function('worker/worker206.txt',func,func_line)
+    dest=exact_function('worker/worker206.txt',method,method_line)
+    assert needle in worker_lines[site-1],(func,method,site)
+    assert F[dest]['parent']==owner
+    adj[source][dest]=('staged_db_cache_solo_rama_guardado_atomico','worker/worker206.txt:'+str(site))
+    atomic_links.append((func,method,site))
+print('ATOMIC_ADVERTISER_STAGING_LINKS_VERIFIED',json.dumps(atomic_links))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
