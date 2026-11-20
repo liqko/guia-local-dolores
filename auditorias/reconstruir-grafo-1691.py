@@ -204,6 +204,33 @@ print('PASO3_CALENDARIO_PAQUETE_YT_ENLAZADOS',json.dumps({
     'aristas':10,'grupo':['efemerides 4','paquete ciudad 5','youtube 1'],
     'limitacion':'Enlaces condicionales sustentados por devoluciones de objetos, uso de métodos y registros de callback; no prueba invocación real.'},ensure_ascii=False))
 
+# Términos: el módulo exporta un objeto global; publicacion.js
+# lo consume por propiedades versionActual/marcarRevision y el botón
+# del propio módulo registra ui.abrir como acción de clic.
+term_lines=(Path('baseline')/'plataforma/terminos-anunciantes.js').read_text().splitlines()
+pub_lines=(Path('baseline')/'plataforma/publicacion.js').read_text().splitlines()
+login_code=(Path('baseline')/'plataforma/login.html').read_text()
+assert login_code.index('/plataforma/terminos-anunciantes.js')<login_code.index('/plataforma/publicacion.js')
+term_iife='plataforma/terminos-anunciantes.js:1:1:iife@1'
+pub_fetch='plataforma/publicacion.js:16:4686:window.fetch'
+term_members={
+  'versionActual':('plataforma/terminos-anunciantes.js:37:3688:versionActual',24),
+  'marcarRevision':('plataforma/terminos-anunciantes.js:46:4215:marcarRevision',26)
+}
+assert term_iife in F and pub_fetch in F
+assert 'window.GLD_TERMINOS_ANUNCIANTES={' in term_lines[36-1]
+for method,(target,line) in term_members.items():
+    assert target in F and F[target]['parent']==term_iife
+    assert method+'()' in term_lines[F[target]['line']-1]
+    assert 'GLD_TERMINOS_ANUNCIANTES' in pub_lines[line-1] and method in pub_lines[line-1]
+    adj[pub_fetch][target]=('consumo_propiedad_global_condicionado','plataforma/publicacion.js:'+str(line))
+term_open='plataforma/terminos-anunciantes.js:47:4274:abrir'
+assert term_open in F and F[term_open]['parent']==term_iife
+assert 'button.onclick=()=>ui.abrir()' in term_lines[52-1]
+adj[term_iife][term_open]=('handler_boton_terminos_condicionado','plataforma/terminos-anunciantes.js:52')
+print('PASO3_TERMINOS_GLOBALES_ENLAZADOS',json.dumps({
+    'aristas':3,'limitacion':'Enlaces bajo carga, solicitud compatible y clic; no acredita cada activación en producción.'},ensure_ascii=False))
+
 # Enlace perdido por el analizador: el despacho de Durable Object usa
 # una única línea larga con llamadas condicionales this.metodo(...).
 # Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
