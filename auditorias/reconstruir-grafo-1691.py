@@ -1082,6 +1082,28 @@ assert F[auth_admin_settings]['parent']==exact_function('worker/worker206.txt','
 adj[moderators_route][auth_admin_settings]=('panelReadDb_spread_hereda_cache_admin','worker/worker206.txt:10702')
 print('MODERATOR_AUTH_CACHE_READ_VERIFIED',1)
 
+# El preprocesador de publicaciones (13221) reemplaza ctx.db por
+# publicationDbV77(...) exclusivamente en POST permitido; el router de
+# publicaciones posterior recibe ese mismo ctx y llama a db.get/patch.
+# No activar este wrapper para GET ni rutas interceptadas antes del 13221.
+assert 'await preparePublicationV77(ctx)' in worker_lines[13221-1]
+assert 'ctx.db=publicationDbV77(ctx.db,ctx.publication,ctx.cache)' in worker_lines[10849-1]
+assert 'const publications=await routePublicationsV77(ctx)' in worker_lines[13235-1]
+assert 'return wrap(base)' in worker_lines[10831-1]
+publish_route=exact_function('worker/worker206.txt','routePublicationsV77',10890)
+publication_owner=exact_function('worker/worker206.txt','publicationDbV77',10809)
+publication_wrapper_pairs=[]
+for method,ln,site,needle in [
+ ('get',10811,10939,"db.get('anunciantes',aid)"),
+ ('patch',10813,11019,"db.patch('anunciantes',aid")
+]:
+    assert needle in worker_lines[site-1]
+    dest=exact_function('worker/worker206.txt',method,ln)
+    assert F[dest]['parent']==publication_owner
+    adj[publish_route][dest]=('post_preprocesado_db_publicacion_condicional','worker/worker206.txt:'+str(site))
+    publication_wrapper_pairs.append((method,ln,site))
+print('PUBLICATION_WRAPPER_POST_VERIFIED',json.dumps(publication_wrapper_pairs))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
