@@ -978,6 +978,32 @@ for operation,site,needle,target in [
     adj[src][target]=('role_source_a_observador_en_rama_no_privada','worker/worker206.txt:'+str(site))
 print('ROLE_TO_OBSERVE_WRAPPER_LINKS_VERIFIED',3)
 
+# La capa observeDbV41 tiene despacho dinámico, pero acotado:
+# for (operation of Object.keys(db)), where db=createDb(env). Cada
+# operación expuesta se invoca como db[operation](...args).
+# Se enlaza a cada propiedad exacta, no a funciones de otros ámbitos.
+assert 'for (const operation of Object.keys(db))' in worker_lines[9847-1]
+assert 'const result = await db[operation](...args)' in worker_lines[9855-1]
+assert 'observeDbV41(createDb(env),report)' in worker_lines[13208-1]
+obs_dispatch=exact_function('worker/worker206.txt','observed[operation]',9848)
+native_db=exact_function('worker/worker206.txt','createDb',888)
+OBS_NATIVE_OPERATIONS=[
+ ('get',917),('getVersioned',922),('patch',927),('delete',944),
+ ('listPage102',963),('listCollection',968),('queryEqual',980)
+]
+obs_native_pairs=[]
+for method,line in OBS_NATIVE_OPERATIONS:
+    target=exact_function('worker/worker206.txt',method,line)
+    assert F[target]['parent']==native_db
+    adj[obs_dispatch][target]=('observador_operacion_tipado_por_clave','worker/worker206.txt:9847-9855')
+    obs_native_pairs.append((method,line))
+commit_native=exact_function('worker/worker206.txt','commitPatches',905)
+obs_commit=exact_function('worker/worker206.txt','observed.commitPatches',9869)
+assert 'db.commitPatches(entries)' in worker_lines[9871-1]
+assert F[commit_native]['parent']==native_db
+adj[obs_commit][commit_native]=('observador_commitPatches_especifico','worker/worker206.txt:9871')
+print('OBSERVE_NATIVE_METHODS_VERIFIED',json.dumps(obs_native_pairs+ [('commitPatches',905)]))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
