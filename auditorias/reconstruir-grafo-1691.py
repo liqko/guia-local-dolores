@@ -712,6 +712,21 @@ print('PASO3_RUTAS_PUB_DB',json.dumps({'publicaciones':publication_route,
     'admin':admin_route,'panel':panel_route,
     'guardas':['/superadmin/publications/blocked','/superadmin/publications/recent','/suscriptores action solicitar_anunciante'],
     'sin_inferir_escrituras':True},ensure_ascii=False))
+
+# Callback nominal de autorización (no es homonimia): verifyAdmin pasa
+# verifyAdminUncached138 a GLD_ACTIONS138.authenticate; authenticate recibe
+# el parámetro verify y lo llama como verify(env,request), con memoización
+# por Request y env. Un hit de la autorización confiable evita la llamada.
+assert 'GLD_ACTIONS138.authenticate(env,request2,verifyAdminUncached138)' in worker_lines[1113-1]
+assert 'async function authenticate(env,request,verify)' in worker_lines[79-1]
+assert 'verify(env,request)' in worker_lines[81-1]
+assert 'return {readJson,authenticate,' in worker_lines[294-1]
+verify_parent=exact_function('worker/worker206.txt','verifyAdmin',1113)
+verify_child=exact_function('worker/worker206.txt','verifyAdminUncached138',1114)
+authenticate_owner=exact_function('worker/worker206.txt','authenticate',79)
+adj[verify_parent][verify_child]=('callback_autenticacion_nominal_por_GLDACTIONS138_condicionado','worker/worker206.txt:79,81,1113')
+print('PASO3_AUTH_CALLBACK_VERIFICADO',json.dumps({'desde':verify_parent,'hacia':verify_child,
+ 'intermediario':authenticate_owner,'cache':'Promise por request/env','condicional':True},ensure_ascii=False))
 seen={}
 while queue:
     key,aud=queue.popleft()
