@@ -774,7 +774,21 @@ assert F[login_builder]['parent']==login_caller
 assert F[login_bundle]['parent']==exact_function('worker/worker206.txt','withPrivateCacheV46',9953)
 adj[login_caller][login_bundle]=('metodo_bundle_login_con_receptor_tipado','worker/worker206.txt:5647,10098')
 adj[login_bundle][login_builder]=('callback_build_condicionado_a_cache_miss','worker/worker206.txt:5647,10104')
-print('BUNDLE_LOGIN_CALLBACK_COTEJADO',2)
+# Dentro del callback de cache miss, las relaciones se leen por el
+# método concreto y cada relación se enriquece mediante Array.map.
+assert 'db.loginRelations?db.loginRelations(sid)' in worker_lines[5625-1]
+assert 'relations.map(async rel=>' in worker_lines[5628-1]
+assert 'db.loginAdvertiser?db.loginAdvertiser("anunciantes",aid)' in worker_lines[5631-1]
+assert 'db.loginAdvertiser?db.loginAdvertiser("anunciantes_administracion",aid)' in worker_lines[5632-1]
+login_relations=exact_function('worker/worker206.txt','loginRelations',10183)
+login_advertiser=exact_function('worker/worker206.txt','loginAdvertiser',10196)
+login_map=[f['id'] for f in F.values() if f['file']=='worker/worker206.txt' and
+           f['line']==5628 and f['parent']==login_builder and f['name'].startswith('callback@')]
+assert len(login_map)==1,login_map
+adj[login_builder][login_relations]=('relaciones_login_si_bundle_sin_cache','worker/worker206.txt:5625,10183')
+adj[login_builder][login_map[0]]=('callback_array_map_relaciones_login_condicionado','worker/worker206.txt:5628')
+adj[login_map[0]][login_advertiser]=('lectura_advertiser_login_condicionada_por_relacion','worker/worker206.txt:5631,5632,10196')
+print('BUNDLE_LOGIN_CALLBACK_COTEJADO',5)
 
 seen={}
 while queue:
