@@ -2467,3 +2467,46 @@ print('PASO3_ANIDADAS_SIN_CONSUMIDOR_LOCAL',json.dumps({
     'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
     'casos':nested_single_reference,
     'limitacion':'Padre alcanzado, pero ausencia textual local de consumidor. No descarta referencias externas ni indica ejecución o desuso.'},ensure_ascii=False))
+
+# Miembros con nombre que la fuente atribuye inequívocamente a un
+# método / propiedad, pero sin enlace externo a entrada acreditado.
+# Se comprueba su expresión declarativa y el dueño AST, no su invocación.
+owned_members=[]
+already_owned=already_nested|nested_single_ids
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name'];typ=(rec.get('activacion') or {}).get('tipo')
+    if fid in already_owned or typ not in ('metodo_o_accesor','propiedad_de_objeto','asignada_a_propiedad_o_variable','devuelta_a_quien_llama'):
+        continue
+    file=fn['file']
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    if typ=='devuelta_a_quien_llama':
+        verified=bool(re.search(r'\breturn\b|=>',line))
+    elif name.startswith('anonymous@'):
+        verified=bool(re.search(r'function\s*\(|=>|:\s*(?:async\s*)?\(',line))
+    else:
+        base=name.split('.')[-1]
+        if typ=='asignada_a_propiedad_o_variable':
+            verified=bool(re.search(r'\b'+re.escape(base)+r'\s*=',line))
+        else:
+            verified=bool(re.search(r'\b'+re.escape(base)+r'\s*(?:\(|:|=)',line))
+    if not verified:continue
+    owned_members.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+        'miembro':name,'tipo':typ,'padre':fn.get('parent'),
+        'padreAlcanzado':fn.get('parent') in reached,
+        'categoria':'miembro_declarado_con_consumidor_no_acreditado'})
+owned_member_ids={x['idAST'] for x in owned_members}
+assert len(owned_member_ids)==len(owned_members)
+for row in gdata['funciones']:
+    if row['idAST'] in owned_member_ids:
+        row['evaluacionFuente']='miembro_declarado_sin_enlace_de_consumidor_a_entrada'
+gdata['miembrosDeclaradosSinEntrada']=owned_members
+gdata['resumen']['miembrosDeclaradosClasificados']=len(owned_member_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(already_owned|owned_member_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_MIEMBROS_DECLARADOS',json.dumps({
+    'nuevas':len(owned_member_ids),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':owned_members,
+    'limitacion':'Propiedad, método o retorno probado en declaración y AST. No se infiere llegada desde la UI o Worker ni se propone eliminación.'},ensure_ascii=False))
