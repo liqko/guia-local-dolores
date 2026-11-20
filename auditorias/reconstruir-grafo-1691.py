@@ -81,6 +81,39 @@ print('PASO3_GH_PAGINACION_EVENTOS_ENLAZADOS',json.dumps({
     'aristas':6,'grupos':3,
     'limitacion':'Enlaces estáticos condicionales a la creación y clic en botones de paginación; no prueba ocurrencia del clic.'},ensure_ascii=False))
 
+# Los interceptores globales de fetch se instalan al evaluar los scripts.
+# login.html carga los cinco en orden y después usa fetch. Enlazar
+# instalación IIFE -> handler con guarda: la invocación es condicional a
+# que una solicitud pase por el global en ese momento.
+fetch_wrappers=[
+ ('plataforma/panel-administrativo155.js',17,'fetchNative'),
+ ('plataforma/sesion-persistente.js',20,'nativeFetch'),
+ ('plataforma/consumo-v44.js',91,'originalFetch'),
+ ('plataforma/contenido-adulto.js',51,'nativeFetch'),
+ ('plataforma/publicacion.js',16,'native'),
+]
+login_src=(Path('baseline')/'plataforma/login.html').read_text()
+assert re.search(r'\bfetch\s*\(',login_src)
+wrapper_installations=[]
+for file,line_no,capture in fetch_wrappers:
+    source=(Path('baseline')/file).read_text().splitlines()
+    target=[x for x in F.values() if x['file']==file and
+            x['line']==line_no and x['name']=='window.fetch']
+    assert len(target)==1,(file,line_no,len(target))
+    fn=target[0];parent=fn.get('parent')
+    assert parent in F and F[parent]['file']==file,(file,parent)
+    assert 'window.fetch=' in source[line_no-1],(file,line_no)
+    assert any('window.fetch.bind(window)' in line and capture in line
+               for line in source[:line_no-1]),(file,capture)
+    assert '/'+file in login_src,(file,'script src')
+    adj[parent][fn['id']]=('interceptor_global_fetch_instalado_condicionado',file+':'+str(line_no))
+    wrapper_installations.append({'archivo':file,'linea':line_no,
+        'origen':parent,'handler':fn['id'],
+        'condicion':'Instalación del script y solicitud posterior que utilice fetch global'})
+print('PASO3_INTERCEPTORES_FETCH_INSTALADOS',json.dumps({
+    'aristas':len(wrapper_installations),'casos':wrapper_installations,
+    'limitacion':'Instalación de handler comprobada, no prueba que cada rama de fetch se ejecute ni que todo módulo cargue en otros HTML.'},ensure_ascii=False))
+
 # Enlace perdido por el analizador: el despacho de Durable Object usa
 # una única línea larga con llamadas condicionales this.metodo(...).
 # Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
