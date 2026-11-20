@@ -1337,6 +1337,63 @@ assert F[cut_get]['parent']==cut_projection
 adj[cut_projection][cut_get]=('proyeccion_farmacia_usa_cache_interno_en_routePublicV12','worker/worker206.txt:11990,12097,12114,2604,2609')
 print('CITY_BOOK_PHARMACY_INTERNAL_CACHE_VERIFIED',1)
 
+# Cadena tipada de GLD_CACHE_KV en fetch:
+# observeKv117 -> requestCache121 -> coordinatedCities119 -> createCache.
+# El Proxy externo selecciona binding sólo para GLD_CACHE_KV;
+# el interno devuelve callbacks separados para get, put y delete.
+assert 'env=coordinatedCities119(requestCache121(observeKv117(env,report)' in worker_lines[13180-1]
+assert 'const kv = env.GLD_CACHE_KV' in worker_lines[1048-1]
+assert 'const kv=env.GLD_CACHE_KV,bases' in worker_lines[12221-1]
+assert 'const native=env.GLD_CACHE_KV' in worker_lines[12264-1]
+assert 'const original=env.GLD_CACHE_KV' in worker_lines[11669-1]
+cache_factory=exact_function('worker/worker206.txt','createCache',1047)
+city_owner=exact_function('worker/worker206.txt','coordinatedCities119',12218)
+request_owner=exact_function('worker/worker206.txt','requestCache121',12263)
+observed_owner=exact_function('worker/worker206.txt','observeKv117',11668)
+for src,owner,get_line,site in [
+ (cache_factory,city_owner,12259,1048),
+ (city_owner,request_owner,12293,12221),
+ (request_owner,observed_owner,11681,12264)
+]:
+    target=exact_function('worker/worker206.txt','get',get_line)
+    assert F[target]['parent']==owner
+    assert 'GLD_CACHE_KV' in worker_lines[site-1]
+    adj[src][target]=('proxy_env_get_binding_contratos_tipos','worker/worker206.txt:'+str(site))
+city_binding_get=exact_function('worker/worker206.txt','get',12236)
+request_binding_get=exact_function('worker/worker206.txt','get',12270)
+observe_binding_get=exact_function('worker/worker206.txt','get',11672)
+observed_call=exact_function('worker/worker206.txt','callback@11675',11675)
+assert F[city_binding_get]['parent']==city_owner
+assert F[request_binding_get]['parent']==request_owner
+assert F[observe_binding_get]['parent']==observed_owner
+assert F[observed_call]['parent']==observe_binding_get
+# Cada método de createCache obtiene el callback real del binding city.
+for operation,cache_ln,city_ln,request_ln,call_ln in [
+ ('get',1054,12237,12271,1055),
+ ('put',1063,12238,12280,1064),
+ ('delete',1066,12256,12285,1067)
+]:
+    name='del' if operation=='delete' else operation
+    source=exact_function('worker/worker206.txt',name,cache_ln)
+    city_callback=exact_function('worker/worker206.txt','anonymous@'+str(city_ln),city_ln)
+    request_callback=exact_function('worker/worker206.txt','anonymous@'+str(request_ln),request_ln)
+    assert F[city_callback]['parent']==city_binding_get
+    assert F[request_callback]['parent']==request_binding_get
+    assert 'kv.'+operation+'(' in worker_lines[call_ln-1]
+    assert "if(prop==='"+operation+"')" in worker_lines[city_ln-1] or "if(prop==='"+operation+"')" in worker_lines[city_ln-1-1]
+    adj[source][city_binding_get]=('acceso_proxy_city_por_metodo_tipado','worker/worker206.txt:'+str(call_ln))
+    adj[source][city_callback]=('callback_proxy_city_invocado_condicionado','worker/worker206.txt:'+str(city_ln))
+    # Cuando la clave no corresponde a una ciudad, city delega al kv del request.
+    assert 'return target.'+operation+'(' in worker_lines[city_ln-1] or 'return target.'+operation+'(' in worker_lines[city_ln+1-1]
+    adj[city_callback][request_binding_get]=('proxy_city_a_request_no_ciudad','worker/worker206.txt:'+str(city_ln))
+    adj[city_callback][request_callback]=('callback_request_para_operacion_no_ciudad','worker/worker206.txt:'+str(request_ln))
+    # Request cache delega al observador sólo cuando corresponde; hits
+    # y deduplicaciones pueden evitar el acceso subyacente.
+    assert 'target.'+operation+'(' in ''.join(worker_lines[request_ln-1:request_ln+8])
+    adj[request_callback][observe_binding_get]=('proxy_request_delega_observador_si_no_cache_hit','worker/worker206.txt:'+str(request_ln))
+    adj[request_callback][observed_call]=('callback_observador_kv_si_delegacion_real','worker/worker206.txt:11675')
+print('KV_PROXY_PIPELINE_VERIFIED',3)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
