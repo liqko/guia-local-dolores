@@ -1983,7 +1983,7 @@ gdata['resumen']['familiasSinConsumidorTextual']=len(orphan_root_families)
 gdata['resumen']['descendientesDeFamiliasSinConsumidorTextual']=len(orphan_family_members)
 gdata['resumen']['descendientesDeFamiliasNuevos']=len(new_family_members)
 gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(known_source_exceptions|orphan_family_members)
-gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\\n')
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 
 # Solapamiento comprobado de exportaciones del listado GH: el script
 # gh-listados.js se carga DESPUÉS de gh-promos.js y reasigna dos nombres.
@@ -2013,7 +2013,7 @@ for row in gdata['funciones']:
         row['evaluacionFuente']='exportacion_sombreada_por_script_posterior_en_carga_normal'
 gdata['exportacionesSombreadasGH']=shadowed
 gdata['resumen']['exportacionesSombreadasGH']=len(shadowed)
-gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(verified_unreferenced|source_unreferenced_ids|{x['idAST'] for x in shadowed})
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(verified_unreferenced|source_unreferenced_ids|orphan_family_members|{x['idAST'] for x in shadowed})
 gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
 print('PASO3_GH_EXPORTACIONES_SOMBREADAS',json.dumps({
     'sinEntradaBrutas':len(missing_records),
