@@ -912,6 +912,30 @@ for parent_name,parent_line,site,needle in TX_CALLBACKS:
     tx_added.append((parent_name,site))
 print('TX_CALLBACKS_CONTRATO_VERIFICADO',json.dumps(tx_added))
 
+# Trazado de receptor interno del wrapper privado a requestDb119:
+# createDb -> observeDbV41 -> roleSourceDb192 -> requestDb119
+# -> withPrivateCacheV46, según el ensamblaje fijo en fetch:13208.
+# RequestDb119 intercepta los cinco métodos, no se llega directamente
+# al createDb original cuando se invocan desde el wrapper privado.
+assert 'withPrivateCacheV46(requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report),env)' in worker_lines[13208-1]
+DB_PRIVATE_REQUEST=[
+ ('get',10114,'get',12311,10114,'db.get(collection,id)'),
+ ('queryEqual',10115,'queryEqual',12313,10115,'db.queryEqual(...args)'),
+ ('commitPatches',10116,'commitPatches',12316,10127,'db.commitPatches(entries)'),
+ ('patch',10134,'patch',12314,10148,'db.patch(collection,id,patch,options)'),
+ ('delete',10158,'delete',12315,10167,'db.delete(collection,id,options)')
+]
+db_private_links=[]
+for p_name,p_line,inner_name,inner_line,site,needle in DB_PRIVATE_REQUEST:
+    source=exact_function('worker/worker206.txt',p_name,p_line)
+    target=exact_function('worker/worker206.txt',inner_name,inner_line)
+    assert needle in worker_lines[site-1],(p_name,site)
+    assert F[source]['parent']==exact_function('worker/worker206.txt','withPrivateCacheV46',9953)
+    assert F[target]['parent']==exact_function('worker/worker206.txt','requestDb119',12296)
+    adj[source][target]=('delegacion_private_a_requestDb119_con_receptor_verificado','worker/worker206.txt:'+str(site))
+    db_private_links.append((p_name,site,inner_line))
+print('REQUESTDB119_WRAPPER_LINKS_VERIFIED',json.dumps(db_private_links))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
