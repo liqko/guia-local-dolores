@@ -1131,6 +1131,18 @@ assert F[roles_list_method]['parent']==exact_function('worker/worker206.txt','ro
 adj[roles_get_list][roles_list_method]=('vista_snapshot_roles_listCollection','worker/worker206.txt:9235')
 print('ROLES_SNAPSHOT_LIST_VERIFIED',1)
 
+# guideBaseForMutationInternal recibe exactamente el cache producido
+# en fetch y opcionalmente usa su propiedad ensureGuideBaseInternal. Esa
+# propiedad se asigna después de createCache(env), antes del despacho.
+assert 'const cache=createCache(env)' in worker_lines[13210-1]
+assert 'cache.ensureGuideBaseInternal=aid=>ensureGuideBaseFromPrivateInternal(' in worker_lines[13213-1]
+assert 'if(cache.ensureGuideBaseInternal)return cache.ensureGuideBaseInternal(aid)' in worker_lines[4877-1]
+guide_mutation=exact_function('worker/worker206.txt','guideBaseForMutationInternal',4874)
+guide_bound=exact_function('worker/worker206.txt','cache.ensureGuideBaseInternal',13213)
+assert F[guide_bound]['parent']==exact_function('worker/worker206.txt','fetch',13177)
+adj[guide_mutation][guide_bound]=('propiedad_tipificada_solo_si_cache_fetch_y_no_existe_base','worker/worker206.txt:4877')
+print('GUIDE_ENSURE_BOUND_CACHE_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
