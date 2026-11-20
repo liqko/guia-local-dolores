@@ -887,6 +887,31 @@ for name,origin,site,needle in [
 assert cache_del_links==[('routeAdminPromosV91',11135)]
 print('CREATECACHE_DEL_TYPED',json.dumps(cache_del_links))
 
+# Contrato del Durable Object: transactionSync(fn) ejecuta el
+# callback recibido sincrónicamente dentro de la transacción SQLite.
+# Cada callback está definido en el mismo ámbito del invocador.
+TX_CALLBACKS=[
+ ('directory',8953,8957,'this.state.storage.transactionSync(()=>'),
+ ('recover',8970,8977,'this.state.storage.transactionSync(()=>'),
+ ('cityBookShared',11803,11815,'this.state.storage.transactionSync(()=>'),
+ ('cityBookShared',11803,11827,'this.state.storage.transactionSync(()=>'),
+ ('read',11865,11870,'this.state.storage.transactionSync(()=>'),
+ ('read',11865,11894,'this.state.storage.transactionSync(()=>'),
+ ('GldPublicCache119.prototype.moduleSnapshot125',12370,12406,'this.state.storage.transactionSync(()=>')
+]
+tx_added=[]
+for parent_name,parent_line,site,needle in TX_CALLBACKS:
+    parent=exact_function('worker/worker206.txt',parent_name,parent_line)
+    source=worker_lines[site-1]
+    assert needle in source,(parent_name,site,source)
+    targets=[f['id'] for f in F.values() if f['file']=='worker/worker206.txt'
+             and f['line']==site and f['parent']==parent
+             and f['name'].startswith('callback@')]
+    assert len(targets)==1,(parent_name,site,targets)
+    adj[parent][targets[0]]=('callback_storage_transactionSync_condicionado','worker/worker206.txt:'+str(site))
+    tx_added.append((parent_name,site))
+print('TX_CALLBACKS_CONTRATO_VERIFICADO',json.dumps(tx_added))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
