@@ -145,6 +145,65 @@ print('PASO3_GLOBALES_UI_CON_CONSUMIDOR',json.dumps({
     'aristas':3,'eventos':['click ampliar imagen','temporizador modal','click paginacion scroll'],
     'limitacion':'Ruta nominal y manejadores comprobados en código, no prueba clic o temporizador real.'},ensure_ascii=False))
 
+# Contratos explícitos de objetos retornados y sus consumidores.
+# Efemérides: client devuelve {async get}, Carcasa invoca esa instancia;
+# get usa key, clock por defecto e IIFE interna.
+efem_lines=(Path('baseline')/'plataforma/efemerides-calendario.js').read_text().splitlines()
+carcasa_all=(Path('baseline')/'plataforma/carcasa.html').read_text().splitlines()
+efem_client='plataforma/efemerides-calendario.js:4:803:client'
+efem_get='plataforma/efemerides-calendario.js:4:954:get'
+efem_clock='plataforma/efemerides-calendario.js:4:848:anonymous@4'
+efem_key='plataforma/efemerides-calendario.js:4:910:key'
+efem_iife='plataforma/efemerides-calendario.js:9:1340:iife@9'
+assert all(x in F for x in (efem_client,efem_get,efem_clock,efem_key,efem_iife))
+assert F[efem_get]['parent']==efem_client
+assert F[efem_clock]['parent']==efem_client and F[efem_key]['parent']==efem_client
+assert F[efem_iife]['parent']==efem_get
+assert 'GLDEphemeridesCalendar.client(' in carcasa_all[1943-1]
+assert 'efemCalendars.get(city)' in carcasa_all[1954-1]
+assert 'clock=()=>Date.now()' in efem_lines[4-1] and 'key=city=>' in efem_lines[4-1]
+assert 'key(city)' in efem_lines[5-1] and 'clock()' in efem_lines[7-1]
+assert '(async()=>{' in efem_lines[9-1] and '})();' in efem_lines[9-1]
+for owner,child,line in ((efem_client,efem_get,4),(efem_get,efem_clock,7),
+                         (efem_get,efem_key,5),(efem_get,efem_iife,9)):
+    adj[owner][child]=('objeto_calendario_o_callback_condicionado','plataforma/efemerides-calendario.js:'+str(line))
+
+# Paquete ciudad: localBooks retorna métodos get/put pasados como
+# storage al cliente; éste invoca ambos, y cada método usa new Promise.
+pack_lines=(Path('baseline')/'plataforma/paquete-ciudad.js').read_text().splitlines()
+pack_factory='plataforma/paquete-ciudad.js:139:7728:localBooks'
+pack_get='plataforma/paquete-ciudad.js:151:8225:get'
+pack_put='plataforma/paquete-ciudad.js:159:8563:put'
+pack_db='plataforma/paquete-ciudad.js:141:7772:database'
+pack_callbacks=[
+ (pack_db,'plataforma/paquete-ciudad.js:142:7834:anonymous@142',142),
+ (pack_get,'plataforma/paquete-ciudad.js:153:8307:anonymous@153',153),
+ (pack_put,'plataforma/paquete-ciudad.js:161:8645:anonymous@161',161)]
+assert all(x in F for x in (pack_factory,pack_get,pack_put,pack_db))
+assert 'storage: localBooks()' in pack_lines[187-1]
+assert 'await storage.get(city)' in pack_lines[93-1]
+assert 'await storage.put(book)' in pack_lines[105-1]
+for method in (pack_get,pack_put):
+    assert F[method]['parent']==pack_factory
+    adj[pack_factory][method]=('metodo_objeto_storage_consumido','plataforma/paquete-ciudad.js:187')
+for owner,child,line in pack_callbacks:
+    assert child in F and F[child]['parent']==owner
+    assert 'new Promise(' in pack_lines[line-1]
+    adj[owner][child]=('callback_promise_contrato_comprobado','plataforma/paquete-ciudad.js:'+str(line))
+
+# El estado del reproductor de YouTube se registra explícitamente
+# como callback en el objeto events de new YT.Player.
+ev_lines=(Path('baseline')/'plataforma/eventos.html').read_text().splitlines()
+ev_src='plataforma/eventos.html:1683:37599:createPendingYouTubePlayers'
+ev_dest='plataforma/eventos.html:1691:38004:onStateChange'
+assert ev_src in F and ev_dest in F and F[ev_dest]['parent']==ev_src
+assert 'new YT.Player(' in ev_lines[1689-1]
+assert 'events:' in ev_lines[1690-1] and 'onStateChange: function' in ev_lines[1691-1]
+adj[ev_src][ev_dest]=('callback_api_youtube_condicionado','plataforma/eventos.html:1691')
+print('PASO3_CALENDARIO_PAQUETE_YT_ENLAZADOS',json.dumps({
+    'aristas':10,'grupo':['efemerides 4','paquete ciudad 5','youtube 1'],
+    'limitacion':'Enlaces condicionales sustentados por devoluciones de objetos, uso de métodos y registros de callback; no prueba invocación real.'},ensure_ascii=False))
+
 # Enlace perdido por el analizador: el despacho de Durable Object usa
 # una única línea larga con llamadas condicionales this.metodo(...).
 # Se verifica la clase, el IIFE con this léxico y cada método de su prototype.
