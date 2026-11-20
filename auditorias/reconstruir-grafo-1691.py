@@ -1398,6 +1398,64 @@ def worker_route(fid):
         route.append(parent)
         assert len(route)<150
     return {'inicio':'fetch Cloudflare Worker','cadena':list(reversed(route)),'aristas':list(reversed(reasons))}
+# Entradas DOM inline que el catálogo no enlazó: aceptar sólo
+# onclick/onchange/oninput/onsubmit con llamada simple a función window.X
+# exportada mediante window.X=function() en un JS importado explícitamente
+# por ese HTML. Es evidencia ESTÁTICA del contrato, no de carga en producción.
+dom_export_roots={}
+for html_file in sorted((Path('baseline')/'plataforma').glob('*.html')):
+    html_path='plataforma/'+html_file.name
+    html_lines=html_file.read_text().splitlines()
+    imported=set()
+    for line in html_lines:
+        for m in re.finditer(r'<script\b[^>]*\bsrc=["\']/?(plataforma/[^?\'"]+)',line,re.I):
+            imported.add(m.group(1))
+    available={}
+    for js_file in sorted(imported):
+        full=Path('baseline')/js_file
+        if not full.is_file():continue
+        for ln,content in enumerate(full.read_text().splitlines(),1):
+            m=re.search(r'\bwindow\.([A-Za-z_$][\w$]*)\s*=\s*(?:async\s+)?function\s*\(',content)
+            if not m:continue
+            name=m.group(1)
+            targets=[fid for fid,fn in F.items() if fn['file']==js_file and fn['line']==ln and fn['name']=='window.'+name]
+            if len(targets)==1:available[name]=(targets[0],js_file,ln)
+    if not available:continue
+    for line_no,line in enumerate(html_lines,1):
+        for event in re.finditer(r'\bon(click|change|input|submit)\s*=\s*["\']([^"\']+)["\']',line,re.I):
+            script=event.group(2).strip()
+            m=re.match(r'^(?:return\s+)?([A-Za-z_$][\w$]*)\s*\(',script)
+            if not m or m.group(1) not in available:continue
+            name=m.group(1)
+            fid,js_file,export_line=available[name]
+            dom_export_roots.setdefault(fid,{'html':html_path,'linea':line_no,
+               'evento':event.group(1).lower(),'llamada':name,
+               'archivoExportado':js_file,'lineaExportacion':export_line,
+               'tipo':'evento_dom_inline_a_export_window_importado'})
+assert any(x['llamada']=='ghPromosPrepareV91' and x['html']=='plataforma/administracion.html' for x in dom_export_roots.values())
+dom_pred={fid:None for fid in dom_export_roots}
+dom_queue=deque(dom_export_roots)
+while dom_queue:
+    current=dom_queue.popleft()
+    for child,edge in adj.get(current,{}).items():
+        if child in dom_pred:continue
+        dom_pred[child]=(current,edge)
+        dom_queue.append(child)
+def dom_event_route(fid):
+    nodes=[fid];aristas=[]
+    while dom_pred[nodes[-1]] is not None:
+        src,edge=dom_pred[nodes[-1]]
+        nodes.append(src);aristas.append(edge[0])
+        assert len(nodes)<120
+    nodes.reverse()
+    return {'inicio':dom_export_roots[nodes[0]],
+            'cadena':nodes,'aristas':list(reversed(aristas)),
+            'condicional':True}
+print('PASO3_DOM_INLINE_EXPORTS_VERIFICADOS',json.dumps({
+  'raíces':len(dom_export_roots),'alcanzables':len(dom_pred),
+  'muestras':list(dom_export_roots.values())[:24],
+  'sinAtribuirCargaReal':True},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -1421,6 +1479,8 @@ for row in pending:
     elif fid in startup_predecessor:
         record={'idAST':fid,'estado':'cadena_desde_inicio_script_confirmada_estaticamente',
                 **startup_route(fid)}
+    elif fid in dom_pred:
+        record={'idAST':fid,'estado':'cadena_desde_evento_dom_inline_confirmada_estaticamente',**dom_event_route(fid)}
     elif fid in worker_reach:
         record={'idAST':fid,'estado':'cadena_desde_fetch_worker_sin_cliente_asociado',**worker_route(fid)}
     else:
@@ -1430,7 +1490,7 @@ for row in pending:
 counts=collections.Counter(x['estado'] for x in records)
 summary={'revision':coverage['revision'],'catalogo':len(catalog['entries']),
          'funcionesExactas':len(F),'accionesConRaizAST':len(roots),
-         'grupoRevisado':1691,'iniciosScriptIIFE':len(startup_roots),'callbacksFuente':callbacks_verified,'resultados':dict(counts),
+         'grupoRevisado':1691,'iniciosScriptIIFE':len(startup_roots),'eventosDomInline':len(dom_export_roots),'callbacksFuente':callbacks_verified,'resultados':dict(counts),
          'limitacion':'Traza estática a AUD o inicio de script inequívoco, categorías separadas; no prueba ejecución de callbacks ni carga real del módulo.'}
 (OUT/'GRAFO_COMPLETO_1691.json').write_text(json.dumps({'resumen':summary,'funciones':records},ensure_ascii=False,indent=2)+'\n')
 print('GRAFO_COMPLETO_1691',json.dumps(summary,ensure_ascii=False))
@@ -1466,7 +1526,7 @@ reverse=collections.defaultdict(set)
 for source,targets in adj.items():
     for target in targets:
         if target in F:reverse[target].add(source)
-reached=set(seen)|set(startup_predecessor)|set(worker_reach)
+reached=set(seen)|set(startup_predecessor)|set(dom_pred)|set(worker_reach)
 missing_groups=collections.defaultdict(list)
 for rec in missing_records:
     fid=rec['idAST'];fn=F[fid];parent=fn.get('parent');ins=reverse.get(fid,set())
