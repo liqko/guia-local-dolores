@@ -1495,7 +1495,7 @@ cache_invalidator=exact_function('worker/worker206.txt','anonymous@1053',1053)
 assert F[cache_invalidator]['parent']==exact_function('worker/worker206.txt','createCache',1047)
 assert "invalidatePendingEvents126:env.GLD_PUBLIC_CACHE?()=>pendingActor126(" in worker_lines[1053-1]
 for owner_name,ln,site in [
- ('routeDirectories102',360,358),
+ ('directoryDelta102',354,358),
  ('GLD_EVENTS145.dispatch',13123,13171)
 ]:
     # La segunda ruta puede tener nombre AST distinto; sólo registrar
