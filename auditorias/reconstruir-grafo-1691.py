@@ -956,6 +956,28 @@ for outer,outer_line,inner,inner_line,site,needle in ROLE_REQUEST_DB_EDGES:
     role_request_edges.append((outer,site,inner_line))
 print('ROLE_SOURCE_WRAPPER_LINKS_VERIFIED',json.dumps(role_request_edges))
 
+# roleSourceDb192 intercepta escrituras de roles; para cualquier
+# colección no privada delega a observeDbV41(db,report). ObserveDbV41
+# construye observed[operation] en el bucle y reemplaza commitPatches
+# por su observador específico, verificando el método real del receptor.
+assert 'roleSourceDb192(observeDbV41(createDb(env),report),env)' in worker_lines[13208-1]
+assert 'for (const operation of Object.keys(db))' in worker_lines[9847-1]
+assert 'observed[operation] = async (...args) =>' in worker_lines[9848-1]
+assert 'observed.commitPatches=async entries=>' in worker_lines[9869-1]
+observed_general=exact_function('worker/worker206.txt','observed[operation]',9848)
+observed_commit=exact_function('worker/worker206.txt','observed.commitPatches',9869)
+assert F[observed_general]['parent']==F[observed_commit]['parent']==exact_function('worker/worker206.txt','observeDbV41',9845)
+for operation,site,needle,target in [
+ ('patch',9036,'db.patch(c,id,patch,options)',observed_general),
+ ('delete',9037,'db.delete(c,id,options)',observed_general),
+ ('commitPatches',9038,'db.commitPatches(entries)',observed_commit)
+]:
+    src=exact_function('worker/worker206.txt',operation,site)
+    assert needle in worker_lines[site-1]
+    assert 'ROLE_SOURCE192.has' in worker_lines[site-1]
+    adj[src][target]=('role_source_a_observador_en_rama_no_privada','worker/worker206.txt:'+str(site))
+print('ROLE_TO_OBSERVE_WRAPPER_LINKS_VERIFIED',3)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
