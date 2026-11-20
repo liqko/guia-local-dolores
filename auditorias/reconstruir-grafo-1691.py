@@ -2382,3 +2382,46 @@ print('PASO3_HOMONIMOS_INTERMODULO',json.dumps({
   'nuevas':len(homonymous_ids),'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
   'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],'casos':homonymous_local,
   'limitacion':'Ausencia local de consumidor y coincidencia nominal en otros archivos; no prueba identidad de ámbito ni permite enlazarlas.'},ensure_ascii=False))
+
+# Confirmación puntual de contratos estándar todavía sin conexión a
+# entrada: new Promise, setTimeout, IIFE y métodos de colección.
+# El invocador y la activación se mantienen separados.
+standard_contract_unreached=[]
+already_standard=already_classified_homonyms|homonymous_ids
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid]
+    if fid in already_standard:continue
+    typ=(rec.get('activacion') or {}).get('tipo')
+    if typ not in ('funcion_pasada_a_constructor','callback_programado',
+                   'invocada_en_su_declaracion','funcion_pasada_como_argumento'):
+        continue
+    file=fn['file']
+    if file not in src_cache:src_cache[file]=(Path('baseline')/file).read_text().splitlines()
+    line=src_cache[file][fn['line']-1]
+    contracts={
+      'funcion_pasada_a_constructor':r'\bnew\s+(?:Promise|MutationObserver|IntersectionObserver|ResizeObserver)\s*\(',
+      'callback_programado':r'\b(?:setTimeout|setInterval|requestAnimationFrame|queueMicrotask)\s*\(',
+      'invocada_en_su_declaracion':r'\)\s*\(\s*\)',
+      'funcion_pasada_como_argumento':r'\.(?:map|filter|find|some|every|forEach|flatMap)\s*\('
+    }
+    contract=contracts[typ]
+    if not re.search(contract,line):continue
+    standard_contract_unreached.append({'idAST':fid,'archivo':file,'linea':fn['line'],
+         'tipo':typ,'padre':fn.get('parent'),
+         'contratoFuente':contract,'estado':'activacion_local_con_entrada_no_acreditada'})
+standard_contract_ids={x['idAST'] for x in standard_contract_unreached}
+assert len(standard_contract_ids)==len(standard_contract_unreached)
+for row in gdata['funciones']:
+    if row['idAST'] in standard_contract_ids:
+        row['evaluacionFuente']='contrato_estandar_de_callback_local_sin_entrada_comprobada'
+gdata['contratosLocalesSinEntrada']=standard_contract_unreached
+gdata['resumen']['contratosLocalesClasificados']=len(standard_contract_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(
+    already_standard|standard_contract_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_CONTRATOS_LOCALES',json.dumps({
+ 'nuevas':len(standard_contract_ids),
+ 'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+ 'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+ 'casos':standard_contract_unreached,
+ 'limitacion':'Contrato estándar de callback visible en el código. No acredita la cadena de inicio ni ejecución en producción.'},ensure_ascii=False))
