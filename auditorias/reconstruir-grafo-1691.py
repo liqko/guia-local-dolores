@@ -2299,3 +2299,44 @@ print('PASO3_PENDIENTES_138_DETALLE',json.dumps({
     'porBloqueo':dict(collections.Counter(z['tipoBloqueo'] for z in remaining_details)),
     'porActivacion':dict(collections.Counter(z['activacion'] for z in remaining_details)),
     'filas':remaining_details},ensure_ascii=False))
+
+# Breves nombres de función (2 a 6 caracteres) que no fueron elegibles
+# para el primer censo. Sólo se admiten declaraciones function reales,
+# sin padre AST y cuya única aparición en todas las fuentes es la definición.
+short_ui_names=[]
+classified_so_far=classified_prior|member_closed_ids
+short_candidates={}
+for rec in missing_records:
+    fid=rec['idAST'];fn=F[fid];name=fn['name']
+    if (fid in classified_so_far or fn['file'].startswith('worker/') or
+        fn.get('parent') in F or not name.isidentifier() or
+        not 2<=len(name)<=6 or reverse.get(fid)):
+        continue
+    if fn['file'] not in src_cache:
+        src_cache[fn['file']]=(Path('baseline')/fn['file']).read_text().splitlines()
+    line=src_cache[fn['file']][fn['line']-1]
+    if re.search(r'\b(?:async\s+)?function\s+'+re.escape(name)+r'\s*\(',line):
+        short_candidates[fid]=name
+if short_candidates:
+    pat=re.compile(r'\b(?:'+'|'.join(re.escape(n) for n in sorted(set(short_candidates.values()),key=len,reverse=True))+r')\b')
+    counts=collections.Counter()
+    for src in all_source_files:
+        counts.update(m.group() for m in pat.finditer((Path('baseline')/src).read_text()))
+    short_ui_names=[{'idAST':fid,'nombre':name,'archivo':F[fid]['file'],
+          'linea':F[fid]['line'],'totalReferencias':counts[name]}
+         for fid,name in short_candidates.items() if counts[name]==1]
+short_ui_ids={x['idAST'] for x in short_ui_names}
+assert len(short_ui_ids)==len(short_ui_names)
+for row in gdata['funciones']:
+    if row['idAST'] in short_ui_ids:
+        row['evaluacionFuente']='declaracion_breve_sin_segunda_referencia_en_corte'
+gdata['declaracionesBrevesUiSinConsumidor']=short_ui_names
+gdata['resumen']['declaracionesBrevesUiSinConsumidor']=len(short_ui_ids)
+gdata['resumen']['aunSinClasificacionFuente']=len(missing_records)-len(classified_so_far|short_ui_ids)
+gpath.write_text(json.dumps(gdata,ensure_ascii=False,indent=2)+'\n')
+print('PASO3_UI_NOMBRES_BREVES',json.dumps({
+    'nuevas':len(short_ui_ids),
+    'excepcionesFuenteAcumuladas':len(missing_records)-gdata['resumen']['aunSinClasificacionFuente'],
+    'aunPorClasificar':gdata['resumen']['aunSinClasificacionFuente'],
+    'casos':short_ui_names,
+    'limitacion':'Búsqueda textual exhaustiva en el corte congelado. No acredita desuso ni permite eliminar funciones.'},ensure_ascii=False))
