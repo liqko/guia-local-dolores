@@ -1004,6 +1004,38 @@ assert F[commit_native]['parent']==native_db
 adj[obs_commit][commit_native]=('observador_commitPatches_especifico','worker/worker206.txt:9871')
 print('OBSERVE_NATIVE_METHODS_VERIFIED',json.dumps(obs_native_pairs+ [('commitPatches',901)]))
 
+# requestDb119 contiene helpers por solicitud que sí son
+# invocados por los métodos retornados. No son llamadas de red nuevas:
+# epoch/invalidate/once/remember administran el caché en memoria.
+REQUEST_HELPER_EDGES=[
+ ('get',12311,'once',12301,12311,'once(c,'),
+ ('queryEqual',12313,'once',12301,12313,'once(c,'),
+ ('getVersioned',12312,'once',12301,12312,'once(c,'),
+ ('getVersioned',12312,'epoch',12299,12312,'epoch(c)'),
+ ('getVersioned',12312,'remember',12309,12312,'remember(c,id,value.doc)'),
+ ('patch',12314,'invalidate',12300,12314,'invalidate(c)'),
+ ('patch',12314,'epoch',12299,12314,'epoch(c)'),
+ ('patch',12314,'remember',12309,12314,'remember(c,id,row)'),
+ ('delete',12315,'invalidate',12300,12315,'invalidate(c)'),
+ ('delete',12315,'epoch',12299,12315,'epoch(c)'),
+ ('delete',12315,'remember',12309,12315,'remember(c,id,null)'),
+ ('commitPatches',12316,'invalidate',12300,12316,'invalidate(c)'),
+ ('commitPatches',12316,'epoch',12299,12316,'epoch(c)'),
+ ('commitPatches',12316,'remember',12309,12316,'remember(e.collection,e.id,result[i])'),
+ ('once',12301,'epoch',12299,12304,'epoch(c)'),
+ ('invalidate',12300,'epoch',12299,12300,'epoch(c)')
+]
+request_helpers=[]
+parent=exact_function('worker/worker206.txt','requestDb119',12296)
+for owner,owner_line,helper,helper_line,site,needle in REQUEST_HELPER_EDGES:
+    src=exact_function('worker/worker206.txt',owner,owner_line)
+    dst=exact_function('worker/worker206.txt',helper,helper_line)
+    assert F[src]['parent']==parent and F[dst]['parent']==parent
+    assert needle in worker_lines[site-1],(owner,helper,site)
+    adj[src][dst]=('request_cache_helper_invocado_en_rama_especifica','worker/worker206.txt:'+str(site))
+    request_helpers.append((owner,helper,site))
+print('REQUESTDB119_HELPERS_VERIFIED',json.dumps(request_helpers))
+
 seen={}
 while queue:
     key,aud=queue.popleft()
