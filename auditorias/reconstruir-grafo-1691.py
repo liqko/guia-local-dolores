@@ -1069,6 +1069,19 @@ assert F[private_panel_admin]['parent']==exact_function('worker/worker206.txt','
 adj[fetch_entry][private_panel_admin]=('lectura_admin_relaciones_condicional','worker/worker206.txt:13278')
 print('FETCH_OWNER_PANEL_ADMIN_VERIFIED',1)
 
+# routeModeratorsV72 usa read=db.panelReadDb() y la vista
+# panelReadDb conserva via spread cachedAdminSettings126 de withAuthCacheV58.
+# El GET de moderadores lo invoca sólo tras autenticar superadministrador.
+assert 'const read=db.panelReadDb?db.panelReadDb():db;' in worker_lines[10700-1]
+assert 'if(read.cachedAdminSettings126)row=await read.cachedAdminSettings126(sid)' in worker_lines[10702-1]
+assert 'panelReadDb(scope={}){return {...db,get:' in worker_lines[10408-1]
+assert 'async cachedAdminSettings126(id)' in worker_lines[10453-1]
+moderators_route=exact_function('worker/worker206.txt','routeModeratorsV72',10690)
+auth_admin_settings=exact_function('worker/worker206.txt','cachedAdminSettings126',10453)
+assert F[auth_admin_settings]['parent']==exact_function('worker/worker206.txt','withAuthCacheV58',10436)
+adj[moderators_route][auth_admin_settings]=('panelReadDb_spread_hereda_cache_admin','worker/worker206.txt:10702')
+print('MODERATOR_AUTH_CACHE_READ_VERIFIED',1)
+
 seen={}
 while queue:
     key,aud=queue.popleft()
