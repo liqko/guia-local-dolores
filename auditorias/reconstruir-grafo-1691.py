@@ -983,7 +983,7 @@ print('ROLE_TO_OBSERVE_WRAPPER_LINKS_VERIFIED',3)
 # operación expuesta se invoca como db[operation](...args).
 # Se enlaza a cada propiedad exacta, no a funciones de otros ámbitos.
 assert 'for (const operation of Object.keys(db))' in worker_lines[9847-1]
-assert 'const result = await db[operation](...args)' in worker_lines[9855-1]
+assert 'const result = await db[operation](...args)' in worker_lines[9856-1]
 assert 'observeDbV41(createDb(env),report)' in worker_lines[13208-1]
 obs_dispatch=exact_function('worker/worker206.txt','observed[operation]',9848)
 native_db=exact_function('worker/worker206.txt','createDb',888)
@@ -995,7 +995,7 @@ obs_native_pairs=[]
 for method,line in OBS_NATIVE_OPERATIONS:
     target=exact_function('worker/worker206.txt',method,line)
     assert F[target]['parent']==native_db
-    adj[obs_dispatch][target]=('observador_operacion_tipado_por_clave','worker/worker206.txt:9847-9855')
+    adj[obs_dispatch][target]=('observador_operacion_tipado_por_clave','worker/worker206.txt:9847-9856')
     obs_native_pairs.append((method,line))
 commit_native=exact_function('worker/worker206.txt','commitPatches',905)
 obs_commit=exact_function('worker/worker206.txt','observed.commitPatches',9869)
