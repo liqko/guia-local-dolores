@@ -2313,6 +2313,33 @@ print('PASO3_STUB_TELEMETRIA_PUBLICADO',json.dumps({
  'importaciones':telemetry_imports,
  'tipo':'stub_global_instalado_sin_consumidor_acreditado'},ensure_ascii=False))
 
+# Worker: cinco funciones retornadas explícitamente al inicializar
+# GLD_CLASSIFICATION_V86. Registro de disponibilidad, NO invocación.
+worker_classification_root='worker/worker206.txt:756:68505:gldClassificationV86'
+assert worker_classification_root in F
+assert 'const GLD_CLASSIFICATION_V86=gldClassificationV86();' in worker_module[777-1]
+assert 'return {text,ids,flag,levelNumber,name,findLevel,rules,active:' in worker_module[775-1]
+worker_classification_members={}
+for name,line_number in [('ids',760),('findLevel',765),('rules',770),('active',775),('levelLabel',775)]:
+    ids=[fid for fid,fn in F.items() if fn['file']=='worker/worker206.txt' and
+         fn['line']==line_number and fn['name']==name]
+    assert len(ids)==1,(name,line_number,ids)
+    fid=ids[0]
+    assert F[fid]['parent']==worker_classification_root,(fid,F[fid]['parent'])
+    assert name in worker_module[line_number-1],(name,line_number)
+    worker_classification_members[fid]={
+       'inicio':{'file':'worker/worker206.txt','line':777,
+                 'tipo':'inicializacion_de_objeto_global_en_modulo_worker'},
+       'sitio':'worker/worker206.txt:756-777',
+       'contrato':'miembro '+name+' publicado por retorno de gldClassificationV86() en GLD_CLASSIFICATION_V86',
+       'limite':'Se acredita creación y disponibilidad en el objeto; no hay llamada de miembro ni acción AUD probadas.'
+    }
+assert len(worker_classification_members)==5
+print('PASO3_CLASIFICACION_WORKER_MIEMBROS_INSTALADOS',json.dumps({
+  'total':5,'identidades':list(worker_classification_members),
+  'fuente':'worker/worker206.txt:775,777',
+  'condicion':'evaluacion del modulo sin ejecución acreditada de los métodos'},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -2349,6 +2376,9 @@ for row in pending:
     elif fid in telemetry_stub_installation:
         record={'idAST':fid,'estado':'disponibilidad_stub_global_confirmada_estaticamente',
                 **telemetry_stub_installation[fid]}
+    elif fid in worker_classification_members:
+        record={'idAST':fid,'estado':'disponibilidad_miembro_objeto_worker_confirmada_estaticamente',
+                **worker_classification_members[fid]}
     else:
         record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
                 'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
