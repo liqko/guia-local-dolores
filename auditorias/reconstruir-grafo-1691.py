@@ -1978,6 +1978,37 @@ assert 'new Proxy(this.env,{get:' in worker_lines[9012-1]
 assert 'this.sourceFactory?this.sourceFactory():createDb(env)' in worker_lines[9014-1]
 adj[roles_fetch][roles_env_get]=('roles_actor_proxy_request_report_si_createDb','worker/worker206.txt:9012,9014')
 
+# Registro real del MutationObserver del buscador global de Login.
+# La misma función instala el observador y enlaza el callback interno de
+# addedNodes.forEach; sólo se invoca condicionalmente ante mutaciones.
+login_search_source=(Path('baseline')/'plataforma/login.html').read_text().splitlines()
+search_owner='plataforma/login.html:2818:'
+search_owners=[fid for fid,fn in F.items() if fn['file']=='plataforma/login.html'
+               and fn['line']==2818 and fn['name']=='installGlobalSelectTypeSearch_']
+nested_mutation='plataforma/login.html:2831:49999:callback@2831'
+assert len(search_owners)==1 and nested_mutation in F,(search_owners,nested_mutation)
+search_owner=search_owners[0]
+assert 'new MutationObserver(mutations=>' in login_search_source[2825-1]
+assert 'mutations.forEach(m=>' in login_search_source[2827-1]
+assert '(m.addedNodes||[]).forEach(n=>' in login_search_source[2831-1]
+assert 'obs.observe(document.body,{childList:true,subtree:true})' in login_search_source[2839-1]
+assert 'installGlobalSelectTypeSearch_();' in login_search_source[8374-1]
+ancestor=nested_mutation;ancestors=[]
+while ancestor in F:
+    ancestor=F[ancestor].get('parent')
+    if not ancestor:break
+    ancestors.append(ancestor)
+    if ancestor==search_owner:break
+assert search_owner in ancestors,(nested_mutation,ancestors)
+adj[search_owner][nested_mutation]=(
+    'callback_mutation_observer_added_nodes_condicionado',
+    'plataforma/login.html:2825-2839')
+print('PASO3_MUTATION_OBSERVER_LOGIN_ENLACE',json.dumps({
+ 'duenoAST':search_owner,'callbackAST':nested_mutation,
+ 'caminoPadresAST':ancestors,
+ 'condicion':'observador activo y mutacion del arbol DOM',
+ 'sitioRegistro':'plataforma/login.html:2825,2839'},ensure_ascii=False))
+
 # El cierre de la cola de solicitudes de DO almacena release como
 # lambda en el constructor Promise y la invoca en finally del mismo
 # método, después de la asignación sincrónica del executor Promise.
