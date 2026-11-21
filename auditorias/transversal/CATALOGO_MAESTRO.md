@@ -1,12 +1,20 @@
 # Catálogo maestro de auditoría
 
+## Actualización del Paso 2, 21/11/2026
+
+- El [catálogo completo](CATALOGO_MAESTRO.zip) conserva los 987 identificadores históricos e incorpora `AUD-00988` y `AUD-00989` para escribir y confirmar sugerencias en el buscador vigente de Reclamos. Los tres controles reemplazados mantienen su historial. La selección de ciudad y el envío conservan sus identificadores, con el recorrido actualizado. El código revisado para los cambios posteriores es [`9b7fd659`](https://github.com/liqko/guia-local-dolores/commit/9b7fd659e3b9f46e4a714955016df26ce3764c82).
+- Se actualizaron ocho vinculaciones del inventario del Paso 1, incluidas las tres de «Promocioná». El catálogo incorpora la revisión de las 44 entradas y las 15 construcciones. Los siete grupos pendientes en vivo conservan motivo y alcance en [el inventario del Paso 1](MAPA_DINAMICO_INVENTARIO_44210648484.json#verificacionVigente).
+- Se revisaron **125 asociaciones parciales de 82 unidades**, que corresponden a **siete sitios de código**. Se confirmaron 16 conexiones condicionadas y un recorrido interrumpido. Se descartaron 108 asociaciones que no corresponden a su acción y se precisaron otras 13. El JSON conserva el origen y la decisión de cada asociación.
+- En `AUD-00001`, separar apertura de panel de la escritura de permisos de Responsables. El 503 posterior de la ficha sigue registrado. En `AUD-00101`, registrar suspensión condicional por PATCH y fallo del DELETE. `AUD-00016` y `AUD-00017` conservan dos orígenes y comparten una comprobación.
+- **Paso 2 abierto.** Este bloque cierra la revisión de las coincidencias parciales inventariadas. Las conexiones genéricas o múltiples fuera de ese bloque y las 19 equivalencias históricas abiertas requieren confirmación. Los valores de la edición original que siguen abajo corresponden al corte congelado del 18/11. En el JSON, `cotejoPaso2` y los estados de red revisados prevalecen para las unidades afectadas.
+
 El [cotejo de 3.625 declaraciones](COBERTURA_FUNCIONES.md) y su [anexo por identidad de árbol y unidad AUD](COBERTURA_ACTIVACIONES.zip) registran las relaciones agregadas y los recorridos que aún requieren verificación.
 
 Código de referencia [`e6362836`](https://github.com/liqko/guia-local-dolores/commit/e6362836e6078a14a361732d79a8212258934056). Los generadores se tomaron de la rama de auditoría. Se cotejaron **71 fuentes** del directorio Plataforma y el Worker.
 
 **987 unidades numeradas**, de `AUD-00001` a `AUD-00987`. El [catálogo completo](CATALOGO_MAESTRO.zip) contiene funciones, datos, llamadas de red, dependencias por unidad, inventarios y equivalencias con la numeración anterior. El [informe de las 44 acciones dinámicas](MAPA_DINAMICO_PUNTO_1.md) conserva la evidencia y sus IDs originales.
 
-## Comprobación de esta edición
+## Comprobación de la edición original del 18/11
 
 - 923 entradas independientes y 44 candidatos dinámicos enlazados. Los candidatos dinámicos pueden corresponder a unidades ya numeradas.
 - Ningún árbol truncado, ninguna entrada sin enlace y ninguna diferencia de huellas entre los inventarios. Los controles rechazaron omisiones simuladas de llamadas, referencias, datos y funciones.
@@ -34,7 +42,7 @@ El paso 3 debe determinar el alcance de estos archivos por sus referencias y des
 - `popup/eventos.html`
 - `xgame/suerte.html`
 
-## Unidades en orden
+## Identificadores históricos y nuevas acciones
 
 | ID | Entrada | Manejador o condición |
 | --- | --- | --- |
@@ -1025,3 +1033,5 @@ El paso 3 debe determinar el alcance de estos archivos por sus referencias y des
 | AUD-00985 | [worker/worker206.txt:11964](https://github.com/liqko/guia-local-dolores/blob/e6362836e6078a14a361732d79a8212258934056/worker/worker206.txt#L11964) | fetch |
 | AUD-00986 | [worker/worker206.txt:12799](https://github.com/liqko/guia-local-dolores/blob/e6362836e6078a14a361732d79a8212258934056/worker/worker206.txt#L12799) | GldPublicCache119.prototype.alarm |
 | AUD-00987 | [worker/worker206.txt:13177](https://github.com/liqko/guia-local-dolores/blob/e6362836e6078a14a361732d79a8212258934056/worker/worker206.txt#L13177) | fetch |
+| AUD-00988 | [Buscador de Reclamos: escribir](https://github.com/liqko/guia-local-dolores/blob/9b7fd659/plataforma/login.html#L2207) | Selección exacta local o GET diferido |
+| AUD-00989 | [Buscador de Reclamos: confirmar](https://github.com/liqko/guia-local-dolores/blob/9b7fd659/plataforma/login.html#L2213) | Fija o limpia selección local |
