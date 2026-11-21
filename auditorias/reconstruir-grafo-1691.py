@@ -218,6 +218,33 @@ assert len(calc_targets)==1 and len(commercial_roots)==1,(calc_targets,commercia
 adj[commercial_roots[0]][calc_targets[0]]=('boton_calcular_registrado_condicionado','plataforma/panel-comercial.html:115')
 print('PASO3_CALLBACKS_UI_VERIFICADOS_21NOV',json.dumps({'aristas':len(ui_callback_checks)+2,'destinos':ui_new,'calcular':calc_targets[0],'limitacion':'Conexiones condicionales en fuentes y AST; no ejecutadas en navegador.'},ensure_ascii=False))
 
+# Referencias nominales que sí son contratos reales de callback/alias.
+# Sitios y destinos sin homonimia; la inclusión no supone petición ejecutada.
+nominal_proven=[]
+for file,site,method,name,definition,token in [
+ ('worker/worker206.txt',906,'map','firestoreFieldName115',884,'.map(firestoreFieldName115)'),
+ ('worker/worker206.txt',931,'map','firestoreFieldName115',884,'.map(firestoreFieldName115)'),
+ ('worker/worker206.txt',1751,'filter','active2',1745,'.filter(active2)'),
+ ('plataforma/login.html',2863,'filter','eventPartnerEligible_',2851,'.filter(eventPartnerEligible_)'),
+]:
+    source_line=(Path('baseline')/file).read_text().splitlines()[site-1]
+    assert token in source_line,(file,site)
+    targets=[fid for fid,fn in F.items() if fn['file']==file and fn['line']==definition and fn['name']==name]
+    callers=[fid for fid,fn in F.items() if fn['file']==file and any(c.get('line')==site and c.get('method')==method for c in fn.get('calls',[]))]
+    assert len(targets)==1 and len(callers)==1,(file,site,targets,callers)
+    adj[callers[0]][targets[0]]=('callback_nominal_con_sitio_verificado',file+':'+str(site))
+    nominal_proven.append([callers[0],targets[0],site])
+# Publicidad: alias lexical asignado en función de guardado, utilizado al comparar cambios.
+worker_alias_lines=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+assert 'const relationValue=publicityRelationsComparableV101;' in worker_alias_lines[662-1]
+assert 'relationValue(oldMedia)' in worker_alias_lines[664-1]
+pub_alias_owner='worker/worker206.txt:597:51155:publicitySaveMonthlyV101'
+pub_alias_target='worker/worker206.txt:479:39933:publicityRelationsComparableV101'
+assert pub_alias_owner in F and pub_alias_target in F
+adj[pub_alias_owner][pub_alias_target]=('alias_lexico_comparador_publicidad','worker/worker206.txt:662-664')
+nominal_proven.append([pub_alias_owner,pub_alias_target,662])
+print('PASO3_CALLBACKS_NOMINALES_21NOV',json.dumps({'aristas':len(nominal_proven),'casos':nominal_proven,'condicion':'Ramas donde se invoca consumidor y callback, sin evidencia de ejecucion real.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
