@@ -2490,7 +2490,7 @@ for root,descendants in sorted(root_usage.items(),key=lambda x:(-len(x[1]),x[0])
     fn=F[root]
     name=fn['name']
     content=(Path('baseline')/fn['file']).read_text()
-    occurrences=len(re.findall(r'\\b'+re.escape(name)+r'\\b',content)) if name.isidentifier() else None
+    occurrences=len(re.findall(r'\b'+re.escape(name)+r'\b',content)) if name.isidentifier() else None
     root_evidence.append({'idAST':root,'archivo':fn['file'],'linea':fn['line'],
         'nombre':name,'funcionesDependientes':len(descendants),
         'aparicionesNominalesEnArchivo':occurrences,
