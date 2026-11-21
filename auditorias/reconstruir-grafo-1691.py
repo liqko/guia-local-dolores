@@ -2766,6 +2766,37 @@ print('PASO3_POPUP_EVENTOS_DUPLICADO_EXACTO',json.dumps({
 },ensure_ascii=False))
 
 
+# Contrato de las dos llamadas fetch encontradas en fuentes excluidas:
+# comparación estática entre URL construida y despachos Worker del corte.
+mapa_source=(Path('baseline')/'mapa.html').read_text()
+menu_source=(Path('baseline')/'menu/modelo.html').read_text()
+worker_route_source=(Path('baseline')/'worker/worker206.txt').read_text()
+assert "new URL('https://login.liqkoargentina.workers.dev/commerce')" in mapa_source
+assert "u.searchParams.set('action','guia')" in mapa_source
+mapa_url_builder=mapa_source.split('const URL_DATOS = (() => {',1)[1].split('})();',1)[0]
+assert not re.search(r'\\b(?:advertiserId|anunciante_id|anuncianteId|aid)\\b',mapa_url_builder)
+assert "const API_BASE = \"https://login.liqkoargentina.workers.dev/menu\"" in menu_source
+for action in ('getAnunciante','getMenu','getCategorias'):
+    assert "apiGet({ action:'"+action+"', id })" in menu_source
+assert not re.search(r'(?<![A-Za-z0-9])menu(?![A-Za-z0-9])',worker_route_source,re.I)
+assert 'if (path === "/commerce" && request2.method === "GET")' in worker_route_source
+assert 'if (!aid) return json({ success: false, message: "Falta advertiserId" }, 400);' in worker_route_source
+print('PASO3_RUTAS_EXCLUIDAS_CONTRATOS_INCOMPATIBLES',json.dumps({
+ 'hallazgos':[
+  {'fuente':'mapa.html:186-200','url':'/commerce?action=guia',
+   'condicionCliente':'sin advertiserId; sólo país/provincia/ciudad opcionales',
+   'contratoWorker':'GET /commerce exige aid antes de despachar la acción',
+   'estado':'brecha_estatica_de_contrato_sin_prueba_de_despliegue'},
+  {'fuente':'menu/modelo.html:157-181,385-387','url':'/menu',
+   'acciones':['getAnunciante','getMenu','getCategorias'],
+   'contratoWorker':'ninguna referencia menu ni ruta /menu en worker206 congelado',
+   'estado':'brecha_estatica_de_despacho_sin_prueba_de_despliegue'}
+ ],
+ 'rutasConConsumidorWorkerAcreditado':0,
+ 'aristasNuevas':0,
+ 'advertencia':'No equivale a ejecutar solicitudes ni a certificar versión desplegada.'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
