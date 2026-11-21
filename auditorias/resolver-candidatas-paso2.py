@@ -375,6 +375,15 @@ def main():
         for old_id in nulls:
             old=old_entries.get(old_id,{})
             start=old.get("start",{})
+            current=next((e for e in entries if e.get("id")==old_id),{})
+            now=current.get("start",{})
+            keys=("id","file","line","kind","handler","elementId","event","receiver","column","seedCallId","entryId")
+            print("PASO2_IDENTIDAD_HISTORICA",json.dumps({
+                "id":old_id,"old_id":start.get("id"),"new_id":now.get("id"),
+                "exact":all(start.get(k)==now.get(k) for k in keys),
+                "diff":{k:[start.get(k),now.get(k)] for k in keys if start.get(k)!=now.get(k)}
+            },ensure_ascii=False))
+
             file=start.get("file")
             def match_score(e):
                 n=e.get("start",{})
