@@ -2682,8 +2682,8 @@ for entry in remaining96_certificates:
             text=line.strip()
             additional_html_hits.append({
                'idAST':entry['idAST'],'archivoHTML':path,'linea':no,
-               'atributoEvento':bool(re.search(r'\\bon[a-z]+\\s*=',text,re.I)),
-               'llamadaNominal':bool(re.search(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'\\s*\\(',text)),
+               'atributoEvento':bool(re.search(r'\bon[a-z]+\s*=',text,re.I)),
+               'llamadaNominal':bool(re.search(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'\s*\(',text)),
                'fragmento':text[:220]})
 print('PASO3_HTML_ADICIONAL_96',json.dumps({
  'htmlSecundarios':len(other_html_paths),'archivos':[str(p.relative_to(Path('baseline'))) for p in other_html_paths],
