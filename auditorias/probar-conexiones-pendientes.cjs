@@ -34,5 +34,36 @@ try{
  const onerrors=r.trees.filter(t=>t.action.kind==='event_property'&&['onerror','onblocked'].includes(t.action.event));assert.equal(onerrors.length,2);for(const t of onerrors){assert.equal(t.counts.missingHandlers,0);assert(t.nodes.some(n=>n.type==='promise_resolved'&&n.exportedFrom.settlement==='reject'));}
  const bad=r.trees.find(t=>t.action.handler==='illegal()');assert(bad.nodes.some(n=>n.type==='missing_handler'&&n.reason==='funcion_declarada_en_ambito_inaccesible'));assert(!bad.nodes.some(n=>n.type==='data'));
  const unrelated=r.trees.find(t=>t.action.handler==='unrelated()');assert(!unrelated.nodes.some(n=>n.type==='data'&&n.key==='not_exported'),'Conectó un método sólo por compartir nombre');
+ // Paso 2: cotejo de emisor dinámico y sustitución real de cargadores GH.
+ // No prueba aparición temporal de filas anteriores durante el arranque.
+ const source=rel=>fs.readFileSync(path.join(__dirname,'..',rel),'utf8');
+ const login=source('plataforma/login.html');
+ assert.match(login,/async function postJsonRaw143\s*\(url,\s*body\)/);
+ const raw=login.slice(login.indexOf('async function postJsonRaw143('),login.indexOf('async function postJsonRaw143(')+550);
+ assert.match(raw,/fetch\(url,\s*\{/);
+ assert.match(raw,/method:\s*'POST'/);
+ const wrapper=login.slice(login.indexOf('async function postJson(url,body)'),login.indexOf('async function postJsonRaw143('));
+ assert.match(wrapper,/postJsonRaw143\(url,next\)/);
+ assert.match(wrapper,/postJsonRaw143\(url,body\)/);
+ // La URL es argumento del llamador, no endpoint fijo de postJsonRaw143.
+ const admin=source('plataforma/administracion.html');
+ const promoSrc=admin.indexOf('/plataforma/gh-promos.js');
+ const publicitySrc=admin.indexOf('/plataforma/gh-publicidad.js');
+ const listingSrc=admin.indexOf('/plataforma/gh-listados.js');
+ assert(promoSrc>=0&&publicitySrc>promoSrc&&listingSrc>publicitySrc,'Orden de carga GH distinto al cotejado');
+ const listings=source('plataforma/gh-listados.js');
+ assert.match(listings,/ghPublicidadLoad101\s*=\s*\(\)\s*=>\s*load\('publicidad'\)/);
+ assert.match(listings,/ghPublicidadPrepare101\s*=\s*\(\)\s*=>\s*prepare\('publicidad'\)/);
+ assert.match(listings,/window\.ghPromosLoadV91\s*=\s*\(force=false\)\s*=>\s*load\('promos',false,force\)/);
+ assert.match(listings,/window\.ghPromosPrepareV91\s*=\s*\(\)\s*=>\s*prepare\('promos'\)/);
+ assert.match(listings,/ghAdminRequest_\('\/listados'/);
+ const oldPromos=source('plataforma/gh-promos.js');
+ const oldPublicity=source('plataforma/gh-publicidad.js');
+ assert.match(oldPromos,/data-promo-action/);
+ assert.match(oldPromos,/window\.ghPromosLoadV91\s*=\s*function/);
+ assert.match(oldPublicity,/data-gh-pub/);
+ assert.match(oldPublicity,/async function ghPublicidadLoad101\(/);
+ console.log('PASO2_GH_SUSTITUCION PASS 4_exports_efectivos orden_de_scripts legados_preexistentes');
+ console.log('PASO2_POSTJSONRAW143 PASS URL_del_llamador POST_no_destino_fijo');
  console.log('CONEXIONES_PENDIENTES PASS callback_objeto posicional default alias namespace rechazo_encadenado ambito_inaccesible objeto_ajeno');
 }finally{fs.rmSync(root,{recursive:true,force:true});}
