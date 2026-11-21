@@ -84,6 +84,7 @@ print('PASO3_EFEM_VERIFICACION_CONDICIONAL',json.dumps({
  'condicion':'Sólo rama de guardado con editando y respuesta no confirmada; ejecución no probada.'},ensure_ascii=False))
 
 # Worker: tres clausuras retornadas/expuestas en contenedores tipados.
+worker_contract_lines=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
 # No se confunde crear la clausura con invocar luego su implementación.
 worker_callback_contracts=[
  ('worker/worker206.txt:9931:575142:callback@9931',
@@ -103,8 +104,8 @@ worker_callback_contracts=[
 ]
 for src,dest,src_line,dest_line,src_text,dest_text,kind in worker_callback_contracts:
     assert src in F and dest in F and F[dest]['parent']==src,(src,dest)
-    assert src_text in worker_lines[src_line-1],(src,src_line)
-    assert dest_text in worker_lines[dest_line-1],(dest,dest_line)
+    assert src_text in worker_contract_lines[src_line-1],(src,src_line)
+    assert dest_text in worker_contract_lines[dest_line-1],(dest,dest_line)
     adj[src][dest]=(kind,'worker/worker206.txt:'+str(dest_line))
 print('PASO3_TRES_CLAUSURAS_WORKER',json.dumps({
  'aristas':len(worker_callback_contracts),'destinos':[x[1] for x in worker_callback_contracts],
