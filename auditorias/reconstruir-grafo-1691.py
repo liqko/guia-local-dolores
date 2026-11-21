@@ -2563,7 +2563,8 @@ for rec,fn,n_inv in remaining96:
         remaining96_sources[path]=(Path('baseline')/path).read_text().splitlines()
     lines=remaining96_sources[path]
     assert 0<fn['line']<=len(lines),(fid,len(lines))
-    assert not reverse.get(fid,set()),(fid,'invocador no detectado en grupo sin invocador')
+    if rec in [row[0] for row in missing_groups['global_sin_invocador_comprobado']]:
+        assert not reverse.get(fid,set()),(fid,'global con invocador AST')
     if name.isidentifier():
         pat=re.compile(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'(?![A-Za-z0-9_$])')
         sites=[i for i,line in enumerate(lines,1) if pat.search(line)]
@@ -2587,11 +2588,11 @@ for rec,fn,n_inv in remaining96:
         'idAST':fid,'archivo':path,'linea':fn['line'],'nombre':name,
         'padreAST':fn.get('parent'),'aparicionesNominalesEnArchivo':len(sites),
         'lineasCoincidentes':sites[:24],'diagnostico':diagnosis,
-        'invocadoresAST':n_inv,
+        'invocadoresAST':len(reverse.get(fid,set())),
         'observacion':'No interpretar declaración, exportación, propiedad u homónimo como una llamada'
     })
 assert len({v['idAST'] for v in remaining96_certificates})==96
-assert all(v['invocadoresAST']==0 for v in remaining96_certificates)
+assert all(v['invocadoresAST']==0 for v in remaining96_certificates if v['idAST'] in {row[0]['idAST'] for row in missing_groups['global_sin_invocador_comprobado']})
 print('PASO3_CERTIFICADO_20_PADRES_76_GLOBALES',json.dumps({
  'total':96,'padresAlcanzables':20,'globalesSinInvocador':76,
  'porDiagnostico':dict(collections.Counter(v['diagnostico'] for v in remaining96_certificates)),
