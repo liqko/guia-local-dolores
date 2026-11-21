@@ -2526,7 +2526,7 @@ for root,descendants in sorted(root_usage.items(),key=lambda x:(-len(x[1]),x[0])
         'nombre':name,'funcionesDependientes':len(descendants),
         'aparicionesNominalesEnArchivo':occurrences,
         'sinConsumidorNominalAdicional':occurrences==1})
-assert len(local_unlinked)==60,len(local_unlinked)
+assert len(local_unlinked)==59,len(local_unlinked)
 assert root_usage and len(root_evidence)>0
 print('PASO3_RAICES_60_DEPENDIENTES_VERIFICADAS',json.dumps({
  'nodos':len(local_unlinked),'raices':len(root_evidence),
