@@ -2733,10 +2733,10 @@ out_of_scope_paths=[
 out_of_scope_evidence=[]
 for path in out_of_scope_paths:
     src=(Path('baseline')/path).read_text()
-    script_sites=[m.start() for m in re.finditer(r'<script\\b',src,re.I)]
-    inline_sites=[m.start() for m in re.finditer(r'\\bon[a-z]+\\s*=',src,re.I)]
-    request_sites=[m.start() for m in re.finditer(r'\\bfetch\\s*\\(',src)]
-    def line_of(pos):return src.count('\\n',0,pos)+1
+    script_sites=[m.start() for m in re.finditer(r'<script\b',src,re.I)]
+    inline_sites=[m.start() for m in re.finditer(r'\bon[a-z]+\s*=',src,re.I)]
+    request_sites=[m.start() for m in re.finditer(r'\bfetch\s*\(',src)]
+    def line_of(pos):return src.count('\n',0,pos)+1
     out_of_scope_evidence.append({
        'archivo':path,'scripts':[line_of(p) for p in script_sites],
        'atributosEvento':[line_of(p) for p in inline_sites],
