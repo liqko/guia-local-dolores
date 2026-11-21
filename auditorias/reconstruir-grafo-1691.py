@@ -245,6 +245,26 @@ adj[pub_alias_owner][pub_alias_target]=('alias_lexico_comparador_publicidad','wo
 nominal_proven.append([pub_alias_owner,pub_alias_target,662])
 print('PASO3_CALLBACKS_NOMINALES_21NOV',json.dumps({'aristas':len(nominal_proven),'casos':nominal_proven,'condicion':'Ramas donde se invoca consumidor y callback, sin evidencia de ejecucion real.'},ensure_ascii=False))
 
+# Exportaciones: sólo disponibilidad de método publicado, nunca uso efectivo.
+exported_contracts=[
+ ('plataforma/planes-resumen.js:2:86:iife@2','plataforma/planes-resumen.js:133:9096:price',135,'root.GLD_PLANES_RESUMEN={number,flag,active,summary,sections,glossary,name,price,publishPrice,definitions};'),
+ ('plataforma/planes-resumen.js:2:86:iife@2','plataforma/planes-resumen.js:134:9251:publishPrice',135,'root.GLD_PLANES_RESUMEN={number,flag,active,summary,sections,glossary,name,price,publishPrice,definitions};'),
+ ('plataforma/publicidad-reglas147.js:1:1:iife@1','plataforma/publicidad-reglas147.js:25:1824:days',33,'root.GLD_AD_RULES147={section,validate,days,countryPicker};'),
+ ('worker/worker206.txt:12462:798865:stageAdvertiserSaveInternal','worker/worker206.txt:12484:800221:del',12484,'async del(key){cacheReads.delete(key);cacheChanges.set(key,{deleted:true});}'),
+]
+export_checks=[]
+for parent,child,line,phrase in exported_contracts:
+    assert parent in F and child in F and F[child]['parent']==parent,(parent,child)
+    src=(Path('baseline')/F[child]['file']).read_text().splitlines()
+    if phrase not in src[line-1]:
+        hits=[i+1 for i,x in enumerate(src) if phrase in x]
+        assert hits,(child,line)
+        line=hits[0]
+    adj[parent][child]=('propiedad_exportada_o_staged_condicionada',F[child]['file']+':'+str(line))
+    export_checks.append([parent,child,line])
+assert 'const result=await operation(stagedDb,stagedCache);' in (Path('baseline')/'worker/worker206.txt').read_text()
+print('PASO3_EXPORTACIONES_CONTRATO_21NOV',json.dumps({'aristas':len(export_checks),'casos':export_checks,'alcance':'Disponibilidad de métodos, no consumidores comprobados ni ejecución real.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
