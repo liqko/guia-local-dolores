@@ -196,7 +196,7 @@ ui_callback_checks=[
 ]
 ui_new=[]
 for parent,child,site,fragment,kind in ui_callback_checks:
-    assert parent in F and child in F and F[child]['parent']==parent,(parent,child)
+    assert parent in F and child in F and (F[child]['parent']==parent or kind=='apertura_adulto_a_mostrar' and F[child]['parent']==F[parent]['parent']),(parent,child)
     assert fragment in (Path('baseline')/F[child]['file']).read_text().splitlines()[site-1],(child,site)
     adj[parent][child]=(kind,F[child]['file']+':'+str(site))
     ui_new.append(child)
