@@ -33,6 +33,15 @@ ROUTES = {
     1913: ("/free-event-exceptions", "POST", "routeModeratorsV72"),
 }
 
+# Llamadas directas fetch: línea, destino absoluto conocido, verbo y handler.
+DIRECT = {
+    1146: ("/superadmin/moderation/resolve", "POST", "routeAdminV3"),
+    1561: ("/superadmin/cities/create", "POST", "routeAdminV3"),
+    4008: ("/superadmin/publications/recent", "POST", "routePublicationsReviewV77"),
+    1055: ("/superadmin/session/login", "POST", "routeAdminV10"),
+    1079: ("/superadmin/dashboard", "GET", "routeAdminV10"),
+}
+
 def source_line(lines, n, suffix, method):
     line = lines[n - 1]
     if not re.search(r"ghAdminRequest_\(\s*['\"]" + re.escape(suffix), line):
@@ -67,6 +76,10 @@ def main():
     if len(ids_before) != 989 or len(set(ids_before)) != 989:
         raise ValueError("Unexpected catalog identity set")
 
+    initial_pending = sum(
+        n.get("routeStatus") == "backend_candidate"
+        for e in entries for n in e.get("network", [])
+    )
     changed, touched = 0, set()
     evidence = []
     for entry in entries:
@@ -117,6 +130,62 @@ def main():
             touched.add(entry["id"])
             evidence.append((entry["id"], line, method, route))
 
+    # El camino directo conserva el URL físico y la guarda de método explícita.
+    for line, (route, method, handler) in DIRECT.items():
+        text = lines[line - 1]
+        if "fetch(TERRITORY_API_ORIGIN+'"+route+"'" not in text:
+            raise ValueError(f"Direct fetch changed at line {line}")
+        if method == "POST":
+            around = "\\n".join(lines[line - 1:line + 4])
+            if "method:'POST'" not in around:
+                raise ValueError(f"Direct POST changed at line {line}")
+        elif "method:'POST'" in text:
+            raise ValueError(f"Direct GET changed at line {line}")
+        if route not in worker:
+            raise ValueError(f"No Worker route {route}")
+        if handler not in worker:
+            raise ValueError(f"No Worker handler {handler}")
+        for entry in entries:
+            for network in entry.get("network", []):
+                if network.get("routeStatus") != "backend_candidate":
+                    continue
+                if network.get("file") != "plataforma/administracion.html" or network.get("line") != line:
+                    continue
+                if route not in (network.get("candidates") or []):
+                    continue
+                original = {
+                    "routeStatus": network.get("routeStatus"),
+                    "target": network.get("target"),
+                    "verb": network.get("verb"),
+                    "candidates": (network.get("candidates") or [])[:],
+                    "worker": network.get("worker", [])[:],
+                }
+                network["routeStatus"] = "comprobada_condicional"
+                network["target"] = route
+                network["verb"] = method
+                network["candidates"] = [route]
+                network["worker"] = [{
+                    "file": "worker/worker206.txt", "handler": handler,
+                    "evidencia": "fetch directo, URL, verbo y ruta en Worker cotejados; ejecución sujeta a condiciones de interfaz y permisos",
+                }]
+                network.setdefault("cotejoPaso2Original", original)
+                cotejo = entry.setdefault("cotejoPaso2", {})
+                note = {
+                    "sitio": network.get("callId"),
+                    "decision": "comprobada_condicional",
+                    "metodo": method,
+                    "ruta": route,
+                    "origen": "plataforma/administracion.html:" + str(line),
+                    "workerHandler": handler,
+                    "condiciones": "Ruta y método verificados en fuente, sin prueba de ejecución real.",
+                }
+                existing = cotejo.setdefault("conexiones", [])
+                if not any(n.get("sitio") == note["sitio"] and n.get("ruta") == route for n in existing):
+                    existing.append(note)
+                changed += 1
+                touched.add(entry["id"])
+                evidence.append((entry["id"], line, method, route))
+
     if not changed:
         raise ValueError("No matching pending associations in source snapshot")
     if [x["id"] for x in entries] != ids_before:
@@ -126,7 +195,7 @@ def main():
         for n in entry.get("network", []):
             k = n.get("routeStatus")
             state_counts[k] = state_counts.get(k, 0) + 1
-    if state_counts.get("backend_candidate", 0) != 118 - changed:
+    if state_counts.get("backend_candidate", 0) != initial_pending - changed:
         raise ValueError(f"Unexpected residual: {state_counts}")
     meta = catalog.setdefault("cotejoPaso2", {})
     meta.setdefault("gruposDestinosGenericos", []).append({
