@@ -73,6 +73,20 @@ OTHERS = {
     "plataforma/administracion.html": {1392: ("/farmacias", "GET")},
 }
 
+# Referencias de línea pertenecen al corte original e6362836; se valida
+# semánticamente cada función en el login vigente (líneas desplazadas por cambios).
+LOGIN = {
+    2158: ("buscarAnuncioReclamo155", "/advertisers/claim-options", "GET", "fetch(WORKER_ORIGIN+'/advertisers/claim-options"),
+    2062: ("registrarSolicitudSoporteV73_", "/support/requests", "POST", "fetch(WORKER_ORIGIN+'/support/requests"),
+    8358: ("apiSuscriptores_", "/suscriptores", "POST", "fetch(SUSCRIPTORES_URL"),
+    2244: ("cargarAltaCompleta_", "/catalogs/public/guide", "GET", "fetch(WORKER_ORIGIN+'/catalogs/public/guide"),
+    8596: ("seleccionarAnunciante_", "/commerce", "GET", "/commerce?action=permisos_panel"),
+    4240: ("loadActividadesUI", "/actividades", "GET", "WORKER_ACTIVIDADES_URL+'?action=getpaneldata"),
+    5144: ("loadPublicidadUI", "/publicidad", "GET", "WORKER_PUBLICIDAD_URL+"),
+    9410: ("loadCommerceUI", "/commerce", "GET", "/commerce?action=anunciante"),
+    8532: ("cargarCatalogoComerciosSilencioso_", "/advertisers/claim-options", "GET", "/advertisers/claim-options"),
+}
+
 def source_line(lines, n, suffix, method):
     line = lines[n - 1]
     if not re.search(r"ghAdminRequest_\(\s*['\"]" + re.escape(suffix), line):
@@ -288,6 +302,64 @@ def main():
                     changed += 1
                     touched.add(entry["id"])
                     evidence.append((entry["id"], path, line, method, route))
+
+    # Cotejo por identidad de función; los offsets del corte histórico no
+    # corresponden siempre a las líneas actuales de plataforma/login.html.
+    login_source = (ROOT / "plataforma/login.html").read_text(encoding="utf-8")
+    for variable, route in (
+        ("SUSCRIPTORES_URL", "/suscriptores"),
+        ("WORKER_ACTIVIDADES_URL", "/actividades"),
+        ("WORKER_PUBLICIDAD_URL", "/publicidad"),
+    ):
+        if f"const {variable} = WORKER_ORIGIN + '{route}'" not in login_source:
+            raise ValueError(f"Source constant changed: {variable}")
+    for old_line, (function, route, method, marker) in LOGIN.items():
+        declaration = re.search(r"(?:async\\s+)?function\\s+" + re.escape(function) + r"\\s*\\(", login_source)
+        if not declaration:
+            raise ValueError(f"Login function missing {function}")
+        body = login_source[declaration.start():declaration.start()+6500]
+        if marker not in body:
+            raise ValueError(f"Login route marker changed in {function}: {marker}")
+        if method == "POST" and "method:'POST'" not in body:
+            raise ValueError(f"Login POST guard changed in {function}")
+        if route not in worker:
+            raise ValueError(f"Worker route missing: {route}")
+        for entry in entries:
+            for network in entry.get("network", []):
+                if network.get("routeStatus") != "backend_candidate":
+                    continue
+                if network.get("file") != "plataforma/login.html" or network.get("line") != old_line:
+                    continue
+                if route not in (network.get("candidates") or []):
+                    continue
+                previous = {
+                    "routeStatus":network.get("routeStatus"),
+                    "target":network.get("target"), "verb":network.get("verb"),
+                    "candidates":(network.get("candidates") or [])[:],
+                    "worker":network.get("worker", [])[:]
+                }
+                network["routeStatus"] = "comprobada_condicional"
+                network["target"] = route
+                network["verb"] = method
+                network["candidates"] = [route]
+                network["worker"] = [{
+                    "file":"worker/worker206.txt",
+                    "evidencia": f"{function}: ruta y método en el corte, función vigente cotejada; condición y permisos dependen del origen",
+                }]
+                network.setdefault("cotejoPaso2Original", previous)
+                note = {
+                    "sitio":network.get("callId"), "decision":"comprobada_condicional",
+                    "ruta":route, "metodo":method,
+                    "origen":"plataforma/login.html:"+str(old_line),
+                    "funcionFuente":function,
+                    "condiciones":"Se acredita ruta posible bajo invocación de la función y sus guardas; no se afirma ejecución en arranque ni producción",
+                }
+                current = entry.setdefault("cotejoPaso2", {}).setdefault("conexiones", [])
+                if not any(x.get("sitio")==note["sitio"] and x.get("ruta")==route for x in current):
+                    current.append(note)
+                changed += 1
+                touched.add(entry["id"])
+                evidence.append((entry["id"], "plataforma/login.html", old_line, method, route))
 
     if not changed:
         grouped = {}
