@@ -2211,7 +2211,7 @@ for rec in missing_records:
         remaining_anonymous.append(rec['idAST']);continue
     if file not in source_text_single:source_text_single[file]=(Path('baseline')/file).read_text()
     src=source_text_single[file]
-    n=len(re.findall(r'\\b'+re.escape(name)+r'\\b',src))
+    n=len(re.findall(r'\b'+re.escape(name)+r'\b',src))
     row={'idAST':rec['idAST'],'archivo':file,'linea':fn['line'],'nombre':name,'aparicionesEnArchivo':n,
          'grupo':next((k for k,v in missing_groups.items() if any(r['idAST']==rec['idAST'] for r,_,_ in v)),None)}
     if n==1:remaining_single_text.append(row)
