@@ -187,7 +187,21 @@ def main():
                 evidence.append((entry["id"], line, method, route))
 
     if not changed:
-        print(json.dumps({"changed": 0, "pending": initial_pending, "status": "sin_candidatas_nuevas"}, ensure_ascii=False))
+        grouped = {}
+        for unit in entries:
+            for n in unit.get("network", []):
+                if n.get("routeStatus") == "backend_candidate":
+                    key = (n.get("file"), n.get("line"), n.get("callId"))
+                    g = grouped.setdefault(key, {"file": key[0], "line": key[1], "ids": [], "targets": [], "candidates": []})
+                    g["ids"].append(unit["id"])
+                    if n.get("target") not in g["targets"]:
+                        g["targets"].append(n.get("target"))
+                    for c in n.get("candidates") or []:
+                        if c not in g["candidates"]:
+                            g["candidates"].append(c)
+        print(json.dumps({"changed": 0, "pending": initial_pending, "groups": len(grouped)}, ensure_ascii=False))
+        for n, item in enumerate(grouped.values()):
+            print("PASO2_RESTANTE", n, json.dumps(item, ensure_ascii=False))
         return
     if [x["id"] for x in entries] != ids_before:
         raise ValueError("IDs changed")
