@@ -2601,6 +2601,33 @@ print('PASO3_CERTIFICADO_20_PADRES_76_GLOBALES',json.dumps({
  'limite':'Ausencia de arista AST acreditada; no demuestra no-uso dinámico ni permite declarar muerto el código'
 },ensure_ascii=False))
 
+# Buscar consumidores nominales candidatos en TODOS los módulos JS hermanos,
+# no sólo en el archivo que declara cada identidad. Las coincidencias
+# NO son aristas: deben cotejarse ámbito, carga y receptor antes de enlazar.
+external_js_paths=sorted((Path('baseline')/'plataforma').glob('*.js'))
+external_js_sources={str(p.relative_to(Path('baseline'))):p.read_text() for p in external_js_paths}
+external_nominal_candidates=[]
+for row in remaining96_certificates:
+    name=row['nombre']
+    if not name.isidentifier() or len(name)<4:continue
+    pat=re.compile(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'(?![A-Za-z0-9_$])')
+    matches=[]
+    for path,content in external_js_sources.items():
+        if path==row['archivo']:continue
+        lines=content.splitlines()
+        found=[i for i,line in enumerate(lines,1) if pat.search(line)]
+        if found:matches.append({'archivo':path,'lineas':found[:12]})
+    if matches:
+        external_nominal_candidates.append({'idAST':row['idAST'],
+          'nombre':name,'referenciasExternas':matches})
+print('PASO3_CONSUMIDORES_EXTERNOS_96_BUSQUEDA_NOMINAL',json.dumps({
+ 'archivosJSExaminados':len(external_js_sources),
+ 'identidadesExaminadas':len(remaining96_certificates),
+ 'identidadesConCoincidenciasExternas':len(external_nominal_candidates),
+ 'candidatos':external_nominal_candidates,
+ 'aristasNuevas':0,'limite':'Referencia textual en otro JS no acredita ejecución ni mismo binding AST.'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
