@@ -265,6 +265,19 @@ for parent,child,line,phrase in exported_contracts:
 assert 'const result=await operation(stagedDb,stagedCache);' in (Path('baseline')/'worker/worker206.txt').read_text()
 print('PASO3_EXPORTACIONES_CONTRATO_21NOV',json.dumps({'aristas':len(export_checks),'casos':export_checks,'alcance':'Disponibilidad de métodos, no consumidores comprobados ni ejecución real.'},ensure_ascii=False))
 
+# Worker: callback nominal compartido para tres proyecciones de suscriptor.
+subscriber_sources=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+subscriber_target='worker/worker206.txt:5009:302633:subscriberRow'
+assert subscriber_target in F
+subscriber_edges=[]
+for line_number in (5051,11248,11257):
+    assert '.map(subscriberRow)' in subscriber_sources[line_number-1],line_number
+    owners=[fid for fid,fn in F.items() if fn['file']=='worker/worker206.txt' and any(c.get('line')==line_number and c.get('method')=='map' for c in fn.get('calls',[]))]
+    assert len(owners)==1,(line_number,owners)
+    adj[owners[0]][subscriber_target]=('callback_proyeccion_suscriptor_nominal','worker/worker206.txt:'+str(line_number))
+    subscriber_edges.append([owners[0],subscriber_target,line_number])
+print('PASO3_SUSCRIPTOR_ROW_CALLBACKS',json.dumps({'aristas':len(subscriber_edges),'casos':subscriber_edges,'limitacion':'Proyecciones condicionales; no lecturas/escrituras reales.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
