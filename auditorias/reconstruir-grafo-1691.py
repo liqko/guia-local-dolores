@@ -175,7 +175,7 @@ event_registry_lines=(Path('baseline')/'worker/worker206.txt').read_text().split
 EVENTS_TYPED_21NOV=[
  (642,'geo',13064),(1495,'publicRows',13115),
  (3524,'scope',13070),(3607,'scope',13070),
- (12863,'dispatch',13127),(12996,'repair',13152),
+ (12863,'dispatch',13123),(12996,'repair',13152),
 ]
 event_registry_links=[]
 for site,method,definition in EVENTS_TYPED_21NOV:
