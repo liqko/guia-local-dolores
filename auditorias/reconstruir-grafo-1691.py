@@ -2216,6 +2216,7 @@ for rec in missing_records:
          'grupo':next((k for k,v in missing_groups.items() if any(r['idAST']==rec['idAST'] for r,_,_ in v)),None)}
     if n==1:remaining_single_text.append(row)
     else:remaining_multi_text.append(row)
+print('PASO3_NOMINALES_CON_REFERENCIAS_ADICIONALES',json.dumps(remaining_multi_text,ensure_ascii=False))
 print('PASO3_LIMITE_ENLACES_TEXTUALES',json.dumps({
  'bruto':len(missing_records),'nominales_una_referencia_en_archivo':len(remaining_single_text),
  'nominales_con_referencias_adicionales':len(remaining_multi_text),
