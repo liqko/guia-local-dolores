@@ -45,6 +45,24 @@ try{
  const wrapper=login.slice(login.indexOf('async function postJson(url,body)'),login.indexOf('async function postJsonRaw143('));
  assert.match(wrapper,/postJsonRaw143\(url,next\)/);
  assert.match(wrapper,/postJsonRaw143\(url,body\)/);
+ // Once sitios concretos: seis rutas de publicación más Comercio, nunca rutas ajenas por un helper común.
+ const expectedPostTargets={
+  WORKER_ACTIVIDADES_URL:2,WORKER_PUBLICIDAD_URL:4,WORKER_EFEMERIDES_URL:1,
+  WORKER_FARMACIAS_URL:1,WORKER_EVENTS_URL:1,WORKER_PROMOS_URL:1,WORKER_COMMERCE_URL:1
+ };
+ const foundPostTargets={};
+ for(const m of login.matchAll(/\bpostJson\(\s*(WORKER_[A-Z_]+_URL)\b/g)){
+  foundPostTargets[m[1]]=(foundPostTargets[m[1]]||0)+1;
+ }
+ assert.deepEqual(foundPostTargets,expectedPostTargets,'Cambiaron los emisores de postJson; revisar destinos del catálogo');
+ for(const [variable,route] of Object.entries({
+  WORKER_ACTIVIDADES_URL:'/actividades',WORKER_PUBLICIDAD_URL:'/publicidad',
+  WORKER_EFEMERIDES_URL:'/efemerides',WORKER_FARMACIAS_URL:'/farmacias',
+  WORKER_EVENTS_URL:'/events-new',WORKER_PROMOS_URL:'/promos',WORKER_COMMERCE_URL:'/commerce'
+ })){
+  assert(login.includes("const "+variable+" = WORKER_ORIGIN + '"+route+"'"),'Constante de destino cambió: '+variable);
+ }
+ console.log('PASO2_POSTJSON_EMISORES PASS 11_sitios 7_rutas_desambiguadas');
  // La URL es argumento del llamador, no endpoint fijo de postJsonRaw143.
  const admin=source('plataforma/administracion.html');
  const promoSrc=admin.indexOf('/plataforma/gh-promos.js');
