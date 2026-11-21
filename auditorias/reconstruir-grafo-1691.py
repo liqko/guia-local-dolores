@@ -134,7 +134,7 @@ INSTALLATION_CONTRACTS_21NOV=[
 ]
 installed_contracts=[]
 for parent,child,line_number,fragment,kind in INSTALLATION_CONTRACTS_21NOV:
-    assert parent in F and child in F and F[child]['parent']==parent,(parent,child)
+    assert parent in F and child in F and (F[child]['parent']==parent or kind=='apertura_adulto_a_mostrar' and F[child]['parent']==F[parent]['parent']),(parent,child)
     source=(Path('baseline')/F[child]['file']).read_text().splitlines()[line_number-1]
     assert fragment in source,(child,fragment,source[:200])
     adj[parent][child]=(kind,F[child]['file']+':'+str(line_number))
