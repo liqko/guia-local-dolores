@@ -405,13 +405,13 @@ def main():
         "comprobadas": changed,
         "descartadas": 0,
         "unidades": len(touched),
-        "pendientesGenericas": state_counts["backend_candidate"],
+        "pendientesGenericas": state_counts.get("backend_candidate", 0),
         "evidencia": "Llamador literal y verbo en administracion.html, prefijo API y ruta en worker206.txt",
         "alcance": "Sólo asociación estática condicionada; no afirma permisos ni ejecución real",
     })
     output = json.dumps(catalog, ensure_ascii=False, indent=2).encode("utf-8")
     if not sys.argv[1:] or sys.argv[1] != "--write":
-        print(json.dumps({"changed": changed, "units": len(touched), "pending": state_counts["backend_candidate"],
+        print(json.dumps({"changed": changed, "units": len(touched), "pending": state_counts.get("backend_candidate", 0),
                           "routes": sorted(set(x[3] for x in evidence)), "evidence": evidence}, ensure_ascii=False))
         return
 
@@ -429,7 +429,7 @@ def main():
     finally:
         if os.path.exists(temp):
             os.unlink(temp)
-    print(json.dumps({"changed": changed, "units": len(touched), "pending": state_counts["backend_candidate"],
+    print(json.dumps({"changed": changed, "units": len(touched), "pending": state_counts.get("backend_candidate", 0),
                       "routes": sorted(set(x[3] for x in evidence)), "evidence": evidence}, ensure_ascii=False))
 
 if __name__ == "__main__":
