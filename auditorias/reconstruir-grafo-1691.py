@@ -2148,6 +2148,28 @@ print('PASO3_DOM_INLINE_EXPORTS_VERIFICADOS',json.dumps({
     'respetaSobrescriturasDeScripts':True,'sinAtribuirCargaReal':True
 },ensure_ascii=False))
 
+# Entrada propia de evaluación de script inline: el callback de filtro puente
+# se registra y evalúa como parte de la instrucción de nivel superior de eventos.
+# No es una llamada de otra función ni se atribuye a una acción AUD artificial.
+inline_event_file='plataforma/eventos.html'
+inline_event_lines=(Path('baseline')/inline_event_file).read_text().splitlines()
+inline_event_id='plataforma/eventos.html:983:9679:callback@983'
+assert inline_event_id in F and F[inline_event_id]['parent'] is None
+assert inline_event_lines[762-1].strip()=='<script>'
+assert 'bridgedEventFilter.event_keys.map(v=>String(v || \'\'))' in inline_event_lines[983-1]
+assert 'Array.isArray(bridgedEventFilter && bridgedEventFilter.event_keys)' in inline_event_lines[982-1]
+assert any('</script>' in line for line in inline_event_lines[983:]), 'No se encontró cierre script'
+inline_script_entries={
+ inline_event_id:{
+   'inicio':{'file':inline_event_file,'line':762,'tipo':'evaluacion_script_inline_al_cargar_eventos'},
+   'sitio':inline_event_file+':982-983',
+   'condicion':'bridgedEventFilter.event_keys es array',
+   'contrato':'Array.map sobre variable inicializada en script de nivel superior',
+   'limite':'Se acredita el recorrido de evaluación del script, no una acción de usuario ni la presencia del filtro.'
+ }
+}
+print('PASO3_SCRIPT_INLINE_EVENTOS_VERIFICADO',json.dumps({'entradas':len(inline_script_entries),'identidades':list(inline_script_entries),'tipo':'entrada_evaluacion_de_script_no_AUD'},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -2175,6 +2197,9 @@ for row in pending:
         record={'idAST':fid,'estado':'cadena_desde_evento_dom_inline_confirmada_estaticamente',**dom_event_route(fid)}
     elif fid in worker_reach:
         record={'idAST':fid,'estado':'cadena_desde_fetch_worker_sin_cliente_asociado',**worker_route(fid)}
+    elif fid in inline_script_entries:
+        record={'idAST':fid,'estado':'cadena_desde_evaluacion_script_inline_confirmada_estaticamente',
+                **inline_script_entries[fid]}
     else:
         record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
                 'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
