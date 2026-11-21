@@ -93,7 +93,14 @@ try{
   '  except Exception: continue',
   '  if not isinstance(payload,dict): continue',
   '  print("PASO2_JSON_SCHEMA",name,list(payload)[:35])',
-  '  print("PASO2_JSON_COUNTS",{k:(len(v) if isinstance(v,(list,dict)) else v) for k,v in payload.items() if k in ("entries","equivalences","equivalencias","totals","historicalEquivalences","cotejoPaso2")})'
+  '  print("PASO2_JSON_COUNTS",{k:(len(v) if isinstance(v,(list,dict)) else v) for k,v in payload.items() if k in ("entries","equivalences","equivalencias","totals","historicalEquivalences","cotejoPaso2")})',
+  '  meta=payload.get("cotejoPaso2",{})',
+  '  print("PASO2_COTEJO_FIELDS",[(k,type(v).__name__,len(v) if isinstance(v,(list,dict)) else str(v)[:100]) for k,v in meta.items()])',
+  '  prev=payload.get("previousEdition",{})',
+  '  print("PASO2_PREVIOUS_FIELDS",[(k,type(v).__name__,len(v) if isinstance(v,(list,dict)) else str(v)[:100]) for k,v in prev.items()] if isinstance(prev,dict) else str(prev)[:500])',
+  '  for k,v in meta.items():',
+  '   if any(w in k.lower() for w in ("generic","gener","histor","equiv","multi","pend")):',
+  '    print("PASO2_FIELD_EXCERPT",k,json.dumps(v,ensure_ascii=False)[:1500])',
  ].join('\n');
  const inspection=cp.execFileSync('python3',['-c',inspectPy,archive],{encoding:'utf8'});
  console.log(inspection.slice(0,10000));
