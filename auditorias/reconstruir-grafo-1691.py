@@ -2405,6 +2405,47 @@ print('PASO3_OPCIONES_SOMBREADAS_MISMO_SCRIPT',json.dumps({
  'limite':'Sombreado estatico acreditado, no autoriza eliminar ni atribuir invocaciones'
 },ensure_ascii=False))
 
+# Cierre de los seis casos ambiguos restantes del censo de raíces:
+# separar los símbolos del Worker del texto homónimo de otros cierres,
+# y las exportaciones antiguas de Promociones de las definitivas.
+worker_ambiguous=[]
+worker_lines=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+for name,line_number,reason in [
+ ('enabled',3797,'otras apariciones son variables locales de otros bloques'),
+ ('norm',1918,'otras apariciones son funciones y variables de cierres distintos'),
+ ('ids',760,'función propiedad publicada por GLD_CLASSIFICATION_V86'),
+ ('findLevel',765,'función propiedad publicada por GLD_CLASSIFICATION_V86'),
+ ('rules',770,'función propiedad publicada por GLD_CLASSIFICATION_V86')
+]:
+    found=[fid for fid,fn in F.items() if fn['file']=='worker/worker206.txt'
+           and fn['line']==line_number and fn['name']==name]
+    assert len(found)==1,(name,line_number,found)
+    if name in ('enabled','norm'):
+        assert found[0] in blocked,(name,'ya conectado')
+        assert not reverse.get(found[0]),(name,'tiene invocador AST')
+    else:
+        assert found[0] in worker_classification_members,(name,'no publicado')
+    assert re.search(r'(?<![A-Za-z0-9_$])'+name+r'(?![A-Za-z0-9_$])',worker_lines[line_number-1])
+    worker_ambiguous.append({'idAST':found[0],'causa':reason,
+                             'referenciaConsumidoraAcreditada':False})
+promos_source=(Path('baseline')/'plataforma/gh-promos.js').read_text()
+listados_source=(Path('baseline')/'plataforma/gh-listados.js').read_text().splitlines()
+admin_source=(Path('baseline')/'plataforma/administracion.html').read_text().splitlines()
+assert 'window.ghPromosPrepareV91=async function()' in promos_source
+assert 'window.ghPromosPrepareV91=()=>prepare(\'promos\')' in listados_source[91]
+assert any('gh-promos.js' in x for x in admin_source[:180])
+assert 'gh-listados.js' in admin_source[4098-1]
+assert 'window.ghPromosPrepareV91' in listados_source[91]
+old_export='plataforma/gh-promos.js:40:4674:window.ghPromosPrepareV91'
+assert old_export in F
+print('PASO3_RAICES_AMBIGUAS_RESTANTES_RESUELTAS',json.dumps({
+ 'total':6,'worker':worker_ambiguous,
+ 'promos':{'idAST':old_export,'causa':'exportación gh-promos.js sobrescrita por gh-listados.js según orden de carga',
+           'referenciaConsumidoraAcreditada':False},
+ 'nuevasAristas':0,'descuento':0,
+ 'limite':'Colisiones y sombreado comprobados, no atribuir ejecución de variantes antiguas.'
+},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
