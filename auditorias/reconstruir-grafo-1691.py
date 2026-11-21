@@ -2723,6 +2723,36 @@ print('PASO3_CONTRATOS_EXTERNO_WORKER_SIN_CONSUMIDOR',json.dumps({
  'limite':'La disponibilidad del receptor decorado no demuestra que el método sea llamado.'
 },ensure_ascii=False))
 
+# Siete fuentes explícitamente fuera del barrido original del catálogo.
+# Mantener visibles sus activaciones y puntos de red pendientes de asociación AUD.
+out_of_scope_paths=[
+ 'acp/web.html','eventos/popupsumaevento.html','mapa.html',
+ 'menu/modelo.html','micrositios/fuegolibre.html','popup/eventos.html',
+ 'xgame/suerte.html'
+]
+out_of_scope_evidence=[]
+for path in out_of_scope_paths:
+    src=(Path('baseline')/path).read_text()
+    script_sites=[m.start() for m in re.finditer(r'<script\\b',src,re.I)]
+    inline_sites=[m.start() for m in re.finditer(r'\\bon[a-z]+\\s*=',src,re.I)]
+    request_sites=[m.start() for m in re.finditer(r'\\bfetch\\s*\\(',src)]
+    def line_of(pos):return src.count('\\n',0,pos)+1
+    out_of_scope_evidence.append({
+       'archivo':path,'scripts':[line_of(p) for p in script_sites],
+       'atributosEvento':[line_of(p) for p in inline_sites],
+       'fetch':[line_of(p) for p in request_sites],
+       'estado':'fuente_fuera_del_barrido_original_pendiente_de_asociacion_a_AUD'
+    })
+assert len(out_of_scope_evidence)==7
+assert all(row['scripts'] for row in out_of_scope_evidence)
+print('PASO3_SIETE_FUENTES_EXCLUIDAS_CON_ACTIVACIONES',json.dumps({
+ 'fuentes':len(out_of_scope_evidence),'scripts':sum(len(x['scripts']) for x in out_of_scope_evidence),
+ 'atributosEvento':sum(len(x['atributosEvento']) for x in out_of_scope_evidence),
+ 'fetch':sum(len(x['fetch']) for x in out_of_scope_evidence),
+ 'detalles':out_of_scope_evidence,
+ 'advertencia':'Omisiones de alcance del catálogo, distintas del indicador 155 funciones; no deben ocultarse.'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
