@@ -314,7 +314,7 @@ def main():
         if f"const {variable} = WORKER_ORIGIN + '{route}'" not in login_source:
             raise ValueError(f"Source constant changed: {variable}")
     for old_line, (function, route, method, marker) in LOGIN.items():
-        declaration = re.search(r"(?:async\\s+)?function\\s+" + re.escape(function) + r"\\s*\\(", login_source)
+        declaration = re.search(r"(?:async\s+)?function\s+" + re.escape(function) + r"\s*\(", login_source)
         if not declaration:
             raise ValueError(f"Login function missing {function}")
         body = login_source[declaration.start():declaration.start()+6500]
