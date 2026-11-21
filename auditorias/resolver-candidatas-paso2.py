@@ -305,6 +305,17 @@ def main():
         print(json.dumps({"changed": 0, "pending": initial_pending, "groups": len(grouped)}, ensure_ascii=False))
         for n, item in enumerate(grouped.values()):
             print("PASO2_RESTANTE", n, json.dumps(item, ensure_ascii=False))
+        for e in entries:
+            for n in e.get("network", []):
+                if n.get("routeStatus") == "backend_candidate" and n.get("file") == "plataforma/login.html":
+                    start=e.get("start", {})
+                    print("PASO2_LOGIN_ORIGEN", json.dumps({
+                        "id":e.get("id"),"start_file":start.get("file"),"start_line":start.get("line"),
+                        "handler":start.get("handler"),"context":start.get("context"),
+                        "site":n.get("line"),"callId":n.get("callId"),
+                        "from":n.get("from"),"target":n.get("target"),
+                        "candidates":n.get("candidates"),"depth":n.get("depth")
+                    },ensure_ascii=False))
         return
     if [x["id"] for x in entries] != ids_before:
         raise ValueError("IDs changed")
