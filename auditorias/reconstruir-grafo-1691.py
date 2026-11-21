@@ -2320,7 +2320,7 @@ assert worker_classification_root in F
 assert 'const GLD_CLASSIFICATION_V86=gldClassificationV86();' in worker_module[777-1]
 assert 'return {text,ids,flag,levelNumber,name,findLevel,rules,active:' in worker_module[775-1]
 worker_classification_members={}
-for name,line_number in [('ids',760),('findLevel',765),('rules',770),('active',775),('levelLabel',775)]:
+for name,line_number in [('text',758),('ids',760),('flag',762),('levelNumber',764),('findLevel',765),('name',767),('rules',770),('active',775),('levelLabel',775)]:
     ids=[fid for fid,fn in F.items() if fn['file']=='worker/worker206.txt' and
          fn['line']==line_number and fn['name']==name]
     assert len(ids)==1,(name,line_number,ids)
@@ -2334,9 +2334,9 @@ for name,line_number in [('ids',760),('findLevel',765),('rules',770),('active',7
        'contrato':'miembro '+name+' publicado por retorno de gldClassificationV86() en GLD_CLASSIFICATION_V86',
        'limite':'Se acredita creación y disponibilidad en el objeto; no hay llamada de miembro ni acción AUD probadas.'
     }
-assert len(worker_classification_members)==5
+assert len(worker_classification_members)==9
 print('PASO3_CLASIFICACION_WORKER_MIEMBROS_INSTALADOS',json.dumps({
-  'total':5,'identidades':list(worker_classification_members),
+  'total':9,'identidades':list(worker_classification_members),
   'fuente':'worker/worker206.txt:775,777',
   'condicion':'evaluacion del modulo sin ejecución acreditada de los métodos'},ensure_ascii=False))
 
