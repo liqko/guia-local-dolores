@@ -76,7 +76,7 @@ try{
   '  if not isinstance(payload,dict): continue',
   '  print("PASO2_JSON_SCHEMA",name,list(payload)[:35])',
   '  print("PASO2_JSON_COUNTS",{k:(len(v) if isinstance(v,(list,dict)) else v) for k,v in payload.items() if k in ("entries","equivalences","equivalencias","totals","historicalEquivalences","cotejoPaso2")})'
- ].join('\\n');
+ ].join('\n');
  const inspection=cp.execFileSync('python3',['-c',inspectPy,archive],{encoding:'utf8'});
  console.log(inspection.slice(0,10000));
  console.log('PASO2_GH_SUSTITUCION PASS 4_exports_efectivos orden_de_scripts legados_preexistentes');
