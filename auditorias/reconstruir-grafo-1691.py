@@ -152,10 +152,10 @@ assert 'await rebuild({db,cache,env:sourceEnv})' in feature_worker_lines[12405-1
 assert 'ephemerides:{rebuild:rebuildEfemeridesAllV3' in feature_worker_lines[11991-1]
 assert 'employment:{rebuild:rebuildEmployment191' in feature_worker_lines[11992-1]
 feature_projection=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['name']=='projection' and F[f]['line']==12092]
-feature_snapshot=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['name']=='GldPublicCache119.prototype.moduleSnapshot125' and F[f]['line']==12372]
+feature_snapshot=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['name']=='GldPublicCache119.prototype.moduleSnapshot125' and F[f]['line']==12370]
 # El método de prototipo puede estar representado como nombre de asignación, no inferir ID inexistente.
 if not feature_snapshot:
-    feature_snapshot=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['line']==12372]
+    feature_snapshot=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['line']==12370]
 assert len(feature_projection)==1,feature_projection
 assert len(feature_snapshot)==1,feature_snapshot
 feature_targets=[(11991,'project'),(11992,'project'),(11544,'rebuildEmployment191')]
