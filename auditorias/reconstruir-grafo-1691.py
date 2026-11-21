@@ -2268,13 +2268,13 @@ print('PASO3_FAMILIAS_BOOTSTRAP_RELACIONES_VERIFICADAS',json.dumps({
 worker_module=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
 worker_exported_days='worker/worker206.txt:31:2191:days'
 assert worker_exported_days in F and F[worker_exported_days]['line']==31
-assert worker_module[7].strip()=='(function(root){'
+assert worker_module[6].strip()=='(function(root){'
 assert worker_module[30].lstrip().startswith('function days(c)')
 assert worker_module[31].strip()=='root.GLD_AD_RULES147={section,validate,days};'
 assert worker_module[32].strip()=='})(globalThis);'
 worker_module_installations={
  worker_exported_days:{
-  'inicio':{'file':'worker/worker206.txt','line':8,
+  'inicio':{'file':'worker/worker206.txt','line':7,
             'tipo':'evaluacion_iife_worker_al_importar_modulo'},
   'sitio':'worker/worker206.txt:31-33',
   'contrato':'root.GLD_AD_RULES147.days es método publicado en globalThis',
