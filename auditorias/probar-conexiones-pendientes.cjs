@@ -63,6 +63,22 @@ try{
  assert.match(oldPromos,/window\.ghPromosLoadV91\s*=\s*function/);
  assert.match(oldPublicity,/data-gh-pub/);
  assert.match(oldPublicity,/async function ghPublicidadLoad101\(/);
+ // Inspección reproducible del ZIP vigente: no modifica ni regenera el catálogo.
+ const archive=path.join(__dirname,'transversal','CATALOGO_MAESTRO.zip');
+ const inspectPy=[
+  'import json,zipfile,sys',
+  'with zipfile.ZipFile(sys.argv[1]) as z:',
+  ' print("PASO2_ZIP_MEMBERS",[(i.filename,i.file_size) for i in z.infolist()][:20])',
+  ' for name in z.namelist():',
+  '  if not name.lower().endswith(".json"): continue',
+  '  try: payload=json.loads(z.read(name))',
+  '  except Exception: continue',
+  '  if not isinstance(payload,dict): continue',
+  '  print("PASO2_JSON_SCHEMA",name,list(payload)[:35])',
+  '  print("PASO2_JSON_COUNTS",{k:(len(v) if isinstance(v,(list,dict)) else v) for k,v in payload.items() if k in ("entries","equivalences","equivalencias","totals","historicalEquivalences","cotejoPaso2")})'
+ ].join('\\n');
+ const inspection=cp.execFileSync('python3',['-c',inspectPy,archive],{encoding:'utf8'});
+ console.log(inspection.slice(0,10000));
  console.log('PASO2_GH_SUSTITUCION PASS 4_exports_efectivos orden_de_scripts legados_preexistentes');
  console.log('PASO2_POSTJSONRAW143 PASS URL_del_llamador POST_no_destino_fijo');
  console.log('CONEXIONES_PENDIENTES PASS callback_objeto posicional default alias namespace rechazo_encadenado ambito_inaccesible objeto_ajeno');
