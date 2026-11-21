@@ -69,6 +69,20 @@ print('PASO3_GH_PAGINADOR_ALIAS_TIPADO',json.dumps({
  'aristas':len(gh_local_edges),'consumidores':gh_local_edges,
  'limitacion':'Aliasing y llamadas potenciales certificados por fuente; no prueba ejecución ni coste.'},ensure_ascii=False))
 
+# Login/Efemérides: callback de verificación registrado condicionalmente
+# en handleUnconfirmedOperation; el cuerpo consulta .some sólo si se invoca.
+login_efem_lines=(Path('baseline')/'plataforma/login.html').read_text().splitlines()
+assert 'verify:editando' in login_efem_lines[5879-1]
+assert '? ()=> (efemState.efemerides||[]).some(' in login_efem_lines[5880-1]
+login_verify_parent='plataforma/login.html:5865:197558:callback@5865'
+login_verify_callback='plataforma/login.html:5880:198140:anonymous@5880'
+assert login_verify_parent in F and login_verify_callback in F
+assert F[login_verify_callback]['parent']==login_verify_parent
+adj[login_verify_parent][login_verify_callback]=('verificacion_efemeride_condicionada','plataforma/login.html:5879-5880')
+print('PASO3_EFEM_VERIFICACION_CONDICIONAL',json.dumps({
+ 'aristas':1,'origen':login_verify_parent,'destino':login_verify_callback,
+ 'condicion':'Sólo rama de guardado con editando y respuesta no confirmada; ejecución no probada.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
