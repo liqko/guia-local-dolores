@@ -2286,6 +2286,33 @@ print('PASO3_EXPORT_WORKER_DAYS_INSTALADO',json.dumps({
  'identidades':list(worker_module_installations),
  'tipo':'exportacion_publicada_al_evaluar_modulo_sin_invocacion_comprobada'},ensure_ascii=False))
 
+# Telemetría retirada: stub no operativo publicado como contrato, distinto
+# de función ejecutada. Importaciones HTML identificadas y fijadas por fuente.
+telemetry_stub_source=(Path('baseline')/'plataforma/telemetria.js').read_text().splitlines()
+telemetry_flush='plataforma/telemetria.js:2:124:flush'
+assert telemetry_flush in F and len(telemetry_stub_source)==2
+assert telemetry_stub_source[0].startswith('/* Registro automático retirado.')
+assert 'window.gldTelemetry={version:0,disabled:true,flush:async()=>{},action:()=>null}' in telemetry_stub_source[1]
+telemetry_imports=[]
+for html_path,line in [('plataforma/carcasa.html',6),('plataforma/login.html',9),('plataforma/eventos.html',7),('plataforma/administracion.html',8)]:
+    lines=(Path('baseline')/html_path).read_text().splitlines()
+    assert 'src="/plataforma/telemetria.js?v=1"' in lines[line-1],(html_path,line)
+    telemetry_imports.append({'html':html_path,'linea':line})
+telemetry_stub_installation={
+ telemetry_flush:{
+  'inicio':{'file':'plataforma/telemetria.js','line':2,
+            'tipo':'registro_stub_global_durante_evaluacion_script'},
+  'sitio':'plataforma/telemetria.js:2',
+  'contrato':'window.gldTelemetry.flush definido como funcion vacia y disabled:true',
+  'importaciones':telemetry_imports,
+  'limite':'Sólo disponibilidad del stub al cargar los scripts; no se atribuye invocación o telemetría efectiva.'
+ }
+}
+print('PASO3_STUB_TELEMETRIA_PUBLICADO',json.dumps({
+ 'identidades':list(telemetry_stub_installation),
+ 'importaciones':telemetry_imports,
+ 'tipo':'stub_global_instalado_sin_consumidor_acreditado'},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -2319,6 +2346,9 @@ for row in pending:
     elif fid in worker_module_installations:
         record={'idAST':fid,'estado':'disponibilidad_exportacion_worker_confirmada_estaticamente',
                 **worker_module_installations[fid]}
+    elif fid in telemetry_stub_installation:
+        record={'idAST':fid,'estado':'disponibilidad_stub_global_confirmada_estaticamente',
+                **telemetry_stub_installation[fid]}
     else:
         record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
                 'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
