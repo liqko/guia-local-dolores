@@ -2182,9 +2182,9 @@ for label,ln in [('obtenerEventosPromise',2021),('obtenerPromosPromise',2024),('
     cids=[fid for fid,fn in F.items() if fn['file']==a and fn['line']==ln and fn['name']==label]
     aids=[fid for fid,fn in F.items() if fn['file']==b and fn['name']==label]
     assert len(cids)==1 and len(aids)==1,(label,cids,aids)
-    assert len(re.findall(r'(?<![\\w$])'+label+r'(?![\\w$])',carcasa_source))==1,(label,'carcasa')
-    assert len(re.findall(r'(?<![\\w$])'+label+r'(?![\\w$])',anunciantes_source))>=2,(label,'anunciantes')
-    assert any(re.search(r'\\b'+label+r'\\s*\\(',line) for line in anunciantes_source.splitlines()[3458:3466]),label
+    assert len(re.findall(r'(?<![\w$])'+label+r'(?![\w$])',carcasa_source))==1,(label,'carcasa')
+    assert len(re.findall(r'(?<![\w$])'+label+r'(?![\w$])',anunciantes_source))>=2,(label,'anunciantes')
+    assert any(re.search(r'\b'+label+r'\s*\(',line) for line in anunciantes_source.splitlines()[3458:3466]),label
     assert not any(cids[0] in targets for targets in adj.values()),(label,'arista no justificada')
     carcasa_unconsumed.append({'nombre':label,'idCarcasa':cids[0],'idAnunciantes':aids[0],
        'declaracionCarcasa':ln,'consumidorAnunciantes':3462+carcasa_unconsumed.__len__(),
