@@ -111,6 +111,38 @@ print('PASO3_TRES_CLAUSURAS_WORKER',json.dumps({
  'aristas':len(worker_callback_contracts),'destinos':[x[1] for x in worker_callback_contracts],
  'limitacion':'Enlaces de creación/devolución condicional; no prueban invocación, consultas ni escrituras reales.'},ensure_ascii=False))
 
+# Contratos de instalación/exportación de funciones y clausuras condicionales.
+# El enlace acredita que una función queda disponible al construir el objeto
+# o sobrescribir un nombre global: no demuestra que se la invoque.
+INSTALLATION_CONTRACTS_21NOV=[
+ ('plataforma/gh-listados.js:1:1:iife@1','plataforma/gh-listados.js:88:10484:ghRenderEventos',88,'ghRenderEventos=function','asignacion_global_gh_condicionada'),
+ ('plataforma/gh-listados.js:1:1:iife@1','plataforma/gh-listados.js:92:11037:ghPublicidadLoad101',92,'ghPublicidadLoad101=()=>','asignacion_global_gh_condicionada'),
+ ('plataforma/gh-listados.js:1:1:iife@1','plataforma/gh-listados.js:92:11083:ghPublicidadPrepare101',92,'ghPublicidadPrepare101=()=>','asignacion_global_gh_condicionada'),
+ ('plataforma/gh-listados.js:1:1:iife@1','plataforma/gh-listados.js:98:13187:buscarAnu',98,"buscarAnu=()=>search('anunciantes')",'asignacion_global_gh_condicionada'),
+ ('plataforma/gh-listados.js:1:1:iife@1','plataforma/gh-listados.js:98:13223:buscarSus',98,"buscarSus=()=>search('suscriptores')",'asignacion_global_gh_condicionada'),
+ ('plataforma/contenido-adulto.js:1:1:iife@1','plataforma/contenido-adulto.js:38:3938:open',38,'open(){show();','metodo_publicado_en_objeto_global'),
+ ('plataforma/farmacias-ciclo.js:20:1693:client','plataforma/farmacias-ciclo.js:38:2556:invalidate',38,'invalidate(city){','metodo_devuelto_por_cliente'),
+ ('plataforma/login.html:9603:381948:iife@9603','plataforma/login.html:10128:402911:window.showAllDashboardTabs',10128,'window.showAllDashboardTabs = function','asignacion_global_login_condicionada'),
+ ('plataforma/panel-administrativo155.js:2:108:iife@2','plataforma/panel-administrativo155.js:23:1815:getItem',23,'getItem:key=>values.get(key)','metodo_almacenamiento_sesion_devuelto'),
+ ('plataforma/panel-administrativo155.js:2:108:iife@2','plataforma/panel-administrativo155.js:23:1850:setItem',23,'setItem:(key,value)=>values.set(key','metodo_almacenamiento_sesion_devuelto'),
+ ('plataforma/panel-administrativo155.js:2:108:iife@2','plataforma/panel-administrativo155.js:23:1904:removeItem',23,'removeItem:key=>values.delete(key)','metodo_almacenamiento_sesion_devuelto'),
+ ('plataforma/sesion-persistente.js:2:68:iife@2','plataforma/sesion-persistente.js:12:741:window.gldTieneSesionLocal',12,'window.gldTieneSesionLocal=function','asignacion_global_sesion_condicionada'),
+ ('plataforma/tarjetas-imagenes.js:1:1:iife@1','plataforma/tarjetas-imagenes.js:49:2309:snapshot',49,'snapshot:()=>','metodo_publicado_en_objeto_global'),
+ ('plataforma/territorio-cache.js:2:87:iife@2','plataforma/territorio-cache.js:42:1584:paqueteCiudad',42,'paqueteCiudad:city=>','metodo_publicado_en_objeto_global'),
+ ('worker/worker206.txt:11687:740982:cityDefinition119','worker/worker206.txt:11690:741228:anonymous@11690',11690,'sourceId:store.sourceId||((id)=>id)','funcion_fallback_condicional_del_retorno'),
+ ('worker/worker206.txt:12270:783542:get','worker/worker206.txt:12286:785031:anonymous@12286',12286,"if(method==='list')return async options=>",'metodo_proxy_lista_condicionado'),
+]
+installed_contracts=[]
+for parent,child,line_number,fragment,kind in INSTALLATION_CONTRACTS_21NOV:
+    assert parent in F and child in F and F[child]['parent']==parent,(parent,child)
+    source=(Path('baseline')/F[child]['file']).read_text().splitlines()[line_number-1]
+    assert fragment in source,(child,fragment,source[:200])
+    adj[parent][child]=(kind,F[child]['file']+':'+str(line_number))
+    installed_contracts.append({'destino':child,'linea':line_number,'tipo':kind})
+print('PASO3_INSTALACIONES_CONDICIONALES_21NOV',json.dumps({
+ 'aristas':len(installed_contracts),'casos':installed_contracts,
+ 'limitacion':'Disponibilidad condicional del receptor tras instalación, no ejecución, llamada ni ahorro facturado.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
