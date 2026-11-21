@@ -2192,6 +2192,37 @@ for label,ln in [('obtenerEventosPromise',2021),('obtenerPromosPromise',2024),('
 print('PASO3_CARCASA_WRAPPERS_SIN_CONSUMIDOR',json.dumps({
  'cantidad':len(carcasa_unconsumed),'casos':carcasa_unconsumed,
  'efectoEnSaldo':0,'prueba':'Fuente congelada, identidad AST, ausencia de invocacion Carcasa y presencia de invocacion Anunciantes'},ensure_ascii=False))
+# Verificación de dependencia de la misma familia: callbacks y caché
+# sólo reciben llamadas desde los tres wrappers sin consumidores.
+carcasa_family_members=[
+ ('obtenerEventosPromise',2021),('obtenerPromosPromise',2024),
+ ('obtenerActividadesPromise',2027),('obtenerModuloCiudad',1999),
+ ('gldLeerModuloCache',1983),('gldGuardarModuloCache',1993),
+ ('callback@2008',2008),('callback@2013',2013)
+]
+carcasa_family={}
+for fname,fln in carcasa_family_members:
+    matches=[fid for fid,fn in F.items() if fn['file']=='plataforma/carcasa.html' and fn['line']==fln and fn['name']==fname]
+    assert len(matches)==1,(fname,fln,matches)
+    carcasa_family[matches[0]]={'nombre':fname,'linea':fln}
+assert len(carcasa_family)==8,len(carcasa_family)
+carcasa_family_external=[]
+carcasa_family_internal=[]
+for origin,targets in adj.items():
+    for dest in targets:
+        if dest not in carcasa_family:continue
+        if origin in carcasa_family:carcasa_family_internal.append([origin,dest])
+        else:carcasa_family_external.append([origin,dest])
+assert not carcasa_family_external,carcasa_family_external
+assert len(carcasa_family_internal)>=5,carcasa_family_internal
+print('PASO3_CARCASA_FAMILIA_DESCONECTADA',json.dumps({
+ 'total':len(carcasa_family),'miembros':carcasa_family,
+ 'aristasInternas':carcasa_family_internal,
+ 'aristasEntrantesExternas':carcasa_family_external,
+ 'diagnostico':'familia_sin_entrada_en_grafo; no atribuir llamadas de iframe ni marcar codigo muerto',
+ 'efectoEnSaldo':0
+},ensure_ascii=False))
+
 
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
