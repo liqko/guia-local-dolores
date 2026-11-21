@@ -169,6 +169,25 @@ for line,name in feature_targets:
     feature_edges.append([parent,dest,line])
 print('PASO3_PROYECCIONES_DE_MODULOS_WORKER',json.dumps({'aristas':len(feature_edges),'casos':feature_edges,'condicion':'módulo o nombre elegible, objeto de configuración preciso; sin ejecución real'},ensure_ascii=False))
 
+# Worker: llamadas directas a métodos tipados del registro GLD_EVENTS145.
+# El enrutador usa GLD_EVENTS145 retornado por la IIFE, no homónimos.
+event_registry_lines=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+EVENTS_TYPED_21NOV=[
+ (642,'geo',13064),(1495,'publicRows',13115),
+ (3524,'scope',13070),(3607,'scope',13070),
+ (12863,'dispatch',13127),(12996,'repair',13152),
+]
+event_registry_links=[]
+for site,method,definition in EVENTS_TYPED_21NOV:
+    assert 'GLD_EVENTS145.'+method+'(' in event_registry_lines[site-1],(site,method)
+    targets=[fid for fid,fn in F.items() if fn['file']=='worker/worker206.txt' and fn['line']==definition and fn['name']==method]
+    assert len(targets)==1,(method,definition,targets)
+    owners=[fid for fid,fn in F.items() if fn['file']=='worker/worker206.txt' and any(c.get('line')==site and c.get('method')==method for c in fn.get('calls',[]))]
+    assert len(owners)==1,(site,method,owners)
+    adj[owners[0]][targets[0]]=('delegacion_objeto_eventos_tipado_condicionada','worker/worker206.txt:'+str(site))
+    event_registry_links.append([owners[0],targets[0],site])
+print('PASO3_EVENTOS_REGISTRO_TIPADO',json.dumps({'aristas':len(event_registry_links),'casos':event_registry_links,'limitacion':'Métodos invocados sólo en rama de ejecución/permiso correspondiente; no prueba ejecución ni consumo.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
