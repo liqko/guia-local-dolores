@@ -2198,6 +2198,33 @@ print('PASO3_INVOCADORES_84_TODOS',json.dumps([
   'fragmento':(Path('baseline')/fn['file']).read_text().splitlines()[fn['line']-1].strip()[:180]}
  for rec,fn,_ in missing_groups['invocadores_locales_sin_entrada']],ensure_ascii=False))
 
+# Evaluación del límite real de cierre por conexiones: referencias por archivo.
+# Un único nombre textual no autoriza inferir código muerto ni borrar funciones;
+# sí impide fabricar una arista estática en el corte congelado.
+remaining_single_text=[]
+remaining_multi_text=[]
+remaining_anonymous=[]
+source_text_single={}
+for rec in missing_records:
+    fn=F[rec['idAST']];name=fn['name'];file=fn['file']
+    if not name.isidentifier():
+        remaining_anonymous.append(rec['idAST']);continue
+    if file not in source_text_single:source_text_single[file]=(Path('baseline')/file).read_text()
+    src=source_text_single[file]
+    n=len(re.findall(r'\\b'+re.escape(name)+r'\\b',src))
+    row={'idAST':rec['idAST'],'archivo':file,'linea':fn['line'],'nombre':name,'aparicionesEnArchivo':n,
+         'grupo':next((k for k,v in missing_groups.items() if any(r['idAST']==rec['idAST'] for r,_,_ in v)),None)}
+    if n==1:remaining_single_text.append(row)
+    else:remaining_multi_text.append(row)
+print('PASO3_LIMITE_ENLACES_TEXTUALES',json.dumps({
+ 'bruto':len(missing_records),'nominales_una_referencia_en_archivo':len(remaining_single_text),
+ 'nominales_con_referencias_adicionales':len(remaining_multi_text),
+ 'anonimas_o_propiedades_no_nominales':len(remaining_anonymous),
+ 'porGrupoUnaReferencia':dict(collections.Counter(x['grupo'] for x in remaining_single_text)),
+ 'padresUnaReferencia':[x for x in remaining_single_text if x['grupo']=='padre_con_entrada_sin_callback_comprobado'],
+ 'globalesUnaReferencia':[x for x in remaining_single_text if x['grupo']=='global_sin_invocador_comprobado'][:30],
+ 'limitacion':'Ausencia textual local no demuestra desuso ni excluye acceso dinámico; no permite falsificar enlaces para cumplir umbral.'},ensure_ascii=False))
+
 # Censo conservador de declaraciones locales sin referencias textuales
 # Sólo es candidato a código no utilizado si la declaración es local a un
 # ámbito léxico AST existente y el nombre no vuelve a aparecer en el archivo.
