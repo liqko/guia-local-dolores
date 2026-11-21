@@ -2462,6 +2462,50 @@ print('PASO3_INVOCADORES_84_TODOS',json.dumps([
   'fragmento':(Path('baseline')/fn['file']).read_text().splitlines()[fn['line']-1].strip()[:180]}
  for rec,fn,_ in missing_groups['invocadores_locales_sin_entrada']],ensure_ascii=False))
 
+# Comprobación en lote de los 60 nodos con invocadores: buscar todas las
+# raíces estáticas posibles, sin suponer una entrada que no existe.
+local_unlinked=[x[0]['idAST'] for x in missing_groups['invocadores_locales_sin_entrada']]
+missing_set=set(x['idAST'] for x in missing_records)
+root_usage=collections.defaultdict(set)
+unknown_predecessors=[]
+for fid in local_unlinked:
+    to_visit=[fid];visited=set();roots_for_node=set()
+    while to_visit:
+        cur=to_visit.pop()
+        if cur in visited:continue
+        visited.add(cur)
+        preds=reverse.get(cur,set())
+        if not preds:
+            roots_for_node.add(cur)
+        else:
+            for p in preds:
+                if p in missing_set:to_visit.append(p)
+                elif p in reached:
+                    unknown_predecessors.append({'objetivo':fid,'invocador':p,'motivo':'precedente_alcanzado_sin_arista_propagada'})
+                else:roots_for_node.add(p)
+    for root in roots_for_node:root_usage[root].add(fid)
+assert not unknown_predecessors,unknown_predecessors[:20]
+root_evidence=[]
+for root,descendants in sorted(root_usage.items(),key=lambda x:(-len(x[1]),x[0])):
+    fn=F[root]
+    name=fn['name']
+    content=(Path('baseline')/fn['file']).read_text()
+    occurrences=len(re.findall(r'\\b'+re.escape(name)+r'\\b',content)) if name.isidentifier() else None
+    root_evidence.append({'idAST':root,'archivo':fn['file'],'linea':fn['line'],
+        'nombre':name,'funcionesDependientes':len(descendants),
+        'aparicionesNominalesEnArchivo':occurrences,
+        'sinConsumidorNominalAdicional':occurrences==1})
+assert len(local_unlinked)==60,len(local_unlinked)
+assert root_usage and len(root_evidence)>0
+print('PASO3_RAICES_60_DEPENDIENTES_VERIFICADAS',json.dumps({
+ 'nodos':len(local_unlinked),'raices':len(root_evidence),
+ 'raicesSinSegundaReferenciaNominal':sum(x['sinConsumidorNominalAdicional'] for x in root_evidence),
+ 'raicesConOtrasReferencias':[
+    x for x in root_evidence if not x['sinConsumidorNominalAdicional']
+ ],
+ 'topFamilias':root_evidence[:28],
+ 'limite':'Análisis conservador: homónimos, alias dinámicos y referencias externas no generan aristas.'},ensure_ascii=False))
+
 # Evaluación del límite real de cierre por conexiones: referencias por archivo.
 # Un único nombre textual no autoriza inferir código muerto ni borrar funciones;
 # sí impide fabricar una arista estática en el corte congelado.
