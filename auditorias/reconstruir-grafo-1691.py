@@ -2642,7 +2642,7 @@ assert len(local_root_certificates)==36,len(local_root_certificates)
 assert sum(x['causa']=='raiz_sin_otra_referencia_nominal_en_fuente' for x in local_root_certificates)==26
 assert sum(x['causa']!='raiz_sin_otra_referencia_nominal_en_fuente' for x in local_root_certificates)==10
 covered_local=set().union(*(set(x['descendientesAST']) for x in local_root_certificates))
-assert covered_local=={x['idAST'] for x in local_unlinked}
+assert covered_local==set(local_unlinked)
 assert len(covered_local)==59
 print('PASO3_CIERRE_CAUSAL_59_CADENAS_LOCALES',json.dumps({
  'nodos':len(covered_local),'raices':len(local_root_certificates),
