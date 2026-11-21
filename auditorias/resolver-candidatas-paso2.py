@@ -187,7 +187,8 @@ def main():
                 evidence.append((entry["id"], line, method, route))
 
     if not changed:
-        raise ValueError("No matching pending associations in source snapshot")
+        print(json.dumps({"changed": 0, "pending": initial_pending, "status": "sin_candidatas_nuevas"}, ensure_ascii=False))
+        return
     if [x["id"] for x in entries] != ids_before:
         raise ValueError("IDs changed")
     state_counts = {}
