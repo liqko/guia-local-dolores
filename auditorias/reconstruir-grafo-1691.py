@@ -2628,6 +2628,42 @@ print('PASO3_CONSUMIDORES_EXTERNOS_96_BUSQUEDA_NOMINAL',json.dumps({
  'aristasNuevas':0,'limite':'Referencia textual en otro JS no acredita ejecución ni mismo binding AST.'
 },ensure_ascii=False))
 
+# Las únicas seis identidades con coincidencias en otros scripts son
+# falsos positivos: texto comercial, propiedades de objeto o función
+# local en otro closure. Identidad AST y contexto fuente obligatorios.
+assert len(external_nominal_candidates)==6,len(external_nominal_candidates)
+external_distinct={}
+for candidate in external_nominal_candidates:
+    name=candidate['nombre']
+    if name=='opciones':
+        assert all(hit['archivo'] in ('plataforma/planes-resumen.js',
+                                    'plataforma/planes-simulador.js')
+                   for hit in candidate['referenciasExternas']),candidate
+        assert all('opciones' in external_js_sources[hit['archivo']].splitlines()[ln-1]
+                   for hit in candidate['referenciasExternas'] for ln in hit['lineas'])
+        reason='sustantivo_en_textos_comerciales_no_invocacion'
+    elif name=='enabled':
+        assert all(hit['archivo']=='plataforma/planes-resumen.js'
+                   for hit in candidate['referenciasExternas'])
+        assert all('enabled' in external_js_sources[hit['archivo']].splitlines()[ln-1]
+                   for hit in candidate['referenciasExternas'] for ln in hit['lineas'])
+        reason='propiedad_de_resumen_distinta_de_funcion_worker'
+    elif name=='norm':
+        assert all(hit['archivo']=='plataforma/efemerides-calendario.js'
+                   for hit in candidate['referenciasExternas'])
+        assert 'const norm=' in external_js_sources['plataforma/efemerides-calendario.js'].splitlines()[2]
+        reason='funcion_local_en_cierre_diferente_del_worker'
+    else:
+        raise AssertionError(candidate)
+    external_distinct[candidate['idAST']]=reason
+assert len(external_distinct)==6
+print('PASO3_CIERRE_REFERENCIAS_EXTERNAS_NO_CONSUMIDOR',json.dumps({
+ 'archivosJS':len(external_js_sources),'identidades':96,
+ 'coincidenciasExternasDesambiguadas':external_distinct,
+ 'consumidoresExternosRealesAcreditados':0,'nuevasAristas':0,
+ 'advertencia':'Falso positivo textual no es consumidor AST ni justifica reducir conteo'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
