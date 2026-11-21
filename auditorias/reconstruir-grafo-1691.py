@@ -41,6 +41,34 @@ for b in tree.get('callbackBindings',[]):
     src=b['binding'].split('|')[0]
     for target in b['targets']:
         if src in F and target in F:adj[src][target]=('vinculo_condicionado',b['binding'])
+# GH: enlace entre consumidores HTML y alias global del paginador.
+# La asignación es una referencia directa al objeto función localPage;
+# no crea una nueva función ni implica que se ejecute cada renderizado.
+admin_gh_lines=(Path('baseline')/'plataforma/administracion.html').read_text().splitlines()
+list_gh_lines=(Path('baseline')/'plataforma/gh-listados.js').read_text().splitlines()
+assert 'window.GH_DIRECTORY_LOCAL102=localPage' in list_gh_lines[34-1]
+assert 'src="/plataforma/gh-listados.js?v=119"' in admin_gh_lines[4098-1]
+gh_local_page='plataforma/gh-listados.js:33:2979:localPage'
+assert gh_local_page in F and F[gh_local_page]['name']=='localPage'
+gh_local_consumers=[
+ ('ghCargarSoporteV73',1025,"'soporte'"),
+ ('ghRenderAnunciantesPendientes',1264,"'altas'"),
+ ('ghRenderReviewQueues',4050,"'revision:'"),
+]
+gh_local_edges=[]
+for caller,line_number,signature in gh_local_consumers:
+    source_line=admin_gh_lines[line_number-1]
+    assert 'window.GH_DIRECTORY_LOCAL102?.(' in source_line and signature in source_line
+    matches=[fid for fid,fn in F.items() if fn['file']=='plataforma/administracion.html' and fn['name']==caller]
+    assert len(matches)==1,(caller,matches)
+    src=matches[0]
+    assert F[src]['line']<line_number,(caller,F[src]['line'],line_number)
+    adj[src][gh_local_page]=('alias_global_paginador_condicionado','plataforma/administracion.html:'+str(line_number))
+    gh_local_edges.append([src,gh_local_page,line_number])
+print('PASO3_GH_PAGINADOR_ALIAS_TIPADO',json.dumps({
+ 'aristas':len(gh_local_edges),'consumidores':gh_local_edges,
+ 'limitacion':'Aliasing y llamadas potenciales certificados por fuente; no prueba ejecución ni coste.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
