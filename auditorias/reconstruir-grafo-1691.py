@@ -2377,7 +2377,7 @@ print('PASO3_CLASIFICACION_WORKER_MIEMBROS_INSTALADOS',json.dumps({
 def _html_script_context(lines,line):
     open_line=None
     for i,code in enumerate(lines[:line],1):
-        if re.search(r'<script(?:\\s|>)',code):open_line=i
+        if re.search(r'<script(?:\s|>)',code):open_line=i
         if '</script>' in code:open_line=None
     return open_line
 
@@ -2387,8 +2387,8 @@ for path,first,second in [
  ('plataforma/carcasa.html',2049,2086)
 ]:
     lines=(Path('baseline')/path).read_text().splitlines()
-    assert re.search(r'^\\s*function opciones\\s*\\(',lines[first-1]),(path,first)
-    assert re.search(r'^\\s*function opciones\\s*\\(',lines[second-1]),(path,second)
+    assert re.search(r'^\s*function opciones\s*\(',lines[first-1]),(path,first)
+    assert re.search(r'^\s*function opciones\s*\(',lines[second-1]),(path,second)
     context_a=_html_script_context(lines,first)
     context_b=_html_script_context(lines,second)
     assert context_a is not None and context_a==context_b,(path,context_a,context_b)
