@@ -2752,6 +2752,19 @@ print('PASO3_SIETE_FUENTES_EXCLUIDAS_CON_ACTIVACIONES',json.dumps({
  'detalles':out_of_scope_evidence,
  'advertencia':'Omisiones de alcance del catálogo, distintas del indicador 155 funciones; no deben ocultarse.'
 },ensure_ascii=False))
+# Las dos copias de popup Eventos son idénticas, no dos recorridos
+# funcionales independientes por inferencia. Mantener sus rutas separadas
+# hasta comprobar publicación/despliegue y equivalencia del catálogo.
+popup_a=(Path('baseline')/'eventos/popupsumaevento.html').read_bytes()
+popup_b=(Path('baseline')/'popup/eventos.html').read_bytes()
+assert popup_a==popup_b and len(popup_a)>0
+print('PASO3_POPUP_EVENTOS_DUPLICADO_EXACTO',json.dumps({
+ 'archivos':['eventos/popupsumaevento.html','popup/eventos.html'],
+ 'bytesPorArchivo':len(popup_a),'contenidoIgual':True,
+ 'referenciaCatalogo':'dos archivos fuente con mismo contenido; despliegue/alcance por ruta aún pendiente',
+ 'reduccionEnFuncionesSinEnlace':0
+},ensure_ascii=False))
+
 
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
