@@ -241,7 +241,7 @@ def main():
             nearby = "\n".join(source_lines[line-1:line+4])
             if method == "POST" and "method:'POST'" not in nearby:
                 raise ValueError(f"POST method changed {path}:{line}")
-            if method == "GET" and "method:'POST'" in nearby:
+            if method == "GET" and "method:'POST'" in site:
                 raise ValueError(f"GET method changed {path}:{line}")
             if method == "GET_POST" and "method:body?'POST':'GET'" not in site:
                 raise ValueError(f"Dynamic GET/POST changed {path}:{line}")
