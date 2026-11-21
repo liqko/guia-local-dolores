@@ -143,6 +143,32 @@ print('PASO3_INSTALACIONES_CONDICIONALES_21NOV',json.dumps({
  'aristas':len(installed_contracts),'casos':installed_contracts,
  'limitacion':'Disponibilidad condicional del receptor tras instalación, no ejecución, llamada ni ahorro facturado.'},ensure_ascii=False))
 
+# Worker: despacho de proyección y reconstrucción por especificación tipada.
+# El destino depende de la clave 'name' / 'module' y de la guarda de spec.
+feature_worker_lines=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+assert 'spec.project?Response.json(await spec.project(' in feature_worker_lines[12114-1]
+assert 'const rebuild=Object.values(PUBLIC_FEATURES191).find(' in feature_worker_lines[12403-1]
+assert 'await rebuild({db,cache,env:sourceEnv})' in feature_worker_lines[12405-1]
+assert 'ephemerides:{rebuild:rebuildEfemeridesAllV3' in feature_worker_lines[11991-1]
+assert 'employment:{rebuild:rebuildEmployment191' in feature_worker_lines[11992-1]
+feature_projection=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['name']=='projection' and F[f]['line']==12092]
+feature_snapshot=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['name']=='GldPublicCache119.prototype.moduleSnapshot125' and F[f]['line']==12372]
+# El método de prototipo puede estar representado como nombre de asignación, no inferir ID inexistente.
+if not feature_snapshot:
+    feature_snapshot=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['line']==12372]
+assert len(feature_projection)==1,feature_projection
+assert len(feature_snapshot)==1,feature_snapshot
+feature_targets=[(11991,'project'),(11992,'project'),(11544,'rebuildEmployment191')]
+feature_edges=[]
+for line,name in feature_targets:
+    candidates=[f for f in F if F[f]['file']=='worker/worker206.txt' and F[f]['line']==line and F[f]['name']==name]
+    assert len(candidates)==1,(line,name,candidates)
+    dest=candidates[0]
+    parent=feature_projection[0] if name=='project' else feature_snapshot[0]
+    adj[parent][dest]=('despacho_por_especificacion_de_modulo_condicionado','worker/worker206.txt:'+('12114' if name=='project' else '12403-12405'))
+    feature_edges.append([parent,dest,line])
+print('PASO3_PROYECCIONES_DE_MODULOS_WORKER',json.dumps({'aristas':len(feature_edges),'casos':feature_edges,'condicion':'módulo o nombre elegible, objeto de configuración preciso; sin ejecución real'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
