@@ -213,7 +213,7 @@ ui_new.append(card_escape)
 commercial_lines=(Path('baseline')/'plataforma/panel-comercial.html').read_text().splitlines()
 assert "g('calc').onclick=calculate" in commercial_lines[115-1]
 calc_targets=[fid for fid,fn in F.items() if fn['file']=='plataforma/panel-comercial.html' and fn['line']==79 and fn['name']=='calculate']
-commercial_roots=[fid for fid,fn in F.items() if fn['file']=='plataforma/panel-comercial.html' and fn['line']==35 and fn['name'].startswith('iife@')]
+commercial_roots=[fid for fid,fn in F.items() if fn['file']=='plataforma/panel-comercial.html' and fn['name'].startswith('iife@')]
 assert len(calc_targets)==1 and len(commercial_roots)==1,(calc_targets,commercial_roots)
 adj[commercial_roots[0]][calc_targets[0]]=('boton_calcular_registrado_condicionado','plataforma/panel-comercial.html:115')
 print('PASO3_CALLBACKS_UI_VERIFICADOS_21NOV',json.dumps({'aristas':len(ui_callback_checks)+2,'destinos':ui_new,'calcular':calc_targets[0],'limitacion':'Conexiones condicionales en fuentes y AST; no ejecutadas en navegador.'},ensure_ascii=False))
