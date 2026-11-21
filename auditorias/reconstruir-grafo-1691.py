@@ -2110,6 +2110,12 @@ print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
   'fragmento':(Path('baseline')/fn['file']).read_text().splitlines()[fn['line']-1].strip()[:250]}
  for rec,fn,_ in missing_groups['padre_con_entrada_sin_callback_comprobado']],ensure_ascii=False))
 
+print('PASO3_GLOBALES_86_TODOS',json.dumps([
+ {'idAST':rec['idAST'],'archivo':fn['file'],'linea':fn['line'],'nombre':fn['name'],
+ 'tipo':(rec.get('activacion') or {}).get('tipo'),
+ 'fragmento':(Path('baseline')/fn['file']).read_text().splitlines()[fn['line']-1].strip()[:220]}
+ for rec,fn,_ in missing_groups['global_sin_invocador_comprobado']],ensure_ascii=False))
+
 # Censo conservador de declaraciones locales sin referencias textuales
 # Sólo es candidato a código no utilizado si la declaración es local a un
 # ámbito léxico AST existente y el nombre no vuelve a aparecer en el archivo.
