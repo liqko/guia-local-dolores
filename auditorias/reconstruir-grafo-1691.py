@@ -2546,6 +2546,60 @@ for rec in missing_records:
 assert sum(map(len,missing_groups.values()))==len(missing_records)
 print('PASO3_583_CAUSAS',json.dumps({'total':len(missing_records),'grupoOriginal':583,'porCausa':{k:len(v) for k,v in missing_groups.items()},'porArchivo':dict(collections.Counter(F[r['idAST']]['file'] for r in missing_records)),'muestras':{k:[{'id':x['idAST'],'line':fn.get('line'),'activacion':(x.get('activacion') or {}).get('tipo'),'invocadoresAST':degree} for x,fn,degree in v[:12]] for k,v in missing_groups.items()}},ensure_ascii=False))
 
+# Paso 3: dictamen fuente + ámbito para las 96 identidades que
+# permanecen como padre alcanzable o global sin invocador AST.
+# NO equivale a ejecución ni reclasifica el saldo bruto.
+remaining96=(missing_groups['padre_con_entrada_sin_callback_comprobado']+
+             missing_groups['global_sin_invocador_comprobado'])
+assert len(missing_groups['padre_con_entrada_sin_callback_comprobado'])==20
+assert len(missing_groups['global_sin_invocador_comprobado'])==76
+assert len(remaining96)==96
+remaining96_sources={}
+remaining96_certificates=[]
+shadowed96={x['declaracionSombreada'] for x in shadowed_options}
+for rec,fn,n_inv in remaining96:
+    fid=rec['idAST'];path=fn['file'];name=fn['name']
+    if path not in remaining96_sources:
+        remaining96_sources[path]=(Path('baseline')/path).read_text().splitlines()
+    lines=remaining96_sources[path]
+    assert 0<fn['line']<=len(lines),(fid,len(lines))
+    assert not reverse.get(fid,set()),(fid,'invocador no detectado en grupo sin invocador')
+    if name.isidentifier():
+        pat=re.compile(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'(?![A-Za-z0-9_$])')
+        sites=[i for i,line in enumerate(lines,1) if pat.search(line)]
+    else:
+        sites=[]
+    if fid in shadowed96:
+        diagnosis='declaracion_sombreada_mismo_script'
+    elif path=='plataforma/gh-promos.js' and name.startswith('window.ghPromos'):
+        diagnosis='exportacion_previa_reemplazada_por_gh_listados'
+    elif path=='worker/worker206.txt' and name in ('primePanelAdministration116','loginAdmin'):
+        diagnosis='metodo_de_objeto_retornado_sin_invocador_acreditado'
+    elif name.startswith('anonymous@'):
+        diagnosis='constructor_de_clase_exportada_sin_instanciacion_local_acreditada'
+    elif len(sites)==1:
+        diagnosis='unica_aparicion_nominal_en_archivo'
+    elif len(sites)>1:
+        diagnosis='multiples_apariciones_lexicas_sin_binding_ast_acreditado'
+    else:
+        diagnosis='sin_sitio_nominal_simple_requiere_receptor_o_exportacion'
+    remaining96_certificates.append({
+        'idAST':fid,'archivo':path,'linea':fn['line'],'nombre':name,
+        'padreAST':fn.get('parent'),'aparicionesNominalesEnArchivo':len(sites),
+        'lineasCoincidentes':sites[:24],'diagnostico':diagnosis,
+        'invocadoresAST':n_inv,
+        'observacion':'No interpretar declaración, exportación, propiedad u homónimo como una llamada'
+    })
+assert len({v['idAST'] for v in remaining96_certificates})==96
+assert all(v['invocadoresAST']==0 for v in remaining96_certificates)
+print('PASO3_CERTIFICADO_20_PADRES_76_GLOBALES',json.dumps({
+ 'total':96,'padresAlcanzables':20,'globalesSinInvocador':76,
+ 'porDiagnostico':dict(collections.Counter(v['diagnostico'] for v in remaining96_certificates)),
+ 'identidades':remaining96_certificates,
+ 'aristasNuevas':0,'reduccionBruta':0,
+ 'limite':'Ausencia de arista AST acreditada; no demuestra no-uso dinámico ni permite declarar muerto el código'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
