@@ -2224,6 +2224,44 @@ print('PASO3_CARCASA_FAMILIA_DESCONECTADA',json.dumps({
 },ensure_ascii=False))
 
 
+
+# Dos familias con raíz sin consumidor, verificadas como cadenas enteras.
+# Las referencias internas de callbacks NO son entradas externas de la acción.
+unconsumed_family_specs=[
+ ('plataforma/anunciantes.html','iniciarBootstrapCompleto',3550,
+  [('callback@3553',3553),('callback@3561',3561),('callback@3573',3573)]),
+ ('plataforma/login.html','buildCommerceRelationsPayloads',6346,
+  [('callback@6349',6349),('callback@6354',6354),('callback@6355',6355),
+   ('callback@6356',6356),('callback@6357',6357)])
+]
+family_evidence=[]
+for path,root_name,root_line,children in unconsumed_family_specs:
+    contents=(Path('baseline')/path).read_text()
+    assert len(re.findall(r'(?<![\\w$])'+root_name+r'(?![\\w$])',contents))==1,(path,root_name)
+    members={}
+    for label,ln in [(root_name,root_line)]+children:
+        found=[fid for fid,fn in F.items()
+               if fn['file']==path and fn['name']==label and fn['line']==ln]
+        assert len(found)==1,(path,label,ln,found)
+        members[found[0]]=(label,ln)
+    internal=[]
+    external=[]
+    for origin,targets in adj.items():
+        for destination in targets:
+            if destination not in members:continue
+            if origin in members:internal.append([origin,destination])
+            else:external.append([origin,destination])
+    assert not external,(path,external)
+    assert len(internal)>=len(children),(path,len(internal),children)
+    family_evidence.append({'archivo':path,'raiz':root_name,'linea':root_line,
+      'miembros':len(members),'aristasInternas':len(internal),
+      'aristasEntrantesExternas':len(external),
+      'veredicto':'raiz_declarada_sin_consumidor_en_fuente; descendientes_sin_entrada'})
+print('PASO3_FAMILIAS_BOOTSTRAP_RELACIONES_VERIFICADAS',json.dumps({
+ 'familias':family_evidence,'totalIdentidades':sum(x['miembros'] for x in family_evidence),
+ 'efectoEnSaldo':0,'limite':'La ausencia de invocacion nominal acredita brecha estatica, no autoriza borrado'
+},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
