@@ -2069,6 +2069,15 @@ for rec in missing_records:
 assert sum(map(len,missing_groups.values()))==len(missing_records)
 print('PASO3_583_CAUSAS',json.dumps({'total':len(missing_records),'grupoOriginal':583,'porCausa':{k:len(v) for k,v in missing_groups.items()},'porArchivo':dict(collections.Counter(F[r['idAST']]['file'] for r in missing_records)),'muestras':{k:[{'id':x['idAST'],'line':fn.get('line'),'activacion':(x.get('activacion') or {}).get('tipo'),'invocadoresAST':degree} for x,fn,degree in v[:12]] for k,v in missing_groups.items()}},ensure_ascii=False))
 
+# Inventario exhaustivo de padres alcanzables para revisión por lotes.
+# Diagnóstico únicamente: no reclasifica ni descuenta identidades.
+print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
+ {'idAST':rec['idAST'],'padre':fn.get('parent'),
+  'archivo':fn['file'],'linea':fn['line'],'nombre':fn['name'],
+  'activacion':(rec.get('activacion') or {}).get('tipo'),
+  'fragmento':(Path('baseline')/fn['file']).read_text().splitlines()[fn['line']-1].strip()[:250]}
+ for rec,fn,_ in missing_groups['padre_con_entrada_sin_callback_comprobado']],ensure_ascii=False))
+
 # Censo conservador de declaraciones locales sin referencias textuales
 # Sólo es candidato a código no utilizado si la declaración es local a un
 # ámbito léxico AST existente y el nombre no vuelve a aparecer en el archivo.
