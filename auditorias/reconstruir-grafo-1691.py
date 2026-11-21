@@ -2371,6 +2371,40 @@ print('PASO3_CLASIFICACION_WORKER_MIEMBROS_INSTALADOS',json.dumps({
   'fuente':'worker/worker206.txt:775,777',
   'condicion':'evaluacion del modulo sin ejecución acreditada de los métodos'},ensure_ascii=False))
 
+# Paso 3: colisiones lexicales vs binding real. Las funciones
+# 'opciones' son declaraciones repetidas en el MISMO bloque script.
+# La segunda declaración sustituye la primera en ese ámbito.
+def _html_script_context(lines,line):
+    open_line=None
+    for i,code in enumerate(lines[:line],1):
+        if re.search(r'<script(?:\\s|>)',code):open_line=i
+        if '</script>' in code:open_line=None
+    return open_line
+
+shadowed_options=[]
+for path,first,second in [
+ ('plataforma/anunciantes.html',3523,3585),
+ ('plataforma/carcasa.html',2049,2086)
+]:
+    lines=(Path('baseline')/path).read_text().splitlines()
+    assert re.search(r'^\\s*function opciones\\s*\\(',lines[first-1]),(path,first)
+    assert re.search(r'^\\s*function opciones\\s*\\(',lines[second-1]),(path,second)
+    context_a=_html_script_context(lines,first)
+    context_b=_html_script_context(lines,second)
+    assert context_a is not None and context_a==context_b,(path,context_a,context_b)
+    first_ids=[fid for fid,fn in F.items() if fn['file']==path and fn['line']==first and fn['name']=='opciones']
+    second_ids=[fid for fid,fn in F.items() if fn['file']==path and fn['line']==second and fn['name']=='opciones']
+    assert len(first_ids)==len(second_ids)==1,(path,first_ids,second_ids)
+    assert first_ids[0] != second_ids[0]
+    shadowed_options.append({'archivo':path,'scriptLinea':context_a,
+        'declaracionSombreada':first_ids[0],'declaracionEfectiva':second_ids[0],
+        'motivo':'duplicacion de function en mismo script; binding nominal final sustituye al anterior'})
+print('PASO3_OPCIONES_SOMBREADAS_MISMO_SCRIPT',json.dumps({
+ 'totalDeclaracionesSombreadas':len(shadowed_options),
+ 'casos':shadowed_options,'aristasNuevas':0,'descuento':0,
+ 'limite':'Sombreado estatico acreditado, no autoriza eliminar ni atribuir invocaciones'
+},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
