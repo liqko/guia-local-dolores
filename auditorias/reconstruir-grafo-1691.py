@@ -2664,6 +2664,36 @@ print('PASO3_CIERRE_REFERENCIAS_EXTERNAS_NO_CONSUMIDOR',json.dumps({
  'advertencia':'Falso positivo textual no es consumidor AST ni justifica reducir conteo'
 },ensure_ascii=False))
 
+# Revisar HTML secundarios fuera de las nueve fuentes principales:
+# no dar por conectada ninguna función sólo por coincidencia textual.
+source_html=set(fn['file'] for fn in F.values() if fn['file'].endswith('.html'))
+other_html_paths=sorted(p for p in (Path('baseline')/'plataforma').glob('*.html')
+                        if str(p.relative_to(Path('baseline'))) not in source_html)
+additional_html_hits=[]
+for entry in remaining96_certificates:
+    name=entry['nombre']
+    if not name.isidentifier() or len(name)<4:continue
+    pat=re.compile(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'(?![A-Za-z0-9_$])')
+    for html in other_html_paths:
+        path=str(html.relative_to(Path('baseline')))
+        lines=html.read_text().splitlines()
+        for no,line in enumerate(lines,1):
+            if not pat.search(line):continue
+            text=line.strip()
+            additional_html_hits.append({
+               'idAST':entry['idAST'],'archivoHTML':path,'linea':no,
+               'atributoEvento':bool(re.search(r'\\bon[a-z]+\\s*=',text,re.I)),
+               'llamadaNominal':bool(re.search(r'(?<![A-Za-z0-9_$])'+re.escape(name)+r'\\s*\\(',text)),
+               'fragmento':text[:220]})
+print('PASO3_HTML_ADICIONAL_96',json.dumps({
+ 'htmlSecundarios':len(other_html_paths),'archivos':[str(p.relative_to(Path('baseline'))) for p in other_html_paths],
+ 'identidades':96,'coincidencias':len(additional_html_hits),
+ 'coincidenciasConAtributoEvento':sum(x['atributoEvento'] for x in additional_html_hits),
+ 'coincidenciasConSintaxisLlamada':sum(x['llamadaNominal'] for x in additional_html_hits),
+ 'sitios':additional_html_hits,
+ 'aristasNuevas':0,'limite':'Registro de candidatos, no confirma ni descarta invocaciones dinámicas.'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
