@@ -2612,6 +2612,48 @@ print('PASO3_RAICES_60_DEPENDIENTES_VERIFICADAS',json.dumps({
  'topFamilias':root_evidence[:28],
  'limite':'Análisis conservador: homónimos, alias dinámicos y referencias externas no generan aristas.'},ensure_ascii=False))
 
+# Certificado del bloqueo de TODAS las cadenas locales: no es cobertura
+# de ejecución, sino trazabilidad reproducible de sus raíces sin entrada.
+ambiguous_root_reasons={}
+for item in shadowed_options:
+    ambiguous_root_reasons[item['declaracionSombreada']]='declaracion_sombreada_por_otra_en_mismo_script'
+    ambiguous_root_reasons[item['declaracionEfectiva']]='declaracion_final_sin_invocador_ast'
+for item in worker_ambiguous:
+    ambiguous_root_reasons[item['idAST']]=item['causa']
+ambiguous_root_reasons[old_export]='exportacion_sombreada_por_gh_listados'
+local_root_certificates=[]
+for root,dependents in sorted(root_usage.items()):
+    fn=F[root]
+    hits=[p for p,targets in adj.items() if root in targets]
+    assert not hits,(root,hits)
+    evidence=next(x for x in root_evidence if x['idAST']==root)
+    if evidence['sinConsumidorNominalAdicional']:
+        reason='raiz_sin_otra_referencia_nominal_en_fuente'
+    else:
+        assert root in ambiguous_root_reasons,root
+        reason=ambiguous_root_reasons[root]
+    local_root_certificates.append({
+      'raizAST':root,'archivo':fn['file'],'linea':fn['line'],
+      'nombre':fn['name'],'causa':reason,
+      'descendientesAST':sorted(dependents),
+      'invocadoresExternosAST':hits
+    })
+assert len(local_root_certificates)==36,len(local_root_certificates)
+assert sum(x['causa']=='raiz_sin_otra_referencia_nominal_en_fuente' for x in local_root_certificates)==26
+assert sum(x['causa']!='raiz_sin_otra_referencia_nominal_en_fuente' for x in local_root_certificates)==10
+covered_local=set().union(*(set(x['descendientesAST']) for x in local_root_certificates))
+assert covered_local=={x['idAST'] for x in local_unlinked}
+assert len(covered_local)==59
+print('PASO3_CIERRE_CAUSAL_59_CADENAS_LOCALES',json.dumps({
+ 'nodos':len(covered_local),'raices':len(local_root_certificates),
+ 'raicesSinConsumidorNominal':26,'raicesAmbiguasDesambiguadas':10,
+ 'raicesConEntradaAst':0,
+ 'certificados':local_root_certificates,
+ 'veredicto':'59 nodos trazados hasta raices bloqueantes de codigo congelado; no se atribuyen acciones ni ejecucion',
+ 'aristasNuevas':0,'reduccionBruta':0,
+ 'limite':'Cobertura causal de desconexion; no equivale a cobertura por accion AUD ni a codigo eliminable'
+},ensure_ascii=False))
+
 # Evaluación del límite real de cierre por conexiones: referencias por archivo.
 # Un único nombre textual no autoriza inferir código muerto ni borrar funciones;
 # sí impide fabricar una arista estática en el corte congelado.
