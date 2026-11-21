@@ -2694,6 +2694,35 @@ print('PASO3_HTML_ADICIONAL_96',json.dumps({
  'aristasNuevas':0,'limite':'Registro de candidatos, no confirma ni descarta invocaciones dinámicas.'
 },ensure_ascii=False))
 
+# Contratos de los dos métodos Worker que poseen padre AST alcanzable:
+# son propiedades sobre el db decorado, sin invocador identificado.
+worker_method_contracts=[]
+worker_txt=(Path('baseline')/'worker/worker206.txt').read_text()
+assert 'db=withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(' in worker_txt
+for method,line_number,owner in [
+ ('primePanelAdministration116',10185,'withPrivateCacheV46'),
+ ('loginAdmin',10471,'withAuthCacheV58')
+]:
+    ast_ids=[fid for fid,fn in F.items()
+             if fn['file']=='worker/worker206.txt' and fn['line']==line_number
+             and fn['name']==method]
+    assert len(ast_ids)==1,(method,ast_ids)
+    matched=[m for m in re.finditer(r'(?<![A-Za-z0-9_$])'+method+r'(?![A-Za-z0-9_$])',worker_txt)]
+    assert len(matched)==1,(method,len(matched))
+    assert ast_ids[0] in {row['idAST'] for row in remaining96_certificates}
+    worker_method_contracts.append({'idAST':ast_ids[0],'metodo':method,
+      'wrapper':owner,'aparicionesEnWorker':len(matched),
+      'contrato':'disponible en objeto db decorado; sin consumidor en fuente congelada'})
+assert len(worker_method_contracts)==2
+assert 'export {app_main_v35_default as default,GldPublicCache119,exportCityBookCut,cityBookIdentity};' in worker_txt
+assert 'new GldPublicCache119' not in worker_txt
+print('PASO3_CONTRATOS_EXTERNO_WORKER_SIN_CONSUMIDOR',json.dumps({
+ 'metodos':worker_method_contracts,
+ 'durableObject':'GldPublicCache119 exportado; sin instanciación new local',
+ 'aristasComprobadasNuevas':0,'descuento':0,
+ 'limite':'La disponibilidad del receptor decorado no demuestra que el método sea llamado.'
+},ensure_ascii=False))
+
 # Inventario exhaustivo de padres alcanzables para revisión por lotes.
 # Diagnóstico únicamente: no reclasifica ni descuenta identidades.
 print('PASO3_PADRES_ALCANZABLES_TODOS',json.dumps([
