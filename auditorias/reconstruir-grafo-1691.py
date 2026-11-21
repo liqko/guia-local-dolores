@@ -2170,6 +2170,29 @@ inline_script_entries={
 }
 print('PASO3_SCRIPT_INLINE_EVENTOS_VERIFICADO',json.dumps({'entradas':len(inline_script_entries),'identidades':list(inline_script_entries),'tipo':'entrada_evaluacion_de_script_no_AUD'},ensure_ascii=False))
 
+# Brecha real: Carcasa conserva tres wrappers de consultas que no tienen
+# invocador; Anunciantes tiene implementaciones homónimas CON llamadas propias.
+# Esta comprobación NO conecta ámbitos ni altera el saldo de funciones.
+carcasa_source=(Path('baseline')/'plataforma/carcasa.html').read_text()
+anunciantes_source=(Path('baseline')/'plataforma/anunciantes.html').read_text()
+carcasa_unconsumed=[]
+for label,ln in [('obtenerEventosPromise',2021),('obtenerPromosPromise',2024),('obtenerActividadesPromise',2027)]:
+    a='plataforma/carcasa.html'
+    b='plataforma/anunciantes.html'
+    cids=[fid for fid,fn in F.items() if fn['file']==a and fn['line']==ln and fn['name']==label]
+    aids=[fid for fid,fn in F.items() if fn['file']==b and fn['name']==label]
+    assert len(cids)==1 and len(aids)==1,(label,cids,aids)
+    assert len(re.findall(r'(?<![\\w$])'+label+r'(?![\\w$])',carcasa_source))==1,(label,'carcasa')
+    assert len(re.findall(r'(?<![\\w$])'+label+r'(?![\\w$])',anunciantes_source))>=2,(label,'anunciantes')
+    assert any(re.search(r'\\b'+label+r'\\s*\\(',line) for line in anunciantes_source.splitlines()[3458:3466]),label
+    assert not any(cids[0] in targets for targets in adj.values()),(label,'arista no justificada')
+    carcasa_unconsumed.append({'nombre':label,'idCarcasa':cids[0],'idAnunciantes':aids[0],
+       'declaracionCarcasa':ln,'consumidorAnunciantes':3462+carcasa_unconsumed.__len__(),
+       'veredicto':'sin_consumidor_en_carcasa; homonimo_distinto_con_consumidor_en_anunciantes'})
+print('PASO3_CARCASA_WRAPPERS_SIN_CONSUMIDOR',json.dumps({
+ 'cantidad':len(carcasa_unconsumed),'casos':carcasa_unconsumed,
+ 'efectoEnSaldo':0,'prueba':'Fuente congelada, identidad AST, ausencia de invocacion Carcasa y presencia de invocacion Anunciantes'},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
