@@ -37,7 +37,7 @@ ROUTES = {
 DIRECT = {
     1146: ("/superadmin/moderation/resolve", "POST", "routeAdminV3"),
     1561: ("/superadmin/cities/create", "POST", "routeAdminV3"),
-    4008: ("/superadmin/publications/recent", "POST", "routePublicationsReviewV77"),
+    4008: ("/superadmin/publications/recent", "POST", "routePublicationsV77"),
     1055: ("/superadmin/session/login", "POST", "routeAdminV10"),
     1079: ("/superadmin/dashboard", "GET", "routeAdminV10"),
 }
