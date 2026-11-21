@@ -371,6 +371,51 @@ def main():
             previous=json.loads(older.read("CATALOGO_MAESTRO.json"))
         old_entries={e["id"]:e for e in previous.get("entries",[])}
         nulls=[k for k,v in catalog.get("previousEdition",{}).get("units",{}).items() if v is None]
+        exact_keys=("id","file","line","kind","handler","elementId","event","receiver","column","seedCallId","entryId")
+        from collections import Counter
+        old_hashes=Counter(e.get("start",{}).get("id") for e in old_entries.values())
+        new_hashes=Counter(e.get("start",{}).get("id") for e in entries)
+        direct_equivalences=[]
+        for old_id in nulls:
+            older=old_entries.get(old_id,{})
+            newer=next((e for e in entries if e.get("id")==old_id),{})
+            a=older.get("start",{})
+            b=newer.get("start",{})
+            h=a.get("id")
+            if (
+                h and h==b.get("id") and old_hashes[h]==1 and new_hashes[h]==1
+                and all(a.get(k)==b.get(k) for k in exact_keys)
+            ):
+                direct_equivalences.append({
+                    "anterior":old_id,"actual":newer["id"],"identidadFuente":h,
+                    "archivo":a.get("file"),"linea":a.get("line"),
+                    "criterio":"Identidad AST única y once atributos idénticos en ambos ZIP; no se deduplica por nombre"
+                })
+        print("PASO2_EQUIVALENCIAS_EXACTAS",len(direct_equivalences),"de",len(nulls))
+        if direct_equivalences:
+            for record in direct_equivalences:
+                catalog["previousEdition"]["units"][record["anterior"]]=record["actual"]
+            meta=catalog.setdefault("cotejoPaso2",{})
+            meta["equivalenciasHistoricasCotejadas"]=direct_equivalences
+            meta["equivalenciasHistoricasPendientes"]=len(nulls)-len(direct_equivalences)
+            assert len(entries)==989 and len({e["id"] for e in entries})==989
+            assert len(meta["pendientesHeredadosPaso1"])==7
+            if sys.argv[1:]==["--write"]:
+                output=json.dumps(catalog,ensure_ascii=False,indent=2).encode("utf-8")
+                image=io.BytesIO()
+                with zipfile.ZipFile(image,"w") as dest:
+                    dest.writestr(infos[0],output)
+                fd,temp=tempfile.mkstemp(prefix="catalogo-paso2-historico-",suffix=".zip",dir=ARCHIVE.parent)
+                try:
+                    with os.fdopen(fd,"wb") as handle: handle.write(image.getvalue())
+                    with zipfile.ZipFile(temp) as check:
+                        saved=json.loads(check.read("CATALOGO_MAESTRO.json"))
+                    assert all(saved["previousEdition"]["units"][x["anterior"]]==x["actual"] for x in direct_equivalences)
+                    os.replace(temp,ARCHIVE)
+                finally:
+                    if os.path.exists(temp):os.unlink(temp)
+            print("PASO2_EQUIVALENCIAS_RESUELTAS",json.dumps(direct_equivalences,ensure_ascii=False))
+            return
         print("PASO2_HISTORICAS_COUNT",len(old_entries),len(nulls))
         for old_id in nulls:
             old=old_entries.get(old_id,{})
