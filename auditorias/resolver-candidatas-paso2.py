@@ -362,6 +362,43 @@ def main():
                 evidence.append((entry["id"], "plataforma/login.html", old_line, method, route))
 
     if not changed:
+        import subprocess
+        from difflib import SequenceMatcher
+        old_bytes=subprocess.check_output([
+            "git","show","03e21befbc3a:auditorias/transversal/CATALOGO_MAESTRO.zip"
+        ],cwd=ROOT)
+        with zipfile.ZipFile(io.BytesIO(old_bytes)) as older:
+            previous=json.loads(older.read("CATALOGO_MAESTRO.json"))
+        old_entries={e["id"]:e for e in previous.get("entries",[])}
+        nulls=[k for k,v in catalog.get("previousEdition",{}).get("units",{}).items() if v is None]
+        print("PASO2_HISTORICAS_COUNT",len(old_entries),len(nulls))
+        for old_id in nulls:
+            old=old_entries.get(old_id,{})
+            start=old.get("start",{})
+            file=start.get("file")
+            def match_score(e):
+                n=e.get("start",{})
+                if n.get("file")!=file: return -1
+                score=0
+                if n.get("handler")==start.get("handler"): score+=5
+                if n.get("event")==start.get("event"): score+=2
+                if n.get("kind")==start.get("kind"): score+=2
+                if n.get("receiver")==start.get("receiver"): score+=2
+                a=start.get("line") or 0
+                b=n.get("line") or 0
+                score+=max(0,3-min(3,abs(a-b)))
+                score+=round(SequenceMatcher(None,str(start.get("handler")),str(n.get("handler"))).ratio()*3,2)
+                return score
+            candidates=sorted(
+                ((match_score(e),e["id"],e.get("start",{})) for e in entries if e.get("start",{}).get("file")==file),
+                key=lambda t:t[0],reverse=True
+            )[:4]
+            print("PASO2_EQUIVALENCIA_CANDIDATA",json.dumps({
+                "old_id":old_id, "old_start":start,
+                "new": [{"score":round(score,2),"id":cid,
+                         "start":{k:n.get(k) for k in ("file","line","kind","handler","event","receiver","elementId")}}
+                        for score,cid,n in candidates]
+            },ensure_ascii=False)[:4200])
         grouped = {}
         for unit in entries:
             for n in unit.get("network", []):
