@@ -2422,7 +2422,7 @@ for name,line_number,reason in [
     assert len(found)==1,(name,line_number,found)
     if name in ('enabled','norm'):
         assert found[0] not in seen,(name,'ya conectado')
-        assert not reverse.get(found[0]),(name,'tiene invocador AST')
+        assert not any(found[0] in targets for targets in adj.values()),(name,'tiene invocador AST')
     else:
         assert found[0] in worker_classification_members,(name,'no publicado')
     assert re.search(r'(?<![A-Za-z0-9_$])'+name+r'(?![A-Za-z0-9_$])',worker_lines[line_number-1])
