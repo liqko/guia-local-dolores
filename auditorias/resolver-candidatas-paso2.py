@@ -42,6 +42,37 @@ DIRECT = {
     1079: ("/superadmin/dashboard", "GET", "routeAdminV10"),
 }
 
+# Sitios de lectura/escritura con URL explícita o constante local tipada.
+# GET_POST distingue métodos genuinamente condicionados por body; no se fuerza un verbo único.
+OTHERS = {
+    "plataforma/suscriptores.html": {
+        799: ("/suscriptores", "POST"), 825: ("/suscriptores", "GET"),
+        1267: ("/suscriptores", "GET"), 1285: ("/suscriptores", "POST"),
+        702: ("/suscriptores", "GET"), 1317: ("/suscriptores/territory", "GET"),
+        1326: ("/suscriptores/territory", "POST"),
+        1021: ("/suscriptores", "POST"), 1108: ("/suscriptores", "POST"),
+        1078: ("/suscriptores/territory-schema", "GET"),
+        1080: ("/suscriptores", "POST"), 1129: ("/suscriptores", "POST"),
+        1169: ("/suscriptores", "POST"), 1214: ("/suscriptores", "POST"),
+        1369: ("/suscriptores", "POST"),
+    },
+    "plataforma/carcasa.html": {
+        1217: ("/suscriptores", "POST"), 1292: ("/suscriptores", "POST"),
+        1332: ("/suscriptores", "POST"), 1573: ("/suscriptores", "POST"),
+        1615: ("/suscriptores", "POST"),
+    },
+    "plataforma/anunciantes.html": {
+        1428: ("/suscriptores", "POST"), 1390: ("/suscriptores", "GET"),
+    },
+    "plataforma/entrada-recordada.js": {28: ("/suscriptores", "GET")},
+    "plataforma/terminos-anunciantes.js": {9: ("/advertiser/terms", "GET_POST")},
+    "plataforma/farma_turnos.html": {
+        383: ("/farmacias", "GET"), 384: ("/publicidad", "GET"),
+    },
+    "plataforma/promos.html": {1008: ("/promos", "GET")},
+    "plataforma/administracion.html": {1392: ("/farmacias", "GET")},
+}
+
 def source_line(lines, n, suffix, method):
     line = lines[n - 1]
     if not re.search(r"ghAdminRequest_\(\s*['\"]" + re.escape(suffix), line):
@@ -185,6 +216,78 @@ def main():
                 changed += 1
                 touched.add(entry["id"])
                 evidence.append((entry["id"], line, method, route))
+
+    # Clasificación de rutas públicas y de cuenta sin enlazar sitios de otros ámbitos.
+    for path, site_map in OTHERS.items():
+        source = (ROOT / path).read_text(encoding="utf-8")
+        source_lines = source.splitlines()
+        if path == "plataforma/suscriptores.html":
+            assert "const SUSCRIPTORES_URL = WORKER_ORIGIN + '/suscriptores'" in source
+        if path in ("plataforma/carcasa.html", "plataforma/anunciantes.html"):
+            assert "const GLD_SUSCRIPTORES_API = 'https://login.liqkoargentina.workers.dev/suscriptores'" in source
+        if path == "plataforma/farma_turnos.html":
+            assert "const API_URL='https://login.liqkoargentina.workers.dev/farmacias'" in source
+            assert "const PUBLICIDAD_URL='https://login.liqkoargentina.workers.dev/publicidad'" in source
+            assert "u.searchParams.set('action','turnos')" in source
+            assert "p.searchParams.set('action','publicas')" in source
+        if path == "plataforma/promos.html":
+            assert 'const DATA_URL = "https://login.liqkoargentina.workers.dev/promos"' in source
+        if path == "plataforma/terminos-anunciantes.js":
+            assert "origin+'/advertiser/terms'" in source
+        for line, (route, method) in site_map.items():
+            site = source_lines[line - 1]
+            if "fetch(" not in site:
+                raise ValueError(f"Source fetch changed {path}:{line}")
+            nearby = "\n".join(source_lines[line-1:line+4])
+            if method == "POST" and "method:'POST'" not in nearby:
+                raise ValueError(f"POST method changed {path}:{line}")
+            if method == "GET" and "method:'POST'" in nearby:
+                raise ValueError(f"GET method changed {path}:{line}")
+            if method == "GET_POST" and "method:body?'POST':'GET'" not in site:
+                raise ValueError(f"Dynamic GET/POST changed {path}:{line}")
+            if route not in worker:
+                raise ValueError(f"Worker route not found {route}")
+            for entry in entries:
+                for network in entry.get("network", []):
+                    if network.get("routeStatus") != "backend_candidate":
+                        continue
+                    if network.get("file") != path or network.get("line") != line:
+                        continue
+                    if route not in (network.get("candidates") or []):
+                        continue
+                    old = {
+                        "routeStatus": network.get("routeStatus"),
+                        "target": network.get("target"),
+                        "verb": network.get("verb"),
+                        "candidates": (network.get("candidates") or [])[:],
+                        "worker": network.get("worker", [])[:],
+                    }
+                    network["routeStatus"] = "comprobada_condicional"
+                    network["target"] = route
+                    network["verb"] = method if method != "GET_POST" else None
+                    if method == "GET_POST":
+                        network["metodosCondicionados"] = ["GET", "POST"]
+                    network["candidates"] = [route]
+                    network["worker"] = [{
+                        "file": "worker/worker206.txt",
+                        "evidencia": "Ruta del origen y destino Worker; permisos, action, sesión y filtros condicionan cada rama; no demuestra ejecución",
+                    }]
+                    network.setdefault("cotejoPaso2Original", old)
+                    cotejo = entry.setdefault("cotejoPaso2", {})
+                    note = {
+                        "sitio": network.get("callId"),
+                        "decision": "comprobada_condicional",
+                        "metodo": method if method != "GET_POST" else None,
+                        "metodosCondicionados": ["GET", "POST"] if method == "GET_POST" else [method],
+                        "ruta": route, "origen": path + ":" + str(line),
+                        "condiciones": "Ruta y verbo cotejados estáticamente; acción/roles/estado siguen siendo condiciones",
+                    }
+                    existing = cotejo.setdefault("conexiones", [])
+                    if not any(n.get("sitio") == note["sitio"] and n.get("ruta") == route for n in existing):
+                        existing.append(note)
+                    changed += 1
+                    touched.add(entry["id"])
+                    evidence.append((entry["id"], path, line, method, route))
 
     if not changed:
         grouped = {}
