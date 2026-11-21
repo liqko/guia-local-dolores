@@ -2421,7 +2421,7 @@ for name,line_number,reason in [
            and fn['line']==line_number and fn['name']==name]
     assert len(found)==1,(name,line_number,found)
     if name in ('enabled','norm'):
-        assert found[0] not in reached,(name,'ya conectado')
+        assert found[0] not in seen,(name,'ya conectado')
         assert not reverse.get(found[0]),(name,'tiene invocador AST')
     else:
         assert found[0] in worker_classification_members,(name,'no publicado')
