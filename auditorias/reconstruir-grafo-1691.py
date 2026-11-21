@@ -83,6 +83,33 @@ print('PASO3_EFEM_VERIFICACION_CONDICIONAL',json.dumps({
  'aristas':1,'origen':login_verify_parent,'destino':login_verify_callback,
  'condicion':'Sólo rama de guardado con editando y respuesta no confirmada; ejecución no probada.'},ensure_ascii=False))
 
+# Worker: tres clausuras retornadas/expuestas en contenedores tipados.
+# No se confunde crear la clausura con invocar luego su implementación.
+worker_callback_contracts=[
+ ('worker/worker206.txt:9931:575142:callback@9931',
+  'worker/worker206.txt:9932:575170:anonymous@9932',9931,9932,
+  "['get','queryEqual','listCollection','patch','delete'].map(operation=>[",
+  'operation, async()=>{','guardia_firestore_publica_condicionada'),
+ ('worker/worker206.txt:10810:647241:wrap',
+  'worker/worker206.txt:10812:647444:anonymous@10812',10810,10812,
+  'const wrap=db=>({...db,publicationContext:context,',
+  'panelReadDb:db.panelReadDb?scope=>wrap(db.panelReadDb(scope)):undefined,',
+  'metodo_panelReadDb_devuelto_condicionado'),
+ ('worker/worker206.txt:12293:785514:get',
+  'worker/worker206.txt:12293:785564:anonymous@12293',12293,12293,
+  "return new Proxy(env,{get(target,key){return key==='__gldPrimeCache138'",
+  "?(cacheKey,value)=>{invalidate(cacheKey);values.set(cacheKey,value);}",
+  'propiedad_proxy_prime_cache_condicionada'),
+]
+for src,dest,src_line,dest_line,src_text,dest_text,kind in worker_callback_contracts:
+    assert src in F and dest in F and F[dest]['parent']==src,(src,dest)
+    assert src_text in worker_lines[src_line-1],(src,src_line)
+    assert dest_text in worker_lines[dest_line-1],(dest,dest_line)
+    adj[src][dest]=(kind,'worker/worker206.txt:'+str(dest_line))
+print('PASO3_TRES_CLAUSURAS_WORKER',json.dumps({
+ 'aristas':len(worker_callback_contracts),'destinos':[x[1] for x in worker_callback_contracts],
+ 'limitacion':'Enlaces de creación/devolución condicional; no prueban invocación, consultas ni escrituras reales.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
