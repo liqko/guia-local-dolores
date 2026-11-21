@@ -35,7 +35,24 @@ jobs:
           assert len(j['entries'])==989
           assert len({e['id'] for e in j['entries']})==989
           assert len(j['cotejoPaso2']['pendientesHeredadosPaso1'])==7
-          print('CATALOGO_PASO2_INTEGRIDAD PASS 989_ids 7_grupos_paso1')
+          ids=[e['id'] for e in j['entries']]
+          assert ids==['AUD-'+str(i).zfill(5) for i in range(1,990)]
+          candidates=[(e['id'],n.get('callId')) for e in j['entries'] for n in e.get('network',[]) if n.get('routeStatus')=='backend_candidate']
+          assert not candidates, f'Quedan candidatos sin clasificar: {candidates[:10]}'
+          historic=j['previousEdition']['units']
+          assert len(historic)==983
+          assert all(v is not None for v in historic.values())
+          verified=j['cotejoPaso2']['equivalenciasHistoricasCotejadas']
+          assert len(verified)==19 and j['cotejoPaso2']['equivalenciasHistoricasPendientes']==0
+          assert len({e['anterior'] for e in verified})==19
+          for e in verified:
+              assert historic[e['anterior']]==e['actual']
+              assert e['identidadFuente']
+          corrected=sum(n.get('cotejoPaso2Original',{}).get('routeStatus')=='backend_candidate' for e in j['entries'] for n in e.get('network',[]))
+          assert corrected==118, f'Cotejo de candidatas incompleto: {corrected}'
+          multi=j['cotejoPaso2']['gruposDestinosMultiples'][-1]
+          assert multi['pendientesMultiples']==0
+          print('CATALOGO_PASO2_FINAL PASS 989_ids 118_candidatas_resueltas 62_multidestino_cotejadas 19_equivalencias 7_pendientes_paso1')
           PY
       - name: Preservar trabajo concurrente y registrar resultado
         run: |
@@ -46,5 +63,5 @@ jobs:
             echo 'No hay modificaciones registrables.'
             exit 0
           fi
-          git commit -m 'audit(paso2): certificar destinos administrativos condicionados en catalogo'
+          git commit -m 'audit(paso2): registrar correcciones verificadas del catálogo'
           git push origin HEAD:audit/paso-2-catalogo
