@@ -2262,6 +2262,30 @@ print('PASO3_FAMILIAS_BOOTSTRAP_RELACIONES_VERIFICADAS',json.dumps({
  'efectoEnSaldo':0,'limite':'La ausencia de invocacion nominal acredita brecha estatica, no autoriza borrado'
 },ensure_ascii=False))
 
+# Worker: disponibilidad explícita en un namespace global creado por IIFE
+# invocada al evaluar el módulo. Esto acredita instalación/exportación,
+# no una llamada a days ni un recorrido desde solicitud HTTP.
+worker_module=(Path('baseline')/'worker/worker206.txt').read_text().splitlines()
+worker_exported_days='worker/worker206.txt:31:2191:days'
+assert worker_exported_days in F and F[worker_exported_days]['line']==31
+assert worker_module[7].strip()=='(function(root){'
+assert worker_module[30].lstrip().startswith('function days(c)')
+assert worker_module[31].strip()=='root.GLD_AD_RULES147={section,validate,days};'
+assert worker_module[32].strip()=='})(globalThis);'
+worker_module_installations={
+ worker_exported_days:{
+  'inicio':{'file':'worker/worker206.txt','line':8,
+            'tipo':'evaluacion_iife_worker_al_importar_modulo'},
+  'sitio':'worker/worker206.txt:31-33',
+  'contrato':'root.GLD_AD_RULES147.days es método publicado en globalThis',
+  'limite':'Disponibilidad acreditada, sin invocador de days ni solicitud HTTP acreditados.'
+ }
+}
+print('PASO3_EXPORT_WORKER_DAYS_INSTALADO',json.dumps({
+ 'cantidad':len(worker_module_installations),
+ 'identidades':list(worker_module_installations),
+ 'tipo':'exportacion_publicada_al_evaluar_modulo_sin_invocacion_comprobada'},ensure_ascii=False))
+
 # El BFS anterior guarda un predecesor candidato por nodo. Nunca contar esos __pred__ como funciones.
 records=[]
 for row in pending:
@@ -2292,6 +2316,9 @@ for row in pending:
     elif fid in inline_script_entries:
         record={'idAST':fid,'estado':'cadena_desde_evaluacion_script_inline_confirmada_estaticamente',
                 **inline_script_entries[fid]}
+    elif fid in worker_module_installations:
+        record={'idAST':fid,'estado':'disponibilidad_exportacion_worker_confirmada_estaticamente',
+                **worker_module_installations[fid]}
     else:
         record={'idAST':fid,'estado':'falta_enlace_a_entrada','activacion':row.get('activacion'),
                 'padre':row.get('padre'),'sitiosDeLlamada':row.get('sitiosDeLlamada')}
