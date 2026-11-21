@@ -1,0 +1,50 @@
+name: Paso 2 - cotejar y conservar catalogo auditado
+on:
+  push:
+    branches:
+      - audit/paso-2-catalogo
+    paths:
+      - auditorias/resolver-candidatas-paso2.py
+      - .github/workflows/paso2-catalogo.yml
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: catalogo-paso2-audit
+  cancel-in-progress: false
+jobs:
+  verificar-y-registrar:
+    if: github.ref == 'refs/heads/audit/paso-2-catalogo'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/paso-2-catalogo
+          fetch-depth: 0
+      - name: Actualizar sobre cabeza vigente y comprobar lote
+        run: |
+          git pull --ff-only origin audit/paso-2-catalogo
+          python3 auditorias/resolver-candidatas-paso2.py
+      - name: Actualizar solamente el ZIP original del catálogo
+        run: |
+          python3 auditorias/resolver-candidatas-paso2.py --write
+          python3 - <<'PY'
+          import json,zipfile
+          with zipfile.ZipFile('auditorias/transversal/CATALOGO_MAESTRO.zip') as z:
+              j=json.loads(z.read('CATALOGO_MAESTRO.json'))
+          assert len(j['entries'])==989
+          assert len({e['id'] for e in j['entries']})==989
+          assert len(j['cotejoPaso2']['pendientesHeredadosPaso1'])==7
+          print('CATALOGO_PASO2_INTEGRIDAD PASS 989_ids 7_grupos_paso1')
+          PY
+      - name: Preservar trabajo concurrente y registrar resultado
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- auditorias/transversal/CATALOGO_MAESTRO.zip
+          if git diff --cached --quiet; then
+            echo 'No hay modificaciones registrables.'
+            exit 0
+          fi
+          git commit -m 'audit(paso2): certificar destinos administrativos condicionados en catalogo'
+          git push origin HEAD:audit/paso-2-catalogo
