@@ -188,6 +188,36 @@ for site,method,definition in EVENTS_TYPED_21NOV:
     event_registry_links.append([owners[0],targets[0],site])
 print('PASO3_EVENTOS_REGISTRO_TIPADO',json.dumps({'aristas':len(event_registry_links),'casos':event_registry_links,'limitacion':'Métodos invocados sólo en rama de ejecución/permiso correspondiente; no prueba ejecución ni consumo.'},ensure_ascii=False))
 
+# Contratos de handlers y funciones locales utilizadas por métodos alcanzables.
+ui_callback_checks=[
+ ('plataforma/contenido-adulto.js:38:3938:open','plataforma/contenido-adulto.js:41:4884:show',38,'open(){show();','apertura_adulto_a_mostrar'),
+ ('plataforma/anunciantes.html:2945:102622:renderDestacadaResumida_','plataforma/anunciantes.html:2946:102686:escape',2947,'escape(item.nombre','escape_tarjeta_destacada'),
+ ('plataforma/anunciantes.html:2725:88473:callback@2725','plataforma/anunciantes.html:2729:88927:escape',2730,'escape(sede.nombre_sede','escape_servicios_sedes'),
+]
+ui_new=[]
+for parent,child,site,fragment,kind in ui_callback_checks:
+    assert parent in F and child in F and F[child]['parent']==parent,(parent,child)
+    assert fragment in (Path('baseline')/F[child]['file']).read_text().splitlines()[site-1],(child,site)
+    adj[parent][child]=(kind,F[child]['file']+':'+str(site))
+    ui_new.append(child)
+# Publicación de los atributos de imágenes: el callback invoca escape local.
+card_lines=(Path('baseline')/'plataforma/tarjetas-imagenes.js').read_text().splitlines()
+assert "attributes:url=>'decoding=\"async\" data-gld-image-src=\"'+escape(url)" in card_lines[47-1]
+card_attrs=[fid for fid,fn in F.items() if fn['file']=='plataforma/tarjetas-imagenes.js' and fn['line']==47 and fn['name']=='attributes']
+assert len(card_attrs)==1,card_attrs
+card_escape='plataforma/tarjetas-imagenes.js:6:206:escape'
+assert card_escape in F
+adj[card_attrs[0]][card_escape]=('escape_atributo_imagen_condicionado','plataforma/tarjetas-imagenes.js:47')
+ui_new.append(card_escape)
+# Registro DOM directo de calcular en el panel comercial; no confundir con ejecución.
+commercial_lines=(Path('baseline')/'plataforma/panel-comercial.html').read_text().splitlines()
+assert "g('calc').onclick=calculate" in commercial_lines[115-1]
+calc_targets=[fid for fid,fn in F.items() if fn['file']=='plataforma/panel-comercial.html' and fn['line']==79 and fn['name']=='calculate']
+commercial_roots=[fid for fid,fn in F.items() if fn['file']=='plataforma/panel-comercial.html' and fn['line']==35 and fn['name'].startswith('iife@')]
+assert len(calc_targets)==1 and len(commercial_roots)==1,(calc_targets,commercial_roots)
+adj[commercial_roots[0]][calc_targets[0]]=('boton_calcular_registrado_condicionado','plataforma/panel-comercial.html:115')
+print('PASO3_CALLBACKS_UI_VERIFICADOS_21NOV',json.dumps({'aristas':len(ui_callback_checks)+2,'destinos':ui_new,'calcular':calc_targets[0],'limitacion':'Conexiones condicionales en fuentes y AST; no ejecutadas en navegador.'},ensure_ascii=False))
+
 # GH: el manejador change se asigna a tres eventos DOM concretos;
 # su propia función registra un callback setTimeout en la misma línea.
 # Son aristas condicionales desde ensure, no ejecuciones automáticas.
