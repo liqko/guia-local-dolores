@@ -21,6 +21,9 @@
 
 **22/11/2026 — Dictamen documental individual aprobado:** [CI 45029802997 SUCCESS](https://github.com/liqko/guia-local-dolores/actions/runs/45029802997) cotejó archivo, línea, padre y aristas AST para los 155 restantes; 63 antes sin evaluación específica quedaron con dictamen complementario y evidencia de fuente en `DICTAMEN_INDEPENDIENTE_155.json`. Los 155 **siguen sin trayecto a entrada AUD acreditado**. No marcar 3.1–3.4 cerradas todavía; el siguiente análisis se concentra en 15 invocaciones AST locales y 24 hijos de padres fuera del saldo, después en el resto de destinos/activaciones dinámicas.
 
+
+**22/11/2026 — Revalidación focal de los 39 casos prioritarios:** [CI 45036793828 SUCCESS](https://github.com/liqko/guia-local-dolores/actions/runs/45036793828). Cadenas inversas de 15/15 invocadores AST hasta 18 raíces bloqueantes; 24/24 hijos asociados a padre y estado, sin confundir padre ejecutable con llamada al hijo. Artefacto `CADENAS_PRIORITARIAS_39.json`; 0 aristas nuevas; 155 sin entrada probada. La primera CI [45036699052](https://github.com/liqko/guia-local-dolores/actions/runs/45036699052) falló por serialización del JSON del auditor y fue corregida. Las casillas 3.1 a 3.4 permanecen abiertas; siguiente inspección específica: 18 raíces y receptores externos/inline, cotejo cruzado de 21 padres fuera del subconjunto contra entradas AUD.
+
 ## Reglas para marcar [x]
 
 1. **Responsable de todas las acciones: ChatGPT.** Sólo solicitar al usuario intervención si una prueba real requiere permisos/acción que no pueda ejecutar.
