@@ -95,6 +95,11 @@ print("PASO3_DICTAMEN_INDEPENDIENTE",json.dumps({
     "porCausa":dict(sorted(por_causa.items())),
     "aristasRecuperadas":0,"funcionesAunSinEntrada":155
 },ensure_ascii=False))
+# Prioridad inmediata: 15 invocadores locales y 24 hijos cuyo padre no está en el saldo.
+prioritarios=[r for r in dictamenes if r["causaASTComprobada"].startswith(("invocacion_AST_local_existente","padre_fuera_de_saldo"))]
+assert len(prioritarios)==39, len(prioritarios)
+for item in prioritarios:
+    print("PASO3_PRIORITARIO_39",json.dumps({k:item[k] for k in ("idAST","nombre","padreAST","invocadoresAST","fragmentoFuente","causaASTComprobada")},ensure_ascii=False))
 sin_evaluacion=[f["idAST"] for f in evidencia if not f["clasificacionCausalDisponible"]]
 resultado={
     "corte":"e6362836e6078a14a361732d79a8212258934056",
