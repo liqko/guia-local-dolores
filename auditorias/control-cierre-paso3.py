@@ -89,7 +89,7 @@ complemento={
     "casos":dictamenes
 }
 ruta_complemento=Path("auditorias/temporal/DICTAMEN_INDEPENDIENTE_155.json")
-ruta_complemento.write_text(json.dumps(complemento,ensure_ascii=False,indent=2)+"\\n")
+ruta_complemento.write_text(json.dumps(complemento,ensure_ascii=False,indent=2)+"\n")
 print("PASO3_DICTAMEN_INDEPENDIENTE",json.dumps({
     "total":len(dictamenes),"evaluacionesPreviasAusentesCotejadas":len(sin_previa),
     "porCausa":dict(sorted(por_causa.items())),
