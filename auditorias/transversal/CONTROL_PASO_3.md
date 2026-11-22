@@ -18,6 +18,9 @@
 
 **Control actualizado 21/11/2026 — [CI 44961483837 SUCCESS](https://github.com/liqko/guia-local-dolores/actions/runs/44961483837).** Se regeneró el grafo desde el corte congelado y se ejecutó `auditorias/control-cierre-paso3.py`: 1691 identidades únicas; 155 sin entrada acreditada (20 padre alcanzable, 76 globales, 59 locales). El informe de 155 identidades se adjuntó como artefacto [14729533786](https://github.com/liqko/guia-local-dolores/actions/runs/44961483837/artifacts/14729533786). En el consolidado 92 tienen evaluación específica, 63 no, aunque la familia causal estructural general esté identificada. **No se marcan [x] las casillas 3.1 a 3.4**: la verificación de la salida del propio reconstructor no sustituye una prueba independiente completa de entradas/operaciones. Próxima intervención precisa: examinar 63 sin evaluación específica, luego demostrar o justificar individualmente la ausencia de entradas para las 155; finalmente 3.4 y decisión de cierre. No trasladar a Paso 4 las conexiones no comprobadas.
 
+
+**22/11/2026 — Dictamen documental individual aprobado:** [CI 45029802997 SUCCESS](https://github.com/liqko/guia-local-dolores/actions/runs/45029802997) cotejó archivo, línea, padre y aristas AST para los 155 restantes; 63 antes sin evaluación específica quedaron con dictamen complementario y evidencia de fuente en `DICTAMEN_INDEPENDIENTE_155.json`. Los 155 **siguen sin trayecto a entrada AUD acreditado**. No marcar 3.1–3.4 cerradas todavía; el siguiente análisis se concentra en 15 invocaciones AST locales y 24 hijos de padres fuera del saldo, después en el resto de destinos/activaciones dinámicas.
+
 ## Reglas para marcar [x]
 
 1. **Responsable de todas las acciones: ChatGPT.** Sólo solicitar al usuario intervención si una prueba real requiere permisos/acción que no pueda ejecutar.
