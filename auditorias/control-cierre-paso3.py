@@ -3,6 +3,7 @@
 import collections
 import json
 from pathlib import Path
+import re
 
 path=Path("auditorias/temporal/GRAFO_COMPLETO_1691.json")
 grafo=json.loads(path.read_text())
@@ -24,6 +25,76 @@ for f in faltantes:
         "clasificacionCausalDisponible":evaluacion!="sin_evaluacion_especifica",
         "pruebaRequerida":"demostrar una cadena de activacion desde entrada AUD, o declarar excepcion historica con evidencia de fuente, alcance y receptor; no convertir coincidencias nominales en aristas"
     })
+
+# Cotejo documental independiente de las evaluaciones producidas por el
+# reconstructor. Lee el AST original y la fuente, no infiere llamadas por nombres.
+tree=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
+funciones={f["id"]:f for f in tree["functionGraph"]}
+assert len(funciones)==len(tree["functionGraph"])
+reverse=collections.defaultdict(set)
+for function in funciones.values():
+    for call in function.get("calls") or []:
+        dst=call.get("to")
+        if dst in funciones:reverse[dst].add(function["id"])
+restantes={r["idAST"] for r in faltantes}
+dictamenes=[]
+for f in faltantes:
+    fid=f["idAST"]
+    assert fid in funciones, ("identidad ausente del AST",fid)
+    fn=funciones[fid]
+    archivo=fn["file"]
+    lineas=Path("baseline",archivo).read_text().splitlines()
+    linea=fn["line"]
+    assert 1<=linea<=len(lineas)
+    padre=fn.get("parent")
+    invocadores=sorted(reverse.get(fid,set()))
+    nominal=fn.get("name") or ""
+    # Coincidencia solo nominal y dentro de la MISMA fuente; se registra
+    # únicamente como evidencia léxica, nunca como arista.
+    if nominal.isidentifier() and len(nominal)>=3:
+        patron=re.compile(r"(?<![A-Za-z0-9_$])"+re.escape(nominal)+r"(?![A-Za-z0-9_$])")
+        ocurrencias=[n for n,texto in enumerate(lineas,1) if patron.search(texto)]
+    else:
+        ocurrencias=[]
+    if padre in funciones and padre not in restantes:
+        causa="padre_fuera_de_saldo_sin_activacion_de_hijo_acreditada"
+    elif invocadores:
+        causa="invocacion_AST_local_existente_sin_recorrido_AUD"
+    elif padre in funciones:
+        causa="declaracion_anidada_sin_invocador_AST_acreditado"
+    else:
+        causa="declaracion_sin_invocador_AST_acreditado"
+    if not invocadores and ocurrencias==[linea]:
+        causa+="_y_unica_referencia_nominal_en_fuente"
+    dictamenes.append({
+        "idAST":fid,"archivo":archivo,"linea":linea,
+        "nombre":nominal,"padreAST":padre,"invocadoresAST":invocadores,
+        "sitiosNominalesMismoArchivo":ocurrencias[:30],
+        "cantidadSitiosNominales":len(ocurrencias),
+        "fragmentoFuente":lineas[linea-1].strip()[:240],
+        "causaASTComprobada":causa,
+        "evaluacionPrevia":f.get("evaluacionFuente") or None,
+        "limite":"Diagnostico estatico; no implica ejecucion o desuso"
+    })
+assert len(dictamenes)==155 and len({r["idAST"] for r in dictamenes})==155
+assert set(r["idAST"] for r in dictamenes)==restantes
+por_causa=collections.Counter(r["causaASTComprobada"] for r in dictamenes)
+sin_previa=[r for r in dictamenes if not r["evaluacionPrevia"]]
+assert len(sin_previa)==63, f"Cambio en evaluaciones previas: {len(sin_previa)}"
+complemento={
+    "nodosConEvidenciaDeFuenteIndividual":len(dictamenes),
+    "nodosSinEvaluacionPreviaConEvidenciaAST":len(sin_previa),
+    "clasificacionPorCausa":dict(sorted(por_causa.items())),
+    "fronteraPendiente":"155 sin recorrido acreditado a AUD; se requiere investigar activaciones dinamicas/externas y excepciones historicas",
+    "casos":dictamenes
+}
+ruta_complemento=Path("auditorias/temporal/DICTAMEN_INDEPENDIENTE_155.json")
+ruta_complemento.write_text(json.dumps(complemento,ensure_ascii=False,indent=2)+"\\n")
+print("PASO3_DICTAMEN_INDEPENDIENTE",json.dumps({
+    "total":len(dictamenes),"evaluacionesPreviasAusentesCotejadas":len(sin_previa),
+    "porCausa":dict(sorted(por_causa.items())),
+    "aristasRecuperadas":0,"funcionesAunSinEntrada":155
+},ensure_ascii=False))
 sin_evaluacion=[f["idAST"] for f in evidencia if not f["clasificacionCausalDisponible"]]
 resultado={
     "corte":"e6362836e6078a14a361732d79a8212258934056",
