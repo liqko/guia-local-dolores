@@ -16,6 +16,25 @@ oldFn={f["id"]:f for f in old["functionGraph"]}
 orig={e["id"]:e for e in a["entries"]}
 defin={e["id"]:e for e in b["entries"]}
 assert len(defin)==989 and len(orig)==987
+# Inventario final del Paso 1 incorporado sin alterar su fuente ni el catálogo.
+inventario=json.loads(Path("paso2/auditorias/transversal/MAPA_DINAMICO_INVENTARIO_44210648484.json").read_text())
+vig=inventario["verificacionVigente"]
+assert len(inventario["entries"])==44
+assert len(inventario["uncertain"])==15
+assert len(vig["entradas"])==44
+assert len(vig["construccionesEspeciales"])==15
+assert len(vig["excepcionesVivo"])==7
+ids_dinamicos=[v.get("AUD") for v in vig["entradas"]]
+assert all(aud in defin for aud in ids_dinamicos),set(ids_dinamicos)-set(defin)
+construcciones={k:v for k,v in vig["construccionesEspeciales"].items()}
+construccion_ids=[a for v in construcciones.values() for a in v.get("AUD",[])]
+assert all(aud in defin for aud in construccion_ids),set(construccion_ids)-set(defin)
+cambio=vig["cambioReclamo"]
+historicos={"AUD-00395","AUD-00418","AUD-00419"}
+historicos.update(a for v in cambio["retiradas"] for a in v.get("registrosArranqueHistoricos",[]))
+assert historicos=={"AUD-00395","AUD-00418","AUD-00419","AUD-00865","AUD-00866"}
+assert all(a in defin for a in historicos)
+assert {v["AUD"] for v in cambio["conservadas"]}=={"AUD-00417"}
 src=Path("nuevo/plataforma/login.html").read_text()
 assert "document.getElementById('alta-reclamo-buscar155')?.addEventListener('input'" in src
 assert "document.getElementById('alta-reclamo-buscar155')?.addEventListener('change',gldClaimResolveChoice155_)" in src
@@ -33,12 +52,9 @@ for aud in sorted(defin):
     if aud in ("AUD-00988","AUD-00989"):
         state="receptor_evento_nuevo_verificado_en_fuente"
         evidence="listener input / change en login.html, condicion GET solo al escribir"
-    elif aud=="AUD-00865":
-        state="origen_keydown_historico_reemplazado"
-        evidence="keydown Enter del corte anterior ausente del login 9b; no etiquetar como listener vigente"
-    elif aud=="AUD-00395":
-        state="boton_historico_reemplazado_requiere_evaluar_equivalencia"
-        evidence="origen html_handler del boton del corte e636; nueva busqueda input"
+    elif aud in historicos:
+        state="control_historico_reemplazado_paso1"
+        evidence="Inventario del Paso 1 identifica control anterior retirado; conservar AUD y su equivalencia, no atribuir activacion al código nuevo"
     elif entry in newFn and start.get("file") in unchanged:
         state="origen_AST_en_fuente_inalterada"
         evidence="ID AST persistente en archivo con SHA256 de fuente idéntico"
@@ -66,6 +82,11 @@ out={"summary":{
  "diferenciasPorCampo":dict(sorted(changes.items())),
  "accionesConCambios":sum(bool(v["differencesFromOld"]) for v in entries),
  "fuentesInalteradas":len(unchanged),
+ "paso1DinamicasComprobadas":len(ids_dinamicos),
+ "paso1ConstruccionesEspeciales":len(construcciones),
+ "paso1ExcepcionesVivoConservadas":len(vig["excepcionesVivo"]),
+ "historicosReemplazados":sorted(historicos),
+ "audConservadaReclamos":"AUD-00417",
  "noEquivalencia": "No se convierte un origen en función alcanzable sin cadena de invocaciones y receptor",
  "saldoActualSinEnlace":None},
  "acciones":entries}
