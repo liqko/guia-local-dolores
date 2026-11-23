@@ -177,3 +177,34 @@ test('P4-0009: índice administrativo Promos evita reescribir igual y conserva b
  assert.equal(puts,3,'Baja idéntica no reescribe tombstone');
  assert.equal(gets,5,'Una comprobación por sincronización');
 });
+
+
+test('P4-0035/P4-0011: alta idempotente recuperada completa la proyección KV pendiente',async()=>{
+ const src=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
+ const from=src.indexOf('async function promoCreateV2(');
+ const to=src.indexOf('async function promoUpdateV2(',from);
+ assert(from>0&&to>from);
+ const id='11111111-1111-4111-8111-111111111111';
+ const row={promo_id:'PRO-'+id,anunciante_id:'A1',operation_fingerprint143:'same',ciudad_id:'DOL',promo:'Oferta'};
+ const actions=[];
+ let fail=false;
+ const create=new Function('text29','fieldRevisionInternal','httpError','syncPromo',
+   src.slice(from,to)+'; return promoCreateV2')(
+      v=>String(v??'').trim(),async()=> 'same',(message,status)=>Object.assign(new Error(message),{status}),
+      async opts=>{actions.push(opts);if(fail)throw new Error('KV no disponible');}
+   );
+ const db={get:async(collection,key)=>{assert.equal(collection,'promos');assert.equal(key,row.promo_id);return row;}};
+ const body={operation_id:id,payload:{promo:'Oferta'}};
+ const recovered=await create({db,cache:{},advertiserId:'A1',body,cupoFromAdmin:()=>1});
+ assert.equal(recovered.success,true);
+ assert.equal(recovered.operation_recovered,true);
+ assert.equal(actions.length,1,'Recuperar alta debe volver a publicar la promoción existente');
+ assert.deepEqual(actions[0].next,row);
+ fail=true;
+ await assert.rejects(create({db,cache:{},advertiserId:'A1',body,cupoFromAdmin:()=>1}),/KV no disponible/,'No confirmar éxito cuando sigue pendiente KV');
+ const alien={...row,anunciante_id:'A2'};
+ const dbAlien={get:async()=>alien};
+ const previous=actions.length;
+ await assert.rejects(create({db:dbAlien,cache:{},advertiserId:'A1',body,cupoFromAdmin:()=>1}),/otra promoción/);
+ assert.equal(actions.length,previous,'No sincronizar alta idempotente de otro anunciante');
+});
