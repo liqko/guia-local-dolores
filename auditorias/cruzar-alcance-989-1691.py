@@ -279,6 +279,10 @@ for old_rec in g["funciones"]:
                     selected=byid[mapped_by_aud[aud]["arbolActual"]]
                     if len(selected)==1 and selected[0]["action"].get("entry")==new_chain[0]:
                         item["clasificacionActual"]="cadena_AST_revalidada_con_raiz_AUD_exacta"
+                    elif len(selected)==1 and any(z.get("type")=="function" and
+                          z.get("id")==new_chain[0] for z in selected[0].get("nodes",[])):
+                        item["clasificacionActual"]="cadena_AST_revalidada_desde_funcion_intermedia_de_AUD"
+                        item["limites"].append("Función intermedia acreditada en árbol; cadena previa desde botón no verificada aquí")
                     else:
                         item["clasificacionActual"]="cadena_AST_sin_raiz_de_AUD_acreditada"
                 else:
