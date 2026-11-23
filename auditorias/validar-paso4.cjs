@@ -19,6 +19,8 @@ for(let i=0;i<rows.length;i++){
  assert(['critica','alta','posterior'].includes(r.prioridad),r.id+': prioridad inválida');
  assert(Array.isArray(r.evidencia)&&r.evidencia.length,r.id+': sin evidencia');
  assert(Array.isArray(r.aud),r.id+': AUD debe ser array');
+ assert(Array.isArray(r.objetivos)&&r.objetivos.length>0&&r.objetivos.every(n=>Number.isInteger(n)&&n>=1&&n<=4),r.id+': objetivos obligatorios inválidos');
+
  assert(Array.isArray(r.pruebas)&&Array.isArray(r.commits),r.id+': pruebas/commits inválidos');
  assert(r.consumos&&Object.hasOwn(r.consumos,'antes')&&Object.hasOwn(r.consumos,'despues'),r.id+': comparativa incompleta');
  counts[r.estado]++;
@@ -40,4 +42,19 @@ const section=master.slice(start,start+3000);
 for(const [label,n] of Object.entries(map)){
  assert(section.includes(label+': '+n),label+' desactualizado: '+n);
 }
+const cases=inv.hallazgos_historicos||[];
+assert(cases.length>0&&new Set(cases.map(x=>x.hallazgo)).size===cases.length,'Hallazgos históricos duplicados o vacíos');
+for(const h of cases){
+ assert(['incorporado','agrupado','ya_corregido','historicamente_reemplazado','pendiente_confirmar'].includes(h.resolucion),'Resolución histórica no reconocida: '+h.hallazgo);
+ assert(h.fuente&&h.nota,'Falta evidencia documental: '+h.hallazgo);
+ if(h.intervencion)assert(rows.some(r=>r.id===h.intervencion),'Referencia histórica a P4 inexistente: '+h.hallazgo);
+}
+assert.equal(inv.estadisticas_cobertura.hallazgos_documentales_trazados,cases.length,'Contador histórico desactualizado');
+assert.equal(inv.estadisticas_cobertura.intervenciones_unicas,rows.length,'Contador de causas desactualizado');
+assert(!inv.cobertura_documental.completo,'No declarar cierre con anexos pendientes');
+assert.equal(inv.cobertura_documental.fuentes_pendientes_de_cotejo.length,inv.estadisticas_cobertura.fuentes_pendientes,'Fuentes pendientes inconsistentes');
+const grouped=Object.values(inv.grupos_funcionales||{}).flat();
+assert.equal(grouped.length,rows.length,'Grupos funcionales no cubren todo el inventario');
+assert.equal(new Set(grouped).size,rows.length,'Intervención repetida en grupos funcionales');
+for(const id of grouped)assert(rows.some(r=>r.id===id),'Grupo con ID inexistente: '+id);
 console.log('PASO4_TABLERO_PASS '+JSON.stringify({total:rows.length,estados:counts,mediciones:measured,prioridades:rows.reduce((o,r)=>(o[r.prioridad]=(o[r.prioridad]||0)+1,o),{})}));
