@@ -18,11 +18,11 @@ const list = (book,name) => {
 };
 const appLink = (city,extra={}) => {
   const u=new URL('/descubrir',ORIGIN);
-  u.searchParams.set('ciudad_id',city.ciudad_id);
+  for(const [k,v] of [['pais_id',city.pais_id],['provincia_id',city.provincia_id],['ciudad_id',city.ciudad_id],['pais',city.pais_visible],['provincia',city.provincia_visible],['ciudad',city.ciudad_visible]])if(v)u.searchParams.set(k,v);
   for(const [k,v] of Object.entries(extra))if(v)u.searchParams.set(k,v);
   return u.href;
 };
-const html = ({title,description,canonical,body,structured}) => '<!doctype html>\n'+
+const html = ({title,description,canonical,body,structured,destination}) => '<!doctype html>\n'+
   '<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'+
   '<title>'+escapeHtml(title)+'</title><meta name="description" content="'+escapeHtml(description)+'">'+
   '<meta name="robots" content="index,follow"><link rel="canonical" href="'+canonical+'">'+
@@ -30,9 +30,11 @@ const html = ({title,description,canonical,body,structured}) => '<!doctype html>
   '<meta property="og:description" content="'+escapeHtml(description)+'">'+
   '<meta property="og:url" content="'+canonical+'">'+
   (structured?'<script type="application/ld+json">'+JSON.stringify(structured).replace(/</g,'\\u003c')+'</script>':'')+
-  '<style>body{font:16px/1.55 system-ui,sans-serif;color:#24343c;max-width:880px;margin:auto;padding:26px}a{color:#006699}li{margin:.6rem 0}h1{line-height:1.2}header{border-bottom:2px solid #006699}footer{margin-top:2rem;border-top:1px solid #ddd;padding-top:1rem}</style></head><body>'+
-  '<header><a href="'+ORIGIN+'/">Guía Local</a></header><main>'+body+'</main>'+
-  '<footer><a href="'+ORIGIN+'/descubrir">Explorar Guía Local</a></footer></body></html>';
+  '<style>body{font:16px/1.55 system-ui,sans-serif;color:#24343c;margin:0;padding:0}a{color:#006699}.seo-info{max-width:960px;margin:auto;padding:14px 22px}h1{line-height:1.2;margin:.4em 0}.seo-app{width:100%;height:85vh;min-height:620px;border:0;display:block}.seo-detalles{max-width:960px;margin:auto;padding:16px 22px}li{margin:.6rem 0}</style></head><body>'+
+  '<header class="seo-info"><a href="'+ORIGIN+'/">Guía Local</a></header><main><section class="seo-info"><h1>'+escapeHtml(title.split(' |')[0])+'</h1><p>'+escapeHtml(description)+'</p><p><a href="'+escapeHtml(destination)+'">Abrir Guía Local en pantalla completa</a></p></section>'+
+  '<iframe class="seo-app" title="Guía Local, ciudad y funcionalidad seleccionadas" src="'+escapeHtml(destination)+'" loading="eager"></iframe>'+
+  '<details class="seo-detalles"><summary>Ver información publicada de esta ciudad</summary>'+body+'</details></main>'+
+  '<footer class="seo-info"><a href="'+escapeHtml(destination)+'">Continuar en Guía Local</a></footer></body></html>';
 const safeRows = (items,caption) => {
   const shown=items.slice(0,60);
   if(!shown.length)return '';
@@ -82,7 +84,8 @@ export async function generarSeoPublico(hostingDir){
       const canonical=ORIGIN+'/'+path+'/';
       const schema={'@context':'https://schema.org','@type':kind,name:title,description,url:canonical,
         isPartOf:{'@type':'WebSite',name:'Guía Local',url:ORIGIN}};
-      await write(path+'/index.html',html({title,description,canonical,body,structured:schema}));
+      const destino = suffix==='farmacias-de-turno' ? 'farmacias' : suffix==='efemerides' ? 'efemerides' : ['eventos','promociones','actividades'].includes(suffix) ? ({promociones:'promos'}[suffix]||suffix) : 'guia';
+      await write(path+'/index.html',html({title,description,canonical,body,structured:schema,destination:appLink(city,destino==='guia'?{}:{seo_destino:destino})}));
       sections.push({path,title});
     };
     if(guide.length){
@@ -170,7 +173,7 @@ export async function generarSeoPublico(hostingDir){
       const rows=list(book,family).filter(readable);
       if(!rows.length)continue;
       const title=name+' en '+town+' | Guía Local';
-      const description='Descubrí '+name.toLowerCase()+' publicadas en '+place+' a través de Guía Local.';
+      const description='Descubrí '+name.toLowerCase()+' publicados en '+place+' a través de Guía Local.';
       await add(segment,title,description,'<h1>'+escapeHtml(name+' en '+town)+'</h1><p>'+escapeHtml(description)+'</p>'+
         safeRows(rows,name)+'<p><a href="'+appLink(city)+'">Explorar en Guía Local</a></p>');
     }
@@ -181,7 +184,7 @@ export async function generarSeoPublico(hostingDir){
       const body='<h1>'+escapeHtml('Guía Local en '+town)+'</h1><p>'+escapeHtml(cityDesc)+'</p><ul>'+
         sections.map(s=>link(s.path,s.title.replace(' | Guía Local',''))).join('')+'</ul><p><a href="'+appLink(city)+'">Abrir la plataforma en '+escapeHtml(town)+'</a></p>';
       await write(base+'/index.html',html({title:cityTitle,description:cityDesc,canonical,body,
-        structured:{'@context':'https://schema.org','@type':'CollectionPage',name:cityTitle,url:canonical}}));
+        structured:{'@context':'https://schema.org','@type':'CollectionPage',name:cityTitle,url:canonical},destination:appLink(city)}));
     }
   }
   const xml='<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+
