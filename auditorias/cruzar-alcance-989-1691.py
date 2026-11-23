@@ -232,6 +232,39 @@ for diff in differences:
                     "sitioHttpASTActual":candidate_call["id"],
                     "receptorWorkerSHAInalterado":True
                 })
+        # Tres entradas antiguas de Reclamos conservaron un sitio de red
+        # que fue sustituido. Dos pertenecen a controles reemplazados;
+        # el registro de cambio de ciudad mantiene la búsqueda, aunque
+        # la función receptora se modificó en el nuevo código.
+        if (verdict=="callId_sin_coincidencia_unica_en_AST_actual"
+            and req.get("file")=="plataforma/login.html"
+            and req.get("candidates")==["/advertisers/claim-options"]
+            and req.get("verb")=="GET"):
+            if aud in ("AUD-00395","AUD-00418"):
+                verdict="sitio_http_historico_de_control_reemplazado"
+                evidence["equivalenciaHistorica"]={
+                    "AUD-00395":"AUD-00988","AUD-00418":"AUD-00988"}[aud]
+                evidence["advertencia"]="No agregar conexión a control histórico sustituido"
+            elif aud=="AUD-00417":
+                old_claim=[x for x in legacy_functions.values() if
+                    x.get("file")=="plataforma/login.html" and x.get("name")=="buscarAnuncioReclamo155"]
+                new_claim=[x for x in fn.values() if
+                    x.get("file")=="plataforma/login.html" and x.get("name")=="buscarAnuncioReclamo155"]
+                source_line="const r=await fetch(WORKER_ORIGIN+'/advertisers/claim-options?q='+encodeURIComponent(term),{headers:gldAuthHeaders_()});"
+                old_source=Path("baseline/plataforma/login.html").read_text()
+                new_source=Path("nuevo/plataforma/login.html").read_text()
+                if (len(old_claim)==len(new_claim)==1 and
+                    old_source.count(source_line)==new_source.count(source_line)==1 and
+                    new_claim[0]["id"] in reached_fn and
+                    any(c.get("kind")=="http" and c.get("method")=="fetch"
+                        for c in old_claim[0].get("calls",[])) and
+                    any(c.get("kind")=="http" and c.get("method")=="fetch"
+                        for c in new_claim[0].get("calls",[]))):
+                    verdict="reclamos_http_mismo_sitio_literal_con_receptor_modificado"
+                    evidence["funcionOrigenHistorica"]=old_claim[0]["id"]
+                    evidence["funcionOrigenVigente"]=new_claim[0]["id"]
+                    evidence["sitioLiteralExactoPreservado"]=True
+                    evidence["callerEnArbolAccion"]=True
         checks.append({"callId":req.get("callId"),"metodo":req.get("verb"),"evidenciaAST":evidence,
                        "rutas":req.get("candidates"),"estado":verdict,
                        "razones":reasons})
@@ -242,7 +275,7 @@ for diff in differences:
        "comprobaciones":checks,
        "dictamen":("control_historico_reemplazado" if aud in historicos else
          "sin_red_en_catalogo_definitivo" if not expected else
-         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto") for c in checks)
+         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto","reclamos_http_mismo_sitio_literal_con_receptor_modificado") for c in checks)
          else "requiere_revision_de_asociacion")})
 assert len(review)==218
 network_review=[x for x in review if x["peticionesDefinitivas"]]
