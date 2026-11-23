@@ -2,7 +2,28 @@
 
 **Total de intervenciones identificadas: 35** | **Pendientes de diagnóstico: 30** | **Diagnosticadas: 1** | **En corrección: 4** | **Corregidas y probadas localmente: 0** | **Publicadas y verificadas: 0** | **Bloqueadas: 0** | **Mediciones comparativas completas: 0**.
 
-**Prioridades:** 30 altas, 5 posteriores, 0 críticas acreditadas. Son causas, riesgos y pruebas pendientes de diagnóstico; NO 35 fallas vigentes certificadas. **Único inventario** [PASO4_INTERVENCIONES.json](PASO4_INTERVENCIONES.json): 35 IDs estables P4-0001 a P4-0035, **63 hallazgos históricos trazados**, 19 agrupados por causa, 11 con corrección histórica documentada, 2 reemplazados y 5 excepciones aún pendientes de confirmación individual sin atribuirlas como errores. **46 fuentes/artefactos cotejados a distinto nivel; 6 conjuntos aún sin revisión individual. Cierre exhaustivo NO certificado**. Persisten 166 recorridos estáticos interrumpidos, 17 raíces sin entrada y 138 sin consumidor AST del Paso 3 como excepciones documentales, sin convertirlos en 321 errores ni ocultarlos. [Commit ampliación 4c15bd33](https://github.com/liqko/guia-local-dolores/commit/4c15bd339c09aec3484fa06c0980fd717bb7ee62), [trazabilidad 3ae4eaf7](https://github.com/liqko/guia-local-dolores/commit/3ae4eaf79425761e42dc7b61a011833b46afcdf9), [ampliación de evidencia a14d754d](https://github.com/liqko/guia-local-dolores/commit/a14d754d7e63b11723d2d5cb5880f20b65f097f8).
+**Prioridades:** 30 altas, 5 posteriores, 0 críticas acreditadas. Son causas, riesgos y pruebas pendientes de diagnóstico; NO 35 fallas vigentes certificadas. **Único inventario** [PASO4_INTERVENCIONES.json](PASO4_INTERVENCIONES.json): 35 IDs estables P4-0001 a P4-0035, **65 hallazgos históricos trazados**, 21 agrupados por causa, 11 con corrección histórica documentada, 2 reemplazados y 5 excepciones aún pendientes de confirmación individual sin atribuirlas como errores. **46 fuentes/artefactos cotejados a distinto nivel; 6 conjuntos aún sin revisión individual. Cierre exhaustivo NO certificado**. Persisten 166 recorridos estáticos interrumpidos, 17 raíces sin entrada y 138 sin consumidor AST del Paso 3 como excepciones documentales, sin convertirlos en 321 errores ni ocultarlos. [Commit ampliación 4c15bd33](https://github.com/liqko/guia-local-dolores/commit/4c15bd339c09aec3484fa06c0980fd717bb7ee62), [trazabilidad 3ae4eaf7](https://github.com/liqko/guia-local-dolores/commit/3ae4eaf79425761e42dc7b61a011833b46afcdf9), [ampliación de evidencia a14d754d](https://github.com/liqko/guia-local-dolores/commit/a14d754d7e63b11723d2d5cb5880f20b65f097f8).
+
+**Desglose por funcionalidad (cada ID se cuenta una sola vez):**
+
+| Funcionalidad agrupada | Intervenciones | Alta | Posterior |
+|---|---:|---:|---:|
+| Eventos | 2 | 1 | 1 |
+| Enlaces Guía a Eventos/Promos/Actividades | 1 | 1 | 0 |
+| Actividades | 2 | 2 | 0 |
+| Promociones y Publicidad | 5 | 5 | 0 |
+| Favoritos | 2 | 2 | 0 |
+| Anunciante, Guía y sedes | 3 | 3 | 0 |
+| Gran Hermano y reglas comerciales | 4 | 4 | 0 |
+| Territorio y ciudades | 7 | 5 | 2 |
+| Permisos, caché y coordinación | 4 | 4 | 0 |
+| Farmacias | 2 | 2 | 0 |
+| Reclamos | 1 | 1 | 0 |
+| Observabilidad | 1 | 0 | 1 |
+| PWA | 1 | 0 | 1 |
+| **Total** | **35** | **30** | **5** |
+
+**Intervención funcional agrupada P4-0010:** la misma causa de enlaces fuera de las rutas publicadas afectaba tres botones desde Guía, no tres fallas independientes: [Actividades ef974cb2](https://github.com/liqko/guia-local-dolores/commit/ef974cb29dfbb9f7cccf838bef36f2f8e7792014) y [Eventos/Promos d712ff1e](https://github.com/liqko/guia-local-dolores/commit/d712ff1e13f60d3f7d23f30cce786d59f5c964ac); [regresión de los tres destinos e66125e0](https://github.com/liqko/guia-local-dolores/commit/e66125e0501a84cc7e60df0432eaaa5e67590ec3). Sitios en HTML y rewrite Firebase cotejados; navegación HTTP live pendiente y ninguna publicación realizada. **Control de integridad del inventario reforzado** en [d68e933c](https://github.com/liqko/guia-local-dolores/commit/d68e933c7430fdef67d098f22bb06b84e3ea126c): verifica 4 objetivos, hallazgos históricos con resolución, vínculos P4 y cobertura completa de grupos sin duplicación. Siguiente paso: comprobar CI del corte y retomar P4-0011 (Promos ausentes en Usuario).
 
 **P4-0010 Actividades 404:** [cambio preparado ef974cb2](https://github.com/liqko/guia-local-dolores/commit/ef974cb29dfbb9f7cccf838bef36f2f8e7792014) reemplaza /actividades/ por el archivo /plataforma/actividades.html existente; [regresión 9a95df10](https://github.com/liqko/guia-local-dolores/commit/9a95df10577252ea17e626cb7c8ae3fc2574e494). CI integral [45242496799 SUCCESS](https://github.com/liqko/guia-local-dolores/actions/runs/45242496799), sin prueba de navegación live y sin despliegue. **P4-0013 Favoritos apóstrofo:** primer intento [265ecf42](https://github.com/liqko/guia-local-dolores/commit/265ecf42844049c8f07335451f2c82229f56550e) produjo [CI recorridos 45243380564 FAILURE](https://github.com/liqko/guia-local-dolores/actions/runs/45243380564) por pérdida de candidato AST en AUD-00195; se **revirtió** mediante [3b9a27ce](https://github.com/liqko/guia-local-dolores/commit/3b9a27ce563614de01fdd6e5b65acc5bc4778bc7), el fallo permanece pendiente. No se descartan los AUD anteriores ni se declara probado Favoritos.
 
