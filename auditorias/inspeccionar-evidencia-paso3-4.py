@@ -24,3 +24,19 @@ for name in NAMES:
     desc={"archivo":name,"bytes":p.stat().st_size,"campos":{k:(len(v) if isinstance(v,(list,dict)) else str(v)[:100]) for k,v in list(d.items())[:35]}} if isinstance(d,dict) else {"archivo":name,"tipo":type(d).__name__,"cantidad":len(d)}
     print("P4_P3_ORIGINAL",json.dumps(desc,ensure_ascii=False)[:3800])
     parts(d,name)
+
+
+    if name in ("REVALIDACION_INDIRECTA_1691_ACTUAL.json","CRUCE_989_1691_ACTUAL.json","CONCILIACION_ORIGENES_166.json"):
+        from collections import Counter
+        for key in ("resumen","summary"):
+            if isinstance(d,dict) and key in d:
+                print("P4_P3_RESUMEN",json.dumps({"archivo":name,"valor":d[key]},ensure_ascii=False,default=str)[:10500])
+        rows=d.get("funciones",d.get("cases",[]))
+        if isinstance(rows,list):
+            columns=("clasificacionActual","estadoHistorico","estado","causa","tipo","dictamen","estadoOriginal")
+            for col in columns:
+                counts=Counter(str(x.get(col,"")) for x in rows if isinstance(x,dict))
+                if len(counts)>1:
+                    print("P4_P3_DISTRIBUCION",json.dumps({"archivo":name,"campo":col,"conteos":dict(counts)},ensure_ascii=False)[:6000])
+            for x in rows[:3]:
+                print("P4_P3_MUESTRA",json.dumps({"archivo":name,"registro":x},ensure_ascii=False,default=str)[:2000])
