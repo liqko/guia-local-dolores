@@ -265,3 +265,38 @@ test('P4-0039: compartir usa alternativas y nunca informa éxito con popup bloqu
   assert.match(gui,/window\.prompt\('No se pudo abrir la opción para compartir/);
   assert.match(gui,/GLD_ANUNCIANTES_UI\.urlFicha\(btn\.dataset\.anuncianteId/);
 });
+
+
+test('P4-0011/P4-0009: reconstruir Promos vacía ciudad con sólo pausadas y omite PUT idéntico',async()=>{
+ const from=worker.indexOf('async function rebuildPromosAll({ db, cache }) {'),to=worker.indexOf('\nvar text6 =',from);
+ assert(from>0&&to>from);
+ const rebuild=new Function('text5','visible','publicPromo','promoCityKey','sort','GLD_BUSINESS143',
+  worker.slice(from,to)+';return rebuildPromosAll;')(
+   v=>String(v??'').trim(),
+   p=>p.pausado!==true&&p.estado_moderacion!=='RECHAZADO',
+   p=>({promo_id:p.promo_id,ciudad_id:p.ciudad_id,promo:p.promo}),
+   city=>'promos:city:v1:'+city,
+   rows=>[...rows].sort((a,b)=>a.promo.localeCompare(b.promo)),
+   {equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
+  );
+ const stale={version:1,ciudad_id:'DOL',updated_at:'anterior',promos:[{promo_id:'P-A',ciudad_id:'DOL',promo:'Ya pausada'}]};
+ const ready={version:1,ciudad_id:'OTRA',updated_at:'anterior',promos:[{promo_id:'P-B',ciudad_id:'OTRA',promo:'Vigente'}]};
+ const packets=new Map([['promos:city:v1:DOL',stale],['promos:city:v1:OTRA',ready]]);
+ const put=[],get=[];
+ const cache={
+  get:async key=>{get.push(key);return packets.get(key)||null},
+  put:async(key,value)=>{put.push([key,value]);packets.set(key,value)}
+ };
+ const db={listCollection:async name=>{
+  assert.equal(name,'promos');
+  return[{promo_id:'P-A',ciudad_id:'DOL',promo:'Ya pausada',pausado:true},
+         {promo_id:'P-B',ciudad_id:'OTRA',promo:'Vigente',pausado:false}];
+ }};
+ const result=await rebuild({db,cache});
+ assert.equal(result.success,true);
+ assert.deepEqual(packets.get('promos:city:v1:DOL').promos,[],'Un paquete obsoleto no puede seguir mostrando una promo pausada');
+ assert.deepEqual(put.map(x=>x[0]),['promos:city:v1:DOL'],'La ciudad con paquete idéntico no necesita otra escritura KV');
+ await rebuild({db,cache});
+ assert.equal(put.length,1,'Segunda reconstrucción idéntica no escribe KV');
+ assert.equal(get.length,4,'Dos lecturas KV por reconstrucción son costo observable del algoritmo');
+});
