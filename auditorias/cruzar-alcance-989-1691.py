@@ -184,7 +184,7 @@ review_summary={
  "peticionesPorEstado":dict(collections.Counter(c["estado"] for x in review for c in x["comprobaciones"])),
  "limite":"Comparacion estática por callId dentro del árbol individual, sin prueba de ejecución, permisos runtime ni respuesta de red"}
 (temp/"CONTRASTE_218_ASOCIACIONES_ACTUALES.json").write_text(json.dumps(
- {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\\n")
+ {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\n")
 print("PASO3_CONTRASTE_218",json.dumps(review_summary,ensure_ascii=False))
 result={"resumen":summary,"funciones":verified,"pendientesRemapeo":unknown,
  "accionesConArbol":mapped,"accionesSinArbol":notmapped,
