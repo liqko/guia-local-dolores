@@ -10,6 +10,7 @@ old=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_
 new=json.loads(Path("nuevo/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
 remap=json.loads(Path("auditorias/temporal/REMAPPING_AST_989.json").read_text())
 byOld={v["oldId"]:v for v in remap["ledger"]}
+fullRemap=remap.get("fullMap",{})
 newFn={f["id"]:f for f in new["functionGraph"]}
 oldFn={f["id"]:f for f in old["functionGraph"]}
 orig={e["id"]:e for e in a["entries"]}
@@ -41,9 +42,9 @@ for aud in sorted(defin):
     elif entry in newFn and start.get("file") in unchanged:
         state="origen_AST_en_fuente_inalterada"
         evidence="ID AST persistente en archivo con SHA256 de fuente idéntico"
-    elif entry in byOld and byOld[entry].get("newId"):
+    elif entry in fullRemap and fullRemap[entry].get("newId"):
         state="origen_AST_remapeado_por_cuerpo"
-        evidence=byOld[entry]["proof"]
+        evidence=fullRemap[entry]["proof"]
     elif entry and start.get("file") in unchanged:
         state="origen_sintetico_o_externo_sin_binding_AST_confirmado"
         evidence="entrada declarada y fuente igual; no se localizó destino en functionGraph actual"
