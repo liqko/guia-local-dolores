@@ -179,7 +179,16 @@ for diff in differences:
         # Reusar prueba definitiva del Paso 2 solamente si caller, callId,
         # receptor real y toda fuente afectada permanecen idénticos.
         owner=fn.get(req.get("from"))
-        all_files=[req.get("file")]+[w.get("file") for w in req.get("worker") or []]
+        # El catálogo admite peticiones con "file" vacío. Recuperar el
+        # archivo exclusivamente desde el propietario AST si callId pertenece
+        # a esa función; no derivar origen por semejanza de ruta.
+        file_declared=req.get("file")
+        source_file=file_declared
+        if (not source_file and owner and req.get("callId") and
+            str(req["callId"]).startswith(owner["file"]+":") and
+            any(c.get("id")==req["callId"] for c in owner.get("calls",[]))):
+            source_file=owner["file"]
+        all_files=[source_file]+[w.get("file") for w in req.get("worker") or []]
         stable=bool(all_files) and all(bool(file) and file in sha_paso2 and
                      sha_paso2[file]==sha_actual.get(file) for file in all_files)
         owner_contains_call=bool(owner and any(c.get("id")==req.get("callId") for c in owner.get("calls",[])))
@@ -197,7 +206,9 @@ for diff in differences:
                   "callerEnArbolAccion":owner_reached,"callIdEnFuncionAST":owner_contains_call,
                   "sitioHttpASTUnicoMismaLinea":unique_site,
                   "idSitioHttpActual":matching_line_calls[0]["id"] if unique_site else None,
-                  "fuentesNoCorrespondidas":hashes_no_coincidentes}
+                  "fuentesNoCorrespondidas":hashes_no_coincidentes,
+                  "archivoHTTPDeclarado":file_declared,
+                  "archivoHTTPPorPropietarioAST":source_file if not file_declared else None}
         if stable and owner_contains_call and owner_reached and len(same)==1:
             verdict="contrato_paso2_certificado_por_identidad_AST_y_SHA"
             # Los metadatos de un generador diferente NO sustituyen el
