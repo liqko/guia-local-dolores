@@ -174,7 +174,7 @@ for row in b["acciones"]:
         elif check["estado"]=="diferencia_de_contrato_o_destino":
             assert check["razones"]
         else:
-            assert check["estado"]=="sin_callId_unico_en_arbol_vigente"
+            assert check["estado"] in ("callId_sin_coincidencia_unica_en_AST_actual","peticion_en_AST_global_sin_ruta_desde_esta_accion")
 issues={
  "identidadesSinEquivalencia":sum(x["idASTActual"] is None for x in a["funciones"]),
  "cadenasSinRaizOReceptorConfirmado":sum(x["clasificacionActual"] in (
