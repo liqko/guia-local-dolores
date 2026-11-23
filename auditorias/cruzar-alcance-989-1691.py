@@ -128,6 +128,9 @@ entries={e["id"]:e for e in definitive["entries"]}
 differences=json.loads((temp/"COMPATIBILIDAD_989_PASO3.json").read_text())["diferenciasAcciones"]
 assert len(differences)==218 and len(entries)==989
 mapped_by_aud={a["AUD"]:a for a in mapped}
+global_endpoints=collections.defaultdict(list)
+for endpoint in n.get("endpoints",[]):
+    global_endpoints[endpoint.get("callId")].append(endpoint)
 review=[]
 for diff in differences:
     aud=diff["AUD"]
@@ -145,8 +148,12 @@ for diff in differences:
     for req in expected:
         same=by_call.get(req.get("callId"),[])
         if len(same)!=1:
-            verdict="sin_callId_unico_en_arbol_vigente"
-            reasons=["Cantidad de coincidencias para callId: "+str(len(same))]
+            global_matches=global_endpoints.get(req.get("callId"),[])
+            verdict=("peticion_en_AST_global_sin_ruta_desde_esta_accion"
+                if not same and len(global_matches)==1 else
+                "callId_sin_coincidencia_unica_en_AST_actual")
+            reasons=["Coincidencias en árbol de la acción: "+str(len(same)),
+                     "Coincidencias en endpoints globales: "+str(len(global_matches))]
         else:
             node=same[0]
             reasons=[]
