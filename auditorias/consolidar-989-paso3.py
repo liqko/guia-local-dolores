@@ -69,6 +69,24 @@ for alias,parent in absorbed.items():
     row["evidenciaArbolActual"]={"AUDActual":parent,"accionVigente":current,
        "criterio":"subexpresión o registro histórico ligado a un evento actual único",
        "advertencia":"no contar como entrada funcional adicional ni arista nueva"}
+# Los dos listeners incorporados en Paso 2 deben existir como entradas
+# separadas en el árbol regenerado del código actual; verificar receptor y evento.
+for aud,event in (("AUD-00988","input"),("AUD-00989","change")):
+    row=by_aud[aud]
+    matches=[t["action"] for t in tree["trees"] if t.get("action") and
+      t["action"].get("file")=="plataforma/login.html" and
+      t["action"].get("kind")=="listener" and
+      t["action"].get("event")==event and
+      t["action"].get("receiver")=="document.getElementById('alta-reclamo-buscar155')"]
+    assert len(matches)==1,(aud,event,len(matches))
+    current=matches[0];entry=current.get("entry")
+    now=("nuevo_evento_con_funcion_AST_concreta" if entry in funcs and
+         not funcs[entry].get("synthetic") else "nuevo_evento_con_receptor_arbol_sin_funcion_individual")
+    row["estadoConsolidado"]=now
+    row["evidenciaArbolActual"]={"accionVigente":current,
+       "funcionAST":entry if now=="nuevo_evento_con_funcion_AST_concreta" else None,
+       "criterio":"evento, receptor y origen únicos en árbol AST actual",
+       "limite":"No certifica ejecución en navegador ni consumo de red"}
 ct=collections.Counter(r["estadoConsolidado"] for r in related)
 assert len(absorbed)==4
 
