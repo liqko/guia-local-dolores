@@ -141,13 +141,24 @@ for record in actual.get("callbackBindings",[]):
     src=record["binding"].split("|")[0]
     for dst in record["targets"]: callbacks.add((src,dst))
 verified_chains=0
+historic_source=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())["sourceHashes"]
+current_source=actual["sourceHashes"]
 for row in a["funciones"]:
     chain=row.get("cadenaActualCandidata")
     edges=row.get("aristasActuales")
     if edges is None:continue
     assert chain is not None and len(edges)==len(chain)-1
-    for src,dst,kind in zip(chain,chain[1:],edges):
-        if kind=="llamada_AST_actual":
+    historical_chain=row.get("cadenaHistorica") or []
+    if "arista_indirecta_historica_sha_inalterada" in edges:
+        assert len(historical_chain)==len(chain),row["idASTHistorico"]
+    for ix,(src,dst,kind) in enumerate(zip(chain,chain[1:],edges)):
+        if kind=="arista_indirecta_historica_sha_inalterada":
+            assert src==historical_chain[ix] and dst==historical_chain[ix+1]
+            sf,df=func_actual[src]["file"],func_actual[dst]["file"]
+            assert sf in historic_source and df in historic_source
+            assert current_source.get(sf)==historic_source[sf]
+            assert current_source.get(df)==historic_source[df]
+        elif kind=="llamada_AST_actual":
             assert any(call.get("to")==dst for call in func_actual[src].get("calls",[])),row["idASTHistorico"]
         elif kind=="callback_registrado_AST_actual_condicional":
             assert (src,dst) in callbacks,row["idASTHistorico"]
