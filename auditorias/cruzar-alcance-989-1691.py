@@ -400,6 +400,10 @@ for old_rec in g["funciones"]:
         item["cadenaHistoricaLongitud"]=len(chain)
         if not all(x in fn for x in new_chain):
             item["clasificacionActual"]="cadena_indirecta_con_identidad_intermedia_no_remapeada"
+            item["identidadesIntermediasSinEquivalencia"]=[
+                {"idASTHistorico":prior,"idASTActual":current,
+                 "posicionEnCadena":i,"motivo":"identidad_actual_ausente_o_no_en_arbol_AST"}
+                for i,(prior,current) in enumerate(zip(chain,new_chain)) if current not in fn]
         else:
             checks=[]
             old_kinds=old_rec.get("aristas") or []
@@ -428,6 +432,18 @@ for old_rec in g["funciones"]:
             item["aristasActuales"]=checks
             if any(x=="arista_historica_no_correspondida_en_AST_actual" for x in checks):
                 item["clasificacionActual"]="cadena_indirecta_requiere_verificacion_de_receptor"
+                item["aristasSinReceptorComprobado"]=[
+                    {"posicion":i,"origenASTActual":new_chain[i],
+                     "destinoASTActual":new_chain[i+1],
+                     "tipoHistorico":old_kinds[i] if i<len(old_kinds) else None,
+                     "archivoOrigen":fn[new_chain[i]]["file"],
+                     "archivoDestino":fn[new_chain[i+1]]["file"],
+                     "fuenteOrigenAlterada":n["sourceHashes"].get(fn[new_chain[i]]["file"])!=
+                       old_source_hashes.get(fn[new_chain[i]]["file"]),
+                     "fuenteDestinoAlterada":n["sourceHashes"].get(fn[new_chain[i+1]]["file"])!=
+                       old_source_hashes.get(fn[new_chain[i+1]]["file"]),
+                     "causa":"no_hay_llamada_AST_ni_callback_y_no_se_puede_portar_arista_por_SHA"}
+                    for i,k in enumerate(checks) if k=="arista_historica_no_correspondida_en_AST_actual"]
             elif historic_state=="cadena_desde_accion_confirmada_estaticamente":
                 aud=old_rec.get("AUD")
                 if aud in current_actions:
@@ -440,8 +456,16 @@ for old_rec in g["funciones"]:
                         item["limites"].append("Función intermedia acreditada en árbol; cadena previa desde botón no verificada aquí")
                     else:
                         item["clasificacionActual"]="cadena_AST_sin_raiz_de_AUD_acreditada"
+                        item["origenAUDActual"]={
+                            "AUD":aud,"raizAST":selected[0]["action"].get("entry") if len(selected)==1 else None,
+                            "raizHistoricaRemapeada":new_chain[0],
+                            "raizPresenteEntreFuncionesDelArbol":any(
+                                z.get("type")=="function" and z.get("id")==new_chain[0]
+                                for z in selected[0].get("nodes",[])) if len(selected)==1 else False,
+                            "causa":"raiz_actual_de_accion_distinta_sin_tramo_de_unión_AST_acreditado"}
                 else:
                     item["clasificacionActual"]="cadena_AST_sin_AUD_vigente_acreditada"
+                    item["origenAUDActual"]={"AUD":aud,"causa":"accion_historica_sin_arbol_vigente_individual"}
             elif historic_state=="cadena_desde_inicio_script_confirmada_estaticamente":
                 root=fn[new_chain[0]]
                 if (root["file"],root["line"]) in current_startups:
