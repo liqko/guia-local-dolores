@@ -186,6 +186,87 @@ review_summary={
 (temp/"CONTRASTE_218_ASOCIACIONES_ACTUALES.json").write_text(json.dumps(
  {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\n")
 print("PASO3_CONTRASTE_218",json.dumps(review_summary,ensure_ascii=False))
+# Revalidar el conjunto histórico completo con activaciones indirectas,
+# no sólo con los árboles AUD directos. Las cadenas se vuelven a contrastar
+# contra IDs y llamadas del AST actual, sin reconstruir el inventario.
+callback_pairs=set()
+for binding in n.get("callbackBindings",[]):
+    src=binding["binding"].split("|")[0]
+    for dst in binding["targets"]:
+        if src in fn and dst in fn:callback_pairs.add((src,dst))
+current_startups={(c.get("file"),c.get("line")) for c in n.get("startupCalls",[])}
+old_source_hashes=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())["sourceHashes"]
+current_actions=set(mapped_by_aud)
+revalidated=[]
+for old_rec in g["funciones"]:
+    fid=old_rec["idAST"];now=ledger[fid]["newId"]
+    historic_state=old_rec["estado"]
+    item={"idASTHistorico":fid,"idASTActual":now,
+          "estadoHistorico":historic_state,"AUDHistorica":old_rec.get("AUD"),
+          "evidenciaHistorica":old_rec.get("inicio"),
+          "clasificacionActual":None,"limites":[]}
+    if not now:
+        item["clasificacionActual"]="identidad_transformada_sin_equivalencia_certificada"
+        item["limites"].append("No vincular por coincidencia nominal")
+    elif historic_state=="falta_enlace_a_entrada":
+        item["clasificacionActual"]="sin_consumidor_acreditado_en_revision_historica"
+        item["limites"].append("No equivale a ausencia actual de consumidor ni código obsoleto")
+    elif "cadena" in old_rec:
+        chain=old_rec["cadena"]
+        new_chain=[full.get(x,{}).get("newId") for x in chain]
+        item["cadenaActualCandidata"]=new_chain
+        item["cadenaHistoricaLongitud"]=len(chain)
+        if not all(x in fn for x in new_chain):
+            item["clasificacionActual"]="cadena_indirecta_con_identidad_intermedia_no_remapeada"
+        else:
+            checks=[]
+            for src,dst in zip(new_chain,new_chain[1:]):
+                calls=[c for c in fn[src].get("calls",[]) if c.get("to")==dst]
+                if calls:
+                    checks.append("llamada_AST_actual")
+                elif (src,dst) in callback_pairs:
+                    checks.append("callback_registrado_AST_actual_condicional")
+                else:
+                    checks.append("arista_historica_no_correspondida_en_AST_actual")
+            item["aristasActuales"]=checks
+            if any(x=="arista_historica_no_correspondida_en_AST_actual" for x in checks):
+                item["clasificacionActual"]="cadena_indirecta_requiere_verificacion_de_receptor"
+            elif historic_state=="cadena_desde_accion_confirmada_estaticamente":
+                aud=old_rec.get("AUD")
+                if aud in current_actions:
+                    item["clasificacionActual"]="cadena_AST_revalidada_con_AUD_vigente"
+                else:
+                    item["clasificacionActual"]="cadena_AST_sin_AUD_vigente_acreditada"
+            elif historic_state=="cadena_desde_inicio_script_confirmada_estaticamente":
+                root=fn[new_chain[0]]
+                if (root["file"],root["line"]) in current_startups:
+                    item["clasificacionActual"]="cadena_AST_revalidada_con_arranque_script"
+                else:
+                    item["clasificacionActual"]="cadena_AST_con_arranque_pendiente_de_confirmar"
+            else:
+                item["clasificacionActual"]="cadena_AST_revalidada_con_raiz_externa_condicional"
+            if any(x=="callback_registrado_AST_actual_condicional" for x in checks):
+                item["limites"].append("La inscripción de callback no prueba su disparo")
+        if historic_state=="cadena_desde_accion_confirmada_estaticamente":
+            item["limites"].append("No implica ejecución real de la acción")
+    else:
+        file=fn[now]["file"]
+        same_source=(file in n["sourceHashes"] and
+          file in old_source_hashes and
+          n["sourceHashes"][file]==old_source_hashes[file])
+        item["clasificacionActual"]=("disponibilidad_externa_documentada_fuente_inalterada"
+            if same_source else "disponibilidad_historica_en_fuente_modificada")
+        item["limites"].append("Exportación o miembro disponible no implica consumidor o invocación")
+    assert item["clasificacionActual"],fid
+    revalidated.append(item)
+assert len(revalidated)==1691 and len({x["idASTHistorico"] for x in revalidated})==1691
+indirect_summary={"universo":1691,
+ "clasificadosConDictamen":len(revalidated),
+ "porClasificacion":dict(collections.Counter(x["clasificacionActual"] for x in revalidated)),
+ "advertencia":"Los dictámenes de impedimento son clasificaciones, no equivalencias ni cierre acreditado"}
+(temp/"REVALIDACION_INDIRECTA_1691_ACTUAL.json").write_text(json.dumps(
+ {"resumen":indirect_summary,"funciones":revalidated},ensure_ascii=False,indent=2)+"\n")
+print("PASO3_REVALIDACION_INDIRECTA_1691",json.dumps(indirect_summary,ensure_ascii=False))
 result={"resumen":summary,"funciones":verified,"pendientesRemapeo":unknown,
  "accionesConArbol":mapped,"accionesSinArbol":notmapped,
  "historicasSinEnlaceAhoraConArbol":coveredHistoric,
