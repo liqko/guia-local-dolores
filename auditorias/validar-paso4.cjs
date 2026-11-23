@@ -57,4 +57,50 @@ const grouped=Object.values(inv.grupos_funcionales||{}).flat();
 assert.equal(grouped.length,rows.length,'Grupos funcionales no cubren todo el inventario');
 assert.equal(new Set(grouped).size,rows.length,'Intervención repetida en grupos funcionales');
 for(const id of grouped)assert(rows.some(r=>r.id===id),'Grupo con ID inexistente: '+id);
+
+const allTasks=rows.flatMap(r=>r.tareas||[]);
+const tasksById=new Map();
+for(const row of rows){
+ assert(Array.isArray(row.tareas)&&row.tareas.length>0,row.id+': faltan tareas');
+ for(let i=0;i<row.tareas.length;i++){
+  const t=row.tareas[i];
+  assert.equal(t.id,row.id+'-T'+String(i+1).padStart(2,'0'),'Tarea fuera de su P4 o con secuencia inválida');
+  assert(!tasksById.has(t.id),'Tarea duplicada '+t.id);tasksById.set(t.id,t);
+  for(const field of ['problema','evidencia_historica','accion_necesaria','estado','correccion_aplicada','prueba','resultado_prueba','consumos','hallazgos_ids'])
+   assert(Object.hasOwn(t,field),t.id+': falta '+field);
+  assert(['pendiente','preparada','probada_aislada','terminada_verificada','bloqueada'].includes(t.estado),'Estado de tarea inválido');
+  assert(t.problema&&t.accion_necesaria&&t.resultado_prueba,'Tarea sin acción/resultado');
+  assert(t.consumos&&Object.hasOwn(t.consumos,'antes')&&Object.hasOwn(t.consumos,'despues'),'Consumo incompleto '+t.id);
+ }
+}
+for(const h of cases){
+ assert(h.destino?.p4&&h.destino?.tarea_id,'Hallazgo sin destino '+h.hallazgo);
+ assert(tasksById.has(h.destino.tarea_id),'Hallazgo con tarea inexistente '+h.hallazgo);
+ assert(h.destino.tarea_id.startsWith(h.destino.p4+'-'),'Hallazgo y tarea de distinto P4 '+h.hallazgo);
+ assert(['pendiente_individual','historico_sin_revalidacion_total','vinculado_no_cerrado'].includes(h.cotejo),'Cotejo inválido '+h.hallazgo);
+ assert(tasksById.get(h.destino.tarea_id).hallazgos_ids.includes(h.hallazgo),'La tarea no enlaza su hallazgo '+h.hallazgo);
+}
+for(const t of allTasks)for(const id of t.hallazgos_ids)
+ assert(cases.some(h=>h.hallazgo===id&&h.destino.tarea_id===t.id),'Tarea con hallazgo no recíproco '+t.id+' '+id);
+const http=inv.errores_http_5xx;
+assert(http&&Array.isArray(http.grupos),'Falta P4-0035 por ruta');
+assert.equal(http.grupos.reduce((sum,x)=>sum+x.cantidad,0),http.total_respuestas,'HTTP5xx total no reconstruible');
+assert.equal(http.grupos.length,9,'Deben conservarse nueve combinaciones ruta/método');
+assert.equal(new Set(http.grupos.map(x=>x.metodo+' '+x.ruta)).size,http.grupos.length,'Grupo HTTP duplicado');
+for(const g of http.grupos)assert(g.tarea_id?.startsWith('P4-0035-')&&tasksById.has(g.tarea_id),'HTTP5xx sin tarea P4-0035');
+const board={
+ intervenciones:rows.length,
+ hallazgos_historicos:cases.length,
+ hallazgos_con_destino:cases.filter(x=>x.destino?.tarea_id).length,
+ hallazgos_pendientes_cotejo:cases.filter(x=>x.cotejo==='pendiente_individual').length,
+ tareas:allTasks.length,
+ tareas_terminadas_verificadas:allTasks.filter(x=>x.estado==='terminada_verificada').length,
+ tareas_pendientes:allTasks.filter(x=>x.estado!=='terminada_verificada').length,
+ correcciones_preparadas:allTasks.filter(x=>x.estado==='preparada').length,
+ publicadas_verificadas:counts.publicada_verificada
+};
+assert.deepEqual(inv.tablero_trazabilidad,board,'Tablero de tareas/hallazgos no reconstruible');
+assert.equal(inv.estadisticas_cobertura.hallazgos_pendientes_cotejo_individual,board.hallazgos_pendientes_cotejo,'Pendientes documentales inconsistentes');
+console.log('PASO4_TRAZABILIDAD_PASS '+JSON.stringify(board));
+
 console.log('PASO4_TABLERO_PASS '+JSON.stringify({total:rows.length,estados:counts,mediciones:measured,prioridades:rows.reduce((o,r)=>(o[r.prioridad]=(o[r.prioridad]||0)+1,o),{})}));
