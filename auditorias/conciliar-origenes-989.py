@@ -45,8 +45,46 @@ for r in results:
     "event":r["start"].get("event"),"receiver":r["start"].get("receiver"),
     "line":r["start"].get("line"),"startupExact":r["startupMatchExact"],
     "startupSameLine":r["startupMatchSameLine"]},ensure_ascii=False)[:1300])
+
+# El árbol nuevo contiene nodos 'action' para inicializaciones y eventos
+# sin una función AST propia. Para ellos la ausencia de binding a functionGraph
+# NO es ausencia de un disparador; cotejar por ID de origen y receptor.
+newactions=[t["action"] for t in new["trees"] if t.get("action")]
+action_by_id=collections.defaultdict(list)
+for act in newactions:action_by_id[act.get("id")].append(act)
+def source_match(row):
+  src=row["start"]
+  same=action_by_id.get(src.get("id"),[])
+  if len(same)==1 and same[0].get("file")==src.get("file") and same[0].get("kind")==src.get("kind"):
+      return "id_origen_exacto_en_arbol_actual",same[0]
+  candidates=[act for act in newactions if act.get("file")==src.get("file") and act.get("kind")==src.get("kind")]
+  if src.get("kind")=="listener":
+      candidates=[act for act in candidates if act.get("event")==src.get("event") and act.get("receiver")==src.get("receiver")]
+  elif src.get("kind")=="startup_call":
+      h=(src.get("handler") or "").strip()
+      candidates=[act for act in candidates if h and (act.get("handler") or "").strip().startswith(h)]
+  elif src.get("kind")=="event_property":
+      candidates=[act for act in candidates if act.get("event")==src.get("event") and act.get("receiver")==src.get("receiver")]
+  elif src.get("kind") in ("html_handler","generated_markup"):
+      candidates=[act for act in candidates if act.get("handler")==src.get("handler") and act.get("element")==src.get("element")]
+  if len(candidates)==1:return "descriptor_unico_en_arbol_actual",candidates[0]
+  return "sin_correspondencia_unica",None
+matchcounts=collections.Counter()
+for row in results:
+  category,act=source_match(row)
+  row["correspondenciaArbol"]=category
+  row["receptorArbol"]=act
+  matchcounts[(row["state"],category)]+=1
+print("PASO3_166_CORRESPONDENCIAS_ARBOL",json.dumps({str(k):v for k,v in matchcounts.items()},ensure_ascii=False))
+for row in results:
+  if row["state"]=="origen_de_fuente_modificada_sin_remapeo":
+    print("PASO3_30_CORRESPONDENCIAS",json.dumps({
+       "AUD":row["AUD"],"tipo":row["kind"],"estado":row["correspondenciaArbol"],
+       "receptor":row["receptorArbol"]},ensure_ascii=False)[:1100])
+
 output={"summary":{"pending":len(results),
  "startupExact":sum(bool(r["startupMatchExact"]) for r in results),
- "startupSameLine":sum(bool(r["startupMatchSameLine"]) for r in results)},
+ "startupSameLine":sum(bool(r["startupMatchSameLine"]) for r in results),
+ "correspondenciasArbol":dict((str(k),v) for k,v in matchcounts.items())},
  "cases":results}
 Path("auditorias/temporal/CONCILIACION_ORIGENES_166.json").write_text(json.dumps(output,ensure_ascii=False,indent=2)+"\n")
