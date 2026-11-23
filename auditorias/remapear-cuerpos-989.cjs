@@ -153,3 +153,4 @@ if(summary.original1691!==1691||summary.sinEnlaceHistorico!==155)throw Error('Un
 const fullMap=Object.fromEntries([...mapped.entries()].map(([oldId,v])=>[oldId,v]));
 fs.writeFileSync(out,JSON.stringify({summary,ledger:ledgerRows,fullMap,transformEvidence},null,2)+'\n');
 console.log('PASO3_REMAPEO_CUERPOS_989',JSON.stringify(summary));
+console.log('PASO3_IDENTIDADES_TRANSFORMADAS',JSON.stringify(transformEvidence.map(x=>({oldId:x.idASTHistorico,archivo:x.archivo,prev:x.nombreHistorico,candidates:x.candidatos.map(c=>({id:c.idActual,token:c.tokensIdenticos,body:c.cuerpoIdentico}))}))).slice(0,30000));
