@@ -134,7 +134,7 @@ test('P4-0005: Actividades publica una vez y evita KV put idéntico; cambios sí
  assert(begin>0&&end>begin);
  const sync=new Function('text16','activityCityKeyV2','sort5','isPublic3','putPreparedRelationsV1','GLD_BUSINESS143',source.slice(begin,end)+';return syncActivityPreparedV2')(
   v=>String(v??'').trim(),id=>'activities:city:v2:'+id,
-  rows=>rows.slice().sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)),
+  rows=>rows.slice().sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre))),
   a=>a.activo===true,
   async()=>{}, {equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
  );
