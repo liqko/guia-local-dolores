@@ -108,6 +108,32 @@ for(const f of old.functionGraph){
      mapped.set(f.id,{newId:tokenCandidates[0].id,proof:'SHA256_tokens_TypeScript_identicos_sin_trivia_unico_mismo_archivo'});
  }
 }
+// Resolver callbacks con texto idéntico repetido sólo cuando su función
+// contenedora conserva el cuerpo EXACTO y el orden de hijos por ámbito.
+// Esto distingue callbacks iguales en receptores diferentes sin adivinar.
+const ordinal=(id)=>Number(String(id).split(':')[2]||0);
+const ambiguousBefore=[...mapped.keys()].length;
+for(const [oldId,oldFn] of oldTree){
+ if(mapped.has(oldId)||!changed.includes(oldFn.file))continue;
+ const parentId=oldFn.parent,parentMap=parentId&&mapped.get(parentId)?.newId;
+ const orig=original.get(oldId),origParent=parentId&&original.get(parentId);
+ const currentParent=parentMap&&modern.get(parentMap);
+ if(!orig||!origParent||!currentParent||origParent.sha256!==currentParent.sha256)continue;
+ const siblingsOld=[...oldTree.values()].filter(v=>v.parent===parentId&&
+   original.get(v.id)?.sha256===orig.sha256).sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+ const siblingsNew=[...newTree.values()].filter(v=>v.parent===parentMap&&
+   modern.get(v.id)?.sha256===orig.sha256).sort((a,b)=>ordinal(a.id)-ordinal(b.id));
+ if(!siblingsOld.length||siblingsOld.length!==siblingsNew.length)continue;
+ const idx=siblingsOld.findIndex(v=>v.id===oldId);
+ if(idx<0)continue;
+ const candidate=siblingsNew[idx];
+ if([...mapped.values()].some(v=>v.newId===candidate.id))continue;
+ // El padre conserva la secuencia de expresiones exactamente; así la
+ // posición ordinal de callbacks idénticos en el mismo ámbito es estable.
+ mapped.set(oldId,{newId:candidate.id,
+   proof:'callback_duplicado_en_padre_con_SHA_AST_exacto_y_ordinal_identico'});
+}
+const ordinalMatches=mapped.size-ambiguousBefore;
 const ledgerRows=ledger.funciones.map(r=>{
  const prev=oldTree.get(r.idAST);
  if(!prev)throw Error('Histórico faltante '+r.idAST);
@@ -142,6 +168,7 @@ const summary={
  original1691:ledgerRows.length,
  original1691ConCuerpoOArchivoIdentico:ledgerRows.filter(x=>x.newId).length,
  original1691SinCorrespondenciaExacta:ledgerRows.filter(x=>!x.newId).length,
+ remapeosCallbacksRepetidosConPadreExacto:ledgerRows.filter(x=>x.proof==='callback_duplicado_en_padre_con_SHA_AST_exacto_y_ordinal_identico').length,
  sinEnlaceHistorico:oldUnlinked.length,
  sinEnlaceHistoricoRemapeadasExactamente:oldUnlinked.filter(x=>x.newId).length,
  sinEnlaceHistoricoNoRemapeadas:oldUnlinked.filter(x=>!x.newId).length,
