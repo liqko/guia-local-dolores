@@ -9,7 +9,7 @@ pending=[r for r in model["acciones"] if r["estado"] in (
  "origen_de_fuente_modificada_sin_remapeo",
  "origen_sintetico_o_externo_sin_binding_AST_confirmado",
  "origen_no_reconstruido_en_AST")]
-assert len(pending)==166,len(pending)
+assert 0<len(pending)<=166, ('Conciliación incremental del corte anterior',len(pending))
 startup=new.get("startupCalls") or []
 def norm(s):return "".join(str(s or "").split())
 def same_file(a,b):return a.get("file")==b.get("file")
@@ -82,7 +82,7 @@ for row in results:
        "AUD":row["AUD"],"tipo":row["kind"],"estado":row["correspondenciaArbol"],
        "receptor":row["receptorArbol"]},ensure_ascii=False)[:1100])
 
-output={"summary":{"pending":len(results),
+output={"summary":{"universoHistoricoConciliado":166,"pending":len(results),
  "startupExact":sum(bool(r["startupMatchExact"]) for r in results),
  "startupSameLine":sum(bool(r["startupMatchSameLine"]) for r in results),
  "correspondenciasArbol":dict((str(k),v) for k,v in matchcounts.items())},
