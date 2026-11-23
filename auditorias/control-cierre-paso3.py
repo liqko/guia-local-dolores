@@ -167,10 +167,30 @@ for row in a["funciones"]:
     if row["clasificacionActual"].startswith("cadena_AST_revalidada"):
         assert "arista_historica_no_correspondida_en_AST_actual" not in edges
         verified_chains+=1
+import zipfile
+with zipfile.ZipFile("paso2/auditorias/transversal/CATALOGO_MAESTRO.zip") as z:
+    paso2=json.loads(z.read("CATALOGO_MAESTRO.json"))
+p2hash=paso2.get("baseline",{}).get("sourceHashes",{})
+current_aud_by_id={t["action"]["id"]:t for t in actual["trees"]}
 for row in b["acciones"]:
+    tree_now=current_aud_by_id.get(row.get("arbolActual"))
+    tree_functions={n.get("id") for n in (tree_now or {}).get("nodes",[]) if n.get("type")=="function"}
     for check in row["comprobaciones"]:
         if check["estado"]=="asociacion_estatica_identica_en_arbol_de_accion":
             assert not check["razones"]
+        elif check["estado"] in ("contrato_paso2_certificado_por_identidad_AST_y_SHA",
+                                "contrato_paso2_en_caller_AST_sin_nodo_http_generado"):
+            ev=check.get("evidenciaAST") or {}
+            assert ev.get("fuentesSHAInalteradas") and ev.get("callIdEnFuncionAST")
+            assert ev.get("callerEnArbolAccion") and ev.get("ownerASTActual") in tree_functions
+            owner=func_actual[ev["ownerASTActual"]]
+            assert any(c.get("id")==check["callId"] for c in owner.get("calls",[]))
+            expected_entry=next(x for x in paso2["entries"] if x["id"]==row["AUD"])
+            contracts=[x for x in expected_entry.get("network") or [] if x.get("callId")==check["callId"]]
+            assert contracts
+            for req in contracts:
+                paths=[req.get("file")]+[w.get("file") for w in req.get("worker") or []]
+                assert all(k in p2hash and actual["sourceHashes"].get(k)==p2hash[k] for k in paths)
         elif check["estado"]=="diferencia_de_contrato_o_destino":
             assert check["razones"]
         else:
@@ -184,7 +204,7 @@ issues={
    "cadena_AST_sin_AUD_vigente_acreditada",
    "cadena_AST_con_arranque_pendiente_de_confirmar") for x in a["funciones"]),
  "asociacionesDeRedSinConcordanciaEstatica":sum(
-   check["estado"]!="asociacion_estatica_identica_en_arbol_de_accion"
+   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA")
    for row in b["acciones"] for check in row["comprobaciones"]),
  "sinConsumidorASTActualIdentificado":sum(x["clasificacionActual"]==
    "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado" for x in a["funciones"]),
