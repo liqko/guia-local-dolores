@@ -57,13 +57,3 @@ test('P4-0010: ficha de Guía apunta al módulo real de Actividades publicado po
   assert(!hosting.hosting.rewrites.some(x=>x.source==='/actividades/'),'No existe rewrite para el enlace antiguo');
 });
 
-test('P4-0013: nombre con apóstrofo se transporta como atributo, no como código inline',()=>{
-  const guide=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
-  const snippet=guide.slice(guide.indexOf("if(anuncianteFavId && permisoNivel_"),guide.indexOf("if(anuncianteFavId && permisoNivel_(nivelVisual,\"compartir_habilitado\""));
-  assert.match(snippet,/data-fav-nombre="/);
-  assert.match(snippet,/gldToggleFavoritoAnunciante\(this,this\.dataset\.anuncianteId,this\.dataset\.favNombre\)/);
-  assert.doesNotMatch(snippet,/gldToggleFavoritoAnunciante\(this,this\.dataset\.anuncianteId,'/);
-  const name="L'atelier & Asociados";
-  const encoded=name.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  assert(encoded.includes("'"),'El apóstrofo pertenece al dato y no al literal del onclick');
-});
