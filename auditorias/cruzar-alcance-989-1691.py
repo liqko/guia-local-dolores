@@ -180,14 +180,22 @@ for diff in differences:
                      sha_paso2[file]==sha_actual.get(file) for file in all_files)
         owner_contains_call=bool(owner and any(c.get("id")==req.get("callId") for c in owner.get("calls",[])))
         owner_reached=bool(owner and owner["id"] in reached_fn)
+        matching_line_calls=[c for c in (owner or {}).get("calls",[]) if
+                             c.get("file")==req.get("file") and c.get("line")==req.get("line") and
+                             c.get("kind")=="http"]
+        unique_site=bool(len(matching_line_calls)==1)
         evidence={"fuentesSHAInalteradas":stable,"ownerASTActual":owner["id"] if owner else None,
-                  "callerEnArbolAccion":owner_reached,"callIdEnFuncionAST":owner_contains_call}
+                  "callerEnArbolAccion":owner_reached,"callIdEnFuncionAST":owner_contains_call,
+                  "sitioHttpASTUnicoMismaLinea":unique_site,
+                  "idSitioHttpActual":matching_line_calls[0]["id"] if unique_site else None}
         if stable and owner_contains_call and owner_reached and len(same)==1:
             verdict="contrato_paso2_certificado_por_identidad_AST_y_SHA"
             # Los metadatos de un generador diferente NO sustituyen el
             # contrato definitivo mientras código y receptor no cambiaron.
         elif stable and owner_contains_call and owner_reached and not same:
             verdict="contrato_paso2_en_caller_AST_sin_nodo_http_generado"
+        elif stable and owner_reached and unique_site and not same:
+            verdict="contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA"
         checks.append({"callId":req.get("callId"),"metodo":req.get("verb"),"evidenciaAST":evidence,
                        "rutas":req.get("candidates"),"estado":verdict,
                        "razones":reasons})
@@ -198,7 +206,7 @@ for diff in differences:
        "comprobaciones":checks,
        "dictamen":("control_historico_reemplazado" if aud in historicos else
          "sin_red_en_catalogo_definitivo" if not expected else
-         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA") for c in checks)
+         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA") for c in checks)
          else "requiere_revision_de_asociacion")})
 assert len(review)==218
 network_review=[x for x in review if x["peticionesDefinitivas"]]
