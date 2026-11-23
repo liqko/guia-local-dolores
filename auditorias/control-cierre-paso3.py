@@ -115,3 +115,79 @@ resultado={
 salida=Path("auditorias/temporal/CONTROL_CIERRE_PASO3_155.json")
 salida.write_text(json.dumps(resultado,ensure_ascii=False,indent=2)+"\n")
 print("PASO3_CONTROL_CIERRE",json.dumps({k:v for k,v in resultado.items() if k!="identidades"},ensure_ascii=False))
+
+# Validación independiente 3.4 del estado ACTUAL, sin sustituir el
+# control histórico de 155 ni afirmar cierre a partir de sumas.
+p_indirecta=Path("auditorias/temporal/REVALIDACION_INDIRECTA_1691_ACTUAL.json")
+p_red=Path("auditorias/temporal/CONTRASTE_218_ASOCIACIONES_ACTUALES.json")
+p_cruce=Path("auditorias/temporal/CRUCE_989_1691_ACTUAL.json")
+a=json.loads(p_indirecta.read_text())
+b=json.loads(p_red.read_text())
+c=json.loads(p_cruce.read_text())
+actual=json.loads(Path("nuevo/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
+func_actual={f["id"]:f for f in actual["functionGraph"]}
+assert len(a["funciones"])==1691
+assert len({f["idASTHistorico"] for f in a["funciones"]})==1691
+assert all(f["clasificacionActual"] for f in a["funciones"])
+assert len(b["acciones"])==218
+assert len({x["AUD"] for x in b["acciones"]})==218
+assert c["resumen"]["accionesVigentesSinArbolUnico"]==0
+assert c["resumen"]["accionesVigentesConArbolIdentificado"]==980
+assert len(c["pendientesRemapeo"])==sum(x["idASTActual"] is None for x in a["funciones"])
+# Comprobar de manera independiente las aristas que se declaran válidas:
+# si un par no existe en el AST vigente o en callbackBindings, rechazar.
+callbacks=set()
+for record in actual.get("callbackBindings",[]):
+    src=record["binding"].split("|")[0]
+    for dst in record["targets"]: callbacks.add((src,dst))
+verified_chains=0
+for row in a["funciones"]:
+    chain=row.get("cadenaActualCandidata")
+    edges=row.get("aristasActuales")
+    if edges is None:continue
+    assert chain is not None and len(edges)==len(chain)-1
+    for src,dst,kind in zip(chain,chain[1:],edges):
+        if kind=="llamada_AST_actual":
+            assert any(call.get("to")==dst for call in func_actual[src].get("calls",[])),row["idASTHistorico"]
+        elif kind=="callback_registrado_AST_actual_condicional":
+            assert (src,dst) in callbacks,row["idASTHistorico"]
+        else:
+            assert kind=="arista_historica_no_correspondida_en_AST_actual"
+    if row["clasificacionActual"].startswith("cadena_AST_revalidada"):
+        assert "arista_historica_no_correspondida_en_AST_actual" not in edges
+        verified_chains+=1
+for row in b["acciones"]:
+    for check in row["comprobaciones"]:
+        if check["estado"]=="asociacion_estatica_identica_en_arbol_de_accion":
+            assert not check["razones"]
+        elif check["estado"]=="diferencia_de_contrato_o_destino":
+            assert check["razones"]
+        else:
+            assert check["estado"]=="sin_callId_unico_en_arbol_vigente"
+issues={
+ "identidadesSinEquivalencia":sum(x["idASTActual"] is None for x in a["funciones"]),
+ "cadenasSinRaizOReceptorConfirmado":sum(x["clasificacionActual"] in (
+   "cadena_indirecta_con_identidad_intermedia_no_remapeada",
+   "cadena_indirecta_requiere_verificacion_de_receptor",
+   "cadena_AST_sin_raiz_de_AUD_acreditada",
+   "cadena_AST_sin_AUD_vigente_acreditada",
+   "cadena_AST_con_arranque_pendiente_de_confirmar") for x in a["funciones"]),
+ "asociacionesDeRedSinConcordanciaEstatica":sum(
+   check["estado"]!="asociacion_estatica_identica_en_arbol_de_accion"
+   for row in b["acciones"] for check in row["comprobaciones"]),
+ "sinConsumidorRevisadoSoloEnHistorico":sum(x["clasificacionActual"]==
+   "sin_consumidor_acreditado_en_revision_historica" for x in a["funciones"])
+}
+report={
+ "control":"Paso 3.4 independiente, código actualizado 9b7fd659",
+ "integridad989":c["resumen"]["accionesVigentesConArbolIdentificado"]==980,
+ "integridad1691":True,
+ "integridad218":True,
+ "cadenasASTRevalidadas":verified_chains,
+ "impedimentosDeCertificacion":issues,
+ "paso3Cerrado":False,
+ "motivo":"Faltan pruebas de equivalencia, raíz o receptor, y concordancia de asociaciones antes del cierre; los dictámenes históricos no equivalen a prueba actual"
+}
+Path("auditorias/temporal/VALIDACION_INDEPENDIENTE_3_4_ACTUAL.json").write_text(
+ json.dumps(report,ensure_ascii=False,indent=2)+"\n")
+print("PASO3_VALIDACION_INDEPENDIENTE_3_4",json.dumps(report,ensure_ascii=False))
