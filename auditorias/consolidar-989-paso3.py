@@ -38,6 +38,36 @@ for row in model["acciones"]:
     ct[now]+=1
     related.append({**row,"estadoConsolidado":now,"evidenciaArbolActual":ev})
 assert len(related)==989
+# Cuatro llamadas históricas son subexpresiones o registros de un evento
+# del nuevo AST; no son cuatro controles funcionales independientes.
+by_aud={x["AUD"]:x for x in related}
+absorbed={
+ "AUD-00863":"AUD-00417",
+ "AUD-00864":"AUD-00417",
+ "AUD-00868":"AUD-00867",
+ "AUD-00870":"AUD-00869",
+}
+for alias,parent in absorbed.items():
+    row=by_aud[alias];target=by_aud[parent]
+    assert row["estadoConsolidado"]=="origen_sin_correspondencia_unica_en_arbol_actual",alias
+    evidence=target["evidenciaArbolActual"]
+    assert evidence and evidence["nuevo"],(alias,parent)
+    current=evidence["nuevo"]
+    oldhandler=row["start"].get("handler") or ""
+    if alias in ("AUD-00863","AUD-00864"):
+        assert current.get("event")=="change"
+        assert current.get("receiver")=="document.getElementById('alta-reclamo-ciudad')"
+        assert oldhandler.startswith("document.getElementById('alta-reclamo-ciudad')")
+    else:
+        assert current.get("kind")=="startup_call"
+        assert oldhandler in current.get("handler",""),alias
+    row["estadoConsolidado"]="subexpresion_historica_asociada_al_registro_actual"
+    row["evidenciaArbolActual"]={"AUDActual":parent,"accionVigente":current,
+       "criterio":"subexpresión o registro histórico ligado a un evento actual único",
+       "advertencia":"no contar como entrada funcional adicional ni arista nueva"}
+ct=collections.Counter(r["estadoConsolidado"] for r in related)
+assert len(absorbed)==4
+
 verified=sum(1 for r in related if r["estadoConsolidado"] in (
   "origen_AST_en_fuente_inalterada","origen_AST_remapeado_por_cuerpo",
   "receptor_vigente_con_funcion_AST_concreta"))
