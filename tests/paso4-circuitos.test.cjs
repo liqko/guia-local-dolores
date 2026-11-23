@@ -208,3 +208,32 @@ test('P4-0035/P4-0011: alta idempotente recuperada completa la proyección KV pe
  await assert.rejects(create({db:dbAlien,cache:{},advertiserId:'A1',body,cupoFromAdmin:()=>1}),/otra promoción/);
  assert.equal(actions.length,previous,'No sincronizar alta idempotente de otro anunciante');
 });
+
+
+test('P4-0020: GH reutiliza carga territorial por sesión pero Actualizar fuerza GET',async()=>{
+  const src=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+  const from=src.indexOf('let GH_TERRITORY_PENDING195=null;');
+  const to=src.indexOf('function ghDetalleEvento(',from);
+  assert(from>0&&to>from);
+  let requests=0;
+  const fetch=async(_url,_options)=>{requests++;return{ok:true,json:async()=>({success:true,ciudades:[{ciudad_id:'DOL'}]})}};
+  const factory=new Function('fetch',`
+    let GH_CITIES=[],GH_DAILY_ENTRY195=null,TOKEN='S1';
+    const TERRITORY_API_ORIGIN='https://worker.test';
+    function ghTerritoryApply195(data){GH_CITIES=data.ciudades||[];}
+    ${src.slice(from,to)}
+    return {load:ghCargarCiudades,setToken:value=>TOKEN=value};
+  `);
+  const gh=factory(fetch);
+  await Promise.all([gh.load(),gh.load()]);
+  assert.equal(requests,1,'Solicitudes concurrentes deben compartir Promise');
+  await gh.load();
+  assert.equal(requests,1,'Reabrir otra vista en misma sesión no debe leer');
+  await gh.load(true);
+  assert.equal(requests,2,'Botón Actualizar debe consultar');
+  gh.setToken('S2');
+  await gh.load();
+  assert.equal(requests,3,'Otra sesión no debe reutilizar la copia anterior');
+  assert.match(src,/btnCiudadesRefresh'\)\.onclick=async function\(\)\{await ghCargarCiudades\(true\)/);
+  assert.match(src,/GLD_CATALOGO_TERRITORIAL\.load\(\)/,'El catálogo público de roles conserva permisos y ruta independiente');
+});
