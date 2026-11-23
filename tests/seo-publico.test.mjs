@@ -33,6 +33,22 @@ test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', 
     const html=await readFile(join(root,'seo','dolores-bue-arg','farmacias-de-turno','index.html'),'utf8');
     assert.match(html,/<title>Farmacias de turno en Dolores/);
     assert.match(html,/rel="canonical"/);
+    assert.match(html,/<iframe[^>]*class="seo-app"/);
+    assert.match(html,/seo_destino=farmacias/);
+    assert.match(html,/ciudad_id=ciudad1/);
+    const eventos=await readFile(join(root,'seo','dolores-bue-arg','eventos','index.html'),'utf8');
+    assert.match(eventos,/seo_destino=eventos/);
+    const promos=await readFile(join(root,'seo','dolores-bue-arg','promociones','index.html'),'utf8');
+    assert.match(promos,/seo_destino=promos/);
+    const actividades=await readFile(join(root,'seo','dolores-bue-arg','actividades','index.html'),'utf8');
+    assert.match(actividades,/seo_destino=actividades/);
+    const guia=await readFile(join(root,'seo','dolores-bue-arg','comercios-y-servicios','index.html'),'utf8');
+    assert.doesNotMatch(guia,/seo_destino=/);
+    const carcasa=await readFile('plataforma/carcasa.html','utf8');
+    assert.match(carcasa,/entradaSeo\.get\('ciudad_id'\)/);
+    assert.match(carcasa,/cargarCentro\(destinoSeo,\{disparador:MODULOS\[destinoSeo\]\?\.nav\}\)/);
+    assert.match(carcasa,/destinoSeo==='farmacias'\?'farmaTurnoGo'/);
+
     const robots=await readFile(join(root,'robots.txt'),'utf8');
     assert.match(robots,/Sitemap: https:\/\/guialocal\.ar\/sitemap\.xml/);
   } finally {await rm(root,{recursive:true,force:true});}
