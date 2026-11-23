@@ -92,7 +92,7 @@ assert len(absorbed)==4
 
 verified=sum(1 for r in related if r["estadoConsolidado"] in (
   "origen_AST_en_fuente_inalterada","origen_AST_remapeado_por_cuerpo",
-  "receptor_vigente_con_funcion_AST_concreta"))
+  "receptor_vigente_con_funcion_AST_concreta","nuevo_evento_con_funcion_AST_concreta"))
 unmatched=[r["AUD"] for r in related if r["estadoConsolidado"]=="origen_sin_correspondencia_unica_en_arbol_actual"]
 print("PASO3_CONSOLIDADO_989",json.dumps({
   "acciones":989,"origenFuncionAST":verified,
