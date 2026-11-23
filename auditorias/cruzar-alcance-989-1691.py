@@ -56,6 +56,21 @@ for a in m["acciones"]:
             if refined and len(refined)<len(candidates):
                 candidates=refined
                 proof+="_"+label
+    if len(candidates)>1 and aud in ("AUD-00412","AUD-00413"):
+        # Dos botones idénticos Promocioná para eventos distintos comparten
+        # función y atributos. La equivalencia usa orden y corrimiento
+        # de líneas idéntico en ambas ediciones, NO el primer candidato.
+        grupo=[x for x in m["acciones"] if x["AUD"] in ("AUD-00412","AUD-00413")]
+        grupo=sorted(grupo,key=lambda x:x["start"]["line"])
+        orden=sorted(candidates,key=lambda x:x["action"]["line"])
+        assert len(grupo)==len(orden)==2
+        assert len({x["start"]["handler"] for x in grupo})==1
+        assert len({x["action"]["handler"] for x in orden})==1
+        deltas={x["action"]["line"]-y["start"]["line"] for y,x in zip(grupo,orden)}
+        if len(deltas)==1 and len({x["action"]["id"] for x in orden})==2:
+            idx=next(i for i,x in enumerate(grupo) if x["AUD"]==aud)
+            candidates=[orden[idx]]
+            proof+="_orden_estable_y_delta_linea_constante"
     if len(candidates)==1:
         t=candidates[0]
         assert t["action"]["file"]==start.get("file"),(aud,t["action"]["file"],start.get("file"))
