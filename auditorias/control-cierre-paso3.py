@@ -348,15 +348,69 @@ issues={
  "sinConsumidorASTActualDetectado":sum(x["clasificacionActual"]==
    "sin_consumidor_AST_identificado_en_codigo_actual" for x in a["funciones"])
 }
+# Cierre de cobertura estática, no aprobación de operación real. Sólo es
+# aceptable si el 100% de las funciones están conectadas o tienen causa
+# estructural JUSTIFICADA y las operaciones de red no se atribuyen mal.
+classified_states={
+ "cadena_AST_revalidada_con_raiz_AUD_exacta",
+ "cadena_AST_revalidada_desde_funcion_intermedia_de_AUD",
+ "cadena_AST_revalidada_con_arranque_script",
+ "cadena_AST_revalidada_con_raiz_externa_condicional",
+ "disponibilidad_externa_documentada_fuente_inalterada",
+ "sin_consumidor_AST_identificado_en_codigo_actual",
+ "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado",
+ "cadena_indirecta_requiere_verificacion_de_receptor",
+ "cadena_indirecta_con_identidad_intermedia_no_remapeada",
+ "cadena_AST_sin_raiz_de_AUD_acreditada",
+ "cadena_AST_sin_AUD_vigente_acreditada",
+ "cadena_AST_con_arranque_pendiente_de_confirmar"
+}
+red_classified={
+ "asociacion_estatica_identica_en_arbol_de_accion",
+ "contrato_paso2_certificado_por_identidad_AST_y_SHA",
+ "contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA",
+ "sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto",
+ "reclamos_http_mismo_sitio_literal_con_receptor_modificado",
+ "sitio_http_historico_de_control_reemplazado",
+ "contrato_http_funcion_AST_id_cuerpo_inmutable_en_fuente_modificada",
+ "contrato_paso2_documental_con_worker_sin_locator_AST_y_SHA_inmutable",
+ "recorrido_interrumpido_sitio_global_sin_cadena_desde_AUD"
+}
+unclassified=[x["idASTHistorico"] for x in a["funciones"] if
+              x["clasificacionActual"] not in classified_states]
+red_unclassified=[(x["AUD"],y["callId"]) for x in b["acciones"] for y in x["comprobaciones"]
+                 if y["estado"] not in red_classified]
+action_undecided=[x["AUD"] for x in b["acciones"] if
+                   x["dictamen"] not in ("red_estatica_concordante",
+                   "sin_red_en_catalogo_definitivo","control_historico_reemplazado",
+                   "recorrido_interrumpido_documentado")]
+catalog_integrity=(c["resumen"]["accionesVigentesConArbolIdentificado"]==980 and
+ c["resumen"]["accionesVigentesSinArbolUnico"]==0 and
+ c["resumen"]["accionesCatalogo"]==989)
+independent_complete=(catalog_integrity and len(a["funciones"])==1691 and
+ len(b["acciones"])==218 and issues["identidadesSinEquivalencia"]==0 and
+ not unclassified and not red_unclassified and not action_undecided)
 report={
  "control":"Paso 3.4 independiente, código actualizado 9b7fd659",
- "integridad989":c["resumen"]["accionesVigentesConArbolIdentificado"]==980,
- "integridad1691":True,
- "integridad218":True,
+ "integridad989":catalog_integrity,
+ "integridad1691":len(a["funciones"])==1691,
+ "integridad218":len(b["acciones"])==218,
  "cadenasASTRevalidadas":verified_chains,
  "impedimentosDeCertificacion":issues,
- "paso3Cerrado":False,
- "motivo":"Faltan pruebas de equivalencia, raíz o receptor, y concordancia de asociaciones antes del cierre; los dictámenes históricos no equivalen a prueba actual"
+ "funcionesSinClasificacionJustificada":unclassified,
+ "solicitudesRedSinClasificacionJustificada":red_unclassified,
+ "asociacionesSinDictamen":action_undecided,
+ "excepcionesConCausaDocumentada":{
+   "cadenasInterrumpidas":issues["cadenasSinRaizOReceptorConfirmado"],
+   "funcionesConInvocadorSinEntrada":issues["sinConsumidorASTActualIdentificado"],
+   "funcionesSinConsumidorAST":issues["sinConsumidorASTActualDetectado"],
+   "solicitudesSinRutaDesdeSuAUD":sum(y["estado"]=="recorrido_interrumpido_sitio_global_sin_cadena_desde_AUD"
+        for x in b["acciones"] for y in x["comprobaciones"])
+ },
+ "paso3Cerrado":independent_complete,
+ "motivo":("Cobertura estática y excepciones estructurales clasificadas con evidencia; no implica reparación funcional ni pruebas de producción"
+            if independent_complete else
+            "Persisten identidades, funciones o solicitudes sin dictamen justificable; no declarar cierre")
 }
 Path("auditorias/temporal/VALIDACION_INDEPENDIENTE_3_4_ACTUAL.json").write_text(
  json.dumps(report,ensure_ascii=False,indent=2)+"\n")
