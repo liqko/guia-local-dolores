@@ -98,3 +98,31 @@ test('P4-0013: inline Favoritos preserva apóstrofos sin romper callback AUD',()
     assert.equal(passed,original);
   }
 });
+
+test('P4-0012: GET anterior no puede restaurar favorito eliminado luego de POST exitoso',async()=>{
+  const src=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+  const start=src.indexOf('let gldFavoritosAnunciantes=new Set();');
+  const end=src.indexOf("const CITY_CONTEXT_KEY=",start);
+  assert(start>0&&end>start);
+  let resolveGet;
+  const fetchStub=async(url,opts={})=>{
+    if(opts.method==='GET')return new Promise(resolve=>{resolveGet=resolve});
+    assert.equal(opts.method,'POST');
+    assert.equal(JSON.parse(opts.body).action,'quitar_favorito');
+    return {ok:true,json:async()=>({success:true})};
+  };
+  const store=new Map([['gld_favoritos_anunciantes_v2:S1',JSON.stringify({ids:['A1']})]]);
+  const localStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)};
+  const btn={dataset:{anuncianteId:'A1'},classList:{toggle(){}},textContent:'♥',title:'Quitar de favoritos',disabled:false};
+  const document={querySelectorAll:()=>[btn]};
+  const api=new Function('localStorage','document','fetch','gldGetSubscriberSession','gldGetSubscriberToken','GLD_SUSCRIPTORES_API','ciudadSeleccionada','gldIsSubscriberLogged',src.slice(start,end)+
+    ';return {load:gldCargarFavoritosAnunciantes,toggle:gldToggleFavoritoAnunciante,has:id=>gldFavoritosAnunciantes.has(id)}')(
+      localStorage,document,fetchStub,()=>({suscriptor_id:'S1'}),()=>('TOKEN'),'https://example.test/suscriptores','DOL',()=>true);
+  const pending=api.load();
+  await api.toggle(btn,'A1',"O'Connor");
+  resolveGet({ok:true,json:async()=>({success:true,favoritos:[{referencia_id:'A1'}]})});
+  await pending;
+  assert.equal(api.has('A1'),false,'GET obsoleto no debe pisar POST');
+  assert.equal(btn.textContent,'♡');
+  assert.deepEqual(JSON.parse(store.get('gld_favoritos_anunciantes_v2:S1')).ids,[]);
+});
