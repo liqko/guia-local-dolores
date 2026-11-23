@@ -100,6 +100,25 @@ for(const h of cases){
 }
 for(const t of allTasks)for(const id of t.hallazgos_ids)
  assert(cases.some(h=>h.hallazgo===id&&h.destino.tarea_id===t.id),'Tarea con hallazgo no recíproco '+t.id+' '+id);
+const p3=inv.excepciones_paso3_individuales;
+assert(p3&&Array.isArray(p3.casos),'Faltan excepciones P3 con identidad original');
+assert.equal(p3.total,321,'El universo individual P3 tiene un conteo no acreditado');
+assert.equal(p3.casos.length,p3.total,'Excepciones P3 incompletas');
+assert.equal(new Set(p3.casos.map(x=>x.id_AST_historico)).size,p3.total,'Identidad P3 duplicada');
+const p3Groups={};
+for(const x of p3.casos){
+ assert(x.id_AST_historico&&x.id_AST_actual&&x.grupo,'Excepción sin identidad AST o clasificación');
+ assert(tasksById.has(x.tarea_id),'Excepción P3 sin tarea P4 válida: '+x.id_AST_historico);
+ assert(x.estado_ejecucion,'Excepción P3 sin estado: '+x.id_AST_historico);
+ if(x.estado_ejecucion==='terminada_verificada')assert(x.prueba_reproducible&&x.evidencia_funcional,'No cerrar excepción P3 sin reproducción funcional: '+x.id_AST_historico);
+ p3Groups[x.grupo]=(p3Groups[x.grupo]||0)+1;
+}
+assert.deepEqual(p3Groups,p3.por_grupo,'Clasificación P3 no reconstruible');
+assert.equal(p3Groups["P3-166-CADENAS-INTERRUMPIDAS"],166);
+assert.equal(p3Groups["P3-17-FUNCIONES-SIN-ENTRADA"],17);
+assert.equal(p3Groups["P3-138-SIN-CONSUMIDOR-AST"],138);
+console.log('PASO4_P3_IDENTIDADES_PASS '+JSON.stringify({total:p3.casos.length,grupos:p3Groups,pendientes:p3.casos.filter(x=>x.estado_ejecucion==='pendiente_verificacion_individual').length}));
+
 const http=inv.errores_http_5xx;
 assert(http&&Array.isArray(http.grupos),'Falta P4-0035 por ruta');
 assert.equal(http.grupos.reduce((sum,x)=>sum+x.cantidad,0),http.total_respuestas,'HTTP5xx total no reconstruible');
