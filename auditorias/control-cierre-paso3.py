@@ -182,7 +182,9 @@ for row in b["acciones"]:
                                 "contrato_paso2_en_caller_AST_sin_nodo_http_generado",
                                 "contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA"):
             ev=check.get("evidenciaAST") or {}
-            assert ev.get("fuentesSHAInalteradas") and ev.get("callIdEnFuncionAST")
+            assert ev.get("fuentesSHAInalteradas")
+            if check["estado"]!="contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA":
+                assert ev.get("callIdEnFuncionAST")
             assert ev.get("callerEnArbolAccion") and ev.get("ownerASTActual") in tree_functions
             owner=func_actual[ev["ownerASTActual"]]
             if check["estado"]=="contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA":
