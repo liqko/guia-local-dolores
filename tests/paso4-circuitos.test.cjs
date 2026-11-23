@@ -300,3 +300,31 @@ test('P4-0011/P4-0009: reconstruir Promos vacía ciudad con sólo pausadas y omi
  assert.equal(put.length,1,'Segunda reconstrucción idéntica no escribe KV');
  assert.equal(get.length,4,'Dos lecturas KV por reconstrucción son costo observable del algoritmo');
 });
+
+
+test('P4-0020: un refresco administrativo prevalece sobre copia diaria obsoleta incluso si queda vacío',async()=>{
+ const html=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+ const start=html.indexOf('let GH_TERRITORY_PENDING195=null;');
+ const end=html.indexOf('function ghDetalleEvento(',start);
+ assert(start>=0&&end>start);
+ let reads=0,returned=[{ciudad_id:'NUEVA'}];
+ const fetch=async()=>{reads++;return {ok:true,json:async()=>({success:true,ciudades:returned})};};
+ const factory=new Function('fetch',`
+   let GH_CITIES=[],GH_DAILY_ENTRY195={territory:{ciudades:[{ciudad_id:'ANTIGUA'}]}},TOKEN='S1';
+   const TERRITORY_API_ORIGIN='https://worker.test';
+   function ghTerritoryApply195(v){GH_CITIES=v.ciudades||[];}
+   ${html.slice(start,end)}
+   return {load:ghCargarCiudades,cities:()=>GH_CITIES.map(c=>c.ciudad_id),token:v=>TOKEN=v,daily:v=>GH_DAILY_ENTRY195={territory:v}};
+ `);
+ const gh=factory(fetch);
+ await gh.load();assert.deepEqual(gh.cities(),['ANTIGUA']);assert.equal(reads,0,'Paquete diario evita GET inicial');
+ await gh.load(true);assert.deepEqual(gh.cities(),['NUEVA']);assert.equal(reads,1);
+ await gh.load();assert.deepEqual(gh.cities(),['NUEVA'],'Copia diaria anterior no debe sobrescribir refresh');
+ assert.equal(reads,1);
+ returned=[];
+ await gh.load(true);assert.deepEqual(gh.cities(),[]);
+ await gh.load();assert.deepEqual(gh.cities(),[],'Catálogo vacío fresco no debe reemplazarse por uno antiguo');
+ assert.equal(reads,2);
+ gh.token('S2');gh.daily({ciudades:[{ciudad_id:'OTRA_SESION'}]});
+ await gh.load();assert.deepEqual(gh.cities(),['OTRA_SESION'],'Nueva sesión puede consumir su nuevo paquete diario');
+});
