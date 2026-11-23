@@ -258,8 +258,9 @@ for row in b["acciones"]:
             assert owner["id"] in tree_functions and owner["file"]=="plataforma/login.html"
             assert ev["equivalenciaFuncionHistorica"]==owner["id"] or bool(remap["proof"])
             assert any(call.get("id")==check["callId"] for call in owner.get("calls",[]))
-            assert check["metodo"] in ("GET","POST","PUT","PATCH","DELETE")
-            assert any(x["callId"]==check["callId"] and x["verb"]==check["metodo"]
+            # El catálogo permite método dinámico (verb=null). No inventar
+            # GET/POST: comprobar sólo que conserva exactamente ese contrato.
+            assert any(x.get("callId")==check["callId"] and x.get("verb")==check["metodo"]
                        for x in definitive_network_by_aud[row["AUD"]])
             for req in definitive_network_by_aud[row["AUD"]]:
                 if req.get("callId")!=check["callId"]:continue
