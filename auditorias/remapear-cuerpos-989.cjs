@@ -17,6 +17,12 @@ function parts(file,raw){
    result.push({src:m[2],off:raw.slice(0,m.index+m[0].indexOf('>')+1).split('\n').length-1});
  return result;
 }
+function tokensSha(text){
+ const scanner=ts.createScanner(ts.ScriptTarget.Latest,true,ts.LanguageVariant.Standard,text);
+ const tokens=[];let kind;
+ while((kind=scanner.scan())!==ts.SyntaxKind.EndOfFileToken)tokens.push([kind,scanner.getTokenText()]);
+ return crypto.createHash('sha256').update(JSON.stringify(tokens)).digest('hex');
+}
 function scan(root,file){
  const raw=fs.readFileSync(path.join(root,file),'utf8'),found=[];
  for(const frag of parts(file,raw)){
@@ -37,7 +43,7 @@ function scan(root,file){
     if(isFn(n)){
       const name=functionName(n),id=file+':'+line(n)+':'+n.getStart(sf)+':'+name;
       const exact=crypto.createHash('sha256').update(n.getText(sf)).digest('hex');
-      found.push({id,file,line:line(n),name,sha256:exact,preview:n.getText(sf).slice(0,150)});
+      found.push({id,file,line:line(n),name,sha256:exact,tokenSha:tokensSha(n.getText(sf)),preview:n.getText(sf).slice(0,150)});
     }
     ts.forEachChild(n,visit);
   }
@@ -63,6 +69,19 @@ for(const x of modern.values()){
  if(!bySignature.has(sig))bySignature.set(sig,[]);
  bySignature.get(sig).push(x);
 }
+// Segunda prueba estricta: tokens TypeScript idénticos, ignorando únicamente
+// espacios y comentarios. Nunca se enlaza por nombre o proximidad.
+const byTokens=new Map();
+for(const x of modern.values()){
+ const sig=x.file+':'+x.tokenSha;
+ if(!byTokens.has(sig))byTokens.set(sig,[]);
+ byTokens.get(sig).push(x);
+}
+const seenOldTokens=new Map();
+for(const x of original.values()){
+ const sig=x.file+':'+x.tokenSha;
+ seenOldTokens.set(sig,(seenOldTokens.get(sig)||0)+1);
+}
 const seenOld=new Map();
 for(const x of original.values()){
  const sig=x.file+':'+x.sha256;
@@ -80,8 +99,14 @@ for(const f of old.functionGraph){
  if(!orig)continue;
  const sig=orig.file+':'+orig.sha256;
  const candidates=bySignature.get(sig)||[];
- if(seenOld.get(sig)===1&&candidates.length===1)
+ if(seenOld.get(sig)===1&&candidates.length===1){
    mapped.set(f.id,{newId:candidates[0].id,proof:'SHA256_cuerpo_AST_exacto_unico_mismo_archivo'});
+ } else {
+   const tokenSig=orig.file+':'+orig.tokenSha;
+   const tokenCandidates=byTokens.get(tokenSig)||[];
+   if(seenOldTokens.get(tokenSig)===1&&tokenCandidates.length===1)
+     mapped.set(f.id,{newId:tokenCandidates[0].id,proof:'SHA256_tokens_TypeScript_identicos_sin_trivia_unico_mismo_archivo'});
+ }
 }
 const ledgerRows=ledger.funciones.map(r=>{
  const prev=oldTree.get(r.idAST);
@@ -93,6 +118,20 @@ const ledgerRows=ledger.funciones.map(r=>{
      nombre:original.get(r.idAST).name,
      candidatos:([...modern.values()].filter(x=>x.file===prev.file&&x.name===original.get(r.idAST).name).map(x=>x.id)).slice(0,8)
    }:null};
+});
+const original29=ledgerRows.filter(r=>!r.newId);
+const transformEvidence=original29.map(r=>{
+ const prev=original.get(r.oldId);
+ const candidates=[...modern.values()].filter(x=>x.file===r.archivo&&
+   (x.name===prev?.name || x.tokenSha===prev?.tokenSha));
+ return {idASTHistorico:r.oldId,archivo:r.archivo,lineaHistorica:prev?.line,
+   nombreHistorico:prev?.name,shaHistorico:prev?.sha256,tokenShaHistorico:prev?.tokenSha,
+   cantidadCandidatos:candidates.length,
+   candidatos:candidates.map(x=>({idActual:x.id,lineaActual:x.line,
+     nombre:x.name,cuerpoIdentico:x.sha256===prev?.sha256,
+     tokensIdenticos:x.tokenSha===prev?.tokenSha,
+     fragmento:x.preview})).slice(0,30),
+   dictamen:'identidad_no_acreditada; candidato nominal no constituye equivalencia'});
 });
 const oldUnlinked=ledgerRows.filter(r=>r.estadoHistorico==='falta_enlace_a_entrada');
 const summary={
@@ -112,5 +151,5 @@ const summary={
 };
 if(summary.original1691!==1691||summary.sinEnlaceHistorico!==155)throw Error('Universo de comparación no coincide');
 const fullMap=Object.fromEntries([...mapped.entries()].map(([oldId,v])=>[oldId,v]));
-fs.writeFileSync(out,JSON.stringify({summary,ledger:ledgerRows,fullMap},null,2)+'\n');
+fs.writeFileSync(out,JSON.stringify({summary,ledger:ledgerRows,fullMap,transformEvidence},null,2)+'\n');
 console.log('PASO3_REMAPEO_CUERPOS_989',JSON.stringify(summary));
