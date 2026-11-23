@@ -80,3 +80,21 @@ test('P4-0011: el filtro público acepta el ID real del paquete promocional Work
   assert.equal(filter(item,{id_comercio:'ANU_OTRO',anunciante:'Otro'}),false);
   assert.equal(filter(item,{id_comercio:'ANU_ACP',sede_id:'SEDE_A'}),true);
 });
+
+test('P4-0013: inline Favoritos preserva apóstrofos sin romper callback AUD',()=>{
+  const src=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+  const marker='gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,';
+  const pos=src.indexOf(marker);
+  assert(pos>0&&src.indexOf(marker,pos+1)<0,'El onclick debe tener una sola entrada AUD');
+  const region=src.slice(pos,pos+400);
+  assert.match(region,/safeNombre\.replace\(\/\\\\\/g,"\\\\\\\\"\)/,'Debe escapar backslashes');
+  assert.match(region,/\.replace\(\/'\/g,"\\\\x27"\)/,'Debe escapar apóstrofos para literal JS');
+  const escaped=name=>name.replace(/\\/g,"\\\\").replace(/'/g,"\\x27").replace(/\r/g,"\\r").replace(/\n/g,"\\n");
+  for(const original of ["O'Connor","Barra \\\\ y O'Brien","Otra\nlínea","Sin apóstrofos"]){
+    const call="gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'"+escaped(original)+"')";
+    let passed;
+    const invoke=new Function('gldToggleFavoritoAnunciante','return function(){'+call+'}')((btn,id,name)=>{passed=name});
+    invoke.call({dataset:{anuncianteId:'A1'}});
+    assert.equal(passed,original);
+  }
+});
