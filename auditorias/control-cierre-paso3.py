@@ -202,8 +202,12 @@ for row in b["acciones"]:
             contracts=[x for x in expected_entry.get("network") or [] if x.get("callId")==check["callId"]]
             assert contracts
             for req in contracts:
-                paths=[req.get("file")]+[w.get("file") for w in req.get("worker") or []]
-                assert all(k in p2hash and actual["sourceHashes"].get(k)==p2hash[k] for k in paths)
+                source=req.get("file")
+                if source is None and req.get("callId") and str(req["callId"]).startswith(owner["file"]+":") and any(
+                        c.get("id")==req["callId"] for c in owner.get("calls",[])):
+                    source=owner["file"]
+                paths=[source]+[w.get("file") for w in req.get("worker") or []]
+                assert source and all(k in p2hash and actual["sourceHashes"].get(k)==p2hash[k] for k in paths)
         elif check["estado"]=="sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto":
             ev=check["evidenciaAST"]
             old_function=historic_http_functions[ev["funcionHistorica"]]
