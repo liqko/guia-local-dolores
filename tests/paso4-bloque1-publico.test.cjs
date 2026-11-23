@@ -123,13 +123,14 @@ test('P4-0012/P4-0013: alta, baja, recuperación y error con API autenticada sim
 test('P4-0010: construcción de destinos conserva filtros y ciudad del anunciante',()=>{
  const src=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
  const urls=['EVENTS_PAGE_URL','PROMOS_PAGE_URL','ACTIVIDADES_PAGE_URL'].map(k=>{
-   const match=src.match(new RegExp('const '+k+' = \\'([^\\']+)\\';'));
+   const line=src.split('\n').find(x=>x.includes('const '+k+' = '));
+   const match=line&&line.match(/https:\/\/[^']+/);
    assert(match,'Falta '+k);
-   return new URL(match[1]);
+   return new URL(match[0]);
  });
  for(const u of urls){
    assert.equal(u.origin,'https://guialocal.ar');
-   assert.match(u.pathname,/^\\/plataforma\\/(eventos|promos|actividades)\\.html$/);
+   assert(['/plataforma/eventos.html','/plataforma/promos.html','/plataforma/actividades.html'].includes(u.pathname));
    u.searchParams.set('ciudad_id','DOL (BUE - ARG)');
    u.searchParams.set('anunciante_id',"A-O'Brien & Hijos");
    const after=new URL(u.href);
