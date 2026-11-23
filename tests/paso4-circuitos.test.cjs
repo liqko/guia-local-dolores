@@ -152,3 +152,28 @@ test('P4-0005: Actividades publica una vez y evita KV put idéntico; cambios sí
  assert.equal(packets.get('activities:city:v2:DOL').actividades[0].nombre,'Taller actualizado');
  assert.equal(gets,3,'Una lectura de paquete por intento');
 });
+
+test('P4-0009: índice administrativo Promos evita reescribir igual y conserva bajas',async()=>{
+ const src=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
+ const from=src.indexOf('async function syncAdminPromoV91(');
+ const to=src.indexOf('/** @param {Record<string, any>} row */',from);
+ assert(from>0&&to>from);
+ const sync=new Function('PROMOS_ADMIN_PREFIX_V91','GLD_BUSINESS143',src.slice(from,to)+';return syncAdminPromoV91')(
+  'admin:promos:item:v91:',{equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
+ );
+ const store=new Map();let puts=0,gets=0;
+ const cache={get:async k=>(gets++,store.get(k)),put:async(k,v)=>(puts++,store.set(k,v))};
+ const one={promo_id:'P-1',promo:'Oferta',ciudad_id:'DOL'};
+ await sync(cache,null,one);
+ assert.equal(puts,1,'Alta escribe índice');
+ await sync(cache,one,{...one});
+ assert.equal(puts,1,'Repetir la misma proyección no reescribe índice');
+ await sync(cache,one,{...one,promo:'Oferta nueva'});
+ assert.equal(puts,2,'Cambio de oferta sí escribe');
+ await sync(cache,one,null);
+ assert.equal(puts,3,'Baja escribe tombstone');
+ assert.equal(store.get('admin:promos:item:v91:P-1').deleted,true);
+ await sync(cache,one,null);
+ assert.equal(puts,3,'Baja idéntica no reescribe tombstone');
+ assert.equal(gets,5,'Una comprobación por sincronización');
+});
