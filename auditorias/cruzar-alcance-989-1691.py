@@ -188,10 +188,16 @@ for diff in differences:
                              c.get("file")==req.get("file") and c.get("line")==req.get("line") and
                              c.get("kind")=="http"]
         unique_site=bool(len(matching_line_calls)==1)
+        hashes_no_coincidentes=[{"archivo":file,
+              "hashPaso2Existe":file in sha_paso2,"hashActualExiste":file in sha_actual,
+              "diferente":file in sha_paso2 and file in sha_actual and sha_paso2[file]!=sha_actual[file]}
+              for file in all_files if not file or sha_paso2.get(file)!=sha_actual.get(file)
+              or file not in sha_paso2 or file not in sha_actual]
         evidence={"fuentesSHAInalteradas":stable,"ownerASTActual":owner["id"] if owner else None,
                   "callerEnArbolAccion":owner_reached,"callIdEnFuncionAST":owner_contains_call,
                   "sitioHttpASTUnicoMismaLinea":unique_site,
-                  "idSitioHttpActual":matching_line_calls[0]["id"] if unique_site else None}
+                  "idSitioHttpActual":matching_line_calls[0]["id"] if unique_site else None,
+                  "fuentesNoCorrespondidas":hashes_no_coincidentes}
         if stable and owner_contains_call and owner_reached and len(same)==1:
             verdict="contrato_paso2_certificado_por_identidad_AST_y_SHA"
             # Los metadatos de un generador diferente NO sustituyen el
@@ -286,6 +292,10 @@ review_summary={
  "porDictamen":dict(collections.Counter(x["dictamen"] for x in review)),
  "peticionesPorEstado":dict(collections.Counter(c["estado"] for x in review for c in x["comprobaciones"])),
  "razonesDeDiferencia":dict(collections.Counter(reason for x in review for c in x["comprobaciones"] for reason in c["razones"])),
+ "archivosNoCorrespondidosPorFamilia":dict(collections.Counter(
+     z.get("archivo") or "(sin archivo)" for x in review for c in x["comprobaciones"]
+     if c["estado"]=="diferencia_de_contrato_o_destino"
+     for z in c.get("evidenciaAST",{}).get("fuentesNoCorrespondidas",[]))),
  "limite":"Comparacion estática por callId dentro del árbol individual, sin prueba de ejecución, permisos runtime ni respuesta de red"}
 (temp/"CONTRASTE_218_ASOCIACIONES_ACTUALES.json").write_text(json.dumps(
  {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\n")
