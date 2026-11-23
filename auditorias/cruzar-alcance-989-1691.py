@@ -37,6 +37,25 @@ for a in m["acciones"]:
         current=full.get(entry,{}).get("newId") if entry else None
         candidates=byentry.get(current,[]) if current else []
         proof="entrada_AST_remapeada_SHA"
+        # Una misma función atiende varios botones: no elegir arbitrariamente
+        # el primer árbol. Recuperar el control por evento, receptor, handler
+        # literal y etiqueta, conservando sólo un candidato único.
+        filters=[
+          ("archivo_y_tipo",lambda x:x["action"].get("file")==start.get("file") and x["action"].get("kind")==start.get("kind")),
+          ("handler_literal",lambda x:bool(start.get("handler")) and
+              (x["action"].get("handler")==start.get("handler") or
+               str(x["action"].get("handler") or "").startswith(str(start.get("handler"))))),
+          ("evento",lambda x:x["action"].get("event")==start.get("event")),
+          ("receptor",lambda x:x["action"].get("receiver")==start.get("receiver")),
+          ("elemento",lambda x:x["action"].get("elementId")==start.get("elementId")),
+          ("rotulo",lambda x:x["action"].get("label")==start.get("label")),
+        ]
+        for label,pred in filters:
+            if len(candidates)<=1:break
+            refined=[c for c in candidates if pred(c)]
+            if refined and len(refined)<len(candidates):
+                candidates=refined
+                proof+="_"+label
     if len(candidates)==1:
         t=candidates[0]
         assert t["action"]["file"]==start.get("file"),(aud,t["action"]["file"],start.get("file"))
@@ -78,9 +97,10 @@ summary={
  "funcionesHistoricasRemapeadas":len(verified),
  "funcionesHistoricasSinRemapeo":len(unknown),
  "remapeadasAlcanzadasEnArbolActual":sum(x["alcanzadoEnArbolActual"] for x in verified),
- "remapeadasNoAlcanzadasEnArbolActual":sum(not x["alcanzadoEnArbolActual"] for x in verified),
+ "remapeadasNoAparecenEnArbolesAUDDirectos":sum(not x["alcanzadoEnArbolActual"] for x in verified),
+ "advertenciaAlcance":"Los árboles directos no incluyen raíces IIFE, callbacks de host y entradas de script acreditadas en el grafo histórico; NO son funciones sin enlace",
  "historicas155ConArbolNuevo":len(coveredHistoric),
- "historicas155SinArbolNuevo":len(uncoveredHistoric),
+ "historicas155SinArbolAUDDirecto":len(uncoveredHistoric),
  "historicas155SinRemapeo":sum(x["idAST"] in historicMissing for x in unknown),
  "saldoActualSinEnlace":None,
  "limite":"Alcance AST en árbol con origen de catálogo enlazado; no prueba de condiciones, runtime, ni revalidación funcional completa"}
