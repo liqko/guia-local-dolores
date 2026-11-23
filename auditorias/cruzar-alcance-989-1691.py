@@ -127,6 +127,10 @@ with zipfile.ZipFile("paso2/auditorias/transversal/CATALOGO_MAESTRO.zip") as z:
 entries={e["id"]:e for e in definitive["entries"]}
 sha_paso2=definitive.get("baseline",{}).get("sourceHashes",{})
 sha_actual=n.get("sourceHashes",{})
+# Correspondencias de llamadas en funciones con cuerpo idéntico entre cortes.
+# Su posición se conserva sólo cuando los vectores AST de llamadas coinciden.
+legacy_functions={x["id"]:x for x in json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())["functionGraph"]}
+
 differences=json.loads((temp/"COMPATIBILIDAD_989_PASO3.json").read_text())["diferenciasAcciones"]
 assert len(differences)==218 and len(entries)==989
 mapped_by_aud={a["AUD"]:a for a in mapped}
@@ -196,6 +200,38 @@ for diff in differences:
             verdict="contrato_paso2_en_caller_AST_sin_nodo_http_generado"
         elif stable and owner_reached and unique_site and not same:
             verdict="contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA"
+        if verdict=="callId_sin_coincidencia_unica_en_AST_actual" and aud not in historicos:
+            legacy_owner=legacy_functions.get(req.get("from"))
+            equivalent=full.get(req.get("from")) or {}
+            current_owner=fn.get(equivalent.get("newId"))
+            source_calls=(legacy_owner or {}).get("calls") or []
+            dest_calls=(current_owner or {}).get("calls") or []
+            match_positions=[i for i,c in enumerate(source_calls) if c.get("id")==req.get("callId")]
+            same_order=(len(source_calls)==len(dest_calls) and all(
+                x.get("kind")==y.get("kind") and x.get("method")==y.get("method")
+                for x,y in zip(source_calls,dest_calls)))
+            unique_position=len(match_positions)==1 and match_positions[0]<len(dest_calls)
+            candidate_call=dest_calls[match_positions[0]] if unique_position else None
+            same_scope=(current_owner is not None and
+                legacy_owner.get("file")==current_owner.get("file")==req.get("file"))
+            owner_in_action=bool(current_owner and current_owner["id"] in reached_fn)
+            body_proof=bool(equivalent.get("proof") and not equivalent.get("modifiedBody"))
+            worker_unchanged=all(w.get("file") in sha_paso2 and
+                sha_paso2.get(w.get("file"))==sha_actual.get(w.get("file"))
+                for w in (req.get("worker") or []))
+            if (same_scope and owner_in_action and body_proof and same_order
+                and unique_position and candidate_call.get("kind")=="http"
+                and worker_unchanged):
+                verdict="sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto"
+                evidence.update({
+                    "funcionHistorica":req.get("from"),
+                    "funcionActual":current_owner["id"],
+                    "identidadCuerpo":equivalent.get("proof"),
+                    "mismoOrdenLlamadasAST":True,
+                    "ordinalLlamada":match_positions[0],
+                    "sitioHttpASTActual":candidate_call["id"],
+                    "receptorWorkerSHAInalterado":True
+                })
         checks.append({"callId":req.get("callId"),"metodo":req.get("verb"),"evidenciaAST":evidence,
                        "rutas":req.get("candidates"),"estado":verdict,
                        "razones":reasons})
@@ -206,7 +242,7 @@ for diff in differences:
        "comprobaciones":checks,
        "dictamen":("control_historico_reemplazado" if aud in historicos else
          "sin_red_en_catalogo_definitivo" if not expected else
-         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA") for c in checks)
+         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto") for c in checks)
          else "requiere_revision_de_asociacion")})
 assert len(review)==218
 network_review=[x for x in review if x["peticionesDefinitivas"]]
