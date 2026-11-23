@@ -22,9 +22,12 @@ for row in model["acciones"]:
         act=c["receptorArbol"]
         assert act and act["file"]==row["file"] and act["kind"]==row["start"]["kind"]
         current=act.get("entry")
-        if current in funcs:
+        if current in funcs and not funcs[current].get("synthetic"):
             now="receptor_vigente_con_funcion_AST_concreta"
             assert funcs[current]["file"]==act["file"]
+        elif current in funcs and funcs[current].get("synthetic"):
+            now="inicio_sintetico_con_receptor_actual_sin_funcion_JS"
+            assert act["kind"]=="startup_call", (aid,act["kind"])
         elif act["kind"]=="startup_call":
             now="inicializacion_actual_sin_funcion_AST_individual"
         elif act["kind"] in ("html_handler","generated_markup","event_property"):
@@ -33,7 +36,8 @@ for row in model["acciones"]:
             now="entrada_actual_sin_receptor_AST_individual"
         ev={"historico":row["start"],"nuevo":act,
             "criterio":c["correspondenciaArbol"],
-            "funcionAST":current if current in funcs else None,
+            "funcionAST":current if current in funcs and not funcs[current].get("synthetic") else None,
+            "raizSintetica":current if current in funcs and funcs[current].get("synthetic") else None,
             "limite":"Origen localizado en el árbol; no acredita disparo efectivo ni éxito de la acción"}
     ct[now]+=1
     related.append({**row,"estadoConsolidado":now,"evidenciaArbolActual":ev})
