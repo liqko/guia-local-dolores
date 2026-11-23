@@ -134,11 +134,33 @@ for(const [oldId,oldFn] of oldTree){
    proof:'callback_duplicado_en_padre_con_SHA_AST_exacto_y_ordinal_identico'});
 }
 const ordinalMatches=mapped.size-ambiguousBefore;
+// Caso transformado, no equivalencia de cuerpo: el interceptor publicado
+// sigue siendo la única asignación window.fetch de publicacion.js.
+// Su rama RECLAMAR fue añadida; acreditar continuidad de receptor y cambio.
+const legacyFetch='plataforma/publicacion.js:16:4686:window.fetch';
+const legacy=original.get(legacyFetch);
+const currentFetchCandidates=[...modern.values()].filter(x=>
+ x.file==='plataforma/publicacion.js'&&x.name==='window.fetch');
+const legacySrc=fs.readFileSync('baseline/plataforma/publicacion.js','utf8');
+const currentSrc=fs.readFileSync('nuevo/plataforma/publicacion.js','utf8');
+if(legacy&&!mapped.has(legacyFetch)&&currentFetchCandidates.length===1){
+ const candidate=currentFetchCandidates[0];
+ const assignment=/window\\.fetch\\s*=\\s*async\\s+function\\s*\\(input,init\\)/g;
+ if([...legacySrc.matchAll(assignment)].length===1&&
+    [...currentSrc.matchAll(assignment)].length===1&&
+    legacy.sha256!==candidate.sha256&&
+    !legacySrc.includes("String(body.modo||'').toUpperCase()==='RECLAMAR'")&&
+    currentSrc.includes("String(body.modo||'').toUpperCase()==='RECLAMAR'")){
+   mapped.set(legacyFetch,{newId:candidate.id,
+      proof:'continuidad_receptor_window_fetch_y_firma_scoped_unicos_con_guarda_RECLAMAR_nueva',
+      modifiedBody:true});
+ }
+}
 const ledgerRows=ledger.funciones.map(r=>{
  const prev=oldTree.get(r.idAST);
  if(!prev)throw Error('Histórico faltante '+r.idAST);
  const m=mapped.get(r.idAST);
- return {oldId:r.idAST,newId:m?.newId||null,proof:m?.proof||null,
+ return {oldId:r.idAST,newId:m?.newId||null,proof:m?.proof||null,modifiedBody:!!m?.modifiedBody,
    estadoHistorico:r.estado,archivo:prev.file,
    candidatoNoVerificado:!m&&original.has(r.idAST)?{
      nombre:original.get(r.idAST).name,
@@ -166,8 +188,10 @@ const summary={
  fuentesDistintas:changed,
  funcionesASTPorFuenteCambiada:duplicates,
  original1691:ledgerRows.length,
- original1691ConCuerpoOArchivoIdentico:ledgerRows.filter(x=>x.newId).length,
+ original1691ConCuerpoOArchivoIdentico:ledgerRows.filter(x=>x.newId&&!x.modifiedBody).length,
  original1691SinCorrespondenciaExacta:ledgerRows.filter(x=>!x.newId).length,
+ equivalenciasFuncionalesConCambioDeCuerpo:ledgerRows.filter(x=>x.modifiedBody).length,
+ equivalenciasExactasOPorAmbitoInalterado:ledgerRows.filter(x=>x.newId&&!x.modifiedBody).length,
  remapeosCallbacksRepetidosConPadreExacto:ledgerRows.filter(x=>x.proof==='callback_duplicado_en_padre_con_SHA_AST_exacto_y_ordinal_identico').length,
  sinEnlaceHistorico:oldUnlinked.length,
  sinEnlaceHistoricoRemapeadasExactamente:oldUnlinked.filter(x=>x.newId).length,
