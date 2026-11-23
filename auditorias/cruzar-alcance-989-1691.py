@@ -217,19 +217,35 @@ for old_rec in g["funciones"]:
         chain=old_rec["cadena"]
         new_chain=[full.get(x,{}).get("newId") for x in chain]
         item["cadenaActualCandidata"]=new_chain
+        item["cadenaHistorica"]=chain
         item["cadenaHistoricaLongitud"]=len(chain)
         if not all(x in fn for x in new_chain):
             item["clasificacionActual"]="cadena_indirecta_con_identidad_intermedia_no_remapeada"
         else:
             checks=[]
-            for src,dst in zip(new_chain,new_chain[1:]):
+            old_kinds=old_rec.get("aristas") or []
+            for pos,(src,dst) in enumerate(zip(new_chain,new_chain[1:])):
                 calls=[c for c in fn[src].get("calls",[]) if c.get("to")==dst]
                 if calls:
                     checks.append("llamada_AST_actual")
                 elif (src,dst) in callback_pairs:
                     checks.append("callback_registrado_AST_actual_condicional")
                 else:
-                    checks.append("arista_historica_no_correspondida_en_AST_actual")
+                    # Portar únicamente aristas indirectas ya certificadas en
+                    # el corte anterior cuando AMBAS fuentes son byte a byte
+                    # idénticas y ambas identidades AST permanecen idénticas.
+                    src_old,dst_old=chain[pos],chain[pos+1]
+                    source_src,source_dst=fn[src]["file"],fn[dst]["file"]
+                    same_src=(source_src in old_source_hashes and
+                        n["sourceHashes"].get(source_src)==old_source_hashes[source_src])
+                    same_dst=(source_dst in old_source_hashes and
+                        n["sourceHashes"].get(source_dst)==old_source_hashes[source_dst])
+                    kind=old_kinds[pos] if pos<len(old_kinds) else None
+                    if (same_src and same_dst and src==src_old and dst==dst_old
+                        and kind and kind!="llamada_resuelta"):
+                        checks.append("arista_indirecta_historica_sha_inalterada")
+                    else:
+                        checks.append("arista_historica_no_correspondida_en_AST_actual")
             item["aristasActuales"]=checks
             if any(x=="arista_historica_no_correspondida_en_AST_actual" for x in checks):
                 item["clasificacionActual"]="cadena_indirecta_requiere_verificacion_de_receptor"
