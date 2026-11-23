@@ -199,6 +199,30 @@ for row in b["acciones"]:
             for req in contracts:
                 paths=[req.get("file")]+[w.get("file") for w in req.get("worker") or []]
                 assert all(k in p2hash and actual["sourceHashes"].get(k)==p2hash[k] for k in paths)
+        elif check["estado"]=="sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto":
+            ev=check["evidenciaAST"]
+            original_tree=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
+            historical={x["id"]:x for x in original_tree["functionGraph"]}
+            old_function=historical[ev["funcionHistorica"]]
+            new_function=func_actual[ev["funcionActual"]]
+            remap_data=json.loads(Path("auditorias/temporal/REMAPPING_AST_989.json").read_text())
+            equivalent=remap_data["fullMap"][old_function["id"]]
+            assert equivalent["newId"]==new_function["id"] and not equivalent.get("modifiedBody")
+            assert equivalent["proof"]==ev["identidadCuerpo"]
+            old_calls,new_calls=old_function["calls"],new_function["calls"]
+            idx=ev["ordinalLlamada"]
+            assert len(old_calls)==len(new_calls) and idx<len(old_calls)
+            assert all(a.get("kind")==b.get("kind") and a.get("method")==b.get("method")
+                       for a,b in zip(old_calls,new_calls))
+            assert old_calls[idx]["id"]==check["callId"]
+            assert new_calls[idx]["id"]==ev["sitioHttpASTActual"]
+            assert new_calls[idx]["kind"]=="http"
+            assert ev["funcionActual"] in tree_functions
+            matching_contracts=[x for x in next(e for e in paso2["entries"] if e["id"]==row["AUD"]).get("network",[])
+                                if x.get("callId")==check["callId"]]
+            assert len(matching_contracts)==1
+            assert all(w["file"] in p2hash and current_source.get(w["file"])==p2hash[w["file"]]
+                       for w in matching_contracts[0].get("worker") or [])
         elif check["estado"]=="diferencia_de_contrato_o_destino":
             assert check["razones"]
         else:
@@ -212,7 +236,7 @@ issues={
    "cadena_AST_sin_AUD_vigente_acreditada",
    "cadena_AST_con_arranque_pendiente_de_confirmar") for x in a["funciones"]),
  "asociacionesDeRedSinConcordanciaEstatica":sum(
-   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA")
+   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto")
    for row in b["acciones"] for check in row["comprobaciones"]),
  "sinConsumidorASTActualIdentificado":sum(x["clasificacionActual"]==
    "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado" for x in a["funciones"]),
