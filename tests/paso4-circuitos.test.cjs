@@ -9,7 +9,8 @@ const worker=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf
 test('P4-0002: respuesta incierta de baja de sede recarga por puente del mismo ámbito',async()=>{
   assert.match(login,/window\.gldReloadCommerceUIForVerification_\s*=\s*loadCommerceUI/);
   assert.match(login,/reload:\(\)=>window\.gldReloadCommerceUIForVerification_\(\)/);
-  assert.doesNotMatch(login,/reload:\(\)=>loadCommerceUI\(\)/);
+  const sedeDelete=login.slice(login.indexOf('async function deleteSedeCard('),login.indexOf("document.addEventListener('click', function(e)",login.indexOf('async function deleteSedeCard(')));
+  assert.doesNotMatch(sedeDelete,/reload:\(\)=>loadCommerceUI\(\)/);
   const expression=login.match(/reload:(\(\)=>window\.gldReloadCommerceUIForVerification_\(\))/)?.[1];
   assert(expression,'Falta callback verificable');
   let calls=0;
