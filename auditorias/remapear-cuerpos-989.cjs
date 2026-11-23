@@ -145,7 +145,7 @@ const legacySrc=fs.readFileSync('baseline/plataforma/publicacion.js','utf8');
 const currentSrc=fs.readFileSync('nuevo/plataforma/publicacion.js','utf8');
 if(legacy&&!mapped.has(legacyFetch)&&currentFetchCandidates.length===1){
  const candidate=currentFetchCandidates[0];
- const assignment=/window\\.fetch\\s*=\\s*async\\s+function\\s*\\(input,init\\)/g;
+ const assignment=/window\.fetch\s*=\s*async\s+function\s*\(input,init\)/g;
  if([...legacySrc.matchAll(assignment)].length===1&&
     [...currentSrc.matchAll(assignment)].length===1&&
     legacy.sha256!==candidate.sha256&&
