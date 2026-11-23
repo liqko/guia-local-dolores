@@ -1,5 +1,8 @@
 # Control obligatorio de auditoría — Paso 3: COBERTURA
 
+> **23/11/2026 — ACTUALIZACIÓN DEL DICTAMEN DE CONTROL, CORTE 9b7fd659.** El encabezado y las casillas 3.1–3.4 que siguen debajo describen el estado histórico previo a la certificación del 23/11, no el estado vigente de cobertura estática. La validación 3.4 del registro maestro y CI 45213120543 / 45213120884 certificó la **clasificación documental y estática**, no la resolución funcional de 166 cadenas interrumpidas, 17 invocadores sin raíz acreditada ni 138 funciones sin consumidor AST. **Cierre documental estático: acreditado con excepciones explícitas. Cierre funcional/dinámico, duplicaciones semánticas y consumos: NO acreditado aquí**, a tratar con evidencia en Paso 4. No cambiar estados históricos de las casillas sin revalidar sus criterios originales ni equiparar 0 sin dictamen a 0 sin brecha. La revisión de dirección técnica del 23/11 conserva esta distinción en `auditorias/ESTADO_ACTUAL.md` y vincula las excepciones de Paso 1 al inventario P4. Ninguna prueba live ni corrección desplegada por esta nota.
+
+
 **Responsable de ejecutar y revalidar: ChatGPT.** El usuario no debe revisar código ni certificar resultados. **Estado general: ABIERTO.** Corte histórico del grafo: `e6362836e6078a14a361732d79a8212258934056` y 987 acciones. Catálogo definitivo del Paso 2: **989 acciones, AUD-00001 a AUD-00989**, código revisado `9b7fd659e3b9f46e4a714955016df26ce3764c82`; modelo de compatibilidad actualizado, pero cobertura funcional total y nuevo saldo de funciones todavía sin certificar.
 
 ## Seguimiento obligatorio
