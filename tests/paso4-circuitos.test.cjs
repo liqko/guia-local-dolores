@@ -62,3 +62,21 @@ test('P4-0010: ficha de Guía apunta al módulo real de Actividades publicado po
   assert(!hosting.hosting.rewrites.some(x=>x.source==='/actividades/'),'No existe rewrite para el enlace antiguo');
 });
 
+
+test('P4-0011: el filtro público acepta el ID real del paquete promocional Worker',()=>{
+  const src=fs.readFileSync(path.join(__dirname,'../plataforma/promos.html'),'utf8');
+  const worker=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
+  const start=src.indexOf('function promoMatchesIncomingFilter(');
+  const end=src.indexOf('function showPromoFilterNotice(',start);
+  assert(start>0&&end>start,'Falta filtro actual de Promos');
+  assert.match(worker.slice(worker.indexOf('function publicPromo('),worker.indexOf('function sort(rows)')),/anunciante_id:\s*text5\(p\.anunciante_id/);
+  const filter=new Function('normalizeFilterText','promoFilterKey',src.slice(start,end)+';return promoMatchesIncomingFilter')(
+    x=>String(x||'').toLowerCase().trim(),
+    x=>'id:'+x.promo_id
+  );
+  const item={promo_id:'P_1',anunciante_id:'ANU_ACP',sede_id:'SEDE_A',promo:'Oferta 1'};
+  assert.equal(filter(item,{id_comercio:'ANU_ACP'}),true,'Debe incluir la promoción del anunciante');
+  assert.equal(filter(item,{id_comercio:'ANU_OTRO'}),false,'No puede incluir otro anunciante');
+  assert.equal(filter(item,{id_comercio:'ANU_OTRO',anunciante:'Otro'}),false);
+  assert.equal(filter(item,{id_comercio:'ANU_ACP',sede_id:'SEDE_A'}),true);
+});
