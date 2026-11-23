@@ -206,6 +206,15 @@ for binding in n.get("callbackBindings",[]):
 current_startups={(c.get("file"),c.get("line")) for c in n.get("startupCalls",[])}
 old_source_hashes=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())["sourceHashes"]
 current_actions=set(mapped_by_aud)
+# Fuentes de consumidores actuales por identidad AST, nunca por nombre.
+reverse_current=collections.defaultdict(list)
+for origin in fn.values():
+    for c in origin.get("calls",[]):
+        dest=c.get("to")
+        if dest in fn:
+            reverse_current[dest].append({"origen":origin["id"],"tipo":"llamada_AST","sitio":c.get("id")})
+for src,dst in callback_pairs:
+    reverse_current[dst].append({"origen":src,"tipo":"callback_registrado","sitio":None})
 revalidated=[]
 for old_rec in g["funciones"]:
     fid=old_rec["idAST"];now=ledger[fid]["newId"]
@@ -218,8 +227,16 @@ for old_rec in g["funciones"]:
         item["clasificacionActual"]="identidad_transformada_sin_equivalencia_certificada"
         item["limites"].append("No vincular por coincidencia nominal")
     elif historic_state=="falta_enlace_a_entrada":
-        item["clasificacionActual"]="sin_consumidor_acreditado_en_revision_historica"
-        item["limites"].append("No equivale a ausencia actual de consumidor ni código obsoleto")
+        incoming=reverse_current.get(now,[])
+        item["consumidoresASTVigentes"]=incoming[:60]
+        item["cantidadConsumidoresASTVigentes"]=len(incoming)
+        if incoming:
+            item["clasificacionActual"]="consumidor_AST_identificado_sin_entrada_o_receptor_acreditado"
+            item["limites"].append("Existe invocador en AST actual; falta probar cadena desde raíz/guardas")
+        else:
+            item["clasificacionActual"]="sin_consumidor_AST_identificado_en_codigo_actual"
+            item["limites"].append("Sin invocador AST/registro callback en grafo actual; no implica código obsoleto")
+        item["limites"].append("La falta de consumidor textual no excluye entrada dinámica externa")
     elif "cadena" in old_rec:
         chain=old_rec["cadena"]
         new_chain=[full.get(x,{}).get("newId") for x in chain]
