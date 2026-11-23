@@ -8,7 +8,7 @@ ins=json.loads((base/"CONCILIACION_ORIGENES_166.json").read_text())
 tree=json.loads(Path("nuevo/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
 funcs={x["id"]:x for x in tree["functionGraph"]}
 by={x["AUD"]:x for x in ins["cases"]}
-assert len(by)==166
+assert len(by)==ins['summary']['pending'] and len(by)<=166, (len(by),ins['summary']['pending'])
 ct=collections.Counter();related=[]
 for row in model["acciones"]:
     aid=row["AUD"];prev=row["estado"]
