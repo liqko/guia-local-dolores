@@ -303,9 +303,9 @@ for row in b["acciones"]:
 # concreto y no solamente aparecer como "pendiente" en un contador.
 direct_invokers={}
 for source in func_actual.values():
-    for c in source.get("calls",[]):
-        if c.get("to") in func_actual:
-            direct_invokers.setdefault(c["to"],set()).add(source["id"])
+    for callsite in source.get("calls",[]):
+        if callsite.get("to") in func_actual:
+            direct_invokers.setdefault(callsite["to"],set()).add(source["id"])
 for row in a["funciones"]:
     state=row["clasificacionActual"]
     if state=="cadena_indirecta_requiere_verificacion_de_receptor":
