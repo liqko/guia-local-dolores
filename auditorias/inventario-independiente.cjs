@@ -58,7 +58,8 @@ const inventory={schema:1,kind:'censo_independiente_de_entradas',sources:sourceH
 const target=process.argv[2]||'--report';
 if(target==='--self-test'){
  const names=arr.filter(a=>a.file==='plataforma/administracion.html'&&a.kind==='event_property'&&a.handlerMode==='reference');
- for(const line of [740,3955,3956,3957])if(!names.some(a=>a.line===line))throw Error('Falta entrada nombrada GH en línea '+line);
+ const expected=['x.onchange=refresh',"document.getElementById('btnLogin').onclick=login","document.getElementById('btnBuscarSus').onclick=buscarSus","document.getElementById('btnBuscarAnu').onclick=buscarAnu"];
+ for(const expr of expected)if(!names.some(a=>a.expression.replace(/\\s+/g,'')===expr.replace(/\\s+/g,'')))throw Error('Falta entrada nombrada GH: '+expr);
  const roots=arr.filter(a=>a.kind==='worker_entry');if(!roots.some(r=>r.method==='alarm')||roots.filter(r=>r.method==='fetch').length<1)throw Error('Faltan entradas del Worker');
  console.log('INVENTARIO_INDEPENDIENTE_SELF_TEST PASS '+JSON.stringify({namedEventsGH:names.length,workerEntryRoots:roots.length}));process.exit(0);
 }
