@@ -131,7 +131,7 @@ const transformEvidence=original29.map(r=>{
      nombre:x.name,cuerpoIdentico:x.sha256===prev?.sha256,
      tokensIdenticos:x.tokenSha===prev?.tokenSha,
      fragmento:x.preview})).slice(0,30),
-   dictamen:'identidad_no_acreditada; candidato nominal no constituye equivalencia'});
+   dictamen:'identidad_no_acreditada; candidato nominal no constituye equivalencia'};
 });
 const oldUnlinked=ledgerRows.filter(r=>r.estadoHistorico==='falta_enlace_a_entrada');
 const summary={
