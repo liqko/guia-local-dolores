@@ -45,3 +45,14 @@ test('P4-0009: no se reescribe KV público si Promociones no cambia; sí ante ca
   assert.equal(writes,1,'Una modificación visible debe escribir el paquete');
   assert.equal(reads,2,'Se mantiene una lectura por sincronización');
 });
+
+test('P4-0010: ficha de Guía apunta al módulo real de Actividades publicado por Hosting',()=>{
+  const guide=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+  const hosting=JSON.parse(fs.readFileSync(path.join(__dirname,'../firebase.json'),'utf8'));
+  assert.match(guide,/const ACTIVIDADES_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/actividades\.html';/);
+  assert.match(guide,/renderActividadesActivasButton\(item\)/);
+  assert.match(guide,/destino\.searchParams\.set\('anunciante_id',ids\[0\]\)/);
+  assert(fs.existsSync(path.join(__dirname,'../plataforma/actividades.html')));
+  assert.equal(hosting.hosting.public,'hosting-public');
+  assert(!hosting.hosting.rewrites.some(x=>x.source==='/actividades/'),'No existe rewrite para el enlace antiguo');
+});
