@@ -182,10 +182,12 @@ review_summary={
  "solicitudesDefinitivasContrastadas":sum(x["peticionesDefinitivas"] for x in review),
  "porDictamen":dict(collections.Counter(x["dictamen"] for x in review)),
  "peticionesPorEstado":dict(collections.Counter(c["estado"] for x in review for c in x["comprobaciones"])),
+ "razonesDeDiferencia":dict(collections.Counter(reason for x in review for c in x["comprobaciones"] for reason in c["razones"])),
  "limite":"Comparacion estática por callId dentro del árbol individual, sin prueba de ejecución, permisos runtime ni respuesta de red"}
 (temp/"CONTRASTE_218_ASOCIACIONES_ACTUALES.json").write_text(json.dumps(
  {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\n")
 print("PASO3_CONTRASTE_218",json.dumps(review_summary,ensure_ascii=False))
+print("PASO3_CONTRASTE_MUESTRAS",json.dumps([{"AUD":x["AUD"],"arbol":x["arbolActual"],"casos":x["comprobaciones"][:2]} for x in review if x["dictamen"]=="requiere_revision_de_asociacion"][:8],ensure_ascii=False)[:8000])
 # Revalidar el conjunto histórico completo con activaciones indirectas,
 # no sólo con los árboles AUD directos. Las cadenas se vuelven a contrastar
 # contra IDs y llamadas del AST actual, sin reconstruir el inventario.
