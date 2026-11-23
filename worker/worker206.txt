@@ -1393,14 +1393,19 @@ async function rebuildPromosAll({ db, cache }) {
   const all = await db.listCollection("promos");
   const byCity = /* @__PURE__ */ new Map();
   for (const p of all) {
-    if (!visible(p)) continue;
     const city = text5(p.ciudad_id);
     if (!city) continue;
+    // Incluir también ciudades que sólo tienen promos pausadas o rechazadas:
+    // la reconstrucción debe vaciar su paquete anterior, no dejarlo publicado.
     if (!byCity.has(city)) byCity.set(city, []);
-    byCity.get(city).push(publicPromo(p));
+    if (visible(p)) byCity.get(city).push(publicPromo(p));
   }
   const now = (/* @__PURE__ */ new Date()).toISOString();
-  await Promise.all([...byCity.entries()].map(([city, promos]) => cache.put(promoCityKey(city), { version: 1, ciudad_id: city, updated_at: now, promos: sort(promos) })));
+  await Promise.all([...byCity.entries()].map(async ([city, promos]) => {
+    const key3=promoCityKey(city),rows=sort(promos),previous=await cache.get(key3);
+    if(previous&&GLD_BUSINESS143.equal(previous.promos||[],rows))return;
+    await cache.put(key3,{version:1,ciudad_id:city,updated_at:now,promos:rows});
+  }));
   return { success: true, ciudades: byCity.size, promos: all.length, updated_at: now };
 }
 
