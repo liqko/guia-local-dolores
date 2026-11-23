@@ -73,6 +73,24 @@ for(const row of rows){
   assert(t.consumos&&Object.hasOwn(t.consumos,'antes')&&Object.hasOwn(t.consumos,'despues'),'Consumo incompleto '+t.id);
  }
 }
+// Ejecuciones técnicas: orden único, sin duplicar fichas en otro catálogo.
+const orden=inv.orden_ejecuciones;
+assert(Array.isArray(orden)&&orden.length===allTasks.length,'Total de ejecuciones distinto del total de tareas');
+assert.equal(new Set(orden).size,orden.length,'Numeración con tarea duplicada');
+for(let i=0;i<allTasks.length;i++){
+ const t=allTasks[i];
+ assert.equal(t.numero_ejecucion,i+1,'Número correlativo inválido '+t.id);
+ assert.equal(orden[i],t.id,'Índice de ejecución distinto a la tarea canónica '+t.id);
+}
+for(const g of inv.errores_http_5xx?.grupos||[]){
+ const tarea=tasksById.get(g.tarea_id);
+ assert(tarea,'HTTP sin tarea '+g.ruta);
+ assert.equal(tarea.consumos.antes?.ruta,g.ruta,'Métrica de otra ruta en '+tarea.id);
+ assert.equal(tarea.consumos.antes?.metodo,g.metodo,'Método no corresponde en '+tarea.id);
+ assert.equal(tarea.consumos.antes?.http_5xx,g.cantidad,'Cantidad HTTP5xx incongruente '+tarea.id);
+}
+console.log('PASO4_EJECUCIONES_PASS '+JSON.stringify({ejecuciones:orden.length,primera:orden[0],ultima:orden.at(-1)}));
+
 for(const h of cases){
  assert(h.destino?.p4&&h.destino?.tarea_id,'Hallazgo sin destino '+h.hallazgo);
  assert(tasksById.has(h.destino.tarea_id),'Hallazgo con tarea inexistente '+h.hallazgo);
