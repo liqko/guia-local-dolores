@@ -328,3 +328,18 @@ test('P4-0020: un refresco administrativo prevalece sobre copia diaria obsoleta 
  gh.token('S2');gh.daily({ciudades:[{ciudad_id:'OTRA_SESION'}]});
  await gh.load();assert.deepEqual(gh.cities(),['OTRA_SESION'],'Nueva sesión puede consumir su nuevo paquete diario');
 });
+
+
+test('P3-17 / P4-0029: exportación dinámica Promos GH tiene consumidor real y archivo cargado',()=>{
+ const admin=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+ const module=fs.readFileSync(path.join(__dirname,'../plataforma/gh-promos.js'),'utf8');
+ const script=admin.match(/<script src="([^"]*gh-promos\.js[^"]*)"/);
+ assert(script,'Gran Hermano no carga el módulo Promos');
+ assert.match(module,/window\.ghPromosLoadV91\s*=\s*function\s*\(force\s*=\s*false\)/,'No hay exportación del controlador');
+ const entry=admin.match(/if\(name==='promos'\)\{[^\n]*window\.ghPromosLoadV91\(\)/);
+ assert(entry,'Navegación de GH no invoca la exportación');
+ assert.match(admin,/if\(tipo==='PROMO'\)window\.ghPromosLoadV91\?\.\(true\)/,'La resolución de moderación no recarga Promos');
+ assert.match(module,/return requestRaw143\(path,body\)/,'La consulta debe seguir el permiso admin');
+ assert.match(module,/Authorization:'Bearer '\+TOKEN/);
+ // Estas pruebas certifican el enlace estático cruzado, NO sesión ni render funcional live.
+});
