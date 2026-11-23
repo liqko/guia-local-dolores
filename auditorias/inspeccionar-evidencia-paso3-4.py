@@ -40,3 +40,29 @@ for name in NAMES:
                     print("P4_P3_DISTRIBUCION",json.dumps({"archivo":name,"campo":col,"conteos":dict(counts)},ensure_ascii=False)[:6000])
             for x in rows[:3]:
                 print("P4_P3_MUESTRA",json.dumps({"archivo":name,"registro":x},ensure_ascii=False,default=str)[:2000])
+
+
+    if name=="REVALIDACION_INDIRECTA_1691_ACTUAL.json":
+        clases={
+          "cadena_AST_sin_raiz_de_AUD_acreditada":"P3-166-CADENAS-INTERRUMPIDAS",
+          "cadena_indirecta_requiere_verificacion_de_receptor":"P3-166-CADENAS-INTERRUMPIDAS",
+          "cadena_indirecta_con_identidad_intermedia_no_remapeada":"P3-166-CADENAS-INTERRUMPIDAS",
+          "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado":"P3-17-FUNCIONES-SIN-ENTRADA",
+          "sin_consumidor_AST_identificado_en_codigo_actual":"P3-138-SIN-CONSUMIDOR-AST"
+        }
+        rows=[x for x in d["funciones"] if x["clasificacionActual"] in clases]
+        assert len(rows)==321 and len(set(x["idASTHistorico"] for x in rows))==321
+        for x in rows:
+            entry={
+                "idASTHistorico":x["idASTHistorico"],
+                "idASTActual":x.get("idASTActual"),
+                "AUDHistorica":x.get("AUDHistorica"),
+                "clasificacionActual":x["clasificacionActual"],
+                "grupo_hallazgo":clases[x["clasificacionActual"]],
+                "estadoHistorico":x.get("estadoHistorico"),
+                "causaOrigenAUD":x.get("origenAUDActual",{}).get("causa") if isinstance(x.get("origenAUDActual"),dict) else None,
+                "cadenaActualCandidata":x.get("cadenaActualCandidata",[]),
+                "limites":x.get("limites",[])
+            }
+            print("P4_P3_IDENTIDAD",json.dumps(entry,ensure_ascii=False,separators=(",",":")))
+        print("P4_P3_IDENTIDADES_TOTAL",len(rows))
