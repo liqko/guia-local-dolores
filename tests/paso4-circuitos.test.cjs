@@ -126,3 +126,29 @@ test('P4-0012: GET anterior no puede restaurar favorito eliminado luego de POST 
   assert.equal(btn.textContent,'♡');
   assert.deepEqual(JSON.parse(store.get('gld_favoritos_anunciantes_v2:S1')).ids,[]);
 });
+
+test('P4-0005: Actividades publica una vez y evita KV put idéntico; cambios sí actualizan',async()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
+ const begin=source.indexOf('async function syncActivityPreparedV2(');
+ const end=source.indexOf('async function getActivitiesCityV2(',begin);
+ assert(begin>0&&end>begin);
+ const sync=new Function('text16','activityCityKeyV2','sort5','isPublic3','putPreparedRelationsV1','GLD_BUSINESS143',source.slice(begin,end)+';return syncActivityPreparedV2')(
+  v=>String(v??'').trim(),id=>'activities:city:v2:'+id,
+  rows=>rows.slice().sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre)),
+  a=>a.activo===true,
+  async()=>{}, {equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
+ );
+ const packets=new Map();let puts=0,gets=0;
+ const cache={get:async key=>(gets++,packets.get(key)),put:async(key,v)=>(puts++,packets.set(key,v))};
+ const base={actividad_id:'ACT-1',ciudad_id:'DOL',nombre:'Taller',activo:true};
+ const horarios=[{ciudad_id:'DOL',activo:true,dia:'LUNES'}];
+ await sync({cache,next:base,horarios});
+ assert.equal(puts,1,'La primera publicación debe generar paquete');
+ await sync({cache,current:base,next:base,horarios,previousCities:['DOL']});
+ assert.equal(puts,1,'Una segunda publicación igual no debe escribir KV');
+ const changed={...base,nombre:'Taller actualizado'};
+ await sync({cache,current:base,next:changed,horarios,previousCities:['DOL']});
+ assert.equal(puts,2,'Cambio visible debe persistirse');
+ assert.equal(packets.get('activities:city:v2:DOL').actividades[0].nombre,'Taller actualizado');
+ assert.equal(gets,3,'Una lectura de paquete por intento');
+});
