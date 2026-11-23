@@ -237,3 +237,31 @@ test('P4-0020: GH reutiliza carga territorial por sesión pero Actualizar fuerza
   assert.match(src,/btnCiudadesRefresh'\)\.onclick=async function\(\)\{await ghCargarCiudades\(true\)/);
   assert.match(src,/GLD_CATALOGO_TERRITORIAL\.load\(\)/,'El catálogo público de roles conserva permisos y ruta independiente');
 });
+
+
+test('P4-0039: compartir usa alternativas y nunca informa éxito con popup bloqueado',async()=>{
+  const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes-utilidades.js'),'utf8');
+  const gui=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+  const root={};
+  new Function('globalThis','URL',source)(root,URL);
+  const datos={id:"A-O'Brien",nombre:"Comercio O'Brien & Cía",sede_id:"S&A",contexto:{ciudad_id:"DOL (BUE - ARG)"}};
+  const expected=root.GLD_ANUNCIANTES_UI.urlFicha(datos.id,datos.contexto,datos.sede_id);
+  assert.equal(new URL(expected).searchParams.get('anunciante_id'),datos.id);
+  assert.equal(new URL(expected).searchParams.get('sede_id'),datos.sede_id);
+  let opened='';
+  const open=(url)=>{opened=url;return {}};
+  const fallback=await root.GLD_ANUNCIANTES_UI.compartir(datos,{},open);
+  assert.equal(fallback,'whatsapp');
+  assert.equal(new URL(opened).searchParams.get('text').includes(expected),true);
+  assert.equal(await root.GLD_ANUNCIANTES_UI.compartir(datos,{},()=>null),'bloqueado');
+  assert.equal(await root.GLD_ANUNCIANTES_UI.compartir(datos,{},()=>{throw new Error('Pop-up denegado')}),'bloqueado');
+  let copied='';
+  assert.equal(await root.GLD_ANUNCIANTES_UI.compartir(datos,{clipboard:{writeText:async value=>{copied=value}}},()=>{throw Error('No abrir')}),'copiado');
+  assert(copied.includes(expected));
+  let shared=0;
+  assert.equal(await root.GLD_ANUNCIANTES_UI.compartir(datos,{share:async()=>{shared++}},()=>null),'compartido');
+  assert.equal(shared,1);
+  assert.match(gui,/resultado==='bloqueado'/);
+  assert.match(gui,/window\.prompt\('No se pudo abrir la opción para compartir/);
+  assert.match(gui,/GLD_ANUNCIANTES_UI\.urlFicha\(btn\.dataset\.anuncianteId/);
+});
