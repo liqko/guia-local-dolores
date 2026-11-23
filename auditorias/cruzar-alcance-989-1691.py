@@ -323,6 +323,13 @@ review_summary={
  {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\n")
 review_summary["sinCallIdPorArchivo"]=dict(collections.Counter(c["callId"].split(":")[0] for x in review for c in x["comprobaciones"] if c["estado"]=="callId_sin_coincidencia_unica_en_AST_actual"))
 print("PASO3_CONTRASTE_218",json.dumps(review_summary,ensure_ascii=False))
+print("PASO3_CONTRATOS_SIN_HASH",json.dumps([
+ {"AUD":x["AUD"],"callId":c["callId"],"hash":c["evidenciaAST"].get("fuentesNoCorrespondidas"),
+ "worker":next((q.get("worker") for q in entries[x["AUD"]].get("network") or []
+                  if q.get("callId")==c["callId"]),None)}
+ for x in review for c in x["comprobaciones"]
+ if c["estado"]=="diferencia_de_contrato_o_destino"
+][:12],ensure_ascii=False)[:12500])
 print("PASO3_80_SITIOS_NO_ENLAZADOS",json.dumps([
  {"AUD":x["AUD"],"arbol":x["arbolActual"],"sitios":[c for c in x["comprobaciones"] if c["estado"]=="callId_sin_coincidencia_unica_en_AST_actual"][:3]}
  for x in review if any(c["estado"]=="callId_sin_coincidencia_unica_en_AST_actual" for c in x["comprobaciones"])
