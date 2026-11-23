@@ -34,7 +34,7 @@ test('P4-0009: no se reescribe KV público si Promociones no cambia; sí ante ca
     const publicPromo=p=>({promo_id:p.promo_id,ciudad_id:p.ciudad_id,promo:p.promo});
     const sort=rows=>[...rows].sort((a,b)=>a.promo.localeCompare(b.promo));
     const GLD_BUSINESS143={equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)};
-    const syncAdminPromoV91=async()=>{adminUpdates++;};
+    const syncAdminPromoV91=async()=>{adminUpdates();};
   `;
   const sync=Function('adminUpdates',injected+src+';return syncPromo')(()=>{adminUpdates++;});
   // Función auxiliar inyectada: en este ensayo no afecta el contador de escrituras públicas.
