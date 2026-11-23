@@ -282,6 +282,19 @@ for row in b["acciones"]:
                 assert req.get("worker") and all(
                     isinstance(w.get("evidencia"),str) and w["evidencia"].strip() and
                     not w.get("file") for w in req["worker"])
+        elif check["estado"]=="recorrido_interrumpido_sitio_global_sin_cadena_desde_AUD":
+            ev=check.get("evidenciaAST") or {}
+            proof=ev.get("evidenciaRecorridoInterrumpido") or {}
+            assert proof.get("callId")==check["callId"]
+            assert proof.get("sinNodoHttpEnAccion") is True
+            assert proof.get("arbolAccion")==row["arbolActual"]
+            assert proof.get("archivo") and proof.get("linea")
+            matches=[e for e in actual["endpoints"] if e.get("callId")==check["callId"]]
+            assert len(matches)==1
+            assert matches[0].get("file")==proof["archivo"]
+            assert matches[0].get("line")==proof["linea"]
+            assert not any(n.get("type")=="http" and n.get("callId")==check["callId"]
+                           for n in (tree_now or {}).get("nodes",[]))
         elif check["estado"]=="diferencia_de_contrato_o_destino":
             assert check["razones"]
         else:
@@ -328,7 +341,7 @@ issues={
    "cadena_AST_sin_AUD_vigente_acreditada",
    "cadena_AST_con_arranque_pendiente_de_confirmar") for x in a["funciones"]),
  "asociacionesDeRedSinConcordanciaEstatica":sum(
-   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto","reclamos_http_mismo_sitio_literal_con_receptor_modificado","sitio_http_historico_de_control_reemplazado","contrato_http_funcion_AST_id_cuerpo_inmutable_en_fuente_modificada","contrato_paso2_documental_con_worker_sin_locator_AST_y_SHA_inmutable")
+   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto","reclamos_http_mismo_sitio_literal_con_receptor_modificado","sitio_http_historico_de_control_reemplazado","contrato_http_funcion_AST_id_cuerpo_inmutable_en_fuente_modificada","contrato_paso2_documental_con_worker_sin_locator_AST_y_SHA_inmutable","recorrido_interrumpido_sitio_global_sin_cadena_desde_AUD")
    for row in b["acciones"] for check in row["comprobaciones"]),
  "sinConsumidorASTActualIdentificado":sum(x["clasificacionActual"]==
    "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado" for x in a["funciones"]),
