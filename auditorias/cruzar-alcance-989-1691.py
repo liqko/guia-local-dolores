@@ -2,7 +2,7 @@
 """Paso 3: cotejar funciones alcanzables en los árboles actuales sin uniones por nombre.
 No equipara 'nodo en árbol' con ejecución real ni salda identidades modificadas.
 """
-import collections,json
+import collections,json,zipfile
 from pathlib import Path
 temp=Path("auditorias/temporal")
 g=json.loads((temp/"GRAFO_COMPLETO_1691.json").read_text())
@@ -119,6 +119,73 @@ summary={
  "historicas155SinRemapeo":sum(x["idAST"] in historicMissing for x in unknown),
  "saldoActualSinEnlace":None,
  "limite":"Alcance AST en árbol con origen de catálogo enlazado; no prueba de condiciones, runtime, ni revalidación funcional completa"}
+# Cotejo de las 218 asociaciones modificadas: una petición sólo pertenece
+# a una AUD si su callId existe en el árbol actual de ESA acción.
+# Se contrastan método, destinos y condiciones del Worker; sin inferir runtime.
+with zipfile.ZipFile("paso2/auditorias/transversal/CATALOGO_MAESTRO.zip") as z:
+    definitive=json.loads(z.read("CATALOGO_MAESTRO.json"))
+entries={e["id"]:e for e in definitive["entries"]}
+differences=json.loads((temp/"COMPATIBILIDAD_989_PASO3.json").read_text())["diferenciasAcciones"]
+assert len(differences)==218 and len(entries)==989
+mapped_by_aud={a["AUD"]:a for a in mapped}
+review=[]
+for diff in differences:
+    aud=diff["AUD"]
+    expected=entries[aud].get("network") or []
+    t=None
+    if aud in mapped_by_aud:
+        matches=byid[mapped_by_aud[aud]["arbolActual"]]
+        assert len(matches)==1,(aud,len(matches))
+        t=matches[0]
+    actual_http=[x for x in (t or {}).get("nodes",[]) if x.get("type")=="http"]
+    by_call=collections.defaultdict(list)
+    for x in actual_http:
+        by_call[x.get("callId")].append(x)
+    checks=[]
+    for req in expected:
+        same=by_call.get(req.get("callId"),[])
+        if len(same)!=1:
+            verdict="sin_callId_unico_en_arbol_vigente"
+            reasons=["Cantidad de coincidencias para callId: "+str(len(same))]
+        else:
+            node=same[0]
+            reasons=[]
+            for key in ("verb","target","candidates","routeStatus"):
+                if (req.get(key) or None)!=(node.get(key) or None):
+                    reasons.append(key+"_distinto")
+            # La lista de receptores y sus guardas debe permanecer íntegra.
+            def normalized_worker(rows):
+                return sorted(json.dumps({
+                    k:item.get(k) for k in ("pattern","flags","file","line",
+                      "handlers","inlineTerminal","guard","target")
+                },sort_keys=True,ensure_ascii=False) for item in rows or [])
+            if normalized_worker(req.get("worker"))!=normalized_worker(node.get("worker")):
+                reasons.append("receptores_o_guardas_worker_distintos")
+            verdict="asociacion_estatica_identica_en_arbol_de_accion" if not reasons else "diferencia_de_contrato_o_destino"
+        checks.append({"callId":req.get("callId"),"metodo":req.get("verb"),
+                       "rutas":req.get("candidates"),"estado":verdict,
+                       "razones":reasons})
+    review.append({"AUD":aud,"camposModificados":diff["camposModificados"],
+       "sustituida":aud in historicos,
+       "arbolActual":mapped_by_aud.get(aud,{}).get("arbolActual"),
+       "peticionesDefinitivas":len(expected),"peticionesEnArbol":len(actual_http),
+       "comprobaciones":checks,
+       "dictamen":("control_historico_reemplazado" if aud in historicos else
+         "sin_red_en_catalogo_definitivo" if not expected else
+         "red_estatica_concordante" if all(c["estado"]=="asociacion_estatica_identica_en_arbol_de_accion" for c in checks)
+         else "requiere_revision_de_asociacion")})
+assert len(review)==218
+network_review=[x for x in review if x["peticionesDefinitivas"]]
+review_summary={
+ "asociacionesConDiferenciasEstructurales":218,
+ "asociacionesConRedDefinitiva":len(network_review),
+ "solicitudesDefinitivasContrastadas":sum(x["peticionesDefinitivas"] for x in review),
+ "porDictamen":dict(collections.Counter(x["dictamen"] for x in review)),
+ "peticionesPorEstado":dict(collections.Counter(c["estado"] for x in review for c in x["comprobaciones"])),
+ "limite":"Comparacion estática por callId dentro del árbol individual, sin prueba de ejecución, permisos runtime ni respuesta de red"}
+(temp/"CONTRASTE_218_ASOCIACIONES_ACTUALES.json").write_text(json.dumps(
+ {"resumen":review_summary,"acciones":review},ensure_ascii=False,indent=2)+"\\n")
+print("PASO3_CONTRASTE_218",json.dumps(review_summary,ensure_ascii=False))
 result={"resumen":summary,"funciones":verified,"pendientesRemapeo":unknown,
  "accionesConArbol":mapped,"accionesSinArbol":notmapped,
  "historicasSinEnlaceAhoraConArbol":coveredHistoric,
