@@ -65,3 +65,75 @@ test('P4-0012: GET anterior no puede restaurar favorito eliminado luego de POST 
   assert.equal(btn.textContent,'♡');
   assert.deepEqual(JSON.parse(store.get('gld_favoritos_anunciantes_v2:S1')).ids,[]);
 });
+
+
+test('P4-0012/P4-0013: alta, baja, recuperación y error con API autenticada simulada',async()=>{
+  const src=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+  const start=src.indexOf('let gldFavoritosAnunciantes=new Set();');
+  const end=src.indexOf('const CITY_CONTEXT_KEY=',start);
+  assert(start>=0&&end>start);
+  const rows=new Set();
+  const reqs=[];
+  const storage=new Map();
+  const localStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v)};
+  const btn={dataset:{anuncianteId:'A-ñ'},classList:{toggle(){}},textContent:'♡',title:'Agregar a favoritos',disabled:false};
+  const document={querySelectorAll:()=>[btn]};
+  let fail=false;
+  const fetch=async (url,opt={})=>{
+    const method=opt.method||'GET';
+    if(method==='GET'){
+      assert.equal(new URL(url).searchParams.get('action'),'favoritos');
+      return {ok:true,json:async()=>({success:true,favoritos:[...rows].map(referencia_id=>({referencia_id}))})};
+    }
+    assert.equal(opt.headers.Authorization,'Bearer TOKEN');
+    const body=JSON.parse(opt.body);
+    reqs.push(body);
+    if(fail)return {ok:false,json:async()=>({success:false,message:'Fallo controlado'})};
+    if(body.action==='agregar_favorito')rows.add(body.referencia_id);
+    else if(body.action==='quitar_favorito')rows.delete(body.referencia_id);
+    else assert.fail('Acción inesperada');
+    return {ok:true,json:async()=>({success:true})};
+  };
+  const api=new Function('localStorage','document','fetch','gldGetSubscriberSession','gldGetSubscriberToken','GLD_SUSCRIPTORES_API','ciudadSeleccionada','gldIsSubscriberLogged','window',src.slice(start,end)+
+    ';return {load:gldCargarFavoritosAnunciantes,toggle:gldToggleFavoritoAnunciante,has:id=>gldFavoritosAnunciantes.has(id)}')(
+      localStorage,document,fetch,()=>({suscriptor_id:'S-1'}),()=>('TOKEN'),'https://worker.test/suscriptores','DOL',()=>true,{parent:{postMessage(){assert.fail('No debe pedir login')}}});
+  const nombre="O'Brien & Hijos <Ñ> \\ Casa";
+  await api.toggle(btn,'A-ñ',nombre);
+  assert.equal(api.has('A-ñ'),true);
+  assert.equal(btn.textContent,'♥');
+  assert.equal(btn.disabled,false);
+  assert.equal(reqs[0].action,'agregar_favorito');
+  assert.equal(reqs[0].nombre_ref,nombre);
+  assert.equal(reqs[0].ciudad_id,'DOL');
+  await api.load();
+  assert.equal(api.has('A-ñ'),true,'GET debe recuperar favorito persistido');
+  await api.toggle(btn,'A-ñ',nombre);
+  assert.equal(api.has('A-ñ'),false);
+  assert.equal(btn.textContent,'♡');
+  assert.equal(reqs[1].action,'quitar_favorito');
+  await api.load();
+  assert.equal(api.has('A-ñ'),false,'GET no debe restaurar tras eliminación persistida');
+  fail=true;
+  await api.toggle(btn,'A-ñ',nombre);
+  assert.equal(api.has('A-ñ'),false,'No confirmar favorito si falla el Worker');
+  assert.equal(btn.disabled,false,'Botón habilitado tras error');
+  assert.deepEqual(JSON.parse(storage.get('gld_favoritos_anunciantes_v2:S-1')).ids,[]);
+});
+
+test('P4-0010: construcción de destinos conserva filtros y ciudad del anunciante',()=>{
+ const src=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const urls=['EVENTS_PAGE_URL','PROMOS_PAGE_URL','ACTIVIDADES_PAGE_URL'].map(k=>{
+   const match=src.match(new RegExp('const '+k+' = \\'([^\\']+)\\';'));
+   assert(match,'Falta '+k);
+   return new URL(match[1]);
+ });
+ for(const u of urls){
+   assert.equal(u.origin,'https://guialocal.ar');
+   assert.match(u.pathname,/^\\/plataforma\\/(eventos|promos|actividades)\\.html$/);
+   u.searchParams.set('ciudad_id','DOL (BUE - ARG)');
+   u.searchParams.set('anunciante_id',"A-O'Brien & Hijos");
+   const after=new URL(u.href);
+   assert.equal(after.searchParams.get('ciudad_id'),'DOL (BUE - ARG)');
+   assert.equal(after.searchParams.get('anunciante_id'),"A-O'Brien & Hijos");
+ }
+});
