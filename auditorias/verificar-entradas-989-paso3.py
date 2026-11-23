@@ -56,8 +56,12 @@ for aud in sorted(defin):
         state="control_historico_reemplazado_paso1"
         evidence="Inventario del Paso 1 identifica control anterior retirado; conservar AUD y su equivalencia, no atribuir activacion al código nuevo"
     elif entry in newFn and start.get("file") in unchanged:
-        state="origen_AST_en_fuente_inalterada"
-        evidence="ID AST persistente en archivo con SHA256 de fuente idéntico"
+        if newFn[entry].get("synthetic"):
+            state="raiz_sintetica_en_fuente_inalterada"
+            evidence="inicio sintético de acción en archivo con SHA256 idéntico: NO es función de JavaScript"
+        else:
+            state="origen_AST_en_fuente_inalterada"
+            evidence="ID AST de función real persistente en archivo con SHA256 de fuente idéntico"
     elif entry in fullRemap and fullRemap[entry].get("newId"):
         state="origen_AST_remapeado_por_cuerpo"
         evidence=fullRemap[entry]["proof"]
