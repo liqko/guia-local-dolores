@@ -217,6 +217,17 @@ for diff in differences:
             verdict="contrato_paso2_en_caller_AST_sin_nodo_http_generado"
         elif stable and owner_reached and unique_site and not same:
             verdict="contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA"
+        elif (not stable and owner and owner_reached and owner_contains_call
+              and len(same)==1 and req.get("file")=="plataforma/login.html"
+              and full.get(req.get("from"),{}).get("newId")==owner["id"]
+              and not full.get(req.get("from"),{}).get("modifiedBody")
+              and all(w.get("file") in sha_paso2 and
+                      sha_paso2.get(w.get("file"))==sha_actual.get(w.get("file"))
+                      for w in (req.get("worker") or []))):
+            verdict="contrato_http_funcion_AST_id_cuerpo_inmutable_en_fuente_modificada"
+            evidence["equivalenciaFuncionHistorica"]=req.get("from")
+            evidence["equivalenciaFuncionActual"]=owner["id"]
+            evidence["equivalenciaPrueba"]=full[req["from"]]["proof"]
         if verdict=="callId_sin_coincidencia_unica_en_AST_actual" and aud not in historicos:
             legacy_owner=legacy_functions.get(req.get("from"))
             equivalent=full.get(req.get("from")) or {}
@@ -292,7 +303,7 @@ for diff in differences:
        "comprobaciones":checks,
        "dictamen":("control_historico_reemplazado" if aud in historicos else
          "sin_red_en_catalogo_definitivo" if not expected else
-         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto","reclamos_http_mismo_sitio_literal_con_receptor_modificado") for c in checks)
+         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA","sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto","reclamos_http_mismo_sitio_literal_con_receptor_modificado","contrato_http_funcion_AST_id_cuerpo_inmutable_en_fuente_modificada") for c in checks)
          else "requiere_revision_de_asociacion")})
 assert len(review)==218
 network_review=[x for x in review if x["peticionesDefinitivas"]]
