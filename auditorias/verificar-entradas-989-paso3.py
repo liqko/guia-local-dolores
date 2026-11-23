@@ -91,4 +91,5 @@ out={"summary":{
  "saldoActualSinEnlace":None},
  "acciones":entries}
 Path("auditorias/temporal/MODELO_COBERTURA_989.json").write_text(json.dumps(out,ensure_ascii=False,indent=2)+"\n")
+print("PASO3_ORIGENES_PENDIENTES",json.dumps([{k:e[k] for k in ("AUD","estado","start")} for e in entries if e["estado"] in ("origen_de_fuente_modificada_sin_remapeo","origen_sintetico_o_externo_sin_binding_AST_confirmado","origen_no_reconstruido_en_AST")],ensure_ascii=False))
 print("PASO3_MODELO_989",json.dumps(out["summary"],ensure_ascii=False))
