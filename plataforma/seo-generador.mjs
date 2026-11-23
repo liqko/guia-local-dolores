@@ -171,11 +171,10 @@ export async function generarSeoPublico(hostingDir){
     }
     for(const [family,name,segment] of [['events','Eventos','eventos'],['activities','Actividades','actividades'],['promos','Promociones','promociones']]){
       const rows=list(book,family).filter(readable);
-      if(!rows.length)continue;
       const title=name+' en '+town+' | Guía Local';
       const description='Descubrí '+name.toLowerCase()+' publicados en '+place+' a través de Guía Local.';
       await add(segment,title,description,'<h1>'+escapeHtml(name+' en '+town)+'</h1><p>'+escapeHtml(description)+'</p>'+
-        safeRows(rows,name)+'<p><a href="'+appLink(city)+'">Explorar en Guía Local</a></p>');
+        (rows.length?safeRows(rows,name):'<p>Consultá en Guía Local las publicaciones disponibles para esta ciudad.</p>')+'<p><a href="'+appLink(city,{seo_destino:segment==='promociones'?'promos':segment})+'">Abrir '+escapeHtml(name)+' dentro de Guía Local</a></p>');
     }
     if(sections.length){
       const cityTitle='Guía Local en '+town+' | Comercios, eventos y servicios';
