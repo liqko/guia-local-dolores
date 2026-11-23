@@ -172,6 +172,11 @@ with zipfile.ZipFile("paso2/auditorias/transversal/CATALOGO_MAESTRO.zip") as z:
     paso2=json.loads(z.read("CATALOGO_MAESTRO.json"))
 p2hash=paso2.get("baseline",{}).get("sourceHashes",{})
 current_aud_by_id={t["action"]["id"]:t for t in actual["trees"]}
+original_tree_for_http=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
+historic_http_functions={x["id"]:x for x in original_tree_for_http["functionGraph"]}
+remap_for_http=json.loads(Path("auditorias/temporal/REMAPPING_AST_989.json").read_text())["fullMap"]
+definitive_network_by_aud={e["id"]:e.get("network") or [] for e in paso2["entries"]}
+
 for row in b["acciones"]:
     tree_now=current_aud_by_id.get(row.get("arbolActual"))
     tree_functions={n.get("id") for n in (tree_now or {}).get("nodes",[]) if n.get("type")=="function"}
@@ -201,12 +206,9 @@ for row in b["acciones"]:
                 assert all(k in p2hash and actual["sourceHashes"].get(k)==p2hash[k] for k in paths)
         elif check["estado"]=="sitio_http_remapeado_por_cuerpo_y_ordinal_AST_exacto":
             ev=check["evidenciaAST"]
-            original_tree=json.loads(Path("baseline/auditorias/transversal/ARBOL_ACCIONES.json").read_text())
-            historical={x["id"]:x for x in original_tree["functionGraph"]}
-            old_function=historical[ev["funcionHistorica"]]
+            old_function=historic_http_functions[ev["funcionHistorica"]]
             new_function=func_actual[ev["funcionActual"]]
-            remap_data=json.loads(Path("auditorias/temporal/REMAPPING_AST_989.json").read_text())
-            equivalent=remap_data["fullMap"][old_function["id"]]
+            equivalent=remap_for_http[old_function["id"]]
             assert equivalent["newId"]==new_function["id"] and not equivalent.get("modifiedBody")
             assert equivalent["proof"]==ev["identidadCuerpo"]
             old_calls,new_calls=old_function["calls"],new_function["calls"]
@@ -218,7 +220,7 @@ for row in b["acciones"]:
             assert new_calls[idx]["id"]==ev["sitioHttpASTActual"]
             assert new_calls[idx]["kind"]=="http"
             assert ev["funcionActual"] in tree_functions
-            matching_contracts=[x for x in next(e for e in paso2["entries"] if e["id"]==row["AUD"]).get("network",[])
+            matching_contracts=[x for x in definitive_network_by_aud[row["AUD"]]
                                 if x.get("callId")==check["callId"]]
             assert len(matching_contracts)==1
             assert all(w["file"] in p2hash and current_source.get(w["file"])==p2hash[w["file"]]
