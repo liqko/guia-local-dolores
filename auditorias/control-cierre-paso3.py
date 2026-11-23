@@ -179,12 +179,18 @@ for row in b["acciones"]:
         if check["estado"]=="asociacion_estatica_identica_en_arbol_de_accion":
             assert not check["razones"]
         elif check["estado"] in ("contrato_paso2_certificado_por_identidad_AST_y_SHA",
-                                "contrato_paso2_en_caller_AST_sin_nodo_http_generado"):
+                                "contrato_paso2_en_caller_AST_sin_nodo_http_generado",
+                                "contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA"):
             ev=check.get("evidenciaAST") or {}
             assert ev.get("fuentesSHAInalteradas") and ev.get("callIdEnFuncionAST")
             assert ev.get("callerEnArbolAccion") and ev.get("ownerASTActual") in tree_functions
             owner=func_actual[ev["ownerASTActual"]]
-            assert any(c.get("id")==check["callId"] for c in owner.get("calls",[]))
+            if check["estado"]=="contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA":
+                assert ev.get("sitioHttpASTUnicoMismaLinea")
+                candidates=[c for c in owner.get("calls",[]) if c.get("id")==ev.get("idSitioHttpActual") and c.get("kind")=="http"]
+                assert len(candidates)==1
+            else:
+                assert any(c.get("id")==check["callId"] for c in owner.get("calls",[]))
             expected_entry=next(x for x in paso2["entries"] if x["id"]==row["AUD"])
             contracts=[x for x in expected_entry.get("network") or [] if x.get("callId")==check["callId"]]
             assert contracts
@@ -204,7 +210,7 @@ issues={
    "cadena_AST_sin_AUD_vigente_acreditada",
    "cadena_AST_con_arranque_pendiente_de_confirmar") for x in a["funciones"]),
  "asociacionesDeRedSinConcordanciaEstatica":sum(
-   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA")
+   check["estado"] not in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA","contrato_paso2_por_sitio_http_AST_unico_misma_linea_y_SHA")
    for row in b["acciones"] for check in row["comprobaciones"]),
  "sinConsumidorASTActualIdentificado":sum(x["clasificacionActual"]==
    "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado" for x in a["funciones"]),
