@@ -127,7 +127,7 @@ test('P4-0012: GET anterior no puede restaurar favorito eliminado luego de POST 
   assert.deepEqual(JSON.parse(store.get('gld_favoritos_anunciantes_v2:S1')).ids,[]);
 });
 
-test('P4-0005: Actividades publica una vez y evita KV put idéntico; cambios sí actualizan',async()=>{
+test('P4-0037: Actividades publica una vez y evita KV put idéntico; cambios sí actualizan',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
  const begin=source.indexOf('async function syncActivityPreparedV2(');
  const end=source.indexOf('async function getActivitiesCityV2(',begin);
