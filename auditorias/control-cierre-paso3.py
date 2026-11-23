@@ -186,8 +186,10 @@ issues={
  "asociacionesDeRedSinConcordanciaEstatica":sum(
    check["estado"]!="asociacion_estatica_identica_en_arbol_de_accion"
    for row in b["acciones"] for check in row["comprobaciones"]),
- "sinConsumidorRevisadoSoloEnHistorico":sum(x["clasificacionActual"]==
-   "sin_consumidor_acreditado_en_revision_historica" for x in a["funciones"])
+ "sinConsumidorASTActualIdentificado":sum(x["clasificacionActual"]==
+   "consumidor_AST_identificado_sin_entrada_o_receptor_acreditado" for x in a["funciones"]),
+ "sinConsumidorASTActualDetectado":sum(x["clasificacionActual"]==
+   "sin_consumidor_AST_identificado_en_codigo_actual" for x in a["funciones"])
 }
 report={
  "control":"Paso 3.4 independiente, código actualizado 9b7fd659",
