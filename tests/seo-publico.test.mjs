@@ -21,7 +21,7 @@ test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', 
       ephemerides:{success:true,efemerides:[{nombre:'Día X'}]},
       events:{success:true,events:[{titulo:'Evento de prueba'}]},
       activities:{success:true,actividades:[{titulo:'Actividad de prueba'}]},
-      promos:{success:true,promos:[{titulo:'Promoción de prueba'}]}
+      promos:{success:true,promos:[]}
     }};
     await writeFile(join(root,'plataforma','paquetes-ciudad','Y2l1ZGFkMQ','completo-7.json'),JSON.stringify(book));
     const result=await generarSeoPublico(root);
@@ -40,6 +40,7 @@ test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', 
     assert.match(eventos,/seo_destino=eventos/);
     const promos=await readFile(join(root,'seo','dolores-bue-arg','promociones','index.html'),'utf8');
     assert.match(promos,/seo_destino=promos/);
+    assert.match(promos,/Consultá en Guía Local las publicaciones disponibles para esta ciudad/);
     const actividades=await readFile(join(root,'seo','dolores-bue-arg','actividades','index.html'),'utf8');
     assert.match(actividades,/seo_destino=actividades/);
     const guia=await readFile(join(root,'seo','dolores-bue-arg','comercios-y-servicios','index.html'),'utf8');
