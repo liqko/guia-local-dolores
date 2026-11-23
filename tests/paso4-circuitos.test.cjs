@@ -132,11 +132,11 @@ test('P4-0005: Actividades publica una vez y evita KV put idéntico; cambios sí
  const begin=source.indexOf('async function syncActivityPreparedV2(');
  const end=source.indexOf('async function getActivitiesCityV2(',begin);
  assert(begin>0&&end>begin);
- const sync=new Function('text16','activityCityKeyV2','sort5','isPublic3','putPreparedRelationsV1','GLD_BUSINESS143',source.slice(begin,end)+';return syncActivityPreparedV2')(
+ const sync=new Function('text16','activityCityKeyV2','sort5','isPublic3','putPreparedRelationsV1','bool8','GLD_BUSINESS143',source.slice(begin,end)+';return syncActivityPreparedV2')(
   v=>String(v??'').trim(),id=>'activities:city:v2:'+id,
   rows=>rows.slice().sort((a,b)=>String(a.nombre).localeCompare(String(b.nombre))),
   a=>a.activo===true,
-  async()=>{}, {equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
+  async()=>{},v=>v===true, {equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
  );
  const packets=new Map();let puts=0,gets=0;
  const cache={get:async key=>(gets++,packets.get(key)),put:async(key,v)=>(puts++,packets.set(key,v))};
