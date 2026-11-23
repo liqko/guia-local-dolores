@@ -83,6 +83,7 @@ test('alta -> paquete v2 -> lectura pública, pausa y rechazo, sin escritura al 
 const activityCityKeyV2=id=>'activities:city:v2:'+id;
 const sort5=rows=>[...rows].sort((a,b)=>String(a.nombre||'').localeCompare(String(b.nombre||'')));
 const putPreparedRelationsV1=async()=>{};
+const GLD_BUSINESS143={equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)};
 `;
  const activityFunctions=[
    extract('gldPublicacionAdmisible206'),
