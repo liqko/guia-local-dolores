@@ -125,6 +125,8 @@ summary={
 with zipfile.ZipFile("paso2/auditorias/transversal/CATALOGO_MAESTRO.zip") as z:
     definitive=json.loads(z.read("CATALOGO_MAESTRO.json"))
 entries={e["id"]:e for e in definitive["entries"]}
+sha_paso2=definitive.get("baseline",{}).get("sourceHashes",{})
+sha_actual=n.get("sourceHashes",{})
 differences=json.loads((temp/"COMPATIBILIDAD_989_PASO3.json").read_text())["diferenciasAcciones"]
 assert len(differences)==218 and len(entries)==989
 mapped_by_aud={a["AUD"]:a for a in mapped}
@@ -141,6 +143,7 @@ for diff in differences:
         assert len(matches)==1,(aud,len(matches))
         t=matches[0]
     actual_http=[x for x in (t or {}).get("nodes",[]) if x.get("type")=="http"]
+    reached_fn={x.get("id") for x in (t or {}).get("nodes",[]) if x.get("type")=="function"}
     by_call=collections.defaultdict(list)
     for x in actual_http:
         by_call[x.get("callId")].append(x)
@@ -169,7 +172,23 @@ for diff in differences:
             if normalized_worker(req.get("worker"))!=normalized_worker(node.get("worker")):
                 reasons.append("receptores_o_guardas_worker_distintos")
             verdict="asociacion_estatica_identica_en_arbol_de_accion" if not reasons else "diferencia_de_contrato_o_destino"
-        checks.append({"callId":req.get("callId"),"metodo":req.get("verb"),
+        # Reusar prueba definitiva del Paso 2 solamente si caller, callId,
+        # receptor real y toda fuente afectada permanecen idénticos.
+        owner=fn.get(req.get("from"))
+        all_files=[req.get("file")]+[w.get("file") for w in req.get("worker") or []]
+        stable=bool(all_files) and all(bool(file) and file in sha_paso2 and
+                     sha_paso2[file]==sha_actual.get(file) for file in all_files)
+        owner_contains_call=bool(owner and any(c.get("id")==req.get("callId") for c in owner.get("calls",[])))
+        owner_reached=bool(owner and owner["id"] in reached_fn)
+        evidence={"fuentesSHAInalteradas":stable,"ownerASTActual":owner["id"] if owner else None,
+                  "callerEnArbolAccion":owner_reached,"callIdEnFuncionAST":owner_contains_call}
+        if stable and owner_contains_call and owner_reached and len(same)==1:
+            verdict="contrato_paso2_certificado_por_identidad_AST_y_SHA"
+            # Los metadatos de un generador diferente NO sustituyen el
+            # contrato definitivo mientras código y receptor no cambiaron.
+        elif stable and owner_contains_call and owner_reached and not same:
+            verdict="contrato_paso2_en_caller_AST_sin_nodo_http_generado"
+        checks.append({"callId":req.get("callId"),"metodo":req.get("verb"),"evidenciaAST":evidence,
                        "rutas":req.get("candidates"),"estado":verdict,
                        "razones":reasons})
     review.append({"AUD":aud,"camposModificados":diff["camposModificados"],
@@ -179,7 +198,7 @@ for diff in differences:
        "comprobaciones":checks,
        "dictamen":("control_historico_reemplazado" if aud in historicos else
          "sin_red_en_catalogo_definitivo" if not expected else
-         "red_estatica_concordante" if all(c["estado"]=="asociacion_estatica_identica_en_arbol_de_accion" for c in checks)
+         "red_estatica_concordante" if all(c["estado"] in ("asociacion_estatica_identica_en_arbol_de_accion","contrato_paso2_certificado_por_identidad_AST_y_SHA") for c in checks)
          else "requiere_revision_de_asociacion")})
 assert len(review)==218
 network_review=[x for x in review if x["peticionesDefinitivas"]]
