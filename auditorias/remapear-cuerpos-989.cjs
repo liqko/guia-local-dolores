@@ -111,5 +111,6 @@ const summary={
  saldoActualSinEnlace:null
 };
 if(summary.original1691!==1691||summary.sinEnlaceHistorico!==155)throw Error('Universo de comparación no coincide');
-fs.writeFileSync(out,JSON.stringify({summary,ledger:ledgerRows},null,2)+'\n');
+const fullMap=Object.fromEntries([...mapped.entries()].map(([oldId,v])=>[oldId,v]));
+fs.writeFileSync(out,JSON.stringify({summary,ledger:ledgerRows,fullMap},null,2)+'\n');
 console.log('PASO3_REMAPEO_CUERPOS_989',JSON.stringify(summary));
