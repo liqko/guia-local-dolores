@@ -234,7 +234,11 @@ for old_rec in g["funciones"]:
             elif historic_state=="cadena_desde_accion_confirmada_estaticamente":
                 aud=old_rec.get("AUD")
                 if aud in current_actions:
-                    item["clasificacionActual"]="cadena_AST_revalidada_con_AUD_vigente"
+                    selected=byid[mapped_by_aud[aud]["arbolActual"]]
+                    if len(selected)==1 and selected[0]["action"].get("entry")==new_chain[0]:
+                        item["clasificacionActual"]="cadena_AST_revalidada_con_raiz_AUD_exacta"
+                    else:
+                        item["clasificacionActual"]="cadena_AST_sin_raiz_de_AUD_acreditada"
                 else:
                     item["clasificacionActual"]="cadena_AST_sin_AUD_vigente_acreditada"
             elif historic_state=="cadena_desde_inicio_script_confirmada_estaticamente":
