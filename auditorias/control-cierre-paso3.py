@@ -286,6 +286,39 @@ for row in b["acciones"]:
             assert check["razones"]
         else:
             assert check["estado"] in ("callId_sin_coincidencia_unica_en_AST_actual","peticion_en_AST_global_sin_ruta_desde_esta_accion")
+# Control 3.4: cada recorrido sin vínculo debe identificar el eslabón
+# concreto y no solamente aparecer como "pendiente" en un contador.
+direct_invokers={}
+for source in func_actual.values():
+    for c in source.get("calls",[]):
+        if c.get("to") in func_actual:
+            direct_invokers.setdefault(c["to"],set()).add(source["id"])
+for row in a["funciones"]:
+    state=row["clasificacionActual"]
+    if state=="cadena_indirecta_requiere_verificacion_de_receptor":
+        failures=row.get("aristasSinReceptorComprobado") or []
+        assert failures and all(x.get("origenASTActual") in func_actual and
+                                x.get("destinoASTActual") in func_actual and
+                                x.get("causa") for x in failures)
+        for broken in failures:
+            source=func_actual[broken["origenASTActual"]]
+            assert not any(c.get("to")==broken["destinoASTActual"] for c in source.get("calls",[]))
+            assert (broken["origenASTActual"],broken["destinoASTActual"]) not in callbacks
+    elif state=="cadena_indirecta_con_identidad_intermedia_no_remapeada":
+        missing=row.get("identidadesIntermediasSinEquivalencia") or []
+        assert missing and all(x.get("idASTActual") not in func_actual for x in missing)
+    elif state=="cadena_AST_sin_raiz_de_AUD_acreditada":
+        evidence=row.get("origenAUDActual") or {}
+        assert evidence.get("AUD") and evidence.get("causa")
+        assert evidence.get("raizAST")!=evidence.get("raizHistoricaRemapeada")
+    elif state=="cadena_AST_sin_AUD_vigente_acreditada":
+        assert row.get("origenAUDActual",{}).get("AUD")
+    elif state=="consumidor_AST_identificado_sin_entrada_o_receptor_acreditado":
+        assert row.get("cantidadConsumidoresASTVigentes",0)>0
+        assert row.get("consumidoresASTVigentes")
+    elif state=="sin_consumidor_AST_identificado_en_codigo_actual":
+        assert row.get("cantidadConsumidoresASTVigentes")==0
+        assert row["idASTActual"] not in direct_invokers
 issues={
  "identidadesSinEquivalencia":sum(x["idASTActual"] is None for x in a["funciones"]),
  "cadenasSinRaizOReceptorConfirmado":sum(x["clasificacionActual"] in (
