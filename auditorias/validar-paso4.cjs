@@ -78,9 +78,9 @@ const orden=inv.orden_ejecuciones;
 assert(Array.isArray(orden)&&orden.length===allTasks.length,'Total de ejecuciones distinto del total de tareas');
 assert.equal(new Set(orden).size,orden.length,'Numeración con tarea duplicada');
 for(let i=0;i<allTasks.length;i++){
- const t=allTasks[i];
+ const t=tasksById.get(orden[i]);
+ assert(t,'Índice de ejecución referencia tarea inexistente: '+orden[i]);
  assert.equal(t.numero_ejecucion,i+1,'Número correlativo inválido '+t.id);
- assert.equal(orden[i],t.id,'Índice de ejecución distinto a la tarea canónica '+t.id);
 }
 for(const g of inv.errores_http_5xx?.grupos||[]){
  const tarea=tasksById.get(g.tarea_id);
