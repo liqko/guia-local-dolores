@@ -343,3 +343,32 @@ test('P3-17 / P4-0029: exportación dinámica Promos GH tiene consumidor real y 
  assert.match(module,/Authorization:'Bearer '\+TOKEN/);
  // Estas pruebas certifican el enlace estático cruzado, NO sesión ni render funcional live.
 });
+
+
+test('P4-0011: fallo de lectura de Promos GH permite reintento en nueva apertura',async()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/gh-promos.js'),'utf8');
+ const start=source.indexOf('window.ghPromosLoadV91=function(');
+ const end=source.indexOf('window.ghPromosPrepareV91=',start);
+ assert(start!==-1&&end>start);
+ const section=source.slice(start,end);
+ let attempts=0,loaded=false,prepared=false,loading=null,rows=[],renderCount=0,message='';
+ const win={};
+ const make=Function('window','el','request','render','state',`
+ let loaded=false,prepared=false,loading=null,rows=[];
+ ${section}
+ return {get loaded(){return loaded;},get rows(){return rows;}};
+ `);
+ const context=make(win,()=>({set textContent(v){message=v;}}),async()=>{
+   attempts++;
+   if(attempts===1)throw Error('fallo temporal');
+   return {preparado:true,results:[{promo_id:'RECUPERADA'}],next_cursor:null};
+ },()=>{renderCount++;});
+ await win.ghPromosLoadV91();
+ assert.equal(context.loaded,false,'No se debe dejar el flag cargado tras una excepción');
+ assert.match(message,/fallo temporal/);
+ await win.ghPromosLoadV91();
+ assert.equal(attempts,2,'La apertura siguiente debe solicitar de nuevo los datos');
+ assert.equal(context.loaded,true);
+ assert.equal(context.rows[0].promo_id,'RECUPERADA');
+ assert.equal(renderCount,1);
+});
