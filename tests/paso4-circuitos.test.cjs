@@ -439,3 +439,21 @@ test('P4-0012: rutas de favoritos usan proyección serializada e identidad auten
  assert.match(worker,/body\.op==='private-favorites'\)return await this\.privateFavoritesProjection\(body\)/);
  assert.match(worker,/private_favorites_store=report\.private_favorites_store/);
 });
+
+
+test('P4-0001: el manifiesto PWA de raiz entra en el artefacto de Firebase Hosting',()=>{
+  const yaml=fs.readFileSync(path.join(__dirname,'../.github/workflows/firebase-hosting-merge.yml'),'utf8');
+  const manifest=JSON.parse(fs.readFileSync(path.join(__dirname,'../manifest.webmanifest'),'utf8'));
+  const firebase=JSON.parse(fs.readFileSync(path.join(__dirname,'../firebase.json'),'utf8'));
+  assert.equal(firebase.hosting.public,'hosting-public');
+  assert.match(yaml,/cp manifest\\.webmanifest hosting-public\\/manifest\\.webmanifest/);
+  assert.match(yaml,/git diff --name-only "[^"]+" "\\$GITHUB_SHA" -- plataforma\\/ firebase\\.json manifest\\.webmanifest/);
+  assert.match(yaml,/cron: ["']0 4 \\* \\* \\*["']/,'Corte a las 01:00 Argentina (UTC-3)');
+  assert.equal(manifest.start_url,'/elegi-tu-ciudad');
+  assert(manifest.icons.some(x=>x.src&&fs.existsSync(path.join(__dirname,'..',x.src.replace(/^\\//,'')))));
+  const pages=['inicio.html','carcasa.html','suscriptores.html','app-prueba.html'];
+  for(const page of pages){
+    const html=fs.readFileSync(path.join(__dirname,'../plataforma',page),'utf8');
+    assert.match(html,/\\/manifest\\.webmanifest/,page+' debe referenciar el manifiesto');
+  }
+});
