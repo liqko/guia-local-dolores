@@ -144,3 +144,34 @@ test('P4-0006: dos archivos fallidos no reemplazan una copia válida y permiten 
  assert.equal((await api.get('dolores')).revision,1);assert.equal(writes,0);assert.equal(requests,2);
  fail=false;assert.equal((await api.get('dolores')).revision,2);assert.equal(writes,1);assert.equal(requests,4);
 });
+
+test('Paso 4 transversal: respuesta publica antigua no pisa ni muestra una version nueva',async()=>{
+ const copies=new Map(), requests=[];
+ let revision=2, resolveOld, resolveNew;
+ const newerBook={...initial('dolores'),revision:3};
+ newerBook.modules.guide.results=[{anunciante_id:'A',nombre:'Version vigente'}];
+ const previousBook={...initial('dolores'),revision:2};
+ previousBook.modules.guide.results=[{anunciante_id:'A',nombre:'Version anterior'}];
+ const api=client({
+  manifest:()=>({key:'dolores',revision,deltas:[]}),
+  storage:{get:city=>copies.get(city),put:book=>copies.set(book.city,book)},
+  fetchJson:path=>new Promise(resolve=>{requests.push(path);
+   if(path.includes('completo-2'))resolveOld=resolve;
+   else if(path.includes('completo-3'))resolveNew=resolve;
+   else throw Error('Archivo inesperado '+path);
+  })
+ });
+ const old=api.module('dolores','guide');
+ for(let i=0;i<10&&!resolveOld;i++)await Promise.resolve();
+ assert.equal(typeof resolveOld,'function');
+ revision=3;
+ const current=api.module('dolores','guide');
+ for(let i=0;i<10&&!resolveNew;i++)await Promise.resolve();
+ assert.equal(typeof resolveNew,'function');
+ resolveNew(newerBook);
+ assert.equal((await current).results[0].nombre,'Version vigente');
+ resolveOld(previousBook);
+ assert.equal((await old).results[0].nombre,'Version vigente');
+ assert.equal(copies.get('dolores').revision,3);
+ assert.equal(requests.length,2,'solo una descarga por revision');
+});
