@@ -99,9 +99,18 @@
         const file = isDelta
           ? 'cambios-' + previous.revision + '-' + info.revision
           : 'completo-' + info.revision;
-        const payload = await fetchJson('/plataforma/paquetes-ciudad/' + info.key + '/' + file + '.json');
-        const book = isDelta ? applyDelta(previous, payload) : payload;
-        if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
+        const prefix = '/plataforma/paquetes-ciudad/' + info.key + '/';
+        let book;
+        try {
+          const payload = await fetchJson(prefix + file + '.json');
+          book = isDelta ? applyDelta(previous, payload) : payload;
+          if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
+        } catch (error) {
+          if (!isDelta) throw error;
+          // Recuperar desde la misma publicación estática, sin volver al Worker.
+          book = await fetchJson(prefix + 'completo-' + info.revision + '.json');
+          if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
+        }
         try { await storage.put(book); } catch (_) {}
         return book;
       } catch (_) {
