@@ -1348,6 +1348,8 @@ body.gld-modo-web #paginador-abajo{display:none!important}
 
     let gldFavoritosAnunciantes=new Set();
     let gldFavoritosMutationRevision=0;
+    let gldFavoritosLoadRevision=0;
+    const gldFavoritosPending=new Set();
     const GLD_FAVORITOS_CACHE_PREFIX='gld_favoritos_anunciantes_v2:';
 
     function gldPintarFavoritosAnunciantes(){
@@ -1375,9 +1377,10 @@ body.gld-modo-web #paginador-abajo{display:none!important}
 
     async function gldCargarFavoritosAnunciantes(){
       const revisionAlIniciar=gldFavoritosMutationRevision;
+      const loadRevision=++gldFavoritosLoadRevision;
       gldFavoritosAnunciantes=new Set();
       const s=gldGetSubscriberSession();
-      if(!s || !s.suscriptor_id) return;
+      if(!s || !s.suscriptor_id || !gldGetSubscriberToken()){gldPintarFavoritosAnunciantes();return;}
 
       // Primero se recupera lo último conocido: el corazón aparece sin esperar la red.
       gldLeerFavoritosCache(s.suscriptor_id).forEach(id=>gldFavoritosAnunciantes.add(String(id||'').trim()));
@@ -1403,7 +1406,7 @@ body.gld-modo-web #paginador-abajo{display:none!important}
           const id=String(f&&f.referencia_id||'').trim();
           if(id) frescos.add(id);
         });
-        if(revisionAlIniciar!==gldFavoritosMutationRevision)return; // No pisar una mutación posterior con GET anterior.
+        if(loadRevision!==gldFavoritosLoadRevision||revisionAlIniciar!==gldFavoritosMutationRevision||gldGetSubscriberSession()?.suscriptor_id!==s.suscriptor_id||gldGetSubscriberToken()!==token)return; // No pisar una mutación posterior con GET anterior.
         gldFavoritosAnunciantes=frescos;
         gldGuardarFavoritosCache(s.suscriptor_id);
         gldPintarFavoritosAnunciantes();
@@ -1423,6 +1426,10 @@ body.gld-modo-web #paginador-abajo{display:none!important}
 
       const session=gldGetSubscriberSession();
       const token=gldGetSubscriberToken();
+      if(!session?.suscriptor_id||!token)return;
+      const pendingKey=JSON.stringify([session.suscriptor_id,id]);
+      if(gldFavoritosPending.has(pendingKey))return;
+      gldFavoritosPending.add(pendingKey);
       const activo=gldFavoritosAnunciantes.has(id);
       btn.disabled=true;
 
@@ -1443,10 +1450,11 @@ body.gld-modo-web #paginador-abajo{display:none!important}
           })
         });
         const data=await r.json();
-        if(!data || data.success!==true){
+        if(!r.ok || !data || data.success!==true){
           throw new Error((data&&(data.message||data.error))||'No se pudo actualizar el favorito.');
         }
 
+        if(gldGetSubscriberSession()?.suscriptor_id!==session.suscriptor_id||gldGetSubscriberToken()!==token)return;
         gldFavoritosMutationRevision++;
         if(activo) gldFavoritosAnunciantes.delete(id);
         else gldFavoritosAnunciantes.add(id);
@@ -1462,6 +1470,7 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       }catch(e){
         console.error('Favorito anunciante:',e);
       }finally{
+        gldFavoritosPending.delete(pendingKey);
         btn.disabled=false;
       }
     }
