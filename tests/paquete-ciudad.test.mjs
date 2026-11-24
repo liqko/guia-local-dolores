@@ -175,3 +175,37 @@ test('Paso 4 transversal: respuesta publica antigua no pisa ni muestra una versi
  assert.equal(copies.get('dolores').revision,3);
  assert.equal(requests.length,2,'solo una descarga por revision');
 });
+
+test('E3: fallo de revisión anterior no devuelve datos obsoletos ni descarga un delta innecesario',async()=>{
+ const old=initial('dolores'),latest={...initial('dolores'),revision:3};
+ let revision=2,rejectOld,requests=[];
+ const api=client({manifest:()=>({key:'dolores',revision,deltas:[1]}),
+  storage:{get:()=>old,put:()=>{}},fetchJson:path=>{requests.push(path);
+   if(path.includes('1-2'))return new Promise((_,reject)=>{rejectOld=reject;});
+   return {...latest};}});
+ const first=api.get('dolores');for(let i=0;i<10&&!rejectOld;i++)await Promise.resolve();
+ assert.equal(typeof rejectOld,'function');revision=3;
+ // El delta nuevo es deliberadamente inválido: debe recuperar el completo.
+ const current=await api.get('dolores');assert.equal(current.revision,3);
+ rejectOld(Error('red'));assert.equal((await first).revision,3);
+ assert.equal(requests.length,3);assert(!requests.some(x=>x.includes('completo-2')));
+});
+
+test('E3: retiro del índice durante lectura local no devuelve una ciudad retirada',async()=>{
+ let active=true,finish;let downloads=0;
+ const api=client({manifest:()=>active?{key:'dolores',revision:1,deltas:[]}:null,
+  storage:{get:()=>new Promise(resolve=>{finish=resolve;}),put:()=>{}},fetchJson:()=>{downloads++;}});
+ const first=api.get('dolores');active=false;finish(initial('dolores'));
+ assert.equal(await first,null);assert.equal(downloads,0);
+});
+
+test('E3: revisión cambia durante persistencia y el consumidor recibe la vigente',async()=>{
+ let revision=1,finish,downloads=0;
+ const api=client({manifest:()=>({key:'dolores',revision,deltas:[]}),
+  storage:{get:()=>null,put:book=>book.revision===1?new Promise(resolve=>{finish=resolve;}):undefined},
+  fetchJson:path=>{downloads++;return {...initial('dolores'),revision:Number(path.match(/completo-(\d+)/)[1])};}});
+ const first=api.get('dolores');for(let i=0;i<20&&!finish;i++)await Promise.resolve();
+ assert.equal(typeof finish,'function');revision=2;
+ assert.equal((await api.get('dolores')).revision,2);finish();
+ assert.equal((await first).revision,2);assert.equal(downloads,2);
+});
