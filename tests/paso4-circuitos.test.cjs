@@ -402,3 +402,40 @@ test('P4-0009: identidad de promo antigua, inválida o distinta no corrompe el p
  assert.deepEqual(data.promos.map(p=>p.promo_id||p.id),['P2']);
  assert.deepEqual([reads,writes,admin],[2,2,2]);
 });
+
+
+test('P4-0012: proyección privada confirma bajas históricas y recupera fallo parcial sin repetir escritura',async()=>{
+ const a=worker.indexOf('async function executeFavoriteProjection('),b=worker.indexOf('async function listFavoritesV2(',a);
+ assert(a>=0&&b>a);
+ const run=Function('text','typeOf','favoriteDocId','httpError',worker.slice(a,b)+';return executeFavoriteProjection;')(
+  v=>String(v??'').trim(),v=>['ANUNCIANTE','EVENTO','PROMO','ACTIVIDAD','CIUDAD'].includes(String(v??'').toUpperCase())?String(v).toUpperCase():'',
+  async(s,t,r)=>'FAV-'+s+'-'+t+'-'+r,(m,status)=>Object.assign(Error(m),{status}));
+ const source=new Map([['OLD',{id:'OLD',suscriptor_id:'S',tipo:'ANUNCIANTE',referencia_id:'A',activo:true}],
+ ['FAV-S-ANUNCIANTE-A',{id:'FAV-S-ANUNCIANTE-A',suscriptor_id:'S',tipo:'ANUNCIANTE',referencia_id:'A',activo:true}],
+ ['B',{id:'B',suscriptor_id:'S',tipo:'ANUNCIANTE',referencia_id:'B',activo:true}]]);
+ let packet=null,reads=0,writes=0,commits=0,storeReads=0,storeWrites=0,fail=false;
+ const db={queryEqual:async(c,f,sid)=>{assert.equal(c,'suscriptor_favoritos');reads++;return [...source.values()].filter(r=>r.suscriptor_id===sid);},
+ commitPatches:async entries=>{commits++;for(const e of entries){writes++;if(e.remove)source.delete(e.id);else source.set(e.id,{...source.get(e.id),...e.patch,id:e.id});}if(fail)throw Error('lost ack');}};
+ const call=(command,sid='S')=>run({sid,command,db,load:async()=>{storeReads++;return packet?structuredClone(packet):null;},save:async p=>{storeWrites++;packet=structuredClone(p);}});
+ assert.equal((await call({action:'list'})).favoritos.length,2);
+ await call({action:'remove',tipo:'ANUNCIANTE',ref:'A'});
+ assert.deepEqual((await call({action:'list'})).favoritos.map(x=>x.referencia_id),['B']);
+ assert(!source.has('OLD')&&!source.has('FAV-S-ANUNCIANTE-A'));
+ assert.deepEqual([reads,writes,commits,storeReads,storeWrites],[1,2,1,3,3]);
+ await call({action:'remove',tipo:'ANUNCIANTE',ref:'A'});
+ assert.deepEqual([reads,writes,commits,storeWrites],[1,2,1,3]);
+ await assert.rejects(call({action:'list'},'OTRA'),/Identidad/);
+ fail=true;await assert.rejects(call({action:'add',tipo:'ANUNCIANTE',ref:'C',nombre_ref:'C'}),/lost ack/);
+ assert.equal(packet.dirty,true);
+ fail=false;assert.deepEqual((await call({action:'list'})).favoritos.map(x=>x.referencia_id),['B','C']);
+ await call({action:'add',tipo:'ANUNCIANTE',ref:'C',nombre_ref:'C'});
+ assert.deepEqual([reads,writes,commits,storeWrites],[2,3,2,5]);
+});
+test('P4-0012: rutas de favoritos usan proyección serializada e identidad autenticada',()=>{
+ const a=worker.indexOf('async function listFavoritesV2('),b=worker.indexOf('return {listFavoritesV2',a);
+ const src=worker.slice(a,b);
+ assert.equal((src.match(/sessionOrThrow\(env,request\)/g)||[]).length,3);
+ assert.equal((src.match(/favoriteProjectionCommand\(env,text\(session.sid\)/g)||[]).length,3);
+ assert.match(worker,/body\.op==='private-favorites'\)return await this\.privateFavoritesProjection\(body\)/);
+ assert.match(worker,/private_favorites_store=report\.private_favorites_store/);
+});
