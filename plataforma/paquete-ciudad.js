@@ -88,10 +88,15 @@
 
   function client({ manifest, storage, fetchJson }) {
     const pending = new Map();
+    const stillCurrent = (city, info) => {
+      const current = manifest(city);
+      return current?.revision === info.revision && current?.key === info.key;
+    };
     async function load(city, info) {
       let previous;
       try { previous = await storage.get(city); } catch (_) {}
       if (!validBook(previous, city)) previous = null;
+      if (!stillCurrent(city, info)) return api.get(city);
       if (previous && previous.revision >= info.revision) return previous;
 
       try {
@@ -106,6 +111,7 @@
           book = isDelta ? applyDelta(previous, payload) : payload;
           if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
         } catch (error) {
+          if (!stillCurrent(city, info)) return api.get(city);
           if (!isDelta) throw error;
           // Recuperar desde la misma publicación estática, sin volver al Worker.
           book = await fetchJson(prefix + 'completo-' + info.revision + '.json');
@@ -113,14 +119,11 @@
         }
         // Una respuesta antigua no debe volver a mostrarse si el índice público
         // cambió mientras se descargaba. Reutilizar la solicitud más reciente.
-        const publishedNow = manifest(city);
-        if (publishedNow?.revision !== info.revision || publishedNow?.key !== info.key) {
-          return api.get(city);
-        }
+        if (!stillCurrent(city, info)) return api.get(city);
         try { await storage.put(book); } catch (_) {}
-        return book;
+        return stillCurrent(city, info) ? book : api.get(city);
       } catch (_) {
-        return previous;
+        return stillCurrent(city, info) ? previous : api.get(city);
       }
     }
 
@@ -129,9 +132,9 @@
       const info = manifest(city);
       if (!validRevision(info?.revision) || !/^[\w-]+$/.test(info.key)) return Promise.resolve(null);
       let entry = pending.get(city);
-      if (!entry || entry.revision !== info.revision) {
+      if (!entry || entry.revision !== info.revision || entry.key !== info.key) {
         const request = load(city, info);
-        entry = { revision: info.revision, request };
+        entry = { revision: info.revision, key: info.key, request };
         pending.set(city, entry);
         const current = entry;
         request.then(book => {
