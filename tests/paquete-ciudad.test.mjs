@@ -116,3 +116,31 @@ test('el fallo de una descarga anterior no elimina una nueva descarga en curso',
  assert.strictEqual(api.get('dolores'),newer,'se conserva la descarga más nueva');
  resolveNew({...initial('dolores'),revision:3});assert.equal((await newer).revision,3);assert.equal(requests.length,2);
 });
+
+test('P4-0006: delta ausente o inválido recupera una sola copia estática para todos los módulos',async()=>{
+ for(const fail of ['404','wrong-city','wrong-revision']){
+  const original=initial('dolores'),current={...initial('dolores'),revision:2};
+  current.modules.events.events=[{evento_id:'E2'}];current.modules.promos.promos=[{promo_id:'P2'}];
+  const copies=new Map([['dolores',original]]),requests=[];let writes=0;
+  const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
+   storage:{get:city=>copies.get(city),put:book=>{writes++;copies.set(book.city,book);}},
+   fetchJson:async path=>{requests.push(path);if(path.includes('cambios')){
+    if(fail==='404')throw Error('404');
+    return {city:fail==='wrong-city'?'tandil':'dolores',from:1,revision:fail==='wrong-revision'?3:2,changes:{}};
+   }return current;}});
+  const [events,promos,book]=await Promise.all([api.module('dolores','events'),api.module('dolores','promos'),api.get('dolores')]);
+  assert.equal(book.revision,2);assert.equal(events.events[0].evento_id,'E2');assert.equal(promos.promos[0].promo_id,'P2');
+  assert.equal(requests.length,2);assert.equal(writes,1);
+  await api.get('dolores');assert.equal(requests.length,2);
+ }
+});
+
+test('P4-0006: dos archivos fallidos no reemplazan una copia válida y permiten reintento',async()=>{
+ const original=initial('dolores'),current={...initial('dolores'),revision:2};
+ let fail=true,requests=0,writes=0;const copies=new Map([['dolores',original]]);
+ const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
+  storage:{get:city=>copies.get(city),put:book=>{writes++;copies.set(book.city,book);}},
+  fetchJson:async path=>{requests++;if(fail||path.includes('cambios'))throw Error('offline');return current;}});
+ assert.equal((await api.get('dolores')).revision,1);assert.equal(writes,0);assert.equal(requests,2);
+ fail=false;assert.equal((await api.get('dolores')).revision,2);assert.equal(writes,1);assert.equal(requests,4);
+});
