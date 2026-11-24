@@ -372,3 +372,33 @@ test('P4-0011: fallo de lectura de Promos GH permite reintento en nueva apertura
  assert.equal(context.rows[0].promo_id,'RECUPERADA');
  assert.equal(renderCount,1);
 });
+
+
+test('P4-0009: identidad de promo antigua, inválida o distinta no corrompe el paquete',async()=>{
+ const start=worker.indexOf('async function syncPromo('),end=worker.indexOf('async function getPromosCity(',start);
+ assert(start>=0&&end>start);
+ const run=Function('syncAdminPromoV91',`
+ const text5=v=>String(v??'').trim();
+ const promoCityKey=id=>'promos:'+id;
+ const visible=p=>!p.pausado;
+ const publicPromo=p=>({...p,promo_id:p.promo_id||p.id});
+ const sort=r=>r;
+ const GLD_BUSINESS143={equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)};
+ ${worker.slice(start,end)}
+ return syncPromo;
+ `);
+ let reads=0,writes=0,admin=0;
+ let data={promos:[{id:'P1',promo:'antigua'},{promo_id:'P2',promo:'otra'}]};
+ const cache={get:async()=>{reads++;return data;},put:async(k,v)=>{writes++;data=v;}};
+ const sync=run(async()=>{admin++;});
+ await assert.rejects(sync({cache,next:{ciudad_id:'DOL'}}),/Identidad/);
+ await assert.rejects(sync({cache,current:{promo_id:'P1'},next:{promo_id:'P2'}}),/Identidad/);
+ await sync({cache});
+ assert.deepEqual([reads,writes,admin],[0,0,0]);
+ await sync({cache,current:{id:'P1',ciudad_id:'DOL'},next:{promo_id:'P1',ciudad_id:'DOL',promo:'nueva'}});
+ assert.deepEqual(data.promos.map(p=>p.promo_id||p.id),['P2','P1']);
+ assert.equal(data.promos[1].promo,'nueva');
+ await sync({cache,current:{promo_id:'P1',ciudad_id:'DOL'}});
+ assert.deepEqual(data.promos.map(p=>p.promo_id||p.id),['P2']);
+ assert.deepEqual([reads,writes,admin],[2,2,2]);
+});
