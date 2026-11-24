@@ -138,3 +138,32 @@ test('P4-0010: construcción de destinos conserva filtros y ciudad del anunciant
    assert.equal(after.searchParams.get('anunciante_id'),"A-O'Brien & Hijos");
  }
 });
+
+
+test('P4-0012/P4-0013: sesiones aisladas, respuesta HTTP fallida y doble clic sobre tarjetas',async()=>{
+ const src=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const start=src.indexOf('let gldFavoritosAnunciantes=new Set();'),end=src.indexOf('const CITY_CONTEXT_KEY=',start);
+ const store=new Map([['gld_favoritos_anunciantes_v2:S1',JSON.stringify({ids:['A']})]]);
+ let session={suscriptor_id:'S1'},token='T1',gets=0,posts=0,logins=0,mode='deferred',resolveGet,resolvePost;
+ const localStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v)};
+ const button=()=>({dataset:{anuncianteId:'A'},classList:{toggle(){}},disabled:false});
+ const b1=button(),b2=button();
+ const fetch=async(url,opt)=>{
+  if(opt.method==='GET'){gets++;if(mode==='deferred')return new Promise(r=>{resolveGet=r});return {ok:true,json:async()=>({success:true,favoritos:[]})};}
+  posts++;if(mode==='http-error')return {ok:false,json:async()=>({success:true})};
+  if(mode==='network-error')throw Error('sin red');
+  return new Promise(r=>{resolvePost=r});
+ };
+ const api=new Function('localStorage','document','fetch','gldGetSubscriberSession','gldGetSubscriberToken','GLD_SUSCRIPTORES_API','ciudadSeleccionada','gldIsSubscriberLogged','window',src.slice(start,end)+';return {load:gldCargarFavoritosAnunciantes,toggle:gldToggleFavoritoAnunciante,has:id=>gldFavoritosAnunciantes.has(id)}')(localStorage,{querySelectorAll:()=>[b1,b2]},fetch,()=>session,()=>token,'https://worker.test/suscriptores','DOL',()=>!!session&&!!token,{parent:{postMessage(){logins++;}}});
+ const old=api.load();
+ session={suscriptor_id:'S2'};token='T2';mode='normal';await api.load();
+ resolveGet({ok:true,json:async()=>({success:true,favoritos:[{referencia_id:'A'}]})});await old;
+ assert.equal(api.has('A'),false);assert.equal(gets,2);
+ mode='http-error';await api.toggle(b1,'A','Nombre');assert.equal(api.has('A'),false);
+ mode='network-error';await api.toggle(b1,'A','Nombre');assert.equal(api.has('A'),false);assert.equal(b1.disabled,false);
+ mode='deferred';const mutation=api.toggle(b1,'A','Nombre');await api.toggle(b2,'A','Nombre');assert.equal(posts,3);
+ session=null;token='';await api.load();assert.equal(b1.textContent,'♡');
+ resolvePost({ok:true,json:async()=>({success:true})});await mutation;
+ assert.equal(api.has('A'),false);assert.equal(b1.disabled,false);
+ await api.toggle(b2,'A','Nombre');assert.equal(logins,1);assert.equal(posts,3);assert.equal(gets,2);
+});
