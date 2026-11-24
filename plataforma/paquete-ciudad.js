@@ -111,6 +111,12 @@
           book = await fetchJson(prefix + 'completo-' + info.revision + '.json');
           if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
         }
+        // Una respuesta antigua no debe volver a mostrarse si el índice público
+        // cambió mientras se descargaba. Reutilizar la solicitud más reciente.
+        const publishedNow = manifest(city);
+        if (publishedNow?.revision !== info.revision || publishedNow?.key !== info.key) {
+          return api.get(city);
+        }
         try { await storage.put(book); } catch (_) {}
         return book;
       } catch (_) {
