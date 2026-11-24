@@ -53,3 +53,18 @@ test('el catálogo publicado actualiza solo cuando cambia la revisión',async()=
   assert.deepEqual({requests:next.stats().requests,writes:next.stats().writes},{requests:0,writes:1});
  }finally{await rm(dir,{recursive:true,force:true});}
 });
+
+test('P4-0006: push sin cambio territorial prepara copia pero no exige despliegue',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'gld-territory-push-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const file=join(dir,'territorio-cache.js');await writeFile(file,template);
+ const first=await preparePublicTerritory({file,read:async()=>Response.json(packet)});
+ const published=await readFile(file,'utf8');await writeFile(file,template);
+ const calls=[];
+ const result=await preparePublicTerritory({file,read:async url=>{calls.push(url);return url.endsWith('.js')?new Response(published):Response.json(packet);}});
+ assert.equal(result.changed,false);assert.equal(result.revision,first.revision);
+ assert.equal(await readFile(file,'utf8'),published);assert.equal(calls.length,2);
+ await writeFile(file,template);calls.length=0;
+ const fallback=await preparePublicTerritory({file,read:async url=>{calls.push(url);return url.endsWith('.js')?new Response(published):new Response('',{status:503});}});
+ assert.equal(fallback.changed,false);assert.equal(calls.length,2);
+ assert.equal(await readFile(file,'utf8'),published);
+});
