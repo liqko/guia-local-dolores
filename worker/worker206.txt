@@ -76,14 +76,15 @@ var GLD_ACTIONS138 = (() => {
   if(!bodies.has(request))bodies.set(request,request.clone().json());
   return clone(await bodies.get(request));
  }
- async function authenticate(env,request,verify){
+ async function authenticate(env,request,verify,kind='admin'){
   let scopes=identities.get(request);if(!scopes){scopes=new WeakMap();identities.set(request,scopes);}
-  if(!scopes.has(env))scopes.set(env,Promise.resolve().then(()=>verify(env,request)));
-  return clone(await scopes.get(env));
+  let roles=scopes.get(env);if(!roles){roles=new Map();scopes.set(env,roles);}
+  if(!roles.has(kind))roles.set(kind,Promise.resolve().then(()=>verify(env,request)));
+  return clone(await roles.get(kind));
  }
  function seed(env,request,auth,body){
   let scopes=identities.get(request);if(!scopes){scopes=new WeakMap();identities.set(request,scopes);}
-  scopes.set(env,Promise.resolve(clone(auth)));bodies.set(request,Promise.resolve(clone(body)));
+  scopes.set(env,new Map([['admin',Promise.resolve(clone(auth))]]));bodies.set(request,Promise.resolve(clone(body)));
   internalEnvironments.add(env);
  }
  function identify(path,method){
@@ -2777,7 +2778,7 @@ async function issueSession(env, payload) {
   }));
   return body + "." + await hmac2(env, body);
 }
-async function verifySubscriberSession(env,request2){return GLD_BUSINESS143.trusted(env,request2,'subscriber')||await verifySubscriberSessionRaw143(env,request2); }
+async function verifySubscriberSession(env,request2){return GLD_BUSINESS143.trusted(env,request2,'subscriber')||await GLD_ACTIONS138.authenticate(env,request2,verifySubscriberSessionRaw143,'subscriber'); }
 async function verifySubscriberSessionRaw143(env, request2) {
   const auth = text27(request2.headers.get("Authorization"));
   if (!auth.toLowerCase().startsWith("bearer ")) return { ok: false, message: "Sesión requerida" };
@@ -10887,14 +10888,14 @@ async function preparePublicationV77(ctx){
  const promoContent=action==='createpromo'||action==='updatepromo'&&Object.keys(promoData).some(key=>!['promo_id','pausado','action','accion','advertiserId','advertiser_id','declaracion_publicacion','operation_id','request_key'].includes(key));
  const collections=ctx.path==='/promos'&&promoContent?['promos']:ctx.path==='/events-new'&&['createfreeevent','updatefreeevent','createvipevent','updatevipevent'].includes(action)?['eventos']:ctx.path==='/actividades'&&action==='guardar'?['actividades']:ctx.path==='/publicidad'&&['guardar','save'].includes(action)?['publicidades']:ctx.path==='/commerce'&&action==='set_datos'?['anunciantes']:ctx.path==='/suscriptores'&&action==='crear'?['suscriptores']:ctx.path==='/suscriptores'&&action==='solicitar_anunciante'?['anunciantes']:[];
  if(!collections.length)return;
- let sid='';if(collections[0]!=='suscriptores'){const session=await verifySubscriberSession(ctx.env,ctx.request);if(!session.ok)publicationErrorV77(session.message,401);sid=session.sid;}
+ let sid='',session=null;if(collections[0]!=='suscriptores'){session=await verifySubscriberSession(ctx.env,ctx.request);if(!session.ok)publicationErrorV77(session.message,401);sid=session.sid;}
  const accepted=body.declaracion_publicacion;
  const activeTerms=sid?await currentTermsV81(ctx.cache):null;
  const expectedVersion=activeTerms?.version||PUBLICATION_TERMS_V77;
  if(!accepted||accepted.aceptada!==true||accepted.version!==expectedVersion)publicationErrorV77('Los términos de publicación cambiaron. Revisá y aceptá la versión vigente antes de guardar.',412);
  const catalogs=await ctx.cache.get('admin:catalogs:v2');
  if(collections[0]!=='suscriptores'&&(!catalogs||!Array.isArray(catalogs.moderacion_18)))publicationErrorV77('No está disponible el catálogo de moderación. Reintentá cuando se restablezca.',503);
- if(sid&&collections[0]!=='suscriptores'&&!((await verifySubscriberSession(ctx.env,ctx.request)).admin_panel)&&ctx.db.cachedSubscriberProjection){const account=await ctx.db.cachedSubscriberProjection(sid),prior=account?.aceptacion_terminos_anunciante;if(prior&&((account.historial_terminos_anunciante?.[expectedVersion]||prior).version!==expectedVersion))throw Object.assign(new Error('Los términos para anunciantes cambiaron. Revisalos y aceptalos desde el botón Términos y condiciones.'),{status:412,code:'TERMS_REVIEW_REQUIRED'});}
+ if(sid&&collections[0]!=='suscriptores'&&!session.admin_panel&&ctx.db.cachedSubscriberProjection){const account=await ctx.db.cachedSubscriberProjection(sid),prior=account?.aceptacion_terminos_anunciante;if(prior&&((account.historial_terminos_anunciante?.[expectedVersion]||prior).version!==expectedVersion))throw Object.assign(new Error('Los términos para anunciantes cambiaron. Revisalos y aceptalos desde el botón Términos y condiciones.'),{status:412,code:'TERMS_REVIEW_REQUIRED'});}
  const data=body.payload&&typeof body.payload==='object'?body.payload:body;
  ctx.publication={sid,collections,data,rules:catalogs?.moderacion_18||[],termsVersion:expectedVersion};ctx.db=publicationDbV77(ctx.db,ctx.publication,ctx.cache);
 }
