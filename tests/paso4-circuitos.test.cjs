@@ -457,3 +457,24 @@ test('P4-0001: el manifiesto PWA de raiz entra en el artefacto de Firebase Hosti
     assert.match(html,/\/manifest\.webmanifest/,page+' debe referenciar el manifiesto');
   }
 });
+
+test('E2: autenticación compartida por petición, entorno y rol sin contaminar permisos',async()=>{
+ const start=worker.indexOf('var GLD_ACTIONS138 = (() => {');
+ const end=worker.indexOf(' function identify(path,method)',start);
+ assert(start>=0&&end>start);
+ const core=Function(worker.slice(start,end)+'return {authenticate,seed};})();return GLD_ACTIONS138;')();
+ let admin=0,subscriber=0;
+ const env={},request={};
+ const av=async()=>{admin++;return {ok:true,rol:'SUPERADMIN',nested:{value:1}};};
+ const sv=async()=>{subscriber++;return {ok:false,message:'No subscriber'};};
+ const [a,b,s]=await Promise.all([core.authenticate(env,request,av),core.authenticate(env,request,av),core.authenticate(env,request,sv,'subscriber')]);
+ assert.equal(admin,1);assert.equal(subscriber,1);assert.equal(s.ok,false);
+ a.nested.value=99;assert.equal(b.nested.value,1);
+ assert.equal((await core.authenticate(env,request,av)).nested.value,1);
+ await core.authenticate({},request,av);await core.authenticate(env,{},av);assert.equal(admin,3);
+ const seeded={};core.seed(env,seeded,{ok:true,rol:'SUPERADMIN'},{});
+ assert.equal((await core.authenticate(env,seeded,av)).rol,'SUPERADMIN');
+ assert.equal((await core.authenticate(env,seeded,sv,'subscriber')).ok,false);
+ assert.equal(admin,3);assert.equal(subscriber,2);
+ assert.match(worker,/verifySubscriberSessionRaw143,'subscriber'/);
+});
