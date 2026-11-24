@@ -5265,7 +5265,7 @@ async function routePanelV5(ctx) {
 }
 
 // reconstruccion/worker/modules/suscriptor-favoritos-v2.js
-var {listFavoritesV2,addFavoriteV2,removeFavoriteV2} = (() => {
+var {listFavoritesV2,addFavoriteV2,removeFavoriteV2,favoriteProjectionCommand,executeFavoriteProjection} = (() => {
 /**
  * FAVORITOS SUSCRIPTOR V2
  * Requiere sesión HMAC. Nunca acepta suscriptor_id ajeno al token.
@@ -5290,61 +5290,97 @@ async function sessionOrThrow(env,request){
   return s;
 }
 
+// Single private projection, serialized per subscriber by the existing Durable Object binding.
+// Firestore remains authoritative; a dirty projection is never served after a partial failure.
+async function favoriteProjectionCommand(env,sid,command){
+  if(!sid||!env.GLD_PUBLIC_CACHE)throw httpError('Favoritos no disponibles temporalmente.',503);
+  const report=env.__gldRequestReport119;
+  const stats=report?(report.private_favorites_store??={calls:0,rows_read:0,rows_written:0,failures:0}):null;
+  if(stats)stats.calls++;
+  try{
+    const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-favorites:'+sid));
+    const response=await actor.fetch(new Request('https://private-records.internal/',{method:'POST',body:JSON.stringify({...command,op:'private-favorites',sid})}));
+    const result=await response.json();
+    if(stats){
+      for(const field of ['rows_read','rows_written'])stats[field]+=Number(result.metrics?.[field]||0);
+      for(const [key,entry] of Object.entries(result.operations||{})){
+        const target=report.operations[key]??={operation:entry.operation,collection:entry.collection,field:entry.field||'',calls:0,documents_returned:0,failures:0};
+        for(const field of ['calls','documents_returned','failures'])target[field]+=Number(entry[field]||0);
+      }
+    }
+    if(!response.ok)throw httpError('No se pudo sincronizar Favoritos. Reintentá.',response.status);
+    return result.value;
+  }catch(error){if(stats)stats.failures++;throw error;}
+}
+async function executeFavoriteProjection({sid,command,db,load,save}){
+  const collection='suscriptor_favoritos';
+  const normalize=row=>({...row,id:text(row.id),suscriptor_id:text(row.suscriptor_id)});
+  if(command.action==='invalidate'){await save({sid,dirty:true,rows:[]});return {success:true};}
+  if(!['list','add','remove'].includes(command.action))throw httpError('Operación de favoritos inválida.',400);
+  const tipo=typeOf(command.tipo),ref=text(command.ref);
+  if((command.tipo&&!tipo)||(command.action!=='list'&&(!tipo||!ref)))throw httpError('Favorito inválido.',400);
+  let packet=await load();
+  if(packet&&packet.sid!==sid)throw httpError('Identidad de favoritos inválida.',503);
+  const cold=!packet||packet.dirty;
+  if(cold){
+    const source=await db.queryEqual(collection,'suscriptor_id',sid,501);
+    if(source.length>500)throw httpError('El listado excede el límite de preparación.',503);
+    if(source.some(row=>text(row.suscriptor_id)!==sid||!text(row.id)))throw httpError('Registro de favorito inválido.',503);
+    packet={sid,dirty:false,rows:source.map(normalize)};
+  }
+  const active=row=>row.activo===undefined||row.activo===true;
+  const matches=row=>typeOf(row.tipo)===tipo&&text(row.referencia_id)===ref;
+  const visible=()=>{const seen=new Set();return packet.rows.filter(row=>{
+    if(!active(row)||(tipo&&typeOf(row.tipo)!==tipo))return false;
+    const key=JSON.stringify([typeOf(row.tipo),text(row.referencia_id)]);
+    if(seen.has(key))return false;seen.add(key);return true;
+  });};
+  if(command.action==='list'){if(cold)await save(packet);return {success:true,favoritos:visible()};}
+  const matching=packet.rows.filter(matches);
+  const entries=[];
+  let value;
+  if(command.action==='remove'){
+    for(const row of matching)entries.push({collection,id:row.id,remove:true});
+    value={success:true,message:matching.length?'Favorito eliminado':'El favorito ya no existe'};
+  }else{
+    const canonical=await favoriteDocId(sid,tipo,ref);
+    const current=matching.find(row=>row.id===canonical)||matching.find(active)||matching[0];
+    const id=current?.id||canonical;
+    const nombre=text(command.nombre_ref),ciudad=text(command.ciudad_id);
+    const same=current&&active(current)&&text(current.nombre_ref)===nombre&&text(current.ciudad_id)===ciudad;
+    if(same)value={success:true,favorito:current,message:'Favorito guardado'};
+    else{
+      const now=new Date().toISOString();
+      const patch={favorito_id:current?.favorito_id||id,suscriptor_id:sid,tipo,referencia_id:ref,nombre_ref:nombre,ciudad_id:ciudad,fecha_alta:current?.fecha_alta||now,activo:true,actualizado:now};
+      entries.push({collection,id,patch});
+      value={success:true,favorito:{...current,...patch,id},message:'Favorito guardado'};
+    }
+    // Multiple historic document IDs for the same logical favorite are one selection.
+    for(const row of matching)if(row.id!==id)entries.push({collection,id:row.id,remove:true});
+  }
+  if(!entries.length){if(cold)await save(packet);return value;}
+  // Durable intent BEFORE committing; lost acknowledgement or projection write
+  // failure forces source recovery, never a second blind Firestore mutation.
+  await save({...packet,dirty:true});
+  await db.commitPatches(entries);
+  const rows=new Map(packet.rows.map(row=>[row.id,row]));
+  for(const entry of entries){if(entry.remove)rows.delete(entry.id);else rows.set(entry.id,normalize({...rows.get(entry.id),...entry.patch,id:entry.id}));}
+  await save({sid,dirty:false,rows:[...rows.values()]});
+  return value;
+}
 async function listFavoritesV2({env,request,db,type=""}){
-  const s=await sessionOrThrow(env,request);
-  const wanted=typeOf(type);
-  if(type&&!wanted)throw new Error("Tipo de favorito inválido.");
-
-  const rows=await (db.subscriberFavorites?db.subscriberFavorites(text(s.sid)):db.queryEqual("suscriptor_favoritos","suscriptor_id",text(s.sid),500));
-  const favoritos=rows
-    .filter(x=>x.activo===undefined||x.activo===true)
-    .filter(x=>!wanted||text(x.tipo).toUpperCase()===wanted);
-
-  return{success:true,favoritos};
+  const session=await sessionOrThrow(env,request);
+  return favoriteProjectionCommand(env,text(session.sid),{action:'list',tipo:type});
 }
-
 async function addFavoriteV2({env,request,db,body}){
-  const s=await sessionOrThrow(env,request);
-  const sid=text(s.sid);
-  const tipo=typeOf(body&&body.tipo);
-  const ref=text(body&&body.referencia_id);
-  if(!tipo)throw new Error("Tipo de favorito inválido.");
-  if(!ref)throw new Error("Falta referencia_id.");
-
-  const id=await favoriteDocId(sid,tipo,ref);
-  const now=new Date().toISOString();
-  const doc={
-    favorito_id:id,
-    suscriptor_id:sid,
-    tipo,
-    referencia_id:ref,
-    nombre_ref:text(body&&body.nombre_ref),
-    ciudad_id:text(body&&body.ciudad_id),
-    fecha_alta:now,
-    activo:true,
-    actualizado:now
-  };
-  await db.patch("suscriptor_favoritos",id,doc);
-  return{success:true,message:"Favorito guardado",favorito:doc};
+  const session=await sessionOrThrow(env,request);
+  return favoriteProjectionCommand(env,text(session.sid),{action:'add',tipo:body?.tipo,ref:body?.referencia_id,nombre_ref:body?.nombre_ref,ciudad_id:body?.ciudad_id});
 }
-
 async function removeFavoriteV2({env,request,db,body}){
-  const s=await sessionOrThrow(env,request);
-  const sid=text(s.sid);
-  const tipo=typeOf(body&&body.tipo);
-  const ref=text(body&&body.referencia_id);
-  if(!tipo)throw new Error("Tipo de favorito inválido.");
-  if(!ref)throw new Error("Falta referencia_id.");
-
-  const id=await favoriteDocId(sid,tipo,ref);
-  const current=await db.get("suscriptor_favoritos",id);
-  if(!current)return{success:true,message:"El favorito ya no existe"};
-  if(text(current.suscriptor_id)!==sid)throw new Error("Favorito inválido.");
-
-  await db.delete("suscriptor_favoritos",id,{mustExist:true});
-  return{success:true,message:"Favorito eliminado",favorito:current};
+  const session=await sessionOrThrow(env,request);
+  return favoriteProjectionCommand(env,text(session.sid),{action:'remove',tipo:body?.tipo,ref:body?.referencia_id});
 }
-return {listFavoritesV2,addFavoriteV2,removeFavoriteV2};
+return {listFavoritesV2,addFavoriteV2,removeFavoriteV2,favoriteProjectionCommand,executeFavoriteProjection};
 })();
 
 var text45 = (v) => String(v ?? "").trim();
@@ -10173,7 +10209,7 @@ function withPrivateCacheV46(db,env){
       for(const sid of removed){await revokeAndInvalidateAccount161(sid);await invalidate(relationKey(sid));}
       let favKey;
       if(collection==='suscriptor_favoritos'){let sid=owners.get(collection+'/'+text(id))||text(options.subscriberId);if(!sid){const previous=await db.get(collection,id);if(previous){remember(collection,[previous]);sid=text(previous.suscriptor_id);}}if(sid)favKey=await prepareFavorite(sid,id);}
-      if(collection==='suscriptores'){await revokeAndInvalidateAccount161(text(id));deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
+      if(collection==='suscriptores'){await revokeAndInvalidateAccount161(text(id));await favoriteProjectionCommand(env,text(id),{action:'invalidate'});deletedSubscribers.add(text(id));await invalidate(relationKey(id));await invalidate(favoriteKey(id));for(const [key,change]of favoriteChanges)if(change.sid===text(id))favoriteChanges.delete(key);}
       const previousAdvertiser104=advertiserOwners104.get(collection+'/'+text(id));
       const result=await db.delete(collection,id,options);
       for(const sid of removed)await revokeAndInvalidateAccount161(sid);
@@ -11991,11 +12027,25 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(['gh-detail-read204','gh-detail-invalidate204'].includes(body.op))return await this.ghDetail204(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-favorites')return await this.privateFavoritesProjection(body);if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(['gh-detail-read204','gh-detail-invalidate204'].includes(body.op))return await this.ghDetail204(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
 }
+// The existing actor serializes this private projection; no KV list or delta reader is involved.
+GldPublicCache119.prototype.privateFavoritesProjection=async function(body){
+ const report={operations:{}},metrics=this.metrics;
+ const query=(sql,...args)=>{const cursor=this.state.storage.sql.exec(sql,...args),rows=[...cursor];metrics.rows_read+=cursor.rowsRead??rows.length;metrics.rows_written+=cursor.rowsWritten??0;return rows;};
+ try{
+  const sid=String(body.sid||'').trim();
+  if(!sid)throw httpError('Identidad inválida.',400);
+  const db=observeDbV41(createDb(this.env),report);
+  const load=async()=>{const row=query('SELECT value FROM packet WHERE slot=1')[0];return row?JSON.parse(row.value):null;};
+  const save=async packet=>{query('INSERT INTO packet(slot,value,deleted) VALUES(1,?,0) ON CONFLICT(slot) DO UPDATE SET value=excluded.value,deleted=0',JSON.stringify(packet));};
+  const value=await executeFavoriteProjection({sid,command:body,db,load,save});
+  return Response.json({value,metrics,operations:report.operations});
+ }catch(error){return Response.json({error:'PRIVATE_FAVORITES_UNAVAILABLE',metrics,operations:report.operations},{status:[400,409,503].includes(error.status)?error.status:503});}
+};
 // Un único registro en el origen. Publicador y navegador reciben su contrato en cada libro.
 // Cada funcionalidad declara su proyección pública y su almacén; no se añade un caso al transporte.
 /** @type {Record<string,any>} */
@@ -12843,6 +12893,7 @@ GldPublicCache119.prototype.alarm=async function(){
 function consumption136(report){
  const result=consumptionBase136(report),action=report.action_store138;
  result.cloudflare.commerce_store=report.commerce_store209||{calls:0,rows_read:0,rows_written:0};
+ result.cloudflare.private_favorites_store=report.private_favorites_store||{calls:0,rows_read:0,rows_written:0,failures:0};
  result.cloudflare.action_store=action||{calls:0,rows_read:0,rows_written:0,alarm_set_calls:0,alarm_cancel_calls:0};
  if(action?.rows_read===null){
   result.coverage.missing.push('action-store-unreported-internal-operations');result.coverage.operation_counters='INCOMPLETO';
