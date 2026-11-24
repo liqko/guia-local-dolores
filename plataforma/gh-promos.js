@@ -35,7 +35,7 @@ function render(){
 }
 window.ghPromosLoadV91=function(force=false){
  if(loading)return loading;if(loaded&&!force){render();return Promise.resolve();}
- loading=(async()=>{const all=[];let cursor;do{const j=await request('/promos'+(cursor?'?cursor='+encodeURIComponent(cursor):''));prepared=j.preparado===true;if(!prepared){loaded=true;rows=[];render();return;}all.push(...j.results||[]);cursor=j.next_cursor;}while(cursor);rows=all;loaded=true;render();})().catch(e=>{el('ghPromosSummary').textContent=e.message+' No se pudo comprobar el listado completo.';}).finally(()=>{loading=null;});return loading;
+ loading=(async()=>{const all=[];let cursor;do{const j=await request('/promos'+(cursor?'?cursor='+encodeURIComponent(cursor):''));prepared=j.preparado===true;if(!prepared){loaded=true;rows=[];render();return;}all.push(...j.results||[]);cursor=j.next_cursor;}while(cursor);rows=all;loaded=true;render();})().catch(e=>{loaded=false;el('ghPromosSummary').textContent=e.message+' No se pudo comprobar el listado completo. Reabrí Promos para reintentar.';}).finally(()=>{loading=null;});return loading;
 };
 window.ghPromosPrepareV91=async function(){
  if(mutating||loading)return;if(!confirm('¿Preparar el listado existente? Esta carga inicial consulta las promociones guardadas; las próximas consultas usarán caché.'))return;
