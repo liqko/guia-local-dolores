@@ -203,9 +203,22 @@ test('un solo lote por ciudad combina las seis familias y conserva la separació
   await mkdir(join(later,'plataforma'));
   await writeFile(join(later,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
   const nextSource = {after:cutoff,cutoff:nextDay,complete:true,cities:[
+    {city:'DOLORES',changes:{promos:{upsert:[],remove:['ya-ausente']}}},
     {city:'BALCARCE',changes:{events:{upsert:[],remove:['compartido']}}},
   ]};
-  const result = await aplicarCorte({previous:previousCut,source:nextSource,readPublished:readAt(stage),stage:later});
+  const reads = [];
+  const readPublished = async path => {
+    const packet = await readAt(stage)(path);
+    reads.push({path,bytes:Buffer.byteLength(JSON.stringify(packet))});
+    return packet;
+  };
+  const result = await aplicarCorte({previous:previousCut,source:nextSource,readPublished,stage:later});
+  const doloresFull = '/'+manifest.DOLORES.key+'/completo-2.json';
+  const completeReads = reads.filter(entry=>entry.path.endsWith(doloresFull));
+  assert.deepEqual({requests:reads.length,unchangedCompleteReads:completeReads.length,unchangedCompleteBytes:completeReads.reduce((sum,r)=>sum+r.bytes,0)},{
+    requests:4,unchangedCompleteReads:1,
+    unchangedCompleteBytes:Buffer.byteLength(JSON.stringify(await readAt(stage)('plataforma/paquetes-ciudad'+doloresFull))),
+  });
   assert.equal(result.manifest.DOLORES.revision,2);
   assert.equal(result.manifest.BALCARCE.revision,3);
   const prefix = join(later,'plataforma','paquetes-ciudad',result.manifest.BALCARCE.key);

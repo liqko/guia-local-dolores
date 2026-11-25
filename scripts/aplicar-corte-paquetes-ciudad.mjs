@@ -102,6 +102,7 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   const manifest = structuredClone(previous.manifest);
   const seen = new Set();
   const files = new Map();
+  const unchangedBooks = new Map();
   const initial = source.initial ?? [], retired = source.retired ?? [];
   if (!Array.isArray(initial)||!Array.isArray(retired)||(source.cutoff===source.after&&(initial.length||retired.length))) {
     throw Error('Altas o bajas de ciudades inválidas');
@@ -129,7 +130,8 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
     seen.add(city);
     const old = manifest[city];
     const prefix = publicPath + '/' + old.key + '/';
-    const book = await readPublished(prefix + 'completo-' + old.revision + '.json');
+    const completePath = prefix + 'completo-' + old.revision + '.json';
+    const book = await readPublished(completePath);
     if (!validBook(book,city) || book.revision !== old.revision) throw Error('Paquete publicado inválido');
     const revision = old.revision + 1;
     const targetSchema=source.schema??book.schema;
@@ -149,7 +151,10 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
     }
     const {next,changes} = publicChanges(book,{city,from:old.revision,revision,changes:changesInput,...(targetSchema?{schema:targetSchema}:{})});
     const schemaChanged=!isDeepStrictEqual(book.schema,next.schema);
-    if (!Object.keys(changes).length&&!schemaChanged) continue;
+    if (!Object.keys(changes).length&&!schemaChanged) {
+      unchangedBooks.set(completePath,book);
+      continue;
+    }
 
     const keep = [...old.deltas,old.revision].sort((a,b)=>a-b).slice(-historyLimit);
     files.set(prefix + 'completo-' + revision + '.json',next);
@@ -178,7 +183,7 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
       await mkdir(join(stage,prefix),{recursive:true});
       for (const name of ['completo-' + revision,...deltas.map(from=>'cambios-' + from + '-' + revision)]) {
         const file = prefix + name + '.json';
-        const content = files.get(file) ?? await readPublished(file);
+        const content = files.get(file) ?? unchangedBooks.get(file) ?? await readPublished(file);
         await writeFile(join(stage,file),JSON.stringify(content));
       }
     }
