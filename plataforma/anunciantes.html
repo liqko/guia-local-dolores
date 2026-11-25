@@ -8,7 +8,7 @@
 <script src="/plataforma/paginacion.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
-<script src="/plataforma/paquete-ciudad.js?v=1"></script>
+<script src="/plataforma/paquete-ciudad.js?v=2"></script>
 <script src="/plataforma/consumo-v44.js?v=142"></script>
 
 <meta charset="UTF-8">
@@ -1267,7 +1267,7 @@ body.gld-modo-web #paginador-abajo{display:none!important}
 
       if(action==='guia'){
         const paquete=await gldPaquetePublico(params.ciudad_id);
-        if(paquete)return paquete.modules.guide;
+        if(paquete?.modules.guide)return paquete.modules.guide;
         u=new URL(GLD_WORKER_ORIGIN+'/guide');
         u.searchParams.set('compact','1');
         if(params.ciudad_id)u.searchParams.set('ciudad_id',params.ciudad_id);
@@ -1624,16 +1624,16 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       }catch(e){}
     }
 
-    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada){
+    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada,requireFresh=false){
       const city=String(ciudadId||'').trim();
       if(!city)return Promise.reject(new Error('Seleccioná una ciudad'));
-      const key=prefix+city;
+      const key=prefix+city+(requireFresh?':fresh':'');
       if(!moduloPromises.has(key)){
-        const cached=gldLeerModuloCache(prefix,city);
+        const cached=requireFresh?null:gldLeerModuloCache(prefix,city);
         const u=new URL(endpoint);
         u.searchParams.set('ciudad_id',city);
         if(action)u.searchParams.set('action',action);
-        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString()).then(({data})=>{
+        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString(),requireFresh?{cache:'no-store'}:{}).then(({data})=>{
           if(!data || data.success!==true)throw new Error((data && data.message) || 'Contenido no disponible');
           gldGuardarModuloCache(prefix,city,data);
           return data;
@@ -1650,20 +1650,23 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
     async function obtenerEventosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.events ?? obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId);
+      return paquete?.modules.events ?? obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true);
     }
     async function obtenerPromosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.promos ?? obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId);
+      return paquete?.modules.promos ?? obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true);
     }
     async function obtenerActividadesPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.activities ?? obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId);
+      return paquete?.modules.activities ?? obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId,paquete?.stale===true);
     }
 
     async function obtenerBannersPromise(){
       const paquete=await gldPaquetePublico(ciudadSeleccionada);
-      return paquete ? await window.GLD_PAQUETE_CIUDAD.module(ciudadSeleccionada,'ads','GUIA') : obtenerBannersRemotos();
+      const ads=paquete?await window.GLD_PAQUETE_CIUDAD.module(ciudadSeleccionada,'ads','GUIA'):null;
+      if(ads)return ads;
+      if(paquete?.stale)return gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'}).then(({data})=>data);
+      return obtenerBannersRemotos();
     }
     function obtenerBannersRemotos(){
       if(!bannersPromise){

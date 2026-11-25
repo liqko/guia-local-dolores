@@ -86,6 +86,13 @@
     return updated;
   }
 
+  function withoutStalePublications(book) {
+    if(!book)return null;
+    const schema=schemaOf(book);
+    const independent=Object.entries(book.modules).filter(([name])=>!['guide','events','promos','activities','ads'].includes(schema[name].family||name));
+    return {...book,stale:true,modules:Object.fromEntries(independent)};
+  }
+
   function client({ manifest, storage, fetchJson }) {
     const pending = new Map();
     const stillCurrent = (city, info) => {
@@ -97,7 +104,8 @@
       try { previous = await storage.get(city); } catch (_) {}
       if (!validBook(previous, city)) previous = null;
       if (!stillCurrent(city, info)) return api.get(city);
-      if (previous && previous.revision >= info.revision) return previous;
+      if (previous?.revision===info.revision) return previous;
+      if (previous && previous.revision>info.revision) return withoutStalePublications(previous);
 
       try {
         const isDelta = previous && info.deltas?.includes(previous.revision);
@@ -123,7 +131,7 @@
         try { await storage.put(book); } catch (_) {}
         return stillCurrent(city, info) ? book : api.get(city);
       } catch (_) {
-        return stillCurrent(city, info) ? previous : api.get(city);
+        return stillCurrent(city, info) ? withoutStalePublications(previous) : api.get(city);
       }
     }
 
@@ -138,7 +146,7 @@
         pending.set(city, entry);
         const current = entry;
         request.then(book => {
-          if ((!book || book.revision < info.revision) && pending.get(city) === current) pending.delete(city);
+          if ((!book || book.stale || book.revision < info.revision) && pending.get(city) === current) pending.delete(city);
         });
       }
       return entry.request;
@@ -149,6 +157,7 @@
         (schema[name].family||name)===family&&schema[name].context===context);
       if(!name)return null;
       const spec=schema[name],module=book.modules[name];
+      if(!module)return null;
       return spec.window?{...module,[spec.field]:module[spec.field].filter(row=>visibleAt(row,spec.window))}:module;
     }};
     return api;

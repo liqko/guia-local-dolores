@@ -50,7 +50,7 @@ globalThis.fetch=async(url,options={})=>{
 seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
 let token='';
-async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-10'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
+async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
 const reports=[],measures=[],physical={get:0,put:0,delete:0,list:0};
 globalThis.__circuitCapture=r=>reports.push(structuredClone(r));
@@ -85,9 +85,10 @@ let broken='';const put=env.GLD_CACHE_KV.put.bind(env.GLD_CACHE_KV);env.GLD_CACH
 const sourceWrites=()=>allOperations.filter(x=>['PATCH','DELETE'].includes(x.op)).length;
 try{
  seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_id:'D',ciudad_ids:['D']});
- seed('anunciantes_administracion','A',{nivel:4,aprobado:true,funcionalidades:'EVENTOS,EVENTOS_FREE,MODIFICAR',eventos_cant:20,eventos_free_cant:2,funcionalidades_config:{EVENTOS:{cantidad:20},EVENTOS_FREE:{cantidad:2,sin_limites:false}}});
+ seed('anunciantes_administracion','A',{nivel:4,aprobado:true,funcionalidades:'EVENTOS,EVENTOS_FREE,ACTIVIDADES,MODIFICAR',actividades_cant:3,eventos_cant:20,eventos_free_cant:2,funcionalidades_config:{EVENTOS:{cantidad:20},EVENTOS_FREE:{cantidad:2,sin_limites:false}}});
  values.set('territorio:public:v1',JSON.stringify({ciudades:[{ciudad_id:'D',provincia_id:'BA',pais_id:'ARG'},{ciudad_id:'E',provincia_id:'BA',pais_id:'ARG'},{ciudad_id:'F',provincia_id:'COR',pais_id:'ARG'},{ciudad_id:'B',provincia_id:'SP',pais_id:'BRA'}]}));
  values.set('catalogs:eventos:v1',JSON.stringify({categorias:['Cultura'],lugares:[],partners:[]}));
+ values.set('admin:functional-settings:v1',JSON.stringify({revision:1,reglas:{EVENTOS_FREE:{altas_mensuales_max:2},EVENTOS:{altas_mensuales_max:20}}}));
  ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'persona@test.invalid',clave:'test-password'})).j.token;
  const event=(name,scope)=>({nombre_evento:name,categoria:'Cultura',ciudad_id:'VIRTUAL',modalidad:'VIRTUAL',tipo_lugar:'VIRTUAL',lugar:'Virtual',fecha_desde:'2027-02-23',fecha_hasta:'',url_virtual:'https://example.invalid/join',descripcion:'Evento de prueba local',acepta_responsabilidad:true,programacion:[],...(scope?{alcance_publicacion:scope}:{})});
  const visible=async(city,id)=>!!(await ok('public','/events-new?ciudad_id='+city)).j.events.find(e=>e.evento_id===id);
@@ -138,5 +139,38 @@ try{
  result=await as('owner','/events-new',{action:'createFreeEvent',advertiserId:'A',payload:{...event('Free recover',{modo:'CIUDAD',ciudad_id:'D'}),confirmar_similar:true},operation_id:makeKey(20)});assert.equal(result.r.status,503);const freeRecovery=[...rows.values()].find(r=>r.nombre_evento==='Free recover');assert(freeRecovery);writes=sourceWrites();env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');broken='';await env.GLD_PUBLIC_CACHE.runAlarms();assert.equal(sourceWrites(),writes);assert(await visible('D',freeRecovery.evento_id));
  await ok('owner','/events-new',{action:'deleteFreeEvent',advertiserId:'A',payload:{evento_id:freeRecovery.evento_id},operation_id:makeKey(21)});assert.equal(rows.get('eventos/'+freeRecovery.evento_id).eliminado,true);assert(!await visible('D',freeRecovery.evento_id));writes=sourceWrites();
  result=await as('owner','/events-new',{action:'createFreeEvent',advertiserId:'A',payload:{...event('Over monthly quota',{modo:'CIUDAD',ciudad_id:'D'}),confirmar_similar:true},operation_id:makeKey(22)});assert.notEqual(result.j.success,true);assert.equal(sourceWrites(),writes);console.log('PASS limited FREE recovery and deletion preserve monthly slot; delete does not restore quota');
+ const authority=action=>ok('admin','/superadmin/publications/recent',{collection:'eventos',id:vipId,action});
+ await authority('bloquear');
+ assert(!await visible('D',vipId));
+ const blocked=await as('owner','/events-new',{action:'updateVipEvent',advertiserId:'A',payload:{evento_id:vipId,nombre_evento:'Edición bloqueada'},operation_id:makeKey(24)});
+ assert.equal(blocked.r.status,403);
+ await authority('eliminar');
+ assert.equal(rows.get('eventos/'+vipId).administracion_publicacion.estado,'ELIMINADA');
+ assert(!await visible('D',vipId));
+ console.log('PASS Evento autenticado creado, editado, bloqueado y eliminado conserva la baja de origen');
+ const activityPayload={nombre:'Actividad de prueba',categoria:'Cultura',ciudad_id:'D',horarios:[{ciudad_id:'D',modalidad:'VIRTUAL',tipo_lugar:'VIRTUAL',url_virtual:'https://example.invalid/actividad'}]};
+ const createActivity=await ok('owner','/actividades',{action:'guardar',advertiserId:'A',payload:activityPayload,operation_id:makeKey(25)});
+ const activityId=createActivity.j.actividad_id;
+ await ok('owner','/actividades',{action:'guardar',advertiserId:'A',payload:{...activityPayload,actividad_id:activityId,nombre:'Actividad editada'},operation_id:makeKey(26)});
+ const activityPublic=async()=> (await ok('public','/actividades?action=publicas&ciudad_id=D')).j.actividades.some(row=>row.actividad_id===activityId);
+ assert(await activityPublic());
+ const changeActivity=action=>ok('admin','/superadmin/publications/recent',{collection:'actividades',id:activityId,action});
+ await changeActivity('bloquear');assert(!await activityPublic());
+ const blockedActivity=await as('owner','/actividades',{action:'reanudar',advertiserId:'A',actividad_id:activityId,operation_id:makeKey(27)});
+ assert.equal(blockedActivity.r.status,403);
+ await changeActivity('eliminar');assert(!await activityPublic());
+ assert.equal(rows.get('actividades/'+activityId).administracion_publicacion.estado,'ELIMINADA');
+ console.log('PASS Actividad autenticada creada, editada, bloqueada y eliminada usa el mismo diario');
+
+ await ok('admin','/superadmin/guide/rebuild-cache',{});
+ const guideVisible=async()=> (await ok('public','/guide?compact=1&ciudad_id=D')).j.results.some(row=>row.id==='A');
+ assert(await guideVisible());
+ const changeGuide=action=>ok('admin','/superadmin/publications/recent',{collection:'anunciantes',id:'A',action});
+ await changeGuide('bloquear');assert(!await guideVisible());
+ const cannotEditGuide=await as('owner','/commerce',{action:'set_datos',advertiserId:'A',nombre:'Ficha no autorizada'});
+ assert.equal(cannotEditGuide.r.status,403);
+ await changeGuide('eliminar');assert(!await guideVisible());
+ assert.equal(rows.get('anunciantes/A').administracion_publicacion.estado,'ELIMINADA');
+ console.log('PASS ficha Guía bloqueada impide edición y la baja permanece en origen');
  console.log('PASS all Eventos145 integration checks');
 }finally{globalThis.fetch=original;console.log=savedLog;fs.writeFileSync('docs/evidencias/eventos145-local-reports.json',JSON.stringify(logRows,null,2));}

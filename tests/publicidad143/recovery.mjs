@@ -50,7 +50,7 @@ globalThis.fetch=async(url,options={})=>{
 seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
 let token='';
-async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-10'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
+async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
 const reports=[],measures=[],physical={get:0,put:0,delete:0,list:0};
 globalThis.__circuitCapture=r=>reports.push(structuredClone(r));
@@ -100,6 +100,33 @@ try{
  broken='publicity:private:v101:';result=await as('owner','/publicidad',publication);assert.equal(result.r.status,503,JSON.stringify(result.j));assert.equal(result.j.code,'PUBLICATION_SYNC_PENDING');assert(rows.has('publicidades/'+pubId));
  const pubWrites=sourceWrites();env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');broken='';await env.GLD_PUBLIC_CACHE.runAlarms();assert.equal(sourceWrites(),pubWrites);result=await ok('owner','/publicidad',publication);assert(result.j.operation_recovered);assert.equal(sourceWrites(),pubWrites);assert.equal(result.j.publicidad_id,pubId);
  const shown=(await ok('public','/publicidad?action=publicas&ciudad_id=D&modulo=GUIA')).j.publicidades;assert(shown.some(p=>p.publicidad_id===pubId));console.log('PASS Publicidad source/state commit survives publication failure, restart and replay without duplicate save');
+ const publicAds=async()=> (await ok('public','/publicidad?action=publicas&ciudad_id=D&modulo=GUIA')).j.publicidades;
+ const applyAd=async action=>ok('admin','/superadmin/publicidad',{publicidad_id:pubId,action});
+ const adRow=()=>rows.get('publicidades/'+pubId);
+ assert.equal(adRow().estado,'ACTIVA');
+ const beforePause=await publicAds();
+ assert(beforePause.some(row=>row.publicidad_id===pubId));
+ await applyAd('pausar');
+ assert.equal(adRow().administracion_publicacion.estado,'PAUSADA');
+ assert.equal(adRow().estado,'ACTIVA');
+ assert(!(await publicAds()).some(row=>row.publicidad_id===pubId));
+ await ok('owner','/publicidad',{...publication,request_key:makeKey(91),payload:{...publication.payload,publicidad_id:pubId,titulo:'Edición durante pausa'}});
+ assert.equal(adRow().titulo,'Edición durante pausa');
+ assert.equal(adRow().administracion_publicacion.estado,'PAUSADA');
+ assert(!(await publicAds()).some(row=>row.publicidad_id===pubId));
+ const retained=await ok('owner','/publicidad',{action:'actualizar_activos',advertiserId:'A',publicidad_ids:[pubId]});
+ assert.equal(retained.j.sin_cambios,true);
+ assert(!(await publicAds()).some(row=>row.publicidad_id===pubId));
+ await applyAd('bloquear');
+ assert.equal((await as('owner','/publicidad',{...publication,request_key:makeKey(90),payload:{...publication.payload,publicidad_id:pubId,titulo:'Edición bloqueada'}})).r.status,403);
+ await applyAd('suspender');
+ assert.equal(adRow().administracion_publicacion.estado,'SUSPENDIDA');
+ assert.equal((await as('owner','/publicidad',{action:'eliminar',advertiserId:'A',publicidad_id:pubId})).r.status,403);
+ await applyAd('levantar_restriccion');
+ assert.equal(adRow().administracion_publicacion.estado,'LIBRE');
+ assert((await publicAds()).some(row=>row.publicidad_id===pubId));
+ console.log('PASS Publicidad authenticated: libre, pausa, bloqueo, suspensión y levantamiento no mezclan selección ni autoridad');
+
  const collision=await as('owner','/publicidad',{...publication,payload:{...publication.payload,titulo:'Otro cambio'}});assert.equal(collision.r.status,409);console.log('PASS reused operation key with different content is rejected');
  const promoBody={action:'createpromo',advertiserId:'A',operation_id:makeKey(2),payload:{promo:'Promo nueva',ciudad_id:'D',categoria_id:'PC',desde:'2026-10-01',hasta:'2030-10-31'}};
  broken='admin:promos:item:v91:';result=await as('owner','/promos',promoBody);assert.equal(result.r.status,503,JSON.stringify(result.j));const promo=[...rows.values()].find(p=>p.promo==='Promo nueva');assert(promo);
@@ -121,7 +148,7 @@ try{
  result=await as('owner','/promos',normalCreate);assert.equal(result.r.status,503);globalThis.fetch=mockFetch;const beforeRecovery=sourceWrites();await env.GLD_PUBLIC_CACHE.runAlarms();result=await as('owner','/promos',normalCreate);assert.equal(result.r.status,409);assert.equal(result.j.code,'PUBLICATION_OPERATION_REVIEW');assert.equal(sourceWrites(),beforeRecovery);assert(!rows.has('promos/PRO-'+makeKey(6)));console.log('PASS failed source is never replayed or reported as committed');
 
  const adminDelete={action:'borrar',promo_id:'BUDGET',advertiserId:'A',operation_id:makeKey(7)};
- broken='admin:promos:item:v91:';result=await as('admin','/superadmin/promos',adminDelete);assert.equal(result.r.status,503);const adminDeletes=sourceWrites();broken='';env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');await env.GLD_PUBLIC_CACHE.runAlarms();result=await ok('admin','/superadmin/promos',adminDelete);assert.equal(result.j.deleted,true);assert.equal(sourceWrites(),adminDeletes);console.log('PASS Gran Hermano delete replay returns deleted status after source is already absent');
+ broken='admin:promos:item:v91:';result=await as('admin','/superadmin/promos',adminDelete);assert.equal(result.r.status,503);const adminDeletes=sourceWrites();broken='';env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');await env.GLD_PUBLIC_CACHE.runAlarms();result=await ok('admin','/superadmin/promos',adminDelete);assert.equal(result.j.deleted,true);assert.equal(sourceWrites(),adminDeletes);console.log('PASS Gran Hermano deletion replay preserves the source tombstone');
  const staleWrites=sourceWrites();result=await as('admin','/superadmin/advertisers/A/commercial',{revision_comercial:before.revision_comercial,gold:false});assert.equal(result.r.status,409);assert.equal(sourceWrites(),staleWrites);console.log('PASS stale commercial revision still rejects overwrite without source write');
  // Saved-packet reads survive instance eviction without rebuilding the entity list.
  for(const key of ['publicity:city:v2:D','promos:city:v1:D']){
@@ -135,4 +162,33 @@ try{
  broken='publication:recent:';result=await as('owner','/promos',recentCreate);assert.equal(result.r.status,503);assert(rows.has('promos/PRO-'+makeKey(8)));const recentWrites=sourceWrites();broken='';env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');await env.GLD_PUBLIC_CACHE.runAlarms();result=await ok('owner','/promos',recentCreate);assert(result.j.operation_recovered);assert.equal(sourceWrites(),recentWrites);assert(values.has('publication:recent:latest:v77:promos:PRO-'+makeKey(8)));console.log('PASS failure before recent-publication copy also restores public projection and recent index without source rewrite');
  const beforeStatus={...physical},sourceBeforeStatus=sourceWrites();const status=await ok('admin','/superadmin/advertisers/A/recovery-status');assert.equal(status.j.business_pending,null);assert.equal(status.j.safe_to_restore_140_for_this_advertiser,true);assert.equal(sourceWrites(),sourceBeforeStatus);assert.equal(physical.put,beforeStatus.put);assert.equal(physical.delete,beforeStatus.delete);console.log('PASS scoped recovery status is read-only with no source or KV mutations');
  console.log('PASS business recovery suite');
+
+ const beforeAuthorityDelete=rows.get('publicidad_estado/A');
+ assert(beforeAuthorityDelete.guardadas.includes(pubId));
+ await applyAd('eliminar');
+ assert.equal(adRow().administracion_publicacion.estado,'ELIMINADA');
+ const usageAfter=rows.get('publicidad_estado/A');
+ assert(!usageAfter.guardadas.includes(pubId)&&!usageAfter.activas.includes(pubId));
+ assert.equal(usageAfter.iniciales_usadas,beforeAuthorityDelete.iniciales_usadas);
+ assert(!(await publicAds()).some(row=>row.publicidad_id===pubId));
+
+ const reviewedId='REVIEW-ADS';
+ const reviewed={anunciante_id:'A',publicidad_id:reviewedId,titulo:'En revisión',estado:'ACTIVA',contenido_adulto:true,revision_adulto:'PENDIENTE',estado_moderacion:'PENDIENTE',relaciones_version:2,media:[],segmentacion:[{ciudad_id:'D'}]};
+ seed('publicidades',reviewedId,reviewed);
+ await ok('admin','/superadmin/adult-review',{tipo:'PUBLICIDAD',id:reviewedId,decision:'RECHAZAR'});
+ assert.equal(rows.get('publicidades/'+reviewedId).estado_moderacion,'RECHAZADO');
+ await ok('admin','/superadmin/publicidad',{publicidad_id:reviewedId,action:'pausar'});
+ assert.equal(rows.get('publicidades/'+reviewedId).estado_moderacion,'RECHAZADO');
+ assert.equal(rows.get('publicidades/'+reviewedId).administracion_publicacion.estado,'PAUSADA');
+ assert(!(await publicAds()).some(row=>row.publicidad_id===reviewedId));
+ console.log('PASS sexto estado: rechazo legado y pausa administrativa permanecen separados');
+
+ const residualId='RESIDUAL-ADS';
+ const residual={publicidad_id:residualId,anunciante_id:'A',estado:'ACTIVA',segmentacion:[{ciudad_id:'D',ubicacion_id:'U',categoria_id:'CAT'}],media:[]};
+ values.set('publicity:private:v101:'+residualId,JSON.stringify(residual));
+ assert(!rows.has('publicidades/'+residualId));
+ await ok('admin','/superadmin/publicidad',{publicidad_id:residualId,action:'eliminar'});
+ assert.equal(rows.get('publicidades/'+residualId).administracion_publicacion.estado,'ELIMINADA');
+ assert(JSON.parse(values.get('publicity:private:v101:'+residualId)).eliminada);
+ console.log('PASS baja administrativa y baja residual de Publicidad preservan tombstone y liberan selección/biblioteca');
 }finally{globalThis.fetch=original;delete globalThis.__circuitCapture;console.log=savedLog;fs.mkdirSync('docs/evidencias',{recursive:true});fs.writeFileSync('docs/evidencias/publicidad143-local-recovery.json',JSON.stringify({environment:'LOCAL_NOT_PRODUCTION_BILLING',reports:logRows},null,2));}

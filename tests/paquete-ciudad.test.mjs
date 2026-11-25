@@ -145,7 +145,11 @@ test('P4-0006: dos archivos fallidos no reemplazan una copia válida y permiten 
  const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
   storage:{get:city=>copies.get(city),put:book=>{writes++;copies.set(book.city,book);}},
   fetchJson:async path=>{requests++;if(fail||path.includes('cambios'))throw Error('offline');return current;}});
- assert.equal((await api.get('dolores')).revision,1);assert.equal(writes,0);assert.equal(requests,2);
+ const stale=await api.get('dolores');
+ assert.equal(stale.revision,1);assert.equal(stale.stale,true);
+ assert.deepEqual(Object.keys(stale.modules),['pharmacy']);
+ assert.equal(copies.get('dolores'),original);
+ assert.equal(writes,0);assert.equal(requests,2);
  fail=false;assert.equal((await api.get('dolores')).revision,2);assert.equal(writes,1);assert.equal(requests,4);
 });
 

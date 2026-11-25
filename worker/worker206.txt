@@ -508,15 +508,16 @@ async function routeAdminPublicityV101(/** @type {any} */ ctx){
  if(request.method==='GET'){
   const page=await env.GLD_CACHE_KV.list({prefix:'publicity:private:v101:',limit:100,...(url.searchParams.get('cursor')?{cursor:url.searchParams.get('cursor')}:{})});
   const rows=await Promise.all(page.keys.map((/** @type {any} */ k)=>cache.get(k.name)));
-  return json({success:true,results:rows.filter((/** @type {any} */ p)=>p&&!p.eliminada),preparado:!!await cache.get('publicity:private:ready:v101'),next_cursor:page.list_complete?null:page.cursor});
+  return json({success:true,results:rows.filter(p=>p&&!p.eliminada&&publicationAuthority(p)!=='ELIMINADA').map(p=>({...p,estado_efectivo:directoryState102(p)})),preparado:!!await cache.get('publicity:private:ready:v101'),next_cursor:page.list_complete?null:page.cursor});
  }
  if(request.method!=='POST')return json({success:false,message:'Método inválido.'},405);
  const body=await request.json(),id=text(body.publicidad_id),action=text(body.action);
- if(!id||!['pausar','eliminar'].includes(action))return json({success:false,message:'Acción inválida.'},400);
- const version=await db.getVersioned('publicidades',id),current=version.doc;
- if(!current)return json({success:false,message:'Publicidad no encontrada.'},404);
- const result=await setPublicationAuthority({db,cache,collection:'publicidades',id,version,auth,state:action==='eliminar'?'ELIMINADA':'PAUSADA'});
- return json({success:true,sin_cambios:result.unchanged});
+ const states={pausar:'PAUSADA',eliminar:'ELIMINADA',bloquear:'BLOQUEADA',suspender:'SUSPENDIDA',levantar_restriccion:'LIBRE'};
+ if(!id||!Object.hasOwn(states,action))return json({success:false,message:'Acción inválida.'},400);
+ const version=await db.getVersioned('publicidades',id);
+ const residual=!version.doc&&action==='eliminar'?await publicationResidual({cache,collection:'publicidades',id}):null;
+ const result=await setPublicationAuthority({db,cache,collection:'publicidades',id,version,auth,state:states[action],residual});
+ return json({success:true,sin_cambios:result.unchanged,...(action==='eliminar'?{}:{publicidad:{...result.item,estado_efectivo:directoryState102(result.item)}})});
 }
 
 // Publicidad: contrato y cupos mensuales. Sólo datos; nunca archivos binarios.
@@ -542,7 +543,7 @@ async function publicityStateV101(/** @type {any} */ db,/** @type {any} */ aid){
  const version=await db.getVersioned('publicidad_estado',aid);
  let state=version.doc;
  if(!state){
-  const rows=await db.queryEqual('publicidades','anunciante_id',aid,500);
+  const rows=(await db.queryEqual('publicidades','anunciante_id',aid,500)).filter(row=>publicationAuthority(row)!=='ELIMINADA');
   state={anunciante_id:aid,iniciales_usadas:rows.length,guardadas:rows.map((/** @type {any} */ p)=>String(p.publicidad_id||p.id)),activas:rows.filter((/** @type {any} */ p)=>p.estado==='ACTIVA').map((/** @type {any} */ p)=>String(p.publicidad_id||p.id))};
  }
  state=structuredClone(state);
@@ -596,10 +597,11 @@ async function publicityScopeV101(/** @type {any} */ cache,/** @type {any} */ da
 }
 async function publicitySaveMonthlyV101(/** @type {any} */ {db,cache,advertiserId:aid,body,config:cfg}){
  const data=body?.payload||{},draft=/^[a-f0-9-]{36}$/i.test(String(body.request_key||''))?String(body.request_key):crypto.randomUUID(),id=text(data.publicidad_id)||'PUB-'+draft;
- const prepared=text(data.publicidad_id)?await db.get('publicidades',id):null;
- if(data.publicidad_id&&!prepared)throw httpError('Publicidad no encontrada.',404);
- if(prepared&&text(prepared.anunciante_id)!==aid)throw httpError('La publicidad no pertenece al anunciante.',403);
- const current=prepared;
+ const version=data.publicidad_id?await db.getVersioned('publicidades',id):null;
+ const current=version?.doc||null;
+ if(data.publicidad_id&&!current)throw httpError('Publicidad no encontrada.',404);
+ if(current&&text(current.anunciante_id)!==aid)throw httpError('La publicidad no pertenece al anunciante.',403);
+ checkPublicationWrite({},current);
  const oldSeg=current?await getPreparedRelationsV1({cache,type:'publicity-seg',id,current,load:()=>db.queryEqual('publicidad_segmentacion','publicidad_id',id,500)}):[];
  const oldMedia=current?await getPreparedRelationsV1({cache,type:'publicity-media',id,current,load:()=>db.queryEqual('publicidad_media','publicidad_id',id,500)}):[];
  const formato=text(data.formato??current?.formato).toUpperCase();
@@ -663,8 +665,6 @@ async function publicitySaveMonthlyV101(/** @type {any} */ {db,cache,advertiserI
  if(new TextEncoder().encode(JSON.stringify(doc)).byteLength>800000)throw httpError('La cobertura y el contenido son demasiado extensos para una sola pieza. Reducí la selección o distribuí la campaña entre varias piezas.',400);
  const same=current&&JSON.stringify(storedTags)===JSON.stringify(doc.tags)&&fields.every((/** @type {any} */ k)=>text(current[k])===doc[k])&&current.formato===formato&&adultFlag(current.contenido_adulto)===doc.contenido_adulto&&JSON.stringify(relationValue(oldMedia))===JSON.stringify(relationValue(media))&&JSON.stringify(relationValue(oldSeg))===JSON.stringify(relationValue(segmentacion));
  if(same)return {success:true,sin_cambios:true,publicidad_id:id,publicidad:{...current,media:oldMedia,segmentacion:oldSeg},cambios_activos:publicityUsageV101(await cache.get('publicity:usage:v101:'+aid),cfg)};
- const version=current?await db.getVersioned('publicidades',id):null;
- if(current&&(!version.doc||text(version.doc.actualizado)!==text(current.actualizado)))throw httpError('La publicidad cambió. Actualizá la lista antes de guardar.',409);
  if(cfg.reglas_version===147){
    const profile=await db.get('anunciantes',aid);
    const preparedProfile=await cache.get('guide:advertiser:v2:'+aid);
@@ -691,17 +691,18 @@ async function publicitySaveMonthlyV101(/** @type {any} */ {db,cache,advertiserI
  const now=new Date().toISOString();doc.creado=current?.creado||now;doc.actualizado=now;
  const context=db.publicationContext;
  if(!context)throw httpError('Confirmá los términos y la declaración de responsabilidad.',400);
- const policy=publicationPolicyV77(doc,context.rules);
+ const policy=publicationPolicyV77(doc,context.rules,current);
+ delete doc.administracion_publicacion;
  Object.assign(doc,policy,{aprobado:policy.estado_moderacion!=='PENDIENTE',declaracion_publicacion:{version:PUBLICATION_TERMS_V77,usuario_id:context.sid,fecha:now}});
  const [saved]=await publicityCommitV101(db,cache,aid,state,stateInfo.options,[{collection:'publicidades',id,patch:doc,before:current,options:current?{updateTime:version.updateTime}:{mustNotExist:true}}]);
  await syncPublicityPreparedV2({cache,publicityId:id,current,next:saved,media,segmentacion,previousCities:[...new Set(oldSeg.map((/** @type {any} */ s)=>s.ciudad_id))]});
- if(saved.estado_moderacion==='PUBLICADO'&&!saved.contenido_adulto){const item={collection:'publicidades',id,nombre:saved.titulo,ciudades:[...new Set(segmentacion.map(s=>s.ciudad_id))],anunciante_id:aid,fecha:now,publicacion:saved};await cache.put('publication:recent:v77:'+now.slice(0,10)+':publicidades:'+id,item,{expirationTtl:11*86400});await cache.put('publication:recent:latest:v77:publicidades:'+id,item,{expirationTtl:11*86400});}else await cache.put('publication:recent:latest:v77:publicidades:'+id,{retirado:true,collection:'publicidades',id},{expirationTtl:11*86400});
+ if(gldPublicacionAdmisible206(saved)&&saved.estado_moderacion==='PUBLICADO'&&!saved.contenido_adulto){const item={collection:'publicidades',id,nombre:saved.titulo,ciudades:[...new Set(segmentacion.map(s=>s.ciudad_id))],anunciante_id:aid,fecha:now,publicacion:saved};await cache.put('publication:recent:v77:'+now.slice(0,10)+':publicidades:'+id,item,{expirationTtl:11*86400});await cache.put('publication:recent:latest:v77:publicidades:'+id,item,{expirationTtl:11*86400});}else await cache.put('publication:recent:latest:v77:publicidades:'+id,{retirado:true,collection:'publicidades',id},{expirationTtl:11*86400});
  return {success:true,publicidad_id:id,created:!current,updated:!!current,publicidad:saved,cambios_activos:publicityUsageV101(state,cfg)};
 }
 async function publicityActiveMonthlyV101(/** @type {any} */ {db,cache,advertiserId:aid,ids}){
  const cfg=publicityContractV101(await db.get('anunciantes_administracion',aid));
  const selected=[...new Set((ids||[]).map(text).filter(Boolean))];
- const own=await db.queryEqual('publicidades','anunciante_id',aid,500);
+ const own=(await db.queryEqual('publicidades','anunciante_id',aid,500)).filter(row=>publicationAuthority(row)!=='ELIMINADA');
  const equal=(/** @type {any} */ a,/** @type {any} */ b)=>JSON.stringify([...a].sort())===JSON.stringify([...b].sort());
  if(equal(own.filter((/** @type {any} */ p)=>p.estado==='ACTIVA').map((/** @type {any} */ p)=>text(p.publicidad_id||p.id)),selected))return {success:true,sin_cambios:true,publicidades:own};
  const {state,options}=await publicityStateV101(db,aid);
@@ -713,6 +714,8 @@ async function publicityActiveMonthlyV101(/** @type {any} */ {db,cache,advertise
   const version=await db.getVersioned('publicidades',id),p=version.doc;
   if(!p||text(p.anunciante_id)!==aid)throw httpError('La biblioteca cambió. Actualizá la lista.',409);
   const active=selected.includes(id);
+  if(active&&publicationAuthority(p)!=='LIBRE')throw httpError('La publicidad tiene una restricción de Gran Hermano.',403);
+  checkPublicationWrite({},p);
   if(active){
    if(Number(state.reactivaciones.filter((/** @type {any} */ x)=>x===id).length)>=1)throw httpError('Esta pieza ya fue reactivada este mes. Podés volver a cambiarla el próximo mes.',409);
    if(!state.ediciones[id])publicityRenewV101(state,id,cfg);
@@ -720,7 +723,7 @@ async function publicityActiveMonthlyV101(/** @type {any} */ {db,cache,advertise
   }
   const global170=gldFuncRules166(await gldFuncPacket166(cache,db,false),'PUBLICIDAD');
   const control170=gldControlEdicion170(p,global170,cfg,true);
-  changes.push({collection:'publicidades',id,before:p,patch:{...p,estado:active?'ACTIVA':'INACTIVA',control_cambios170:control170,actualizado:new Date().toISOString()},options:{updateTime:version.updateTime}});
+  changes.push({collection:'publicidades',id,before:p,patch:{estado:active?'ACTIVA':'INACTIVA',control_cambios170:control170,actualizado:new Date().toISOString()},options:{updateTime:version.updateTime}});
  }
  if(!changes.length)return {success:true,sin_cambios:true,publicidades:own};
  state.activas=selected;
@@ -736,6 +739,7 @@ async function publicityActiveMonthlyV101(/** @type {any} */ {db,cache,advertise
 async function publicityDeleteMonthlyV101(/** @type {any} */ {db,cache,advertiserId:aid,publicityId:id}){
  const version=await db.getVersioned('publicidades',id),p=version.doc;
  if(!p||text(p.anunciante_id)!==aid)throw httpError('La publicidad no pertenece al anunciante.',403);
+ checkPublicationWrite({remove:true},p);
  const {state,options}=await publicityStateV101(db,aid);
  const rejected=p.revision_definitiva===true||[p.estado_moderacion,p.revision_adulto,p.estado].some(v=>['RECHAZADO','RECHAZADA'].includes(String(v||'').toUpperCase()));
  if((state.activas.includes(id)||p.estado==='ACTIVA')&&!rejected)throw httpError('Pausá la publicidad antes de borrarla.',409);
@@ -2000,7 +2004,7 @@ async function syncActivityPreparedV2({ cache, activityId, current = null, next 
     let rows = (packet2.actividades || []).filter((x) => text16(x.actividad_id || x.id) !== id4);
     if (next && isPublic3(next)) {
       const hs = (horarios || []).filter((h) => text16(h.ciudad_id) === cityId && (h.activo === void 0 || bool8(h.activo)));
-      if (hs.length) rows.push({ ...next, horarios: hs });
+      if (hs.length) {const {administracion_publicacion,...publicData}=next; rows.push({...publicData,horarios:hs});}
     }
     const sorted=sort5(rows);
     if(!oldPacket || !GLD_BUSINESS143.equal(packet2.actividades||[],sorted))await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), actividades: sorted });
@@ -4482,13 +4486,13 @@ async function publicidadPanelDataV2({db,cache,advertiserId,featureEnabled,confi
   if(!admin)return{success:false,message:"No existe la administración del anunciante."};
   if(!featureEnabled(admin))return{success:false,message:"El anunciante no tiene PUBLICIDAD habilitada."};
 
-  const publicidades=await Promise.all(docs.map(async p=>{
+  const publicidades=await Promise.all(docs.filter(p=>publicationAuthority(p)!=='ELIMINADA').map(async p=>{
     const id=text(p.publicidad_id||p.id);
     const [media,segmentacion]=await Promise.all([
       getPreparedRelationsV1({cache,type:"publicity-media",id,current:p,load:()=>db.queryEqual("publicidad_media","publicidad_id",id,500)}),
       getPreparedRelationsV1({cache,type:"publicity-seg",id,current:p,load:()=>db.queryEqual("publicidad_segmentacion","publicidad_id",id,500)})
     ]);
-    return{...p,media,segmentacion};
+    return{...p,media,segmentacion,estado_efectivo:directoryState102(p)};
   }));
 
   const config=configFromAdmin(admin);
@@ -6238,8 +6242,16 @@ async function commerceMaster205({db,cache,advertiserId}){
  advertiser.configuracion_revision=functionRules.revision;
  return response;
 }
+function localAdvertiserActor(env,aid) {
+ const guide=env.__gldGuideActor132;
+ const business=env.__gldBusinessActor143;
+ const recovery=env.__gldPublicationRecoveryOwner;
+ if(guide&&String(guide.guideAid132||aid)===aid)return guide;
+ if(business?.businessCommand143?.aid===aid)return business;
+ return recovery?.aid===aid?recovery.actor:null;
+}
 async function commerceMasterActor209(env,report,body){
- const local=env.__gldGuideActor132;
+ const local=localAdvertiserActor(env,body.aid);
  if(local){
   const before={...local.metrics};
   try{return await local.commerceMaster209({...body,report});}
@@ -6683,6 +6695,7 @@ async function activitySaveV3({ db, cache, advertiserId, body }) {
   if (activityId) {
     current = await db.get("actividades", activityId);
     if (!current || text61(current.anunciante_id) !== text61(advertiserId)) throw new Error("Actividad no encontrada.");
+    checkPublicationWrite({},current);
   } else {
     const own = await db.queryEqual("actividades", "anunciante_id", advertiserId, 500);
     const active4 = own.filter((a) => bool16(a.activo) && text61(a.estado).toUpperCase() !== "PAUSADA").length;
@@ -6771,6 +6784,7 @@ async function activityActionV3({ db, cache, advertiserId, action, activityId })
   if (!["eliminar", "pausar", "reanudar", "renovar"].includes(action)) throw new Error("Acción de actividad inválida.");
   const current = await db.get("actividades", activityId);
   if (!current || text61(current.anunciante_id) !== text61(advertiserId)) throw new Error("Actividad no encontrada.");
+  checkPublicationWrite({remove:action==='eliminar'},current);
   if (action === "reanudar" || action === "renovar") {
     const admin = await db.get("anunciantes_administracion", advertiserId);
     if (!admin || !enabled2(admin)) throw new Error("No tenés habilitado el módulo Actividades.");
@@ -7344,7 +7358,7 @@ async function resolveEventModerationV2({ db, cache, eventId, decision, moderato
   const id4 = text69(eventId), dec = text69(decision).toUpperCase();
   if (!id4) throw new Error("Falta evento_id.");
   if (!["APROBAR", "RECHAZAR"].includes(dec)) throw new Error("Decisión inválida.");
-  const current = await db.get("eventos", id4);
+  const version=await db.getVersioned('eventos',id4),current=version.doc;
   if (!current) throw new Error("Evento no encontrado.");
   let checkedProgramacion;
   if (auth && auth.rol === "ADMIN_LOCAL") {
@@ -7354,13 +7368,13 @@ async function resolveEventModerationV2({ db, cache, eventId, decision, moderato
   }
   const approved = dec === "APROBAR";
   if(current.estado_moderacion===(approved?'APROBADO':'RECHAZADO')&&current.estado===(approved?'ACTIVO':'RECHAZADO'))return {success:true,updated:false,tipo:'EVENTO',id:id4,decision:dec,estado_moderacion:current.estado_moderacion};
-  const saved = await db.patch("eventos", id4, {
+  const saved = await writePublicationModeration(db,"eventos", id4,version, {
     estado_moderacion: approved ? "APROBADO" : "RECHAZADO",
     estado: approved ? "ACTIVO" : "RECHAZADO",
     moderado_por: text69(moderatorId),
     moderado_en: (/* @__PURE__ */ new Date()).toISOString(),
     actualizado: (/* @__PURE__ */ new Date()).toISOString()
-  }, { mustExist: true });
+  });
   await syncEventV2({ db, cache, current, next: saved, programacion: checkedProgramacion });
   return { success: true, tipo: "EVENTO", id: id4, decision: dec, estado_moderacion: saved.estado_moderacion };
 }
@@ -8210,10 +8224,9 @@ async function adminSearchSubscribersV2({ cache, url, env }) {
 async function ghDetailActor204(env,id,op,outerReport=null){
  const aid=String(id||'').trim();
  if(!aid||!env?.GLD_PUBLIC_CACHE)throw httpError('No está disponible la copia administrativa duradera.',503);
- const local=env.__gldGuideActor132;
+ const local=localAdvertiserActor(env,aid);
  let response;
- if(local&&String(local.guideAid132||aid)===aid)
-  response=await local.ghDetail204({op,aid});
+ if(local)response=await local.ghDetail204({op,aid});
  else{
   const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
   response=await actor.fetch(new Request('https://gh-detail.internal/',{method:'POST',body:JSON.stringify({op,aid})}));
@@ -9605,7 +9618,7 @@ async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision,
     });
   }
   if (kind === "ACTIVIDAD") {
-    const current = await db.get("actividades", itemId);
+    const version=await db.getVersioned("actividades",itemId),current=version.doc;
     if (!current) throw new Error("Actividad no encontrada.");
     assertAdminCityV71(auth,current);
     const horarios = await getPreparedRelationsV1({
@@ -9617,14 +9630,14 @@ async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision,
     });
     for (const horario of horarios) assertAdminCityV71(auth,{...horario,ciudad_id:horario.ciudad_id||current.ciudad_id});
     const previousCities = [...new Set(horarios.map((h) => text82(h.ciudad_id)).filter(Boolean))];
-    const saved = await db.patch("actividades", itemId, {
+    const saved = await writePublicationModeration(db,"actividades",itemId,version,{
       estado_moderacion:dec === "APROBAR"?"APROBADO":"RECHAZADO",
       aprobado: dec === "APROBAR",
       estado: dec === "APROBAR" ? "ACTIVA" : "RECHAZADA",
       moderado_por: text82(auth.sid),
       moderado_en: (/* @__PURE__ */ new Date()).toISOString(),
       actualizado: (/* @__PURE__ */ new Date()).toISOString()
-    }, { mustExist: true });
+    });
     await syncActivityPreparedV2({
       cache,
       activityId: itemId,
@@ -10656,8 +10669,8 @@ async function routeAdult(ctx){
  }
  if(request.method!=='POST')return json({success:false,message:'Método inválido'},405);
  const {tipo,id,decision}=await request.json(),def=defs[tipo];if(!def||!id||!['APROBAR','RECHAZAR'].includes(decision))return json({success:false,message:'Decisión inválida'},400);
- const empVersion109=def[0]==='empleos'?await db.getVersioned('empleos',empRecord109(id)):null;
- const current=empVersion109?empVersion109.doc:await db.get(def[0],id);if(!current||def[0]==='empleos'&&current.empleo_id!==id||rejectedActivity(current)||!adultFlag(current.contenido_adulto)||current.revision_adulto!=='PENDIENTE')return json({success:false,message:'No hay una revisión +18 pendiente.'},409);
+ const ref=def[0]==='empleos'?empRecord109(id):id,version=await db.getVersioned(def[0],ref);
+ const current=version.doc;if(!current||def[0]==='empleos'&&current.empleo_id!==id||rejectedActivity(current)||!adultFlag(current.contenido_adulto)||current.revision_adulto!=='PENDIENTE')return json({success:false,message:'No hay una revisión +18 pendiente.'},409);
  const patch={revision_adulto:decision==='APROBAR'?'APROBADO':'RECHAZADO',adulto_revisado_por:auth.sid,adulto_revisado_en:new Date().toISOString(),actualizado:new Date().toISOString()};
  // A rejection is final for this submission; approval preserves a genuinely unresolved text review.
  if(decision==='RECHAZAR'||!String(current.motivo_revision||'').trim()||['APROBADO','PUBLICADO'].includes(String(current.estado_moderacion||'').toUpperCase())){
@@ -10666,7 +10679,7 @@ async function routeAdult(ctx){
   if(def[0]==='actividades'){patch.aprobado=decision==='APROBAR';patch.estado=decision==='APROBAR'?'ACTIVA':'RECHAZADA';}
   if(def[0]==='publicidades'||def[0]==='promos'||def[0]==='empleos')patch.aprobado=decision==='APROBAR';
  }
- const saved=empVersion109?(await db.commitPatches([{collection:'empleos',id:empRecord109(id),before:current,patch,options:{updateTime:empVersion109.updateTime}}]))[0]:await db.patch(def[0],id,patch,{mustExist:true});
+ const saved=await writePublicationModeration(db,def[0],ref,version,patch);
  await syncPublicationReviewV77({db,cache,collection:def[0],id,current,next:saved});
  return json({success:true,item:saved});
 }
@@ -10883,17 +10896,50 @@ async function routeModeratorsV72(ctx){
   return null;
 }
 
+async function publicationResidual({cache,collection,id}) {
+ if(collection==='anunciantes'){
+  const base=await cache.get(guideAdvertiserKey(id));
+  return base?.anunciante_id===id&&base.cards?.some(card=>String(card.id)===id)
+   ?{id,anunciante_id:id,ciudad_id:base.ciudades?.[0]}:null;
+ }
+ const keys={publicidades:'publicity:private:v101:',promos:PROMOS_ADMIN_PREFIX_V91,eventos:'publication:recent:latest:v77:eventos:',actividades:'publication:recent:latest:v77:actividades:'};
+ if(!Object.hasOwn(keys,collection))return null;
+ const packet=await cache.get(keys[collection]+encodeURIComponent(id));
+ if(!packet||packet.retirado||packet.deleted)return null;
+ const row=collection==='promos'?packet.row:['eventos','actividades'].includes(collection)?packet.publicacion:packet;
+ const field={promos:'promo_id',publicidades:'publicidad_id',eventos:'evento_id',actividades:'actividad_id'}[collection];
+ return row&&!row.eliminada&&String(row[field]||row.id)===id&&String(row.anunciante_id||row.id_comercio||'').trim()?row:null;
+}
 async function setPublicationAuthority({db,cache,collection,id,version,auth,state,residual=null}) {
  const current=version.doc||residual;
  if(!current)throw httpError('Publicación no encontrada.',404);
  const prior=publicationAuthority(current);
- if(!version.doc&&(collection!=='promos'||state!=='ELIMINADA'))throw httpError('Publicación no encontrada.',404);
+ if(!version.doc&&state!=='ELIMINADA')throw httpError('Publicación no encontrada.',404);
  if(prior==='ELIMINADA'&&state!=='ELIMINADA')throw httpError('La eliminación administrativa es definitiva.',403);
  const changed=prior!==state;
  const authority={estado:state,por:auth.sid,actualizado:new Date().toISOString()};
  let next=current;
- if(!version.doc){
-  const patch={promo_id:id,anunciante_id:current.anunciante_id||current.id_comercio,ciudad_id:current.ciudad_id,administracion_publicacion:authority};
+ if(collection==='publicidades'&&state==='ELIMINADA'){
+  const aid=String(current.anunciante_id),{state:usage,options}=await publicityStateV101(db,aid);
+  const changes=[];
+  const retained=usage.guardadas.filter(value=>value!==id),selected=usage.activas.filter(value=>value!==id);
+  if(retained.length!==usage.guardadas.length||selected.length!==usage.activas.length){
+   usage.guardadas=retained;usage.activas=selected;
+   changes.push({collection:'publicidad_estado',id:aid,patch:usage,options});
+  }
+  if(changed||!version.doc){
+   const patch=version.doc?{administracion_publicacion:authority}:{publicidad_id:id,anunciante_id:aid,segmentacion:current.segmentacion||[],relaciones_version:2,administracion_publicacion:authority};
+   changes.push({collection,id,before:current,patch,options:{...(version.doc?{updateTime:version.updateTime}:{mustNotExist:true}),[PUBLICATION_AUTHORITY_WRITE]:true}});
+  }
+  if(changes.length){
+   const rows=await db.commitPatches(changes);
+   if(changes.at(-1).collection===collection)next=rows.at(-1);
+   if(changes[0].collection==='publicidad_estado')await cache.put('publicity:usage:v101:'+aid,usage);
+  }
+ }else if(!version.doc){
+  const fields={promos:['promo_id','ciudad_id'],eventos:['evento_id','ciudad_id','programacion','programacion_version','alcance_publicacion'],
+   actividades:['actividad_id','ciudad_id','horarios','horarios_version'],anunciantes:['anunciante_id','ciudad_id']}[collection]||[];
+  const patch={...Object.fromEntries(fields.map(field=>[field,current[field]])),anunciante_id:current.anunciante_id||current.id_comercio,administracion_publicacion:authority};
   [next]=await db.commitPatches([{collection,id,before:current,patch,options:{mustNotExist:true,[PUBLICATION_AUTHORITY_WRITE]:true}}]);
  }else if(changed){
   next=await db.patch(collection,id,{administracion_publicacion:authority},{mustExist:true,updateTime:version.updateTime,[PUBLICATION_AUTHORITY_WRITE]:true});
@@ -10905,23 +10951,29 @@ async function setPublicationAuthority({db,cache,collection,id,version,auth,stat
  }
  return {success:true,item:next,unchanged:!changed};
 }
+async function writePublicationModeration(db,collection,id,version,patch) {
+ if(!version.doc||publicationAuthority(version.doc)==='ELIMINADA')throw httpError('La publicación ya no está disponible para revisión.',409);
+ if(version.doc.revision_definitiva)throw httpError('La revisión definitiva no puede reemplazarse por esta operación.',403);
+ return db.patch(collection,id,patch,{mustExist:true,updateTime:version.updateTime,[PUBLICATION_AUTHORITY_WRITE]:true});
+}
 async function syncPublicationReviewV77({db,cache,collection,id,current,next}){
  if(collection==='empleos')return syncEmpleo109({cache,current,next});
  if(collection==='promos')return syncPromo({cache,current,next});
  if(collection==='anunciantes')return patchGuideAdvertiserDataFromCacheV2({cache,advertiserId:id,patch:next});
  if(collection==='eventos')return syncEventV2({db,cache,current,next});
- if(collection==='actividades'){const horarios=await getPreparedRelationsV1({cache,type:'activity',id,current,load:()=>db.queryEqual('actividad_horarios','actividad_id',id,500)});return syncActivityPreparedV2({cache,activityId:id,current,next,horarios,previousCities:[...new Set(horarios.map(h=>h.ciudad_id).filter(Boolean))]});}
+ if(collection==='actividades'){const horarios=await getPreparedRelationsV1({cache,type:'activity',id,current,load:()=>db.queryEqual('actividad_horarios','actividad_id',id,500)});return syncActivityPreparedV2({cache,activityId:id,current,next,horarios,previousCities:[...new Set([current.ciudad_id,...horarios.map(h=>h.ciudad_id)].filter(Boolean))]});}
  if(collection==='publicidades'){const [media,segmentacion]=await Promise.all([getPreparedRelationsV1({cache,type:'publicity-media',id,current,load:()=>db.queryEqual('publicidad_media','publicidad_id',id,500)}),getPreparedRelationsV1({cache,type:'publicity-seg',id,current,load:()=>db.queryEqual('publicidad_segmentacion','publicidad_id',id,500)})]);return syncPublicityPreparedV2({cache,publicityId:id,current,next,media,segmentacion,previousCities:[...new Set(segmentacion.map(s=>s.ciudad_id).filter(Boolean))]});}
 }
 const PUBLICATION_TERMS_V77='2026-10-11';
 function publicationErrorV77(message,status=400){throw httpError(message,status);}
-function publicationPolicyV77(row,rules){
+function publicationPolicyV77(row,rules,previous){
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
  const fields=['nombre','nombre_evento','titulo','actividad','descripcion','texto','promo','otros','tags','adicionales','lugar','lugar_texto'];
  const collect=value=>{if(Array.isArray(value))return value.flatMap(collect);if(!value||typeof value!=='object')return [];return [...fields.map(k=>value[k]??''),...Object.entries(value).filter(([k,v])=>!fields.includes(k)&&v&&typeof v==='object').flatMap(([,v])=>collect(v))];};
  const text=' '+normalize(collect(row).join(' '))+' ';
  const matches=(rules||[]).filter(active3).filter(r=>{const term=normalize(r.termino||r.palabra||r.nombre);return term&&text.includes(' '+term+' ');});
- return {contenido_adulto:adultFlag(row.contenido_adulto),revision_adulto:adultFlag(row.contenido_adulto)?'PENDIENTE':'NO_APLICA',estado_moderacion:(adultFlag(row.contenido_adulto)||matches.length)?'PENDIENTE':'PUBLICADO',motivo_revision:matches.map(r=>String(r.regla_id||r.id||r.termino||r.palabra||r.nombre)).join(', ')};
+ const rejected=[previous?.estado_moderacion,previous?.revision_adulto].some(state=>['RECHAZADO','RECHAZADA'].includes(state));
+ return {contenido_adulto:adultFlag(row.contenido_adulto),revision_adulto:adultFlag(row.contenido_adulto)?'PENDIENTE':'NO_APLICA',estado_moderacion:(adultFlag(row.contenido_adulto)||matches.length||rejected)?'PENDIENTE':'PUBLICADO',motivo_revision:matches.map(r=>String(r.regla_id||r.id||r.termino||r.palabra||r.nombre)).join(', ')};
 }
 function publicationDbV77(base,context,cache){
  const known=new Map();const wrap=db=>({...db,publicationContext:context,
@@ -10933,7 +10985,7 @@ function publicationDbV77(base,context,cache){
    const acceptance={version:context.termsVersion||PUBLICATION_TERMS_V77,usuario_id:context.sid||String(id),fecha:new Date().toISOString()};
    if(c==='suscriptores')patch={...patch,aceptacion_terminos:acceptance};
    else {
-    const policy=publicationPolicyV77(row,context.rules);
+    const policy=publicationPolicyV77(row,context.rules,prior);
     patch={...patch,...policy,declaracion_publicacion:acceptance};
     if(c==='eventos')patch.estado=policy.estado_moderacion==='PENDIENTE'?'PENDIENTE':'PUBLICADO';
     if(c==='actividades'){patch.aprobado=policy.estado_moderacion!=='PENDIENTE';patch.estado=patch.aprobado?'ACTIVA':'PENDIENTE';}
@@ -11024,7 +11076,7 @@ async function routePublicationsV77(ctx){
   if(!await gldReviewScope189(auth,tipo,current,id,read))return json({success:false,message:'Fuera del ámbito territorial o reservado a superadministración'},403);
   const patch={estado_moderacion:decision==='APROBAR'?'APROBADO':'RECHAZADO',moderado_por:auth.sid,moderado_en:new Date().toISOString()};
   if(['promos','publicidades','empleos'].includes(collection))patch.aprobado=decision==='APROBAR';
-  const saved=await db.patch(collection,ref,patch,{mustExist:true,...(version.updateTime?{updateTime:version.updateTime}:{})});
+  const saved=await writePublicationModeration(db,collection,ref,version,patch);
   await syncPublicationReviewV77({db,cache,collection,id,current,next:saved});
   return json({success:true,item:saved});
  }
@@ -11037,7 +11089,7 @@ async function routePublicationsV77(ctx){
    const states={retirar:'SUSPENDIDA',pausar:'PAUSADA',bloquear:'BLOQUEADA',eliminar:'ELIMINADA',levantar_restriccion:'LIBRE'};
    if(!Object.hasOwn(kinds,c)||!id||!Object.hasOwn(states,body.action))publicationErrorV77('Acción inválida.');
    if(body.action!=='retirar'&&!isTopAdmin2(auth))return json({success:false,message:'La restricción requiere superadministración.'},403);
-   const version=await db.getVersioned(c,id),current=version.doc;
+   const version=await db.getVersioned(c,id),residual=!version.doc&&body.action==='eliminar'?await publicationResidual({cache,collection:c,id}):null,current=version.doc||residual;
    if(!current)return json({success:false,message:'Publicación no encontrada'},404);
    const read=db.panelReadDb?db.panelReadDb():db;
    assertModeratorV72(auth,kinds[c]);assertAdminCityV71(auth,current);
@@ -11046,7 +11098,7 @@ async function routePublicationsV77(ctx){
     const related=c==='promos'?[]:c==='actividades'?await getPreparedRelationsV1({cache,type:"activity",id,current,load:()=>read.queryEqual(relation[0],relation[1],id,500)}):await read.queryEqual(relation[0],relation[1],id,500);
     for(const item of related)assertAdminCityV71(auth,item);
    }
-   return json(await setPublicationAuthority({db,cache,collection:c,id,version,auth,state:states[body.action]}));
+   return json(await setPublicationAuthority({db,cache,collection:c,id,version,auth,state:states[body.action],residual}));
   }
   const kv=env.GLD_CACHE_KV;if(!kv.list)return json({success:false,message:'Listado KV no disponible'},503);
   const keys=[],recentPrefix='publication:recent:v77:',firstDay=new Date(Date.now()-10*86400000).toISOString().slice(0,10),lastDay=new Date().toISOString().slice(0,10);let recentCursor;
@@ -11294,7 +11346,7 @@ async function routeAdminPromosV91(ctx){
  if(!current)return json({success:false,message:'La promoción ya no existe. Actualizá la lista.'},404);
  if(!promoPendingV91(current))return json({success:false,message:'No hay una revisión pendiente para esta promoción.'},409);
  const patch={aprobado:action==='aprobar',estado_moderacion:action==='aprobar'?'APROBADO':'RECHAZADO',revision_adulto:adultFlag(current.contenido_adulto)?(action==='aprobar'?'APROBADO':'RECHAZADO'):'NO_APLICA',moderado_por:auth.sid,moderado_en:new Date().toISOString()};
- const saved=await db.patch('promos',id,{...patch,actualizado:new Date().toISOString()},{mustExist:true,updateTime:version.updateTime});
+ const saved=await writePublicationModeration(db,'promos',id,version,{...patch,actualizado:new Date().toISOString()});
  await syncPromo({cache,current,next:saved});return json({success:true,promo:{...saved,estado_panel:promoStateV91(saved)}});
 }
 
@@ -12078,7 +12130,7 @@ class GldPublicCache119 {
    if(after.has('')||after.size!==incoming.length)throw Error('Invalid public cache entity identifiers');
    for(const id of new Set([...before.keys(),...after.keys()])){
     const a=before.get(id),b=after.get(id);if(JSON.stringify(a)===JSON.stringify(b))continue;
-    const current=this.query(bookTracked?'SELECT value,stamp,position,book_history FROM entities WHERE id=?':'SELECT value,stamp,position FROM entities WHERE id=?',id)[0];
+    const current=this.query(bookTracked?'SELECT value,stamp,position,book_day,book_history FROM entities WHERE id=?':'SELECT value,stamp,position FROM entities WHERE id=?',id)[0];
     const stamp=sourceStamp119(body.stamps?.[id]);
     // A late projection cannot revive an entity deleted by a newer source write.
     if(current?.stamp&&(!stamp||stamp<current.stamp))continue;
@@ -12091,7 +12143,13 @@ class GldPublicCache119 {
     if(!stamp&&!samePublicValueInternal(currentRow,a)&&!samePublicValueInternal(currentRow,b))throw Error('Public cache conflict');
     const value=b?JSON.stringify(b):null,source=stamp||current?.stamp||'',position=current?.position??Date.now();
     if(bookTracked){
-     this.query('INSERT INTO entities(id,value,stamp,position,book_day,book_history) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp,book_day=excluded.book_day,book_history=excluded.book_history',id,value,source,position,bookDay,cityBookHistory(current?.book_history,bookDay,b??null,currentRow??null));
+     const cutoff=body.authorityCutoffs?.[id],closingDay=bookDay-1;
+     // A recovered administrative removal can still reach an uncommitted cut
+     // when the source mutation predates it. Do not backdate additions or
+     // reorder history already written for this entity.
+     const catchUp=!b&&cutoff===cityBookBoundary(bookDay)&&stamp&&Date.parse(stamp)<cutoff&&(current?.book_day??closingDay)<=closingDay;
+     const day=catchUp?closingDay:bookDay;
+     this.query('INSERT INTO entities(id,value,stamp,position,book_day,book_history) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp,book_day=excluded.book_day,book_history=excluded.book_history',id,value,source,position,day,cityBookHistory(current?.book_history,day,b??null,currentRow??null));
     }else this.query('INSERT INTO entities(id,value,stamp,position) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value,stamp=excluded.stamp',id,value,source,position);
     if(b)merged.set(id,b);else merged.delete(id);
    }
@@ -12114,7 +12172,7 @@ class GldPublicCache119 {
  async process127(request){
   return (async()=>{
    this.metrics={rows_read:0,rows_written:0,legacy_gets:0};
-   try{const body=await request.json();if(body.op==='private-favorites')return await this.privateFavoritesProjection(body);if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due','city-book-recovery-track','city-book-recovery-list'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(['gh-detail-read204','gh-detail-invalidate204'].includes(body.op))return await this.ghDetail204(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(body.op==='business-recover143'){await this.repairGuide132();await this.repairBusiness143();return Response.json({success:true});}if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
+   try{const body=await request.json();if(body.op==='private-favorites')return await this.privateFavoritesProjection(body);if(body.op==='private-access201'){if(!this.access201)this.access201=new AccessRecord201(this.state,this.env);return await this.access201.fetch(body);}if(body.op==='private-subscribers-daily195'){if(!this.privateDaily195)this.privateDaily195=new PrivateDaily195(this.state,this.env);return await this.privateDaily195.fetch(body);}if(body.op==='private-roles192'){if(!this.privateRoles192)this.privateRoles192=new PrivateRoles192(this.state,this.env);return await this.privateRoles192.fetch(body);}if(['city-book-mark-shared','city-book-shared-changes','city-book-checkpoint','city-book-commit','city-book-add-due','city-book-recovery-track','city-book-recovery-list'].includes(body.op))return Response.json(this.cityBookShared(body));if(body.op==='shared-action138'){if(!this.actions138)this.actions138=new GLD_ACTIONS138.Coordinator(this.state,this.env);return await this.actions138.fetch(request,body);}if(body.op==='commerce-migration-start209')return await this.commerceMigrationStart209();if(['commerce-master-read209','commerce-master-update209','commerce-master-prepare209'].includes(body.op))return await this.commerceRequest209(body);if(['gh-detail-read204','gh-detail-invalidate204'].includes(body.op))return await this.ghDetail204(body);if(body.op==='guide-save132')return await this.guideSave132(body);if(body.op==='business-save143')return await this.businessSave143(body);if(body.op==='business-status143')return await this.businessStatus143(body);if(body.op==='business-recover143'){await this.repairGuide132();await this.repairBusiness143(body.cutoff);return Response.json({success:true});}if(['pending-events-read','pending-events-invalidate'].includes(body.op))return Response.json({...await this.pending126(body.op),metrics:this.metrics});if(body.op==='migration-snapshot')return Response.json({...await this.moduleSnapshot125(body),metrics:this.metrics});if(['city-book-changes','city-book-read'].includes(body.op)){if(cityDefinition119(body.key)?.bootstrapOnce)await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}await this.reconcileLegacy125(body.key);return Response.json({...await this.handle(body),metrics:this.metrics});}
    catch(error){this.cached=null;return Response.json({error:String(error?.message||error),metrics:this.metrics},{status:/conflict/i.test(String(error))?409:503});}
   })();
  }
@@ -12343,14 +12401,14 @@ async function cityBookIdentity(request,read=fetch,now=Date.now()){
  }catch{return false;}
 }
 
-async function recoverCityBookPublications(env,report){
+async function recoverCityBookPublications(env,report,cutoff=null){
  const {jobs}=await cityBookSharedState(env,{op:'city-book-recovery-list'});
  const stats=report.publication_recovery={attempted:0,recovered:0,pending:0};
  for(const {aid} of jobs){
   stats.attempted++;
   try{
    const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
-   const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-recover143'})}));
+   const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-recover143',cutoff})}));
    if(!response.ok)throw Error('Pending publication recovery');
    stats.recovered++;
   }catch{
@@ -12380,7 +12438,7 @@ async function routeCityBookCut({request,env,report}){
  const state=await cityBookSharedState(env,{op:'city-book-checkpoint'});
  if(installed===null&&state.cutoff!==null)throw httpError('Falta recuperar la última publicación de Hosting.',503);
  const after=Math.max(installed??(cutoff-CITY_BOOK_DAY_MS),state.cutoff??0);
- await recoverCityBookPublications(env,report);
+ await recoverCityBookPublications(env,report,after<cutoff?cutoff:null);
  const output=after===cutoff?{complete:true,after,cutoff,cities:[],initial:[],retired:[]}:
   await exportCityBookCut({env,cache:createCache(env),after,cutoff,known:data.known,knownSchema:data.schema,report});
  try{const prepared=await dailySubscribers195(env,'stage',cutoff);report.private_daily195={status:prepared?.preparado?'staged':'pending',cutoff};}
@@ -12392,12 +12450,14 @@ function coordinatedCities119(env,report){
  report.public_cache_backend='coordinated-sqlite';
  const kv=env.GLD_CACHE_KV,bases=new Map();
  async function call(key,op,value){
-  const def=cityDefinition119(key),stamps={};
+  const def=cityDefinition119(key),stamps={},authorityCutoffs={};
   for(const row of [...(bases.get(key)?.[def.field]||[]),...(value?.[def.field]||[])]){
-   const id=String(row[def.id]||row.id||'');stamps[id]=report.source_versions119?.[def.collection+'/'+def.sourceId(id)]||'';
+   const id=String(row[def.id]||row.id||''),sourceId=def.collection+'/'+def.sourceId(id);
+   stamps[id]=report.source_versions119?.[sourceId]||'';
+   if(report.authorityCutoffs?.[sourceId])authorityCutoffs[id]=report.authorityCutoffs[sourceId];
   }
   const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('public-city-v119:'+key));
-  const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base:bases.get(key)||null,stamps})}));
+  const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base:bases.get(key)||null,stamps,authorityCutoffs})}));
   const result=await response.json(),stats=report.public_store??={calls:0,rows_read:0,rows_written:0,legacy_gets:0,legacy_lists:0};stats.calls++;
   (stats.components??=[]).push({module:def.module,operation:op,rows_read:result.metrics?.rows_read??null,rows_written:result.metrics?.rows_written??null,legacy_gets:result.metrics?.legacy_gets??null,reads:result.metrics?.read_paths??null,status:response.status});
   for(const k of ['rows_read','rows_written','legacy_gets','legacy_lists'])stats[k]+=Number(result.metrics?.[k]||0);
@@ -13025,7 +13085,7 @@ function consumptionBase136(report){
 // Durable recovery for existing Publicidad/Promos mutations. Reuses the
 // advertiser actor; no source mutation is retried by recovery.
 var GLD_BUSINESS143=(()=>{
- const collections=new Set([...PUBLICATION_COLLECTIONS,'publicidad_estado','publicidad_media','publicidad_segmentacion','evento_programacion']);
+ const collections=new Set([...PUBLICATION_COLLECTIONS,'publicidad_estado','publicidad_media','publicidad_segmentacion','evento_programacion','actividad_horarios']);
  const equal=(a,b)=>JSON.stringify(normalize(a))===JSON.stringify(normalize(b));
  function normalize(v){return Array.isArray(v)?v.map(normalize):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,normalize(v[k])])):v;}
  const quotaError=e=>/KV (?:put|delete|list|get)\(\) limit exceeded|daily.*(?:write|quota).*limit|quota.*exceeded/i.test(String(e?.message||e));
@@ -13040,35 +13100,36 @@ var GLD_BUSINESS143=(()=>{
    const aid=decodeURIComponent(statusPath[1]),actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));return actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-status143',aid})}));
   }
   if(request.method!=='POST')return null;
-  if(!['/promos','/publicidad','/superadmin/promos','/superadmin/publicidad','/superadmin/publications/recent'].includes(path))return null;
+  if(!['/promos','/publicidad','/actividades','/superadmin/promos','/superadmin/publicidad','/superadmin/publications/recent','/superadmin/moderation/resolve','/superadmin/adult-review','/superadmin/publications/blocked'].includes(path))return null;
   const body=await GLD_ACTIONS138.readJson(request),action=String(body.action||body.accion||'').toLowerCase();
-  const admin=path.startsWith('/superadmin/'),promo=path.endsWith('/promos');
-  const actions=admin?(promo?['pausar','reanudar','borrar','aprobar','rechazar']:['pausar','eliminar']):(promo?['createpromo','updatepromo','deletepromo']:['guardar','actualizar_activos','eliminar']);
+  const admin=path.startsWith('/superadmin/'),promo=path.endsWith('/promos'),activity=path==='/actividades';
+  const actions=admin?(promo?['pausar','reanudar','borrar','aprobar','rechazar']:['pausar','eliminar','bloquear','suspender','levantar_restriccion']):(promo?['createpromo','updatepromo','deletepromo']:activity?['guardar','eliminar','pausar','reanudar','renovar']:['guardar','actualizar_activos','eliminar']);
   const common=path==='/superadmin/publications/recent';
-  if(common?!['retirar','pausar','bloquear','eliminar','levantar_restriccion'].includes(action):!actions.includes(action))return null;
-  let aid,identity,kind=promo?'promos':'publicidades';
+  const reviewKind=({ACTIVIDAD:'actividades',PROMO:'promos',PUBLICIDAD:'publicidades',ANUNCIO:'anunciantes',ANUNCIANTE:'anunciantes'})[String(body.tipo||'').toUpperCase()];
+  const review=reviewKind&&(path==='/superadmin/moderation/resolve'&&reviewKind==='actividades'||['/superadmin/adult-review','/superadmin/publications/blocked'].includes(path));
+  if(!review&&(common?!['retirar','pausar','bloquear','eliminar','levantar_restriccion'].includes(action):!actions.includes(action)))return null;
+  let aid,identity,kind=promo?'promos':activity?'actividades':'publicidades';
   if(admin){
    const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
-   if(!(common&&action==='retirar'?canModerate2(auth):isTopAdmin(auth)))return json({success:false,message:'No tenés permiso para administrar esta publicación.'},403);identity={kind:'admin',value:auth};
+   if(!((common&&action==='retirar'||review)?canModerate2(auth):isTopAdmin(auth)))return json({success:false,message:'No tenés permiso para administrar esta publicación.'},403);identity={kind:'admin',value:auth};
    if(common){kind=String(body.collection||'');if(!PUBLICATION_COLLECTIONS.has(kind))return null;}
-   const id=String(common?body.id||'':promo?body.promo_id||body.id||'':body.publicidad_id||'');
+   if(review)kind=reviewKind;
+   const id=String(common||review?body.id||'':promo?body.promo_id||body.id||'':body.publicidad_id||'');
    if(!id)return null;
    const row=await db.get(kind,id);
-   aid=row?String(row.anunciante_id||row.id_comercio||id):common?'':aidOf4(url,body);
-   if(!aid&&promo&&action==='borrar'){
-    const recorded=await ctx.cache.get(PROMOS_ADMIN_PREFIX_V91+encodeURIComponent(id));
-    if(recorded?.id===id&&!recorded.deleted)aid=String(recorded.row?.anunciante_id||recorded.row?.id_comercio||'');
-   }
+   const residual=!row&&['borrar','eliminar'].includes(action)?await publicationResidual({cache:ctx.cache,collection:kind,id}):null;
+   const owner=row||residual;
+   aid=owner?String(owner.anunciante_id||owner.id_comercio||id):'';
    if(!aid)return null;
   }else{
    aid=aidOf4(url,body);if(!aid)return null;
-   const auth=await requirePanel(env,request,aid,promo?'promos':'publicidad',true);if(auth.response)return auth.response;identity={kind:'subscriber',value:auth.session};
+   const auth=await requirePanel(env,request,aid,promo?'promos':activity?'actividades':'publicidad',true);if(auth.response)return auth.response;identity={kind:'subscriber',value:auth.session};
   }
   if(!aid)return null;
   const data=body.payload&&typeof body.payload==='object'?body.payload:body;
   const publishRecent=!admin&&(promo?(action==='createpromo'||action==='updatepromo'&&Object.keys(data).some(k=>!['promo_id','pausado','action','accion','advertiserId','advertiser_id','declaracion_publicacion','operation_id','request_key'].includes(k))):action==='guardar');
   const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
-  const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-save143',origin_request_id:ctx.request_id143,aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body,action:common?'publication-authority':action,identity,kind,publishRecent,key:uuid(body.operation_id)||uuid(body.request_key)||uuid(request.headers.get('Idempotency-Key'))})}));
+  const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-save143',origin_request_id:ctx.request_id143,aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body,action:common?'publication-authority':review?'publication-review':action,identity,kind,publishRecent,key:uuid(body.operation_id)||uuid(body.request_key)||uuid(request.headers.get('Idempotency-Key'))})}));
   const renewal=SESSION_RENEWALS_V87.get(request);if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
   const headers=new Headers(response.headers);headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
  }
@@ -13117,7 +13178,7 @@ GldPublicCache119.prototype.beginBusiness143=async function(entries){
   const keys=Object.keys(e.patch||{}).filter(k=>k!=='_version'&&e.patch[k]!==undefined);
   const expectation=e.remove?{removed:true}:{keys,hash:await fieldRevisionInternal(e.patch||{},keys)};
   let ref=job.refs.find(r=>r.collection===e.collection&&r.id===String(e.id));
-  if(!ref){const old=e.before||{};ref={collection:e.collection,id:String(e.id),before:{id:String(e.id),...Object.fromEntries(['evento_id','programacion','programacion_version','alcance_publicacion','publicidad_id','promo_id','anunciante_id','id_comercio','ciudad_id','segmentacion','relaciones_version','actualizado','estado_moderacion','revision_adulto','aprobado'].filter(k=>old[k]!==undefined).map(k=>[k,old[k]]))},checks:[]};job.refs.push(ref);}
+  if(!ref){const old=e.before||{};ref={collection:e.collection,id:String(e.id),before:{id:String(e.id),...Object.fromEntries(['evento_id','programacion','programacion_version','alcance_publicacion','horarios','horarios_version','actividad_id','publicidad_id','promo_id','anunciante_id','id_comercio','ciudad_id','segmentacion','relaciones_version','actualizado','estado_moderacion','revision_adulto','aprobado'].filter(k=>old[k]!==undefined).map(k=>[k,old[k]]))},checks:[]};job.refs.push(ref);}
   ref.checks.push(expectation);
  }
  const register=!job.dailyRecovery&&cityBookCaptureEnabled(this.env)&&entries.some(entry=>Object.hasOwn(entry.patch||{},'administracion_publicacion'));
@@ -13129,7 +13190,10 @@ GldPublicCache119.prototype.beginBusiness143=async function(entries){
 };
 GldPublicCache119.prototype.finishBusiness143=async function(applied,result=null){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
- const receipts=state.receipts.filter(r=>Date.now()-r.at<86400000&&r.key!==job.key);
+ const restrictions=job.refs.filter(ref=>ref.checks.some(check=>check.keys?.includes('administracion_publicacion')));
+ const receipts=state.receipts.filter(r=>Date.now()-r.at<86400000&&r.key!==job.key).map(receipt=>
+  restrictions.some(ref=>receipt.refs.some(item=>item.collection===ref.collection&&item.id===ref.id))?{...receipt,result:null}:receipt
+ );
  if(job.key){const small=result&&new TextEncoder().encode(JSON.stringify(result)).byteLength<=32000;receipts.push({key:job.key,fingerprint:job.fingerprint,at:Date.now(),applied,result:small?result:null,kind:job.kind,action:job.action,refs:job.refs.filter(r=>r.collection===job.kind).map(r=>({collection:r.collection,id:r.id}))});}
  while(receipts.length>20||new TextEncoder().encode(JSON.stringify(receipts)).byteLength>48000)receipts.shift();
  if(job.dailyRecovery)await cityBookSharedState(this.env,{op:'city-book-recovery-track',aid:job.aid,pending:false});
@@ -13144,10 +13208,12 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
  if(GLD_BUSINESS143.quotaError(error)){const d=new Date();d.setUTCHours(24,2,0,0);at=d.getTime();}
  await this.state.storage.setAlarm(at);
 };
-GldPublicCache119.prototype.repairBusiness143=async function(){
+GldPublicCache119.prototype.repairBusiness143=async function(cutoff=null){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
  const report={event:'gld_business_recovery143',worker_version:'211',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
- const env=coordinatedCities119(requestCache121(observeKv117(this.env,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
+ const recovery={aid:job.aid,actor:this};
+ const scoped=new Proxy(this.env,{get:(target,key)=>key==='__gldPublicationRecoveryOwner'?recovery:Reflect.get(target,key,target)});
+ const env=coordinatedCities119(requestCache121(observeKv117(scoped,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,env),env,report),cache=createCache(env);let applied=true;
  try{
   for(const ref of job.refs){
@@ -13155,10 +13221,16 @@ GldPublicCache119.prototype.repairBusiness143=async function(){
    for(const check of ref.checks)if(check.removed?!!row:!row||await fieldRevisionInternal(row,check.keys)!==check.hash){applied=false;console.warn('gld_business_recovery_mismatch143',ref.collection,ref.id,check.keys);}
    db.repairPanelGuide132(ref.collection,ref.id,ref.before,row);
    if(publicationAuthority(row)!=='LIBRE'){
+    if(job.dailyRecovery&&cutoff===cityBookBoundary(cityBookDay(Date.now()))){
+     (report.authorityCutoffs??={})[ref.collection+'/'+ref.id]=cutoff;
+    }
     const key='publication:recent:latest:v77:'+ref.collection+':'+ref.id,item={retirado:true,collection:ref.collection,id:ref.id};
     if(!GLD_BUSINESS143.equal(await cache.get(key),item))await cache.put(key,item,{expirationTtl:11*86400});
    }
-   if(job.action==='publication-authority'&&['eventos','actividades','anunciantes'].includes(ref.collection)&&row){
+   if(ref.collection==='actividades'&&(job.kind==='actividades'||job.action==='publication-authority')){
+    await syncPublicationReviewV77({db,cache,collection:ref.collection,id:ref.id,current:row||ref.before,next:row});
+   }
+   if(['publication-authority','publication-review'].includes(job.action)&&['eventos','anunciantes'].includes(ref.collection)&&row){
     await syncPublicationReviewV77({db,cache,collection:ref.collection,id:ref.id,current:row,next:row});
    }
    if(ref.collection==='promos'){
@@ -13186,7 +13258,7 @@ GldPublicCache119.prototype.repairBusiness143=async function(){
   }
   if(job.kind==='eventos')await GLD_EVENTS145.repair({job,source,cache,db});
   await db.flushLoginCache();await this.finishBusiness143(applied);report.status=200;
- }finally{delete report.source_versions119;delete report.source_parents119;report.consumption=consumption136(report);console.log(JSON.stringify(finishObservationV42(report)));}
+ }finally{delete report.source_versions119;delete report.source_parents119;delete report.authorityCutoffs;report.consumption=consumption136(report);console.log(JSON.stringify(finishObservationV42(report)));}
 };
 GldPublicCache119.prototype.businessExecute143=async function(command){
  try{await this.repairGuide132();await this.repairBusiness143();}catch(error){await this.retryBusiness143(error);return json({success:false,code:'PUBLICATION_SYNC_PENDING',operation_unconfirmed:true,message:'Hay una sincronización pendiente. No repitas el cambio anterior; se conserva para recuperarlo.'},503);}
@@ -13226,9 +13298,15 @@ GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
  const report={event:'gld_business_replay143',worker_version:'211',started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
-  for(const ref of receipt.refs){const row=await db.get(ref.collection,ref.id);if(row)saved.push(row);}
+  for(const ref of receipt.refs){
+   const row=await db.get(ref.collection,ref.id);
+   if(command.identity?.kind==='subscriber'&&publicationAuthority(row)!=='LIBRE')return json({success:false,message:'La publicación tiene una restricción de Gran Hermano.'},403);
+   if(row)saved.push(row);
+  }
   const deleted=['deletefreeevent','deletevipevent','deletepromo','borrar','eliminar'].includes(receipt.action),result={success:true,operation_recovered:true,...(deleted?{deleted:true}:{})};
-  if(receipt.kind==='eventos')Object.assign(result,{evento:saved[0]||null,evento_id:receipt.refs[0]?.id});
+  if(['publication-authority','publication-review'].includes(receipt.action))Object.assign(result,{item:saved[0]||null,deleted:publicationAuthority(saved[0])==='ELIMINADA'});
+  else if(receipt.kind==='actividades')Object.assign(result,{actividad:saved[0]||null,actividad_id:receipt.refs[0]?.id});
+  else if(receipt.kind==='eventos')Object.assign(result,{evento:saved[0]||null,evento_id:receipt.refs[0]?.id});
   else if(receipt.kind==='promos')Object.assign(result,{promo:saved[0]||null,promo_id:receipt.refs[0]?.id});
   else{
    const [state,admin]=await Promise.all([db.get('publicidad_estado',command.aid),db.get('anunciantes_administracion',command.aid)]);
@@ -13408,6 +13486,14 @@ var app_main_v35_default = {
       const territorialAction=await GLD_ACTIONS138.route(ctx,report);if(territorialAction)return await traced(territorialAction);
       const businessDispatch143=await GLD_BUSINESS143.dispatch(ctx);if(businessDispatch143){report.event='gld_business_dispatch143';report.source='business-dispatch';report.status=businessDispatch143.status;return businessDispatch143;}
       const guideDispatch=await routeGuideDispatch132(ctx);if(guideDispatch){report.event='gld_guide_dispatch';report.source='guide-dispatch';report.status=guideDispatch.status;return guideDispatch;}
+      if(path==='/commerce'&&request.method==='POST'&&env.__gldGuideActor132){
+        const body=await GLD_ACTIONS138.readJson(request);
+        if(['save_ficha','set_datos','set_sedes','set_relaciones_sede','delete_sede'].includes(actionOf4(url,body))){
+          const aid=aidOf4(url,body);
+          const {doc}=await db.getVersioned('anunciantes',aid);
+          checkPublicationWrite({remove:actionOf4(url,body)==='delete_sede'},doc);
+        }
+      }
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 

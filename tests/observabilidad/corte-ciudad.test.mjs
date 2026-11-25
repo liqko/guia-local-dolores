@@ -476,3 +476,26 @@ test('la publicación nocturna intenta el diario existente y conserva los trabaj
   assert.deepEqual(calls.map(row=>row[1]),['city-book-recovery-list','business-recover143','business-recover143','city-book-recovery-track']);
   assert.equal(calls.at(-1)[2],'B');
 });
+
+test('una baja administrativa recuperada después de la 01:00 entra en el corte aún abierto', async t=>{
+ const {sqliteNamespace}=await import('../publicidad143/namespace.mjs');
+ const cutoff=Date.parse('2026-11-25T04:00:00Z'),day=Math.floor((cutoff-4*3600000)/86400000);
+ t.mock.method(Date,'now',()=>cutoff+60000);
+ const key='promos:city:v1:D';
+ const base={promos:[{promo_id:'antes'},{promo_id:'despues'}]};
+ const env={GLD_CITY_BOOK_CAPTURE:'1',GLD_CACHE_KV:{get:async()=>JSON.stringify(base)}};
+ const actor=sqliteNamespace(env,GldPublicCache119).get('public-city-v119:'+key);
+ const call=async op=>{
+  const response=await actor.fetch(new Request('https://cache.test',{method:'POST',body:JSON.stringify({key,...op})}));
+  assert.equal(response.status,200);
+  return response.json();
+ };
+ await call({op:'put',base,value:{promos:[]},stamps:{antes:'2026-11-25T03:59:59Z',despues:'2026-11-25T04:00:01Z'},
+  authorityCutoffs:{antes:cutoff,despues:cutoff}});
+ const cut=await call({op:'city-book-read',to:day});
+ assert.deepEqual(cut.value.promos.map(row=>row.promo_id),['despues']);
+ const live=await call({op:'get'});
+ assert.deepEqual(live.value.promos,[]);
+ await call({op:'put',base:{promos:[]},value:{promos:[{promo_id:'antes'}]},stamps:{antes:'2026-11-25T03:58:00Z'}});
+ assert.deepEqual((await call({op:'get'})).value.promos,[]);
+});
