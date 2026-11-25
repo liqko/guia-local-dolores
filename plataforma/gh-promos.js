@@ -13,7 +13,7 @@ async function requestRaw143(path,body){
  const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+TOKEN,...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
  const j=await r.json();if(!r.ok||!j.success)throw new Error(j.message||'No se pudo consultar Promos.');return j;
 }
-function state(p){if(p.estado_panel)return p.estado_panel;if(p.estado_moderacion==='PENDIENTE'||(p.contenido_adulto&&p.revision_adulto==='PENDIENTE'))return 'PENDIENTE';if(p.estado_moderacion==='RECHAZADO')return 'RECHAZADA';return p.pausado===true||String(p.pausado)==='true'||String(p.pausado)==='1'?'PAUSADA':'ACTIVA';}
+function state(p){return p.estado_panel||'SIN VERIFICAR';}
 function expired(p){const day=String(p.hasta||'').slice(0,10);return /^\d{4}-\d{2}-\d{2}$/.test(day)&&day<new Date(Date.now()-3*3600000).toISOString().slice(0,10);}
 function render(){
  const box=el('ghPromosList'),summary=el('ghPromosSummary'),jump=el('ghPromosJump');if(!box)return;
@@ -24,7 +24,7 @@ function render(){
  const city=el('ghPromosCity').value,q=ghNorm(el('ghPromosSearch').value),filter=el('ghPromosState').value;
  const cities=[...new Set(rows.map(p=>String(p.ciudad_id||'')).filter(Boolean))];
  const select=el('ghPromosCity');select.innerHTML='<option value="">Todas las ciudades</option>'+cities.map(id=>{const c=GH_CITIES.find(c=>String(c.ciudad_id||c.id)===id);return '<option value="'+esc(id)+'">'+esc(c?.ciudad_visible||id)+'</option>';}).join('');select.value=cities.includes(city)?city:'';
- summary.textContent=rows.length+' guardada(s) · '+rows.filter(p=>state(p)==='ACTIVA').length+' activa(s) · '+rows.filter(p=>state(p)==='PAUSADA').length+' pausada(s) · '+pending+' pendiente(s) · '+rows.filter(expired).length+' vencida(s) por fecha';
+ summary.textContent=rows.length+' guardada(s) · '+rows.filter(p=>state(p)==='ACTIVA').length+' activa(s) · '+rows.filter(p=>state(p)==='PAUSADA').length+' pausada(s) · '+rows.filter(p=>state(p)==='NO PUBLICADA').length+' no publicada(s) · '+pending+' pendiente(s) · '+rows.filter(expired).length+' vencida(s) por fecha';
  const filtered=rows.filter(p=>(!select.value||String(p.ciudad_id)===select.value)&&(!filter||state(p)===filter)&&(!q||ghNorm([p.promo,p.promo_id,p.anunciante_id,p.ciudad_id].join(' ')).includes(q)));
  box.innerHTML=filtered.map(p=>{
   const id=String(p.promo_id||p.id),status=state(p),action=(value,label)=>'<button type="button" data-promo-id="'+esc(id)+'" data-promo-action="'+value+'">'+label+'</button>';

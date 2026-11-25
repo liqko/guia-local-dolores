@@ -374,6 +374,62 @@ test('P4-0011: fallo de lectura de Promos GH permite reintento en nueva apertura
 });
 
 
+test('P4-0011: Gran Hermano comparte la elegibilidad de la copia pública de Promociones',async()=>{
+ const {promoStateV91,directoryProjection102,syncPromo}=await import(
+  'data:text/javascript;base64,'+Buffer.from(worker+'\nexport {promoStateV91,directoryProjection102,syncPromo};').toString('base64')
+ );
+ const city='DOL (BUE - ARG)', aid='ACP-SINTETICO';
+ const references={advertisers:new Map([[aid,{ciudad_ids:[city]}]]),cities:new Map(),subscribers:new Map()};
+ const stored=new Map();
+ const cache={get:async key=>stored.get(key),put:async (key,data)=>stored.set(key,data)};
+ const base={ciudad_id:city,anunciante_id:aid,estado:'ACTIVA',estado_moderacion:'PUBLICADO',hasta:'2099-12-31'};
+ const fixtures=[
+  ['activa',{},'ACTIVA'],
+  ['inactiva',{estado:'INACTIVA'},'NO PUBLICADA'],
+  ['borrador',{estado:'BORRADOR'},'NO PUBLICADA'],
+  ['sin-ciudad',{ciudad_id:' '},'NO PUBLICADA'],
+  ['pendiente',{estado_moderacion:'PENDIENTE'},'PENDIENTE'],
+  ['pausada',{pausado:'sí'},'PAUSADA'],
+  ['rechazada',{estado:'RECHAZADA'},'RECHAZADA'],
+  ['adulto-sin-aprobacion',{contenido_adulto:true},'NO PUBLICADA'],
+ ];
+ const rows=[];
+ for(const [id,patch,expected] of fixtures){
+  const row={...base,...patch,promo_id:id,promo:id};
+  rows.push({...row,estado_panel:promoStateV91(row)});
+  assert.equal(rows.at(-1).estado_panel,expected,id);
+  assert.equal(directoryProjection102(row,'promos',references).estado,expected,id);
+  await syncPromo({cache,next:row});
+ }
+ assert.deepEqual(stored.get('promos:city:v1:'+city).promos.map(row=>row.promo_id),['activa']);
+ assert.equal(stored.get('admin:promos:item:v91:borrador').row.estado,'BORRADOR');
+ assert.equal(stored.has('promos:city:v1:'),false);
+ assert.equal(directoryProjection102({...base,hasta:'2000-01-01'},'promos',references).estado,'VENCIDA');
+ assert.equal(directoryProjection102({...base,revision_definitiva:true},'promos',references).estado,'BLOQUEADA');
+
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/gh-promos.js'),'utf8');
+ const suppliedRows=[...rows,{promo_id:'sin-estado-servidor',promo:'Sin estado del servidor',ciudad_id:city}];
+ const elements=new Map();
+ const element=id=>{
+  if(!elements.has(id))elements.set(id,{value:'',textContent:'',innerHTML:'',querySelectorAll:()=>[]});
+  return elements.get(id);
+ };
+ const win={};
+ const fetch=async()=>({ok:true,json:async()=>({success:true,preparado:true,results:suppliedRows})});
+ Function('window','document','fetch','TERRITORY_API_ORIGIN','TOKEN','ghNorm','GH_CITIES','esc',source)(
+  win,{getElementById:element},fetch,'https://worker.test','fixture',String,[],String
+ );
+ await win.ghPromosLoadV91();
+ assert.match(element('ghPromosSummary').textContent,/1 activa\(s\).*4 no publicada\(s\)/);
+ element('ghPromosState').value='ACTIVA';
+ win.ghPromosFilterV91();
+ assert.match(element('ghPromosList').innerHTML,/<b>activa<\/b>/);
+ assert.doesNotMatch(element('ghPromosList').innerHTML,/<b>(borrador|inactiva|Sin estado del servidor)<\/b>/);
+ element('ghPromosState').value='NO PUBLICADA';
+ win.ghPromosFilterV91();
+ assert.match(element('ghPromosList').innerHTML,/<b>borrador<\/b>.*NO PUBLICADA/);
+});
+
 test('P4-0009: identidad de promo antigua, inválida o distinta no corrompe el paquete',async()=>{
  const start=worker.indexOf('async function syncPromo('),end=worker.indexOf('async function getPromosCity(',start);
  assert(start>=0&&end>start);

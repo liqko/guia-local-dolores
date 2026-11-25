@@ -346,7 +346,9 @@ function directoryProjection102(/** @type {any} */ row,/** @type {string} */ kin
  const subscriber=references.subscribers.get(String(row.suscriptor_id||row.id||''));
  const name=String(row.anunciante_nombre||row.organizador_nombre||advertiser?.nombre||row.anunciante_id||row.nombre||subscriber?.nombre||'');
  const date=String(row.fecha_inicio||row.fecha||row.desde||row.creado_en||row.creado||row.actualizado_en||'');
- return {id,titulo:String(row.nombre_evento||row.actividad||row.nombre||row.promo||row.titulo||row.nombre_interno||(kind==='moderadores'?name:'')||id),anunciante_id:String(row.anunciante_id||''),anunciante_nombre:name,ciudad_ids:cityIds,ciudades:cities,fecha:date,estado:directoryState102(row),clase:kind==='eventos'?(isFree(row)?'FREE':'VIP'):'',search:norm6([name,...cities,row.organizador||''].join(' ')),row:directorySafe102(row,/** @type {string} */ kind)};
+ const state=directoryState102(row);
+ const status=kind==='promos'&&state!=='BLOQUEADA'&&state!=='VENCIDA'?promoStateV91(row):state;
+ return {id,titulo:String(row.nombre_evento||row.actividad||row.nombre||row.promo||row.titulo||row.nombre_interno||(kind==='moderadores'?name:'')||id),anunciante_id:String(row.anunciante_id||''),anunciante_nombre:name,ciudad_ids:cityIds,ciudades:cities,fecha:date,estado:status,clase:kind==='eventos'?(isFree(row)?'FREE':'VIP'):'',search:norm6([name,...cities,row.organizador||''].join(' ')),row:directorySafe102(row,/** @type {string} */ kind)};
 }
 async function directoryReferences102(/** @type {any} */ cache){
  const [advertisers,territory,subscribers]=await Promise.all([cache.get(ADMIN_ADVERTISERS_KEY),cache.get('territorio:public:v1'),cache.get(ADMIN_SUBSCRIBERS_KEY)]);
@@ -11162,8 +11164,10 @@ function promoPendingV91(row){if(row?.revision_definitiva||['RECHAZADO','RECHAZA
 /** @param {Record<string, any>} row */
 function promoStateV91(row){
  if(promoPendingV91(row))return 'PENDIENTE';
- if(['RECHAZADO','RECHAZADA'].includes(String(row?.estado_moderacion||row?.estado||'').toUpperCase()))return 'RECHAZADA';
- return paused(row)?'PAUSADA':'ACTIVA';
+ const rejected=[row?.estado_moderacion,row?.estado].some(value=>['RECHAZADO','RECHAZADA'].includes(text5(value).toUpperCase()));
+ if(rejected)return 'RECHAZADA';
+ if(isPaused(row))return 'PAUSADA';
+ return text5(row?.ciudad_id)&&visible(row)?'ACTIVA':'NO PUBLICADA';
 }
 /** @param {{path:string,request:Request,env:Record<string, any>,cache:ReturnType<typeof createCache>,db:Record<string, any>,url:URL}} ctx */
 async function routeAdminPromosV91(ctx){
@@ -11209,7 +11213,7 @@ async function routeAdminPromosV91(ctx){
  let patch;
  if(action==='pausar'||action==='reanudar'){
   const pause=action==='pausar';
-  if(paused(current)===pause)return json({success:true,unchanged:true,promo:current});
+  if(paused(current)===pause)return json({success:true,unchanged:true,promo:{...current,estado_panel:promoStateV91(current)}});
   if(!pause){const aid=String(current.anunciante_id||current.id_comercio||'');const q=await quota({db:db.panelReadDb?db.panelReadDb({advertiserId:aid}):db,cache,advertiserId:aid,cupoFromAdmin:a=>cupo(a,'PROMOS'),excludeId:id});if(q.max<=0||q.active>=q.max)return json({success:false,message:'El anunciante no tiene cupo para reanudar esta promoción.'},409);}
   patch={pausado:pause};
  }else{

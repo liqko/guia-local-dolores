@@ -112,9 +112,13 @@ test('el fallo de una descarga anterior no elimina una nueva descarga en curso',
  const original=initial('dolores'),copies=new Map([['dolores',original]]);let revision=2,rejectOld,resolveNew;const requests=[];
  const api=client({manifest:()=>({key:'dolores',revision,deltas:[]}),storage:{get:city=>copies.get(city),put:book=>copies.set(book.city,book)},fetchJson:path=>{requests.push(path);return new Promise((resolve,reject)=>{if(path.includes('completo-2'))rejectOld=reject;else resolveNew=resolve;});}});
  const old=api.get('dolores');await Promise.resolve();revision=3;const newer=api.get('dolores');await Promise.resolve();
- rejectOld(Error('interrupción'));await old;
+ rejectOld(Error('interrupción'));await Promise.resolve();
  assert.strictEqual(api.get('dolores'),newer,'se conserva la descarga más nueva');
- resolveNew({...initial('dolores'),revision:3});assert.equal((await newer).revision,3);assert.equal(requests.length,2);
+ resolveNew({...initial('dolores'),revision:3});
+ const [recovered,current]=await Promise.all([old,newer]);
+ assert.equal(current.revision,3);
+ assert.strictEqual(recovered,current,'la lectura anterior adopta la misma copia vigente');
+ assert.equal(requests.length,2);
 });
 
 test('P4-0006: delta ausente o inválido recupera una sola copia estática para todos los módulos',async()=>{
