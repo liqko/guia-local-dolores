@@ -86,26 +86,52 @@
     return updated;
   }
 
+  function withoutStalePublications(book) {
+    if(!book?.modules)return null;
+    const schema=schemaOf(book);
+    const independent=Object.entries(book.modules).filter(([name])=>!['guide','events','promos','activities','ads'].includes(schema[name].family||name));
+    return {...book,stale:true,modules:Object.fromEntries(independent)};
+  }
+
   function client({ manifest, storage, fetchJson }) {
     const pending = new Map();
+    const stillCurrent = (city, info) => {
+      const current = manifest(city);
+      return current?.revision === info.revision && current?.key === info.key;
+    };
     async function load(city, info) {
       let previous;
       try { previous = await storage.get(city); } catch (_) {}
       if (!validBook(previous, city)) previous = null;
-      if (previous && previous.revision >= info.revision) return previous;
+      if (!stillCurrent(city, info)) return api.get(city);
+      if (previous?.revision===info.revision) return previous;
+      if (previous && previous.revision>info.revision) return withoutStalePublications(previous);
 
       try {
         const isDelta = previous && info.deltas?.includes(previous.revision);
         const file = isDelta
           ? 'cambios-' + previous.revision + '-' + info.revision
           : 'completo-' + info.revision;
-        const payload = await fetchJson('/plataforma/paquetes-ciudad/' + info.key + '/' + file + '.json');
-        const book = isDelta ? applyDelta(previous, payload) : payload;
-        if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
+        const prefix = '/plataforma/paquetes-ciudad/' + info.key + '/';
+        let book;
+        try {
+          const payload = await fetchJson(prefix + file + '.json');
+          book = isDelta ? applyDelta(previous, payload) : payload;
+          if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
+        } catch (error) {
+          if (!stillCurrent(city, info)) return api.get(city);
+          if (!isDelta) throw error;
+          // Recuperar desde la misma publicación estática, sin volver al Worker.
+          book = await fetchJson(prefix + 'completo-' + info.revision + '.json');
+          if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
+        }
+        // Una respuesta antigua no debe volver a mostrarse si el índice público
+        // cambió mientras se descargaba. Reutilizar la solicitud más reciente.
+        if (!stillCurrent(city, info)) return api.get(city);
         try { await storage.put(book); } catch (_) {}
-        return book;
+        return stillCurrent(city, info) ? book : api.get(city);
       } catch (_) {
-        return previous;
+        return stillCurrent(city, info) ? withoutStalePublications(previous) : api.get(city);
       }
     }
 
@@ -114,26 +140,41 @@
       const info = manifest(city);
       if (!validRevision(info?.revision) || !/^[\w-]+$/.test(info.key)) return Promise.resolve(null);
       let entry = pending.get(city);
-      if (!entry || entry.revision !== info.revision) {
+      if (!entry || entry.revision !== info.revision || entry.key !== info.key) {
         const request = load(city, info);
-        entry = { revision: info.revision, request };
+        entry = { revision: info.revision, key: info.key, request };
         pending.set(city, entry);
         const current = entry;
         request.then(book => {
-          if ((!book || book.revision < info.revision) && pending.get(city) === current) pending.delete(city);
+          if ((!book || book.stale || book.revision < info.revision) && pending.get(city) === current) pending.delete(city);
         });
       }
       return entry.request;
     },async module(cityId,family,context){
-      const book=await api.get(cityId);if(!book)return null;
-      const schema=schemaOf(book);
-      const name=Object.keys(schema).find(name=>context===undefined?name===family:
-        (schema[name].family||name)===family&&schema[name].context===context);
-      if(!name)return null;
-      const spec=schema[name],module=book.modules[name];
-      return spec.window?{...module,[spec.field]:module[spec.field].filter(row=>visibleAt(row,spec.window))}:module;
+      return moduleFrom(await api.get(cityId),family,context);
     }};
     return api;
+  }
+
+  function moduleFrom(book,family,context) {
+    if(!book)return null;
+    const schema=schemaOf(book);
+    const name=Object.keys(schema).find(name=>context===undefined?name===family:
+      (schema[name].family||name)===family&&schema[name].context===context);
+    const spec=schema[name],payload=book.modules[name];
+    if(!payload)return null;
+    return spec.window?{...payload,[spec.field]:payload[spec.field].filter(row=>visibleAt(row,spec.window))}:payload;
+  }
+
+  function replaceWithVerifiedRows(book,family,current,context) {
+    if(!book?.needsVerification)return current;
+    // Una comprobación de autoridad permite retirar filas; el corte sigue
+    // siendo el único que puede incorporar contenido nuevo a la edición.
+    const previous=moduleFrom(book.needsVerification,family,context);
+    const [field,id]=lists[family];
+    if(current?.success!==true||!Array.isArray(current[field]))throw Error('Publicaciones vigentes no disponibles');
+    const visible=new Set(current[field].map(row=>idOf(row,id)).filter(Boolean));
+    return {...current,[field]:(previous?.[field]||[]).filter(row=>visible.has(idOf(row,id)))};
   }
 
   function localBooks() {
@@ -182,13 +223,62 @@
       return;
     }
   } catch (_) {}
-  root.GLD_PAQUETE_CIUDAD = client({
-    manifest: city => root.GLD_CATALOGO_TERRITORIAL?.paqueteCiudad?.(city),
-    storage: localBooks(),
-    async fetchJson(path) {
-      const response = await root.fetch(path, { signal: AbortSignal.timeout(6500) });
-      if (!response.ok) throw Error('HTTP ' + response.status);
-      return response.json();
-    },
+  const verificationKey='gld-publicaciones-revalidar-desde';
+  let verifySince=0;
+  try { verifySince=Number(root.sessionStorage.getItem(verificationKey))||0; } catch (_) {}
+  function recheck(){
+    if(root.navigator.onLine===false)return;
+    root.sessionStorage.setItem(verificationKey,String(Date.now()));
+    root.location.reload();
+  }
+  root.addEventListener('online',recheck);
+  root.addEventListener('pageshow',event=>{if(event.persisted)recheck();});
+  const storage=localBooks();
+  const embedded=city=>root.GLD_CATALOGO_TERRITORIAL?.paqueteCiudad?.(city);
+  async function fetchJson(path, options={}){
+    const response=await root.fetch(path,{...options,signal:AbortSignal.timeout(6500)});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    return response.json();
+  }
+  let published;
+  const checks=new Map();
+  const books=client({
+    manifest:city=>published
+      ? (Object.hasOwn(published.manifest,city)?published.manifest[city]:null)
+      : embedded(city),
+    storage,
+    fetchJson,
   });
+  const verification=verifySince?fetchJson('/plataforma/paquetes-ciudad/publicacion.json',{cache:'no-store'}).then(data=>{
+    if(Number.isSafeInteger(data?.cutoff)&&data.cutoff>=verifySince&&
+      data.manifest&&typeof data.manifest==='object'&&!Array.isArray(data.manifest))published=data;
+  }).catch(()=>{}):null;
+  async function getVerified(city){
+    await verification;
+    if(published){
+      const book=await books.get(city);
+      if(book&&!book.stale)return book;
+    }
+    let previous;
+    try { previous=await storage.get(city); } catch (_) {}
+    if(!previous&&!published){
+      if(!embedded(city))return null;
+      previous=await books.get(city);
+    }
+    if(!validBook(previous,city))previous=null;
+    const independent=withoutStalePublications(previous)??{city,stale:true,modules:{}};
+    return {...independent,needsVerification:published&&!Object.hasOwn(published.manifest,city)?{}:previous??{}};
+  }
+  root.GLD_PAQUETE_CIUDAD={
+    get(cityId){
+      if(!verification)return books.get(cityId);
+      const city=String(cityId??'').trim();
+      if(!checks.has(city))checks.set(city,getVerified(city));
+      return checks.get(city);
+    },
+    async module(cityId,family,context){
+      return moduleFrom(await this.get(cityId),family,context);
+    },
+    replaceWithVerifiedRows,
+  };
 })(globalThis);

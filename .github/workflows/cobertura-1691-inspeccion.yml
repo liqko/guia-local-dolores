@@ -1,0 +1,249 @@
+name: Cobertura 1691 inspeccion automatica
+on:
+  push:
+    branches: [audit/transversal-consumos-20261115]
+    paths:
+      - '.github/workflows/cobertura-1691-inspeccion.yml'
+      - 'auditorias/reverificar-cobertura-total.py'
+      - 'auditorias/trazar-cadenas-paso3.py'
+      - 'auditorias/cotejar-45-acciones.py'
+      - 'auditorias/reconstruir-grafo-1691.py'
+      - 'auditorias/control-cierre-paso3.py'
+      - 'auditorias/examinar-cadenas-prioritarias-paso3.py'
+      - 'auditorias/cotejar-paso2-989-paso3.py'
+      - 'auditorias/revalidar-ast-989-paso3.py'
+      - 'auditorias/remapear-cuerpos-989.cjs'
+      - 'auditorias/verificar-entradas-989-paso3.py'
+      - 'auditorias/conciliar-origenes-989.py'
+      - 'auditorias/consolidar-989-paso3.py'
+      - 'auditorias/cruzar-alcance-989-1691.py'
+      - 'auditorias/verificar-moderacion-paso3.py'
+  workflow_dispatch:
+jobs:
+  clasificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inspeccionar anexo individual sin alterar plataforma
+        run: |
+          python3 - <<'PY'
+          import zipfile,json,os
+          p='auditorias/transversal/COBERTURA_ACTIVACIONES.zip'
+          with zipfile.ZipFile(p) as z:
+            rows=[]
+            for entry in z.infolist():
+              obj={'name':entry.filename,'size':entry.file_size}
+              if entry.filename.lower().endswith('.json') and entry.file_size<200000000:
+                try:
+                  x=json.loads(z.read(entry))
+                  obj['kind']=type(x).__name__
+                  if isinstance(x,dict):
+                    obj['keys']={k:(len(v) if isinstance(v,(list,dict)) else str(v)[:70]) for k,v in list(x.items())[:28]}
+                    for k,v in x.items():
+                      if isinstance(v,list) and v and isinstance(v[0],dict):
+                        obj['example_keys_'+k]=list(v[0].keys())[:30]
+                  elif isinstance(x,list) and x and isinstance(x[0],dict):obj['sample_keys']=list(x[0].keys())
+                except Exception as e:obj['error']=str(e)[:150]
+              rows.append(obj)
+            d=json.loads(z.read('COBERTURA_ACTIVACIONES.json'))
+            from collections import Counter
+            data=d.get('filas',[])
+            print('COVERAGE_DIST',json.dumps({k:dict(Counter(str(row.get(k,'')) for row in data)) for k in ['clasificacion','estadoDeCobertura']},ensure_ascii=False)[:5000])
+            for key in ['activacion','recorridoEstatico','entradasLocales','sitiosDeLlamada','cuerpoAST','comprobacion']:
+              for row in data:
+                if row.get(key):
+                  print('FIELD_EXAMPLE',key,json.dumps({'id':row.get('idGPS'),'archivo':row.get('archivo'),'linea':row.get('linea'),'value':row[key]},ensure_ascii=False)[:1200])
+                  break
+            print('UNRESOLVED_SAMPLES',json.dumps([{'id':x.get('idGPS'),'archivo':x.get('archivo'),'linea':x.get('linea'),'clasificacion':x.get('clasificacion'),'estado':x.get('estadoDeCobertura'),'activacion':x.get('activacion'),'recorrido':x.get('recorridoEstatico')} for x in data if 'sin' in str(x.get('estadoDeCobertura','')).lower()][:4],ensure_ascii=False)[:3000])
+            open_rows=[x for x in data if x.get('estadoDeCobertura') not in ['entrada_y_recorrido_en_fuente','mismo_cuerpo_en_arbol','origen_localizado_por_revision_directa']]
+            for state in ['registro_o_asignacion_sin_invocacion_comprobada','invocador_identificado_sin_entrada','declaracion_sin_invocador_resuelto','uso_no_localizado_revision_por_accion']:
+              subset=[x for x in open_rows if x.get('estadoDeCobertura')==state]
+              print('GROUP',state,len(subset),'parentUnits',sum(bool(x.get('unidadesDelPadre')) for x in subset),
+                'directUnits',sum(bool(x.get('unidades')) for x in subset),
+                'activations',json.dumps(Counter(str(x.get('activacion',{}).get('tipo','')) for x in subset).most_common(14),ensure_ascii=False),
+                'expr',json.dumps(Counter(str(x.get('activacion',{}).get('expr','')) for x in subset).most_common(17),ensure_ascii=False))
+              print('EXAMPLES',state,json.dumps([{'id':x.get('idGPS'),'parent':x.get('padre'),'parentUnits':x.get('unidadesDelPadre'),'local':x.get('entradasLocales'),'act':x.get('activacion'),'sitios':x.get('sitiosDeLlamada')} for x in subset[:3]],ensure_ascii=False)[:3900])
+            print('ZIP_INSPECT',json.dumps(rows,ensure_ascii=False))
+            os.makedirs('auditorias/temporal',exist_ok=True)
+            with open('auditorias/temporal/estructura_anexo.json','w') as f:json.dump(rows,f,ensure_ascii=False,indent=2)
+          PY
+      - name: Cruzar 1691 contra catalogo y activaciones
+        run: python3 auditorias/verificar-cobertura-1691.py
+      - uses: actions/checkout@v4
+        with:
+          ref: e6362836e6078a14a361732d79a8212258934056
+          path: baseline
+      - name: Regenerar arbol completo con codigo original e6362836
+        run: |
+          npm install --no-save --package-lock=false typescript@5.9.3
+          GLD_GPS_ROOT="$PWD/baseline" node auditorias/generar-mapa-gps.cjs --write
+          GLD_GPS_ROOT="$PWD/baseline" node auditorias/arbol-estatico.cjs --write
+          python3 - <<'PY'
+          import json
+          p='baseline/auditorias/transversal/ARBOL_ACCIONES.json'
+          d=json.load(open(p))
+          print('ARBOL_BASELINE_EXACTO',json.dumps({'arboles':len(d['trees']),'funciones':len(d['functionGraph']),'fuentes':len(d['sourceHashes']),'limitaciones':d['totals']['treesWithOpenBranches']}))
+          PY
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/paso-2-catalogo
+          path: paso2
+      - uses: actions/checkout@v4
+        with:
+          ref: 9b7fd659e3b9f46e4a714955016df26ce3764c82
+          path: nuevo
+      - name: Comprobar catálogo definitivo de 989 contra grafo histórico y origen vigente
+        run: python3 auditorias/cotejar-paso2-989-paso3.py
+      - name: Regenerar árbol AST del código 9b7fd659 sin sobreescribir el corte histórico
+        run: |
+          GLD_GPS_ROOT="$PWD/nuevo" node auditorias/generar-mapa-gps.cjs --write
+          GLD_GPS_ROOT="$PWD/nuevo" node auditorias/arbol-estatico.cjs --write
+      - name: Certificar callbacks en fuente
+        run: python3 auditorias/certificar-callbacks-1691.py
+      - name: Inspeccionar estructuras de árboles del catálogo
+        run: |
+          python3 - <<'PY'
+          import zipfile,json
+          p='auditorias/transversal/CATALOGO_MAESTRO.zip'
+          with zipfile.ZipFile(p) as z:
+            print('TREE_ZIP_MEMBERS',json.dumps([(i.filename,i.file_size) for i in z.infolist()])[:3500])
+            for i in z.infolist():
+              if i.filename.endswith('.json') and i.file_size<40000000:
+                try:
+                  o=json.loads(z.read(i))
+                  detail={'name':i.filename,'type':type(o).__name__,'keys':list(o.keys())[:30] if isinstance(o,dict) else None,'length':len(o)}
+                  if isinstance(o,dict):
+                    detail['members']={k:len(v) if isinstance(v,(list,dict)) else str(v)[:90] for k,v in list(o.items())[:14]}
+                    for k,v in o.items():
+                      if isinstance(v,list) and v and isinstance(v[0],dict): detail['sample_'+k]=list(v[0].keys())[:40]
+                  elif isinstance(o,list) and o and isinstance(o[0],dict):detail['sample_keys']=list(o[0].keys())[:40]
+                  print('TREE_ZIP_JSON',json.dumps(detail,ensure_ascii=False)[:3000])
+                  if i.filename=='CATALOGO_MAESTRO.json':
+                    for key in ('functions','effects','entries'):
+                      print('TREE_SAMPLE',key,json.dumps(o[key][:3],ensure_ascii=False)[:4500])
+                    from collections import Counter
+                    print('EFFECT_STATS',json.dumps({'resolution':dict(Counter(str(x.get('resolution')) for x in o['effects'])),'to':sum(bool(x.get('to')) for x in o['effects']),'with_units':sum(bool(x.get('units')) for x in o['functions'])},ensure_ascii=False)[:3500])
+                    print('EFFECT_LINK_SAMPLES',json.dumps([x for x in o['effects'] if x.get('to')][:4],ensure_ascii=False)[:5500])
+                except Exception as e:print('TREE_ZIP_ERR',str(e))
+          PY
+      - name: Inspect remaining 45 action chains
+        run: |
+          python3 - <<'PY'
+          import json,zipfile
+          p='auditorias/transversal/CADENAS_DEPENDENCIAS_PASO_3.zip'
+          with zipfile.ZipFile(p) as z:
+            print('P3ZIP',[(x.filename,x.file_size) for x in z.infolist()])
+            for name in z.namelist():
+              if not name.endswith('.json'):continue
+              d=json.loads(z.read(name))
+              print('P3JSON',name,type(d).__name__,list(d)[:30] if isinstance(d,dict) else len(d))
+              if isinstance(d,dict):
+                for k,v in d.items():
+                  if isinstance(v,(list,dict)):
+                    print('P3SUB',k,len(v),json.dumps(v[0] if isinstance(v,list) and v else list(v.items())[:2] if isinstance(v,dict) else None,ensure_ascii=False)[:1300])
+          PY
+      - name: Extraer y agrupar 45 acciones pendientes
+        run: |
+          python3 - <<'PY'
+          import json,zipfile,collections
+          with zipfile.ZipFile('auditorias/transversal/CADENAS_DEPENDENCIAS_PASO_3.zip') as z:
+            d=json.loads(z.read('CADENAS_DEPENDENCIAS_PASO_3.json'))
+            x=d['rondaCompleta']
+            print('P3RONDA_KEYS',list(x))
+            print('P3RONDA_TYPES',[(k,type(v).__name__,len(v) if isinstance(v,(list,dict)) else v) for k,v in x.items()])
+            for k,v in x.items():
+              if k.lower() in ('pendientes','restantes','sinresolver','pendientesrestantes'):
+                print('P3PENDING',json.dumps(v,ensure_ascii=False)[:11000])
+            pending=x.get('pendientes') or x.get('restantes') or x.get('sinResolver') or x.get('pendientesRestantes') or []
+            for a in d['acciones']:
+              if a['AUD'] not in pending:continue
+              gaps=a.get('dependenciasDelArbolSinCadena') or []
+              print('P3ACTION',json.dumps({'AUD':a['AUD'],'entrada':a.get('entrada'),'sinCadena':gaps,'contexto':a.get('revisionDirecta')},ensure_ascii=False)[:2000])
+          PY
+      - name: Cotejar 45 acciones por rutas comprobadas
+        run: python3 auditorias/cotejar-45-acciones.py
+      - name: Reverificar todas las 1691 identidades
+        run: python3 auditorias/reverificar-cobertura-total.py
+      - name: Recuperar árboles completos del inventario original
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p auditorias/temporal/arboles
+          gh run download 44210648484 --repo liqko/guia-local-dolores --name arbol-estatico-acciones --dir auditorias/temporal/arboles
+          python3 - <<'PY'
+          from pathlib import Path
+          import json,zipfile
+          root=Path('auditorias/temporal/arboles')
+          for p in sorted(root.rglob('*')):
+            if not p.is_file():continue
+            print('ARBOL_FILE',str(p),p.stat().st_size)
+            if p.suffix=='.zip':
+              with zipfile.ZipFile(p) as z:print('ARBOL_ZIP',json.dumps([(i.filename,i.file_size) for i in z.infolist()])[:4000])
+            elif p.suffix=='.json' and p.stat().st_size<90000000:
+              obj=json.loads(p.read_text())
+              report={'type':type(obj).__name__,'size':len(obj),'keys':list(obj)[:20] if isinstance(obj,dict) else []}
+              if isinstance(obj,dict):
+                for k,v in list(obj.items())[:18]:
+                  if isinstance(v,(dict,list)):
+                    report[k]={'size':len(v),'sampleKeys':list(v[0])[:30] if isinstance(v,list) and v and isinstance(v[0],dict) else list(v)[:20] if isinstance(v,dict) else []}
+              elif isinstance(obj,list) and obj and isinstance(obj[0],dict):report['sampleKeys']=list(obj[0])[:50]
+              print('ARBOL_JSON',json.dumps(report,ensure_ascii=False)[:5000])
+          PY
+      - name: Reconstruir grafo AST completo de 1691 funciones
+        run: python3 auditorias/reconstruir-grafo-1691.py
+      - name: Comparar identidades AST entre cortes e636 y 9b para 989 acciones
+        run: python3 auditorias/revalidar-ast-989-paso3.py
+      - name: Comprobar identidades de cuerpos AST entre cortes por SHA-256 único
+        run: node auditorias/remapear-cuerpos-989.cjs
+      - name: Comprobar las 989 entradas y distinguir origen vigente de historico
+        run: python3 auditorias/verificar-entradas-989-paso3.py
+      - name: Clasificar inicializadores y listeners de las 166 entradas no vinculadas
+        run: python3 auditorias/conciliar-origenes-989.py
+      - name: Certificar función AST o raíz sintética por cada uno de 989 orígenes
+        run: python3 auditorias/consolidar-989-paso3.py
+      - name: Cruzar arboles actuales de 989 AUD y 1691 identidades historicas remapeadas
+        run: python3 auditorias/cruzar-alcance-989-1691.py
+      - name: Control de cierre por identidad AST de las 155 pendientes
+        run: python3 auditorias/control-cierre-paso3.py
+      - name: Certificar cadenas de los 39 casos prioritarios
+        run: python3 auditorias/examinar-cadenas-prioritarias-paso3.py
+      - name: Verificar despacho de moderacion sin atribuir rutas ajenas
+        run: python3 auditorias/verificar-moderacion-paso3.py
+      - name: Consolidar cobertura Worker con cruce AST final
+        run: python3 auditorias/cotejar-45-acciones.py
+      - name: Trazar cadenas desde las acciones a las dependencias
+        run: python3 auditorias/trazar-cadenas-paso3.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobertura-1691-estructura
+          path: |
+            auditorias/temporal/estructura_anexo.json
+            auditorias/temporal/COBERTURA_1691_*.json
+            auditorias/temporal/COBERTURA_1691_*.csv
+            auditorias/temporal/CERTIFICACION_CALLBACKS_1691.json
+            auditorias/temporal/COBERTURA_1691_REVERIFICACION_*.json
+            auditorias/temporal/CADENAS_PASO3_*.json
+            auditorias/temporal/COTEJO_45_RESULTADO.json
+            auditorias/temporal/GRAFO_COMPLETO_1691.json
+            auditorias/temporal/CONTROL_CIERRE_PASO3_155.json
+            auditorias/temporal/DICTAMEN_INDEPENDIENTE_155.json
+            auditorias/temporal/CADENAS_PRIORITARIAS_39.json
+            auditorias/temporal/COMPATIBILIDAD_989_PASO3.json
+            auditorias/temporal/REVALIDACION_AST_CORTE_989.json
+            auditorias/temporal/REMAPPING_AST_989.json
+            auditorias/temporal/MODELO_COBERTURA_989.json
+            auditorias/temporal/CONCILIACION_ORIGENES_166.json
+            auditorias/temporal/MODELO_COBERTURA_989_CONCILIADO.json
+            auditorias/temporal/CRUCE_989_1691_ACTUAL.json
+            auditorias/temporal/CONTRASTE_218_ASOCIACIONES_ACTUALES.json
+            auditorias/temporal/REVALIDACION_INDIRECTA_1691_ACTUAL.json
+            auditorias/temporal/VALIDACION_INDEPENDIENTE_3_4_ACTUAL.json
+            auditorias/temporal/CRUCE_DIRECTO_37_ACCIONES.json
+            auditorias/temporal/MODERACION_4_RUTAS.json
+            baseline/auditorias/transversal/ARBOL_ACCIONES.json
+            auditorias/transversal/COBERTURA_ACTIVACIONES.zip
+            auditorias/transversal/CADENAS_DEPENDENCIAS_PASO_3.zip
+            auditorias/transversal/CATALOGO_MAESTRO.zip
+            baseline/plataforma/*.html
+            baseline/plataforma/*.js
+            baseline/worker/worker206.txt

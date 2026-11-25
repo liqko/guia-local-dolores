@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
-<script src="/plataforma/paquete-ciudad.js?v=1"></script>
+<script src="/plataforma/paquete-ciudad.js?v=3"></script>
 <script src="/plataforma/paginacion.js?v=1"></script>
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/publicidad-distribucion.js?v=194"></script>
@@ -2003,7 +2003,7 @@
       const controller=new AbortController();
       const timer=setTimeout(()=>controller.abort(),ms);
       try{
-        const r=await fetch(url,{signal:controller.signal});
+        const r=await fetch(url,{signal:controller.signal,cache:'no-store'});
         if(!r.ok) throw new Error('HTTP '+r.status);
         return await r.json();
       }finally{
@@ -2023,16 +2023,18 @@
         const [eventResult, bannerResult] = await Promise.allSettled([
           (async()=>{
             // El libro es anónimo: una autorización +18 vigente conserva la lectura protegida.
-            if(!window.GLD_ADULT?.hasGrant()){
-              const paquete=await window.GLD_PAQUETE_CIUDAD?.get(ciudadContexto.ciudad_id);
-              if(paquete)return paquete.modules.events;
-            }
-            // Compatibilidad si aún no hay una publicación disponible de esta ciudad.
-            return fetchJsonConTimeout(eventsEndpointCiudad,8000);
+            if(window.GLD_ADULT?.hasGrant())return fetchJsonConTimeout(eventsEndpointCiudad,8000);
+            const paquete=await window.GLD_PAQUETE_CIUDAD.get(ciudadContexto.ciudad_id);
+            if(paquete?.modules.events)return paquete.modules.events;
+            const data=await fetchJsonConTimeout(eventsEndpointCiudad,8000);
+            return window.GLD_PAQUETE_CIUDAD.replaceWithVerifiedRows(paquete,'events',data);
           })(),
           (async()=>{
             const cached=!window.GLD_ADULT?.hasGrant?.()&&await window.GLD_PAQUETE_CIUDAD?.module?.(ciudadContexto.ciudad_id,'ads','EVENTOS');
-            return cached||fetchJsonConTimeout(urlBanners,4500);
+            if(cached)return cached;
+            const paquete=window.GLD_ADULT?.hasGrant()?null:await window.GLD_PAQUETE_CIUDAD.get(ciudadContexto.ciudad_id);
+            const data=await fetchJsonConTimeout(urlBanners,4500);
+            return window.GLD_PAQUETE_CIUDAD.replaceWithVerifiedRows(paquete,'ads',data,'EVENTOS');
           })()
         ]);
         if(eventResult.status!=='fulfilled') throw eventResult.reason || new Error('No se pudieron cargar los eventos.');

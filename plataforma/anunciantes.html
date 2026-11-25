@@ -8,7 +8,7 @@
 <script src="/plataforma/paginacion.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
-<script src="/plataforma/paquete-ciudad.js?v=1"></script>
+<script src="/plataforma/paquete-ciudad.js?v=3"></script>
 <script src="/plataforma/consumo-v44.js?v=142"></script>
 
 <meta charset="UTF-8">
@@ -1259,15 +1259,19 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       return window.GLD_ADULT?.hasGrant?.()?null:window.GLD_PAQUETE_CIUDAD?.get(city);
     }
 
+    function verificarPublicacion(paquete,family,data,context){
+      return window.GLD_PAQUETE_CIUDAD.replaceWithVerifiedRows(paquete,family,data,context);
+    }
+
     async function jsonpApi(params={}, timeoutMs=15000) {
       const action=String(params.action||'').trim().toLowerCase();
-      let u;
+      let u,paquete;
 
       if(action==='ubicaciones')return window.GLD_CATALOGO_TERRITORIAL.load(timeoutMs);
 
       if(action==='guia'){
-        const paquete=await gldPaquetePublico(params.ciudad_id);
-        if(paquete)return paquete.modules.guide;
+        paquete=await gldPaquetePublico(params.ciudad_id);
+        if(paquete?.modules.guide)return paquete.modules.guide;
         u=new URL(GLD_WORKER_ORIGIN+'/guide');
         u.searchParams.set('compact','1');
         if(params.ciudad_id)u.searchParams.set('ciudad_id',params.ciudad_id);
@@ -1282,9 +1286,10 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try{
-        const r = await fetch(u.toString(), {signal:controller.signal,cache:action==='guia'?'no-store':'default'});
+        const r = await fetch(u.toString(), {signal:controller.signal,cache:paquete?.needsVerification?'reload':action==='guia'?'no-store':'default'});
         if(!r.ok) throw new Error('HTTP '+r.status);
-        return await r.json();
+        const data=await r.json();
+        return action==='guia' ? verificarPublicacion(paquete,'guide',data) : data;
       }finally{
         clearTimeout(timer);
       }
@@ -1347,6 +1352,9 @@ body.gld-modo-web #paginador-abajo{display:none!important}
     }
 
     let gldFavoritosAnunciantes=new Set();
+    let gldFavoritosMutationRevision=0;
+    let gldFavoritosLoadRevision=0;
+    const gldFavoritosPending=new Set();
     const GLD_FAVORITOS_CACHE_PREFIX='gld_favoritos_anunciantes_v2:';
 
     function gldPintarFavoritosAnunciantes(){
@@ -1373,9 +1381,11 @@ body.gld-modo-web #paginador-abajo{display:none!important}
     }
 
     async function gldCargarFavoritosAnunciantes(){
+      const revisionAlIniciar=gldFavoritosMutationRevision;
+      const loadRevision=++gldFavoritosLoadRevision;
       gldFavoritosAnunciantes=new Set();
       const s=gldGetSubscriberSession();
-      if(!s || !s.suscriptor_id) return;
+      if(!s || !s.suscriptor_id || !gldGetSubscriberToken()){gldPintarFavoritosAnunciantes();return;}
 
       // Primero se recupera lo último conocido: el corazón aparece sin esperar la red.
       gldLeerFavoritosCache(s.suscriptor_id).forEach(id=>gldFavoritosAnunciantes.add(String(id||'').trim()));
@@ -1401,6 +1411,7 @@ body.gld-modo-web #paginador-abajo{display:none!important}
           const id=String(f&&f.referencia_id||'').trim();
           if(id) frescos.add(id);
         });
+        if(loadRevision!==gldFavoritosLoadRevision||revisionAlIniciar!==gldFavoritosMutationRevision||gldGetSubscriberSession()?.suscriptor_id!==s.suscriptor_id||gldGetSubscriberToken()!==token)return; // No pisar una mutación posterior con GET anterior.
         gldFavoritosAnunciantes=frescos;
         gldGuardarFavoritosCache(s.suscriptor_id);
         gldPintarFavoritosAnunciantes();
@@ -1420,6 +1431,10 @@ body.gld-modo-web #paginador-abajo{display:none!important}
 
       const session=gldGetSubscriberSession();
       const token=gldGetSubscriberToken();
+      if(!session?.suscriptor_id||!token)return;
+      const pendingKey=JSON.stringify([session.suscriptor_id,id]);
+      if(gldFavoritosPending.has(pendingKey))return;
+      gldFavoritosPending.add(pendingKey);
       const activo=gldFavoritosAnunciantes.has(id);
       btn.disabled=true;
 
@@ -1440,10 +1455,12 @@ body.gld-modo-web #paginador-abajo{display:none!important}
           })
         });
         const data=await r.json();
-        if(!data || data.success!==true){
+        if(!r.ok || !data || data.success!==true){
           throw new Error((data&&(data.message||data.error))||'No se pudo actualizar el favorito.');
         }
 
+        if(gldGetSubscriberSession()?.suscriptor_id!==session.suscriptor_id||gldGetSubscriberToken()!==token)return;
+        gldFavoritosMutationRevision++;
         if(activo) gldFavoritosAnunciantes.delete(id);
         else gldFavoritosAnunciantes.add(id);
         gldGuardarFavoritosCache(session.suscriptor_id);
@@ -1458,6 +1475,7 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       }catch(e){
         console.error('Favorito anunciante:',e);
       }finally{
+        gldFavoritosPending.delete(pendingKey);
         btn.disabled=false;
       }
     }
@@ -1477,6 +1495,11 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           id:btn.dataset.anuncianteId,nombre:btn.dataset.nombre,sede_id:btn.dataset.sedeId,
           contexto:{pais_id:paisSeleccionado,provincia_id:provinciaSeleccionada,ciudad_id:ciudadSeleccionada}
         });
+        if(resultado==='bloqueado'){
+          // Si el navegador no ofrece Share/Clipboard y bloquea la ventana, dar un enlace copiable.
+          const url=GLD_ANUNCIANTES_UI.urlFicha(btn.dataset.anuncianteId,{pais_id:paisSeleccionado,provincia_id:provinciaSeleccionada,ciudad_id:ciudadSeleccionada},btn.dataset.sedeId);
+          window.prompt('No se pudo abrir la opción para compartir. Copiá este enlace:',url);
+        }
         if(resultado==='copiado'){
           const icono=btn.innerHTML;btn.innerHTML='<i class="fas fa-check" aria-hidden="true"></i>';
           btn.title='Mensaje copiado';btn.setAttribute('aria-label','Mensaje copiado');
@@ -1571,12 +1594,12 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
     /* Integración con agenda de eventos: usa el MISMO origen de datos de la página Eventos. */
     const EVENTS_WEBAPP_URL = "https://login.liqkoargentina.workers.dev/events-new";
     const EVENTS_ENDPOINT = EVENTS_WEBAPP_URL;
-    const EVENTS_PAGE_URL = 'https://guialocal.ar/eventos/';
+    const EVENTS_PAGE_URL = 'https://guialocal.ar/plataforma/eventos.html';
 
     /* Promociones se consulta exclusivamente mediante el Worker actual. */
     const PROMOS_ENDPOINT = 'https://login.liqkoargentina.workers.dev/promos';
-    const PROMOS_PAGE_URL = 'https://guialocal.ar/promos/';
-    const ACTIVIDADES_PAGE_URL = 'https://guialocal.ar/actividades/';
+    const PROMOS_PAGE_URL = 'https://guialocal.ar/plataforma/promos.html';
+    const ACTIVIDADES_PAGE_URL = 'https://guialocal.ar/plataforma/actividades.html';
     const ACTIVIDADES_ENDPOINT = "https://login.liqkoargentina.workers.dev/actividades";
 
     let bannersPromise=null;
@@ -1606,16 +1629,16 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       }catch(e){}
     }
 
-    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada){
+    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada,requireFresh=false){
       const city=String(ciudadId||'').trim();
       if(!city)return Promise.reject(new Error('Seleccioná una ciudad'));
-      const key=prefix+city;
+      const key=prefix+city+(requireFresh?':fresh':'');
       if(!moduloPromises.has(key)){
-        const cached=gldLeerModuloCache(prefix,city);
+        const cached=requireFresh?null:gldLeerModuloCache(prefix,city);
         const u=new URL(endpoint);
         u.searchParams.set('ciudad_id',city);
         if(action)u.searchParams.set('action',action);
-        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString()).then(({data})=>{
+        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString(),requireFresh?{cache:'no-store'}:{}).then(({data})=>{
           if(!data || data.success!==true)throw new Error((data && data.message) || 'Contenido no disponible');
           gldGuardarModuloCache(prefix,city,data);
           return data;
@@ -1632,20 +1655,26 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
     async function obtenerEventosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.events ?? obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId);
+      return paquete?.modules.events ?? verificarPublicacion(paquete,'events',await obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true));
     }
     async function obtenerPromosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.promos ?? obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId);
+      return paquete?.modules.promos ?? verificarPublicacion(paquete,'promos',await obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true));
     }
     async function obtenerActividadesPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.activities ?? obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId);
+      return paquete?.modules.activities ?? verificarPublicacion(paquete,'activities',await obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId,paquete?.stale===true));
     }
 
     async function obtenerBannersPromise(){
       const paquete=await gldPaquetePublico(ciudadSeleccionada);
-      return paquete ? await window.GLD_PAQUETE_CIUDAD.module(ciudadSeleccionada,'ads','GUIA') : obtenerBannersRemotos();
+      const ads=paquete?await window.GLD_PAQUETE_CIUDAD.module(ciudadSeleccionada,'ads','GUIA'):null;
+      if(ads)return ads;
+      if(paquete?.stale){
+        const {data}=await gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'});
+        return verificarPublicacion(paquete,'ads',data,'GUIA');
+      }
+      return obtenerBannersRemotos();
     }
     function obtenerBannersRemotos(){
       if(!bannersPromise){
@@ -2700,7 +2729,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             html += `<div class="badge-icons">`;
             if(permisoNivel_(nivelVisual,"verificado_habilitado",nivelVisual!==3) && gldInsigniaActiva(item.verificado)) html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321352/mwrodvfpd1ckzcloscr0.png" alt="Verificado">`;
             if(permisoNivel_(nivelVisual,"gold_habilitado",nivelVisual!==3) && gldInsigniaActiva(item.gold)) html += `<img src="https://res.cloudinary.com/dw3oovvb1/image/upload/v1761321351/y6gt7glmdzg63yklruxg.png" alt="Gold">`;
-            if(anuncianteFavId && permisoNivel_(nivelVisual,"favoritos_habilitados",nivelVisual!==3)) html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'${safeNombre.replace(/'/g,"&#039;")}')" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
+            if(anuncianteFavId && permisoNivel_(nivelVisual,"favoritos_habilitados",nivelVisual!==3)) html += `<button class="gld-fav-anunciante-btn ${esFav?'activo':''}" type="button" data-anunciante-id="${safeFavId}" onclick="event.stopPropagation();gldToggleFavoritoAnunciante(this,this.dataset.anuncianteId,'${safeNombre.replace(/\\/g,"\\\\").replace(/'/g,"\\x27").replace(/\r/g,"\\r").replace(/\n/g,"\\n")}')" title="${esFav?'Quitar de favoritos':'Agregar a favoritos'}">${esFav?'♥':'♡'}</button>`;
             if(anuncianteFavId && permisoNivel_(nivelVisual,"compartir_habilitado",nivelVisual!==3)) {
               const sedeCompartida=item.__sede_individual&&item.sedes?.length===1?String(item.sedes[0].sede_id||''):'';
               const safeSede=sedeCompartida.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');

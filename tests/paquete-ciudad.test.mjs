@@ -112,7 +112,108 @@ test('el fallo de una descarga anterior no elimina una nueva descarga en curso',
  const original=initial('dolores'),copies=new Map([['dolores',original]]);let revision=2,rejectOld,resolveNew;const requests=[];
  const api=client({manifest:()=>({key:'dolores',revision,deltas:[]}),storage:{get:city=>copies.get(city),put:book=>copies.set(book.city,book)},fetchJson:path=>{requests.push(path);return new Promise((resolve,reject)=>{if(path.includes('completo-2'))rejectOld=reject;else resolveNew=resolve;});}});
  const old=api.get('dolores');await Promise.resolve();revision=3;const newer=api.get('dolores');await Promise.resolve();
- rejectOld(Error('interrupción'));await old;
+ rejectOld(Error('interrupción'));await Promise.resolve();
  assert.strictEqual(api.get('dolores'),newer,'se conserva la descarga más nueva');
- resolveNew({...initial('dolores'),revision:3});assert.equal((await newer).revision,3);assert.equal(requests.length,2);
+ resolveNew({...initial('dolores'),revision:3});
+ const [recovered,current]=await Promise.all([old,newer]);
+ assert.equal(current.revision,3);
+ assert.strictEqual(recovered,current,'la lectura anterior adopta la misma copia vigente');
+ assert.equal(requests.length,2);
+});
+
+test('P4-0006: delta ausente o inválido recupera una sola copia estática para todos los módulos',async()=>{
+ for(const fail of ['404','wrong-city','wrong-revision']){
+  const original=initial('dolores'),current={...initial('dolores'),revision:2};
+  current.modules.events.events=[{evento_id:'E2'}];current.modules.promos.promos=[{promo_id:'P2'}];
+  const copies=new Map([['dolores',original]]),requests=[];let writes=0;
+  const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
+   storage:{get:city=>copies.get(city),put:book=>{writes++;copies.set(book.city,book);}},
+   fetchJson:async path=>{requests.push(path);if(path.includes('cambios')){
+    if(fail==='404')throw Error('404');
+    return {city:fail==='wrong-city'?'tandil':'dolores',from:1,revision:fail==='wrong-revision'?3:2,changes:{}};
+   }return current;}});
+  const [events,promos,book]=await Promise.all([api.module('dolores','events'),api.module('dolores','promos'),api.get('dolores')]);
+  assert.equal(book.revision,2);assert.equal(events.events[0].evento_id,'E2');assert.equal(promos.promos[0].promo_id,'P2');
+  assert.equal(requests.length,2);assert.equal(writes,1);
+  await api.get('dolores');assert.equal(requests.length,2);
+ }
+});
+
+test('P4-0006: dos archivos fallidos no reemplazan una copia válida y permiten reintento',async()=>{
+ const original=initial('dolores'),current={...initial('dolores'),revision:2};
+ let fail=true,requests=0,writes=0;const copies=new Map([['dolores',original]]);
+ const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
+  storage:{get:city=>copies.get(city),put:book=>{writes++;copies.set(book.city,book);}},
+  fetchJson:async path=>{requests++;if(fail||path.includes('cambios'))throw Error('offline');return current;}});
+ const stale=await api.get('dolores');
+ assert.equal(stale.revision,1);assert.equal(stale.stale,true);
+ assert.deepEqual(Object.keys(stale.modules),['pharmacy']);
+ assert.equal(copies.get('dolores'),original);
+ assert.equal(writes,0);assert.equal(requests,2);
+ fail=false;assert.equal((await api.get('dolores')).revision,2);assert.equal(writes,1);assert.equal(requests,4);
+});
+
+test('Paso 4 transversal: respuesta publica antigua no pisa ni muestra una version nueva',async()=>{
+ const copies=new Map(), requests=[];
+ let revision=2, resolveOld, resolveNew;
+ const newerBook={...initial('dolores'),revision:3};
+ newerBook.modules.guide.results=[{anunciante_id:'A',nombre:'Version vigente'}];
+ const previousBook={...initial('dolores'),revision:2};
+ previousBook.modules.guide.results=[{anunciante_id:'A',nombre:'Version anterior'}];
+ const api=client({
+  manifest:()=>({key:'dolores',revision,deltas:[]}),
+  storage:{get:city=>copies.get(city),put:book=>copies.set(book.city,book)},
+  fetchJson:path=>new Promise(resolve=>{requests.push(path);
+   if(path.includes('completo-2'))resolveOld=resolve;
+   else if(path.includes('completo-3'))resolveNew=resolve;
+   else throw Error('Archivo inesperado '+path);
+  })
+ });
+ const old=api.module('dolores','guide');
+ for(let i=0;i<10&&!resolveOld;i++)await Promise.resolve();
+ assert.equal(typeof resolveOld,'function');
+ revision=3;
+ const current=api.module('dolores','guide');
+ for(let i=0;i<10&&!resolveNew;i++)await Promise.resolve();
+ assert.equal(typeof resolveNew,'function');
+ resolveNew(newerBook);
+ assert.equal((await current).results[0].nombre,'Version vigente');
+ resolveOld(previousBook);
+ assert.equal((await old).results[0].nombre,'Version vigente');
+ assert.equal(copies.get('dolores').revision,3);
+ assert.equal(requests.length,2,'solo una descarga por revision');
+});
+
+test('E3: fallo de revisión anterior no devuelve datos obsoletos ni descarga un delta innecesario',async()=>{
+ const old=initial('dolores'),latest={...initial('dolores'),revision:3};
+ let revision=2,rejectOld,requests=[];
+ const api=client({manifest:()=>({key:'dolores',revision,deltas:[1]}),
+  storage:{get:()=>old,put:()=>{}},fetchJson:path=>{requests.push(path);
+   if(path.includes('1-2'))return new Promise((_,reject)=>{rejectOld=reject;});
+   return {...latest};}});
+ const first=api.get('dolores');for(let i=0;i<10&&!rejectOld;i++)await Promise.resolve();
+ assert.equal(typeof rejectOld,'function');revision=3;
+ // El delta nuevo es deliberadamente inválido: debe recuperar el completo.
+ const current=await api.get('dolores');assert.equal(current.revision,3);
+ rejectOld(Error('red'));assert.equal((await first).revision,3);
+ assert.equal(requests.length,3);assert(!requests.some(x=>x.includes('completo-2')));
+});
+
+test('E3: retiro del índice durante lectura local no devuelve una ciudad retirada',async()=>{
+ let active=true,finish;let downloads=0;
+ const api=client({manifest:()=>active?{key:'dolores',revision:1,deltas:[]}:null,
+  storage:{get:()=>new Promise(resolve=>{finish=resolve;}),put:()=>{}},fetchJson:()=>{downloads++;}});
+ const first=api.get('dolores');active=false;finish(initial('dolores'));
+ assert.equal(await first,null);assert.equal(downloads,0);
+});
+
+test('E3: revisión cambia durante persistencia y el consumidor recibe la vigente',async()=>{
+ let revision=1,finish,downloads=0;
+ const api=client({manifest:()=>({key:'dolores',revision,deltas:[]}),
+  storage:{get:()=>null,put:book=>book.revision===1?new Promise(resolve=>{finish=resolve;}):undefined},
+  fetchJson:path=>{downloads++;return {...initial('dolores'),revision:Number(path.match(/completo-(\d+)/)[1])};}});
+ const first=api.get('dolores');for(let i=0;i<20&&!finish;i++)await Promise.resolve();
+ assert.equal(typeof finish,'function');revision=2;
+ assert.equal((await api.get('dolores')).revision,2);finish();
+ assert.equal((await first).revision,2);assert.equal(downloads,2);
 });

@@ -23,7 +23,7 @@ for (const file of ['plataforma/carcasa.html', 'plataforma/anunciantes.html', 'p
       assert(existsSync(decodeURIComponent(url.pathname.slice(1))),file+': referencia local inexistente '+ref);
     }
     assert.match(html,/src=["']\/plataforma\/farmacias-ciclo\.js\?v=147["']/,'Administración: conservar referencia corregida de Farmacias');
-    assert.match(html,/src=["']\/plataforma\/gh-listados\.js\?v=119["']/,'Administración: conservar versión comprobada de listados');
+    assert.match(html,/src=["']\/plataforma\/gh-listados\.js\?v=120["']/,'Administración: conservar versión comprobada de listados');
   }
   const required = file.endsWith('/administracion.html') ? ['login','app','ghBirthdayContent','ghSesionConexionEstado'] : file.includes('carcasa')
     ? ['moduloGuia', 'modulosMenu', 'moduloCentralFrame', 'moduloEventos', 'moduloPromos', 'moduloActividades']
