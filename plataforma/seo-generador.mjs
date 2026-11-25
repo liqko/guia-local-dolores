@@ -41,6 +41,24 @@ const safeRows = (items,caption) => {
   return '<ul>'+shown.map(x=>'<li>'+escapeHtml(String(x.nombre||x.titulo||x.nombre_sede||x.nombre_ref||x.actividad||caption))+
     (x.descripcion?': '+escapeHtml(String(x.descripcion).slice(0,180)):'')+'</li>').join('')+'</ul>';
 };
+// Indexar los mismos nombres, categorías y etiquetas que llegan del paquete público.
+// No crear palabras clave ficticias ni nuevas URLs por cada publicación.
+const textoPublicacion=(row,keys)=>keys.map(k=>row?.[k]).flatMap(v=>
+  Array.isArray(v)?v:typeof v==='string'&&v.includes(';')?v.split(';'):[v]
+).map(v=>typeof v==='object'&&v!==null?String(v.nombre||v.descripcion||''):String(v??'').trim())
+ .filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i);
+const publicacionesHtml=(rows,family)=>{
+  const fields=family==='events'
+    ? {title:['nombre_evento','titulo','nombre'],detail:['categoria','tipo','disciplina','organizador','lugar','fecha_desde','fecha_hasta','etiquetas','tags','palabras_clave','descripcion']}
+    : family==='promos'
+    ? {title:['promo','titulo','nombre'],detail:['anunciante','categoria','rubro','tipo','etiquetas','tags','palabras_clave','descripcion','desde','hasta']}
+    : {title:['nombre_actividad','titulo','nombre','actividad'],detail:['categoria','tipo','disciplina','organizador','lugar','etiquetas','tags','palabras_clave','descripcion']};
+  return '<ul>'+rows.slice(0,100).map(row=>{
+    const title=textoPublicacion(row,fields.title)[0]|| (family==='events'?'Evento':family==='promos'?'Promoción':'Actividad');
+    const details=textoPublicacion(row,fields.detail).map(v=>v.slice(0,240)).join(' · ').slice(0,600);
+    return '<li><strong>'+escapeHtml(title)+'</strong>'+(details?': '+escapeHtml(details):'')+'</li>';
+  }).join('')+'</ul>';
+};
 const parsePublished = source => {
   const match=source.match(/^const published = (.+);$/m);
   if(!match)throw Error('No se encuentra el catálogo territorial publicado');
@@ -174,7 +192,7 @@ export async function generarSeoPublico(hostingDir){
       const title=name+' en '+town+' | Guía Local';
       const description='Descubrí '+name.toLowerCase()+' publicados en '+place+' a través de Guía Local.';
       await add(segment,title,description,'<h1>'+escapeHtml(name+' en '+town)+'</h1><p>'+escapeHtml(description)+'</p>'+
-        (rows.length?safeRows(rows,name):'<p>Consultá en Guía Local las publicaciones disponibles para esta ciudad.</p>')+'<p><a href="'+appLink(city,{seo_destino:segment==='promociones'?'promos':segment})+'">Abrir '+escapeHtml(name)+' dentro de Guía Local</a></p>');
+        (rows.length?publicacionesHtml(rows,family):'<p>Consultá en Guía Local las publicaciones disponibles para esta ciudad.</p>')+'<p><a href="'+appLink(city,{seo_destino:segment==='promociones'?'promos':segment})+'">Abrir '+escapeHtml(name)+' dentro de Guía Local</a></p>');
     }
     if(sections.length){
       const cityTitle='Guía Local en '+town+' | Comercios, eventos y servicios';
