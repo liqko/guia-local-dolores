@@ -5,7 +5,10 @@ const vm=require('node:vm');
 const source=fs.readFileSync('worker/worker206.txt','utf8');
 const begin=source.indexOf('function withPanelCacheV48('),end=source.indexOf('\nreturn withPanelCacheV48;',begin);
 assert(begin>0&&end>begin,'Debe probarse el código real del Worker');
-const wrapperSource=source.slice(begin,end);
+const authorityStart=source.indexOf('const PUBLICATION_COLLECTIONS');
+const authorityEnd=source.indexOf('function createDb(',authorityStart);
+assert(authorityStart>0&&authorityEnd>authorityStart,'Debe probarse la autoridad administrativa real');
+const wrapperSource=source.slice(authorityStart,authorityEnd)+'\n'+source.slice(begin,end);
 const collections={
   suscriptores:['suscriptor_id'],
   anunciantes:['revision_adulto'],

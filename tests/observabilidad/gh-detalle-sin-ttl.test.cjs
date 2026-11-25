@@ -3,6 +3,8 @@ const assert=require('node:assert/strict');
 const vm=require('node:vm');
 const fs=require('node:fs');
 const source=fs.readFileSync('worker/worker206.txt','utf8');
+const versionDeclaration=source.match(/^const WORKER_VERSION = ['"]\d+['"];$/m)?.[0];
+assert(versionDeclaration,'El Worker debe declarar su versión');
 const start=source.indexOf('GldPublicCache119.prototype.ghDetail204=async function(body){');
 const end=source.indexOf('\nGldPublicCache119.prototype.commerceMaster209=',start);
 assert(start>0&&end>start,'La copia GH debe existir en el actor duradero real');
@@ -19,7 +21,7 @@ function setup(existingStore=null){
   advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build};}
  };
  vm.createContext(ctx);
- vm.runInContext(source.slice(start,end),ctx);
+ vm.runInContext(versionDeclaration+'\n'+source.slice(start,end),ctx);
  const actor=new GldPublicCache119();
  actor.env={GLD_CACHE_KV:{}};
  actor.metrics={rows_read:0,rows_written:0};
