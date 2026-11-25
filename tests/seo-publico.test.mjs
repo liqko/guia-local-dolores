@@ -19,9 +19,9 @@ test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', 
         {nombre:'Peluquería B',categorias:['Peluquerías'],estado_moderacion:'PUBLICADO'}]},
       pharmacy:{success:true,ciclos:[{ciclo_id:'t1'}]},
       ephemerides:{success:true,efemerides:[{nombre:'Día X'}]},
-      events:{success:true,events:[{titulo:'Evento de prueba'}]},
+      events:{success:true,events:[{nombre_evento:'Torneo de fútbol juvenil',categoria:'Deportes',organizador:'Club local',etiquetas:['torneo','fútbol']}]},
       activities:{success:true,actividades:[{titulo:'Actividad de prueba'}]},
-      promos:{success:true,promos:[]}
+      promos:{success:true,promos:[{promo:'Descuento en indumentaria',anunciante:'Comercio de prueba',categoria:'Ropa',tags:['oferta']}]}
     }};
     await writeFile(join(root,'plataforma','paquetes-ciudad','Y2l1ZGFkMQ','completo-7.json'),JSON.stringify(book));
     const result=await generarSeoPublico(root);
@@ -38,9 +38,14 @@ test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', 
     assert.match(html,/ciudad_id=ciudad1/);
     const eventos=await readFile(join(root,'seo','dolores-bue-arg','eventos','index.html'),'utf8');
     assert.match(eventos,/seo_destino=eventos/);
+    assert.match(eventos,/Torneo de fútbol juvenil/);
+    assert.match(eventos,/Deportes/);
+    assert.match(eventos,/Club local/);
     const promos=await readFile(join(root,'seo','dolores-bue-arg','promociones','index.html'),'utf8');
     assert.match(promos,/seo_destino=promos/);
-    assert.match(promos,/Consultá en Guía Local las publicaciones disponibles para esta ciudad/);
+    assert.match(promos,/Descuento en indumentaria/);
+    assert.match(promos,/Comercio de prueba/);
+    assert.match(promos,/oferta/);
     const actividades=await readFile(join(root,'seo','dolores-bue-arg','actividades','index.html'),'utf8');
     assert.match(actividades,/seo_destino=actividades/);
     const guia=await readFile(join(root,'seo','dolores-bue-arg','comercios-y-servicios','index.html'),'utf8');
