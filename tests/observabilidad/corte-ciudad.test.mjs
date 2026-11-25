@@ -344,7 +344,7 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
 
 });
 
-test('reanudar promociones usa la configuración tanto en panel como en Gran Hermano', async t => {
+test('Gran Hermano levanta su restricción sin cambiar la pausa del anunciante', async t => {
   const { createHmac } = await import('node:crypto');
   const testSource = source + '\nexport {promoUpdateV2,routeAdminPromosV91};';
   const {promoUpdateV2,routeAdminPromosV91} = await import('data:text/javascript;base64,' + Buffer.from(testSource).toString('base64'));
@@ -353,6 +353,7 @@ test('reanudar promociones usa la configuración tanto en panel como en Gran Her
   let promo=initial,patches=0;
   const db={
     get:async collection=>collection==='promos'?promo:admin,
+    getVersioned:async()=>({doc:promo,updateTime:'2026-11-25T00:00:00Z'}),
     queryEqual:async()=>[promo],
     patch:async (collection,id,patch)=>{assert.equal(collection,'promos');assert.equal(id,initial.promo_id);patches++;return promo={...promo,...patch};},
   };
@@ -360,7 +361,7 @@ test('reanudar promociones usa la configuración tanto en panel como en Gran Her
   const fromPanel=await promoUpdateV2({db,cache,advertiserId:initial.anunciante_id,
     body:{promo_id:initial.promo_id,pausado:false},cupoFromAdmin:()=>1});
   assert.equal(fromPanel.promo.pausado,false);
-  promo=initial;
+  promo={...initial,administracion_publicacion:{estado:'PAUSADA'}};
   const secret='fixture-de-prueba-de-promociones';
   const body=Buffer.from(JSON.stringify({sid:'admin-test',rol:'SUPERADMIN_PRINCIPAL',persistent:true})).toString('base64url');
   const sig=createHmac('sha256',secret).update(body).digest('base64url');
@@ -371,6 +372,107 @@ test('reanudar promociones usa la configuración tanto en panel como en Gran Her
   env.GLD_PUBLIC_CACHE=accessBinding201(candidateWorker,env,{get(){throw Error('Unexpected actor');}},t);
   const fromAdmin=await routeAdminPromosV91({path:url.pathname,request,env,db,cache,url});
   assert.equal(fromAdmin.status,200);
-  assert.equal((await fromAdmin.json()).promo.pausado,false);
+  const released=(await fromAdmin.json()).promo;
+  assert.equal(released.administracion_publicacion.estado,'LIBRE');
+  assert.equal(released.pausado,true);
+  assert.equal(released.estado_panel,'PAUSADA');
   assert.equal(patches,2);
+});
+
+test('autoridad de publicación: Firestore condiciona escrituras y conserva la baja residual', async t => {
+  const exposed = source + '\nexport {createDb, tokenCache, toFs, setPublicationAuthority, visible};';
+  const {createDb,tokenCache,toFs,setPublicationAuthority,visible}=await import(
+    'data:text/javascript;base64,'+Buffer.from(exposed).toString('base64')
+  );
+  tokenCache.token='token-fixture';
+  tokenCache.expiresAt=Date.now()+120000;
+  const id='promo-transversal', city='DOL', collection='promos';
+  const original={promo_id:id,anunciante_id:'fixture',ciudad_id:city,estado:'ACTIVA',estado_moderacion:'PUBLICADO',pausado:false};
+  const time=seq=>'2026-11-25T12:00:00.'+String(seq).padStart(3,'0')+'Z';
+  let row=original,revision=1,reads=0,writes=0;
+  const document=()=>({fields:Object.fromEntries(Object.entries(row).map(([key,value])=>[key,toFs(value)])),updateTime:time(revision)});
+  t.mock.method(globalThis,'fetch',async (input,init={})=>{
+    const url=new URL(input);
+    assert.equal(url.hostname,'firestore.googleapis.com');
+    if(init.method==='GET'){reads++;return row?Response.json(document()):new Response(null,{status:404});}
+    if(init.method==='PATCH'){
+      if(url.searchParams.get('currentDocument.updateTime')!==time(revision))return new Response(null,{status:412});
+      const {fields}=JSON.parse(init.body);
+      for(const key of Object.keys(fields)){
+        if(key==='pausado')row={...row,pausado:fields[key].booleanValue};
+        else if(key==='administracion_publicacion')row={...row,[key]:{estado:fields[key].mapValue.fields.estado.stringValue}};
+        else assert.fail(key);
+      }
+      revision++;writes++;return Response.json(document());
+    }
+    assert.match(url.pathname,/:commit$/);
+    const [write]=JSON.parse(init.body).writes;
+    assert.equal(write.currentDocument.exists,false);
+    if(row)return new Response(null,{status:412});
+    assert.equal(write.update.fields.promo_id.stringValue,id);
+    row={...original,administracion_publicacion:{estado:write.update.fields.administracion_publicacion.mapValue.fields.estado.stringValue}};
+    revision++;writes++;
+    return Response.json({writeResults:[{updateTime:time(revision)}]});
+  });
+
+  const database=()=>createDb({FIREBASE_PROJECT_ID:'fixture'});
+  const stored=new Map();
+  const counters={kvGets:0,kvPuts:0};
+  const cache={get:async key=>{counters.kvGets++;return stored.get(key);},put:async (key,value)=>{counters.kvPuts++;stored.set(key,value);}};
+  const admin=async (state,residual)=>{
+    const db=database(),version=await db.getVersioned(collection,id);
+    return setPublicationAuthority({db,cache,collection,id,version,auth:{sid:'admin-fixture'},state,residual});
+  };
+  const sourceDocument=()=>database().getVersioned(collection,id);
+  const changeOwner=pausado=>database().patch(collection,id,{pausado},{mustExist:true});
+
+  assert.equal(visible(await changeOwner(true)),false);
+  assert.equal(visible(await changeOwner(false)),true);
+  await admin('PAUSADA');
+  const edited=await changeOwner(false);
+  assert.equal(edited.pausado,false);
+  assert.equal(visible(edited),false);
+  assert.deepEqual(stored.get('admin:promos:item:v91:'+id).row.administracion_publicacion,{estado:'PAUSADA'});
+
+  const stale=database();
+  const before=await stale.getVersioned(collection,id);
+  await admin('BLOQUEADA');
+  await assert.rejects(stale.patch(collection,id,{pausado:false},{updateTime:before.updateTime}),{status:409});
+  const writesBefore=writes;
+  await assert.rejects(changeOwner(false),{status:403});
+  await assert.rejects(database().delete(collection,id),{status:403});
+  await assert.rejects(database().patch(collection,id,{administracion_publicacion:{estado:'LIBRE'}}),{status:403});
+  assert.equal(writes,writesBefore);
+
+  await admin('ELIMINADA');
+  assert.equal((await sourceDocument()).doc.administracion_publicacion.estado,'ELIMINADA');
+  assert.equal(stored.get('admin:promos:item:v91:'+id).deleted,true);
+  await assert.rejects(admin('LIBRE'),{status:403});
+
+  // The exact administrative copy supplies identity and city when the source
+  // is absent. A compare-and-create tombstone excludes stale public material.
+  row=null;
+  stored.set('promos:city:v1:'+city,{promos:[original,{...original,promo_id:'otra'}]});
+  await admin('ELIMINADA',original);
+  assert.equal(row.administracion_publicacion.estado,'ELIMINADA');
+  assert.deepEqual(stored.get('promos:city:v1:'+city).promos.map(x=>x.promo_id),['otra']);
+  assert.ok(reads>0&&writes>0&&counters.kvGets>0&&counters.kvPuts>0);
+  t.diagnostic(JSON.stringify({firestoreReads:reads,firestoreWrites:writes,...counters}));
+});
+
+test('la publicación nocturna intenta el diario existente y conserva los trabajos fallidos', async () => {
+  const exposed=source+'\nexport {recoverCityBookPublications};';
+  const {recoverCityBookPublications}=await import('data:text/javascript;base64,'+Buffer.from(exposed).toString('base64'));
+  const calls=[];
+  const env={GLD_PUBLIC_CACHE:{idFromName:name=>name,get:name=>({async fetch(request){
+    const command=await request.json();
+    calls.push([name,command.op,command.aid]);
+    if(command.op==='city-book-recovery-list')return Response.json({jobs:[{aid:'A'},{aid:'B'}]});
+    return Response.json({success:true},{status:name.endsWith(':B')?503:200});
+  }})}};
+  const report={};
+  await recoverCityBookPublications(env,report);
+  assert.deepEqual(report.publication_recovery,{attempted:2,recovered:1,pending:1});
+  assert.deepEqual(calls.map(row=>row[1]),['city-book-recovery-list','business-recover143','business-recover143','city-book-recovery-track']);
+  assert.equal(calls.at(-1)[2],'B');
 });

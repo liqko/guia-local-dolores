@@ -158,7 +158,8 @@ test('P4-0009: índice administrativo Promos evita reescribir igual y conserva b
  const from=src.indexOf('async function syncAdminPromoV91(');
  const to=src.indexOf('/** @param {Record<string, any>} row */',from);
  assert(from>0&&to>from);
- const sync=new Function('PROMOS_ADMIN_PREFIX_V91','GLD_BUSINESS143',src.slice(from,to)+';return syncAdminPromoV91')(
+ const authority=src.slice(src.indexOf('function publicationAuthority('),src.indexOf('function checkPublicationWrite('));
+ const sync=new Function('PROMOS_ADMIN_PREFIX_V91','GLD_BUSINESS143',authority+src.slice(from,to)+';return syncAdminPromoV91')(
   'admin:promos:item:v91:',{equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)}
  );
  const store=new Map();let puts=0,gets=0;

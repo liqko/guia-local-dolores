@@ -23,7 +23,7 @@ const isWithinValidity=p=>!p.vigente_hasta||p.vigente_hasta>='2026-11-14';
 const isPaused=p=>p.pausado===true||p.estado==='PAUSADA';
 const promoPendingV91=p=>p.estado_moderacion==='PENDIENTE';
 `;
-const selected=['gldPublicacionAdmisible206','isPublic3','published','visible'];
+const selected=['publicationAuthority','gldPublicacionAdmisible206','isPublic3','published','visible'];
 const funcs=Function(stubs+selected.map(extract).join('\n')+'\nreturn {'+selected.join(',')+'};')();
 const when=Date.parse('2026-11-14T12:00:00Z');
 const activity={estado:'ACTIVA',activo:true,aprobado:false,estado_moderacion:'PUBLICADO',vigente_desde:'2026-11-01',vigente_hasta:'2026-11-30'};
@@ -86,6 +86,7 @@ const putPreparedRelationsV1=async()=>{};
 const GLD_BUSINESS143={equal:(a,b)=>JSON.stringify(a)===JSON.stringify(b)};
 `;
  const activityFunctions=[
+   extract('publicationAuthority'),
    extract('gldPublicacionAdmisible206'),
    extract('isPublic3'),
    worker.slice(worker.indexOf('async function syncActivityPreparedV2('),worker.indexOf('async function getActivitiesCityV2(')),
@@ -136,7 +137,7 @@ test('directorio no etiqueta como pendiente solo por aprobado falso histórico',
  const start=worker.indexOf('function directoryState102(');
  const end=worker.indexOf('function directorySafe102(',start);
  assert(start>=0&&end>start);
- const directory=Function(worker.slice(start,end)+';return directoryState102')();
+ const directory=Function(extract('publicationAuthority')+worker.slice(start,end)+';return directoryState102')();
  assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'PUBLICADO'}),'ACTIVA');
  assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'PENDIENTE'}),'PENDIENTE');
  assert.equal(directory({estado:'ACTIVA',aprobado:false,estado_moderacion:'RECHAZADA'}),'RECHAZADA');
