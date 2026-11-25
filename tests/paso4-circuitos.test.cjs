@@ -346,6 +346,57 @@ test('P3-17 / P4-0029: exportación dinámica Promos GH tiene consumidor real y 
 });
 
 
+test('Gran Hermano usa un solo botón de actualización por listado y trae los cambios del servidor',async()=>{
+ const admin=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+ const script=fs.readFileSync(path.join(__dirname,'../plataforma/gh-listados.js'),'utf8');
+ const elements=new Map();
+ const requests=[];
+ let revision=1;
+ const createElement=()=>({
+   children:[],style:{},value:'',
+   set id(id){elements.set(id,this);},
+   setAttribute(){},
+   append(...children){this.children.push(...children);},
+   replaceChildren(){this.children=[];},
+   before(){},
+   set textContent(value){this.text=value;this.children=[];},
+   get textContent(){return this.text;}
+ });
+ for(const id of ['activitiesAll102','ghPromosList','ghPublicidadList'])elements.set(id,createElement());
+ const window={};
+ const document={getElementById:id=>elements.get(id),createElement};
+ const api=async(route,params)=>{
+   requests.push({route,params});
+   return {preparado:true,total:1,results:[{id:'fixture',titulo:params.tipo+' '+revision,estado:'ACTIVA'}]};
+ };
+ const openView=Function('window','document','GH_ADMIN_ACCESS','GH_CITIES','ghAdminRequest_','informarAltura',`
+   let ghGoView=()=>{},ghRenderEventos=()=>{},ghPublicidadLoad101,ghPublicidadPrepare101,buscarAnu,buscarSus;
+   ${script}
+   return ghGoView;
+ `)(window,document,{rol:'SUPERADMIN'},[{ciudad_id:'DOLORES'}],api,()=>{});
+ const settle=()=>new Promise(resolve=>setImmediate(resolve));
+ for(const [view,boxId] of [['promos','ghPromosList'],['publicidad','ghPublicidadList']]){
+   const section=admin.match(new RegExp('<section id="view-'+view+'"[^>]*>[\\s\\S]*?</section>'))?.[0];
+   assert(section);
+   assert.doesNotMatch(section,/>Actualizar listado<\/button>/);
+   revision=1;
+   openView(view);
+   await settle();
+   const box=elements.get(boxId);
+   assert.equal(box.children[0].children[0].textContent,view+' 1 · ACTIVA');
+   const buttons=elements.get('dir-'+view).children.filter(el=>el.textContent==='Actualizar listado');
+   assert.equal(buttons.length,1);
+   const before=requests.length;
+   revision=2;
+   buttons[0].onclick();
+   await settle();
+   assert.equal(requests.length,before+1);
+   assert.equal(requests.at(-1).route,'/listados');
+   assert.equal(requests.at(-1).params.tipo,view);
+   assert.equal(box.children[0].children[0].textContent,view+' 2 · ACTIVA');
+ }
+});
+
 test('P4-0011: fallo de lectura de Promos GH permite reintento en nueva apertura',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../plataforma/gh-promos.js'),'utf8');
  const start=source.indexOf('window.ghPromosLoadV91=function(');
