@@ -1,0 +1,79 @@
+name: Auditoria recorridos 211
+on:
+  push:
+    branches: [audit/transversal-consumos-20261115]
+    paths:
+      - 'auditorias/**'
+      - 'worker/worker206.txt'
+      - 'plataforma/**'
+      - '.github/workflows/auditoria-recorridos-211.yml'
+  workflow_dispatch:
+jobs:
+  recorridos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Preparar analizador
+        run: npm install --no-save --package-lock=false typescript@5.9.3
+      - name: Regenerar mapas sobre fuente 211
+        run: |
+          node auditorias/generar-mapa-gps.cjs --write
+          node auditorias/arbol-estatico.cjs --write
+          node auditorias/inventario-independiente.cjs --write
+          node auditorias/inventario-eventos-dinamicos.cjs --write
+          node auditorias/generar-catalogo-maestro.cjs --self-test --write
+      - name: Verificar cobertura y unicidad de los recorridos
+        run: |
+          node - <<'NODE'
+          const fs=require('fs');
+          const base='auditorias/transversal/';
+          const map=JSON.parse(fs.readFileSync(base+'ARBOL_ACCIONES.json'));
+          const inv=JSON.parse(fs.readFileSync(base+'INVENTARIO_INDEPENDIENTE.json'));
+          const catalog=JSON.parse(fs.readFileSync(base+'CATALOGO_MAESTRO.json'));
+          const roots=inv.entries.filter(e=>['startup_call','worker_entry'].includes(e.kind));
+          const starts=roots.filter(e=>e.kind==='startup_call'),workers=roots.filter(e=>e.kind==='worker_entry');
+          const reconnectPaths=new Set(['plataforma/paquete-ciudad.js','plataforma/promos.html']);
+          const reconnectEvents=new Set(['online','pageshow']);
+          const promoStartup=new Set([
+            "window.addEventListener('online',reloadPromosAfterReconnect)",
+            "window.addEventListener('pageshow',event=>{if(event.persisted)reloadPromosAfterReconnect();})",
+          ]);
+          const reconnectStarts=starts.filter(e=>e.file==='plataforma/promos.html'&&promoStartup.has(e.expression));
+          if(reconnectStarts.length!==promoStartup.size||new Set(reconnectStarts.map(e=>e.expression)).size!==promoStartup.size)
+            throw Error('Registros de inicio de reconexión incompletos o duplicados');
+          const key=e=>[e.kind,e.id,e.file,e.line].join('|');
+          const treeRoots=map.trees.filter(t=>['startup_call','worker_entry'].includes(t.action.kind));
+          const expected=new Set(roots.map(key)),actual=new Set(treeRoots.map(t=>key(t.action)));
+          console.log('DIAGNOSTICO_RAICES',JSON.stringify({roots:roots.length,starts:starts.length,workers:workers.length,expectedUnique:expected.size,actualUnique:actual.size,treeRoots:treeRoots.length,uiTrees:map.trees.length-treeRoots.length,missing:[...expected].filter(k=>!actual.has(k)).slice(0,12),extra:[...actual].filter(k=>!expected.has(k)).slice(0,12),duplicates:treeRoots.map(t=>key(t.action)).filter((k,i,a)=>a.indexOf(k)!==i).slice(0,12)}));
+          if(roots.length-reconnectStarts.length!==280||starts.length-reconnectStarts.length!==272||workers.length!==8)
+            throw Error('Raices diferentes al inventario anterior: '+JSON.stringify({roots:roots.length,starts:starts.length,workers:workers.length}));
+          if(expected.size!==roots.length||actual.size!==roots.length||treeRoots.length!==roots.length)throw Error('Raices duplicadas o faltantes');
+          for(const k of expected)if(!actual.has(k))throw Error('Raiz ausente: '+k);
+          if(map.trees.length!==catalog.entries.length)throw Error('Catalogo duplicado');
+          const uiTrees=map.trees.filter(t=>!['startup_call','worker_entry'].includes(t.action.kind));
+          const lifecycle=uiTrees.filter(({action})=>action.kind==='listener'&&reconnectPaths.has(action.file)&&reconnectEvents.has(action.event));
+          const lifecycleKeys=new Set(lifecycle.map(({action})=>action.file+'|'+action.event));
+          const expectedLifecycleCount=reconnectPaths.size*reconnectEvents.size;
+          if(lifecycle.length!==expectedLifecycleCount||lifecycleKeys.size!==expectedLifecycleCount||
+             lifecycle.some(tree=>!tree.nodes.some(n=>n.type==='function')))
+            throw Error('Entradas de reconexión sin recorrido o duplicadas');
+          if(uiTrees.length-lifecycle.length!==703)throw Error('Entradas UI distintas de las 703 observadas en Worker 211: '+uiTrees.length);
+          const duplicatesUI=uiTrees.filter((t,i,a)=>a.findIndex(z=>z.action.id===t.action.id)!==i).map(t=>({id:t.action.id,file:t.action.file,line:t.action.line,kind:t.action.kind,handler:t.action.handler}));
+          console.log('DIAGNOSTICO_UI',JSON.stringify(duplicatesUI));
+          if(duplicatesUI.length)throw Error('Acciones UI duplicadas');
+          if(catalog.coverage.sourceEntries.some(e=>!e.units.length)||catalog.coverage.dynamicEntries.some(e=>!e.candidateUnits.length))throw Error('Cobertura estatica incompleta');
+          for(const root of treeRoots)if(!root.nodes.length||!root.nodes.some(n=>n.type==='function'))throw Error('Arbol sin cuerpo: '+root.action.id);
+          console.log('RECORRIDOS_211_PASS',JSON.stringify({total:map.trees.length,ui:uiTrees.length,nuevos:roots.length,arranques:starts.length,worker:workers.length,reconexion:{arranques:reconnectStarts.length,ui:lifecycle.length},limites:map.totals.treesWithLimits,abiertos:map.totals.treesWithOpenBranches}));
+          NODE
+      - name: Publicar resultados
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recorridos-auditoria-worker-211
+          path: |
+            auditorias/transversal/ARBOL_ACCIONES.json
+            auditorias/transversal/ARBOL_ACCIONES.md
+            auditorias/transversal/INVENTARIO_INDEPENDIENTE.json
+            auditorias/transversal/CATALOGO_MAESTRO.json
+            auditorias/transversal/CATALOGO_MAESTRO.md
+          if-no-files-found: warn

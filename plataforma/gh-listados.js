@@ -29,6 +29,22 @@ async function runDirectoryAction(work){
 
 function node(tag,text,className){const n=document.createElement(tag);if(text)n.textContent=text;if(className)n.className=className;return n;}
 function button(text,fn,disabled=false){const b=node('button',text,'sec');b.type='button';b.disabled=disabled;b.onclick=fn;return b;}
+function appendPublicationAuthority(actions,collection,id,authority,onChanged){
+ if(!['SUPERADMIN_PRINCIPAL','SUPERADMIN'].includes(GH_ADMIN_ACCESS.rol)||authority==='ELIMINADA')return;
+ const items=authority==='LIBRE'
+  ?[['pausar','Pausar administrativamente'],['bloquear','Bloquear'],['retirar','Suspender']]
+  :[['levantar_restriccion','Levantar restricción']];
+ items.push(['eliminar','Borrar']);
+ for(const [action,label] of items)actions.append(button(label,async()=>{
+  if(!confirm(action==='eliminar'?'¿Borrar definitivamente esta publicación?':'¿Confirmar el cambio administrativo?'))return;
+  await runDirectoryAction(async()=>{
+   await ghAdminRequest_('/publications/recent',{collection,id,action},'POST');
+   await onChanged(action);
+  });
+ }));
+}
+window.GH_PUBLICATION_AUTHORITY=appendPublicationAuthority;
+
 function navigation(box,page,total,previous,next){const n=node('nav','','actions');n.setAttribute('aria-label','Páginas del listado');n.append(button('Anterior',previous,!previous),node('span','Página '+(page+1)+' · '+total+' resultado(s)'),button('Siguiente',next,!next));box.append(n);}
 function localPage(box,key,signature,render){let state=states.get('local:'+key);if(!state||state.signature!==signature){state={page:0,signature};states.set('local:'+key,state);}const items=[...box.children];const count=items.length;if(count<=10)return;state.page=Math.min(state.page,Math.floor((count-1)/10));items.forEach((n,i)=>n.hidden=i<state.page*10||i>=(state.page+1)*10);navigation(box,state.page,count,state.page?()=>{state.page--;render();}:null,(state.page+1)*10<count?()=>{state.page++;render();}:null);}
 window.GH_DIRECTORY_LOCAL102=localPage;
@@ -42,7 +58,7 @@ function ensure(){
   const q=node('input');q.type='search';q.id='dir-'+key+'-q';q.placeholder=key==='moderadores'?'Buscar por nombre o ciudad':'Buscar por anunciante, organizador o ciudad';q.setAttribute('aria-label',q.placeholder);
   const city=node('select');city.id='dir-'+key+'-city';city.setAttribute('aria-label','Ciudad');
   const status=node('select');status.id='dir-'+key+'-state';status.setAttribute('aria-label','Estado');
-  for(const [v,label]of [['','Todos los estados'],['ACTIVA','Activas'],['PAUSADA','Pausadas'],['VENCIDA','Vencidas'],['PENDIENTE','Pendientes'],['RECHAZADA','Rechazadas'],['BLOQUEADA','Bloqueadas']]){const o=node('option',label);o.value=v;status.append(o);}
+  for(const [v,label]of [['','Todos los estados'],['ACTIVA','Activas'],['PAUSADA','Pausadas'],['VENCIDA','Vencidas'],['PENDIENTE','Pendientes'],['RECHAZADA','Rechazadas'],['BLOQUEADA','Bloqueadas'],['SUSPENDIDA','Suspendidas']]){const o=node('option',label);o.value=v;status.append(o);}
   let timer;const change=()=>{clearTimeout(timer);timer=setTimeout(()=>{load(key,true);if(key==='vip')load('free',true);},250);};q.oninput=change;city.onchange=change;status.onchange=change;
   toolbar.append(q,city,status,button('Actualizar listado',()=>{load(key,true,true);if(key==='vip')load('free',true,true);}));target.before(toolbar);
   updateCities(key);
@@ -62,11 +78,13 @@ function render(key,s){
   if(p.anunciante_id)actions.append(button('Ver anunciante',()=>{ghGoView('anunciantes',{pendingOnly:true});detalleAnu(p.anunciante_id);}));
   if(key==='moderadores')actions.append(button('Editar permisos',()=>ghEditarModerador({suscriptor_id:r.suscriptor_id||p.id,nombre:r.nombre||p.titulo})));
   if(p.estado==='PENDIENTE')actions.append(button('Ir a revisión',()=>ghGoPending(d.kind==='eventos'?(d.clase==='FREE'?'EVENTO_FREE':'EVENTO'):({actividades:'ACTIVIDAD',promos:'PROMO',publicidad:'PUBLICIDAD'})[d.kind])));
-  if(key==='promos'||key==='publicidad'){
+  const collection=d.kind==='publicidad'?'publicidades':d.kind;
+  if(['promos','publicidades','actividades','eventos'].includes(collection)){
+   appendPublicationAuthority(actions,collection,p.id,r.administracion_publicacion?.estado||'LIBRE',()=>load(key,true,true));
+  }
+  if(key==='promos'&&p.estado==='PENDIENTE'){
    const action=async(value)=>{if(!confirm(value==='borrar'||value==='eliminar'?'¿Borrar definitivamente esta publicación?':'¿Confirmar el cambio de estado?'))return;await runDirectoryAction(async()=>{actions.querySelectorAll('button').forEach(b=>b.disabled=true);try{const result=await ghAdminRequest_(key==='promos'?'/promos':'/publicidad',{[key==='promos'?'promo_id':'publicidad_id']:p.id,action:value},'POST');if(key==='promos'&&['aprobar','rechazar','borrar'].includes(value)&&typeof ghAplicarRevisionResuelta_==='function')ghAplicarRevisionResuelta_('PROMO',p.id,value==='aprobar'?'APROBAR':'RECHAZAR',{item:result.promo||{},deleted:result.deleted});await load(key,true,true);}catch(e){actions.after(node('p',e.message,'error'));actions.querySelectorAll('button').forEach(b=>b.disabled=false);throw e;}});};
-   if(key==='promos'&&p.estado==='PENDIENTE')actions.append(button('Aprobar publicación',()=>action('aprobar')),button('Rechazar publicación',()=>action('rechazar')));
-   if(p.estado!=='BLOQUEADA')actions.append(button(p.estado==='PAUSADA'&&key==='promos'?'Reanudar':'Pausar',()=>action(p.estado==='PAUSADA'&&key==='promos'?'reanudar':'pausar'),key==='publicidad'&&p.estado!=='ACTIVA'));
-   actions.append(button('Borrar',()=>action(key==='promos'?'borrar':'eliminar'),key==='publicidad'&&p.estado==='ACTIVA'));
+   actions.append(button('Aprobar publicación',()=>action('aprobar')),button('Rechazar publicación',()=>action('rechazar')));
   }
   detail.append(actions);box.append(detail);
  }

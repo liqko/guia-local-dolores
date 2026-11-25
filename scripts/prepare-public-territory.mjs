@@ -32,7 +32,7 @@ async function readPublished(read){
 export async function preparePublicTerritory({file,read=fetch,scheduled=false,stageUnchanged=false}){
  const source=await readFile(file,'utf8');
  if(source.split(MARKER).length!==2)throw Error('Marcador de catálogo público ausente o duplicado.');
- let prepared;
+ let prepared,existing;
  try{
   const response=await read(WORKER,{cache:'no-store',signal:AbortSignal.timeout(20000)});
   if(!response.ok)throw Error('Catálogo público no disponible (HTTP '+response.status+').');
@@ -40,7 +40,7 @@ export async function preparePublicTerritory({file,read=fetch,scheduled=false,st
  }catch(error){
   if(scheduled)throw error;
   // Un problema transitorio del catálogo no impide publicar el sitio con la copia anterior.
-  const existing=await readPublished(read).catch(()=>null);
+  existing=await readPublished(read).catch(()=>null);
   const stored=existing?.match(/^const published = (\{.+\});$/m)?.[1];
   if(!stored)throw error;
   prepared=snapshot(JSON.parse(stored).data);
@@ -48,8 +48,11 @@ export async function preparePublicTerritory({file,read=fetch,scheduled=false,st
   console.warn('Catálogo de origen temporalmente inaccesible. Se conserva el publicado.');
  }
  const {data,revision}=prepared;
- const changed=!scheduled||revisionLine.exec(await readPublished(read))?.[1]!==revision;
- if(!changed&&!stageUnchanged)return {changed:false,revision};
+ // En push se prepara la copia aunque no cambie; el indicador debe reflejar el cambio real.
+ // Si no se puede leer Hosting durante un push, conservar el comportamiento de arranque.
+ const installed=existing??await readPublished(read).catch(error=>{if(scheduled)throw error;return null;});
+ const changed=revisionLine.exec(installed??'')?.[1]!==revision;
+ if(!changed&&scheduled&&!stageUnchanged)return {changed:false,revision};
  const payload=JSON.stringify({revision,data}).replaceAll('<','\\u003c');
  await writeFile(file,'// GLD_TERRITORY_REVISION '+revision+'\n'+source.replace(MARKER,()=>payload+';'));
  return {changed,revision};

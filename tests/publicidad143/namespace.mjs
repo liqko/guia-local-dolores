@@ -7,7 +7,7 @@ export function sqliteNamespace(env,Actor=GldPublicCache119){
   const sql={exec(sql,...args){
    if(fail&&/^(INSERT|UPDATE)/.test(sql))throw Error('Injected public SQL failure');
    const stmt=database.prepare(sql);let rows=[],changed=0;
-   if(/^SELECT/.test(sql))rows=stmt.all(...args);else {const result=stmt.run(...args);changed=/^(INSERT|UPDATE|DELETE|REPLACE)/.test(sql.trim())?Number(result.changes):0;}
+   if(stmt.columns().length)rows=stmt.all(...args);else {const result=stmt.run(...args);changed=/^(INSERT|UPDATE|DELETE|REPLACE)/.test(sql.trim())?Number(result.changes):0;}
    counts.read+=rows.length;counts.written+=changed;counts.sqlRead+=rows.length;counts.sqlWritten+=changed;
    return Object.assign(rows,{rowsRead:rows.length,rowsWritten:changed});
   }};

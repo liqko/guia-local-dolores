@@ -82,6 +82,13 @@ test('public guide is network first and fallback is used only offline',async()=>
   assert(h.cacheWrites.includes(req.url));
 });
 
+test('public guide revalidation bypasses the offline service worker copy',async()=>{
+  const h=harness();await h.fire('install');
+  const request={url:'https://login.liqkoargentina.workers.dev/guide?compact=1&ciudad_id=DOL',method:'GET',cache:'reload',headers:{has:()=>false}};
+  assert.equal(await h.fire('fetch',{request}),undefined);
+  assert.equal(h.cacheWrites.length,0);
+});
+
 test('hashed immutable asset is fetched once and served offline without network',async()=>{
   const h=harness();await h.fire('install');
   const asset='/plataforma/assets/app/0123456789abcdefabcd-paquete-ciudad.js';

@@ -35,8 +35,11 @@
     if(typeof navegador?.clipboard?.writeText==='function'){
       try{await navegador.clipboard.writeText(mensaje);return 'copiado';}catch(_){}
     }
-    abrir('https://wa.me/?text='+encodeURIComponent(mensaje),'_blank','noopener,noreferrer');
-    return 'whatsapp';
+    // Un popup bloqueado no equivale a haber compartido la ficha.
+    try{
+      const ventana=abrir('https://wa.me/?text='+encodeURIComponent(mensaje),'_blank','noopener,noreferrer');
+      return ventana===null?'bloqueado':'whatsapp';
+    }catch(_){return 'bloqueado';}
   }
   function filtroFicha(filas,params){
     const id=texto(params.get('anunciante_id')),sede=texto(params.get('sede_id'));
