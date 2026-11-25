@@ -69,7 +69,7 @@ test('circuito actividades comparte versión de paquete entre guardar y leer',()
 });
 test('el sitio público consume edición consolidada antes de Worker',()=>{
  assert.match(activityPage,/GLD_PAQUETE_CIUDAD\?\.module\?\.\(ciudadContexto\.ciudad_id,'activities'\)/);
- assert.match(activityPage,/const response = cached\|\|await fetchJsonConTimeout/);
+ assert.match(activityPage,/const response=cached\|\|window\.GLD_PAQUETE_CIUDAD\.replaceWithVerifiedRows\(paquete,'activities',await fetchJsonConTimeout/);
 });
 test('guardar, moderar y publicar actividades comparten la política automática',()=>{
  const policy=worker.slice(worker.indexOf('function publicationDbV77('),worker.indexOf('async function preparePublicationV77('));

@@ -131,6 +131,17 @@ try{
  const promoBody={action:'createpromo',advertiserId:'A',operation_id:makeKey(2),payload:{promo:'Promo nueva',ciudad_id:'D',categoria_id:'PC',desde:'2026-10-01',hasta:'2030-10-31'}};
  broken='admin:promos:item:v91:';result=await as('owner','/promos',promoBody);assert.equal(result.r.status,503,JSON.stringify(result.j));const promo=[...rows.values()].find(p=>p.promo==='Promo nueva');assert(promo);
  const promoWrites=sourceWrites();env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');broken='';await env.GLD_PUBLIC_CACHE.runAlarms();assert.equal(sourceWrites(),promoWrites);result=await ok('owner','/promos',promoBody);assert(result.j.operation_recovered);assert.equal(sourceWrites(),promoWrites);assert.equal(result.j.promo_id,promo.promo_id);console.log('PASS Promos create publishes committed source after restart and retry does not create another promo');
+ const promotionVisible=async()=> (await ok('public','/promos?ciudad_id=D')).j.promos.find(p=>p.promo_id===promo.promo_id);
+ const editPromo={action:'updatepromo',advertiserId:'A',operation_id:makeKey(10),payload:{promo_id:promo.promo_id,promo:'Promo editada'}};
+ const administerPromo=action=>ok('admin','/superadmin/publications/recent',{collection:'promos',id:promo.promo_id,action});
+ await ok('owner','/promos',editPromo);
+ assert.equal((await promotionVisible()).promo,'Promo editada');
+ await administerPromo('bloquear');
+ assert(!await promotionVisible());
+ assert.equal((await as('owner','/promos',{...editPromo,operation_id:makeKey(11),payload:{...editPromo.payload,promo:'Edición no permitida'}})).r.status,403);
+ await administerPromo('levantar_restriccion');
+ assert.equal((await promotionVisible()).promo,'Promo editada');
+ console.log('PASS Promo autenticada se edita, respeta el bloqueo y sólo Gran Hermano levanta la restricción');
  broken='admin:promos:item:v91:';const remove={action:'deletepromo',advertiserId:'A',operation_id:makeKey(3),payload:{promo_id:promo.promo_id}};result=await as('owner','/promos',remove);assert.equal(result.r.status,503);assert(!rows.has('promos/'+promo.promo_id));const deletedWrites=sourceWrites();broken='';env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');await env.GLD_PUBLIC_CACHE.runAlarms();result=await ok('owner','/promos',remove);assert(result.j.operation_recovered);assert.equal(sourceWrites(),deletedWrites);assert(!(await ok('public','/promos?ciudad_id=D')).j.promos.some(p=>p.promo_id===promo.promo_id));console.log('PASS Promos delete recovery removes old-city projection without repeating source delete');
  broken='publicity:private:v101:';const removeOld={action:'eliminar',advertiserId:'A',operation_id:makeKey(4),publicidad_id:'P'};result=await as('owner','/publicidad',removeOld);assert.equal(result.r.status,503,JSON.stringify(result.j));assert(!rows.has('publicidades/P'));broken='';env.GLD_PUBLIC_CACHE.evict('guide-save-v132:A');await env.GLD_PUBLIC_CACHE.runAlarms();result=await ok('owner','/publicidad',removeOld);assert(result.j.operation_recovered);assert(!(await ok('public','/publicidad?action=publicas&ciudad_id=D&modulo=GUIA')).j.publicidades.some(p=>p.publicidad_id==='P'));console.log('PASS legacy Publicidad deletion preserves old segmentation for recovery');
 

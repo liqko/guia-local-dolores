@@ -30,7 +30,7 @@ function isPublicGuide(request,url){
 }
 self.addEventListener('fetch',event=>{
  const request=event.request,url=new URL(request.url);
- if(isPublicGuide(request,url)){
+ if(isPublicGuide(request,url)&&request.cache!=='reload'){
    event.respondWith((async()=>{
      const cache=await caches.open(PUBLIC_CACHE);
      try{

@@ -152,8 +152,10 @@ try{
  const createActivity=await ok('owner','/actividades',{action:'guardar',advertiserId:'A',payload:activityPayload,operation_id:makeKey(25)});
  const activityId=createActivity.j.actividad_id;
  await ok('owner','/actividades',{action:'guardar',advertiserId:'A',payload:{...activityPayload,actividad_id:activityId,nombre:'Actividad editada'},operation_id:makeKey(26)});
- const activityPublic=async()=> (await ok('public','/actividades?action=publicas&ciudad_id=D')).j.actividades.some(row=>row.actividad_id===activityId);
- assert(await activityPublic());
+ const getActivity=async()=> (await ok('public','/actividades?action=publicas&ciudad_id=D')).j.actividades.find(row=>row.actividad_id===activityId);
+ const initialActivity=await getActivity();
+ assert(initialActivity);
+ const activityPublic=async()=>!!await getActivity();
  const changeActivity=action=>ok('admin','/superadmin/publications/recent',{collection:'actividades',id:activityId,action});
  await changeActivity('bloquear');assert(!await activityPublic());
  const blockedActivity=await as('owner','/actividades',{action:'reanudar',advertiserId:'A',actividad_id:activityId,operation_id:makeKey(27)});
@@ -172,5 +174,58 @@ try{
  await changeGuide('eliminar');assert(!await guideVisible());
  assert.equal(rows.get('anunciantes/A').administracion_publicacion.estado,'ELIMINADA');
  console.log('PASS ficha Guía bloqueada impide edición y la baja permanece en origen');
+
+ values.set('catalogs:commerce:v1',JSON.stringify({segmentos:[{segmento_id:'SEG'}],categorias:[{categoria_id:'CAT',segmento_id:'SEG'}],niveles_anunciante:[{nivel_id:'CONFIG_GENERAL_ANUNCIANTES'}]}));
+ const createdGuide=await ok('owner','/suscriptores',{action:'solicitar_anunciante',modo:'CREAR',nombre:'Ficha de alta',datos:{segmento_id:'SEG',categoria_id:'CAT'},sedes:[{ciudad_id:'D',nombre_sede:'Principal',direccion:'Calle de ensayo'}]});
+ const guideId=createdGuide.j.anunciante_id;
+ assert(guideId&&rows.has('anunciantes/'+guideId));
+ const freshGuide=async()=> (await ok('public','/guide?compact=1&ciudad_id=D')).j.results.find(row=>row.id===guideId);
+ assert.equal((await freshGuide()).nombre,'Ficha de alta');
+ ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'persona@test.invalid',clave:'test-password'})).j.token;
+ const guidePanel=()=>ok('owner','/commerce?action=anunciante&advertiserId='+guideId);
+ const editGuide=async description=>as('owner','/commerce',{action:'set_datos',advertiserId:guideId,descripcion:description,revision_datos:(await guidePanel()).j.advertiser.revision_datos});
+ const editedGuide=await editGuide('Ficha editada por su titular');
+ assert.equal(editedGuide.r.status,200,JSON.stringify(editedGuide.j));
+ assert.equal((await freshGuide()).descripcion,'Ficha editada por su titular');
+ const setAuthority=(collection,id,action)=>ok('admin','/superadmin/publications/recent',{collection,id,action});
+ await setAuthority('anunciantes',guideId,'bloquear');
+ assert(!await freshGuide());
+ assert.equal((await editGuide('Edición bajo bloqueo')).r.status,403);
+ await setAuthority('anunciantes',guideId,'eliminar');
+ assert(!await freshGuide());
+ assert.equal(rows.get('anunciantes/'+guideId).administracion_publicacion.estado,'ELIMINADA');
+ console.log('PASS alta completa de Guía, edición con revisión, bloqueo y baja mediante sesión autenticada');
+
+ for(const [collection,field,cityKey,listField,reference,read] of [
+  ['eventos','evento_id','events:city:v2:D','events',id=>'publication:recent:latest:v77:eventos:'+id,async id=>visible('D',id)],
+  ['actividades','actividad_id','activities:city:v2:D','actividades',id=>'publication:recent:latest:v77:actividades:'+id,async id=>
+   (await ok('public','/actividades?action=publicas&ciudad_id=D')).j.actividades.some(row=>row.actividad_id===id)],
+  ['anunciantes','anunciante_id','guide:city:v1:D','anunciantes',id=>'guide:advertiser:v2:'+id,async id=>
+   (await ok('public','/guide?compact=1&ciudad_id=D')).j.results.some(row=>row.id===id)],
+ ]){
+  const residualId='RESIDUAL-'+collection;
+  const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('public-city-v119:'+cityKey));
+  const cityRequest=async body=>{
+   const response=await actor.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key:cityKey,...body})}));
+   assert.equal(response.status,200);
+   return response.json();
+  };
+  const {value:base}=await cityRequest({op:'get'});
+  const row={...(collection==='actividades'?initialActivity:{}),id:residualId,[field]:residualId,anunciante_id:collection==='anunciantes'?residualId:'A',
+   nombre:residualId,nombre_evento:residualId,ciudad_id:'D',estado:'ACTIVA',estado_moderacion:'PUBLICADO',aprobado:true};
+  await cityRequest({op:'put',base,value:{...base,[listField]:[...(base?.[listField]||[]),row]}});
+  const history=collection==='anunciantes'?{anunciante_id:residualId,ciudades:['D'],cards:[row]}:{publicacion:row};
+  values.set(reference(residualId),JSON.stringify(history));
+  assert(!rows.has(collection+'/'+residualId));
+  assert(await read(residualId),collection+' tiene una copia pública residual');
+  await setAuthority(collection,residualId,'eliminar');
+  assert.equal(rows.get(collection+'/'+residualId).administracion_publicacion.estado,'ELIMINADA');
+  assert(!await read(residualId));
+  const initialWrites=sourceWrites();
+  const missing=await as('admin','/superadmin/publications/recent',{collection,id:'ABSENT-'+collection,action:'eliminar'});
+  assert.equal(missing.r.status,404);
+  assert.equal(sourceWrites(),initialWrites);
+ }
+ console.log('PASS bajas residuales por referencia histórica y ausencia total en Eventos, Actividades y Guías');
  console.log('PASS all Eventos145 integration checks');
 }finally{globalThis.fetch=original;console.log=savedLog;fs.writeFileSync('docs/evidencias/eventos145-local-reports.json',JSON.stringify(logRows,null,2));}

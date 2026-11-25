@@ -8,7 +8,7 @@
 <script src="/plataforma/paginacion.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
-<script src="/plataforma/paquete-ciudad.js?v=2"></script>
+<script src="/plataforma/paquete-ciudad.js?v=3"></script>
 <script src="/plataforma/consumo-v44.js?v=142"></script>
 
 <meta charset="UTF-8">
@@ -1259,14 +1259,18 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       return window.GLD_ADULT?.hasGrant?.()?null:window.GLD_PAQUETE_CIUDAD?.get(city);
     }
 
+    function verificarPublicacion(paquete,family,data,context){
+      return window.GLD_PAQUETE_CIUDAD.replaceWithVerifiedRows(paquete,family,data,context);
+    }
+
     async function jsonpApi(params={}, timeoutMs=15000) {
       const action=String(params.action||'').trim().toLowerCase();
-      let u;
+      let u,paquete;
 
       if(action==='ubicaciones')return window.GLD_CATALOGO_TERRITORIAL.load(timeoutMs);
 
       if(action==='guia'){
-        const paquete=await gldPaquetePublico(params.ciudad_id);
+        paquete=await gldPaquetePublico(params.ciudad_id);
         if(paquete?.modules.guide)return paquete.modules.guide;
         u=new URL(GLD_WORKER_ORIGIN+'/guide');
         u.searchParams.set('compact','1');
@@ -1282,9 +1286,10 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
       try{
-        const r = await fetch(u.toString(), {signal:controller.signal,cache:action==='guia'?'no-store':'default'});
+        const r = await fetch(u.toString(), {signal:controller.signal,cache:paquete?.needsVerification?'reload':action==='guia'?'no-store':'default'});
         if(!r.ok) throw new Error('HTTP '+r.status);
-        return await r.json();
+        const data=await r.json();
+        return action==='guia' ? verificarPublicacion(paquete,'guide',data) : data;
       }finally{
         clearTimeout(timer);
       }
@@ -1650,22 +1655,25 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
     async function obtenerEventosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.events ?? obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true);
+      return paquete?.modules.events ?? verificarPublicacion(paquete,'events',await obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true));
     }
     async function obtenerPromosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.promos ?? obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true);
+      return paquete?.modules.promos ?? verificarPublicacion(paquete,'promos',await obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true));
     }
     async function obtenerActividadesPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.activities ?? obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId,paquete?.stale===true);
+      return paquete?.modules.activities ?? verificarPublicacion(paquete,'activities',await obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId,paquete?.stale===true));
     }
 
     async function obtenerBannersPromise(){
       const paquete=await gldPaquetePublico(ciudadSeleccionada);
       const ads=paquete?await window.GLD_PAQUETE_CIUDAD.module(ciudadSeleccionada,'ads','GUIA'):null;
       if(ads)return ads;
-      if(paquete?.stale)return gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'}).then(({data})=>data);
+      if(paquete?.stale){
+        const {data}=await gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'});
+        return verificarPublicacion(paquete,'ads',data,'GUIA');
+      }
       return obtenerBannersRemotos();
     }
     function obtenerBannersRemotos(){
