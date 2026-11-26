@@ -146,6 +146,21 @@ async function run() {
     assert.equal(backend.all.filter(e=>e.service==='kv'&&e.operation==='put'&&e.detail==='territorio:admin:v1').length,1);
     assert(backend.packet('public').paises.some(row=>row.pais_id==='RECOVERY'));
     console.log('Recuperación territorial:',JSON.stringify(backend.counts));
+    if(!ref){
+      backend.reset();
+      const edit=await backend.call(worker.default,'/superadmin/countries/DRAFT',{method:'PATCH',body:{item:{nombre:'Borrador editado'}}});
+      assert.equal(edit.status,200);
+      assert.equal(edit.result.pais.activo,false);
+      assert(!backend.packet('public').paises.some(row=>row.pais_id==='DRAFT'));
+      const missing=await backend.call(worker.default,'/superadmin/countries/FALTANTE',{method:'PATCH',body:{item:{nombre:'Alta accidental'}}});
+      assert.equal(missing.status,404);
+      const move=await backend.call(worker.default,'/superadmin/provinces/'+region,{method:'PATCH',body:{item:{pais_id:'AR'}}});
+      assert.equal(move.status,409);
+      const rename=await backend.call(worker.default,'/superadmin/provinces/'+region,{method:'PATCH',body:{item:{nombre:'Provincia renombrada'}}});
+      assert.equal(rename.status,200);
+      assert.equal(rename.result.provincia.pais_id,country);
+      assert.equal(backend.counts['firestore.PATCH'],2);
+    }
     const now=Math.floor((Date.now()-4*3600000)/86400000);
     const actor=backend.env.GLD_PUBLIC_CACHE.get(backend.env.GLD_PUBLIC_CACHE.idFromName('city-book-shared-v1'));
     async function changes(from,to){

@@ -106,8 +106,19 @@ var GLD_ACTIONS138 = (() => {
  }
  async function prepare(command,packets,resources,resolved){
   const spec=identify(command.path,command.method);if(!spec)throw Error('Invalid territorial action');
-  const request=new Request('https://territory-actions.internal'+command.path,{method:command.method,headers:{'Content-Type':'application/json'},body:JSON.stringify(command.body)});
-  seed(resources.env,request,command.auth,command.body);
+  let body=command.body;
+  if(spec.id&&(spec.kind==='countries'||spec.kind==='provinces')){
+   const def=definition[spec.kind],current=packets.admin?.[def.field]?.find(row=>String(row[def.id]||row.id)===spec.id);
+   if(!current)return {status:404,result:{success:false,message:'El registro territorial no existe.'},writes:[],updates:[],lists:{}};
+   const item=body.item&&typeof body.item==='object'?body.item:body;
+   if(spec.kind==='provinces'&&item.pais_id!==undefined&&String(item.pais_id)!==String(current.pais_id)&&
+     packets.admin.ciudades?.some(city=>String(city.provincia_id)===spec.id)){
+    return {status:409,result:{success:false,message:'La provincia tiene ciudades vinculadas y no puede cambiar de país.'},writes:[],updates:[],lists:{}};
+   }
+   body={item:{nombre:current.nombre,activo:current.activo,...(spec.kind==='provinces'?{pais_id:current.pais_id}:{}),...item}};
+  }
+  const request=new Request('https://territory-actions.internal'+command.path,{method:command.method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  seed(resources.env,request,command.auth,body);
   const writes=[],lists={},updates=new Map();
   const db={
    async patch(collection,id,patch){
