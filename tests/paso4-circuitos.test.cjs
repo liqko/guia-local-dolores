@@ -551,6 +551,37 @@ test('P4-0027: el encabezado distingue la copia GH de la autorización',()=>{
  assert.equal(report.cloudflare.kv.get_calls,0);
 });
 
+test('P4-0006: verificación compacta aplica la máscara y no guarda contenido provisional',async t=>{
+ const start=worker.indexOf('function compactPublicVisibility('), end=worker.indexOf('async function routeAdult(',start);
+ assert(start>=0&&end>start);
+ let authorizations=0;
+ const run=Function('adultGrant','adultPublic',worker.slice(start,end)+';return adultPublicResponse;')(
+  async()=>{authorizations++;return false;},value=>value);
+ const input={success:true,promos:[{promo_id:'P',descripcion:'x'.repeat(3000)},{promo_id:'R',sedes:[{bloqueado18:true}]}]};
+ const spec={field:'promos',id:'promo_id'};
+ const normal=await run(Response.json(input),{},{}),compact=await run(Response.json(input),{},{},spec);
+ assert.deepEqual(await normal.json(),input);
+ const result=await compact.text();
+ assert.deepEqual(JSON.parse(result),{success:true,promos:[{promo_id:'P'},{promo_id:'R',bloqueado18:true}]});
+ assert.equal(authorizations,2);
+ assert.equal(compact.headers.get('Cache-Control'),'private, no-store');
+ assert(Buffer.byteLength(result)<Buffer.byteLength(JSON.stringify(input)));
+ t.diagnostic('Bytes de cuerpo simulados: '+Buffer.byteLength(JSON.stringify(input))+' → '+Buffer.byteLength(result));
+
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const from=source.indexOf('    function obtenerModuloCiudad('),to=source.indexOf('    async function obtenerEventosPromise(',from);
+ const requests=[],saved=[];
+ const loader=Function('moduloPromises','gldLeerModuloCache','gldFetchJson','gldGuardarModuloCache',
+  source.slice(from,to)+';return obtenerModuloCiudad;')(new Map(),()=>null,
+   async(url,options)=>{requests.push([new URL(url).searchParams.get('vista'),options.cache]);return {data:{success:true}};},
+   (...args)=>saved.push(args));
+ await Promise.all([loader('https://local.invalid/promos','p','', 'DOL',true,true),loader('https://local.invalid/promos','p','', 'DOL',true,true)]);
+ assert.deepEqual(requests,[['visibilidad','no-store']]);
+ assert.deepEqual(saved,[]);
+ await loader('https://local.invalid/promos','p','', 'DOL');
+ assert.equal(saved.length,1);
+});
+
 test('P4-0025: la base de relaciones omite la revisión sin perder bajas de deltas',async()=>{
  const base=worker.slice(worker.indexOf('  async function revision(key)'),worker.indexOf('  async function relationRows('));
  const reader=worker.slice(worker.indexOf('  const advertiserRelationKey104='),worker.indexOf('  async function relationOwners('));

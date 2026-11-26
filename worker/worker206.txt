@@ -10665,11 +10665,19 @@ function adultPublic(value,authorized){
  if(adultFlag(value.contenido_adulto)&&authorized)for(const k of ['nombre','nombre_evento','titulo','promo'])if(out[k])out[k]='+18 · '+out[k];
  return out;
 }
-async function adultPublicResponse(response,env,request){
+function compactPublicVisibility(value,spec){
+ if(value?.success!==true||!Array.isArray(value[spec.field]))return value;
+ const restricted=row=>Boolean(row&&typeof row==='object'&&(row.bloqueado18===true||Object.values(row).some(restricted)));
+ return {...value,[spec.field]:value[spec.field].flatMap(row=>{
+  const id=String(row?.[spec.id]??row?.id??'');
+  return id?[{[spec.id]:id,...(restricted(row)?{bloqueado18:true}:{})}]:[];
+ })};
+}
+async function adultPublicResponse(response,env,request,visibility=null){
  if(!response.headers.get('Content-Type')?.includes('application/json')||response.status!==200)return response;
  const body=await response.json(),authorized=await adultGrant(env,request),safe=adultPublic(body,authorized),headers=new Headers(response.headers);
  headers.set('Cache-Control','private, no-store');headers.set('Vary','X-GLD-Adult-Token');
- return new Response(JSON.stringify(safe),{status:response.status,headers});
+ return new Response(JSON.stringify(visibility?compactPublicVisibility(safe,visibility):safe),{status:response.status,headers});
 }
 async function routeAdult(ctx){
  const {path,request,env,db,cache}=ctx;
@@ -13592,7 +13600,12 @@ var app_main_v35_default = {
       const conversation=await routeSupportConversationV74(ctx);if(conversation)return await traced(conversation);
       const support=await routeSupportV73(ctx);if(support)return await traced(support);
       const adult=await routeAdult(ctx);if(adult)return await traced(adult);
-      const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){report.source='public-kv';return await traced(await adultPublicResponse(pub,env,request));}
+      const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){
+       report.source='public-kv';
+       const visibility=request.method==='GET'&&url.searchParams.get('vista')==='visibilidad'?
+        [PUBLIC_FEATURES191.events,PUBLIC_FEATURES191.promos,PUBLIC_FEATURES191.activities].find(spec=>spec.path===path):null;
+       return await traced(await adultPublicResponse(pub,env,request,visibility));
+      }
       const panel=await routePanelV15(ctx);if(panel)return await traced(panel);
       const access155=await roleRoutes155(ctx);if(access155)return await traced(access155);
       const moderators=await routeModeratorsV72(ctx);if(moderators)return await traced(moderators);
