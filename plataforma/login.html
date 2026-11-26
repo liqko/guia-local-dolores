@@ -3241,7 +3241,7 @@ async function handleUnconfirmedOperation(res, options={}){
   }
 
   try{
-    if(reload) await reload();
+    if(reload && (await reload())===false) throw new Error('No se obtuvo una lista actualizada.');
 
     if(verify){
       const verified=!!verify();
@@ -7018,7 +7018,7 @@ async function loadPromosUI(){
 
   try{
     const res = await promos_post({ action: 'getPromos' });
-    if(res.status !== 200 || !res.json){
+    if(res.status !== 200 || res.json?.success!==true || (!Array.isArray(res.json.promos)&&!Array.isArray(res.json.rows))){
       st.textContent = 'Error cargando promos.';
       list.innerHTML='<div class="error">No se pudieron cargar las promos. Usá “Actualizar promos” para reintentar.</div>';
       return false;
@@ -7414,6 +7414,9 @@ function gldEditComparable_(value){
   return String(value).trim();
 }
 function gldEditEqual_(a,b){return JSON.stringify(gldEditComparable_(a))===JSON.stringify(gldEditComparable_(b));}
+function gldEditMatchesPatch_(row,patch){
+  return Boolean(row)&&Object.entries(patch).every(([key,value])=>Object.hasOwn(row,key)&&gldEditEqual_(row[key],value));
+}
 function gldEditBegin_(moduleKey,recordId,serializer){gldEditSessions[moduleKey]={id:String(recordId||'').trim(),baseline:gldEditComparable_(serializer())};}
 function gldEditPatch_(moduleKey,serializer,excludedKeys=[]){
   const s=gldEditSessions[moduleKey]; if(!s) throw new Error('No hay una sesión de edición activa.');
@@ -7796,7 +7799,7 @@ async function loadEventsUI(){
 
   try{
     const res = await events_post({ action:'getVipEvents' });
-    if(res.status !== 200 || !res.json){
+    if(res.status !== 200 || res.json?.success!==true || !Array.isArray(res.json.events)){
       st.textContent = 'Error cargando eventos.';
       list.innerHTML = '<div class="error">No se pudieron cargar los eventos. Usá “Actualizar eventos” para reintentar.</div>';
       setMsg('eventos-msg', 'err', 'No se pudieron cargar los eventos.');
@@ -8966,10 +8969,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       if(!isHttpUrl(img)){ promoShowError_('La URL de la imagen de la promo no es válida.'); return; }
 
       if(btn.dataset.mode === 'edit' && editingPromoId){
+        const promoId=editingPromoId;
         if(!Object.keys(promoPatch).length){setMsg('promos-msg','ok','No hay cambios para guardar.');return;}
         await runDashboardAction('Guardando cambios de la promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Guardando cambios...');
-          const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:editingPromoId},promoPatch) });
+          const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:promoId},promoPatch) });
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', 'Promo actualizada.');
             promoUpsertLocal_(r.json.promo);
@@ -8978,8 +8982,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
             reload:()=>loadPromosUI(),
-            verify:()=> (window.__lastPromos||[]).some(x=>String(x.promo_id||'')===String(editingPromoId)),
-            successMessage:'La lista fue actualizada. Revisá los cambios guardados.',
+            verify:()=>gldEditMatchesPatch_((window.__lastPromos||[]).find(x=>String(x.promo_id||'')===String(promoId)),promoPatch),
+            successMessage:'Promo actualizada.',
             unknownMessage:'No se pudo confirmar la actualización. Revisá la promo antes de volver a guardar.'
           })){
             // verificación resuelta
@@ -9223,6 +9227,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       if(!isHttpUrl(payload.youtube)){ alert('La URL de YouTube no es válida.'); return; }
 
       if(btn.dataset.mode === 'edit' && editingEventId){
+        const eventId=editingEventId;
         const editPatch=gldEditPatch_('eventos_vip',buildEventPayloadFromForm,['programacion']);
         const currentProgramacion=readEventProgramacionFromUI_();
         const baselineProgramacion=gldEditSessions.eventos_vip?.baseline?.programacion||[];
@@ -9230,7 +9235,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         if(!Object.keys(editPatch).length){setMsg('eventos-msg','ok','No hay cambios para guardar.');return;}
         await runDashboardAction('Guardando cambios del evento...',async()=>{
           setMsg('eventos-msg', 'ok', 'Guardando cambios...');
-          const res = await events_post({ action:'updateVipEvent', payload: Object.assign({evento_id:editingEventId,revision_evento145:gldEditSessions.eventos_vip?.revision145},editPatch) });
+          const res = await events_post({ action:'updateVipEvent', payload: Object.assign({evento_id:eventId,revision_evento145:gldEditSessions.eventos_vip?.revision145},editPatch) });
           if(res.status === 200 && res.json && (res.json.success || res.json.updated)){
             setMsg('eventos-msg', 'ok', 'Evento actualizado.');
             eventUpsertLocal_(res.json.evento);
@@ -9244,8 +9249,8 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
           } else if(await handleUnconfirmedOperation(res,{
             msgId:'eventos-msg',
             reload:()=>loadEventsUI(),
-            verify:()=> (window.__lastEvents||[]).some(x=>String(x.evento_id||'')===String(editingEventId)),
-            successMessage:'La lista fue actualizada. Revisá los cambios guardados.',
+            verify:()=>gldEditMatchesPatch_((window.__lastEvents||[]).find(x=>String(x.evento_id||'')===String(eventId)),editPatch),
+            successMessage:'Evento actualizado.',
             unknownMessage:'No se pudo confirmar la actualización. Revisá el evento antes de volver a guardar.'
           })){
             // verificación resuelta
@@ -10235,11 +10240,11 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 </script>
 
 <script src="/plataforma/contadores-caracteres.js?v=2"></script>
-<script src="/plataforma/contenido-adulto.js?v=145" data-adult-editor></script>
+<script src="/plataforma/contenido-adulto.js?v=146" data-adult-editor></script>
 <script src="/plataforma/terminos-anunciantes.js?v=82"></script>
 <script src="/plataforma/publicacion.js?v=111"></script>
 <script src="/plataforma/notificaciones.js?v=103"></script>
-<script src="/plataforma/empleo-enlaces.js?v=110"></script><script src="/plataforma/cobertura-provincia.js?v=113"></script><script src="/plataforma/publicidad-panel147.js?v=147"></script>
+<script src="/plataforma/empleo-enlaces.js?v=111"></script><script src="/plataforma/cobertura-provincia.js?v=113"></script><script src="/plataforma/publicidad-panel147.js?v=147"></script>
 </body>
 </html>
 

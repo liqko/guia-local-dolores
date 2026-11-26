@@ -24,6 +24,7 @@ const groups = {
   navegador: [
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
     ['Carga, recarga y actualización de Guía en navegador aislado','node',['tests/browser/paquete-ciudad.cjs']],
+    ['Creación, edición, baja y recuperación de Promociones en navegador aislado','node',['tests/browser/promociones-mutaciones.cjs']],
     ['Caché segura de Guía, versión y datos privados','node',['--test','tests/browser/descubrir-sin-descarga-repetida.cjs']],
     ['Descargas iniciales, navegación y modo sin conexión','node',['--test','tests/browser/sw-descargas-cache.cjs']],
   ],

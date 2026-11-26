@@ -15,7 +15,10 @@
   if(editor.hasAttribute('data-admin-entry195')){
    apply(window.GLD_ADMIN_WORKER_INFO195||{});
    window.addEventListener('gld-admin-entry195',event=>apply(event.detail||{}));
-  }else nativeFetch(origin+'/').then(r=>r.json()).then(apply).catch(()=>{});
+  }else{
+   const info=window.GLD_WORKER_CAPABILITIES??=(nativeFetch(origin+'/').then(r=>r.json()));
+   info.then(apply).catch(()=>{});
+  }
   return;
  }
 

@@ -33,7 +33,8 @@ async function stagePaths(stage,dir=''){
 }
 
 export async function deployHosting({stage,mode,token,read=fetch,target,expected,baseIndex,observe=()=>{}}){
-  if(!['code','urgent','inspect','rollback'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
+  if(!['code','urgent','inspect','rollback','rollback-check'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
+  const rollback=mode==='rollback'||mode==='rollback-check';
   const metrics={requests:0,requestBodyBytes:0,responseBodyBytes:0,uploadBytes:0};
   const call=async(path,{method='GET',body,bytes}={})=>{
     const url=new URL(path,api);
@@ -70,7 +71,7 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
     if(!files.size)throw Error('Falta el inventario de hashes de la versión.');
     return files;
   };
-  if(mode==='rollback'&&(!expected||expected!==active||!target?.startsWith(site+'/versions/')||target===active||
+  if(rollback&&(!expected||expected!==active||!target?.startsWith(site+'/versions/')||target===active||
     !/^[A-Za-z0-9_-]+$/.test(target.slice((site+'/versions/').length))))throw Error('Indicá las dos versiones y verificá cuál está activa.');
   if(baseIndex){
     const url=new URL(manifestPath,'https://anunciantes-guialocal.web.app');
@@ -90,13 +91,14 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
     if(await latest()!==version)throw Error('Firebase no confirmó la versión activa esperada.');
     return {previous:active,version,metrics};
   };
-  if(mode==='rollback'){
+  if(rollback){
     const old=await listFiles(target);
     const packageEntries=files=>new Map([...files].filter(([path])=>path.startsWith(packageRoot)));
     const livePackages=packageEntries(previous),oldPackages=packageEntries(old);
     if(livePackages.size!==oldPackages.size||[...livePackages].some(([path,hash])=>oldPackages.get(path)!==hash)){
       throw Error('La reversión restauraría un índice o paquete distinto. Revertí código conservando la edición pública vigente.');
     }
+    if(mode==='rollback-check')return {version:active,target,compatible:true,metrics};
     return activate(target);
   }
   const staged=await stagePaths(stage);

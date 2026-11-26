@@ -19,8 +19,9 @@ test('corte de la 01:00 y despliegue de código prescinden de cuerpos publicados
     const stage=join(directory,mode+String(reusePublished));
     await mkdir(join(stage,'plataforma'),{recursive:true});
     await writeFile(join(stage,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
-    const urls=[];
+    const urls=[],operations=[];
     await publicarPaquetes({mode,stage,reusePublished,cutoff:cutoff+86400000,identity:async()=>'fixture',
+      observe:operation=>operations.push(operation),
       read:async (value,options)=>{
         const url=new URL(value);
         if(url.hostname.endsWith('workers.dev'))return Response.json({complete:true,after:cutoff,cutoff:cutoff+86400000,cities:[{city:'A',changes:delta}]});
@@ -33,6 +34,10 @@ test('corte de la 01:00 y despliegue de código prescinden de cuerpos publicados
       }});
     if(!reusePublished)assert.equal(urls.length,4);
     else assert.deepEqual(urls,mode==='cut'?[root+'publicacion.json',root+'QQ/completo-1.json']:[root+'publicacion.json']);
+    const publicOps=operations.filter(operation=>operation.service==='hosting');
+    assert.equal(publicOps.length,urls.length);
+    t.diagnostic(JSON.stringify({mode,reusePublished,hostingRequests:publicOps.length,
+      hostingBodyBytes:publicOps.reduce((sum,operation)=>sum+operation.responseBodyBytes,0)}));
   }
 });
 
@@ -117,6 +122,11 @@ test('inspección es de sólo lectura y la reversión exige preservar los paquet
   await assert.rejects(deployHosting(options),/restauraría/);
   assert.equal(writes,0);
   olderHash='a'.repeat(64);
+  const verification=await deployHosting({...options,mode:'rollback-check'});
+  assert.equal(verification.compatible,true);
+  assert.equal(verification.version,active);
+  assert.equal(verification.metrics.requests,3);
+  assert.equal(writes,0);
   const reverted=await deployHosting(options);
   assert.equal(reverted.version,base);
   assert.equal(reverted.metrics.uploadBytes,0);
