@@ -120,7 +120,7 @@
           if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
         } catch (error) {
           if (!stillCurrent(city, info)) return api.get(city);
-          if (!isDelta) throw error;
+          if (!isDelta || error?.transportUnavailable) throw error;
           // Recuperar desde la misma publicación estática, sin volver al Worker.
           book = await fetchJson(prefix + 'completo-' + info.revision + '.json');
           if (!validBook(book, city) || book.revision !== info.revision) throw Error('Versión inválida');
@@ -236,7 +236,10 @@
   const storage=localBooks();
   const embedded=city=>root.GLD_CATALOGO_TERRITORIAL?.paqueteCiudad?.(city);
   async function fetchJson(path, options={}){
-    const response=await root.fetch(path,{...options,signal:AbortSignal.timeout(6500)});
+    if(root.navigator.onLine===false)throw Object.assign(Error('Sin conexión'),{transportUnavailable:true});
+    let response;
+    try{response=await root.fetch(path,{...options,signal:AbortSignal.timeout(6500)});}
+    catch(cause){throw Object.assign(Error('No se pudo conectar con Hosting',{cause}),{transportUnavailable:true});}
     if(!response.ok)throw Error('HTTP '+response.status);
     return response.json();
   }

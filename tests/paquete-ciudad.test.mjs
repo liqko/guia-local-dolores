@@ -250,3 +250,25 @@ test('reconexión: un fallo de índice se reintenta bajo demanda sin contaminar 
  assert.equal(await loader.get('DOL'),fresh);
  assert.deepEqual(calls,Array.from({length:2},()=>['/plataforma/paquetes-ciudad/publicacion.json','no-store']));
 });
+test('P4-0006: fallo de transporte de delta evita descargar el paquete completo',async()=>{
+ const previous=initial('dolores'),next={...initial('dolores'),revision:2};
+ const requests=[];
+ let connected=false,writes=0;
+ const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
+  storage:{get:()=>previous,put:()=>{writes++;}},
+  fetchJson:async path=>{
+   requests.push(path);
+   if(!connected)throw Object.assign(Error('sin red'),{transportUnavailable:true});
+   assert.match(path,/cambios-1-2/);
+   return {city:next.city,from:1,revision:2,changes:{}};
+  }});
+ const offline=await api.get('dolores');
+ assert.equal(offline.stale,true);
+ assert.deepEqual(Object.keys(offline.modules),['pharmacy']);
+ assert.equal(requests.length,1);
+ assert.equal(writes,0);
+ connected=true;
+ assert.equal((await api.get('dolores')).revision,2);
+ assert.equal(requests.length,2);
+ assert.equal(writes,1);
+});
