@@ -118,8 +118,8 @@ async function observeExternalImages(context,page,phase){
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes','continuidad',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|continuidad|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes','continuidad','sesion-lecturas','incidentes-gh',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|continuidad|sesion-lecturas|incidentes-gh|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -130,7 +130,7 @@ async function main([action, name, sessionOption]) {
   await mkdir(base,{recursive:true,mode:0o700});
   const state = join(base,name+'.session.json');
   const interactive = action==='sesion';
-  const session = !interactive&&(Boolean(module)||['consultas','continuidad'].includes(action)||name!=='usuario'||Boolean(sessionOption));
+  const session = !interactive&&(Boolean(module)||['consultas','continuidad','sesion-lecturas'].includes(action)||name!=='usuario'||Boolean(sessionOption));
   let browser, evidence, failure, externalImages, phase='apertura';
   const javascriptErrors = [], steps = [], hostingTimings = [];
   try {
@@ -153,6 +153,49 @@ async function main([action, name, sessionOption]) {
         finally {input.close();}
       }
       await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
+    }
+    if(action==='incidentes-gh'&&name==='gran-hermano'){
+      const options={timeout:15000};
+      phase='gh:suscriptores:abrir';
+      await page.locator('#ghTabs .gh-main[data-gh-group="administracion"]').click(options);
+      await page.locator('#ghTabs [data-view="suscriptores"]').click(options);
+      const input=page.locator('#qSus');
+      await input.waitFor(options);
+      phase='gh:suscriptores:buscar';
+      const query='gld-auditoria-sin-coincidencia-'+randomUUID();
+      await input.fill(query,options);
+      const found=page.waitForResponse(response=>{
+        const url=new URL(response.url());
+        return url.pathname==='/superadmin/subscribers/search'&&url.searchParams.get('q')===query;
+      },options);
+      const [response]=await Promise.all([found,page.locator('#btnBuscarSus').click(options)]);
+      const data=await response.json().catch(()=>null);
+      steps.push({phase,status:response.ok()&&Array.isArray(data?.results)?'aprobado':'fallo',
+        httpStatus:response.status(),records:Array.isArray(data?.results)?data.results.length:null});
+    }
+    if(action==='sesion-lecturas'&&name==='usuario'){
+      const cases=[
+        {label:'favoritos:consulta-histórica',method:'GET',path:'/suscriptores?action=favoritos&tipo=ANUNCIANTE'},
+        {label:'sesión:validación-post',method:'POST',path:'/suscriptores',body:{action:'session'}}
+      ];
+      for(const scenario of cases){
+        phase=scenario.label;
+        const outcome=await page.evaluate(async({method,path,body})=>{
+          const token=localStorage.getItem('gld_suscriptor_token_v2');
+          if(!token)return {status:null,valid:false};
+          try{
+            const response=await fetch('https://login.liqkoargentina.workers.dev'+path,{
+              method,headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},
+              ...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(12000)
+            });
+            const data=await response.json().catch(()=>null);
+            return {status:response.status,valid:response.ok&&data?.success===true&&
+              (method!=='GET'||Array.isArray(data.favoritos)),
+              ...(method==='GET'&&Array.isArray(data?.favoritos)?{records:data.favoritos.length}:{})};
+          }catch(error){return {status:null,valid:false,reason:error.name};}
+        },scenario);
+        steps.push({phase,status:outcome.valid?'aprobado':'fallo',httpStatus:outcome.status,records:outcome.records,reason:outcome.reason});
+      }
     }
     if(action==='continuidad'&&name==='usuario'){
       const target=new URL(route.path,origin).href;

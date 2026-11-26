@@ -539,6 +539,18 @@ test('P4-0012: proyección privada confirma bajas históricas y recupera fallo p
  await call({action:'add',tipo:'ANUNCIANTE',ref:'C',nombre_ref:'C'});
  assert.deepEqual([reads,writes,commits,storeWrites],[2,3,2,5]);
 });
+test('P4-0035-T08: Favoritos devuelve 401 ante una sesión denegada',async()=>{
+ const a=worker.indexOf('async function sessionOrThrow(');
+ const b=worker.indexOf('// Single private projection',a);
+ assert(a>=0&&b>a);
+ const verify=Function('verifySubscriberSession','httpError',worker.slice(a,b)+';return sessionOrThrow;');
+ const error=(message,status)=>Object.assign(Error(message),{status});
+ const denied=verify(async()=>({ok:false,message:'Sesión vencida'}),error);
+ await assert.rejects(denied({},{}),{status:401,message:'Sesión vencida'});
+ const allowed={ok:true,sid:'A'};
+ assert.equal(await verify(async()=>allowed,error)({},{}),allowed);
+});
+
 test('P4-0012: rutas de favoritos usan proyección serializada e identidad autenticada',()=>{
  const a=worker.indexOf('async function listFavoritesV2('),b=worker.indexOf('return {listFavoritesV2',a);
  const src=worker.slice(a,b);
