@@ -3,7 +3,7 @@
 const {access, mkdir, writeFile} = require('node:fs/promises');
 const {homedir} = require('node:os');
 const {join} = require('node:path');
-const {randomUUID} = require('node:crypto');
+const {createHash,randomUUID} = require('node:crypto');
 
 const origin = 'https://www.guialocal.ar';
 const routes = {
@@ -85,6 +85,37 @@ function installMeasurement(context, services=domains, phase=()=>null) {
   };
 }
 
+async function observeExternalImages(context,page,phase){
+  const session=await context.newCDPSession(page),inFlight=new Map(),rows=[];
+  session.on('Network.requestWillBeSent',event=>{
+    const url=new URL(event.request.url);
+    if(event.type!=='Image'||!['http:','https:'].includes(url.protocol)||domains.has(url.hostname))return;
+    const resource=createHash('sha256').update(url.href).digest('hex').slice(0,16);
+    inFlight.set(event.requestId,{phase:phase(),host:url.hostname,resource,initiator:event.initiator.type,cache:null,encodedBytes:null});
+  });
+  session.on('Network.requestServedFromCache',event=>{
+    const row=inFlight.get(event.requestId);
+    if(row)row.cache='browser';
+  });
+  session.on('Network.responseReceived',event=>{
+    const row=inFlight.get(event.requestId);
+    if(!row)return;
+    const response=event.response;
+    row.status=response.status;
+    if(response.fromServiceWorker)row.cache='service-worker';
+    else if(response.fromDiskCache)row.cache='disk';
+    else if(response.fromPrefetchCache)row.cache='prefetch';
+  });
+  session.on('Network.loadingFinished',event=>{
+    const row=inFlight.get(event.requestId);
+    if(!row)return;
+    row.encodedBytes=event.encodedDataLength;
+    rows.push(row);inFlight.delete(event.requestId);
+  });
+  await session.send('Network.enable');
+  return rows;
+}
+
 async function main([action, name, sessionOption]) {
   const route = routes[name];
   if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
@@ -100,7 +131,7 @@ async function main([action, name, sessionOption]) {
   const state = join(base,name+'.session.json');
   const interactive = action==='sesion';
   const session = !interactive&&(Boolean(module)||action==='consultas'||name!=='usuario'||Boolean(sessionOption));
-  let browser, evidence, failure, phase='apertura';
+  let browser, evidence, failure, externalImages, phase='apertura';
   const javascriptErrors = [], steps = [], hostingTimings = [];
   try {
     if (session) await access(state);
@@ -109,6 +140,7 @@ async function main([action, name, sessionOption]) {
     if (!interactive) evidence = installMeasurement(context,domains,()=>phase);
     const page = await context.newPage();
     page.on('pageerror',error=>javascriptErrors.push(error.name));
+    if(action==='consultas'&&name==='usuario')externalImages=await observeExternalImages(context,page,()=>phase);
     if(action!=='infraestructura'){
       const target=new URL(interactive&&route.login?route.login:route.path,origin);
       if(fixture&&name==='usuario')target.searchParams.set('ciudad_id',fixture.ciudad);
@@ -265,7 +297,7 @@ async function main([action, name, sessionOption]) {
     try {
       if (!interactive) {
         const result = {evidenceType:'installed-browser-observation',date:new Date().toISOString(),interface:name,action,sessionRequested:session,result:failure?'fallo':'aprobado',
-          error:failure??null,javascriptErrors,steps,hostingTimings,...(await evidence?.())};
+          error:failure??null,javascriptErrors,steps,hostingTimings,externalImages,...(await evidence?.())};
         const output=join(base,name+'-'+randomUUID()+'.json');
         await writeFile(output,JSON.stringify(result,null,2),{mode:0o600});
         console.log(output);
