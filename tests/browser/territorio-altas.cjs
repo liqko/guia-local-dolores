@@ -32,8 +32,8 @@ async function run() {
     });
     await page.goto('https://fixture.invalid');
     await page.addScriptTag({ content:`
-      const GH_COUNTRIES=[{pais_id:'AR',nombre:'Argentina'},{pais_id:'UY',nombre:'Uruguay'}];
-      const GH_PROVINCES=[{provincia_id:'BA',pais_id:'AR',nombre:'Buenos Aires'},{provincia_id:'MO',pais_id:'UY',nombre:'Montevideo'}];
+      let GH_COUNTRIES=[{pais_id:'AR',nombre:'Argentina'},{pais_id:'UY',nombre:'Uruguay'}];
+      let GH_PROVINCES=[{provincia_id:'BA',pais_id:'AR',nombre:'Buenos Aires'},{provincia_id:'MO',pais_id:'UY',nombre:'Montevideo'}];
       let GH_CITIES=[];
       const esc=String, TOKEN=${JSON.stringify(session())}, TERRITORY_API_ORIGIN=location.origin;
       const ghInvalidarCatalogoPublicoCiudades=()=>{}, ghRenderCiudades=()=>{};

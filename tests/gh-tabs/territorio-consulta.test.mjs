@@ -20,11 +20,13 @@ test('abrir Administración y Configuración/Territorio usa la edición del ingr
  const h=fixture();h.ctx.ghElegirGrupo('administracion');await h.settle();h.ctx.ghGoView('configuracion');await h.settle();
  assert.equal(h.requests.length,0);assert.equal(h.ctx.GH_CITIES.length,2);assert.match(h.get('ciuSelect').innerHTML,/Dolores/);assert.match(h.get('ciuSelect').innerHTML,/Chascomús/);
 });
-test('volver veinte veces y pulsar Actualizar reutiliza los mismos datos sin fetch',async()=>{
+test('volver veinte veces reutiliza los datos; Actualizar fuerza una sola lectura',async()=>{
  const h=fixture();
  for(let i=0;i<20;i++){h.ctx.ghSelectConfig('territorio');await h.settle();}
  const line=html.match(/document\.getElementById\('btnCiudadesRefresh'\)\.onclick=(async function\(\)\{[^\n]+\});/)?.[1];assert(line,'Use the actual button handler');
- await vm.runInContext('('+line+')()',h.ctx);assert.equal(h.requests.length,0);assert.equal(h.ctx.GH_CITIES.length,2);
+ assert.equal(h.requests.length,0);
+ h.ctx.fetch=async(...args)=>{h.requests.push(args);return Response.json({success:true,...h.ctx.GH_DAILY_ENTRY195.territory});};
+ await vm.runInContext('('+line+')()',h.ctx);assert.equal(h.requests.length,1);assert.match(h.requests[0][0],/superadmin\/territory$/);assert.equal(h.ctx.GH_CITIES.length,2);
 });
 test('buscar con acentos y seleccionar ciudad sólo opera sobre la lista cargada',async()=>{
  const h=fixture();await h.ctx.ghCargarCiudades();h.get('ciuQ').value='chascomus';h.ctx.ghRenderCiudades();assert.match(h.get('ciuSelect').innerHTML,/Chascomús/);assert.doesNotMatch(h.get('ciuSelect').innerHTML,/Dolores/);
