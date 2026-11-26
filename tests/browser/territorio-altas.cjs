@@ -86,7 +86,8 @@ async function run() {
     await save();
     assert.deepEqual(posts.map(post=>post.path), ['/superadmin/countries/create','/superadmin/provinces/create','/superadmin/cities/create']);
     assert.equal(posts[2].item.pais_id,country);
-    for(const post of posts)assert.equal(post.consumption.cloudflare.action_store.shared_marker_calls,1);
+    const markers=posts.map(post=>post.consumption.cloudflare.action_store.shared_marker_calls||0);
+    assert.deepEqual(markers,ref?[1,1,1]:[1,0,0]);
     for(const [collection,id] of [['paises',country],['provincias',region],['ciudades',posts[2].item.ciudad_id]]) {
       assert(backend.docs.has(collection+'/'+id));
       for(const scope of ['admin','public']) assert(backend.packet(scope)[collection].some(row=>Object.values(row).includes(id)));
@@ -95,7 +96,7 @@ async function run() {
     if(process.env.GLD_TERRITORY_TRACE==='1')console.log('Traza territorial:',JSON.stringify(backend.all));
     assert.equal(backend.counts['firestore.PATCH'],3);
     assert.equal(backend.counts['kv.put'],6);
-    assert.equal(backend.counts['do.calls'],9);
+    assert.equal(backend.counts['do.calls'],ref?9:7);
     backend.reset();
     const replay=await backend.call(worker.default,posts[0].path,{method:'POST',body:{item:posts[0].item},headers:{'Idempotency-Key':'territory-create-'+country}});
     assert.equal(replay.result.operation_replayed,true);

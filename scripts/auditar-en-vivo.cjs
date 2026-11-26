@@ -118,8 +118,8 @@ async function observeExternalImages(context,page,phase){
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes','continuidad',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|continuidad|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -130,7 +130,7 @@ async function main([action, name, sessionOption]) {
   await mkdir(base,{recursive:true,mode:0o700});
   const state = join(base,name+'.session.json');
   const interactive = action==='sesion';
-  const session = !interactive&&(Boolean(module)||action==='consultas'||name!=='usuario'||Boolean(sessionOption));
+  const session = !interactive&&(Boolean(module)||['consultas','continuidad'].includes(action)||name!=='usuario'||Boolean(sessionOption));
   let browser, evidence, failure, externalImages, phase='apertura';
   const javascriptErrors = [], steps = [], hostingTimings = [];
   try {
@@ -138,7 +138,7 @@ async function main([action, name, sessionOption]) {
     browser = await chromium.launch({headless:!interactive,executablePath:process.env.GLD_CHROME});
     const context = await browser.newContext(session?{storageState:state}:{});
     if (!interactive) evidence = installMeasurement(context,domains,()=>phase);
-    const page = await context.newPage();
+    let page = await context.newPage();
     page.on('pageerror',error=>javascriptErrors.push(error.name));
     if(['consultas','imagenes'].includes(action)&&name==='usuario')externalImages=await observeExternalImages(context,page,()=>phase);
     if(action!=='infraestructura'){
@@ -153,6 +153,45 @@ async function main([action, name, sessionOption]) {
         finally {input.close();}
       }
       await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
+    }
+    if(action==='continuidad'&&name==='usuario'){
+      const target=new URL(route.path,origin).href;
+      const options={timeout:15000};
+      const ready=()=>page.frameLocator('#moduloCentralFrame').locator('#contenedor').waitFor(options);
+      const settle=()=>page.waitForLoadState('networkidle',{timeout:4500}).catch(()=>{});
+      await ready();
+      await settle();
+      async function scenario(label,check){
+        phase=label;
+        try{await check();await settle();steps.push({phase,status:'aprobado'});}
+        catch(error){steps.push({phase,status:'fallo',reason:error.name});}
+      }
+      await scenario('guia:cerrar-y-reabrir',async()=>{
+        await page.close();
+        page=await context.newPage();
+        await page.goto(target,{waitUntil:'load',...options});
+        await ready();
+      });
+      await scenario('empleo:ir',async()=>{
+        const link=page.locator('#moduloEmpleo');
+        if(!await link.isVisible())await page.locator('.modulos-menu-trigger').click(options);
+        await link.click(options);
+        await page.frameLocator('#moduloCentralFrame').locator('#public-list > *').first().waitFor(options);
+      });
+      await scenario('guia:regresar',async()=>{
+        await page.locator('#moduloGuia').click(options);
+        await ready();
+      });
+      await scenario('guia:sin-red',async()=>{
+        await context.setOffline(true);
+        await page.reload({waitUntil:'load',...options});
+        await ready();
+      });
+      await context.setOffline(false);
+      await scenario('guia:reconexion',async()=>{
+        await page.goto(target,{waitUntil:'load',...options});
+        await ready();
+      });
     }
     if(action==='imagenes'){
       await page.waitForLoadState('networkidle',{timeout:5000}).catch(()=>{});
