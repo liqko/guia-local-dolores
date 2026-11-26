@@ -142,3 +142,41 @@ test('las rutas estáticas actuales se convierten al contrato de Firebase',async
   assert.equal(config.redirects[0].statusCode,301);
   assert.equal(typeof config.headers[0].headers['Cache-Control'],'string');
 });
+
+test('overlay conserva la configuración y los hashes ajenos al bloque',async t=>{
+  const stage=await mkdtemp(join(tmpdir(),'gld-hosting-overlay-'));
+  t.after(()=>rm(stage,{recursive:true,force:true}));
+  const site='sites/anunciantes-guialocal',base=site+'/versions/base',candidate=site+'/versions/new';
+  const path='/pie.html',keep=root+'publicacion.json',hash='a'.repeat(64),config={cleanUrls:true};
+  await writeFile(join(stage,path),'pie actualizado');
+  let active=base,updates=0;
+  const read=async(url,{method,body})=>{
+    if(method==='GET'&&url.pathname.endsWith('/releases'))return Response.json({releases:[{version:{name:active}}]});
+    if(method==='GET'&&url.pathname.endsWith('/files'))return Response.json({files:[{path:keep,hash}]});
+    if(method==='GET'&&url.pathname.endsWith('/base'))return Response.json({config});
+    updates++;
+    if(url.pathname.endsWith('/versions')){
+      assert.deepEqual(JSON.parse(body),{config});
+      return Response.json({name:candidate});
+    }
+    if(url.pathname.endsWith(':populateFiles')){
+      const files=JSON.parse(body).files;
+      assert.deepEqual(Object.keys(files),[keep,path]);
+      assert.equal(files[keep],hash);
+      return Response.json({uploadRequiredHashes:[]});
+    }
+    if(method==='PATCH')return Response.json({});
+    if(method==='POST'&&url.pathname.endsWith('/releases')){
+      active=url.searchParams.get('versionName');
+      return Response.json({});
+    }
+    assert.fail(url.href);
+  };
+  const options={stage,mode:'overlay',expected:base,token:'fixture',read};
+  await assert.rejects(deployHosting({...options,overlayPaths:['/otro.html']}),/alcance autorizado/);
+  assert.equal(updates,0);
+  assert.equal((await deployHosting({...options,overlayPaths:[path]})).version,candidate);
+  const rollback=await deployHosting({mode:'rollback-check',expected:candidate,target:base,token:'fixture',read});
+  assert.equal(rollback.compatible,true);
+  assert.equal(active,candidate);
+});

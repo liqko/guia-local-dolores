@@ -32,9 +32,10 @@ async function stagePaths(stage,dir=''){
   return files;
 }
 
-export async function deployHosting({stage,mode,token,read=fetch,target,expected,baseIndex,observe=()=>{}}){
-  if(!['code','urgent','inspect','rollback','rollback-check'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
+export async function deployHosting({stage,mode,token,read=fetch,target,expected,baseIndex,overlayPaths,observe=()=>{}}){
+  if(!['code','urgent','inspect','rollback','rollback-check','overlay'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
   const rollback=mode==='rollback'||mode==='rollback-check';
+  const overlay=mode==='overlay';
   const metrics={requests:0,requestBodyBytes:0,responseBodyBytes:0,uploadBytes:0};
   const call=async(path,{method='GET',body,bytes}={})=>{
     const url=new URL(path,api);
@@ -71,6 +72,7 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
     if(!files.size)throw Error('Falta el inventario de hashes de la versión.');
     return files;
   };
+  if(overlay&&expected!==active)throw Error('Cambió la versión activa esperada.');
   if(rollback&&(!expected||expected!==active||!target?.startsWith(site+'/versions/')||target===active||
     !/^[A-Za-z0-9_-]+$/.test(target.slice((site+'/versions/').length))))throw Error('Indicá las dos versiones y verificá cuál está activa.');
   if(baseIndex){
@@ -105,12 +107,19 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
   const changed=new Map(), result=new Map();
   const urgent=mode==='urgent';
   const files=staged;
+  if(overlay){
+    const allowed=new Set(overlayPaths);
+    if(!files.length||allowed.size!==files.length||files.some(path=>!allowed.has(path)||path.startsWith(packageRoot)||path==='/plataforma/territorio-cache.js')){
+      throw Error('El bloque incluye archivos fuera del alcance autorizado.');
+    }
+    for(const [path,hash] of previous)result.set(path,hash);
+  }
   if(urgent&&files.some(path=>!path.startsWith(packageRoot)))throw Error('La publicación urgente incluye archivos ajenos a los paquetes.');
   if (urgent) for(const [path,hash] of previous) if(!path.startsWith(packageRoot))result.set(path,hash);
-  if(!files.includes(manifestPath)){
+  if(!overlay&&!files.includes(manifestPath)){
     if(urgent)throw Error('Falta la edición urgente preparada.');
     if(previous.has(manifestPath))throw Error('El despliegue perdería el índice de paquetes vigente.');
-  }else{
+  }else if(!overlay){
     const book=JSON.parse(await readFile(join(stage,manifestPath),'utf8'));
     const expected=new Set([manifestPath]);
     for(const {key,revision,deltas} of Object.values(book.manifest)){
@@ -132,7 +141,7 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
   if(urgent&&result.size===previous.size&&[...result].every(([path,hash])=>previous.get(path)===hash)){
     return {previous:active,version:active,metrics};
   }
-  const config=urgent?(await call(active)).config:servingConfig(JSON.parse(await readFile('firebase.json','utf8')).hosting);
+  const config=urgent||overlay?(await call(active)).config:servingConfig(JSON.parse(await readFile('firebase.json','utf8')).hosting);
   if(!config)throw Error('Falta la configuración de la edición activa.');
   const {name}=await call(site+'/versions',{method:'POST',body:{config}});
   if(!name?.startsWith(site+'/versions/'))throw Error('Firebase devolvió una versión inválida.');
