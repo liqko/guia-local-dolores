@@ -89,7 +89,17 @@
   function withoutStalePublications(book) {
     if(!book?.modules)return null;
     const schema=schemaOf(book);
-    const independent=Object.entries(book.modules).filter(([name])=>!['guide','events','promos','activities','ads'].includes(schema[name].family||name));
+    const independent=[];
+    for(const [name,payload] of Object.entries(book.modules)){
+      const spec=schema[name],family=spec.family||name;
+      if(!['guide','events','promos','activities','ads'].includes(family)){
+        independent.push([name,payload]);
+      }else if(['events','promos','activities'].includes(family)&&payload?.success===true&&
+        Array.isArray(payload[spec.field])&&payload[spec.field].length===0&&spec.metadata.length===0){
+        // An empty previous list has no rows for a visibility check to retain.
+        independent.push([name,{success:true,[spec.field]:[]}]);
+      }
+    }
     return {...book,stale:true,modules:Object.fromEntries(independent)};
   }
 

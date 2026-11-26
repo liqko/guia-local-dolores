@@ -147,7 +147,7 @@ test('P4-0006: dos archivos fallidos no reemplazan una copia válida y permiten 
   fetchJson:async path=>{requests++;if(fail||path.includes('cambios'))throw Error('offline');return current;}});
  const stale=await api.get('dolores');
  assert.equal(stale.revision,1);assert.equal(stale.stale,true);
- assert.deepEqual(Object.keys(stale.modules),['pharmacy']);
+ assert.deepEqual(Object.keys(stale.modules),['events','promos','activities','pharmacy']);
  assert.equal(copies.get('dolores'),original);
  assert.equal(writes,0);assert.equal(requests,2);
  fail=false;assert.equal((await api.get('dolores')).revision,2);assert.equal(writes,1);assert.equal(requests,4);
@@ -303,11 +303,40 @@ test('P4-0006: fallo de transporte de delta evita descargar el paquete completo'
   }});
  const offline=await api.get('dolores');
  assert.equal(offline.stale,true);
- assert.deepEqual(Object.keys(offline.modules),['pharmacy']);
+ assert.deepEqual(Object.keys(offline.modules),['events','promos','activities','pharmacy']);
  assert.equal(requests.length,1);
  assert.equal(writes,0);
  connected=true;
  assert.equal((await api.get('dolores')).revision,2);
  assert.equal(requests.length,2);
  assert.equal(writes,1);
+});
+test('P4-0006: una lista vacía no necesita verificación de bajas al reconectar',async()=>{
+ const previous=initial('dolores');
+ previous.modules.events.events.push({evento_id:'con-visibilidad-por-verificar'});
+ const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[]}),
+  storage:{get:()=>previous,put:()=>assert.fail('No se reemplaza la edición guardada')},
+  fetchJson:async()=>{throw Error('sin red');}});
+ const book=await api.get('dolores');
+ assert.equal(book.stale,true);
+ assert.equal(book.modules.events,undefined);
+ assert.equal(book.modules.ads,undefined);
+ assert.equal(book.modules.guide,undefined);
+ assert.deepEqual(book.modules.promos,{success:true,promos:[]});
+ assert.deepEqual(book.modules.activities,{success:true,actividades:[]});
+ const source=await readFile(new URL('../plataforma/anunciantes.html',import.meta.url),'utf8');
+ const flow=source.slice(source.indexOf('    async function obtenerEventosPromise('),source.indexOf('    async function obtenerBannersPromise('));
+ assert(flow.length>0);
+ async function requestsFor(edition){
+  const calls=[];
+  const run=Function('gldPaquetePublico','verificarPublicacion','obtenerModuloCiudad',
+    'EVENTS_WEBAPP_URL','GLD_EVENTOS_CACHE_PREFIX','PROMOS_ENDPOINT','GLD_PROMOS_CACHE_PREFIX',
+    'ACTIVIDADES_ENDPOINT','GLD_ACTIVIDADES_CACHE_PREFIX',flow+
+    ';return Promise.all([obtenerEventosPromise("dolores"),obtenerPromosPromise("dolores"),obtenerActividadesPromise("dolores")]);');
+  await run(async()=>edition,(_book,_family,value)=>value,async endpoint=>{calls.push(endpoint);return {success:true};},
+   '/events-new','events','/promos','promos','/actividades','activities');
+  return calls;
+ }
+ assert.deepEqual(await requestsFor({...book,modules:{pharmacy:book.modules.pharmacy}}),['/events-new','/promos','/actividades']);
+ assert.deepEqual(await requestsFor(book),['/events-new']);
 });
