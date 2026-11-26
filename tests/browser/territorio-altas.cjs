@@ -8,7 +8,8 @@ async function run() {
   const end = html.indexOf('async function buscarSus(', start);
   const controls = html.match(/<div class="toolbar">[^\n]+?<button id="btnCiudadesRefresh">[^\n]+?<\/div><div id="territorioAlta"><\/div>/)?.[0];
   assert(start >= 0 && end > start && controls);
-  const source = readFileSync('worker/worker206.txt', 'utf8');
+  const ref=process.env.GLD_TERRITORY_WORKER_REF;
+  const source=ref?require('node:child_process').execFileSync('git',['show',ref+':worker/worker206.txt'],{encoding:'utf8',maxBuffer:5_000_000}):readFileSync('worker/worker206.txt','utf8');
   const worker = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   const { fixture, session } = await import('../efemerides140/fixture.mjs');
   const backend = fixture(worker.GldPublicCache119);
@@ -91,6 +92,7 @@ async function run() {
       for(const scope of ['admin','public']) assert(backend.packet(scope)[collection].some(row=>Object.values(row).includes(id)));
     }
     console.log('Altas GH, Worker real con servicios simulados:',JSON.stringify(backend.counts));
+    if(process.env.GLD_TERRITORY_TRACE==='1')console.log('Traza territorial:',JSON.stringify(backend.all));
     assert.equal(backend.counts['firestore.PATCH'],3);
     assert.equal(backend.counts['kv.put'],6);
     assert.equal(backend.counts['do.calls'],9);
@@ -129,6 +131,21 @@ async function run() {
     assert.deepEqual(backend.all.filter(call=>call.service==='kv'&&call.operation==='put').map(call=>call.detail),['territorio:admin:v1']);
     assert(backend.packet('admin').paises.some(row=>row.pais_id==='DRAFT'));
     assert(!backend.packet('public').paises.some(row=>row.pais_id==='DRAFT'));
+    backend.reset();
+    backend.fail.publicPut=1;
+    const path='/superadmin/countries/create';
+    const recovery={method:'POST',body:{item:{pais_id:'RECOVERY',nombre:'Recuperación'}},headers:{'Idempotency-Key':'recovery-test'}};
+    const pending=await backend.call(worker.default,path,recovery);
+    assert.equal(pending.status,503);
+    assert(backend.docs.has('paises/RECOVERY'));
+    backend.evict();
+    assert(await backend.alarm());
+    const confirmed=await backend.call(worker.default,path,recovery);
+    assert.equal(confirmed.result.operation_replayed,true);
+    assert.equal(backend.counts['firestore.PATCH'],1);
+    assert.equal(backend.all.filter(e=>e.service==='kv'&&e.operation==='put'&&e.detail==='territorio:admin:v1').length,1);
+    assert(backend.packet('public').paises.some(row=>row.pais_id==='RECOVERY'));
+    console.log('Recuperación territorial:',JSON.stringify(backend.counts));
     const now=Math.floor((Date.now()-4*3600000)/86400000);
     const actor=backend.env.GLD_PUBLIC_CACHE.get(backend.env.GLD_PUBLIC_CACHE.idFromName('city-book-shared-v1'));
     async function changes(from,to){

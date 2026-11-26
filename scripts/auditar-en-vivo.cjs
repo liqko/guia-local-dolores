@@ -30,9 +30,9 @@ function installMeasurement(context, services=domains, phase=()=>null) {
   const rows = new Map(), pending = [];
   function observe(request) {
     const url = new URL(request.url());
-    const service = services.get(url.hostname);
-    if (!service) return;
-    const row = {service,phase:phase(),path:url.pathname,method:request.method(),status:null,bodyBytes:null,headerBytes:null,consumption:null};
+    if (!['https:','http:'].includes(url.protocol)) return;
+    const service = services.get(url.hostname) ?? 'externo';
+    const row = {service,host:url.hostname,phase:phase(),path:service==='externo'?null:url.pathname,method:request.method(),resource:request.resourceType(),at:new Date().toISOString(),status:null,bodyBytes:null,headerBytes:null,requestBodyBytes:null,requestId:null,workerVersion:null,consumption:null};
     rows.set(request,row);
   }
   context.on('request',observe);
@@ -42,16 +42,24 @@ function installMeasurement(context, services=domains, phase=()=>null) {
     row.status = response.status();
     row.serviceWorker = response.fromServiceWorker();
     const headers = response.headers();
-    const header = headers['x-gld-consumption'];
-    if (!header) return;
+    if(row.service!=='worker')return;
+    row.requestId=headers['x-gld-request-id']??null;
+    row.workerVersion=headers['x-gld-worker-version']??null;
+    row.action=headers['x-gld-action']||null;
+    row.source=headers['x-gld-source']||null;
+    for(const [field,key] of [['operations','x-gld-operations'],['cacheChecks','x-gld-cache-checks']]){
+      if(!headers[key])continue;
+      try{row[field]=JSON.parse(decodeURIComponent(headers[key]));}
+      catch{row[field]=null;}
+    }
+    const header=headers['x-gld-consumption'];
+    if(!header)return;
     try {
-      const {firestore,cloudflare} = JSON.parse(decodeURIComponent(header));
-      row.consumption = {firestore:firestore ?? null,cloudflare:{
-        worker_requests:cloudflare?.worker_requests ?? null, cpu_ms:cloudflare?.cpu_ms ?? null,
-        kv:cloudflare?.kv ?? null, public_store:cloudflare?.public_store ?? null,
-        admin_store:cloudflare?.admin_store ?? null,
-      }};
-    } catch {}
+      const {schema,request_id,version,firestore,cloudflare,coverage}=JSON.parse(decodeURIComponent(header));
+      row.requestId??=request_id??null;
+      row.workerVersion??=version??null;
+      row.consumption={schema,firestore,cloudflare,coverage};
+    } catch {row.consumptionStatus='encabezado_invalido';}
   });
   context.on('requestfailed',request=>{
     const row = rows.get(request);
@@ -61,8 +69,9 @@ function installMeasurement(context, services=domains, phase=()=>null) {
     const row = rows.get(request);
     if (!row) return;
     pending.push(request.sizes().then(sizes=>{
-      row.bodyBytes = sizes.responseBodySize;
-      row.headerBytes = sizes.responseHeadersSize;
+      row.requestBodyBytes = sizes.requestBodySize >= 0 ? sizes.requestBodySize : null;
+      row.bodyBytes = sizes.responseBodySize >= 0 ? sizes.responseBodySize : null;
+      row.headerBytes = sizes.responseHeadersSize >= 0 ? sizes.responseHeadersSize : null;
     }).catch(()=>{}));
   });
   return async()=>{
@@ -70,7 +79,8 @@ function installMeasurement(context, services=domains, phase=()=>null) {
     const requests = [...rows.values()];
     const hosting = requests.filter(row=>row.service==='hosting');
     return {requests,hosting:{requests:hosting.length,bodyBytes:hosting.reduce((sum,row)=>sum+(row.bodyBytes??0),0),
-      sizesMissing:hosting.filter(row=>row.bodyBytes===null).length},workerRequests:requests.length-hosting.length};
+      sizesMissing:hosting.filter(row=>row.bodyBytes===null).length},workerRequests:requests.filter(row=>row.service==='worker').length,
+      externalRequests:requests.filter(row=>row.service==='externo').length};
   };
 }
 
@@ -90,7 +100,7 @@ async function main([action, name, sessionOption]) {
   const interactive = action==='sesion';
   const session = !interactive&&(Boolean(module)||name!=='usuario'||Boolean(sessionOption));
   let browser, evidence, failure, phase='apertura';
-  const javascriptErrors = [];
+  const javascriptErrors = [], steps = [];
   try {
     if (session) await access(state);
     browser = await chromium.launch({headless:!interactive,executablePath:process.env.GLD_CHROME});
@@ -109,6 +119,32 @@ async function main([action, name, sessionOption]) {
       finally {input.close();}
     }
     await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
+    if(action==='ejecutar'&&name==='usuario'&&!session){
+      const menu=page.locator('.modulos-menu-trigger');
+      const options={timeout:10000};
+      for(const entry of [...Object.values(publications),{key:'empleo',publicLink:'#moduloEmpleo'}]){
+        const publicRead=entry.key==='empleo';
+        phase=entry.key+(publicRead?':consulta':':control-de-sesion');
+        try{
+          const link=page.locator(entry.publicLink);
+          if(!await link.isVisible())await menu.click(options);
+          await link.click(options);
+          if(publicRead){
+            const frame=page.frameLocator('#moduloCentralFrame');
+            await frame.locator('#public-list > *').first().waitFor(options);
+            await frame.locator('#public-tabs [data-public-type="BUSCO"]').click(options);
+            if(await frame.locator('#public-tabs [data-public-type="BUSCO"]').getAttribute('aria-pressed')!=='true')throw Error('Filtro sin aplicar');
+          }else{
+            const overlay=page.locator('#gldSubscriberOverlay.activo');
+            await overlay.waitFor(options);
+            await overlay.locator('#gldSubscriberClose').click(options);
+            await overlay.waitFor({state:'hidden',...options});
+          }
+          steps.push({phase,status:'aprobado'});
+        }catch(error){steps.push({phase,status:'fallo',reason:error.name});}
+      }
+      if(steps.some(step=>step.status==='fallo'))failure='MODULO_NO_DISPONIBLE';
+    }
     if(module)await checkPublication(page,name,module,fixture,step=>{phase=step;});
     if (interactive) {
       const snapshot = await context.storageState({indexedDB:true});
@@ -120,8 +156,8 @@ async function main([action, name, sessionOption]) {
   } finally {
     try {
       if (!interactive) {
-        const result = {date:new Date().toISOString(),interface:name,action,sessionRequested:session,result:failure?'fallo':'aprobado',
-          error:failure??null,javascriptErrors,...(await evidence?.())};
+        const result = {evidenceType:'installed-browser-observation',date:new Date().toISOString(),interface:name,action,sessionRequested:session,result:failure?'fallo':'aprobado',
+          error:failure??null,javascriptErrors,steps,...(await evidence?.())};
         const output=join(base,name+'-'+randomUUID()+'.json');
         await writeFile(output,JSON.stringify(result,null,2),{mode:0o600});
         console.log(output);
