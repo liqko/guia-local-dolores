@@ -53,7 +53,8 @@ const {installMeasurement} = require('../../scripts/auditar-en-vivo.cjs');
     ]));
     const attempts = [];
     const packages = [];
-    let guideOnline;
+    const batches = [];
+    let guideOnline, allowBatch = true;
     await ctx.route('**/*', async route => {
       const url = new URL(route.request().url());
       if (url.origin === origin) {
@@ -62,6 +63,13 @@ const {installMeasurement} = require('../../scripts/auditar-en-vivo.cjs');
       }
       if (url.hostname.endsWith('workers.dev')) {
         attempts.push(url.pathname);
+        if(url.pathname==='/guide'&&url.searchParams.get('vista')==='visibilidad-lote'&&allowBatch&&guideOnline){
+          batches.push(url.searchParams.getAll('modulo'));
+          return route.fulfill({json:{success:true,ciudad_id:city,modules:{
+            guide:{success:true,results:guideOnline.results.map(({anunciante_id})=>({anunciante_id}))},
+            ads:{success:true,publicidades:[]},
+          }}});
+        }
         if(url.pathname==='/guide'&&guideOnline)return route.fulfill({json:guideOnline,headers:{
           'x-gld-consumption':encodeURIComponent(JSON.stringify({firestore:{read_calls:0},cloudflare:{worker_requests:1}})),
         }});
@@ -113,12 +121,14 @@ const {installMeasurement} = require('../../scripts/auditar-en-vivo.cjs');
     await ctx.setOffline(false);
     await reload;
     await rendered('Comercio que sigue activo');
+    assert.deepEqual(batches,[['guide','ads']]);
     assert(!await staleRow.isVisible());
     assert.equal(await frame.getByText(next.nombre).count(),0);
     assert.deepEqual(packages,['/plataforma/paquetes-ciudad/publicacion.json']);
     console.log('Ficha retirada al reconectar con el índice anterior. Pantalla verificada en '+(Date.now()-reconnected)+' ms.');
 
     published={cutoff:Date.now(),manifest:{[city]:{...published.manifest[city],revision:3,deltas:[2]}}};
+    allowBatch=false;
     packageUnavailable=true;
     packages.length=0;
     await page.reload();
@@ -166,7 +176,7 @@ const {installMeasurement} = require('../../scripts/auditar-en-vivo.cjs');
     const evidence=await measurement();
     assert(evidence.hosting.requests>0&&evidence.hosting.bodyBytes>0);
     assert(evidence.requests.some(row=>row.path==='/guide'&&row.status===200&&row.bodyBytes>0&&row.consumption?.firestore?.read_calls===0));
-    assert(evidence.requests.every(row=>!row.path.includes('?')));
+    assert(evidence.requests.every(row=>row.path===null?!['hosting','worker'].includes(row.service):!row.path.includes('?')));
     console.log('Revisión urgente del mismo corte: alta, edición, baja y reversión del índice comprobadas.');
   } finally {
     await browser.close();

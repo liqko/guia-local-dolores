@@ -9,6 +9,7 @@ const site='sites/anunciantes-guialocal';
 const api='https://firebasehosting.googleapis.com/v1beta1/';
 const packageRoot='/plataforma/paquetes-ciudad/';
 const manifestPath=packageRoot+'publicacion.json';
+const isPublishedData=path=>path.startsWith(packageRoot)||path==='/plataforma/territorio-cache.js';
 
 export function servingConfig({cleanUrls,headers=[],redirects=[],rewrites=[],...other}){
   if(Object.keys(other).some(key=>!['public','ignore'].includes(key)))throw Error('Configuración Hosting fuera del contrato del publicador.');
@@ -95,7 +96,7 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
   };
   if(rollback){
     const old=await listFiles(target);
-    const packageEntries=files=>new Map([...files].filter(([path])=>path.startsWith(packageRoot)));
+    const packageEntries=files=>new Map([...files].filter(([path])=>isPublishedData(path)));
     const livePackages=packageEntries(previous),oldPackages=packageEntries(old);
     if(livePackages.size!==oldPackages.size||[...livePackages].some(([path,hash])=>oldPackages.get(path)!==hash)){
       throw Error('La reversión restauraría un índice o paquete distinto. Revertí código conservando la edición pública vigente.');
@@ -166,7 +167,8 @@ if(process.argv[1]&&pathToFileURL(process.argv[1]).href===import.meta.url){
   const [stage,mode,target,expected]=process.argv.slice(2);
   const steps=[];
   const baseIndex=process.env.GLD_HOSTING_PLAN?JSON.parse(await readFile(process.env.GLD_HOSTING_PLAN,'utf8')):undefined;
-  const result=await deployHosting({stage,mode,target,expected,baseIndex,token:await auth.getAccessToken(),observe:step=>steps.push(step)});
+  const overlayPaths=mode==='overlay'?(process.env.GLD_HOSTING_FILES??'').split(','):undefined;
+  const result=await deployHosting({stage,mode,target,expected,baseIndex,overlayPaths,token:await auth.getAccessToken(),observe:step=>steps.push(step)});
   result.steps=steps;
   console.log(JSON.stringify(result));
   if(process.env.GITHUB_OUTPUT)await appendFile(process.env.GITHUB_OUTPUT,'version='+result.version+'\nprevious='+(result.previous??'')+'\n');

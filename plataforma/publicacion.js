@@ -9,8 +9,22 @@
   const details=document.createElement('details'),summary=document.createElement('summary'),p=document.createElement('p');summary.textContent='Términos de publicación';p.textContent=terms;const link=document.createElement('a');link.href='/plataforma/terminos-anunciantes.html';link.target='_blank';link.rel='noopener';link.textContent='Leer los términos y condiciones para anunciantes';details.append(summary,p,link);block.append(details);
   let label=document.createElement('label'),check=document.createElement('input');const legacy=key==='free'?document.getElementById('evf-responsabilidad'):null;if(legacy){label=legacy.closest('label');check=legacy;const text=label.querySelector('span');if(text)text.textContent=declaration;}else{check.type='checkbox';check.id='aceptacion-'+key;check.style.cssText='width:auto;margin-right:8px';label.append(check,document.createTextNode(key==='cuenta'?'Leí y acepto los términos de la plataforma.':declaration));}const submit=document.querySelector(submitTargets[key]);const anchor=submit&&(submit.closest('.module-form-actions')||submit.closest('.data-form-actions')||submit.parentElement?.classList?.contains('module-form-actions')&&submit.parentElement||submit);(anchor||node).insertAdjacentElement(anchor?'beforebegin':'afterend',block);block.append(label);
  }
+ function syncAlta(){
+  const isClaim=document.getElementById('alta-anunciante-modo')?.value==='RECLAMAR';
+  const declaration=document.getElementById('declaracion-alta');
+  const adultSelect=document.getElementById('alta-adulto');
+  const adultLabel=adultSelect?.closest('label');
+  const adultHelp=adultLabel?.nextElementSibling;
+  for(const element of [declaration,adultLabel,adultHelp]){
+   if(!element)continue;
+   element.hidden=isClaim;
+   element.style.display=isClaim?'none':'';
+  }
+ }
+ window.GLD_PUBLICACION_UI111={syncAlta};
  function install(){for(const [key,selector]of Object.entries(targets)){const node=document.querySelector(selector);if(!node)continue;if(node.matches('select')&&!node.dataset.explanation77){node.dataset.explanation77='1';const p=document.createElement('p');p.className='small-muted';p.textContent=explanation;node.parentElement.insertAdjacentElement('afterend',p);node.parentElement.firstChild.textContent='¿Esta publicación es exclusivamente para mayores de 18 años?';}box(key,node.closest('label')||node);}
   const alta=document.getElementById('btnEnviarAltaAnunciante');if(alta&&!document.getElementById('alta-adulto')){const label=document.createElement('label');label.textContent='¿Esta publicación es exclusivamente para mayores de 18 años?';const select=document.createElement('select');select.id='alta-adulto';for(const [value,text]of [['false','No · Para cualquier público'],['true','Sí · Exclusivamente +18']]){const opt=document.createElement('option');opt.value=value;opt.textContent=text;select.append(opt);}label.append(select);const p=document.createElement('p');p.textContent=explanation;p.className='small-muted';(document.getElementById('declaracion-alta')||alta).insertAdjacentElement('beforebegin',label);label.insertAdjacentElement('afterend',p);}
+  syncAlta();
  }
  install();new MutationObserver(install).observe(document.body,{childList:true,subtree:true});
  window.fetch=async function(input,init){const url=new URL(input instanceof Request?input.url:String(input),location.href);if(url.origin!==origin||String(init?.method||(input instanceof Request?input.method:'GET')).toUpperCase()!=='POST')return native(input,init);
@@ -18,7 +32,8 @@
   const action=String(body.action||body.accion||'').toLowerCase();let key;
   if(url.pathname==='/promos'){const data=body.payload||body;const content=action==='createpromo'||action==='updatepromo'&&Object.keys(data).some(k=>!['promo_id','pausado','action','accion','advertiserId','advertiser_id','declaracion_publicacion'].includes(k));if(content)key='promos';}
   if(url.pathname==='/events-new'&&['createfreeevent','updatefreeevent','createvipevent','updatevipevent'].includes(action))key=action.includes('free')?'free':'eventos';
-  if(url.pathname==='/actividades'&&action==='guardar')key='actividades';if(url.pathname==='/publicidad'&&['guardar','save'].includes(action))key='publicidad';if(url.pathname==='/commerce'&&['set_datos','save_ficha'].includes(action))key='anunciante';if(url.pathname==='/suscriptores'&&action==='crear')key='cuenta';if(url.pathname==='/suscriptores'&&action==='solicitar_anunciante'&&String(body.modo||'').toUpperCase()!=='RECLAMAR')key='alta';
+  if(url.pathname==='/actividades'&&action==='guardar')key='actividades';if(url.pathname==='/publicidad'&&['guardar','save'].includes(action))key='publicidad';if(url.pathname==='/commerce'&&['set_datos','save_ficha'].includes(action))key='anunciante';if(url.pathname==='/suscriptores'&&action==='crear')key='cuenta';if(url.pathname==='/suscriptores'&&action==='solicitar_anunciante')key='alta';
+  if(url.pathname==='/suscriptores'&&action==='solicitar_anunciante'&&String(body.modo||'').toUpperCase()==='RECLAMAR')return native(input,init);
   if(!key)return native(input,init);install();const check=document.getElementById(key==='free'?'evf-responsabilidad':'aceptacion-'+key);
   if(!check?.checked)return Response.json({success:false,message:'Aceptá los términos y la declaración de responsabilidad antes de continuar.'},{status:400});
   const versionAceptada=window.GLD_TERMINOS_ANUNCIANTES?.versionActual?.()||'2026-10-11';

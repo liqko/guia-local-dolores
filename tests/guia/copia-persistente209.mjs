@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import {generateKeyPairSync,createHmac} from 'node:crypto';
 import worker,{GldPublicCache119} from './worker-instrumentado.mjs';
 import fs from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {sqliteNamespace} from './sqlite-namespace.mjs';
 const rows=new Map(),values=new Map(),calls=[],allOperations=[];let revision=0;
 const nativePush=calls.push.bind(calls);calls.push=(...entries)=>{allOperations.push(...entries);return nativePush(...entries);};
@@ -116,7 +118,7 @@ try{
  const count=rows.get('anunciantes_administracion/A').funcionalidades_config.EVENTOS.cantidad,profile=rows.get('anunciantes/A');assert(count===12?profile.eco===true&&profile.gayfriendly!==true:count===15&&profile.gayfriendly===true&&profile.eco!==true);
  const denied=await as('public','/superadmin/advertisers/A/save',first);assert.equal(denied.r.status,401);
  const deniedOwner=await as('owner','/commerce',{action:'save_ficha',advertiserId:'OTRO',datos:{revision_datos:o.revision_datos,descripcion:'Ajena'}});assert.equal(deniedOwner.r.status,403);
- fs.writeFileSync('/tmp/gld209-guardado-atomico.json',JSON.stringify({ghValidationRollback:true,ghThreeDocumentsCommitted:true,ownerValidationRollback:true,ownerTwoDocumentsCommitted:true,concurrentWholeSave:raced.map(x=>x.r.status),publicDenied:denied.r.status,otherAccountDenied:deniedOwner.r.status},null,2));
+ fs.writeFileSync(join(tmpdir(),'gld209-guardado-atomico.json'),JSON.stringify({ghValidationRollback:true,ghThreeDocumentsCommitted:true,ownerValidationRollback:true,ownerTwoDocumentsCommitted:true,concurrentWholeSave:raced.map(x=>x.r.status),publicDenied:denied.r.status,otherAccountDenied:deniedOwner.r.status},null,2));
  // Read the same prepared copy after 121 seconds and after actor eviction.
  const other=(await ok('owner','/commerce?action=permisos_panel&advertiserId=B')).j;assert.equal(other.administracion.nivel,6);assert.equal(other.id,'B');
  const managerFicha=await as('owner','/commerce?action=anunciante&advertiserId=B');assert.equal(managerFicha.r.status,403);

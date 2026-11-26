@@ -143,6 +143,46 @@ test('las rutas estáticas actuales se convierten al contrato de Firebase',async
   assert.equal(typeof config.headers[0].headers['Cache-Control'],'string');
 });
 
+test('el bloque de main conserva datos, inicialización de Firebase y recursos anteriores',async t=>{
+  const stage=await mkdtemp(join(tmpdir(),'gld-hosting-main-overlay-'));
+  t.after(()=>rm(stage,{recursive:true,force:true}));
+  const site='sites/anunciantes-guialocal',base=site+'/versions/base',candidate=site+'/versions/new';
+  const manifest=root+'publicacion.json',complete=root+'dol/completo-1.json',territory='/plataforma/territorio-cache.js';
+  const hashes={
+    [manifest]:'a'.repeat(64),[complete]:'b'.repeat(64),[territory]:'c'.repeat(64),
+    '/__/firebase/init.js':'d'.repeat(64),'/plataforma/assets/app/anterior.js':'e'.repeat(64),
+  };
+  const overlayPaths=['/plataforma/anunciantes.html'];
+  await mkdir(join(stage,'plataforma'),{recursive:true});
+  await writeFile(join(stage,overlayPaths[0]),'código actualizado');
+  let active=base,uploads=0;
+  const read=async(url,{method,body})=>{
+    if(method==='HEAD')return new Response(null,{headers:{etag:'"base"'}});
+    if(method==='GET'&&url.pathname.endsWith('/releases'))return Response.json({releases:[{version:{name:active}}]});
+    if(method==='GET'&&url.pathname.endsWith('/files'))return Response.json({files:Object.entries(hashes).map(([path,hash])=>({path,hash}))});
+    if(method==='GET'&&url.pathname.endsWith('/base'))return Response.json({config:{cleanUrls:true}});
+    if(url.pathname.endsWith('/versions'))return Response.json({name:candidate});
+    if(url.pathname.endsWith(':populateFiles')){
+      const files=JSON.parse(body).files;
+      for(const [path,hash] of Object.entries(hashes))assert.equal(files[path],hash);
+      return Response.json({uploadRequiredHashes:[files['/plataforma/anunciantes.html']],uploadUrl:'https://upload-firebasehosting.googleapis.com/upload/fixture'});
+    }
+    if(url.hostname==='upload-firebasehosting.googleapis.com'){uploads++;return new Response();}
+    if(method==='PATCH')return Response.json({});
+    if(method==='POST'&&url.pathname.endsWith('/releases')){
+      active=url.searchParams.get('versionName');
+      return Response.json({});
+    }
+    assert.fail(url.href);
+  };
+  const options={stage,mode:'overlay',expected:base,baseIndex:{status:200,etag:'"base"'},overlayPaths,token:'fixture',read};
+  await assert.rejects(deployHosting({...options,baseIndex:{status:200,etag:'"otro"'}}),/Cambió el índice/);
+  assert.equal(uploads,0);
+  const result=await deployHosting(options);
+  assert.equal(result.version,candidate);
+  assert.equal(uploads,1);
+});
+
 test('overlay conserva la configuración y los hashes ajenos al bloque',async t=>{
   const stage=await mkdtemp(join(tmpdir(),'gld-hosting-overlay-'));
   t.after(()=>rm(stage,{recursive:true,force:true}));

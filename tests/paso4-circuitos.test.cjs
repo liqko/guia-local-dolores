@@ -7,14 +7,14 @@ const login=fs.readFileSync(path.join(__dirname,'../plataforma/login.html'),'utf
 const worker=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
 
 test('P4-0002: respuesta incierta de baja de sede recarga por puente del mismo ámbito',async()=>{
-  assert.match(login,/window\.gldReloadCommerceUIForVerification_\s*=\s*loadCommerceUI/);
-  assert.match(login,/reload:\(\)=>window\.gldReloadCommerceUIForVerification_\(\)/);
+  assert.match(login,/window\.gldLoadCommerceProfileForTags147\s*=\s*loadCommerceUI/);
+  assert.match(login,/reload:\(\)=>window\.gldLoadCommerceProfileForTags147\(\)/);
   const sedeDelete=login.slice(login.indexOf('async function deleteSedeCard('),login.indexOf("document.addEventListener('click', function(e)",login.indexOf('async function deleteSedeCard(')));
   assert.doesNotMatch(sedeDelete,/reload:\(\)=>loadCommerceUI\(\)/);
-  const expression=login.match(/reload:(\(\)=>window\.gldReloadCommerceUIForVerification_\(\))/)?.[1];
+  const expression=login.match(/reload:(\(\)=>window\.gldLoadCommerceProfileForTags147\(\))/)?.[1];
   assert(expression,'Falta callback verificable');
   let calls=0;
-  const cb=Function('window','return '+expression)({gldReloadCommerceUIForVerification_:async()=>{calls++;return true;}});
+  const cb=Function('window','return '+expression)({gldLoadCommerceProfileForTags147:async()=>{calls++;return true;}});
   assert.equal(await cb(),true);
   assert.equal(calls,1);
 });
