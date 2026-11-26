@@ -340,3 +340,17 @@ test('P4-0006: una lista vacía no necesita verificación de bajas al reconectar
  assert.deepEqual(await requestsFor({...book,modules:{pharmacy:book.modules.pharmacy}}),['/events-new','/promos','/actividades']);
  assert.deepEqual(await requestsFor(book),['/events-new']);
 });
+test('P4-0006: reconexión descarta filas restringidas y preserva la edición de las visibles',()=>{
+ const previous=initial('dolores');
+ previous.modules.guide.results=['estable','restringida','anidada','retirada'].map(anunciante_id=>({anunciante_id,nombre:'Edición local'}));
+ const live={success:true,results:[
+  {anunciante_id:'estable',nombre:'Cambio ordinario'},
+  {anunciante_id:'restringida',bloqueado18:true},
+  {anunciante_id:'restringida'},
+  {anunciante_id:'anidada',sedes:[{bloqueado18:true}]},
+  {anunciante_id:'nueva'}
+ ]};
+ const result=bookTools.replaceWithVerifiedRows({needsVerification:previous},'guide',live);
+ assert.deepEqual(result.results,[{anunciante_id:'estable',nombre:'Edición local'}]);
+ assert.equal(previous.modules.guide.results.length,4);
+});

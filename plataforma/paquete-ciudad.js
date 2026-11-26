@@ -183,8 +183,20 @@
     const previous=moduleFrom(book.needsVerification,family,context);
     const [field,id]=lists[family];
     if(current?.success!==true||!Array.isArray(current[field]))throw Error('Publicaciones vigentes no disponibles');
-    const visible=new Set(current[field].map(row=>idOf(row,id)).filter(Boolean));
-    return {...current,[field]:(previous?.[field]||[]).filter(row=>visible.has(idOf(row,id)))};
+    const rows=previous?.[field]||[];
+    if(!rows.length)return {...current,[field]:[]};
+    const restricted=value=>Boolean(value&&typeof value==='object'&&
+      (value.bloqueado18===true||Object.values(value).some(restricted)));
+    const candidateIds=new Set(rows.map(row=>idOf(row,id)).filter(Boolean));
+    const visible=new Set();
+    const hidden=new Set();
+    for(const row of current[field]){
+      const key=idOf(row,id);
+      if(!candidateIds.has(key))continue;
+      if(restricted(row))hidden.add(key);
+      else visible.add(key);
+    }
+    return {...current,[field]:rows.filter(row=>{const key=idOf(row,id);return visible.has(key)&&!hidden.has(key);})};
   }
 
   function localBooks() {
@@ -224,7 +236,7 @@
   }
 
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { applyDelta, client, idOf, lists, validBook, schemaOf, legacySchema, visibleAt };
+    module.exports = { applyDelta, client, idOf, lists, validBook, schemaOf, legacySchema, visibleAt, replaceWithVerifiedRows };
     return;
   }
   try {
