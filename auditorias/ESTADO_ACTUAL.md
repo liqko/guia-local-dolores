@@ -1,3 +1,56 @@
+> **26/11/2026 — continuidad desde `9a5d3971`.** Los cuatro commits hasta esa revisión están en la rama de auditoría. En `3407ed1f`, Actividades aprobó la solicitud de sesión y su cierre con Escape; Empleo aprobó apertura y filtro cuando el auditor restablece la carcasa después de un caso fallido. Los dos timeouts iniciales se conservan en las evidencias previas. Evidencia final `.auditoria-local/usuario-38a41b14-0e7a-4929-ab6e-4f98b2d15bcb.json`. El pie comparte la URL inmutable de telemetría con la carcasa en el empaquetado local. Se consolida la referencia cuya respuesta independiente tenía 471 B en la apertura inicial; el ahorro de red del candidato sigue pendiente.
+>
+> **Territorio, `8e1ed89b`.** La edición parcial conserva campos omitidos y el estado activo. El coordinador rechaza editar un registro ausente y mover una provincia con ciudades vinculadas. Pruebas del Worker con servicios simulados: dos escrituras para dos ediciones válidas, cero para los dos rechazos. Pendientes UI de edición y baja, medición física de Firebase/Cloudflare y certificación de instalación y reversión.
+
+## P4-0006 — Desglose de las 33 observaciones de Hosting
+
+Apertura inicial de Dolores y recarga en el mismo Chromium. Fuente de apertura `usuario-2724bbf9…json`; comparación de caché y recarga `usuario-9be17f9b…json` en `.auditoria-local`. Los bytes de la tabla son cuerpos informados por Playwright. Los seis tamaños ausentes de recursos duplicados corresponden a segundos usos de URLs inmutables; la nueva apertura registra transferencia cero en Resource Timing para esos usos. Las 33 observaciones incluyen recursos servidos desde caché. La recarga conservó 32 observaciones y omitió la descarga del paquete completo. Los documentos y redirecciones tienen revalidación obligatoria. Los recursos con hash son inmutables por un año. Transferencia cero agrupa reutilización sin red según el navegador y requiere contraste con Service Worker y métricas del proveedor para atribuir una capa específica.
+
+| Nº | Archivo o ruta | Cuerpo inicial (B) | Finalidad | Necesidad o alternativa | Recarga |
+|---:|---|---:|---|---|---|
+| 1 | `descubrir` | 26622 | Carcasa, contexto territorial y navegación | Imprescindible | presente, bytes de red sin aislar |
+| 2 | `3e065bab39de8bf92d10-efemerides-calendario.js` | 1026 | Lee y presenta el calendario de Efemérides | Diferible si el bloque queda fuera de vista | transferencia 0 en Resource Timing |
+| 3 | `1a8646104e8a29d1b8a2-farmacias-ciclo.js` | 1260 | Calcula la farmacia de turno | Imprescindible para el bloque de turno | transferencia 0 en Resource Timing |
+| 4 | `8d1a69dd89b74721cf65-territorio-cache.js` | 1615 | Catálogo territorial compartido | Imprescindible en apertura; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 5 | `9974cda67f30ab508712-paquete-ciudad.js` | 4074 | Lector local y descarga por revisión | Imprescindible; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 6 | `b4c3849a777ce6af411a-telemetria.js` | 238 | Instrumenta errores | Consolidable con la referencia del pie | transferencia 0 en Resource Timing |
+| 7 | `45bceb582bac1aad2e4d-sesion-persistente.js` | 1486 | Estado de sesión y accesos | Imprescindible para controles; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 8 | `be82409a9429ee6fa09c-entrada-recordada.js` | 1249 | Recuerda el punto de ingreso | Diferible hasta uso | transferencia 0 en Resource Timing |
+| 9 | `b05e47bff5caa56175be-consumo-v44.js` | 7601 | Instrumentación de consumo | Diferible fuera de auditoría; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 10 | `8780dd6717f3b52dcaa4-anunciantes-utilidades.js` | 1782 | Utilidades de tarjetas y ubicaciones | Consolidable entre marcos | transferencia 0 en Resource Timing |
+| 11 | `c3d1869bb6e22ceb9e94-pwa-web.js` | 636 | Instalación y controles PWA | Diferible hasta uso | transferencia 0 en Resource Timing |
+| 12 | `43965e9aba3d7bf9d48b-marca-global.js` | 3132 | Marca y encabezado | Diferible si la carcasa conserva el encabezado | transferencia 0 en Resource Timing |
+| 13 | `71c37dfdf270b5a51858-visor-web-global.js` | 1572 | Abre destinos de tarjetas | Diferible hasta interacción | transferencia 0 en Resource Timing |
+| 14 | `anunciantes.html` | 150 | Redirección a URL canónica del marco | Evitable con URL canónica | 301 150 B |
+| 15 | `22471714566e8b676d81-logo-guia-local.png` | 152070 | Logotipo | Consolidable por compresión y dimensiones | transferencia 0 en Resource Timing |
+| 16 | `c6bd6e1cc99b7689b7ea-fondo-ciudad.jpg` | 168391 | Fondo visual | Consolidable por compresión y dimensiones | transferencia 0 en Resource Timing |
+| 17 | `anunciantes` | 45370 | Documento del listado de Guía | Imprescindible para el listado | presente, bytes de red sin aislar |
+| 18 | `pie.html` | 30 | Redirección a URL canónica del pie | Evitable con URL canónica | 301 30 B |
+| 19 | `b4c3849a777ce6af411a-telemetria.js` | sin tamaño | Instrumenta errores | Consolidable con la referencia del pie | transferencia 0 en Resource Timing |
+| 20 | `5b39714fdf42709036e3-publicidad-distribucion.js` | 4150 | Distribuye publicidad en el listado | Imprescindible cuando existen ubicaciones | transferencia 0 en Resource Timing |
+| 21 | `2680cb844dc0d4f4e3f3-imagenes-publicas.js` | 823 | Normaliza fuentes de imágenes | Imprescindible al renderizar tarjetas | transferencia 0 en Resource Timing |
+| 22 | `e3808fafe579dff6a438-tarjetas-imagenes.js` | 1347 | Carga y reutiliza imágenes de fichas | Imprescindible al renderizar tarjetas | transferencia 0 en Resource Timing |
+| 23 | `49d9a435207713996e8b-paginacion.js` | 1250 | Navegación de resultados | Diferible si cabe una página | transferencia 0 en Resource Timing |
+| 24 | `45bceb582bac1aad2e4d-sesion-persistente.js` | sin tamaño | Estado de sesión y accesos | Imprescindible para controles; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 25 | `8d1a69dd89b74721cf65-territorio-cache.js` | sin tamaño | Catálogo territorial compartido | Imprescindible en apertura; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 26 | `9974cda67f30ab508712-paquete-ciudad.js` | sin tamaño | Lector local y descarga por revisión | Imprescindible; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 27 | `b05e47bff5caa56175be-consumo-v44.js` | sin tamaño | Instrumentación de consumo | Diferible fuera de auditoría; consolidable entre marcos | transferencia 0 en Resource Timing |
+| 28 | `0c4e700b98581d7b8780-clasificacion.js` | 1006 | Clasifica y aplica reglas de fichas | Imprescindible para el listado | transferencia 0 en Resource Timing |
+| 29 | `8780dd6717f3b52dcaa4-anunciantes-utilidades.js` | sin tamaño | Utilidades de tarjetas y ubicaciones | Consolidable entre marcos | transferencia 0 en Resource Timing |
+| 30 | `bc25c58f9aef6608d9b1-contenido-adulto.js` | 2884 | Aplica controles de contenido | Imprescindible para respetar restricciones | transferencia 0 en Resource Timing |
+| 31 | `completo-20774.json` | 57546 | Paquete completo de ciudad por revisión | Imprescindible en frío; reutilizado en recarga | sin solicitud |
+| 32 | `pie` | 2931 | Pie y navegación complementaria | Diferible fuera de vista | presente, bytes de red sin aislar |
+| 33 | `telemetria.js` | 471 | Instrumenta errores | Consolidable con la referencia del pie | transferencia 0 en Resource Timing |
+
+Mayor oportunidad en frío: logo y fondo suman 320.461 B observados. Las dos redirecciones canónicas agregaron dos respuestas y 180 B de cuerpo en ambas aperturas. Las clasificaciones de diferimiento y compresión son candidatas hasta probar el circuito y comparar calidad y consumo; no representan ahorros realizados.
+
+### Accesos de prueba y medición
+
+- Anunciante: sesión local de una cuenta autorizada, con anunciante y ciudad de ensayo identificados y permisos efectivos para el módulo. Para los controles de denegación, una relación con permisos limitados. El auditor guarda solo localmente `anunciante.session.json` mediante el inicio interactivo ya existente.
+- Gran Hermano: sesión local de administrador para consultas, administrador global para mutaciones territoriales y cuenta de moderación local para verificar restricciones. El auditor guarda `gran-hermano.session.json`. Las cuentas y registros para mutar requieren autorización específica sobre la instalación existente. Mantener los archivos de sesión fuera de Git y de la evidencia compartida.
+- Firebase: acceso de lectura a métricas del proyecto de Hosting y de la base Firestore que usa el Worker, al historial de versiones de Hosting y, para costo facturado, al proyecto de exportación de facturación o a informes de facturación de la cuenta. Las señales de navegador y el ID del Worker no identifican por sí solos un evento individual de Hosting o una lectura facturada de Firestore.
+- Cloudflare: acceso de lectura a registros de invocación del Worker y a métricas de KV y Durable Objects con la ventana de la ejecución. El ID ya se correlacionó en los logs, pero todavía falta una unión verificable con CPU, almacenamiento y facturación. No registrar sesiones, credenciales ni cuerpos privados en los informes.
+
 > **Correlación Cloudflare, Worker 212 instalado.** La consulta de solo lectura de las 12:15 Argentina a `/territory/public` informó el ID `ecd81474-71fe-401e-8e2e-5e71676ee16e`. Cloudflare Observability devolvió una coincidencia para ese ID. La vista de eventos rechazó el registro por falta de `$workers.requestId` en su esquema y el agregado de CPU no devolvió una muestra correlacionada. CPU, almacenamiento físico y facturación siguen sin medir. Evidencia de navegador: `.auditoria-local/usuario-8f447299-6ebd-4fa8-94e0-7847c6b3ad1d.json`.
 
 > **26/11/2026 — P4-0021 / P4-0027, candidato `b1ccab78`.** La alta territorial ya guarda un plan durable antes de publicar. Se retiró el checkpoint SQLite intermedio entre ambas escrituras KV. Un reinicio retoma desde el plan y compara copias antes de escribir. Chromium ejecutó el mismo circuito y fallo de KV contra `cc54b5da` y el candidato, con el Worker del repositorio y servicios simulados. Tres altas: SQLite 14→11 escrituras, 2 lecturas, 9 llamadas DO, 5 GET y 6 PUT KV, 3 PATCH, 1 put de almacenamiento DO y 3 alarmas. Recuperación tras fallo público: SQLite 4→3 escrituras, KV 1→2 GET, tres PUT intentados contando el fallo, 1 PATCH y un único PUT privado. No hay medición física de CPU, almacenamiento ni factura.
