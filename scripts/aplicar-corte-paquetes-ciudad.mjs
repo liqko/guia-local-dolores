@@ -92,7 +92,7 @@ function combineChanges(earlier, latest, schema) {
 
 // source is produced by the public projection export. A missing or partial cut
 // must fail instead of treating an unavailable city as a day with no changes.
-export async function aplicarCorte({ previous, source, readPublished, stage, forceStage = false }) {
+export async function aplicarCorte({ previous, source, readPublished, stage, forceStage = false, reusePublished = false }) {
   requireCut(previous.cutoff);
   requireCut(source.cutoff);
   validateManifest(previous.manifest);
@@ -183,19 +183,22 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   const changed = files.size > 0 || retired.length > 0;
   if (changed || forceStage) {
     const catalogPath = join(stage,'plataforma','territorio-cache.js');
-    const catalog = await readFile(catalogPath,'utf8');
-    if (catalog.split(marker).length !== 2) throw Error('Marcador de paquetes inválido');
+    if (!urgent || !reusePublished) {
+      const catalog = await readFile(catalogPath,'utf8');
+      if (catalog.split(marker).length !== 2) throw Error('Marcador de paquetes inválido');
+      const expression = 'JSON.parse(' + JSON.stringify(JSON.stringify(manifest)) + ')';
+      await writeFile(catalogPath,catalog.replace(marker,()=> '/* GLD_CITY_BOOKS */ ' + expression));
+    }
     for (const {key,revision,deltas} of Object.values(manifest)) {
       const prefix = publicPath + '/' + key + '/';
       await mkdir(join(stage,prefix),{recursive:true});
       for (const name of ['completo-' + revision,...deltas.map(from=>'cambios-' + from + '-' + revision)]) {
         const file = prefix + name + '.json';
+        if (reusePublished && !files.has(file)) continue;
         const content = files.get(file) ?? unchangedBooks.get(file) ?? await readPublished(file);
         await writeFile(join(stage,file),JSON.stringify(content));
       }
     }
-    const expression = 'JSON.parse(' + JSON.stringify(JSON.stringify(manifest)) + ')';
-    await writeFile(catalogPath,catalog.replace(marker,()=> '/* GLD_CITY_BOOKS */ ' + expression));
     await mkdir(join(stage,publicPath),{recursive:true});
     await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{})}));
   }

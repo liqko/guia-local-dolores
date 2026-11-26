@@ -254,14 +254,15 @@
     storage,
     fetchJson,
   });
-  const verification=verifySince?fetchJson('/plataforma/paquetes-ciudad/publicacion.json',{cache:'no-store'}).then(data=>{
+  let verification;
+  const verify=()=>verification??=fetchJson('/plataforma/paquetes-ciudad/publicacion.json',{cache:verifySince?'no-store':'no-cache'}).then(data=>{
     if(Number.isSafeInteger(data?.cutoff)&&data.manifest&&typeof data.manifest==='object'&&!Array.isArray(data.manifest)){
       observed=data;
       if(data.cutoff>=verifySince)published=data;
     }
-  }).catch(()=>{}):null;
+  }).catch(()=>{});
   async function getVerified(city){
-    await verification;
+    await verify();
     const advanced=newerEdition(city);
     let previous;
     if(published||advanced){
@@ -285,8 +286,9 @@
     return {...independent,needsVerification:published&&!Object.hasOwn(published.manifest,city)?{}:previous??{}};
   }
   root.GLD_PAQUETE_CIUDAD={
-    get(cityId){
-      if(!verification)return books.get(cityId);
+    async get(cityId){
+      await verify();
+      if(!verifySince)return books.get(cityId);
       const city=String(cityId??'').trim();
       if(!checks.has(city))checks.set(city,getVerified(city));
       return checks.get(city);

@@ -50,7 +50,7 @@ jobs:
           done
       - name: Comprobar el recorrido de publicación urgente
         if: inputs.urgentes != ''
-        run: node --test --test-name-pattern='urgente' tests/observabilidad/corte-ciudad.test.mjs
+        run: node --test --test-name-pattern='urgente' tests/observabilidad/corte-ciudad.test.mjs tests/hosting-reutilizacion.test.mjs
       - name: Conservar resultados si falla
         if: always()
         uses: actions/upload-artifact@v4
@@ -67,6 +67,7 @@ jobs:
       id-token: write
     env:
       GLD_URGENT_SCOPE: ${{ inputs.urgentes }}
+      GLD_REUSE_PUBLISHED: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -79,13 +80,14 @@ jobs:
         run: |
           node tests/publication-integrity.mjs
           if [ -z "$GLD_URGENT_SCOPE" ]; then
-            node --test tests/public-territory.test.mjs tests/paquete-ciudad.test.mjs tests/observabilidad/corte-ciudad.test.mjs tests/publicacion-generica.test.mjs tests/empleo-publico-local.test.cjs
+            node --test tests/public-territory.test.mjs tests/paquete-ciudad.test.mjs tests/observabilidad/corte-ciudad.test.mjs tests/publicacion-generica.test.mjs tests/empleo-publico-local.test.cjs tests/hosting-reutilizacion.test.mjs
           fi
       - name: Preparar exclusivamente archivos de plataforma para Hosting
         run: |
           set -euo pipefail
           rm -rf hosting-public
           mkdir -p hosting-public
+          if [ -n "$GLD_URGENT_SCOPE" ]; then exit 0; fi
           cp -a plataforma hosting-public/plataforma
           cp manifest.webmanifest hosting-public/manifest.webmanifest
           node -e "const fs=require('fs'); const m=JSON.parse(fs.readFileSync('hosting-public/manifest.webmanifest','utf8')); if(!m.start_url || !m.icons?.length) process.exit(1)"
@@ -104,10 +106,9 @@ jobs:
           fi
       - name: Preparar el catálogo público
         id: catalogo
+        if: env.GLD_URGENT_SCOPE == ''
         run: |
-          if [ -n "$GLD_URGENT_SCOPE" ]; then
-            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --preserve
-          elif [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --scheduled --stage-unchanged
           else
             node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js
@@ -125,14 +126,17 @@ jobs:
             node scripts/publicar-paquetes-ciudad.mjs cut hosting-public
           fi
       - name: Versionar recursos de Carcasa y sus módulos públicos
+        if: env.GLD_URGENT_SCOPE == ''
         run: node scripts/versionar-recursos-publicos.mjs hosting-public
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Publicar archivos nuevos y conservar los hashes vigentes
         if: steps.paquetes.outputs.changed == 'true' || (env.GLD_URGENT_SCOPE == '' && (steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true'))
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
-          channelId: live
-          projectId: anunciantes-guialocal
+        env:
+          GLD_HOSTING_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+        run: |
+          npm install --prefix "$RUNNER_TEMP/gld-hosting" --no-save --package-lock=false --ignore-scripts google-auth-library@9.15.1
+          export NODE_PATH="$RUNNER_TEMP/gld-hosting/node_modules"
+          if [ -n "$GLD_URGENT_SCOPE" ]; then mode=urgent; else mode=code; fi
+          node scripts/desplegar-hosting.mjs hosting-public "$mode"
       - name: Preparar comprobación real del navegador
         if: steps.paquetes.outputs.changed == 'true' || github.event_name == 'push'
         run: npm install --no-save --package-lock=false playwright@1.55.0

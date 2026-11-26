@@ -366,7 +366,7 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   calls.length=0;
   const hostingReads=[];
   let urgentConsumption;
-  const urgent=await publicarPaquetes({mode:'urgent',stage:urgentStage,cutoff,urgentScope:scope,
+  const urgent=await publicarPaquetes({mode:'urgent',stage:urgentStage,cutoff,urgentScope:scope,reusePublished:true,
     identity:async()=>urgentIdentity,read:async (input,options)=>{
       const url=new URL(input);
       if(url.hostname.endsWith('workers.dev')){
@@ -395,6 +395,8 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   assert.equal(urgentConsumption.firestore.read_calls,0);
   assert.equal(urgentConsumption.firestore.write_calls,0);
   assert.equal(urgentConsumption.firestore.delete_calls,0);
+  assert.equal(urgentConsumption.cloudflare.kv.get_calls,1);
+  assert.equal(hostingReads.length,2);
   t.diagnostic(JSON.stringify({
     hostingRequests:hostingReads.length,hostingBodyBytes:hostingReads.reduce((sum,size)=>sum+size,0),
     workerRequests:urgentConsumption.cloudflare.worker_requests,kv:urgentConsumption.cloudflare.kv,

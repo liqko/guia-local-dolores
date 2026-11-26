@@ -24,7 +24,7 @@ async function githubIdentity(read) {
   return data.value;
 }
 
-export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,
+export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,reusePublished=false,
   identity=githubIdentity}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,
@@ -45,7 +45,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
   if (mode === 'preserve') {
     return aplicarCorte({previous,
       source:{after:previous.cutoff,cutoff:previous.cutoff,complete:true,cities:[]},
-      readPublished,stage,forceStage:true});
+      readPublished,stage,forceStage:true,reusePublished});
   }
   if (mode === 'urgent') {
     if (!previous || !Array.isArray(urgentScope) || !urgentScope.length) throw Error('Falta la edición o el alcance urgente');
@@ -56,20 +56,20 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     });
     const source = await call({op:'urgent',cutoff,scope});
     if (source.urgent !== true || source.cutoff !== cutoff || source.after !== cutoff) throw Error('Respuesta urgente inválida');
-    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage});
+    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished});
   }
 
   const source = await call({op:'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
   if (!source) return {changed:false};
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');
-  return aplicarCorte({previous:{cutoff:source.after,manifest},source,readPublished,stage,forceStage});
+  return aplicarCorte({previous:{cutoff:source.after,manifest},source,readPublished,stage,forceStage,reusePublished});
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [mode,stage,cutoff] = process.argv.slice(2);
   const result = await publicarPaquetes({mode,stage,
-    ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',
+    ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',reusePublished:process.env.GLD_REUSE_PUBLISHED==='1',
     ...(mode==='urgent'?{urgentScope:JSON.parse(process.env.GLD_URGENT_SCOPE??'null')}:{}),
   });
   if (process.env.GITHUB_OUTPUT && mode !== 'commit') {
