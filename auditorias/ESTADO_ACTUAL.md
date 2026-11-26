@@ -1,3 +1,5 @@
+> **26/11/2026 — P4-0029-T01 (ejecución 39), base `ec5b780d`, corrección `7a64f76b`.** Eventos VIP de Anunciante: retirada la tabla sin consumidor versionado, cotejada con main. La regresión dirigida en Chromium mantiene la lista de tarjetas, delegación de editar, duplicar y promocionar, pausa, reanudación y baja, y confirma cero POST al cancelar. La prueba interceptó 3 POST en cada revisión; el tamaño del HTML UTF-8 sin compresión bajó de 522.862 a 520.870 bytes. Firestore, Hosting, Worker, KV, DO, CPU y transferencias reales sin medir. En corrección hasta comprobar el circuito autenticado y los consumos reales, sujeto a acceso de métricas, registros autorizados y permiso expreso para instalar y revertir. Reversión de código por Git. Las demás excepciones AST se conservan abiertas.
+
 > **26/11/2026 — Paso 4 en las tres interfaces, base `41357659`.** Ejecuciones 7, 23, 24, 35 y 56. Cotejado el Worker 212 de `main` en `384cfe79`; el candidato mantiene como base de integración la rama de auditoría autorizada. No se instaló código ni se modificaron datos de producción.
 >
 > **Anunciante (P4-0005, 7).** Actividades deja de consultar sus fichas si la copia maestra falta, falla o deshabilita la función. Caso controlado: 1→0 consultas de lista denegada; configuración válida conserva fichas y horarios. Actividades, Eventos, Publicidad y Promociones leen la misma copia preparada sin el enriquecimiento comercial que no utilizan. En la prueba del subtramo de la ficha: 2→0 GET de KV, 1 lectura del actor y 0 operaciones en el origen simulado en ambos casos. El formulario comercial y los permisos conservan el enriquecimiento. Eventos Free sigue leyendo su política específica.
@@ -176,7 +178,7 @@
 
 ## PASO 4 — CONTROL GENERAL (23/11/2026; inventario en consolidación, no cerrado)
 
-**Total de intervenciones identificadas: 40** | **Pendientes de diagnóstico: 21** | **Diagnosticadas: 1** | **En corrección: 15** | **Corregidas y probadas localmente: 3** | **Publicadas y verificadas: 0** | **Bloqueadas: 0** | **Mediciones comparativas completas: 0**.
+**Total de intervenciones identificadas: 40** | **Pendientes de diagnóstico: 20** | **Diagnosticadas: 1** | **En corrección: 16** | **Corregidas y probadas localmente: 3** | **Publicadas y verificadas: 0** | **Bloqueadas: 0** | **Mediciones comparativas completas: 0**.
 
 **Indicador técnico adicional — intervenciones con causa localizada, corrección preparada y regresión automatizada aprobada (sin cierre integral): 6** (P4-0002, P4-0009, P4-0010, P4-0012, P4-0013, P4-0037). **Investigadas con evidencia en esta fase: 11/40**; 0 descartadas por no vigencia con prueba completa. P4-0011 y P4-0012 tienen correcciones de causas parciales preparadas, pero conservan comprobaciones pendientes. Estas cantidades no sustituyen los estados excluyentes.
 
