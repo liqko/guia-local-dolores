@@ -4,7 +4,7 @@
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/publicidad-distribucion.js?v=194"></script>
 <script src="/plataforma/imagenes-publicas.js?v=89"></script>
-<script src="/plataforma/tarjetas-imagenes.js?v=142"></script>
+<script src="/plataforma/tarjetas-imagenes.js?v=143"></script>
 <script src="/plataforma/paginacion.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
@@ -1214,9 +1214,12 @@ body.gld-modo-web #paginador-abajo{display:none!important}
     document.getElementById('gldModuloReintentar')?.addEventListener('click',()=>location.reload());
     gldModuloBloquear('Cargando comercios y servicios…');
 
+    function gldMediaAttribute_(value){
+      return String(value||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    }
     function gldCardImageAttrs(url){
       if(window.GLD_CARD_IMAGES)return window.GLD_CARD_IMAGES.attributes(url);
-      return 'loading="lazy" decoding="async" src="'+String(url||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')+'"';
+      return 'loading="lazy" decoding="async" src="'+gldMediaAttribute_(url)+'"';
     }
     async function fetchInstagramImage(url){
       return window.GLD_CARD_IMAGES
@@ -2531,7 +2534,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             html += `<div class="galeria-carrusel">`;
             imagenes.forEach((url, idx) => {
               if (isInstagramPost(url)) {
-                html += `<span id="instaimg-${galeriaId}-${idx}" class="galeria-placeholder">Cargando…</span>`;
+                html += `<span id="instaimg-${galeriaId}-${idx}" data-post="${gldMediaAttribute_(url)}" class="galeria-placeholder">Cargando…</span>`;
               } else if (isDirectImage(url)) {
                 html += `<img class="thumbnail" ${gldCardImageAttrs(url)} alt="Imagen galería" ${accionImagenNivel_(item,nivelVisual,imagenes,idx)}>`;
               } else {
@@ -2543,7 +2546,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           } else {
             const url = imagenes[0];
             if (isInstagramPost(url)) {
-              html += `<span id="instaimg-${galeriaId}-0" class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">Cargando…</span><span class="segmento-doble"></span>`;
+              html += `<span id="instaimg-${galeriaId}-0" data-post="${gldMediaAttribute_(url)}" class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">Cargando…</span><span class="segmento-doble"></span>`;
             } else if (isDirectImage(url)) {
               html += `<div class="gld-galeria-simple"><img class="thumbnail solo" ${gldCardImageAttrs(url)} alt="Imagen" ${accionImagenNivel_(item,nivelVisual,imagenes,0)}></div>` +
                 `<span class="segmento-doble"></span>`;
@@ -2553,19 +2556,22 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             }
           }
           setTimeout(() => {
-            imagenes.forEach(async (url, idx) => {
-              if (isInstagramPost(url)) {
-                const imgurl = await fetchInstagramImage(url);
-                const el = document.getElementById(`instaimg-${galeriaId}-${idx}`);
-                if(el) {
-                  if(imgurl){
-                    el.innerHTML = `<img class="${imagenes.length===1?'thumbnail solo':'thumbnail'}" ${gldCardImageAttrs(imgurl)} alt="Instagram" ${accionImagenNivel_(item,nivelVisual,imagenes,idx)}>`;
-                    window.GLD_CARD_IMAGES?.refresh(el);
-                  }else{
-                    el.innerHTML = `<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>`;
-                  }
+            imagenes.forEach((url, idx) => {
+              if(!isInstagramPost(url))return;
+              const el=document.getElementById(`instaimg-${galeriaId}-${idx}`);
+              if(!el||el.dataset.post!==url)return;
+              const loadPost=async()=>{
+                const imgurl=await fetchInstagramImage(url);
+                if(!el.isConnected)return;
+                if(imgurl){
+                  el.innerHTML = `<img class="${imagenes.length===1?'thumbnail solo':'thumbnail'}" ${gldCardImageAttrs(imgurl)} alt="Instagram" ${accionImagenNivel_(item,nivelVisual,imagenes,idx)}>`;
+                  window.GLD_CARD_IMAGES?.refresh(el);
+                }else{
+                  el.innerHTML = '<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>';
                 }
-              }
+              };
+              if(window.GLD_CARD_IMAGES?.defer)window.GLD_CARD_IMAGES.defer(el,loadPost);
+              else loadPost();
             });
           }, 100);
           return html;

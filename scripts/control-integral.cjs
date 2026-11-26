@@ -12,6 +12,7 @@ const groups = {
   ],
   anunciante: [
     ['Formularios, permisos y guardados','node',['--test','tests/anunciante-formularios/contratos-compartidos.test.mjs']],
+    ['Lecturas del panel de Actividades autorizadas por copia maestra','node',['--test','tests/observabilidad/actividades-panel-consumo.test.cjs']],
     ['Copia privada y operaciones','node',['tests/guia/copia-persistente209.mjs']],
     ['Acceso por roles y niveles','node',['tests/guia/verify-panel-roles.mjs']],
   ],
@@ -19,12 +20,15 @@ const groups = {
     ['Detalle GH sin caducidad de 120 segundos', 'node',['--test','tests/observabilidad/gh-detalle-sin-ttl.test.cjs']],
     ['Invalidación real al guardar datos, eventos y propietarios', 'node',['--test','tests/observabilidad/gh-mutaciones-invalida.test.cjs']],
     ['Controles de acceso y revocaciones','node',['--test','tests/observabilidad/acceso-unificado201.test.mjs']],
+    ['Revisión de la copia privada con cambios concurrentes','node',['--test','tests/observabilidad/panel-cache-revision.test.cjs']],
     ['Reglas de publicación','node',['--test','tests/publicacion-reglas206.test.cjs']],
   ],
   navegador: [
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
     ['Carga, recarga y actualización de Guía en navegador aislado','node',['tests/browser/paquete-ciudad.cjs']],
     ['Creación, edición, baja y recuperación de Promociones en navegador aislado','node',['tests/browser/promociones-mutaciones.cjs']],
+    ['Alta y edición de prestaciones y cupos de Gran Hermano','node',['tests/browser/catalogos-auditoria.cjs']],
+    ['Carga diferida de galerías de Usuario','node',['tests/browser/guia-galeria-consumo.cjs']],
     ['Caché segura de Guía, versión y datos privados','node',['--test','tests/browser/descubrir-sin-descarga-repetida.cjs']],
     ['Descargas iniciales, navegación y modo sin conexión','node',['--test','tests/browser/sw-descargas-cache.cjs']],
   ],

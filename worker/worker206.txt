@@ -3162,7 +3162,7 @@ function promoId() {
 async function promosPanelDataV2({ db, cache, advertiserId, cupoFromAdmin }) {
   if(db.panelReadDb)db=db.panelReadDb();
   const [master,promos,catalogs]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
+    commerceMaster205({db,cache,advertiserId,includeCatalogs:false}),
     db.queryEqual("promos", "anunciante_id", advertiserId,500),
     cache.get("catalogs:promos:v1")
   ]);
@@ -3813,12 +3813,10 @@ async function duplicateVipV3({ db, cache, advertiserId, payload, max, advertise
 // reconstruccion/worker/modules/actividades.js
 async function actividadesPanelData({ db, cache, advertiserId, categorias, lugares, featureAllowed, cupoMax }) {
   if(db.panelReadDb)db=db.panelReadDb();
-  const [master,actividades]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
-    db.queryEqual("actividades", "anunciante_id", advertiserId,500)
-  ]);
+  const master=await commerceMaster205({db,cache,advertiserId,includeCatalogs:false});
   const admin=master?.advertiser?.administracion;
   if (!admin || !featureAllowed(admin)) return { success: false, message: "No tenés habilitado el módulo Actividades." };
+  const actividades=await db.queryEqual("actividades", "anunciante_id", advertiserId,500);
   const sedes=master.advertiser.sedes||[],advertiser=master.advertiser.datos;
   const conHorarios = await Promise.all(actividades.map(async (a) => ({
     ...a,
@@ -4434,7 +4432,7 @@ var isFree2 = (e) => text37(e && e.nivel).toUpperCase() === "FREE";
 async function eventsPanelDataV2({ db, cache, advertiserId, featureEnabled: featureEnabled3, cupo: cupo3 }) {
   if(db.panelReadDb)db=db.panelReadDb();
   const [master,events,catalogs,freeSettings198]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
+    commerceMaster205({db,cache,advertiserId,includeCatalogs:false}),
     db.queryEqual("eventos", "anunciante_id", advertiserId, 500),
     cache.get("catalogs:eventos:v1"),
     gldFuncPacket166(cache,db,true)
@@ -4479,7 +4477,7 @@ const text=v=>String(v??"").trim();
 async function publicidadPanelDataV2({db,cache,advertiserId,featureEnabled,configFromAdmin}){
   if(db.panelReadDb)db=db.panelReadDb();
   const [master,docs,catalogs]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
+    commerceMaster205({db,cache,advertiserId,includeCatalogs:false}),
     db.queryEqual("publicidades","anunciante_id",advertiserId,500),
     getPublicidadCatalogs(cache)
   ]);
@@ -6230,10 +6228,10 @@ function gldConfiguracionPanel205(admin,packet){
   return [fid,{nombre:String(global.nombre||fid),activo:global.activo!==false&&(!Array.isArray(global.niveles_habilitados)||global.niveles_habilitados.includes(Number(admin?.nivel))),parametros,admite_excepciones:global.admite_excepciones!==false}];
  }));
 }
-async function commerceMaster205({db,cache,advertiserId}){
+async function commerceMaster205({db,cache,advertiserId,includeCatalogs=true}){
  if(!db.commerceMasterRead209)throw httpError('La copia del anunciante no está disponible.',503);
  const response=await db.commerceMasterRead209(advertiserId);
- if(response?.success!==true)return response;
+ if(response?.success!==true||!includeCatalogs)return response;
  const catalogs=await getCommerceCatalogs(cache);
  const functionRules=catalogs.panel_function_rules210?.reglas?catalogs.panel_function_rules210:await gldFuncPacket166(cache,db,false);
  const advertiser=response.advertiser;
@@ -10338,8 +10336,7 @@ function withPanelCacheV48(db,env,report){
   async function read(key){if(!kv?.get)return null;const raw=await kv.get(key,{cacheTtl:30});if(!raw)return null;try{const p=JSON.parse(raw);return p?.version===48?p:null;}catch(_){return null;}}
   async function optionalSave(key,value){if(kv?.put)try{await kv.put(key,JSON.stringify({version:48,...value}));}catch(_){}}
   async function requiredSave(key,value){if(!kv?.put)return;try{await kv.put(key,JSON.stringify(value));}catch(error){if(GLD_BUSINESS143.quotaError(error))throw error;await new Promise(r=>setTimeout(r,1100));await kv.put(key,JSON.stringify(value));}}
-  async function merge(key,packet,saveCompaction=true){
-    const marker=await read(key+':changes');
+  async function merge(key,packet,marker,saveCompaction=true){
     const own=[...changes.values()].filter(c=>c.key===key);
     if(!marker&&!own.length)return packet.data;
     if(marker&&packet.revision===marker.revision&&!own.length)return packet.data;
@@ -10358,8 +10355,9 @@ function withPanelCacheV48(db,env,report){
       let packet=await read(key);const missing=!Array.isArray(packet?.data);
       if(report)(report.cache_checks??=[]).push({collection:c,field,cache:"panel",result:missing?"miss":"hit"});
       if(missing){const data=remember(c,(await db.queryEqual(c,field,value,500)).filter(row=>!PUBLICATION_COLLECTIONS.has(c)||publicationAuthority(row)!=='ELIMINADA'));packet={version:48,data,revision:''};}
-      const data=await merge(key,packet,!missing);
-      if(missing){const marker=await read(key+':changes');await optionalSave(key,{data,revision:marker?.revision||''});}
+      const marker=await read(key+':changes');
+      const data=await merge(key,packet,marker,!missing);
+      if(missing)await optionalSave(key,{data,revision:marker?.revision||''});
       return remember(c,data);
     })();
     pending.set(key,operation);try{return copy(await operation);}finally{pending.delete(key);}
@@ -10371,7 +10369,7 @@ function withPanelCacheV48(db,env,report){
       const listKey=queryKey(c,scope.advertiserId,'anunciante_id'),packet=await read(listKey);
       if(report)(report.cache_checks??=[]).push({collection:c,field:'anunciante_id',cache:'panel-record-from-list',result:Array.isArray(packet?.data)?'hit':'miss'});
       if(Array.isArray(packet?.data)){
-        const rows=remember(c,await merge(listKey,packet));
+        const rows=remember(c,await merge(listKey,packet,await read(listKey+':changes')));
         const row=rows.find(row=>text(row.id)===text(id));
         if(row)return copy(row);
       }
@@ -10505,7 +10503,7 @@ function withPanelCacheV48(db,env,report){
     },
 
     notePanelCacheCheck(entry){if(report)(report.cache_checks??=[]).push(entry);},
-    async cachedPanelRows(c,field,value){const key=queryKey(c,value,field);const packet=await read(key);return Array.isArray(packet?.data)?copy(await merge(key,packet)):null;},
+    async cachedPanelRows(c,field,value){const key=queryKey(c,value,field);const packet=await read(key);return Array.isArray(packet?.data)?copy(await merge(key,packet,await read(key+':changes'))):null;},
     async commitPatches(/** @type {any[]} */ entries){
       for(const e of entries){const newEmploymentCycle=e.collection==='empleos'&&e.before&&e.patch?.empleo_id!==e.before.empleo_id&&e.patch?.owner_id===e.before.owner_id&&e.patch?.owner_type===e.before.owner_type&&e.patch?.revision_definitiva===false&&Date.parse(e.before.hasta)<=Date.now();if(!newEmploymentCycle&&!e.remove&&e.before&&(e.before.revision_definitiva||directoryState102(e.before)==='RECHAZADA'&&await createCache(env).get('review:closed:v102:'+e.collection+':'+e.id)))throw httpError('La publicación está bloqueada por una revisión definitiva.',403);}
       const result=await db.commitPatches(entries);

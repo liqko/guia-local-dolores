@@ -19,7 +19,9 @@ function setup(existingStore=null){
   advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build};}
  };
  vm.createContext(ctx);
- vm.runInContext(source.slice(start,end),ctx);
+ const version=source.match(/^const WORKER_VERSION = .*;$/m)?.[0];
+ assert(version);
+ vm.runInContext(version+'\n'+source.slice(start,end),ctx);
  const actor=new GldPublicCache119();
  actor.env={GLD_CACHE_KV:{}};
  actor.metrics={rows_read:0,rows_written:0};

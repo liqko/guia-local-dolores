@@ -2150,6 +2150,14 @@ const GH_CARGA_GENERAL_FIELDS=[
 ];
 
 let GH_CARGA_GENERAL_BASE=null;
+function ghCupoCargaMin_(key){return key==='categorias_max'?1:-1;}
+function ghCupoCargaValor_(field,key,label){
+ const raw=field?.value.trim()||'';
+ const val=Number(raw);
+ if(!/^(?:-1|\d+)$/.test(raw)||!Number.isSafeInteger(val)||val<ghCupoCargaMin_(key)||val>10000||
+    key==='imagenes_max'&&val>10||key==='redes_max'&&val>6||key==='categorias_max'&&val>3)throw Error('Cupo no válido: '+label);
+ return val;
+}
 
 // Inventario de datos: una única clasificación, independiente de los permisos de publicación.
 const GH_AMBITO_CAMPOS=[
@@ -2200,7 +2208,7 @@ function ghInfoAnuncianteCuposRender_(rows){
  const fields=GH_CARGA_GENERAL_FIELDS.map(([key,label,fallback])=>{
    const value=cfg['carga_'+grupo+'_'+key]??cfg['carga_'+key]??fallback;
    const warning=Number(value)===0?'0 = no se permite cargar este dato':Number(value)===-1?'Sin límite (-1)':'';
-   return '<label>'+esc(label)+'<input type="number" min="0" step="1" data-info-cupo="'+esc(key)+'" value="'+esc(value)+'">'+(warning?'<small style="color:#9a5c0c">'+esc(warning)+'</small>':'')+'</label>';
+   return '<label>'+esc(label)+'<input type="number" min="'+ghCupoCargaMin_(key)+'" step="1" data-info-cupo="'+esc(key)+'" value="'+esc(value)+'">'+(warning?'<small style="color:#9a5c0c">'+esc(warning)+'</small>':'')+'</label>';
  }).join('');
  return '<details class="card"><summary><b>Información del anunciante</b> · Cupos y condiciones de carga</summary>'+
  '<p class="muted">Parámetros generales de carga y conservación (capacidad máxima del nivel 6). Se aplican a todos los anunciantes comerciales; el nivel contratado sólo determina qué se publica en la Guía.</p>'+
@@ -2216,10 +2224,7 @@ async function ghGuardarInfoAnuncianteCupos_(){
   const cfg=GH_CARGA_GENERAL_BASE||{},item={nivel_id:GH_CARGA_GENERAL_ID};
   for(const [key,label,def] of GH_CARGA_GENERAL_FIELDS){
    const field=document.querySelector('[data-info-cupo="'+key+'"]');
-   if(!field||!/^\d+$/.test(field.value.trim()))throw Error('Ingresá un número válido para '+label);
-   const val=Number(field.value);
-   if(!Number.isSafeInteger(val)||val< -1||val>10000||key==='imagenes_max'&&val>10||key==='redes_max'&&val>6||key==='categorias_max'&&val>3)
-      throw Error('Cupo no válido: '+label);
+   const val=ghCupoCargaValor_(field,key,label);
    const storage='carga_comercial_'+key;
    if(val!==Number(cfg[storage]??cfg['carga_'+key]??def))item[storage]=val;
   }
@@ -2244,7 +2249,7 @@ function ghCargaGeneralRender(rows){
    const legacy=GH_CARGA_GENERAL_BASE?.['carga_'+key];
    const valor=stored??legacy??def;
    const aviso=Number(valor)===0?'0 = no se permite cargar este dato':Number(valor)===-1?'Sin límite (-1)':'';
-   return '<label>'+esc(label)+'<input type="number" min="0" step="1" data-carga-grupo="'+grupo+'" data-carga-clave="'+esc(key)+'" value="'+esc(valor)+'" '+(aviso?'style="outline:2px solid #c68127"':'')+'>'+(aviso?'<small style="display:block;color:#a6570d;font-weight:700">'+esc(aviso)+'</small>':'')+'</label>';
+   return '<label>'+esc(label)+'<input type="number" min="'+ghCupoCargaMin_(key)+'" step="1" data-carga-grupo="'+grupo+'" data-carga-clave="'+esc(key)+'" value="'+esc(valor)+'" '+(aviso?'style="outline:2px solid #c68127"':'')+'>'+(aviso?'<small style="display:block;color:#a6570d;font-weight:700">'+esc(aviso)+'</small>':'')+'</label>';
   }).join('')+'</div>';
  }
 }
@@ -2252,10 +2257,7 @@ function ghPrepararCargaGrupo_(grupo){
  const item={nivel_id:GH_CARGA_GENERAL_ID};
  for(const [key,label,def] of GH_CARGA_GENERAL_FIELDS){
   const el=document.querySelector('[data-carga-grupo="'+grupo+'"][data-carga-clave="'+key+'"]');
-  const val=Number(el?.value);
-  if(!el||!String(el.value).trim()||!Number.isSafeInteger(val)||val< -1||val>10000||
-     key==='imagenes_max'&&val>10||key==='redes_max'&&val>6||key==='categorias_max'&&(val<1||val>3))
-    throw Error('Valor inválido en '+grupo+': '+label);
+  const val=ghCupoCargaValor_(el,key,label);
   const storage='carga_'+grupo+'_'+key;
   if(val!==Number(GH_CARGA_GENERAL_BASE?.[storage]??GH_CARGA_GENERAL_BASE?.['carga_'+key]??def))
     item[storage]=val;
@@ -3124,7 +3126,9 @@ async function ghGuardarCategoriasActividades(){
   msg.textContent='Se guardaron '+saved+' de '+updates.length+'. '+String(e.message||e)+'. Revisá y volvé a guardar.';
  }finally{btn.disabled=false;}
 }
-function ghNuevaPrestacion_(){
+let GH_PRESTACION_CREANDO=false;
+async function ghNuevaPrestacion_(){
+ if(GH_PRESTACION_CREANDO)return;
  const nombre=prompt('Nombre de la nueva prestación:');if(!nombre?.trim())return;
  const id=prompt('Identificador corto (sin espacios ni acentos):',nombre.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,''))?.trim();
  if(!id||!/^[a-z0-9][a-z0-9_-]{0,48}$/.test(id)){alert('Identificador inválido.');return;}
@@ -3132,9 +3136,8 @@ function ghNuevaPrestacion_(){
  const icono=prompt('Ícono Font Awesome (opcional):','')?.trim()||'';
  if(icono&&!/^[a-z0-9-]{1,60}$/.test(icono)){alert('Ícono inválido.');return;}
  const row={prestacion_id:id,nombre:nombre.trim(),icono,activo:true};
- GH_CATALOG_CACHE.prestaciones=[...(GH_CATALOG_CACHE.prestaciones||[]),row];
- ghRenderCatalogo(GH_CATALOGOS.find(x=>x.tipo==='prestaciones'),GH_CATALOG_CACHE.prestaciones);
- ghGuardarCatalogo('prestaciones',id);
+ GH_PRESTACION_CREANDO=true;
+ try{await ghGuardarCatalogo('prestaciones',id,row);}finally{GH_PRESTACION_CREANDO=false;}
 }
 function ghNuevoCatalogo(tipo){
   const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
@@ -3142,10 +3145,10 @@ function ghNuevoCatalogo(tipo){
   const nivelExtra=tipo==='niveles_anunciante'?'<label>Número<input type="number" min="1" data-cat-numero="'+esc(id)+'" value="7"></label><label>Orden / prioridad<input type="number" min="0" data-cat-orden="'+esc(id)+'" value="0"></label>':'';
   box.insertAdjacentHTML('afterbegin','<div class="item"><div class="formgrid"><div><label>Nombre</label><input data-cat-nombre="'+esc(id)+'" placeholder="Nombre"></div><div><label>ID</label><input value="'+esc(id)+'" disabled></div></div>'+nivelExtra+'<div class="checks"><label><input type="checkbox" data-cat-activo="'+esc(id)+'" checked> Activo</label></div><button onclick="ghGuardarCatalogo(\''+tipo+'\',\''+esc(id)+'\')">Guardar</button></div>');
 }
-async function ghGuardarCatalogo(tipo,id){
+async function ghGuardarCatalogo(tipo,id,draft){
   const def=GH_CATALOGOS.find(x=>x.tipo===tipo);if(!def)return;
-  const nombre=(document.querySelector('[data-cat-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
-  const activo=!!(document.querySelector('[data-cat-activo="'+CSS.escape(id)+'"]')||{}).checked;
+  const nombre=draft?.nombre??(document.querySelector('[data-cat-nombre="'+CSS.escape(id)+'"]')?.value||'');
+  const activo=draft?.activo??Boolean(document.querySelector('[data-cat-activo="'+CSS.escape(id)+'"]')?.checked);
   if(!nombre.trim()){alert('Falta el nombre.');return;}
   try{
     const previous=(GH_CATALOG_CACHE[tipo]||[]).find(x=>String(x[def.idField]||x.id||'')===id);
@@ -3153,8 +3156,10 @@ async function ghGuardarCatalogo(tipo,id){
     const item={[def.idField]:id,[labelField]:nombre.trim()};
     if(!previous||activo!==GLD_CLASSIFICATION.active(previous))item.activo=activo;
     if(tipo==='prestaciones'){
-      const icono=document.querySelector('[data-cat-icono="'+CSS.escape(id)+'"]')?.value.trim()||'';
+      const icono=draft?.icono??(document.querySelector('[data-cat-icono="'+CSS.escape(id)+'"]')?.value.trim()||'');
       if(icono&&!/^[a-z0-9-]{1,60}$/.test(icono))throw Error('Ícono inválido.');
+      if(previous&&nombre.trim()===String(previous[labelField]||'').trim()&&
+        icono===String(previous.icono||'')&&activo===GLD_CLASSIFICATION.active(previous))return;
       item.icono=icono;
     }
     if(tipo==='niveles_anunciante'&&previous){const no=document.querySelector('[data-cat-numero="'+CSS.escape(id)+'"]'),po=document.querySelector('[data-cat-orden="'+CSS.escape(id)+'"]');const numero=Number(no?.value),prioridad=Number(po?.value);if(!Number.isSafeInteger(numero)||numero<1||!Number.isSafeInteger(prioridad)||prioridad<0)throw Error('Número u orden de prioridad inválido.');if(numero!==Number(previous.numero??GLD_CLASSIFICATION.levelNumber(previous)))item.numero=numero;if(prioridad!==Number(previous.prioridad??previous.orden??0)){item.prioridad=prioridad;item.orden=prioridad;}}

@@ -41,7 +41,7 @@ test('el paquete maestro conserva datos y parámetros sin listas fijas de campos
  assert.match(worker,/return response/);
  for(const fn of ['eventsPanelDataV2','actividadesPanelData','promosPanelDataV2','publicidadPanelDataV2']){
   const ix=worker.indexOf('async function '+fn);
-  assert.ok(ix>=0&&worker.slice(ix,ix+1000).includes('commerceMaster205'),fn+' no comparte el paquete');
+  assert.ok(ix>=0&&worker.slice(ix,ix+1000).includes('commerceMaster205({db,cache,advertiserId,includeCatalogs:false})'),fn+' no comparte el paquete');
  }
 });
 test('el paquete usa la copia durable y no vence a los dos minutos',()=>{
