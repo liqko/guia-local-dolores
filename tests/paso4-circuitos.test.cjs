@@ -667,3 +667,37 @@ test('E2: autenticación compartida por petición, entorno y rol sin contaminar 
  assert.equal(admin,3);assert.equal(subscriber,2);
  assert.match(worker,/verifySubscriberSessionRaw143,'subscriber'/);
 });
+test('P4-0006: Guía y Publicidad piden visibilidad sólo cuando verifican copia local',async t=>{
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const guide=source.slice(source.indexOf('    async function jsonpApi('),source.indexOf('    async function gldFetchJson('));
+ const banners=source.slice(source.indexOf('    async function obtenerBannersPromise('),source.indexOf('    function obtenerBannersRemotos('));
+ const calls=[];
+ let edition={stale:true,needsVerification:{},modules:{}};
+ const fetcher=async input=>{calls.push(new URL(input));return Response.json({success:true});};
+ const lookup=async()=>edition;
+ const verify=(_edition,_family,value)=>value;
+ const load=Function('gldPaquetePublico','verificarPublicacion','fetch','GLD_WORKER_ORIGIN',guide+';return jsonpApi;')(
+  lookup,verify,fetcher,'https://local.invalid');
+ const ads=Function('gldPaquetePublico','verificarPublicacion','window','ciudadSeleccionada','gldFetchJson','publicidadPublicaUrl','obtenerBannersRemotos',
+  banners+';return obtenerBannersPromise;')(lookup,verify,{GLD_PAQUETE_CIUDAD:{module:async()=>null}},'DOL',
+   async input=>({data:await (await fetcher(input)).json()}),()=> 'https://local.invalid/publicidad?action=publicas',async()=>null);
+ await load({action:'guia',ciudad_id:'DOL'});
+ await ads();
+ edition={stale:true,modules:{}};
+ await load({action:'guia',ciudad_id:'DOL'});
+ await ads();
+ assert.deepEqual(calls.map(url=>[url.pathname,url.searchParams.get('vista')]),
+  [['/guide','visibilidad'],['/publicidad','visibilidad'],['/guide',null],['/publicidad',null]]);
+ assert.equal(calls[0].searchParams.get('compact'),'1');
+
+ const start=worker.indexOf('function compactPublicVisibility('),end=worker.indexOf('async function adultPublicResponse(',start);
+ const compact=Function(worker.slice(start,end)+';return compactPublicVisibility;')();
+ const fixtures=[
+  [{field:'results',id:'anunciante_id'},{success:true,results:[{anunciante_id:'A',sedes:[{bloqueado18:true}],descripcion:'x'.repeat(3000)}]}],
+  [{field:'publicidades',id:'publicidad_id'},{success:true,distribucion:{habilitado:true},publicidades:[{publicidad_id:'P',descripcion:'x'.repeat(3000)}]}]
+ ];
+ const [guideRow,adsRow]=fixtures.map(([spec,value])=>compact(value,spec));
+ assert.deepEqual(guideRow.results,[{anunciante_id:'A',bloqueado18:true}]);
+ assert.deepEqual(adsRow,{success:true,distribucion:{habilitado:true},publicidades:[{publicidad_id:'P'}]});
+ for(const [spec,value] of fixtures)t.diagnostic(spec.field+': '+Buffer.byteLength(JSON.stringify(value))+' → '+Buffer.byteLength(JSON.stringify(compact(value,spec)))+' B');
+});
