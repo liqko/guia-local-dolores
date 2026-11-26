@@ -6,7 +6,7 @@ async function run() {
   const html = readFileSync('plataforma/administracion.html', 'utf8');
   const start = html.indexOf('function ghTerrId_(');
   const end = html.indexOf('async function buscarSus(', start);
-  const controls = html.match(/<div class="toolbar"><button id="btnCiudadesRefresh">[^\n]+?<\/div><div id="territorioAlta"><\/div>/)?.[0];
+  const controls = html.match(/<div class="toolbar">[^\n]+?<button id="btnCiudadesRefresh">[^\n]+?<\/div><div id="territorioAlta"><\/div>/)?.[0];
   assert(start >= 0 && end > start && controls);
   const source = readFileSync('worker/worker206.txt', 'utf8');
   const worker = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
@@ -14,6 +14,8 @@ async function run() {
   const backend = fixture(worker.GldPublicCache119);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = backend.network;
+  const styles=html.match(/<style>([\s\S]*?)<\/style>/)?.[1];
+  assert(styles);
   const browser = await chromium.launch({ executablePath:process.env.GLD_CHROME, args:['--no-sandbox'] });
   try {
     const page = await browser.newPage({ viewport:{ width:390, height:844 }, serviceWorkers:'block' });
@@ -21,7 +23,7 @@ async function run() {
     const posts = [];
     await page.route('**/*', async route => {
       const request = route.request();
-      if (new URL(request.url()).pathname === '/') return route.fulfill({ contentType:'text/html; charset=utf-8', body:controls });
+      if (new URL(request.url()).pathname === '/') return route.fulfill({ contentType:'text/html; charset=utf-8', body:'<style>'+styles+'</style>'+controls+'<select id=ciuSelect><option value=DOL>Dolores</option></select><div id=ciudadDetalle></div>' });
       const path = new URL(request.url()).pathname;
       const { item } = request.postDataJSON();
       posts.push({path,item});
@@ -39,8 +41,23 @@ async function run() {
       let GH_CITIES=[];
       const esc=String, TOKEN=${JSON.stringify(session())}, TERRITORY_API_ORIGIN=location.origin;
       const ghInvalidarCatalogoPublicoCiudades=()=>{}, ghRenderCiudades=()=>{};
+      const GH_CITY_EDIT_PENDING=new Set();
+      const GH_ADMIN_ACCESS={rol:'SUPERADMIN_PRINCIPAL'};
+      ${html.slice(html.indexOf('function ghRenderCiudadEdicion('),html.indexOf('async function ghGuardarCambioCiudad('))}
       ${html.slice(start,end)}
     ` });
+    await page.evaluate(()=>{GH_CITIES.push({ciudad_id:'DOL',nombre:'Dolores'});ghRenderCiudadEdicion();});
+    for(const width of [390,1024]){
+      await page.setViewportSize({width,height:844});
+      const refresh=page.locator('.toolbar button').last();
+      assert(await refresh.isVisible());
+      assert.equal(await refresh.textContent(),'Actualizar');
+      assert.equal(await refresh.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(46, 125, 50)');
+      const remove=page.getByRole('button',{name:'Eliminar ciudad'});
+      assert(await remove.isVisible());
+      assert.equal(await remove.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(198, 40, 40)');
+    }
+    await page.setViewportSize({width:390,height:844});
     const form = page.locator('#territorioAlta');
     async function open(name, value) {
       await page.getByRole('button', { name, exact:true }).click();
