@@ -7070,6 +7070,7 @@ async function efemSaveV3({ db, cache, advertiserId, body, permisos }) {
   if (Object.prototype.hasOwnProperty.call(payload, "fecha")) fields.push("mes", "dia");
   const patch = changedFieldsV1(existing, data, { fields: existing ? fields : null });
   const saved = Object.keys(patch).length ? await db.patch("efemerides_bis", id4, patch, { mustExist: !!existing, newDocument: !existing }) : existing;
+  if (!Object.keys(patch).length) return { success: true, updated: false, efemeride: existing };
   await syncEfemeridePreparedV2({ cache, efemerideId: id4, previous: existing, next: saved });
   return { success: true, efemeride: saved };
 }
@@ -7160,20 +7161,20 @@ var {farmSaveCycleV3} = (() => {
 const text=v=>String(v??"").trim();
 
 async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[],adminAuth=null}){
-  const administrative=isTopAdmin2(adminAuth);
+  const administrative=!!adminAuth&&isTopAdmin2(adminAuth);
   const payload=body&&body.payload&&typeof body.payload==="object"?body.payload:body||{};
   let id=text(payload.ciclo_id);
   const current=id?await db.get("farmacias_ciclos",id):null;
   if(id&&!current)throw new Error("Ciclo no encontrado.");
 
-  if(!administrative&&current&&text(current.anunciante_id)&&text(current.anunciante_id)!==text(advertiserId)){
+  if(!administrative&&current&&(!text(current.anunciante_id)||text(current.anunciante_id)!==text(advertiserId))){
     throw new Error("El ciclo no pertenece al anunciante.");
   }
 
   const merged={...(current||{}),...payload};
   const city=text(merged.ciudad_id);
   if(!city)throw new Error("Falta ciudad.");
-  if((administrative||allowedCityIds.length)&&!allowedCityIds.includes(city))throw new Error("La ciudad no está habilitada para esta cuenta.");
+  if(!allowedCityIds.includes(city))throw new Error("La ciudad no está habilitada para esta cuenta.");
   if(!text(merged.fecha_inicio))throw new Error("Falta fecha de inicio.");
   if(!text(merged.hora_inicio))throw new Error("Falta hora de inicio.");
 
