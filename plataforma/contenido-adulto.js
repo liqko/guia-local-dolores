@@ -38,7 +38,22 @@
  .gld-adult-notice [role=status]:empty{display:none}
  @media(max-width:540px){.card.adult-locked{padding:20px;min-height:220px}.gld-adult-notice{left:10px;right:10px;bottom:10px;padding:18px}.gld-adult-surface .gld-adult-button{width:100%}}
  `;document.head.appendChild(style);
- window.GLD_ADULT={hasGrant(){try{return Boolean(sessionStorage.getItem(key)&&localStorage.getItem('gld_suscriptor_token_v2'));}catch{return false;}},open(){show();banner.querySelector('button').click();},card(tipo){return '<article class="card adult-locked gld-adult-surface" data-adult-decorated="1"><div class="gld-adult-eyebrow"><span class="gld-adult-badge">+18</span><span>ACCESO RESTRINGIDO</span></div><h3>'+ (tipo==='evento'?'Evento con contenido +18':tipo==='promo'?'Promoción con contenido +18':tipo==='empleo'?'Publicación de empleo con contenido +18':'Contenido para mayores de 18 años') +'</h3><p>Ingresá con tu cuenta personal y confirmá tu edad para visualizar esta publicación.</p><button class="gld-adult-button" type="button" onclick="window.GLD_ADULT.open()">Ingresar y visualizar</button></article>';}};
+ const claims=value=>{
+  if(!/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value||''))return null;
+  try{return JSON.parse(atob(value.split('.')[0].replace(/-/g,'+').replace(/_/g,'/')));}catch{return null;}
+ };
+ function currentGrant(){
+  try{
+   const token=sessionStorage.getItem(key),subscriber=localStorage.getItem('gld_suscriptor_token_v2');
+   const grant=claims(token),person=claims(subscriber);
+   if(grant?.typ==='GLD_ADULT_ACCESS'&&grant.sid&&Number(grant.exp)>Date.now()&&
+      person?.typ==='GLD_SUBSCRIBER'&&person.sid===grant.sid&&
+      (person.persistent===true||Number(person.exp)>Date.now()))return {token,subscriber};
+   if(token)sessionStorage.removeItem(key);
+  }catch{}
+  return null;
+ }
+ window.GLD_ADULT={hasGrant(){return Boolean(currentGrant());},open(){show();banner.querySelector('button').click();},card(tipo){return '<article class="card adult-locked gld-adult-surface" data-adult-decorated="1"><div class="gld-adult-eyebrow"><span class="gld-adult-badge">+18</span><span>ACCESO RESTRINGIDO</span></div><h3>'+ (tipo==='evento'?'Evento con contenido +18':tipo==='promo'?'Promoción con contenido +18':tipo==='empleo'?'Publicación de empleo con contenido +18':'Contenido para mayores de 18 años') +'</h3><p>Ingresá con tu cuenta personal y confirmá tu edad para visualizar esta publicación.</p><button class="gld-adult-button" type="button" onclick="window.GLD_ADULT.open()">Ingresar y visualizar</button></article>';}};
  let banner;
  function accountLink(datos){const a=document.createElement('a');a.href='https://guialocal.ar/suscriptores/?vista='+(datos?'mi-guia&seccion=datos':'login');a.target='_top';a.textContent=datos?'Completar mis datos':'Ingresar a mi cuenta personal';return a;}
  function show(){
@@ -48,12 +63,12 @@
    const token=localStorage.getItem('gld_suscriptor_token_v2'),status=banner.querySelector('[role=status]');
    if(!token){status.textContent='Iniciá sesión en tu cuenta personal y volvé a esta página. ';status.append(accountLink(false));return;}
    if(!confirm('¿Querés visualizar contenido para mayores de 18 años?'))return;
-   try{const r=await nativeFetch(origin+'/adult/access',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({confirmar:true})}),j=await r.json();if(!j.success){status.textContent=(j.message||'No se pudo verificar el acceso.')+' ';if(j.code==='AGE_UNKNOWN')status.append(accountLink(true));else if(j.code==='LOGIN_REQUIRED')status.append(accountLink(false));return;}sessionStorage.setItem(key,j.token);location.reload();}catch{status.textContent='No se pudo verificar el acceso. Reintentá.';}
+   try{const r=await nativeFetch(origin+'/adult/access',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({confirmar:true})}),j=await r.json();if(!j.success){status.textContent=(j.message||'No se pudo verificar el acceso.')+' ';if(j.code==='AGE_UNKNOWN')status.append(accountLink(true));else if(j.code==='LOGIN_REQUIRED')status.append(accountLink(false));return;}if(localStorage.getItem('gld_suscriptor_token_v2')!==token)return;sessionStorage.setItem(key,j.token);location.reload();}catch{status.textContent='No se pudo verificar el acceso. Reintentá.';}
   };document.body.append(banner);
  }
  window.fetch=async function(input,init){
   const u=new URL(input instanceof Request?input.url:String(input),location.href);
-  if(u.origin===origin){const headers=new Headers(input instanceof Request?input.headers:undefined);new Headers(init?.headers).forEach((value,name)=>headers.set(name,value));const token=sessionStorage.getItem(key);const subscriber=localStorage.getItem('gld_suscriptor_token_v2');if(token&&subscriber){const auth=headers.get('Authorization');if(!auth||auth==='Bearer '+subscriber){headers.set('X-GLD-Adult-Token',token);if(!auth)headers.set('Authorization','Bearer '+subscriber);}}else if(token)sessionStorage.removeItem(key);init={...init,headers};}
+  if(u.origin===origin){const headers=new Headers(input instanceof Request?input.headers:undefined);new Headers(init?.headers).forEach((value,name)=>headers.set(name,value));const grant=currentGrant();if(grant){const {token,subscriber}=grant;const auth=headers.get('Authorization');if(!auth||auth==='Bearer '+subscriber){headers.set('X-GLD-Adult-Token',token);if(!auth)headers.set('Authorization','Bearer '+subscriber);}}init={...init,headers};}
   const response=await nativeFetch(input,init);
   return response;
  };
