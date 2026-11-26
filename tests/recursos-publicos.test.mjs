@@ -24,6 +24,9 @@ test('Recursos publicados: revisión por contenido, imágenes intactas y actuali
   }
   const brand=await readFile(join(stage,first.files['/plataforma/marca-global.js']),'utf8');
   assert(!brand.includes('/plataforma/assets/marca/'));
+  assert(brand.includes("footer.src='/plataforma/pie'"));
+  assert(html.includes("url:'./empleo'"));
+  assert(JSON.parse(await readFile('firebase.json','utf8')).hosting.cleanUrls);
   await reset();
   const again=await versionarRecursos(stage);
   assert.deepEqual(again.files,first.files);

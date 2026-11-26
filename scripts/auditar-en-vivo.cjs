@@ -87,8 +87,8 @@ function installMeasurement(context, services=domains, phase=()=>null) {
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -99,7 +99,7 @@ async function main([action, name, sessionOption]) {
   await mkdir(base,{recursive:true,mode:0o700});
   const state = join(base,name+'.session.json');
   const interactive = action==='sesion';
-  const session = !interactive&&(Boolean(module)||name!=='usuario'||Boolean(sessionOption));
+  const session = !interactive&&(Boolean(module)||action==='consultas'||name!=='usuario'||Boolean(sessionOption));
   let browser, evidence, failure, phase='apertura';
   const javascriptErrors = [], steps = [], hostingTimings = [];
   try {
@@ -121,6 +121,69 @@ async function main([action, name, sessionOption]) {
         finally {input.close();}
       }
       await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
+    }
+    if(action==='consultas'){
+      const options={timeout:15000};
+      const settle=()=>page.waitForLoadState('networkidle',{timeout:4000}).catch(()=>{});
+      await settle();
+      async function observe(label,callback){
+        phase=label;
+        try{await callback();await settle();steps.push({phase,status:'aprobado'});}
+        catch(error){steps.push({phase,status:'fallo',reason:error.name});}
+      }
+      if(name==='usuario'){
+        const frame=page.frameLocator('#moduloCentralFrame');
+        const search=frame.locator('#buscadorGlobal');
+        await observe('guia:buscar',async()=>{
+          await search.fill('Dolores',options);
+          if(await search.inputValue()!=='Dolores')throw Error('Filtro sin aplicar');
+          await frame.locator('#contenedor').waitFor(options);
+        });
+        await observe('guia:limpiar',async()=>{await search.clear(options);});
+        await observe('empleo:abrir-y-filtrar',async()=>{
+          const link=page.locator('#moduloEmpleo');
+          if(!await link.isVisible())await page.locator('.modulos-menu-trigger').click(options);
+          await link.click(options);
+          const list=frame.locator('#public-list');
+          await list.locator(':scope > *').first().waitFor(options);
+          const tab=frame.locator('#public-tabs [data-public-type="BUSCO"]');
+          await tab.click(options);
+          if(await tab.getAttribute('aria-pressed')!=='true')throw Error('Filtro sin aplicar');
+          await list.locator(':scope > *').first().waitFor(options);
+        });
+      }else if(name==='anunciante'){
+        await observe('anunciante:seleccionar',async()=>{
+          if(await page.locator('#panel-seleccionar-anunciante').isVisible()){
+            await page.locator('#anunciantes-autorizados-lista button:visible').first().click(options);
+          }
+          await page.locator('#panel-dashboard').waitFor(options);
+        });
+        await observe('actividades:consultar',async()=>{
+          if(await page.locator('#dashboard-navigation').getAttribute('open')===null)await page.locator('#dashboard-navigation-label').click(options);
+          await page.locator('#tab-actividades').click(options);
+          await page.waitForFunction(()=>{const status=document.querySelector('#actividades-status');return status?.textContent.trim()&&!status.textContent.includes('Cargando');},null,options);
+          await page.locator('#actividades-list').waitFor(options);
+        });
+      }else{
+        await observe('territorio:abrir',async()=>{
+          await page.locator('#ghTabs .gh-main[data-gh-group="administracion"]').click(options);
+          await page.locator('#ghTabs [data-view="configuracion"]').click(options);
+          await page.locator('#cfgTabs [data-cfg="territorio"]').click(options);
+          await page.locator('#ciuQ').waitFor(options);
+        });
+        await observe('territorio:filtrar',async()=>{
+          const filter=page.locator('#ciuQ');
+          await filter.fill('Dolores',options);
+          if(await filter.inputValue()!=='Dolores')throw Error('Filtro sin aplicar');
+          await page.locator('#ciuSelect option').filter({hasText:'Dolores'}).first().waitFor({state:'attached',...options});
+        });
+        await observe('territorio:actualizar',async()=>{
+          const received=page.waitForResponse(r=>new URL(r.url()).pathname==='/superadmin/territory'&&r.request().method()==='GET',options);
+          const [response]=await Promise.all([received,page.locator('#btnCiudadesRefresh').click(options)]);
+          const data=await response.json();
+          if(!response.ok()||!data.success||!Array.isArray(data.ciudades))throw Error('Cat?logo no disponible');
+        });
+      }
     }
     if(action==='hosting'){
       for(const pass of ['apertura','recarga']){
