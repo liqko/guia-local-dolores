@@ -24,6 +24,7 @@ const groups = {
     ['Reglas de publicación','node',['--test','tests/publicacion-reglas206.test.cjs']],
   ],
   navegador: [
+    ['Tarjetas y acciones de Eventos VIP','node',['tests/browser/eventos-vip-tarjetas.cjs']],
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
     ['Carga, recarga y actualización de Guía en navegador aislado','node',['tests/browser/paquete-ciudad.cjs']],
     ['Creación, edición, baja y recuperación de Promociones en navegador aislado','node',['tests/browser/promociones-mutaciones.cjs']],
