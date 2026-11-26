@@ -1,3 +1,5 @@
+> **Ingreso de Usuario, posición 3 del Paso 4.** `gldRecuperarEntradaV92` desde inicio o carcasa dirige al selector cuando el token local no es elegible. Un token vigente conserva el GET de perfil y dos invocaciones concurrentes con ese token comparten la verificación. La prueba dirigida confirma que un cambio de cuenta descarta la respuesta anterior.
+
 > **Actualización 26/11/2026, hallazgo 38 / AUD-00413.** La raíz histórica de la tabla fue retirada en `7a64f76b`. Su árbol se conserva como evidencia histórica. La entrada vigente de Anunciante es `renderEventsList → renderEventsCards → bindEventsListActions`; el botón de promoción delega en `pubDesdeContenido147` desde la tarjeta. La regresión dirigida se incorpora a `scripts/control-integral.cjs`. Ver P4-0029 para medición y alcance.
 
 # Punto 1 — MAPA de acciones dinámicas

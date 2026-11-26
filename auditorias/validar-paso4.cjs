@@ -82,6 +82,35 @@ for(let i=0;i<allTasks.length;i++){
  assert(t,'Índice de ejecución referencia tarea inexistente: '+orden[i]);
  assert.equal(t.numero_ejecucion,i+1,'Número correlativo inválido '+t.id);
 }
+const tramos=inv.tramos_trabajo;
+assert(Array.isArray(tramos),'Faltan los tramos del inventario vigente');
+const seenPositions=new Set();
+for(const [index,tramo] of tramos.entries()){
+ assert.equal(tramo.desde,index*10+1);
+ assert.equal(tramo.hasta,Math.min(tramo.desde+9,allTasks.length));
+ assert.equal(tramo.tareas.length,tramo.hasta-tramo.desde+1);
+ for(const [offset,id] of tramo.tareas.entries()){
+  const task=tasksById.get(id);
+  assert(task&&!seenPositions.has(id),'Tarea ausente o duplicada: '+id);
+  seenPositions.add(id);
+  assert.equal(task.posicion_trabajo,tramo.desde+offset);
+  assert(task.bloque_funcional&&task.interfaces.length&&task.dependencias_trabajo.length);
+  for(const dependency of task.dependencias_trabajo){
+   if(/^E[1-7]$/.test(dependency))continue;
+   assert(tasksById.get(dependency)?.posicion_trabajo<task.posicion_trabajo,'Dependencia debe preceder a '+id);
+  }
+ }
+}
+assert.equal(seenPositions.size,allTasks.length);
+if(process.argv.includes('--tramos')){
+ for(const tramo of tramos){
+  console.log('## Posiciones '+tramo.desde+'–'+tramo.hasta);
+  for(const id of tramo.tareas){
+   const task=tasksById.get(id);
+   console.log(JSON.stringify(task));
+  }
+ }
+}
 for(const g of inv.errores_http_5xx?.grupos||[]){
  const tarea=tasksById.get(g.tarea_id);
  assert(tarea,'HTTP sin tarea '+g.ruta);

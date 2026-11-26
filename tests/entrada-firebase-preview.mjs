@@ -10,7 +10,7 @@ for(const [file,source] of [['marca-global.js',brand],['visor-web-global.js',vis
   console.log('PASS sintaxis '+file);
 }
 assert.ok(hosting.rewrites.some(r=>r.source==='/'&&r.destination==='/plataforma/inicio.html'));
-assert.match(entry,/if\(!sid\)\{[\s\S]*?recordada:false/);
+assert.match(entry,/if\(!sid\)return Promise\.resolve\(selector\(\)\)/);
 assert.match(inicio,/new URL\('\/descubrir',window\.location\.origin\)/);
 assert.match(users,/window\.location\.replace\('\/elegi-tu-ciudad\?cambiar_ciudad=1'\)/);
 assert.match(carcasa,/window\.location\.assign\('\/elegi-tu-ciudad\?cambiar_ciudad=1'\)/);
