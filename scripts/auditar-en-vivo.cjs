@@ -120,8 +120,8 @@ async function observeExternalImages(context,page,phase){
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes','continuidad','sesion-lecturas','incidentes-gh',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|continuidad|sesion-lecturas|incidentes-gh|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes','continuidad','sesion-lecturas','incidentes-gh','relaciones-gh',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|continuidad|sesion-lecturas|incidentes-gh|relaciones-gh|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -155,6 +155,25 @@ async function main([action, name, sessionOption]) {
         finally {input.close();}
       }
       await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
+    }
+    if(action==='relaciones-gh'&&name==='gran-hermano'){
+      const options={timeout:15000};
+      phase='gh:anunciantes:listado';
+      await page.locator('#ghTabs .gh-main[data-gh-group="administracion"]').click(options);
+      await page.locator('#ghTabs [data-view="anunciantes"]').click(options);
+      const city=page.locator('#anuCiudad');
+      const dolores=city.locator('option').filter({hasText:/Dolores/i}).first();
+      await dolores.waitFor({state:'attached',...options});
+      await city.selectOption(await dolores.getAttribute('value'),options);
+      await page.locator('#btnBuscarAnu').click(options);
+      const first=page.locator('#resAnu [data-aid]').first();
+      await first.waitFor(options);
+      phase='gh:anunciantes:relaciones';
+      const detail=page.waitForResponse(response=>/^\/superadmin\/advertisers\/[^/]+$/.test(new URL(response.url()).pathname),options);
+      const [response]=await Promise.all([detail,first.click(options)]);
+      const data=await response.json().catch(()=>null);
+      steps.push({phase,status:response.ok()&&data?.success&&Array.isArray(data.relaciones)?'aprobado':'fallo',
+        httpStatus:response.status(),records:Array.isArray(data?.relaciones)?data.relaciones.length:null});
     }
     if(action==='incidentes-gh'&&name==='gran-hermano'){
       const options={timeout:15000};

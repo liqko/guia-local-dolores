@@ -539,6 +539,18 @@ test('P4-0012: proyección privada confirma bajas históricas y recupera fallo p
  await call({action:'add',tipo:'ANUNCIANTE',ref:'C',nombre_ref:'C'});
  assert.deepEqual([reads,writes,commits,storeWrites],[2,3,2,5]);
 });
+test('P4-0027: el encabezado distingue la copia GH de la autorización',()=>{
+ const a=worker.indexOf('function consumption136(report)');
+ const b=worker.indexOf('function consumptionBase136(report)',a);
+ const measure=Function('consumptionBase136',worker.slice(a,b)+';return consumption136;')(
+  ()=>({cloudflare:{kv:{get_calls:0},auth_store:{calls:1}},coverage:{missing:[]}}));
+ const gh={calls:1,rows_read:1,rows_written:0,cache_misses:1,kv:{get_calls:3,list_calls:1}};
+ const report=measure({gh_detail_store204:gh});
+ assert.deepEqual(report.cloudflare.gh_detail_store,gh);
+ assert.equal(report.cloudflare.auth_store.calls,1);
+ assert.equal(report.cloudflare.kv.get_calls,0);
+});
+
 test('P4-0025: la base de relaciones omite la revisión sin perder bajas de deltas',async()=>{
  const base=worker.slice(worker.indexOf('  async function revision(key)'),worker.indexOf('  async function relationRows('));
  const reader=worker.slice(worker.indexOf('  const advertiserRelationKey104='),worker.indexOf('  async function relationOwners('));
