@@ -14,12 +14,19 @@ test('Recursos publicados: revisión por contenido, imágenes intactas y actuali
   assert(first.resources>10);
   const html=await readFile(join(stage,'plataforma/carcasa.html'),'utf8');
   assert(!/<script\b[^>]*src=["']\/plataforma\/(?!assets\/app\/)/.test(html));
+  const footer=await readFile(join(stage,'plataforma/pie.html'),'utf8');
+  const telemetry=first.files['/plataforma/telemetria.js'];
+  assert(html.includes('src="'+telemetry+'"'));
+  assert(footer.includes('src="'+telemetry+'"'));
   for(const image of ['logo-guia-local.png','fondo-ciudad.jpg']){
    const original='/plataforma/assets/marca/'+image;
    assert.deepEqual(await readFile(join(stage,first.files[original])),await readFile(join(stage,original)));
   }
   const brand=await readFile(join(stage,first.files['/plataforma/marca-global.js']),'utf8');
   assert(!brand.includes('/plataforma/assets/marca/'));
+  assert(brand.includes("footer.src='/plataforma/pie'"));
+  assert(html.includes("url:'./empleo'"));
+  assert(JSON.parse(await readFile('firebase.json','utf8')).hosting.cleanUrls);
   await reset();
   const again=await versionarRecursos(stage);
   assert.deepEqual(again.files,first.files);

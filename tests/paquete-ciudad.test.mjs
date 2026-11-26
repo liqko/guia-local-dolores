@@ -147,7 +147,7 @@ test('P4-0006: dos archivos fallidos no reemplazan una copia válida y permiten 
   fetchJson:async path=>{requests++;if(fail||path.includes('cambios'))throw Error('offline');return current;}});
  const stale=await api.get('dolores');
  assert.equal(stale.revision,1);assert.equal(stale.stale,true);
- assert.deepEqual(Object.keys(stale.modules),['pharmacy']);
+ assert.deepEqual(Object.keys(stale.modules),['events','promos','activities','pharmacy']);
  assert.equal(copies.get('dolores'),original);
  assert.equal(writes,0);assert.equal(requests,2);
  fail=false;assert.equal((await api.get('dolores')).revision,2);assert.equal(writes,1);assert.equal(requests,4);
@@ -216,4 +216,141 @@ test('E3: revisión cambia durante persistencia y el consumidor recibe la vigent
  assert.equal(typeof finish,'function');revision=2;
  assert.equal((await api.get('dolores')).revision,2);finish();
  assert.equal((await first).revision,2);assert.equal(downloads,2);
+});
+test('reconexión: un fallo de índice se reintenta bajo demanda sin contaminar la copia verificada',async()=>{
+ const {runInNewContext}=await import('node:vm');
+ const source=await readFile(new URL('../plataforma/paquete-ciudad.js',import.meta.url),'utf8');
+ const start=source.indexOf("  const verificationKey='gld-publicaciones-revalidar-desde'");
+ const end=source.lastIndexOf('})(globalThis);');
+ assert(start>=0&&end>start);
+ let time=1000,respond=false;
+ const calls=[];
+ const old={city:'DOL',revision:1,modules:{}};
+ const fresh={city:'DOL',revision:2,modules:{}};
+ const root={sessionStorage:{getItem:()=>1000},navigator:{onLine:true},addEventListener(){},
+  fetch:async(path,options)=>{
+   calls.push([path,options.cache]);
+   if(!respond)throw Error('transitorio');
+   return Response.json({cutoff:1000,manifest:{DOL:{revision:2}}});
+  }};
+ runInNewContext(source.slice(start,end),{
+  root,Date:{now:()=>time},AbortSignal,Map,validRevision:Number.isSafeInteger,
+  localBooks:()=>({get:async()=>old}),
+  client:({manifest})=>({get:async city=>manifest(city)?.revision===2?fresh:old}),
+  validBook:()=>true,withoutStalePublications:book=>({city:book.city,stale:true,modules:{}}),
+  replaceWithVerifiedRows:()=>null,moduleFrom:()=>null
+ });
+ const loader=root.GLD_PAQUETE_CIUDAD;
+ assert.equal((await loader.get('DOL')).needsVerification,old);
+ assert.equal((await loader.get('DOL')).needsVerification,old);
+ assert.equal(calls.length,1);
+ time+=15000;respond=true;
+ const [a,b]=await Promise.all([loader.get('DOL'),loader.get('DOL')]);
+ assert.equal(a,fresh);assert.equal(b,fresh);
+ assert.equal(await loader.get('DOL'),fresh);
+ assert.deepEqual(calls,Array.from({length:2},()=>['/plataforma/paquetes-ciudad/publicacion.json','no-store']));
+});
+test('reconexión: un fallo del paquete se recupera sin volver a leer el índice',async()=>{
+ const {runInNewContext}=await import('node:vm');
+ const source=await readFile(new URL('../plataforma/paquete-ciudad.js',import.meta.url),'utf8');
+ const start=source.indexOf("  const verificationKey='gld-publicaciones-revalidar-desde'");
+ const end=source.lastIndexOf('})(globalThis);');
+ assert(start>=0&&end>start);
+ let time=1000,respond=false;
+ const calls=[];
+ let packageReads=0;
+ const old={city:'DOL',revision:1,modules:{}};
+ const fresh={city:'DOL',revision:2,modules:{}};
+ const root={sessionStorage:{getItem:()=>1000},navigator:{onLine:true},addEventListener(){},
+  fetch:async(path,options)=>{
+   calls.push([path,options.cache]);
+   return Response.json({cutoff:1000,manifest:{DOL:{revision:2}}});
+  }};
+ runInNewContext(source.slice(start,end),{
+  root,Date:{now:()=>time},AbortSignal,Map,validRevision:Number.isSafeInteger,
+  localBooks:()=>({get:async()=>old}),
+  client:({manifest})=>({get:async city=>{
+   packageReads++;
+   assert.equal(manifest(city).revision,2);
+   return respond?fresh:{...old,stale:true};
+  }}),
+  validBook:()=>true,withoutStalePublications:book=>({city:book.city,stale:true,modules:{}}),
+  replaceWithVerifiedRows:()=>null,moduleFrom:()=>null
+ });
+ const loader=root.GLD_PAQUETE_CIUDAD;
+ assert.equal((await loader.get('DOL')).needsVerification,old);
+ assert.equal((await loader.get('DOL')).needsVerification,old);
+ assert.equal(calls.length,1);
+ assert.equal(packageReads,1);
+ time+=15000;respond=true;
+ const [a,b]=await Promise.all([loader.get('DOL'),loader.get('DOL')]);
+ assert.equal(a,fresh);assert.equal(b,fresh);
+ assert.equal(await loader.get('DOL'),fresh);
+ assert.deepEqual(calls,[['/plataforma/paquetes-ciudad/publicacion.json','no-store']]);
+ assert.equal(packageReads,2);
+});
+test('P4-0006: fallo de transporte de delta evita descargar el paquete completo',async()=>{
+ const previous=initial('dolores'),next={...initial('dolores'),revision:2};
+ const requests=[];
+ let connected=false,writes=0;
+ const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[1]}),
+  storage:{get:()=>previous,put:()=>{writes++;}},
+  fetchJson:async path=>{
+   requests.push(path);
+   if(!connected)throw Object.assign(Error('sin red'),{transportUnavailable:true});
+   assert.match(path,/cambios-1-2/);
+   return {city:next.city,from:1,revision:2,changes:{}};
+  }});
+ const offline=await api.get('dolores');
+ assert.equal(offline.stale,true);
+ assert.deepEqual(Object.keys(offline.modules),['events','promos','activities','pharmacy']);
+ assert.equal(requests.length,1);
+ assert.equal(writes,0);
+ connected=true;
+ assert.equal((await api.get('dolores')).revision,2);
+ assert.equal(requests.length,2);
+ assert.equal(writes,1);
+});
+test('P4-0006: una lista vacía no necesita verificación de bajas al reconectar',async()=>{
+ const previous=initial('dolores');
+ previous.modules.events.events.push({evento_id:'con-visibilidad-por-verificar'});
+ const api=client({manifest:()=>({key:'dolores',revision:2,deltas:[]}),
+  storage:{get:()=>previous,put:()=>assert.fail('No se reemplaza la edición guardada')},
+  fetchJson:async()=>{throw Error('sin red');}});
+ const book=await api.get('dolores');
+ assert.equal(book.stale,true);
+ assert.equal(book.modules.events,undefined);
+ assert.equal(book.modules.ads,undefined);
+ assert.equal(book.modules.guide,undefined);
+ assert.deepEqual(book.modules.promos,{success:true,promos:[]});
+ assert.deepEqual(book.modules.activities,{success:true,actividades:[]});
+ const source=await readFile(new URL('../plataforma/anunciantes.html',import.meta.url),'utf8');
+ const flow=source.slice(source.indexOf('    async function obtenerEventosPromise('),source.indexOf('    async function obtenerBannersPromise('));
+ assert(flow.length>0);
+ async function requestsFor(edition){
+  const calls=[];
+  const run=Function('gldPaquetePublico','verificarPublicacion','obtenerModuloCiudad','visibilidadAgrupada',
+    'EVENTS_WEBAPP_URL','GLD_EVENTOS_CACHE_PREFIX','PROMOS_ENDPOINT','GLD_PROMOS_CACHE_PREFIX',
+    'ACTIVIDADES_ENDPOINT','GLD_ACTIVIDADES_CACHE_PREFIX',flow+
+    ';return Promise.all([obtenerEventosPromise("dolores"),obtenerPromosPromise("dolores"),obtenerActividadesPromise("dolores")]);');
+  await run(async()=>edition,(_book,_family,value)=>value,async endpoint=>{calls.push(endpoint);return {success:true};},
+   async()=>null,'/events-new','events','/promos','promos','/actividades','activities');
+  return calls;
+ }
+ assert.deepEqual(await requestsFor({...book,modules:{pharmacy:book.modules.pharmacy}}),['/events-new','/promos','/actividades']);
+ assert.deepEqual(await requestsFor(book),['/events-new']);
+});
+test('P4-0006: reconexión descarta filas restringidas y preserva la edición de las visibles',()=>{
+ const previous=initial('dolores');
+ previous.modules.guide.results=['estable','restringida','anidada','retirada'].map(anunciante_id=>({anunciante_id,nombre:'Edición local'}));
+ const live={success:true,results:[
+  {anunciante_id:'estable',nombre:'Cambio ordinario'},
+  {anunciante_id:'restringida',bloqueado18:true},
+  {anunciante_id:'restringida'},
+  {anunciante_id:'anidada',sedes:[{bloqueado18:true}]},
+  {anunciante_id:'nueva'}
+ ]};
+ const result=bookTools.replaceWithVerifiedRows({needsVerification:previous},'guide',live);
+ assert.deepEqual(result.results,[{anunciante_id:'estable',nombre:'Edición local'}]);
+ assert.equal(previous.modules.guide.results.length,4);
 });

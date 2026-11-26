@@ -4,11 +4,7 @@ const slice=(start,end)=>{const a=source.indexOf(start),b=source.indexOf(end,a);
 let calls=0;
 const context={URL,AbortController,setTimeout,clearTimeout,gldPaquetePublico:()=>null,GLD_WORKER_ORIGIN:'https://example.invalid',localStorage:{getItem:()=>JSON.stringify({ts:Date.now(),data:{results:[{id:'A',gold:true}]}}),setItem:()=>{}},fetch:async(url,options)=>{calls++;assert.equal(options.cache,'no-store');assert.equal(new URL(url).searchParams.get('compact'),'1');return {ok:true,json:async()=>({success:true,results:[{id:'A',gold:false}]})};},limpiarCampos:x=>({...x}),metaPorIdGlobal:{A:{gold:true,verificado:true}},relacionesSedesGlobales:{S:{actividades:[],acciones:[{accion_id:'VIEJA'}],nodos:[]}},catalogosGlobales:{actividades:[],acciones:[],nodos:[]},relKey:x=>x};
 context.window=context;
-context.GLD_PAQUETE_CIUDAD={replaceWithVerifiedRows(book,family,data){
- assert.equal(book,null);
- assert.equal(family,'guide');
- return data;
-}};
+context.GLD_PAQUETE_CIUDAD=require('../../plataforma/paquete-ciudad.js');
 vm.createContext(context);
 vm.runInContext(slice('    function verificarPublicacion','    async function gldFetchJson')+slice('    const guiaPrefetchCache =','    const urlAnunciantes =')+slice('        function hidratarItem(item)','        const anunciantesData ='),context);
 (async()=>{

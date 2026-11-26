@@ -55,6 +55,18 @@ test('una cuenta puede consultar copias independientes de niveles 3, 4 y 6 sin t
  }
  assert.equal(h.sourceOps.length,0);
 });
+test('los listados que sólo usan datos, permisos y sedes evitan catálogos comerciales',async()=>{
+ const h=fixture();h.add('A',4);
+ const options={db:h.db,cache:h.cache,advertiserId:'A'};
+ const full=await w.commerceMaster205(options);
+ assert.deepEqual(h.ops.map(op=>op[0]),['master-get','get','get']);
+ h.ops.length=0;
+ const list=await w.commerceMaster205({...options,includeCatalogs:false});
+ for(const key of ['datos','administracion','sedes'])assert.deepEqual(list.advertiser[key],full.advertiser[key]);
+ assert.equal(list.advertiser.categorias,undefined);
+ assert.deepEqual(h.ops,[['master-get','A']]);
+ assert.deepEqual(h.sourceOps,[]);
+});
 test('reglas y catálogos nuevos se reflejan sin reconstruir ni reescribir la ficha',async()=>{
  const h=fixture();h.add('B',4);
  await w.commerceMaster205({db:h.db,cache:h.cache,advertiserId:'B'});

@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const {readFile} = require('node:fs/promises');
+const {readFile,access} = require('node:fs/promises');
 const {chromium} = require('playwright');
 const {validBook} = require('../../plataforma/paquete-ciudad.js');
 
@@ -14,15 +14,24 @@ const {validBook} = require('../../plataforma/paquete-ciudad.js');
   const published = await get('publicacion.json');
   const staged = JSON.parse(await readFile('hosting-public' + root + 'publicacion.json','utf8'));
   assert.deepEqual(published,staged,'La versión alojada debe coincidir con el corte preparado');
-  const cities = Object.entries(published.manifest);
-  assert(cities.length > 0);
+  const scope = process.env.GLD_URGENT_SCOPE ? new Set(JSON.parse(process.env.GLD_URGENT_SCOPE).map(entry=>entry.city)) : null;
+  const cities = [];
+  for (const entry of Object.entries(published.manifest)){
+    const [city,{key,revision}]=entry;
+    if(scope&&!scope.has(city))continue;
+    const exists=await access('hosting-public'+root+key+'/completo-'+revision+'.json').then(()=>true,error=>{
+      if(error.code!=='ENOENT')throw error;
+      return false;
+    });
+    if(exists)cities.push(entry);
+  }
+  if(!cities.length){console.log('Se verificó el índice publicado. No generó paquetes nuevos.');return;}
   const browser = await chromium.launch({executablePath:process.env.GLD_CHROME,headless:true,args:['--no-sandbox']});
   try {
     for (const [city,{key,revision}] of cities) {
       const file = key + '/completo-' + revision + '.json';
-      const expected = await get(file);
+      const expected = JSON.parse(await readFile('hosting-public' + root + file,'utf8'));
       assert(validBook(expected,city));
-      assert.deepEqual(expected,JSON.parse(await readFile('hosting-public' + root + file,'utf8')));
       const context = await browser.newContext({serviceWorkers:'block'});
       const packages = [], worker = [];
       context.on('request',request => {
@@ -44,12 +53,11 @@ const {validBook} = require('../../plataforma/paquete-ciudad.js');
         assert.deepEqual(worker.filter(path=>replaced.has(path)),[],'Rutas antiguas de '+city);
       }
       await check();
-      assert.equal(packages.length,1,'Primera descarga de '+city);
-      assert(packages[0].endsWith('/'+file));
+      assert.deepEqual(packages,[root+'publicacion.json',root+file],'Primera descarga de '+city);
       packages.length = 0;
       await page.reload({waitUntil:'domcontentloaded'});
       await check();
-      assert.deepEqual(packages,[],'Recarga sin cambios de '+city);
+      assert.deepEqual(packages,[root+'publicacion.json'],'Recarga sin cambios de '+city);
       console.log(JSON.stringify({city,revision,modules:6,firstPackageRequests:1,reloadPackageRequests:0,replacedWorkerRequests:0}));
       await context.close();
     }

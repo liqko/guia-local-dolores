@@ -41,7 +41,14 @@ test('lectura de edición inexistente no consulta KV ni Firestore ni crea una co
 });
 test('misma publicación diaria: stage idempotente, commit y reaperturas sin lecturas KV incluso al reiniciar',async t=>{
  const h=setup(t,people);await h.op('stage');assert.equal((await h.op('read')).preparado,false);const preparedReads=h.calls.length;assert(preparedReads>1);
- await h.op('stage');assert.equal(h.calls.length,preparedReads);await h.op('commit');assert.equal((await h.op('read')).results.length,4);
+ await h.op('commit');assert.equal((await h.op('read')).results.length,4);
+ const repeated=await h.op('stage');assert.equal(h.calls.length,preparedReads);
+ assert.deepEqual(repeated,{preparado:true,corte:day});
+ const after=Buffer.byteLength(JSON.stringify(repeated));
+ const before=Buffer.byteLength(h.sql.prepare('SELECT value FROM private_subscribers_daily195 WHERE cutoff=?').get(day).value);
+ assert(after<before);
+ t.diagnostic(JSON.stringify({privateStagePayloadBytes:{before,after}}));
+ assert.equal((await h.op('commit')).success,true);
  h.restart();h.setClock(day+10*3600000);await h.op('read');await h.op('read');assert.equal(h.calls.length,preparedReads);
 });
 test('alta o corrección durante el día se incorpora una sola vez en el corte siguiente',async t=>{
@@ -142,10 +149,10 @@ test('preparación desde fuentes ausentes usa REST Firestore sólo en el publica
   if(u.pathname.endsWith('/suscriptores'))return Response.json({documents:[{name:'projects/fixture-local/databases/(default)/documents/suscriptores/A',fields:{suscriptor_id:{stringValue:'A'},nombre:{stringValue:'Ana'},fecha_nacimiento:{stringValue:'1990-11-12'},activo:{booleanValue:true}}}]});
   return Response.json({documents:[]});});
  const report={operations:{}};h.env.__gldRequestReport119=report;
- const staged=await w.dailySubscribers195(h.env,'stage');assert.equal(staged.results.length,1);assert.equal(staged.results[0].nombre,'Ana');
+ const staged=await w.dailySubscribers195(h.env,'stage');assert.deepEqual(staged,{preparado:true,corte:day});
  assert(calls.some(c=>c.body?.structuredQuery?.from[0]?.collectionId==='solicitudes_soporte'));assert(calls.some(c=>c.path.endsWith('/paises')));
  const stats=Object.values(report.operations);assert(stats.some(s=>s.operation==='listCollection'&&s.calls));assert(stats.some(s=>s.operation==='queryEqual'&&s.calls));assert.equal(report.kv.failures,0);
- await h.op('commit');const count=calls.length;await h.op('read');await h.op('stage');assert.equal(calls.length,count);assert(h.raw.has(missing));
+ await h.op('commit');const count=calls.length;const edition=await h.op('read');assert.deepEqual(edition.results.map(row=>row.nombre),['Ana']);await h.op('stage');assert.equal(calls.length,count);assert(h.raw.has(missing));
 });
 
 test('primer listado antiguo sin fechas ni índice de cumpleaños se migra desde la fuente una vez, no deja Inicio bloqueado',async t=>{
@@ -164,8 +171,10 @@ test('arranque totalmente frío prepara catálogos, territorio, suscriptores y b
   const rows=path==='suscriptores'?[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12'}]:path==='categorias'?[{id:'CAT',categoria_id:'CAT',nombre:'Servicios',activo:true}]:[];
   return Response.json({documents:rows.map(row=>({name:'projects/local/databases/(default)/documents/'+path+'/'+row.id,fields:Object.fromEntries(Object.entries(row).map(([k,v])=>[k,typeof v==='boolean'?{booleanValue:v}:{stringValue:v}]))}))});
  });
- const p=await h.op('stage');assert.equal(p.preparado,true);assert(p.admin.fixed.catalogos.categorias.some(c=>c.nombre==='Servicios'));assert.equal(collections.get('suscriptores'),1);
- assert([...collections.values()].every(n=>n===1));await h.op('commit');const calls=[...collections.values()].reduce((a,b)=>a+b,0);await h.op('read');await h.op('stage');assert.equal([...collections.values()].reduce((a,b)=>a+b,0),calls);
+ assert.deepEqual(await h.op('stage'),{preparado:true,corte:day});assert.equal(collections.get('suscriptores'),1);
+ assert([...collections.values()].every(n=>n===1));await h.op('commit');const calls=[...collections.values()].reduce((a,b)=>a+b,0);
+ const published=await h.op('read');assert(published.admin.fixed.catalogos.categorias.some(c=>c.nombre==='Servicios'));
+ await h.op('stage');assert.equal([...collections.values()].reduce((a,b)=>a+b,0),calls);
 });
 
 

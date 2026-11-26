@@ -26,7 +26,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -58,11 +58,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Leer alcance de la publicación aislada
+        id: bloque
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" != push ]; then exit 0; fi
+          base=$(git log -1 --format='%(trailers:key=GLD-Hosting-Base,valueonly,unfold)' "$GITHUB_SHA")
+          files=$(git log -1 --format='%(trailers:key=GLD-Hosting-Files,valueonly,unfold)' "$GITHUB_SHA")
+          if [[ -z "$base" && -z "$files" ]]; then exit 0; fi
+          [[ "$base" =~ ^[a-f0-9]{16}$ ]]
+          [[ "$files" =~ ^/plataforma/[a-zA-Z0-9._/-]+(,/plataforma/[a-zA-Z0-9._/-]+)*$ ]]
+          echo "base=sites/anunciantes-guialocal/versions/$base" >> "$GITHUB_OUTPUT"
+          echo "files=$files" >> "$GITHUB_OUTPUT"
       - name: Verificar integridad de las páginas antes de publicar
         run: |
           node tests/publication-integrity.mjs
@@ -97,29 +109,50 @@ jobs:
           if [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --scheduled --stage-unchanged
           else
-            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js
+            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --preserve
           fi
       - name: Preparar paquetes de ciudad
         id: paquetes
         env:
           GLD_STAGE_UNCHANGED: ${{ steps.catalogo.outputs.changed == 'true' && '1' || '0' }}
+          GLD_REUSE_PUBLISHED: ${{ steps.bloque.outputs.base != '' && '1' || '0' }}
         run: |
+          export GLD_HOSTING_PLAN="$RUNNER_TEMP/gld-hosting-base.json"
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             node scripts/publicar-paquetes-ciudad.mjs preserve hosting-public
           else
             node scripts/publicar-paquetes-ciudad.mjs cut hosting-public
           fi
       - name: Generar páginas SEO y sitemap desde las copias públicas
+        if: steps.bloque.outputs.base == ''
         run: node plataforma/seo-generador.mjs hosting-public
       - name: Versionar recursos de Carcasa y sus módulos públicos
         run: node scripts/versionar-recursos-publicos.mjs hosting-public
       - uses: FirebaseExtended/action-hosting-deploy@v0
-        if: steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true'
+        if: steps.bloque.outputs.base == '' && (steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true')
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
           channelId: live
           projectId: anunciantes-guialocal
+      - name: Publicar el bloque aislado conservando los hashes activos
+        if: steps.bloque.outputs.base != ''
+        env:
+          GLD_HOSTING_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+          GLD_HOSTING_FILES: ${{ steps.bloque.outputs.files }}
+          GLD_HOSTING_EXPECTED: ${{ steps.bloque.outputs.base }}
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/gld-hosting" --no-save --package-lock=false --ignore-scripts google-auth-library@9.15.1
+          export NODE_PATH="$RUNNER_TEMP/gld-hosting/node_modules"
+          export GLD_HOSTING_PLAN="$RUNNER_TEMP/gld-hosting-base.json"
+          stage="$RUNNER_TEMP/gld-hosting-overlay"
+          IFS=, read -ra paths <<< "$GLD_HOSTING_FILES"
+          for path in "${paths[@]}"; do
+            [[ "$path/" != *'/../'* && "$path/" != *'/./'* ]]
+            install -D "hosting-public$path" "$stage$path"
+          done
+          node scripts/desplegar-hosting.mjs "$stage" overlay '' "$GLD_HOSTING_EXPECTED"
       - name: Preparar comprobación real del navegador
         if: steps.paquetes.outputs.changed == 'true' || github.event_name == 'push'
         run: npm install --no-save --package-lock=false playwright@1.55.0
