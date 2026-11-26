@@ -1,3 +1,5 @@
+> **26/11/2026 — P4-0022, `2bb65ca7`.** Actualizar quedó al final de la barra territorial y en verde. Eliminar ciudad quedó en rojo. Chromium verificó orden, visibilidad y color a 390 y 1024 px, sin solicitudes al renderizar los controles del escenario. Sigue pendiente la prueba de las tres pestañas con recorridos completos de País y Provincia.
+
 > **26/11/2026 — P4-0019 corregida y probada localmente; avances P4-0020, P4-0021, P4-0027 y P4-0006.** Gran Hermano guarda País y Provincia mediante el coordinador existente. Chromium encadenó País → Provincia → Ciudad usando el Worker vigente y servicios de ensayo. Roles sin sesión o locales: 401/403 sin mutación. Padre inexistente: 400. La alta confirmada se incorpora a la lista de sesión sin mutar la edición diaria. El push de código conserva el catálogo instalado y el corte de las 01:00 Argentina incorpora la copia preparada. La ruta operativa del Worker conserva su lectura de la copia territorial vigente.
 >
 > **Consumo de ensayo.** Tres altas: 3 PATCH de origen, 5 GET y 6 PUT de KV, 9 llamadas DO, 2 lecturas y 14 escrituras SQL, 1 escritura en almacenamiento DO y 3 alarmas. País repetido: 2 llamadas DO y 0 GET/PUT de KV o PATCH. Alta inactiva: 1 PUT privado; alta activa: 2 PUT con destinos distintos. El contador del subtramo de corte registra 1 llamada al marcador por alta pública. El push de código hace 1 lectura de Hosting en lugar de consultar Hosting y Worker. Las pruebas territoriales detectaron una expectativa histórica de Actualizar sin fetch, corregida a 1 GET por cruce explícito y 0 al entrar 20 veces. Se mantienen 40 intervenciones y 61 ejecuciones.
@@ -188,7 +190,7 @@
 
 ## PASO 4 — CONTROL GENERAL (23/11/2026; inventario en consolidación, no cerrado)
 
-**Total de intervenciones identificadas: 40** | **Pendientes de diagnóstico: 16** | **Diagnosticadas: 3** | **En corrección: 17** | **Corregidas y probadas localmente: 4** | **Publicadas y verificadas: 0** | **Bloqueadas: 0** | **Mediciones comparativas completas: 0**.
+**Total de intervenciones identificadas: 40** | **Pendientes de diagnóstico: 15** | **Diagnosticadas: 3** | **En corrección: 18** | **Corregidas y probadas localmente: 4** | **Publicadas y verificadas: 0** | **Bloqueadas: 0** | **Mediciones comparativas completas: 0**.
 
 **Indicador técnico adicional — intervenciones con causa localizada, corrección preparada y regresión automatizada aprobada (sin cierre integral): 6** (P4-0002, P4-0009, P4-0010, P4-0012, P4-0013, P4-0037). **Investigadas con evidencia en esta fase: 11/40**; 0 descartadas por no vigencia con prueba completa. P4-0011 y P4-0012 tienen correcciones de causas parciales preparadas, pero conservan comprobaciones pendientes. Estas cantidades no sustituyen los estados excluyentes.
 
