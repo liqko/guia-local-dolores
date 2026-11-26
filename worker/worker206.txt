@@ -11660,102 +11660,6 @@ async function routeSubscriberTerritoryV84(ctx){
 
 
 // Explicit, read-only diagnostic snapshots. KV only; never Firestore.
-const DIAGNOSTIC_SHARE_TTL_V90=3600;
-/** @param {unknown} rows */
-function diagnosticRowsV90(rows){
- if(!Array.isArray(rows)||!rows.length||rows.length>160)throw httpError('Compartí entre 1 y 160 registros.',400);
- const plain=(/** @type {unknown} */ value,max=160)=>typeof value==='string'?value.replace(/[<>\u0000-\u001f]/g,'').slice(0,max):null;
- const count=(/** @type {unknown} */ value)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0?value:null;
- const route=(/** @type {unknown} */ value)=>{const raw=plain(value)||'';return raw.split(/[?#]/)[0].split('/').map(part=>part.includes('@')||part.includes('%40')||/^[A-Za-z0-9_-]{24,}$/.test(part)?':id':part).join('/');};
- const identifier=(/** @type {unknown} */ value)=>typeof value==='string'&&/^[A-Za-z0-9_:/ .-]{1,100}$/.test(value)?value:null;
- return rows.map(row=>{
-  if(!row||typeof row!=='object'||Array.isArray(row))throw httpError('Registro inválido.',400);
-  const clean={fecha:plain(row.fecha,40),hora:plain(row.hora,30),pagina:route(row.pagina),ruta:route(row.ruta),accion:identifier(row.accion),metodo:identifier(row.metodo),estado:Number.isInteger(row.estado)?row.estado:plain(row.estado,40),resultado:plain(row.resultado,40),vista:plain(row.vista,40),version:identifier(row.version),request_id:identifier(row.request_id),consultas:count(row.consultas),documentos:count(row.documentos),escrituras:count(row.escrituras),eliminaciones:count(row.eliminaciones),origen:identifier(row.origen)};
-  clean.operaciones=Array.isArray(row.operaciones)?row.operaciones.slice(0,40).map(item=>({operation:identifier(item?.operation),collection:identifier(item?.collection),calls:count(item?.calls),documents_returned:count(item?.documents_returned)})):null;
-  clean.cache=Array.isArray(row.cache)?row.cache.slice(0,40).map(item=>({collection:identifier(item?.collection),result:identifier(item?.result)})):null;
-  const m=row.consumo;
-  if(m?.schema===136&&m.request_id===row.request_id&&String(m.version)===String(row.version)){
-   clean.prueba=identifier(row.prueba);
-   const counts=(source,keys)=>Object.fromEntries(keys.map(key=>[key,count(source?.[key])]));
-   const publicStore=m.cloudflare?.public_store;
-   clean.consumo={schema:136,request_id:identifier(m.request_id),version:identifier(String(m.version)),
-    firestore:counts(m.firestore,['read_calls','documents_returned','write_calls','delete_calls','billed_reads','billed_writes','billed_deletes','failures']),
-    cloudflare:{...counts(m.cloudflare,['worker_requests','cpu_ms','do_duration_gbs','storage_bytes']),kv:counts(m.cloudflare?.kv,['get_calls','put_calls','delete_calls','list_calls','failures']),admin_store:counts(m.cloudflare?.admin_store,['calls','rows_read','rows_written']),public_store:{...counts(publicStore,['calls','rows_read','rows_written','legacy_gets','legacy_lists']),components:Array.isArray(publicStore?.components)?publicStore.components.slice(0,40).map(c=>({...counts(c,['rows_read','rows_written','legacy_gets','status']),module:identifier(c.module),operation:identifier(c.operation),reads:Array.isArray(c.reads)?c.reads.slice(0,20).map(p=>({module:identifier(p.module),source:identifier(p.source)})):null})):[]}},
-    coverage:{status:'INCOMPLETO',operation_counters:m.coverage?.operation_counters==='REGISTRADOS'?'REGISTRADOS':'INCOMPLETO',missing:Array.isArray(m.coverage?.missing)?m.coverage.missing.slice(0,30).map(x=>identifier(x)).filter(Boolean):['missing-coverage']}};
-   const add=(a,b)=>a===null||b===null?null:a+b,c=clean.consumo.cloudflare;
-   clean.cf_sql_lecturas=add(c.public_store.rows_read,c.admin_store.rows_read);clean.cf_sql_escrituras=add(c.public_store.rows_written,c.admin_store.rows_written);
-   clean.cf_kv_lecturas=add(c.kv.get_calls,c.public_store.legacy_gets);clean.cf_kv_escrituras=c.kv.put_calls;clean.cf_kv_borrados=c.kv.delete_calls;clean.cf_kv_listados=add(c.kv.list_calls,c.public_store.legacy_lists);clean.cobertura='INCOMPLETO';
-  }
-  return clean;
- });
-}
-/** @param {{rows: ReturnType<typeof diagnosticRowsV90>, updated_at:number, expires_at:number}} snapshot */
-function diagnosticShareHtmlV90(snapshot){
- const escape=(/** @type {unknown} */ value)=>String(value??'Sin medición').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
- const columns=[['hora','Hora Argentina'],['pagina','Pantalla'],['ruta','Ruta'],['accion','Acción'],['metodo','Método'],['estado','HTTP'],['resultado','Respuesta'],['vista','Vista'],['version','Worker'],['consultas','Firestore: llamadas de lectura'],['documentos','Firestore: documentos retornados'],['escrituras','Firestore: llamadas de escritura'],['eliminaciones','Firestore: llamadas de borrado'],['cf_sql_lecturas','Cloudflare: filas leídas'],['cf_sql_escrituras','Cloudflare: filas escritas'],['cf_kv_lecturas','Cloudflare KV: total lecturas'],['cf_kv_escrituras','Cloudflare KV: escrituras'],['cf_kv_borrados','Cloudflare KV: borrados'],['cf_kv_listados','Cloudflare KV: listados'],['cobertura','Cobertura'],['origen','Origen'],['request_id','ID de traza']];
- const rows=snapshot.rows.map(row=>'<tr>'+columns.map(([key])=>'<td>'+escape(row[key])+'</td>').join('')+'<td>'+escape(row.operaciones===null?null:row.operaciones.map(item=>`${item.operation} · ${item.collection}: ${item.calls} operación(es), ${item.documents_returned} documento(s)`).join('; ')||'Sin operaciones en Firestore')+'</td><td>'+escape(row.cache===null?null:row.cache.map(item=>`${item.collection}: ${item.result}`).join('; ')||'Sin comprobaciones')+'</td></tr>').join('');
- return '<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Registro compartido · Guía Local</title><style>body{font:15px Arial,sans-serif;margin:24px;color:#17212b}h1{font-size:24px}.table{overflow:auto}table{border-collapse:collapse;white-space:nowrap}th,td{text-align:left;padding:9px;border:1px solid #ddd}th{background:#e8f0f4}p{max-width:900px;line-height:1.5}</style><h1>Registro compartido de Guía Local</h1><p>Copia de '+snapshot.rows.length+' registros. Actualizada: '+escape(new Date(snapshot.updated_at).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}))+'. Caduca: '+escape(new Date(snapshot.expires_at).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}))+'.</p><p>Solo lectura. Consultas y documentos retornados no equivalen al contador de lecturas facturadas. Sin medición no significa cero. Esta copia no incluye registros de otra ventana ni operaciones previas a activar las pruebas.</p><div class="table"><table><thead><tr>'+columns.map(([,label])=>'<th>'+label+'</th>').join('')+'<th>Operaciones</th><th>Caché</th></tr></thead><tbody>'+rows+'</tbody></table></div></html>';
-}
-/** @param {{path:string, request:Request, url:URL, env:any, cache:{get:(key:string)=>Promise<any>, put:(key:string,value:any,options?:any)=>Promise<void>, del:(key:string)=>Promise<void>}}} context */
-async function routeDiagnosticShareV90({path,request,url,env,cache}){
- const match=path.match(/^\/diagnostics\/shared\/([a-f0-9]{64})$/);
- if(match){
-  if(request.method!=='GET')return json({success:false,message:'Solo lectura.'},405);
-  const snapshot=await cache.get('diagnostics:share:v90:'+match[1]);
-  const headers={...cors(),'Cache-Control':'no-store','X-Robots-Tag':'noindex, nofollow, noarchive','Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",'X-Content-Type-Options':'nosniff'};
-  if(!snapshot||snapshot.expires_at<=Date.now())return new Response('Enlace inexistente, revocado o vencido.',{status:404,headers});
-  if(url.searchParams.get('format')==='json')return new Response(JSON.stringify({success:true,updated_at:snapshot.updated_at,expires_at:snapshot.expires_at,rows:snapshot.rows}),{headers:{...headers,'Content-Type':'application/json; charset=utf-8'}});
-  return new Response(diagnosticShareHtmlV90(snapshot),{headers:{...headers,'Content-Type':'text/html; charset=utf-8'}});
- }
- if(path!=='/superadmin/diagnostics/share')return null;
- if(request.method!=='POST')return json({success:false,message:'Método inválido.'},405);
- const auth=await verifyAdmin(env,request);
- if(!auth.ok)return json({success:false,message:auth.message},401);
- if(auth.rol!=='SUPERADMIN_PRINCIPAL')return json({success:false,message:'Solo el administrador principal puede compartir el registro.'},403);
- const text=await request.text();if(text.length>250000)return json({success:false,message:'Registro demasiado grande.'},400);
- let body;try{body=JSON.parse(text);}catch{return json({success:false,message:'Registro inválido.'},400);}
- if(!body||typeof body!=='object'||Array.isArray(body))return json({success:false,message:'Registro inválido.'},400);
- if(!['create','update','revoke'].includes(body.action))return json({success:false,message:'Acción inválida.'},400);
- let token,snapshot;
- if(body.action!=='create'){
-  token=String(body.token||'');if(!/^[a-f0-9]{64}$/.test(token))return json({success:false,message:'Enlace inválido.'},400);
-  snapshot=await cache.get('diagnostics:share:v90:'+token);
-  if(!snapshot||snapshot.owner!==auth.sid)return json({success:false,message:'Enlace no encontrado.'},404);
-  if(body.action==='revoke'){await cache.del('diagnostics:share:v90:'+token);return json({success:true,revoked:true});}
-  if(snapshot.expires_at<=Date.now())return json({success:false,message:'El enlace venció. Creá uno nuevo.'},409);
- }
- const rows=diagnosticRowsV90(body.rows);
- if(body.action==='create'){
-  token=Array.from(crypto.getRandomValues(new Uint8Array(32)),value=>value.toString(16).padStart(2,'0')).join('');
-  snapshot={owner:auth.sid,expires_at:Date.now()+DIAGNOSTIC_SHARE_TTL_V90*1000};
- }
- snapshot={...snapshot,updated_at:Date.now(),rows};
- await cache.put('diagnostics:share:v90:'+token,snapshot,{expirationTtl:Math.max(60,Math.ceil((snapshot.expires_at-Date.now())/1000))});
- return json({success:true,token,url:url.origin+'/diagnostics/shared/'+token,expires_at:snapshot.expires_at,rows:rows.length,source:'kv'});
-}
-
-// Diagnostics capabilities are read-only and cannot serve as administrator sessions.
-async function routeDiagnosticsV87({path,request,env,cache}){
- if(path!=='/superadmin/diagnostics/session')return null;
- if(request.method!=='POST')return json({success:false,message:'Método inválido.'},405);
- const body=await request.json().catch(()=>({}));
- if(body.action==='validate'){
-  const parts=String(body.capability||'').split('.');
-  if(parts.length!==2||parts[1]!==await hmac(env,parts[0]))return json({success:false,message:'Diagnóstico no autorizado.'},401);
-  let p;try{p=JSON.parse(b64decode(parts[0]));}catch{return json({success:false},401);}
-  if(p.typ!=='GLD_DIAGNOSTIC'||!p.sid||!Number.isFinite(p.exp)||p.exp<=Date.now())return json({success:false},401);
-  const {policy,state}=await accessRecord201(env,p.sid);
-  if(state.deleted||Number(state.version||0)!==Number(p.sv||0)||policy&&(!policy.activo||policy.revision!==p.access_revision))return json({success:false},401);
-  return json({success:true,expires_at:p.exp,source:'kv'});
- }
- const auth=await verifyAdmin(env,request);
- if(!auth.ok)return json({success:false,message:auth.message},401);
- if(auth.rol!=='SUPERADMIN_PRINCIPAL')return json({success:false,message:'Solo el administrador principal puede activar estas pruebas.'},403);
- const state=await subscriberSessionState(env,auth.sid),exp=Date.now()+8*60*60*1000;
- const payload=b64(JSON.stringify({typ:'GLD_DIAGNOSTIC',sid:auth.sid,sv:Number(state.version||0),access_revision:auth.access_revision,exp}));
- return json({success:true,capability:payload+'.'+await hmac(env,payload),expires_at:exp,source:'kv'});
-}
-
 const EMP_AREAS109=['Administración','Comercio y ventas','Gastronomía','Oficios y mantenimiento','Transporte y logística','Salud y cuidados','Educación','Tecnología','Servicios generales','Otros'];
 function empRecord109(/** @type {any} */ id){const value=String(id||'');if(!/^EMP-[A-Za-z0-9_-]{32}(?:__[0-9a-f-]{36})?$/.test(value))throw httpError('Referencia de publicación inválida.',400);return value.slice(0,36);}
 function empNormalize109(/** @type {any} */ v){return String(v||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();}
@@ -13585,8 +13489,6 @@ var app_main_v35_default = {
 
       if(path==="/")return await traced(json({success:true,app:"Guía Local reconstrucción modular",version:WORKER_VERSION,event_scope_version:1,publicidad_reglas_version:147}));
 
-      const sharedDiagnostic=await routeDiagnosticShareV90(ctx);if(sharedDiagnostic){report.source="diagnostics-kv";return await traced(sharedDiagnostic);}
-      const diagnostics=await routeDiagnosticsV87(ctx);if(diagnostics)return await traced(diagnostics);
       const subscriberTerritory=await routeSubscriberTerritoryV84(ctx);if(subscriberTerritory)return await traced(subscriberTerritory);
       const employment109=await routeEmpleo109(ctx);if(employment109)return await traced(employment109);
       const directory102=await routeDirectories102(ctx);if(directory102)return await traced(directory102);

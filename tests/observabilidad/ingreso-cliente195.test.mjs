@@ -10,7 +10,7 @@ function setup(packet){
  const get=id=>{if(!nodes.has(id))nodes.set(id,node());return nodes.get(id);};
  get('mail').value='principal@example.invalid';get('clave').value='solo-ensayo';get('ghSoporteEstado').value='ABIERTAS';
  const state=new Map();
- const context={console,Date,Intl,Map,Promise,JSON,Object,Array,Error,CustomEvent:function(type,options){this.type=type;this.detail=options?.detail;},window:{scrollTo(){},dispatchEvent(){},gldConsumoAdminV68(){},ghCalendarDashboardV83(){}},
+ const context={console,Date,Intl,Map,Promise,JSON,Object,Array,Error,CustomEvent:function(type,options){this.type=type;this.detail=options?.detail;},window:{scrollTo(){},dispatchEvent(){},ghCalendarDashboardV83(){}},
  document:{getElementById:get,createElement:()=>node(),querySelectorAll:()=>[],querySelector:()=>node()},localStorage:{setItem:(k,v)=>state.set(k,v),removeItem:k=>state.delete(k)},
  fetch:async url=>{calls.push(url);if(url.endsWith('/superadmin/session/login'))return {ok:true,status:200,json:async()=>({...packet,token:'sesion-ensayo'})};if(url.endsWith('/superadmin/dashboard'))return {ok:true,status:200,json:async()=>packet};throw Error('Carga adicional no permitida al ingresar: '+url);},
  TERRITORY_API_ORIGIN:'https://test.invalid',TOKEN:'',GH_ADMIN_ACCESS:{rol:'SUPERADMIN_PRINCIPAL'},GH_DAILY_ENTRY195:null,GH_FIXED_PACKET169:null,GH_FIXED_SUPPORTED169:false,GH_FIXED_PROMISE169:null,GH_FUNC_SAVE_READY170:false,GH_FUNC_GLOBAL166:null,GH_PRECIOS_ESTADO162:null,GH_CATALOG_CACHE:{},GH_CITIES:[],GH_COUNTRIES:[],GH_PROVINCES:[],GH_CITY_STATS:{},
