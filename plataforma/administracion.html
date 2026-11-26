@@ -160,6 +160,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 <script src="/plataforma/gh-promos.js?v=93"></script>
 <script src="/plataforma/farmacias-ciclo.js?v=147"></script>
 <script defer src="/plataforma/marca-global.js?v=2"></script>
+<script src="/plataforma/farmacias-editor.js?v=1" defer></script>
 </head>
 <body>
 <div class="wrap">
@@ -225,10 +226,58 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
     </section>
     <section id="view-farmacias" class="view">
       <div class="card"><h2>Farmacias · Consulta por ciudad</h2>
-        <p class="muted">Consulta los ciclos, su orden y los turnos vigente y próximo. La edición permanece en el panel del anunciante.</p>
+        <p class="muted">Consulta los ciclos, su orden y los turnos vigente y próximo. La gestión está disponible para superadministración.</p>
         <div class="toolbar"><label>Ciudad<select id="ghFarmaciaCiudad"><option value="">Seleccioná una ciudad</option></select></label>
           <button type="button" onclick="ghFarmaciasConsultar()">Consultar ciclos y turnos</button></div>
         <div id="ghFarmaciasResultado" role="status">Seleccioná una ciudad para consultar.</div>
+<div id="ghFarmaciasGestion" hidden><h3>Gestionar ciclos</h3><label>Ciclo<select id="ghFarmaCycle"></select></label><button type="button" id="ghFarmaNew">Nuevo ciclo</button><button type="button" id="ghFarmaDelete">Eliminar ciclo</button><div id="farma-form-card" class="card" data-module-form>
+            <div id="farma-msg" class="module-form-notice" role="status" aria-live="polite" hidden></div>
+            <div class="farma-grid">
+              <input id="farma-ciudad" type="hidden">
+
+              <div>
+                <label>Fecha de inicio <span class="req">*</span></label>
+                <input id="farma-fecha-inicio" type="date">
+              </div>
+
+              <div>
+                <label>Hora de inicio <span class="req">*</span></label>
+                <input id="farma-hora-inicio" type="time" value="00:00">
+              </div>
+
+              <div>
+                <label>Duración de cada turno (horas)</label>
+                <input id="farma-duracion" type="number" min="1" step="1" value="24">
+              </div>
+
+              <div>
+                <label>Farmacias de turno a la vez <span class="req">*</span></label>
+                <input id="farma-simultaneas" type="number" min="1" step="1" value="1">
+              </div>
+
+              <div class="full">
+                <label>Observaciones</label>
+                <textarea id="farma-observaciones" rows="4" placeholder="Opcional"></textarea>
+              </div>
+            </div>
+
+            <div id="farma-status" class="small-muted" style="margin-top:8px">Elegí una ciudad para cargar las farmacias.</div>
+
+            <div style="margin-top:12px">
+              <strong>Farmacias participantes y orden del ciclo</strong>
+              <div class="small-muted">Marcá las que participan. El número define el orden.</div>
+              <div id="farma-list" class="farma-list"></div>
+            </div>
+
+            <div id="farma-preview" class="farma-preview hidden"></div>
+
+            <div class="module-form-actions">
+              <button id="farma-preview-btn" class="secondary" type="button">Vista previa del ciclo</button>
+              <button id="farma-save" class="primary" type="button">Guardar ciclo</button>
+            </div>
+
+            
+          </div></div>
       </div>
     </section>
     <section id="view-soporte" class="view">      <div class="card" id="ghSoporteCard"><h2>Solicitudes de acceso y soporte</h2><div class="toolbar"><select id="ghSoporteEstado"><option value="ABIERTAS">Pendientes y en atención</option><option value="PENDIENTE">Pendientes</option><option value="EN_ATENCION">En atención</option><option value="CERRADA">Cerradas</option></select><button type="button" onclick="ghCargarSoporteV73()">Actualizar solicitudes</button></div><div id="ghSoporteResumen"></div><div id="ghSoporteLista" role="status"></div></div>
@@ -1388,17 +1437,75 @@ async function ghEliminarCiudad146(){
 
 function ghRenderTodo(){ghRenderEventos();ghRenderAnunciantesPendientes();ghRenderReviewQueues();ghRenderRequestSummary();ghRenderCiudades();informarAltura();}
 
-async function ghFarmaciasConsultar(){
+const farmaState={farmacias:[],participantes:[],ciclo:null};
+const htmlEscape=esc;
+const ghFarmCache=new Map(),ghFarmPending=new Map();
+function ghFarmAllowed(){return ['SUPERADMIN_PRINCIPAL','SUPERADMIN'].includes(GH_ADMIN_ACCESS.rol);}
+function ghFarmEdit(id=''){
+ const city=document.getElementById('ghFarmaciaCiudad').value,data=ghFarmCache.get(city);
+ if(!data)return;
+ const c=data.ciclos.find(x=>String(x.ciclo_id||x.id)===id)||null;
+ farmaState.ciclo=c;farmaState.farmacias=data.farmacias;farmaState.participantes=c?.participantes||[];
+ document.getElementById('farma-ciudad').value=city;
+ for(const [key,value] of Object.entries({'fecha-inicio':c?.fecha_inicio||'','hora-inicio':c?.hora_inicio||'00:00',duracion:c?.duracion_horas||24,simultaneas:c?.farmacias_por_turno||1,observaciones:c?.observaciones||''}))document.getElementById('farma-'+key).value=value;
+ document.getElementById('ghFarmaCycle').value=id;
+ document.getElementById('ghFarmaDelete').disabled=!c;
+ document.getElementById('farma-msg').hidden=true;
+ renderFarmaList();renderFarmaPreview();
+}
+function ghFarmRender(data,id=''){
+ const sel=document.getElementById('ghFarmaCycle');sel.replaceChildren(new Option('Nuevo ciclo',''));
+ for(const c of data.ciclos)sel.add(new Option((c.fecha_inicio||'Sin fecha')+' · '+(c.hora_inicio||'')+' · '+(c.ciclo_id||c.id),String(c.ciclo_id||c.id)));
+ document.getElementById('ghFarmaciasGestion').hidden=false;ghFarmEdit(id);
+}
+async function ghFarmGet(city,refresh=false){
+ if(!refresh&&ghFarmCache.has(city))return ghFarmCache.get(city);
+ if(ghFarmPending.has(city))return ghFarmPending.get(city);
+ const work=ghAdminRequest_('/farmacias/manage',{ciudad_id:city}).then(data=>{ghFarmCache.set(city,data);return data;}).finally(()=>ghFarmPending.delete(city));
+ ghFarmPending.set(city,work);return work;
+}
+async function ghFarmMutate(action){
+ const city=document.getElementById('ghFarmaciaCiudad').value,cache=ghFarmCache.get(city),msg=document.getElementById('farma-msg');
+ if(!cache||!ghFarmAllowed())return;
+ const btn=document.getElementById(action==='eliminar_ciclo'?'ghFarmaDelete':'farma-save');if(btn.disabled)return;
+ if(action==='eliminar_ciclo'&&(!farmaState.ciclo||!confirm('¿Eliminar este ciclo y sus turnos?')))return;
+ btn.disabled=true;msg.hidden=false;msg.textContent='Guardando…';
+ try{
+ const payload=buildFarmaciasPayloadFromForm_();
+ const result=await ghAdminRequest_('/farmacias/manage',{action,payload},'POST');
+ const id=String(result.ciclo_id||payload.ciclo_id);
+ cache.ciclos=cache.ciclos.filter(c=>String(c.ciclo_id||c.id)!==id);
+ if(result.ciclo)cache.ciclos.push(result.ciclo);
+ if(document.getElementById('ghFarmaciaCiudad').value===city){ghFarmRender(cache,result.ciclo?id:'');ghFarmRenderConsulta(cache);msg.hidden=false;msg.textContent=result.updated===false?'Sin cambios.':'Operación guardada.';}
+ }catch(e){msg.textContent=e.message||'No se pudo guardar.';}finally{btn.disabled=false;if(action==='eliminar_ciclo'&&!farmaState.ciclo)btn.disabled=true;}
+}
+document.addEventListener('DOMContentLoaded',()=>{
+ document.getElementById('ghFarmaCycle').onchange=e=>ghFarmEdit(e.target.value);
+ document.getElementById('ghFarmaNew').onclick=()=>ghFarmEdit();
+ document.getElementById('ghFarmaDelete').onclick=()=>ghFarmMutate('eliminar_ciclo');
+ document.getElementById('farma-save').onclick=()=>ghFarmMutate('guardar_ciclo');
+ document.getElementById('farma-preview-btn').onclick=renderFarmaPreview;
+ document.getElementById('farma-simultaneas').onchange=renderFarmaPreview;
+ document.getElementById('ghFarmaciaCiudad').onchange=()=>{document.getElementById('ghFarmaciasGestion').hidden=true;ghFarmaciasConsultar(false);};
+});
+async function ghFarmaciasConsultar(refresh=true){
  const city=document.getElementById('ghFarmaciaCiudad')?.value;
  const box=document.getElementById('ghFarmaciasResultado');
  if(!box||!city){if(box)box.textContent='Seleccioná una ciudad.';return;}
  box.textContent='Consultando ciclos y turnos...';
  try{
   // Misma fuente pública ya preparada que utiliza la Carcasa: una consulta por ciudad.
-  const r=await fetch(TERRITORY_API_ORIGIN+'/farmacias?action=ciclo&ciudad_id='+encodeURIComponent(city));
-  const j=await r.json();
-  if(!r.ok||!j.success)throw Error(j.message||'No se pudieron consultar los ciclos.');
-  const cycles=Array.isArray(j.ciclos)?j.ciclos:[];
+  let j;
+  if(ghFarmAllowed()){j=await ghFarmGet(city,refresh);if(document.getElementById('ghFarmaciaCiudad').value!==city)return;ghFarmRender(j);}
+  else{const r=await fetch(TERRITORY_API_ORIGIN+'/farmacias?action=ciclo&ciudad_id='+encodeURIComponent(city));j=await r.json();if(!r.ok||!j.success)throw Error(j.message||'No se pudieron consultar los ciclos.');}
+  if(document.getElementById('ghFarmaciaCiudad').value!==city)return;
+  ghFarmRenderConsulta(j);
+ }catch(e){box.textContent=e.message||'Error consultando Farmacias.';}
+ informarAltura();
+}
+function ghFarmRenderConsulta(j){
+ const box=document.getElementById('ghFarmaciasResultado');
+ const cycles=Array.isArray(j.ciclos)?j.ciclos:[];
   box.replaceChildren();
   const heading=document.createElement('h3');
   heading.textContent='Ciclos publicados: '+cycles.length;
@@ -1437,7 +1544,6 @@ async function ghFarmaciasConsultar(){
    if(!list.children.length){const li=document.createElement('li');li.textContent='Sin farmacias participantes.';list.appendChild(li);}
    details.append(summary,info,list);box.appendChild(details);
   });
- }catch(e){box.textContent=e.message||'Error consultando Farmacias.';}
  informarAltura();
 }
 
