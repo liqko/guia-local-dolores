@@ -7156,7 +7156,7 @@ async function routePanelV14(ctx) {
 }
 
 // reconstruccion/worker/modules/farmacias-v3.js
-var {farmSaveCycleV3} = (() => {
+var {farmSaveCycleV3,farmDeleteCycleGH} = (() => {
 
 const text=v=>String(v??"").trim();
 
@@ -7177,6 +7177,9 @@ async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[],adm
   if(!allowedCityIds.includes(city))throw new Error("La ciudad no está habilitada para esta cuenta.");
   if(!text(merged.fecha_inicio))throw new Error("Falta fecha de inicio.");
   if(!text(merged.hora_inicio))throw new Error("Falta hora de inicio.");
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(text(merged.fecha_inicio))||!Number.isFinite(Date.parse(text(merged.fecha_inicio)+"T00:00:00Z"))||new Date(text(merged.fecha_inicio)+"T00:00:00Z").toISOString().slice(0,10)!==text(merged.fecha_inicio))throw httpError("Fecha inválida.",400);
+  if(!/^([01]\d|2[0-3]):[0-5]\d$/.test(text(merged.hora_inicio)))throw httpError("Hora inválida.",400);
+  if(!Number.isSafeInteger(Number(merged.duracion_horas||24))||Number(merged.duracion_horas||24)<1||!Number.isSafeInteger(Number(merged.farmacias_por_turno||1))||Number(merged.farmacias_por_turno||1)<1)throw httpError("Duración o cantidad inválida.",400);
 
   const dur=Math.max(1,Number(merged.duracion_horas||24));
   const simult=Math.max(1,Math.floor(Number(merged.farmacias_por_turno||1)));
@@ -7280,7 +7283,18 @@ async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[],adm
     ciclo:{...saved,participantes,sedes}
   };
 }
-return {farmSaveCycleV3};
+async function farmDeleteCycleGH({db,cache,auth,id}){
+ if(!isTopAdmin2(auth))throw httpError("Sin permiso.",403);
+ if(!id)throw httpError("Falta ciclo.",400);
+ const current=await db.get("farmacias_ciclos",id);
+ if(!current)return {success:true,ciclo_id:id,deleted:true,updated:false};
+ const participantes=await db.queryEqual("farmacias_ciclo_sedes","ciclo_id",id,500);
+ for(const p of participantes)await db.delete("farmacias_ciclo_sedes",text(p.id)||id+"__"+text(p.sede_id));
+ await db.delete("farmacias_ciclos",id,{mustExist:true});
+ await syncFarmCyclePreparedV2({cache,cycleId:id,current,next:null});
+ return {success:true,ciclo_id:id,deleted:true};
+}
+return {farmSaveCycleV3,farmDeleteCycleGH};
 })();
 
 var text68 = (v) => String(v ?? "").trim();
@@ -11546,6 +11560,7 @@ async function routeCalendarV83(ctx){
    }
    if(request.method==='POST'){
     const body=await GLD_ACTIONS138.readJson(request);
+    if(body.action==='eliminar_ciclo')return json(await farmDeleteCycleGH({db,cache,auth,id:String(body.payload?.ciclo_id||'')}));
     if(body.action!=='guardar_ciclo')return json({success:false,message:'Acción inválida.'},400);
     return json(await farmSaveCycleV3({db,cache,advertiserId:'',body,allowedCityIds:ids,adminAuth:auth}));
    }
