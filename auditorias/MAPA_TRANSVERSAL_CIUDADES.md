@@ -1,3 +1,5 @@
+> **P4-0021, 26/11/2026.** `Coordinator.resume` reutiliza el plan durable para recuperación y coteja cada catálogo KV antes de repetir una escritura. Se elimina el checkpoint SQLite entre ambos PUT. Ver desglose antes/después y escenario de fallo en el registro maestro.
+
 > **P4-0019, 26/11/2026.** Gran Hermano `ghGuardarTerritorio` → `GLD_ACTIONS138.route` → `saveCountry` / `saveProvince` → persistencia y copias territoriales → publicador diario de Hosting. País confirmado alimenta Provincia; Provincia confirmada alimenta Ciudad. El actor de territorios marca los cambios públicos para el corte. El navegador público conserva el catálogo a través de despliegues de código. Los datos inactivos permanecen en la vista administrativa. Ver el registro maestro para pruebas y consumos.
 
 # GUÍA LOCAL — MAPA TRANSVERSAL DE CIUDADES
