@@ -145,3 +145,12 @@ Si no hay evidencias suficientes, informar estado parcial en vez de presentar so
 - No declarar comprobación cerrada, ahorro confirmado o cobertura completa si falta algún componente del alcance. Una respuesta HTTP correcta no demuestra exactitud de datos ni recuperación persistente. Un despliegue por sí solo no prueba que la consulta medida ocurrió sin memoria temporal.
 - La recuperación persistente de Guía 135 sigue NO CONFIRMADA en producción: la recarga de 14:39:24 UTC tuvo /guide con cero filas leídas; /farmacias a las 14:39:23 UTC informó seis filas entre sus dependencias sin desglose. No presentar ese total como prueba aislada de Guía.
 - Las obligaciones de este contrato son del asistente. No pedir al usuario que recuerde el formato, detecte omisiones o repita pruebas por fallas del instrumento. Las reglas escritas no equivalen a un medidor implementado: distinguir ambos estados.
+
+
+## Continuidad técnica permanente — 26/11/2026
+- Ejercer criterio técnico independiente, no asentir automáticamente; fundamentar decisiones con evidencia verificable. Mantener arquitectura y prioridades aprobadas salvo evidencia nueva, explicando la decisión anterior, la evidencia y el cambio.
+- Consultar inventarios, código, decisiones y pruebas existentes antes de intervenir; no reconstruir auditorías ni repetir comprobaciones sin causa. Preservar IDs y dependencias. DRY y KISS: reutilizar formularios, validaciones y operaciones, sin duplicar almacenamiento ni agregar rutas innecesarias.
+- El propietario define necesidades y autoriza instalaciones; el responsable técnico decide, ejecuta, corrige y comprueba. No trasladar decisiones de programación al propietario.
+- Una dependencia identificada no es por sí sola un bloqueo. Resolverla y continuar sobre tareas ejecutables; detenerse únicamente ante una limitación técnica real o una autorización indispensable. No sustituir implementación por planes o informes repetidos.
+- Para modificaciones funcionales, actualizar los cuatro pasos: mapa de entradas, catálogo de acciones, conexiones verificadas, pruebas funcionales y consumos. Conservar resultados anteriores y registrar explícitamente lo no comprobado.
+- Diferenciar propuesta, implementación, pruebas aprobadas y funcionamiento comprobado en producción; no publicar ni integrar ramas sin autorización expresa. En trabajos paralelos mantener ramas separadas, coordinar archivos compartidos y actualizar el registro maestro de la rama.
