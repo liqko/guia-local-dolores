@@ -1529,7 +1529,7 @@ function ghGoView(name,{pendingOnly=false}={}){
 }
 
 
-function ghTerrId_(tipo){return tipo.toUpperCase()+'_'+Date.now();}
+function ghTerrId_(tipo){return tipo.toUpperCase()+'_'+crypto.randomUUID();}
 function ghNuevoTerritorio(tipo){
   const box=document.getElementById('territorioAlta'); const id=ghTerrId_(tipo);
   const paisOpts=GH_COUNTRIES.map(x=>'<option value="'+esc(x.pais_id||x.id||'')+'">'+esc(x.nombre||x.pais_visible||x.pais||x.pais_id||x.id)+'</option>').join('');
@@ -1550,43 +1550,46 @@ async function ghGuardarTerritorio(tipo,id){
   if(GH_TERRITORY_PENDING.has(id))return;
   const nombre=(document.querySelector('[data-terr-nombre="'+CSS.escape(id)+'"]')||{}).value||'';
   if(!nombre.trim()){alert('Falta el nombre.');return;}
-  if(tipo!=='ciudad'){
-    alert('En la reconstrucción V1 estamos cerrando primero Ciudades. País y Provincia se mantienen como contexto existente.');
-    return;
+  const kind={pais:'countries',provincia:'provinces',ciudad:'cities'}[tipo];
+  if(!kind)return;
+  const idField=tipo+'_id';
+  const item={[idField]:id,nombre:nombre.trim()};
+  if(tipo!=='pais'){
+    item.pais_id=document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')?.value||'';
+    if(!item.pais_id){alert('Seleccioná país.');return;}
   }
-  const item={
-    ciudad_id:id,
-    nombre:nombre.trim(),
-    ciudad:nombre.trim(),
-    ciudad_visible:nombre.trim(),
-    pais_id:(document.querySelector('[data-terr-pais="'+CSS.escape(id)+'"]')||{}).value||'',
-    provincia_id:(document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]')||{}).value||'',
-    activa:true
-  };
-  if(!item.pais_id||!item.provincia_id){alert('Seleccioná país y provincia / estado.');return;}
+  if(tipo==='ciudad'){
+    item.provincia_id=document.querySelector('[data-terr-prov="'+CSS.escape(id)+'"]')?.value||'';
+    if(!item.provincia_id){alert('Seleccioná provincia / estado.');return;}
+    Object.assign(item,{ciudad:item.nombre,ciudad_visible:item.nombre,activa:true});
+  }
   GH_TERRITORY_PENDING.add(id);
   const controls=['nombre','pais','prov','guardar'].map(field=>document.querySelector('[data-terr-'+field+'="'+CSS.escape(id)+'"]')).filter(Boolean);
   const prior=controls.map(control=>({control,disabled:control.disabled,text:control.textContent}));
   controls.forEach(control=>{control.disabled=true;if(control.matches('[data-terr-guardar]'))control.textContent='Guardando…';});
   try{
-    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/cities/create',{
+    const r=await fetch(TERRITORY_API_ORIGIN+'/superadmin/'+kind+'/create',{
       method:'POST',
       headers:{
         Authorization:'Bearer '+TOKEN,
-        'Content-Type':'application/json'
+        'Content-Type':'application/json',
+        'Idempotency-Key':'territory-create-'+id
       },
       body:JSON.stringify({item})
     });
     const j=await r.json();
     if(!r.ok||!j.success) throw new Error(j.message||'No se pudo guardar la ciudad.');
-    const saved=j.ciudad;
-    if(!saved||String(saved.ciudad_id||saved.id)!==String(id)){
+    const saved=j[tipo];
+    if(!saved||String(saved[idField]||saved.id)!==String(id)){
       alert('El guardado fue aceptado. Usá Actualizar para consultar el listado; no repitas el alta.');return;
     }
     // Merge only the confirmed row, preserving other locally loaded cities.
-    ghInvalidarCatalogoPublicoCiudades();
-    GH_CITIES=GH_CITIES.filter(city=>String(city.ciudad_id||city.id)!==String(id)).concat(saved);
-    GH_CITIES.sort((a,b)=>String(a.ciudad_visible||a.nombre||a.ciudad_id).localeCompare(String(b.ciudad_visible||b.nombre||b.ciudad_id),'es'));
+    if(tipo==='ciudad')ghInvalidarCatalogoPublicoCiudades();
+    const rows=tipo==='pais'?GH_COUNTRIES:tipo==='provincia'?GH_PROVINCES:GH_CITIES;
+    const index=rows.findIndex(row=>String(row[idField]||row.id)===id);
+    if(index<0)rows.push(saved);
+    else rows[index]=saved;
+    rows.sort((a,b)=>String(a.nombre||a[idField]).localeCompare(String(b.nombre||b[idField]),'es'));
     if(document.querySelector('[data-terr-nombre="'+CSS.escape(id)+'"]'))document.getElementById('territorioAlta').innerHTML='';
     ghRenderCiudades();
   }catch(e){alert(e.message);}
