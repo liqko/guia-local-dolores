@@ -92,7 +92,7 @@ function combineChanges(earlier, latest, schema) {
 
 // source is produced by the public projection export. A missing or partial cut
 // must fail instead of treating an unavailable city as a day with no changes.
-export async function aplicarCorte({ previous, source, readPublished, stage, forceStage = false }) {
+export async function aplicarCorte({ previous, source, readPublished, stage, forceStage = false, reusePublished = false }) {
   requireCut(previous.cutoff);
   requireCut(source.cutoff);
   validateManifest(previous.manifest);
@@ -102,7 +102,12 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   const manifest = structuredClone(previous.manifest);
   const seen = new Set();
   const files = new Map();
+  const unchangedBooks = new Map();
   const initial = source.initial ?? [], retired = source.retired ?? [];
+  const urgent = source.urgent === true;
+  if (urgent && (source.cutoff !== source.after || initial.length || retired.length || source.schema)) {
+    throw Error('Una publicación urgente sólo aplica diferencias de registros a la edición vigente');
+  }
   if (!Array.isArray(initial)||!Array.isArray(retired)||(source.cutoff===source.after&&(initial.length||retired.length))) {
     throw Error('Altas o bajas de ciudades inválidas');
   }
@@ -123,13 +128,17 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   }
   for (const input of source.cities) {
     const city = input?.city;
-    if (typeof city !== 'string' || !Object.hasOwn(manifest,city) || seen.has(city) || source.cutoff === source.after) {
+    if (typeof city !== 'string' || !Object.hasOwn(manifest,city) || seen.has(city) || (!urgent && source.cutoff === source.after)) {
       throw Error('Ciudad o secuencia inválida en el corte');
     }
     seen.add(city);
     const old = manifest[city];
+    if (urgent && (input.from !== old.revision || Object.keys(input.replacements ?? {}).length)) {
+      throw Error('La diferencia urgente no corresponde a la revisión publicada');
+    }
     const prefix = publicPath + '/' + old.key + '/';
-    const book = await readPublished(prefix + 'completo-' + old.revision + '.json');
+    const completePath = prefix + 'completo-' + old.revision + '.json';
+    const book = await readPublished(completePath);
     if (!validBook(book,city) || book.revision !== old.revision) throw Error('Paquete publicado inválido');
     const revision = old.revision + 1;
     const targetSchema=source.schema??book.schema;
@@ -149,7 +158,10 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
     }
     const {next,changes} = publicChanges(book,{city,from:old.revision,revision,changes:changesInput,...(targetSchema?{schema:targetSchema}:{})});
     const schemaChanged=!isDeepStrictEqual(book.schema,next.schema);
-    if (!Object.keys(changes).length&&!schemaChanged) continue;
+    if (!Object.keys(changes).length&&!schemaChanged) {
+      unchangedBooks.set(completePath,book);
+      continue;
+    }
 
     const keep = [...old.deltas,old.revision].sort((a,b)=>a-b).slice(-historyLimit);
     files.set(prefix + 'completo-' + revision + '.json',next);
@@ -171,19 +183,22 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   const changed = files.size > 0 || retired.length > 0;
   if (changed || forceStage) {
     const catalogPath = join(stage,'plataforma','territorio-cache.js');
-    const catalog = await readFile(catalogPath,'utf8');
-    if (catalog.split(marker).length !== 2) throw Error('Marcador de paquetes inválido');
+    if (!urgent || !reusePublished) {
+      const catalog = await readFile(catalogPath,'utf8');
+      if (catalog.split(marker).length !== 2) throw Error('Marcador de paquetes inválido');
+      const expression = 'JSON.parse(' + JSON.stringify(JSON.stringify(manifest)) + ')';
+      await writeFile(catalogPath,catalog.replace(marker,()=> '/* GLD_CITY_BOOKS */ ' + expression));
+    }
     for (const {key,revision,deltas} of Object.values(manifest)) {
       const prefix = publicPath + '/' + key + '/';
       await mkdir(join(stage,prefix),{recursive:true});
       for (const name of ['completo-' + revision,...deltas.map(from=>'cambios-' + from + '-' + revision)]) {
         const file = prefix + name + '.json';
-        const content = files.get(file) ?? await readPublished(file);
+        if (reusePublished && !files.has(file)) continue;
+        const content = files.get(file) ?? unchangedBooks.get(file) ?? await readPublished(file);
         await writeFile(join(stage,file),JSON.stringify(content));
       }
     }
-    const expression = 'JSON.parse(' + JSON.stringify(JSON.stringify(manifest)) + ')';
-    await writeFile(catalogPath,catalog.replace(marker,()=> '/* GLD_CITY_BOOKS */ ' + expression));
     await mkdir(join(stage,publicPath),{recursive:true});
     await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{})}));
   }

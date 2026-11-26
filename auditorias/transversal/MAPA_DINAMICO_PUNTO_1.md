@@ -1,3 +1,7 @@
+> **Ingreso de Usuario, posición 3 del Paso 4.** `gldRecuperarEntradaV92` desde inicio o carcasa dirige al selector cuando el token local no es elegible. Un token vigente conserva el GET de perfil y dos invocaciones concurrentes con ese token comparten la verificación. La prueba dirigida confirma que un cambio de cuenta descarta la respuesta anterior.
+
+> **Actualización 26/11/2026, hallazgo 38 / AUD-00413.** La raíz histórica de la tabla fue retirada en `7a64f76b`. Su árbol se conserva como evidencia histórica. La entrada vigente de Anunciante es `renderEventsList → renderEventsCards → bindEventsListActions`; el botón de promoción delega en `pubDesdeContenido147` desde la tarjeta. La regresión dirigida se incorpora a `scripts/control-integral.cjs`. Ver P4-0029 para medición y alcance.
+
 # Punto 1 — MAPA de acciones dinámicas
 
 **Estado del paso 1: abierto tras revalidación del 19/11/2026.** Corte inicial de fuente del 17/11/2026. Revisión de fuente [`f6ea8fe2`](https://github.com/liqko/guia-local-dolores/commit/f6ea8fe24ae50d0306bf5389c2038570957d5dff), Worker 211 en `worker/worker206.txt`. Alcance fijado por el [procedimiento](../PROCEDIMIENTO_CONTROL.md). Se cubrieron las 44 entradas del inventario en fuente, con **40 raíces de árbol y 40 unidades**. Cuatro pares corresponden a una misma pieza de HTML detectada dos veces. Una de las 40 raíces tiene plantilla y manejador, con un renderizador sin llamadas encontradas. Las 15 expresiones inciertas del generador se conservan y se cotejan abajo.

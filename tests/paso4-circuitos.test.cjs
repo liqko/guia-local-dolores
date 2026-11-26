@@ -346,6 +346,57 @@ test('P3-17 / P4-0029: exportación dinámica Promos GH tiene consumidor real y 
 });
 
 
+test('Gran Hermano usa un solo botón de actualización por listado y trae los cambios del servidor',async()=>{
+ const admin=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+ const script=fs.readFileSync(path.join(__dirname,'../plataforma/gh-listados.js'),'utf8');
+ const elements=new Map();
+ const requests=[];
+ let revision=1;
+ const createElement=()=>({
+   children:[],style:{},value:'',
+   set id(id){elements.set(id,this);},
+   setAttribute(){},
+   append(...children){this.children.push(...children);},
+   replaceChildren(){this.children=[];},
+   before(){},
+   set textContent(value){this.text=value;this.children=[];},
+   get textContent(){return this.text;}
+ });
+ for(const id of ['activitiesAll102','ghPromosList','ghPublicidadList'])elements.set(id,createElement());
+ const window={};
+ const document={getElementById:id=>elements.get(id),createElement};
+ const api=async(route,params)=>{
+   requests.push({route,params});
+   return {preparado:true,total:1,results:[{id:'fixture',titulo:params.tipo+' '+revision,estado:'ACTIVA'}]};
+ };
+ const openView=Function('window','document','GH_ADMIN_ACCESS','GH_CITIES','ghAdminRequest_','informarAltura',`
+   let ghGoView=()=>{},ghRenderEventos=()=>{},ghPublicidadLoad101,ghPublicidadPrepare101,buscarAnu,buscarSus;
+   ${script}
+   return ghGoView;
+ `)(window,document,{rol:'SUPERADMIN'},[{ciudad_id:'DOLORES'}],api,()=>{});
+ const settle=()=>new Promise(resolve=>setImmediate(resolve));
+ for(const [view,boxId] of [['promos','ghPromosList'],['publicidad','ghPublicidadList']]){
+   const section=admin.match(new RegExp('<section id="view-'+view+'"[^>]*>[\\s\\S]*?</section>'))?.[0];
+   assert(section);
+   assert.doesNotMatch(section,/>Actualizar listado<\/button>/);
+   revision=1;
+   openView(view);
+   await settle();
+   const box=elements.get(boxId);
+   assert.equal(box.children[0].children[0].textContent,view+' 1 · ACTIVA');
+   const buttons=elements.get('dir-'+view).children.filter(el=>el.textContent==='Actualizar listado');
+   assert.equal(buttons.length,1);
+   const before=requests.length;
+   revision=2;
+   buttons[0].onclick();
+   await settle();
+   assert.equal(requests.length,before+1);
+   assert.equal(requests.at(-1).route,'/listados');
+   assert.equal(requests.at(-1).params.tipo,view);
+   assert.equal(box.children[0].children[0].textContent,view+' 2 · ACTIVA');
+ }
+});
+
 test('P4-0011: fallo de lectura de Promos GH permite reintento en nueva apertura',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../plataforma/gh-promos.js'),'utf8');
  const start=source.indexOf('window.ghPromosLoadV91=function(');
@@ -488,6 +539,87 @@ test('P4-0012: proyección privada confirma bajas históricas y recupera fallo p
  await call({action:'add',tipo:'ANUNCIANTE',ref:'C',nombre_ref:'C'});
  assert.deepEqual([reads,writes,commits,storeWrites],[2,3,2,5]);
 });
+test('P4-0027: el encabezado distingue la copia GH de la autorización',()=>{
+ const a=worker.indexOf('function consumption136(report)');
+ const b=worker.indexOf('function consumptionBase136(report)',a);
+ const measure=Function('consumptionBase136',worker.slice(a,b)+';return consumption136;')(
+  ()=>({cloudflare:{kv:{get_calls:0},auth_store:{calls:1}},coverage:{missing:[]}}));
+ const gh={calls:1,rows_read:1,rows_written:0,cache_misses:1,kv:{get_calls:3,list_calls:1}};
+ const report=measure({gh_detail_store204:gh});
+ assert.deepEqual(report.cloudflare.gh_detail_store,gh);
+ assert.equal(report.cloudflare.auth_store.calls,1);
+ assert.equal(report.cloudflare.kv.get_calls,0);
+});
+
+test('P4-0006: verificación compacta aplica la máscara y no guarda contenido provisional',async t=>{
+ const start=worker.indexOf('function compactPublicVisibility('), end=worker.indexOf('async function routeAdult(',start);
+ assert(start>=0&&end>start);
+ let authorizations=0;
+ const run=Function('adultGrant','adultPublic',worker.slice(start,end)+';return adultPublicResponse;')(
+  async()=>{authorizations++;return false;},value=>value);
+ const input={success:true,promos:[{promo_id:'P',descripcion:'x'.repeat(3000)},{promo_id:'R',sedes:[{bloqueado18:true}]}]};
+ const spec={field:'promos',id:'promo_id'};
+ const normal=await run(Response.json(input),{},{}),compact=await run(Response.json(input),{},{},spec);
+ assert.deepEqual(await normal.json(),input);
+ const result=await compact.text();
+ assert.deepEqual(JSON.parse(result),{success:true,promos:[{promo_id:'P'},{promo_id:'R',bloqueado18:true}]});
+ assert.equal(authorizations,2);
+ assert.equal(compact.headers.get('Cache-Control'),'private, no-store');
+ assert(Buffer.byteLength(result)<Buffer.byteLength(JSON.stringify(input)));
+ t.diagnostic('Bytes de cuerpo simulados: '+Buffer.byteLength(JSON.stringify(input))+' → '+Buffer.byteLength(result));
+
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const from=source.indexOf('    function obtenerModuloCiudad('),to=source.indexOf('    async function obtenerEventosPromise(',from);
+ const requests=[],saved=[];
+ const loader=Function('moduloPromises','gldLeerModuloCache','gldFetchJson','gldGuardarModuloCache',
+  source.slice(from,to)+';return obtenerModuloCiudad;')(new Map(),()=>null,
+   async(url,options)=>{requests.push([new URL(url).searchParams.get('vista'),options.cache]);return {data:{success:true}};},
+   (...args)=>saved.push(args));
+ await Promise.all([loader('https://local.invalid/promos','p','', 'DOL',true,true),loader('https://local.invalid/promos','p','', 'DOL',true,true)]);
+ assert.deepEqual(requests,[['visibilidad','no-store']]);
+ assert.deepEqual(saved,[]);
+ await loader('https://local.invalid/promos','p','', 'DOL');
+ assert.equal(saved.length,1);
+});
+
+test('P4-0025: la base de relaciones omite la revisión sin perder bajas de deltas',async()=>{
+ const base=worker.slice(worker.indexOf('  async function revision(key)'),worker.indexOf('  async function relationRows('));
+ const reader=worker.slice(worker.indexOf('  const advertiserRelationKey104='),worker.indexOf('  async function relationOwners('));
+ assert(base&&reader);
+ const key='gh:advertiser-relations:v104:A';
+ const stored=new Map([
+  [key+':initial',JSON.stringify({version:46,data:[{id:'A-1'},{id:'A-2'}]})],
+  [key+':delta:A-1',JSON.stringify({id:'A-1',deleted:true})],
+  [key+':delta:A-3',JSON.stringify({id:'A-3',data:{id:'A-3'}})]
+ ]);
+ async function run(code){
+  const calls=[];
+  const kv={async get(k){calls.push(['get',k]);return stored.get(k);},
+   async list({prefix}){calls.push(['list',prefix]);return {keys:[...stored.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};}};
+  const read=Function('kv','text','db','remember','dirty',base+code+';return cachedAdvertiserRelations104;')(
+   kv,v=>String(v??''),{queryEqual(){assert.fail('La base caliente no requiere Firestore');}},(_c,rows)=>rows,new Set());
+  return {rows:await read('A'),calls};
+ }
+ const before=await run(reader.replace("read(key,'initial')","read(key)"));
+ const after=await run(reader);
+ assert.deepEqual(after.rows,[{id:'A-2'},{id:'A-3'}]);
+ assert.deepEqual(after.rows,before.rows);
+ assert.deepEqual(before.calls,[['get',key+':revision'],...after.calls]);
+ assert.equal(after.calls.filter(([op])=>op==='list').length,1);
+});
+
+test('P4-0035-T08: Favoritos devuelve 401 ante una sesión denegada',async()=>{
+ const a=worker.indexOf('async function sessionOrThrow(');
+ const b=worker.indexOf('// Single private projection',a);
+ assert(a>=0&&b>a);
+ const verify=Function('verifySubscriberSession','httpError',worker.slice(a,b)+';return sessionOrThrow;');
+ const error=(message,status)=>Object.assign(Error(message),{status});
+ const denied=verify(async()=>({ok:false,message:'Sesión vencida'}),error);
+ await assert.rejects(denied({},{}),{status:401,message:'Sesión vencida'});
+ const allowed={ok:true,sid:'A'};
+ assert.equal(await verify(async()=>allowed,error)({},{}),allowed);
+});
+
 test('P4-0012: rutas de favoritos usan proyección serializada e identidad autenticada',()=>{
  const a=worker.indexOf('async function listFavoritesV2('),b=worker.indexOf('return {listFavoritesV2',a);
  const src=worker.slice(a,b);
@@ -534,4 +666,76 @@ test('E2: autenticación compartida por petición, entorno y rol sin contaminar 
  assert.equal((await core.authenticate(env,seeded,sv,'subscriber')).ok,false);
  assert.equal(admin,3);assert.equal(subscriber,2);
  assert.match(worker,/verifySubscriberSessionRaw143,'subscriber'/);
+});
+test('P4-0006: un lote comparte la autorización y conserva la contingencia parcial',async ()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const client=source.slice(source.indexOf('    const verificacionesAgrupadas='),source.indexOf('    async function jsonpApi('));
+ const batch=worker.slice(worker.indexOf('function compactPublicVisibility('),worker.indexOf('async function routeAdult('));
+ const fields={guide:'results',events:'events',promos:'promos',activities:'actividades',ads:'publicidades'};
+ const specs=Object.fromEntries(Object.entries(fields).map(([name,field])=>[name,{path:'/'+name,field,id:'id',query:{action:'publicas'}}]));
+ let grants=0,requests=0;
+ const reads=[];
+ const run=Function('PUBLIC_FEATURES191','adultGrant','adultPublic','routePublicV12','json',batch+';return publicVisibilityBatch;')(
+  specs,async()=>{grants++;return false;},(body,grant)=>{assert.equal(grant,false);return body;},
+  async ({url,request,cache})=>{
+   assert.equal(request.url,url.href);
+   assert.equal(url.searchParams.get('ciudad_id'),'DOL');
+   assert.equal(cache,'compartida');
+   const name=url.pathname.slice(1);
+   reads.push(name);
+   if(name==='promos')throw Error('fallo parcial');
+   return Response.json({success:true,[fields[name]]:[{id:'42',detalle:{bloqueado18:true},texto:'omitido'}]});
+  },(body,status,headers)=>Response.json(body,{status,headers}));
+ const verify=Function('gldFetchJson','GLD_WORKER_ORIGIN','verificarPublicacion',client+';return visibilidadAgrupada;')(
+  async input=>{
+   requests++;
+   const url=new URL(input);
+   const response=await run({url,request:new Request(url),cache:'compartida'});
+   assert.equal(response.headers.get('Cache-Control'),'private, no-store');
+   return {data:await response.json()};
+  },'https://local.invalid',(_book,_family,data)=>data);
+ const book={needsVerification:{},modules:{activities:{success:true,actividades:[]}}};
+ const [guide,events,promos,ads]=await Promise.all(['guide','events','promos','ads'].map(name=>verify(book,'DOL',name)));
+ assert.deepEqual(guide.results,[{id:'42',bloqueado18:true}]);
+ assert.deepEqual(events.events,guide.results);
+ assert.deepEqual(ads.publicidades,guide.results);
+ assert.equal(promos,null);
+ assert.deepEqual(reads,['guide','events','promos','ads']);
+ assert.equal(grants,1);
+ assert.equal(requests,1);
+});
+
+test('P4-0006: Guía y Publicidad piden visibilidad sólo cuando verifican copia local',async t=>{
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const guide=source.slice(source.indexOf('    async function jsonpApi('),source.indexOf('    async function gldFetchJson('));
+ const banners=source.slice(source.indexOf('    async function obtenerBannersPromise('),source.indexOf('    function obtenerBannersRemotos('));
+ const calls=[];
+ let edition={stale:true,needsVerification:{},modules:{}};
+ const fetcher=async input=>{calls.push(new URL(input));return Response.json({success:true});};
+ const lookup=async()=>edition;
+ const verify=(_edition,_family,value)=>value;
+ const load=Function('gldPaquetePublico','verificarPublicacion','fetch','GLD_WORKER_ORIGIN','visibilidadAgrupada',guide+';return jsonpApi;')(
+  lookup,verify,fetcher,'https://local.invalid',async()=>null);
+ const ads=Function('gldPaquetePublico','verificarPublicacion','window','ciudadSeleccionada','gldFetchJson','publicidadPublicaUrl','obtenerBannersRemotos','visibilidadAgrupada',
+  banners+';return obtenerBannersPromise;')(lookup,verify,{GLD_PAQUETE_CIUDAD:{module:async()=>null}},'DOL',
+   async input=>({data:await (await fetcher(input)).json()}),()=> 'https://local.invalid/publicidad?action=publicas',async()=>null,async()=>null);
+ await load({action:'guia',ciudad_id:'DOL'});
+ await ads();
+ edition={stale:true,modules:{}};
+ await load({action:'guia',ciudad_id:'DOL'});
+ await ads();
+ assert.deepEqual(calls.map(url=>[url.pathname,url.searchParams.get('vista')]),
+  [['/guide','visibilidad'],['/publicidad','visibilidad'],['/guide',null],['/publicidad',null]]);
+ assert.equal(calls[0].searchParams.get('compact'),'1');
+
+ const start=worker.indexOf('function compactPublicVisibility('),end=worker.indexOf('async function adultPublicResponse(',start);
+ const compact=Function(worker.slice(start,end)+';return compactPublicVisibility;')();
+ const fixtures=[
+  [{field:'results',id:'anunciante_id'},{success:true,results:[{anunciante_id:'A',sedes:[{bloqueado18:true}],descripcion:'x'.repeat(3000)}]}],
+  [{field:'publicidades',id:'publicidad_id'},{success:true,distribucion:{habilitado:true},publicidades:[{publicidad_id:'P',descripcion:'x'.repeat(3000)}]}]
+ ];
+ const [guideRow,adsRow]=fixtures.map(([spec,value])=>compact(value,spec));
+ assert.deepEqual(guideRow.results,[{anunciante_id:'A',bloqueado18:true}]);
+ assert.deepEqual(adsRow,{success:true,distribucion:{habilitado:true},publicidades:[{publicidad_id:'P'}]});
+ for(const [spec,value] of fixtures)t.diagnostic(spec.field+': '+Buffer.byteLength(JSON.stringify(value))+' → '+Buffer.byteLength(JSON.stringify(compact(value,spec)))+' B');
 });

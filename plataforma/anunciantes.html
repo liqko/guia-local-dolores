@@ -4,7 +4,7 @@
 <script src="/plataforma/telemetria.js?v=1"></script>
 <script src="/plataforma/publicidad-distribucion.js?v=194"></script>
 <script src="/plataforma/imagenes-publicas.js?v=89"></script>
-<script src="/plataforma/tarjetas-imagenes.js?v=142"></script>
+<script src="/plataforma/tarjetas-imagenes.js?v=143"></script>
 <script src="/plataforma/paginacion.js?v=1"></script>
 <script src="/plataforma/sesion-persistente.js?v=87"></script>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
@@ -1214,9 +1214,12 @@ body.gld-modo-web #paginador-abajo{display:none!important}
     document.getElementById('gldModuloReintentar')?.addEventListener('click',()=>location.reload());
     gldModuloBloquear('Cargando comercios y servicios…');
 
+    function gldMediaAttribute_(value){
+      return String(value||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+    }
     function gldCardImageAttrs(url){
       if(window.GLD_CARD_IMAGES)return window.GLD_CARD_IMAGES.attributes(url);
-      return 'loading="lazy" decoding="async" src="'+String(url||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;')+'"';
+      return 'loading="lazy" decoding="async" src="'+gldMediaAttribute_(url)+'"';
     }
     async function fetchInstagramImage(url){
       return window.GLD_CARD_IMAGES
@@ -1263,6 +1266,28 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       return window.GLD_PAQUETE_CIUDAD.replaceWithVerifiedRows(paquete,family,data,context);
     }
 
+    const verificacionesAgrupadas=new WeakMap();
+    async function visibilidadAgrupada(paquete,city,family,context){
+      if(!paquete?.needsVerification||!city)return null;
+      let lote=verificacionesAgrupadas.get(paquete);
+      if(family==='guide'&&(!lote||Date.now()>=lote.hasta)){
+        const names=['guide','events','promos','activities','ads'].filter(name=>!paquete.modules[name]);
+        if(names.length<2)return null;
+        const url=new URL(GLD_WORKER_ORIGIN+'/guide');
+        url.searchParams.set('vista','visibilidad-lote');
+        url.searchParams.set('ciudad_id',city);
+        for(const name of names)url.searchParams.append('modulo',name);
+        const request=gldFetchJson(url.toString(),{cache:'no-store'},{timeoutMs:3000,retries:0})
+          .then(({data})=>data?.success===true&&data.ciudad_id===String(city)?data.modules:null)
+          .catch(()=>null);
+        lote={hasta:Date.now()+15000,request};
+        verificacionesAgrupadas.set(paquete,lote);
+      }
+      if(!lote||Date.now()>=lote.hasta)return null;
+      const data=(await lote.request)?.[family];
+      return data?verificarPublicacion(paquete,family,data,context):null;
+    }
+
     async function jsonpApi(params={}, timeoutMs=15000) {
       const action=String(params.action||'').trim().toLowerCase();
       let u,paquete;
@@ -1272,8 +1297,11 @@ body.gld-modo-web #paginador-abajo{display:none!important}
       if(action==='guia'){
         paquete=await gldPaquetePublico(params.ciudad_id);
         if(paquete?.modules.guide)return paquete.modules.guide;
+        const verificado=paquete?.needsVerification&&await visibilidadAgrupada(paquete,params.ciudad_id,'guide');
+        if(verificado)return verificado;
         u=new URL(GLD_WORKER_ORIGIN+'/guide');
         u.searchParams.set('compact','1');
+        if(paquete?.needsVerification)u.searchParams.set('vista','visibilidad');
         if(params.ciudad_id)u.searchParams.set('ciudad_id',params.ciudad_id);
       }else if(action==='ubicaciones'){
         u=new URL(GLD_WORKER_ORIGIN+'/territory/public');
@@ -1629,18 +1657,19 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       }catch(e){}
     }
 
-    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada,requireFresh=false){
+    function obtenerModuloCiudad(endpoint,prefix,action='',ciudadId=ciudadSeleccionada,requireFresh=false,verifyOnly=false){
       const city=String(ciudadId||'').trim();
       if(!city)return Promise.reject(new Error('Seleccioná una ciudad'));
-      const key=prefix+city+(requireFresh?':fresh':'');
+      const key=prefix+city+(verifyOnly?':verify':requireFresh?':fresh':'');
       if(!moduloPromises.has(key)){
-        const cached=requireFresh?null:gldLeerModuloCache(prefix,city);
+        const cached=(requireFresh||verifyOnly)?null:gldLeerModuloCache(prefix,city);
         const u=new URL(endpoint);
         u.searchParams.set('ciudad_id',city);
         if(action)u.searchParams.set('action',action);
-        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString(),requireFresh?{cache:'no-store'}:{}).then(({data})=>{
+        if(verifyOnly)u.searchParams.set('vista','visibilidad');
+        const pending=cached?Promise.resolve(cached):gldFetchJson(u.toString(),(requireFresh||verifyOnly)?{cache:'no-store'}:{}).then(({data})=>{
           if(!data || data.success!==true)throw new Error((data && data.message) || 'Contenido no disponible');
-          gldGuardarModuloCache(prefix,city,data);
+          if(!verifyOnly)gldGuardarModuloCache(prefix,city,data);
           return data;
         });
         // Compartir únicamente solicitudes pendientes: una respuesta anterior no debe
@@ -1655,15 +1684,15 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
 
     async function obtenerEventosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.events ?? verificarPublicacion(paquete,'events',await obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true));
+      return paquete?.modules.events ?? (paquete?.needsVerification?await visibilidadAgrupada(paquete,ciudadId,'events'):null) ?? verificarPublicacion(paquete,'events',await obtenerModuloCiudad(EVENTS_WEBAPP_URL,GLD_EVENTOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true,Boolean(paquete?.needsVerification)));
     }
     async function obtenerPromosPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.promos ?? verificarPublicacion(paquete,'promos',await obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true));
+      return paquete?.modules.promos ?? (paquete?.needsVerification?await visibilidadAgrupada(paquete,ciudadId,'promos'):null) ?? verificarPublicacion(paquete,'promos',await obtenerModuloCiudad(PROMOS_ENDPOINT,GLD_PROMOS_CACHE_PREFIX,'',ciudadId,paquete?.stale===true,Boolean(paquete?.needsVerification)));
     }
     async function obtenerActividadesPromise(ciudadId=ciudadSeleccionada){
       const paquete=await gldPaquetePublico(ciudadId);
-      return paquete?.modules.activities ?? verificarPublicacion(paquete,'activities',await obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId,paquete?.stale===true));
+      return paquete?.modules.activities ?? (paquete?.needsVerification?await visibilidadAgrupada(paquete,ciudadId,'activities'):null) ?? verificarPublicacion(paquete,'activities',await obtenerModuloCiudad(ACTIVIDADES_ENDPOINT,GLD_ACTIVIDADES_CACHE_PREFIX,'publicas',ciudadId,paquete?.stale===true,Boolean(paquete?.needsVerification)));
     }
 
     async function obtenerBannersPromise(){
@@ -1671,7 +1700,11 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
       const ads=paquete?await window.GLD_PAQUETE_CIUDAD.module(ciudadSeleccionada,'ads','GUIA'):null;
       if(ads)return ads;
       if(paquete?.stale){
-        const {data}=await gldFetchJson(publicidadPublicaUrl('GUIA'),{cache:'no-store'});
+        const verificado=paquete.needsVerification&&await visibilidadAgrupada(paquete,ciudadSeleccionada,'ads','GUIA');
+        if(verificado)return verificado;
+        const url=new URL(publicidadPublicaUrl('GUIA'));
+        if(paquete.needsVerification)url.searchParams.set('vista','visibilidad');
+        const {data}=await gldFetchJson(url.toString(),{cache:'no-store'});
         return verificarPublicacion(paquete,'ads',data,'GUIA');
       }
       return obtenerBannersRemotos();
@@ -2531,7 +2564,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             html += `<div class="galeria-carrusel">`;
             imagenes.forEach((url, idx) => {
               if (isInstagramPost(url)) {
-                html += `<span id="instaimg-${galeriaId}-${idx}" class="galeria-placeholder">Cargando…</span>`;
+                html += `<span id="instaimg-${galeriaId}-${idx}" data-post="${gldMediaAttribute_(url)}" class="galeria-placeholder">Cargando…</span>`;
               } else if (isDirectImage(url)) {
                 html += `<img class="thumbnail" ${gldCardImageAttrs(url)} alt="Imagen galería" ${accionImagenNivel_(item,nivelVisual,imagenes,idx)}>`;
               } else {
@@ -2543,7 +2576,7 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
           } else {
             const url = imagenes[0];
             if (isInstagramPost(url)) {
-              html += `<span id="instaimg-${galeriaId}-0" class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">Cargando…</span><span class="segmento-doble"></span>`;
+              html += `<span id="instaimg-${galeriaId}-0" data-post="${gldMediaAttribute_(url)}" class="galeria-placeholder" style="width:100%;height:140px;line-height:140px;">Cargando…</span><span class="segmento-doble"></span>`;
             } else if (isDirectImage(url)) {
               html += `<div class="gld-galeria-simple"><img class="thumbnail solo" ${gldCardImageAttrs(url)} alt="Imagen" ${accionImagenNivel_(item,nivelVisual,imagenes,0)}></div>` +
                 `<span class="segmento-doble"></span>`;
@@ -2553,19 +2586,22 @@ try{const saved=JSON.parse(localStorage.getItem(CITY_CONTEXT_KEY)||'null');if(sa
             }
           }
           setTimeout(() => {
-            imagenes.forEach(async (url, idx) => {
-              if (isInstagramPost(url)) {
-                const imgurl = await fetchInstagramImage(url);
-                const el = document.getElementById(`instaimg-${galeriaId}-${idx}`);
-                if(el) {
-                  if(imgurl){
-                    el.innerHTML = `<img class="${imagenes.length===1?'thumbnail solo':'thumbnail'}" ${gldCardImageAttrs(imgurl)} alt="Instagram" ${accionImagenNivel_(item,nivelVisual,imagenes,idx)}>`;
-                    window.GLD_CARD_IMAGES?.refresh(el);
-                  }else{
-                    el.innerHTML = `<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>`;
-                  }
+            imagenes.forEach((url, idx) => {
+              if(!isInstagramPost(url))return;
+              const el=document.getElementById(`instaimg-${galeriaId}-${idx}`);
+              if(!el||el.dataset.post!==url)return;
+              const loadPost=async()=>{
+                const imgurl=await fetchInstagramImage(url);
+                if(!el.isConnected)return;
+                if(imgurl){
+                  el.innerHTML = `<img class="${imagenes.length===1?'thumbnail solo':'thumbnail'}" ${gldCardImageAttrs(imgurl)} alt="Instagram" ${accionImagenNivel_(item,nivelVisual,imagenes,idx)}>`;
+                  window.GLD_CARD_IMAGES?.refresh(el);
+                }else{
+                  el.innerHTML = '<span style="display:inline-block;width:100px;height:100px;background:#eee;text-align:center;line-height:100px;color:#888;">No disponible</span>';
                 }
-              }
+              };
+              if(window.GLD_CARD_IMAGES?.defer)window.GLD_CARD_IMAGES.defer(el,loadPost);
+              else loadPost();
             });
           }, 100);
           return html;

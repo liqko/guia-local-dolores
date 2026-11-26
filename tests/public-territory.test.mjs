@@ -68,3 +68,46 @@ test('P4-0006: push sin cambio territorial prepara copia pero no exige despliegu
  assert.equal(fallback.changed,false);assert.equal(calls.length,2);
  assert.equal(await readFile(file,'utf8'),published);
 });
+
+test('la publicación urgente conserva el catálogo instalado con una lectura de Hosting',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'gld-territory-urgent-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const file=join(dir,'territorio-cache.js');await writeFile(file,template);
+ const {revision}=await preparePublicTerritory({file,read:async()=>Response.json(packet)});
+ const installed=await readFile(file,'utf8');
+ await writeFile(file,template);
+ const calls=[];
+ const result=await preparePublicTerritory({file,preserve:true,read:async url=>{calls.push(url);return new Response(installed);}});
+ assert.equal(calls.length,1);
+ assert.equal(new URL(calls[0]).hostname,'anunciantes-guialocal.web.app');
+ assert.deepEqual(result,{changed:false,revision});
+ assert.equal(await readFile(file,'utf8'),installed);
+});
+
+test('el push conserva el catálogo instalado y el corte incorpora País y Provincia',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'gld-territory-cut-'));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const file=join(dir,'territorio-cache.js');
+ const changed={...packet,paises:[...packet.paises,{pais_id:'UY'}],
+  provincias:[...packet.provincias,{provincia_id:'MO',pais_id:'UY'}]};
+ await writeFile(file,template);
+ await preparePublicTerritory({file,read:async()=>Response.json(packet)});
+ const installed=await readFile(file,'utf8');
+ await writeFile(file,template);
+ const calls=[];
+ const read=async url=>{calls.push(url);return url.endsWith('.js')?new Response(installed):Response.json(changed);};
+ const workflow=await readFile(new URL('../.github/workflows/firebase-hosting-merge.yml',import.meta.url),'utf8');
+ assert.match(workflow,/cron: "0 4 \* \* \*"/);
+ assert.match(workflow,/territorio-cache\.js --scheduled --stage-unchanged[\s\S]*?else\s+node scripts\/prepare-public-territory\.mjs hosting-public\/plataforma\/territorio-cache\.js --preserve/);
+ assert.equal((await preparePublicTerritory({file,read,preserve:true})).changed,false);
+ assert.equal(await readFile(file,'utf8'),installed);
+ assert.equal(calls.length,1);
+ await writeFile(file,template);
+ calls.length=0;
+ assert.equal((await preparePublicTerritory({file,read,scheduled:true})).changed,true);
+ assert.equal(calls.length,2);
+ const user=browser(await readFile(file,'utf8'));
+ const data=await user.load();
+ assert.equal(data.paises.at(-1).pais_id,'UY');
+ assert.equal(data.provincias.at(-1).pais_id,'UY');
+ assert.equal(user.stats().requests,0);
+});

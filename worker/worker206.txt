@@ -1,10 +1,10 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 212             ║
-// ║          VERSIÓN 212 · PENDIENTE DE DESPLIEGUE           ║
+// ║                GUÍA LOCAL DOLORES · WORKER 214             ║
+// ║          VERSIÓN 214 · ENTREGA DEL PASO 4                 ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
-const WORKER_VERSION = '212';
+const WORKER_VERSION = '214';
 (function(root){
  'use strict';
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -106,8 +106,19 @@ var GLD_ACTIONS138 = (() => {
  }
  async function prepare(command,packets,resources,resolved){
   const spec=identify(command.path,command.method);if(!spec)throw Error('Invalid territorial action');
-  const request=new Request('https://territory-actions.internal'+command.path,{method:command.method,headers:{'Content-Type':'application/json'},body:JSON.stringify(command.body)});
-  seed(resources.env,request,command.auth,command.body);
+  let body=command.body;
+  if(spec.id&&(spec.kind==='countries'||spec.kind==='provinces')){
+   const def=definition[spec.kind],current=packets.admin?.[def.field]?.find(row=>String(row[def.id]||row.id)===spec.id);
+   if(!current)return {status:404,result:{success:false,message:'El registro territorial no existe.'},writes:[],updates:[],lists:{}};
+   const item=body.item&&typeof body.item==='object'?body.item:body;
+   if(spec.kind==='provinces'&&item.pais_id!==undefined&&String(item.pais_id)!==String(current.pais_id)&&
+     packets.admin.ciudades?.some(city=>String(city.provincia_id)===spec.id)){
+    return {status:409,result:{success:false,message:'La provincia tiene ciudades vinculadas y no puede cambiar de país.'},writes:[],updates:[],lists:{}};
+   }
+   body={item:{nombre:current.nombre,activo:current.activo,...(spec.kind==='provinces'?{pais_id:current.pais_id}:{}),...item}};
+  }
+  const request=new Request('https://territory-actions.internal'+command.path,{method:command.method,headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  seed(resources.env,request,command.auth,body);
   const writes=[],lists={},updates=new Map();
   const db={
    async patch(collection,id,patch){
@@ -203,9 +214,21 @@ var GLD_ACTIONS138 = (() => {
    while(job.index<job.ready.keys.length){
     const key=job.ready.keys[job.index],slot=Object.entries(this.adapter.keys()).find(([,cacheKey])=>cacheKey===key)?.[0],value=this.snapshot.packets[slot];
     // Only recovery checks an ambiguous publication; ordinary saves do not add reads.
-    if(!recovering||!equal(await res.cache.get(key),value))await res.cache.put(key,value);
+    if(!recovering||!equal(await res.cache.get(key),value)){
+     if(key===PUBLIC_KEY&&cityBookCaptureEnabled(res.env)&&res.env.GLD_PUBLIC_CACHE){
+      const day=cityBookDay(Date.now());
+      if(this.territoryMarkedDay===day){
+       this.metrics.shared_marker_reused=(this.metrics.shared_marker_reused||0)+1;
+      }else{
+       this.metrics.shared_marker_calls=(this.metrics.shared_marker_calls||0)+1;
+       await cityBookMarkShared(res.env,key);
+       this.territoryMarkedDay=day;
+      }
+     }
+     await res.cache.put(key,value);
+    }
     job={...job,index:job.index+1};
-    if(job.index<job.ready.keys.length)this.persist({...this.snapshot,pending:job});
+    // El plan de publicación ya es durable. La recuperación coteja cada copia antes de reescribirla.
    }
    const now=Date.now(),receipts=(this.snapshot.receipts||[]).filter(r=>now-r.at<86400000&&r.key!==job.command.key);
    if(job.command.key)receipts.push({key:job.command.key,fingerprint:job.command.fingerprint,at:now,status:job.ready.status,result:job.ready.result});
@@ -1934,7 +1957,7 @@ async function publicGuideCatalogsV2({ cache }) {
 async function routePublicV5(ctx) {
   const { path, request: request2, cache } = ctx;
   if (path === "/__version" && request2.method === "GET") {
-    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker ' + WORKER_VERSION + '</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER 212</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
+    const html = '<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Guía Local · Worker ' + WORKER_VERSION + '</title></head><body style="margin:0;background:#101c2b;color:white;font-family:system-ui,sans-serif;min-height:100vh;display:grid;place-items:center"><main style="text-align:center;padding:28px"><div style="font-size:16px;letter-spacing:2px">GUÍA LOCAL DOLORES</div><div style="margin:24px auto;padding:16px 30px;border:3px solid #79e2b4;border-radius:18px;color:#79e2b4;font-size:clamp(48px,13vw,110px);font-weight:900">WORKER ' + WORKER_VERSION + '</div><p style="font-size:18px">Versión activa comprobada desde Cloudflare</p><p style="opacity:.75">Identificación directa, sin lecturas ni escrituras Firestore/KV.</p></main></body></html>';
     return new Response(html,{status:200,headers:{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'}});
   }
   if (path === "/catalogs/public/guide" && request2.method === "GET") {
@@ -3162,7 +3185,7 @@ function promoId() {
 async function promosPanelDataV2({ db, cache, advertiserId, cupoFromAdmin }) {
   if(db.panelReadDb)db=db.panelReadDb();
   const [master,promos,catalogs]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
+    commerceMaster205({db,cache,advertiserId,includeCatalogs:false}),
     db.queryEqual("promos", "anunciante_id", advertiserId,500),
     cache.get("catalogs:promos:v1")
   ]);
@@ -3811,14 +3834,15 @@ async function duplicateVipV3({ db, cache, advertiserId, payload, max, advertise
 }
 
 // reconstruccion/worker/modules/actividades.js
-async function actividadesPanelData({ db, cache, advertiserId, categorias, lugares, featureAllowed, cupoMax }) {
+async function actividadesPanelData({ db, cache, advertiserId, featureAllowed, cupoMax }) {
   if(db.panelReadDb)db=db.panelReadDb();
-  const [master,actividades]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
-    db.queryEqual("actividades", "anunciante_id", advertiserId,500)
-  ]);
+  const master=await commerceMaster205({db,cache,advertiserId,includeCatalogs:false});
   const admin=master?.advertiser?.administracion;
   if (!admin || !featureAllowed(admin)) return { success: false, message: "No tenés habilitado el módulo Actividades." };
+  const [catalogs,actividades]=await Promise.all([
+    getActividadesCatalogs(cache),
+    db.queryEqual("actividades", "anunciante_id", advertiserId,500)
+  ]);
   const sedes=master.advertiser.sedes||[],advertiser=master.advertiser.datos;
   const conHorarios = await Promise.all(actividades.map(async (a) => ({
     ...a,
@@ -3832,9 +3856,9 @@ async function actividadesPanelData({ db, cache, advertiserId, categorias, lugar
     advertiser:advertiser||{},
     permisos: { actividades: true, actividades_cant: max },
     cupo: { max, activas, total: conHorarios.length, totalMax: cupoGuardado(max) },
-    lugares: lugares || [],
+    lugares: catalogs.lugares || [],
     sedes,
-    categorias: categorias || [],
+    categorias: catalogs.categorias || [],
     actividades: conHorarios
   };
 }
@@ -4378,13 +4402,10 @@ async function routePanelV3({ path, request: request2, url, env, db, cache }) {
   if (path === "/actividades" && request2.method === "GET" && actionOf(url) === "getpaneldata") {
     const aid = aidOf(url), auth = await requirePanel(env, request2, aid, "actividades");
     if (auth.response) return auth.response;
-    const catalogs = await getActividadesCatalogs(cache);
     return json(await actividadesPanelData({
       db,
       cache,
       advertiserId: aid,
-      categorias: catalogs.categorias,
-      lugares: catalogs.lugares,
       featureAllowed: (a) => featureEnabled(a, "ACTIVIDADES"),
       cupoMax: (a) => cupo(a, "ACTIVIDADES")
     }));
@@ -4434,7 +4455,7 @@ var isFree2 = (e) => text37(e && e.nivel).toUpperCase() === "FREE";
 async function eventsPanelDataV2({ db, cache, advertiserId, featureEnabled: featureEnabled3, cupo: cupo3 }) {
   if(db.panelReadDb)db=db.panelReadDb();
   const [master,events,catalogs,freeSettings198]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
+    commerceMaster205({db,cache,advertiserId,includeCatalogs:false}),
     db.queryEqual("eventos", "anunciante_id", advertiserId, 500),
     cache.get("catalogs:eventos:v1"),
     gldFuncPacket166(cache,db,true)
@@ -4479,7 +4500,7 @@ const text=v=>String(v??"").trim();
 async function publicidadPanelDataV2({db,cache,advertiserId,featureEnabled,configFromAdmin}){
   if(db.panelReadDb)db=db.panelReadDb();
   const [master,docs,catalogs]=await Promise.all([
-    commerceMaster205({db,cache,advertiserId}),
+    commerceMaster205({db,cache,advertiserId,includeCatalogs:false}),
     db.queryEqual("publicidades","anunciante_id",advertiserId,500),
     getPublicidadCatalogs(cache)
   ]);
@@ -5340,7 +5361,7 @@ async function favoriteDocId(sid,type,ref){
 }
 async function sessionOrThrow(env,request){
   const s=await verifySubscriberSession(env,request);
-  if(!s.ok)throw new Error(s.message||"Sesión inválida.");
+  if(!s.ok)throw httpError(s.message||"Sesión inválida.",401);
   return s;
 }
 
@@ -6230,10 +6251,10 @@ function gldConfiguracionPanel205(admin,packet){
   return [fid,{nombre:String(global.nombre||fid),activo:global.activo!==false&&(!Array.isArray(global.niveles_habilitados)||global.niveles_habilitados.includes(Number(admin?.nivel))),parametros,admite_excepciones:global.admite_excepciones!==false}];
  }));
 }
-async function commerceMaster205({db,cache,advertiserId}){
+async function commerceMaster205({db,cache,advertiserId,includeCatalogs=true}){
  if(!db.commerceMasterRead209)throw httpError('La copia del anunciante no está disponible.',503);
  const response=await db.commerceMasterRead209(advertiserId);
- if(response?.success!==true)return response;
+ if(response?.success!==true||!includeCatalogs)return response;
  const catalogs=await getCommerceCatalogs(cache);
  const functionRules=catalogs.panel_function_rules210?.reglas?catalogs.panel_function_rules210:await gldFuncPacket166(cache,db,false);
  const advertiser=response.advertiser;
@@ -10159,7 +10180,8 @@ function withPrivateCacheV46(db,env){
     await putRequired(advertiserRelationKey104(aid)+':delta:'+encodeURIComponent(id),JSON.stringify({id,data:row,deleted:!row}));
   }
   async function cachedAdvertiserRelations104(/** @type {string} */ aid){
-    const key=advertiserRelationKey104(aid),{packet,rev}=await read(key);
+    // This base is written under initial; mutations update only the delta keys.
+    const key=advertiserRelationKey104(aid),{packet,rev}=await read(key,'initial');
     const rows=packet&&Array.isArray(packet.data)?packet.data:remember('suscriptor_anunciante',await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500));
     if(!packet)await save(key,rows,rev);
     const byId=new Map(rows.map((/** @type {any} */ r)=>[text(r.id),r]));
@@ -10338,8 +10360,7 @@ function withPanelCacheV48(db,env,report){
   async function read(key){if(!kv?.get)return null;const raw=await kv.get(key,{cacheTtl:30});if(!raw)return null;try{const p=JSON.parse(raw);return p?.version===48?p:null;}catch(_){return null;}}
   async function optionalSave(key,value){if(kv?.put)try{await kv.put(key,JSON.stringify({version:48,...value}));}catch(_){}}
   async function requiredSave(key,value){if(!kv?.put)return;try{await kv.put(key,JSON.stringify(value));}catch(error){if(GLD_BUSINESS143.quotaError(error))throw error;await new Promise(r=>setTimeout(r,1100));await kv.put(key,JSON.stringify(value));}}
-  async function merge(key,packet,saveCompaction=true){
-    const marker=await read(key+':changes');
+  async function merge(key,packet,marker,saveCompaction=true){
     const own=[...changes.values()].filter(c=>c.key===key);
     if(!marker&&!own.length)return packet.data;
     if(marker&&packet.revision===marker.revision&&!own.length)return packet.data;
@@ -10358,8 +10379,9 @@ function withPanelCacheV48(db,env,report){
       let packet=await read(key);const missing=!Array.isArray(packet?.data);
       if(report)(report.cache_checks??=[]).push({collection:c,field,cache:"panel",result:missing?"miss":"hit"});
       if(missing){const data=remember(c,(await db.queryEqual(c,field,value,500)).filter(row=>!PUBLICATION_COLLECTIONS.has(c)||publicationAuthority(row)!=='ELIMINADA'));packet={version:48,data,revision:''};}
-      const data=await merge(key,packet,!missing);
-      if(missing){const marker=await read(key+':changes');await optionalSave(key,{data,revision:marker?.revision||''});}
+      const marker=await read(key+':changes');
+      const data=await merge(key,packet,marker,!missing);
+      if(missing)await optionalSave(key,{data,revision:marker?.revision||''});
       return remember(c,data);
     })();
     pending.set(key,operation);try{return copy(await operation);}finally{pending.delete(key);}
@@ -10371,7 +10393,7 @@ function withPanelCacheV48(db,env,report){
       const listKey=queryKey(c,scope.advertiserId,'anunciante_id'),packet=await read(listKey);
       if(report)(report.cache_checks??=[]).push({collection:c,field:'anunciante_id',cache:'panel-record-from-list',result:Array.isArray(packet?.data)?'hit':'miss'});
       if(Array.isArray(packet?.data)){
-        const rows=remember(c,await merge(listKey,packet));
+        const rows=remember(c,await merge(listKey,packet,await read(listKey+':changes')));
         const row=rows.find(row=>text(row.id)===text(id));
         if(row)return copy(row);
       }
@@ -10505,7 +10527,7 @@ function withPanelCacheV48(db,env,report){
     },
 
     notePanelCacheCheck(entry){if(report)(report.cache_checks??=[]).push(entry);},
-    async cachedPanelRows(c,field,value){const key=queryKey(c,value,field);const packet=await read(key);return Array.isArray(packet?.data)?copy(await merge(key,packet)):null;},
+    async cachedPanelRows(c,field,value){const key=queryKey(c,value,field);const packet=await read(key);return Array.isArray(packet?.data)?copy(await merge(key,packet,await read(key+':changes'))):null;},
     async commitPatches(/** @type {any[]} */ entries){
       for(const e of entries){const newEmploymentCycle=e.collection==='empleos'&&e.before&&e.patch?.empleo_id!==e.before.empleo_id&&e.patch?.owner_id===e.before.owner_id&&e.patch?.owner_type===e.before.owner_type&&e.patch?.revision_definitiva===false&&Date.parse(e.before.hasta)<=Date.now();if(!newEmploymentCycle&&!e.remove&&e.before&&(e.before.revision_definitiva||directoryState102(e.before)==='RECHAZADA'&&await createCache(env).get('review:closed:v102:'+e.collection+':'+e.id)))throw httpError('La publicación está bloqueada por una revisión definitiva.',403);}
       const result=await db.commitPatches(entries);
@@ -10643,11 +10665,38 @@ function adultPublic(value,authorized){
  if(adultFlag(value.contenido_adulto)&&authorized)for(const k of ['nombre','nombre_evento','titulo','promo'])if(out[k])out[k]='+18 · '+out[k];
  return out;
 }
-async function adultPublicResponse(response,env,request){
+function compactPublicVisibility(value,spec){
+ if(value?.success!==true||!Array.isArray(value[spec.field]))return value;
+ const restricted=row=>Boolean(row&&typeof row==='object'&&(row.bloqueado18===true||Object.values(row).some(restricted)));
+ return {...value,[spec.field]:value[spec.field].flatMap(row=>{
+  const id=String(row?.[spec.id]??row?.id??'');
+  return id?[{[spec.id]:id,...(restricted(row)?{bloqueado18:true}:{})}]:[];
+ })};
+}
+async function adultPublicResponse(response,env,request,visibility=null){
  if(!response.headers.get('Content-Type')?.includes('application/json')||response.status!==200)return response;
  const body=await response.json(),authorized=await adultGrant(env,request),safe=adultPublic(body,authorized),headers=new Headers(response.headers);
  headers.set('Cache-Control','private, no-store');headers.set('Vary','X-GLD-Adult-Token');
- return new Response(JSON.stringify(safe),{status:response.status,headers});
+ return new Response(JSON.stringify(visibility?compactPublicVisibility(safe,visibility):safe),{status:response.status,headers});
+}
+async function publicVisibilityBatch(ctx){
+ const city=ctx.url.searchParams.get('ciudad_id')?.trim();
+ const requested=new Set(ctx.url.searchParams.getAll('modulo'));
+ const names=['guide','events','promos','activities','ads'];
+ if(!city||!requested.size||[...requested].some(name=>!names.includes(name)))return json({success:false},400);
+ const authorized=await adultGrant(ctx.env,ctx.request);
+ const results=await Promise.allSettled(names.filter(name=>requested.has(name)).map(async name=>{
+  const spec=PUBLIC_FEATURES191[name];
+  const url=new URL(spec.path,ctx.url);
+  url.search=new URLSearchParams({...spec.query,ciudad_id:city});
+  const response=await routePublicV12({...ctx,path:spec.path,url,request:new Request(url,ctx.request)});
+  if(response?.status!==200)return null;
+  const body=await response.json();
+  if(body?.success!==true||!Array.isArray(body[spec.field]))return null;
+  return [name,compactPublicVisibility(adultPublic(body,authorized),spec)];
+ }));
+ const modules=Object.fromEntries(results.flatMap(result=>result.status==='fulfilled'&&result.value?[result.value]:[]));
+ return json({success:true,ciudad_id:city,modules},200,{'Cache-Control':'private, no-store','Vary':'X-GLD-Adult-Token'});
 }
 async function routeAdult(ctx){
  const {path,request,env,db,cache}=ctx;
@@ -11416,17 +11465,18 @@ class PrivateDaily195 {
    const cutoff=body.cutoff,latest=()=>query('SELECT value FROM private_subscribers_daily195 WHERE published=1 ORDER BY cutoff DESC LIMIT 1')[0];
    if(body.action==='read'){const value=decode(latest());return Response.json({value:value.preparado&&value.corte===cutoff?value:{preparado:false,results:null,pendiente_corte:true},metrics});}
    if(!Number.isSafeInteger(cutoff)||cutoff!==cityBookBoundary(cityBookDay(Date.now())))throw Error('El corte privado no corresponde a la publicación diaria vigente.');
+   const exists=()=>query('SELECT 1 FROM private_subscribers_daily195 WHERE cutoff=?',cutoff).length>0;
    if(body.action==='commit'){
-    if(!query('SELECT value FROM private_subscribers_daily195 WHERE cutoff=?',cutoff)[0])throw Error('Falta la edición privada preparada para confirmar este corte.');
+    if(!exists())throw Error('Falta la edición privada preparada para confirmar este corte.');
     query('UPDATE private_subscribers_daily195 SET published=1 WHERE cutoff=? AND published=0',cutoff);
     // Retain two previous editions for recovery; neither is public.
     query('DELETE FROM private_subscribers_daily195 WHERE cutoff<?',cutoff-2*CITY_BOOK_DAY_MS);
     return Response.json({value:{success:true},metrics});
    }
    if(body.action!=='stage')throw Error('La edición se prepara únicamente mediante el publicador diario.');
+   const prepared={preparado:true,corte:cutoff};
+   if(exists())return Response.json({value:prepared,metrics});
    const published=latest();
-   const existing=query('SELECT value FROM private_subscribers_daily195 WHERE cutoff=?',cutoff)[0];
-   if(existing)return Response.json({value:decode(existing),metrics});
    const env=observeKv117(this.env,report),cache=createCache(env),nativeSource=observeDbV41(createDb(env),report),lists=new Map();
    const source={...nativeSource,listCollection(c){if(!lists.has(c))lists.set(c,nativeSource.listCollection(c));return lists.get(c).then(rows=>structuredClone(rows));}};
    let index=await cache.get(ADMIN_SUBSCRIBERS_KEY);
@@ -11454,7 +11504,7 @@ class PrivateDaily195 {
    const value={preparado:true,version:195,corte:cutoff,preparado_en:new Date().toISOString(),results,admin};
    const encoded=JSON.stringify(value);if(new TextEncoder().encode(encoded).length>1800000)throw Error('El listado general supera el tamaño seguro. No se publicó una copia incompleta.');
    query('INSERT INTO private_subscribers_daily195(cutoff,value,published) VALUES(?,?,?)',cutoff,encoded,0);
-   return Response.json({value,metrics,kv:report.kv,operations:report.operations});
+   return Response.json({value:prepared,metrics,kv:report.kv,operations:report.operations});
   }catch(error){return Response.json({error:String(error.message||error),metrics,kv:report.kv,operations:report.operations},{status:503});}
   finally{release();}
  }
@@ -11948,10 +11998,10 @@ class GldPublicCache119 {
   // This operation is available only through the internal DO binding.
   return {key,from,to,changes};
  }
- async cityBookRead(key,def,to,ids){
+ async cityBookRead(key,def,to,ids,live=false){
   const now=cityBookDay(Date.now());
   if(!cityBookCaptureEnabled(this.env)||!cityBookTracked191(def)||
-     !Number.isSafeInteger(to)||to>now||to<now-CITY_BOOK_HORIZON)throw Error('Invalid publication cutoff');
+     !Number.isSafeInteger(to)||to>now||to<now-CITY_BOOK_HORIZON||(live&&(!ids?.length||to!==now)))throw Error('Invalid publication cutoff');
   this.ensureCityBookColumns();
   const atCut=(history,value)=>{
    const later=JSON.parse(history||'[]').find(([day])=>day>=to);
@@ -11964,13 +12014,15 @@ class GldPublicCache119 {
    for(const id of ids){
     const row=this.query('SELECT value,book_history FROM entities WHERE id=?',id)[0];
     if(row){
-     const value=atCut(row.book_history,row.value?JSON.parse(row.value):null);
+     const stored=row.value?JSON.parse(row.value):null;
+     const value=live?stored:atCut(row.book_history,stored);
      if(value)rows.push(value);
     }
    }
    if(!this.query('SELECT slot FROM packet WHERE slot=1').length){
     // A city that was only in legacy storage has no journal until its first put.
     const old=await this.read(key,def),wanted=new Set(ids);
+    if(live&&!old&&!key.endsWith(':VIRTUAL'))throw Error('Falta la proyección pública vigente para preparar la diferencia urgente.');
     return {value:{[def.field]:(old?.[def.field]||[]).filter(row=>wanted.has(String(row[def.id]||row.id||'')))}};
    }
    return {value:{[def.field]:sortPublicCity119(key,rows)}};
@@ -12104,7 +12156,7 @@ class GldPublicCache119 {
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
   if(op==='city-book-changes')return this.cityBookChanges(key,def,body.from,body.to);
-  if(op==='city-book-read')return this.cityBookRead(key,def,body.to,body.ids);
+  if(op==='city-book-read')return this.cityBookRead(key,def,body.to,body.ids,body.current===true);
   if(op==='get')return {value:await this.read(key,def)};
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
   const bookTracked=cityBookCaptureEnabled(this.env)&&cityBookTracked191(def);
@@ -12265,6 +12317,60 @@ async function cityBookActor(env,key,op,params,report){
  return result;
 }
 
+async function projectCityBookRows(spec,city,cutoff,ids,internal){
+  const url=new URL(spec.path||'/projection','https://public-cache.internal');
+  for(const [key,value] of Object.entries({ciudad_id:city,...spec.query}))url.searchParams.set(key,value);
+  const response=spec.project?Response.json(await spec.project({cache:internal,city,cutoff,ids})):await routePublicV12({path:spec.path,request:new Request(url),url,cache:internal,cityBookCutoff:cutoff});
+  if(spec.emptyStatus&&response?.status===spec.emptyStatus&&!ids){
+   // The normal API treats a city without any cycle as unavailable.
+   return {success:true,ciudad_id:city,version:139,[spec.field]:[]};
+  }
+  if(!response?.ok)throw httpError('No se pudo preparar un módulo público del corte.',503);
+  const safe=adultPublic(await response.json(),false);
+  if(safe?.success!==true||!Array.isArray(safe[spec.field]))throw httpError('Proyección pública inválida.',503);
+  return {success:true,[spec.field]:safe[spec.field],...Object.fromEntries((spec.metadata||[]).filter(key=>safe[key]!==undefined).map(key=>[key,safe[key]])),...(spec.emptyStatus?{ciudad_id:city,version:safe.version??139}:{})};
+}
+
+async function exportUrgentCityRows({env,cache,cutoff,scope,report}){
+ const validString=(value,size)=>typeof value==='string'&&value.length>0&&value.length<=size&&value.trim()===value;
+ if(!Array.isArray(scope)||scope.length<1||scope.length>20||scope.some(entry=>
+   !validString(entry?.city,160)||!validString(entry.module,64)||!Number.isSafeInteger(entry.from)||entry.from<1||
+   !Array.isArray(entry.ids)||entry.ids.length<1||entry.ids.length>25||entry.ids.some(id=>!validString(id,180)))){
+  throw httpError('Alcance urgente inválido.',400);
+ }
+ const features=scope.some(entry=>entry.module==='ads'||entry.module.startsWith('ads_'))
+  ?await publicFeatures191(cache):PUBLIC_FEATURES191;
+ const territorial=await cache.get(PUBLIC_KEY);
+ if(!territorial)throw httpError('Falta el catálogo territorial publicado.',503);
+ const active=new Set(packet(territorial).ciudades.filter(row=>row.activa!==false).map(row=>String(row.ciudad_id)));
+ const cities=new Map(), sourceReads=new Map();
+ const now=Date.now(),to=cityBookDay(cutoff);
+ for(const entry of scope){
+  const {city,module,from}=entry,ids=[...new Set(entry.ids)].sort();
+  if(!active.has(city)||!Object.hasOwn(features,module))throw httpError('Ciudad o módulo urgente inválido.',400);
+  const batch=cities.get(city)??{city,from,changes:Object.create(null)};
+  if(batch.from!==from)throw httpError('Revisión urgente incompatible.',409);
+  const modules=module==='ads'?Object.keys(features).filter(name=>features[name].family==='ads'):[module];
+  const wanted=new Set(ids);
+  for(const name of modules){
+   if(Object.hasOwn(batch.changes,name))throw httpError('Módulo urgente duplicado.',400);
+   const spec=features[name];
+   const scoped={get(key){
+    const def=cityDefinition119(key);
+    if(!def||def.module!==spec.store.module)return cache.get(key);
+    const ref=JSON.stringify([key,ids]);
+    if(!sourceReads.has(ref))sourceReads.set(ref,cityBookActor(env,key,'city-book-read',{to,ids,current:true},report).then(result=>result.value));
+    return sourceReads.get(ref).then(value=>structuredClone(value));
+   }};
+   const upsert=(await projectCityBookRows(spec,city,now,ids,scoped))[spec.field].filter(row=>wanted.has(String(row[spec.id]||row.id||'')));
+   const included=new Set(upsert.map(row=>String(row[spec.id]||row.id||'')));
+   batch.changes[name]={upsert,remove:ids.filter(id=>!included.has(id))};
+  }
+  cities.set(city,batch);
+ }
+ return {urgent:true,after:cutoff,cutoff,complete:true,cities:[...cities.values()]};
+}
+
 async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report}){
  const features=await publicFeatures191(cache),schema=publicSchema191(features);
  const from=cityBookDay(after),to=cityBookDay(cutoff),now=cityBookDay(Date.now());
@@ -12305,8 +12411,6 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
  }
  async function projection(name,city,ids){
   const spec=features[name],key=city=>spec.store.prefix+city,ownKey=key(city),virtualKey=spec.virtual?key('VIRTUAL'):null;
-  const url=new URL(spec.path||'/projection','https://public-cache.internal');
-  for(const [key,value] of Object.entries({ciudad_id:city,...spec.query}))url.searchParams.set(key,value);
   const internal={
    async get(key){
     const definition=cityDefinition119(key);
@@ -12325,15 +12429,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
     return value;
    },
   };
-  const response=spec.project?Response.json(await spec.project({cache:internal,city,cutoff,ids})):await routePublicV12({path:spec.path,request:new Request(url),url,cache:internal,cityBookCutoff:cutoff});
-  if(spec.emptyStatus&&response?.status===spec.emptyStatus&&!ids){
-   // The normal API treats a city without any cycle as unavailable.
-   return {success:true,ciudad_id:city,version:139,[spec.field]:[]};
-  }
-  if(!response?.ok)throw httpError('No se pudo preparar un módulo público del corte.',503);
-  const safe=adultPublic(await response.json(),false);
-  if(safe?.success!==true||!Array.isArray(safe[spec.field]))throw httpError('Proyección pública inválida.',503);
-  return {success:true,[spec.field]:safe[spec.field],...Object.fromEntries((spec.metadata||[]).filter(key=>safe[key]!==undefined).map(key=>[key,safe[key]])),...(spec.emptyStatus?{ciudad_id:city,version:safe.version??139}:{})};
+  return projectCityBookRows(spec,city,cutoff,ids,internal);
  }
  const cities=[],initial=[];
  for(const city of active){
@@ -12431,6 +12527,11 @@ async function routeCityBookCut({request,env,report}){
   try{await dailySubscribers195(env,'commit',cutoff);report.private_daily195={status:'committed',cutoff};}
   catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_COMMIT_FAILED'};}
   return json({success:true,private_daily:report.private_daily195},200,{'Cache-Control':'no-store'});
+ }
+ if(data.op==='urgent'){
+  const state=await cityBookSharedState(env,{op:'city-book-checkpoint'});
+  if(state.cutoff!==cutoff)throw httpError('Primero completá el corte ordinario vigente.',409);
+  return json(await exportUrgentCityRows({env,cache:createCache(env),cutoff,scope:data.scope,report}),200,{'Cache-Control':'no-store'});
  }
  if(data.op!=='read'||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
  const installed=data.publishedCutoff;
@@ -12845,7 +12946,9 @@ GldPublicCache119.prototype.requestCommercePreparation209=async function(aid){
   await this.state.storage.put('commerce-preparation209',this.commercePreparation209);
  }
  const alarm=await this.state.storage.getAlarm();
- if(alarm===null||alarm>Date.now()+1000)await this.state.storage.setAlarm(Date.now()+1000);
+ const soon=Date.now()+1000;
+ // A repeat read can prioritize initial preparation, but never shorten a failure backoff.
+ if(alarm===null||(this.commercePreparation209.attempts===0&&alarm>soon))await this.state.storage.setAlarm(soon);
 };
 GldPublicCache119.prototype.runCommercePreparation209=async function(){
  const job=this.commercePreparation209===undefined?await this.state.storage.get('commerce-preparation209'):this.commercePreparation209;
@@ -13058,6 +13161,7 @@ GldPublicCache119.prototype.alarm=async function(){
 function consumption136(report){
  const result=consumptionBase136(report),action=report.action_store138;
  result.cloudflare.commerce_store=report.commerce_store209||{calls:0,rows_read:0,rows_written:0};
+ result.cloudflare.gh_detail_store=report.gh_detail_store204||{calls:0,rows_read:0,rows_written:0,cache_misses:0};
  result.cloudflare.private_favorites_store=report.private_favorites_store||{calls:0,rows_read:0,rows_written:0,failures:0};
  result.cloudflare.action_store=action||{calls:0,rows_read:0,rows_written:0,alarm_set_calls:0,alarm_cancel_calls:0};
  if(action?.rows_read===null){
@@ -13065,6 +13169,7 @@ function consumption136(report){
   for(const field of Object.keys(result.firestore))result.firestore[field]=null;
   for(const field of Object.keys(result.cloudflare.kv))result.cloudflare.kv[field]=null;
  }
+ if(action?.shared_marker_calls)result.coverage.missing.push('territory-shared-marker-sql');
  if(action?.alarm_cancel_calls||action?.alarm_cancel_failures)result.coverage.missing.push('action-store-alarm-cancellation-row-billing');
  return result;
 }
@@ -13514,7 +13619,17 @@ var app_main_v35_default = {
       const conversation=await routeSupportConversationV74(ctx);if(conversation)return await traced(conversation);
       const support=await routeSupportV73(ctx);if(support)return await traced(support);
       const adult=await routeAdult(ctx);if(adult)return await traced(adult);
-      const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){report.source='public-kv';return await traced(await adultPublicResponse(pub,env,request));}
+      if(path==='/guide'&&request.method==='GET'&&url.searchParams.get('vista')==='visibilidad-lote'){
+       report.source='public-kv';
+       return await traced(await publicVisibilityBatch({...ctx,env,db:publicDbGuardV44(report)}));
+      }
+      const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){
+       report.source='public-kv';
+       const visibility=request.method==='GET'&&url.searchParams.get('vista')==='visibilidad'?
+        [PUBLIC_FEATURES191.guide,PUBLIC_FEATURES191.events,PUBLIC_FEATURES191.promos,PUBLIC_FEATURES191.activities,PUBLIC_FEATURES191.ads]
+          .find(spec=>spec.path===path&&(path!=='/guide'||url.searchParams.get('compact')==='1')):null;
+       return await traced(await adultPublicResponse(pub,env,request,visibility));
+      }
       const panel=await routePanelV15(ctx);if(panel)return await traced(panel);
       const access155=await roleRoutes155(ctx);if(access155)return await traced(access155);
       const moderators=await routeModeratorsV72(ctx);if(moderators)return await traced(moderators);

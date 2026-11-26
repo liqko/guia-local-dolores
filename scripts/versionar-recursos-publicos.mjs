@@ -22,16 +22,18 @@ export async function versionarRecursos(stage){
  for(const name of await readdir(join(stage,'plataforma'))){
   if(!name.endsWith('.html'))continue;
   const html=await readFile(join(stage,'plataforma',name),'utf8');
-  if(/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
+  if(name==='pie.html'||/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
  }
  for(const page of pages){
   const file=join(stage,'plataforma',page);
   let html=await readFile(file,'utf8');
+  if(page==='carcasa.html')html=html.replace("url:'./empleo.html'","url:'./empleo'");
   const scripts=[...html.matchAll(/<script\b[^>]*\bsrc=["'](\/plataforma\/[^"'?]+\.js)(?:\?[^"']*)?["'][^>]*>/gi)];
   for(const [tag,source] of scripts){
    if(source.startsWith(prefix))continue;
    if(!files.has(source)){
     let script=await readFile(join(stage,source),'utf8');
+    if(source==='/plataforma/marca-global.js')script=script.replace("footer.src='/plataforma/pie.html'","footer.src='/plataforma/pie'");
     for(const [original,replacement] of files)if(!original.endsWith('.js'))script=script.replaceAll(original,replacement);
     await publish(source,script);
    }

@@ -1,8 +1,16 @@
+> **Edición territorial, `8e1ed89b`.** En PATCH de País y Provincia, `GLD_ACTIONS138.prepare` coteja identidad y referencias en el catálogo administrativo ya cargado. Conserva estado, nombre y país omitidos según entidad. El Worker rechaza identidades ausentes y el traslado de una provincia con ciudades vinculadas. La interfaz de edición y la baja siguen pendientes.
+
+> **P4-0021, 26/11/2026.** `Coordinator.resume` reutiliza el plan durable para recuperación y coteja cada catálogo KV antes de repetir una escritura. Se elimina el checkpoint SQLite entre ambos PUT. Ver desglose antes/después y escenario de fallo en el registro maestro.
+
+> **P4-0019, 26/11/2026.** Gran Hermano `ghGuardarTerritorio` → `GLD_ACTIONS138.route` → `saveCountry` / `saveProvince` → persistencia y copias territoriales → publicador diario de Hosting. País confirmado alimenta Provincia; Provincia confirmada alimenta Ciudad. El actor de territorios marca los cambios públicos para el corte. El navegador público conserva el catálogo a través de despliegues de código. Los datos inactivos permanecen en la vista administrativa. Ver el registro maestro para pruebas y consumos.
+
 # GUÍA LOCAL — MAPA TRANSVERSAL DE CIUDADES
 
 **Fecha:** 16/11/2026  
 **Alcance:** relaciones de Ciudad en Usuario, Anunciante y Gran Hermano; fuentes inspeccionadas: `worker/worker206.txt`, `plataforma/login.html`, `plataforma/carcasa.html`, `plataforma/anunciantes.html`, `plataforma/administracion.html`, `plataforma/territorio-cache.js`, `plataforma/paquete-ciudad.js`.  
 **Estado:** mapa de dependencias **identificadas**, no auditoría exhaustiva de cada llamada ni prueba en producción. No confundir líneas coincidentes con lecturas facturadas. **Contrato técnico**: [ARQUITECTURA_Y_CONTROL.md](ARQUITECTURA_Y_CONTROL.md); **estado de ejecución**: [ESTADO_ACTUAL.md](ESTADO_ACTUAL.md).
+
+> **26/11/2026 — P4-0019, prueba `a8dd326f`.** Gran Hermano abre los tres formularios territoriales. Guardar País o Provincia muestra el aviso del cliente y envía cero POST. Ciudad filtra provincias al cambiar el país, envía un POST interceptado y cierra tras confirmación. Cancelar envía cero solicitudes. Las rutas de País y Provincia existen en el Worker y el camino exitoso ejecuta un patch, dos lecturas y dos escrituras de su abstracción de caché según fuente. Falta comprobar su costo físico y compatibilidad con el corte diario y P4-0021. Diagnóstico sin habilitación de altas ni cambios al código de la rama independiente.
 
 ## Unidad de corrección: UNA CADENA TRANSVERSAL
 

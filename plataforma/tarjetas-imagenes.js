@@ -1,6 +1,7 @@
 (function(global){
   'use strict';
   const watched=new WeakSet(), pending=new Map(), resolved=new Map();
+  let deferred=new WeakMap();
   const stats={requested:0,loaded:0,failed:0,deferred:0};
   const failures=new Map();
   const escape=value=>String(value||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -22,8 +23,19 @@
     img.loading='eager';img.src=url;
   }
   const observer=typeof IntersectionObserver==='function'?new IntersectionObserver(entries=>{
-    for(const entry of entries)if(entry.isIntersecting){observer.unobserve(entry.target);load(entry.target);}
+    for(const entry of entries)if(entry.isIntersecting){
+      const target=entry.target, job=deferred.get(target);
+      observer.unobserve(target);
+      if(job){deferred.delete(target);if(target.isConnected)job();}
+      else load(target);
+    }
   },{rootMargin:'160px',threshold:0}):null;
+  function defer(target,job){
+    if(deferred.has(target))return;
+    if(!observer){if(target.isConnected)job();return;}
+    deferred.set(target,job);
+    observer.observe(target);
+  }
   function refresh(root=document){
     for(const img of root.querySelectorAll('img[data-gld-image-src]')){
       if(watched.has(img))continue;
@@ -45,9 +57,9 @@
   }
   global.GLD_CARD_IMAGES={
     attributes:url=>'decoding="async" data-gld-image-src="'+escape(url)+'"',
-    refresh,resolve,
+    refresh,resolve,defer,
     snapshot:()=>({...stats,errors:[...failures.values()]}),
     // A re-render must not retain detached images through the observer.
-    reset:()=>{observer?.disconnect();stats.deferred=0;}
+    reset:()=>{observer?.disconnect();deferred=new WeakMap();stats.deferred=0;}
   };
 })(window);
