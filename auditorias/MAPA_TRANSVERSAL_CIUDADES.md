@@ -4,6 +4,8 @@
 **Alcance:** relaciones de Ciudad en Usuario, Anunciante y Gran Hermano; fuentes inspeccionadas: `worker/worker206.txt`, `plataforma/login.html`, `plataforma/carcasa.html`, `plataforma/anunciantes.html`, `plataforma/administracion.html`, `plataforma/territorio-cache.js`, `plataforma/paquete-ciudad.js`.  
 **Estado:** mapa de dependencias **identificadas**, no auditoría exhaustiva de cada llamada ni prueba en producción. No confundir líneas coincidentes con lecturas facturadas. **Contrato técnico**: [ARQUITECTURA_Y_CONTROL.md](ARQUITECTURA_Y_CONTROL.md); **estado de ejecución**: [ESTADO_ACTUAL.md](ESTADO_ACTUAL.md).
 
+> **26/11/2026 — P4-0019, prueba `a8dd326f`.** Gran Hermano abre los tres formularios territoriales. Guardar País o Provincia muestra el aviso del cliente y envía cero POST. Ciudad filtra provincias al cambiar el país, envía un POST interceptado y cierra tras confirmación. Cancelar envía cero solicitudes. Las rutas de País y Provincia existen en el Worker y el camino exitoso ejecuta un patch, dos lecturas y dos escrituras de su abstracción de caché según fuente. Falta comprobar su costo físico y compatibilidad con el corte diario y P4-0021. Diagnóstico sin habilitación de altas ni cambios al código de la rama independiente.
+
 ## Unidad de corrección: UNA CADENA TRANSVERSAL
 
 ```
