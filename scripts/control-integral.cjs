@@ -24,6 +24,7 @@ const groups = {
     ['Reglas de publicación','node',['--test','tests/publicacion-reglas206.test.cjs']],
   ],
   navegador: [
+    ['Controles territoriales de Gran Hermano','node',['tests/browser/territorio-altas.cjs']],
     ['Imágenes fallidas en tarjetas de Usuario','node',['tests/browser/tarjetas-imagenes-fallidas.cjs']],
     ['Tarjetas y acciones de Eventos VIP','node',['tests/browser/eventos-vip-tarjetas.cjs']],
     ['Ingreso y reclamo desde Anunciante en navegador aislado','node',['tests/browser/reclamo-directo.cjs']],
