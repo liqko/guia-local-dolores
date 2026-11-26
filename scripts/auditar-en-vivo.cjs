@@ -86,8 +86,8 @@ function installMeasurement(context, services=domains, phase=()=>null) {
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -108,17 +108,19 @@ async function main([action, name, sessionOption]) {
     if (!interactive) evidence = installMeasurement(context,domains,()=>phase);
     const page = await context.newPage();
     page.on('pageerror',error=>javascriptErrors.push(error.name));
-    const target=new URL(interactive&&route.login?route.login:route.path,origin);
-    if(fixture&&name==='usuario')target.searchParams.set('ciudad_id',fixture.ciudad);
-    const response = await page.goto(target.href,{waitUntil:'load',timeout:25000});
-    if (!response?.ok()) throw Error('La interfaz no respondió correctamente.');
-    if (interactive) {
-      const {createInterface} = require('node:readline/promises');
-      const input = createInterface({input:process.stdin,output:process.stdout});
-      try {await input.question('Ingresá en el navegador. Cuando termine, presioná Enter aquí. ');}
-      finally {input.close();}
+    if(action!=='infraestructura'){
+      const target=new URL(interactive&&route.login?route.login:route.path,origin);
+      if(fixture&&name==='usuario')target.searchParams.set('ciudad_id',fixture.ciudad);
+      const response = await page.goto(target.href,{waitUntil:'load',timeout:25000});
+      if (!response?.ok()) throw Error('La interfaz no respondió correctamente.');
+      if (interactive) {
+        const {createInterface} = require('node:readline/promises');
+        const input = createInterface({input:process.stdin,output:process.stdout});
+        try {await input.question('Ingresá en el navegador. Cuando termine, presioná Enter aquí. ');}
+        finally {input.close();}
+      }
+      await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
     }
-    await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
     if(action==='ejecutar'&&name==='usuario'&&!session){
       const menu=page.locator('.modulos-menu-trigger');
       const options={timeout:10000};
@@ -143,8 +145,24 @@ async function main([action, name, sessionOption]) {
           steps.push({phase,status:'aprobado'});
         }catch(error){steps.push({phase,status:'fallo',reason:error.name});}
       }
-      if(steps.some(step=>step.status==='fallo'))failure='MODULO_NO_DISPONIBLE';
     }
+    if(action==='infraestructura'){
+      for(const path of ['/__version','/territory/public']){
+        phase='worker:'+path;
+        try{
+          const response=await page.goto('https://login.liqkoargentina.workers.dev'+path,{waitUntil:'load',timeout:15000});
+          if(!response?.ok())throw Error('HTTP '+response?.status());
+          if(path==='/__version'){
+            if(!response.headers()['x-gld-worker-version'])throw Error('Versión ausente');
+          }else{
+            const data=await response.json();
+            if(!data.success||!['paises','provincias','ciudades'].every(key=>Array.isArray(data[key])))throw Error('Catálogo inválido');
+          }
+          steps.push({phase,status:'aprobado'});
+        }catch(error){steps.push({phase,status:'fallo',reason:error.name});}
+      }
+    }
+    if(steps.some(step=>step.status==='fallo'))failure='MODULO_NO_DISPONIBLE';
     if(module)await checkPublication(page,name,module,fixture,step=>{phase=step;});
     if (interactive) {
       const snapshot = await context.storageState({indexedDB:true});
