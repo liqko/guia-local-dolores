@@ -539,6 +539,32 @@ test('P4-0012: proyección privada confirma bajas históricas y recupera fallo p
  await call({action:'add',tipo:'ANUNCIANTE',ref:'C',nombre_ref:'C'});
  assert.deepEqual([reads,writes,commits,storeWrites],[2,3,2,5]);
 });
+test('P4-0025: la base de relaciones omite la revisión sin perder bajas de deltas',async()=>{
+ const base=worker.slice(worker.indexOf('  async function revision(key)'),worker.indexOf('  async function relationRows('));
+ const reader=worker.slice(worker.indexOf('  const advertiserRelationKey104='),worker.indexOf('  async function relationOwners('));
+ assert(base&&reader);
+ const key='gh:advertiser-relations:v104:A';
+ const stored=new Map([
+  [key+':initial',JSON.stringify({version:46,data:[{id:'A-1'},{id:'A-2'}]})],
+  [key+':delta:A-1',JSON.stringify({id:'A-1',deleted:true})],
+  [key+':delta:A-3',JSON.stringify({id:'A-3',data:{id:'A-3'}})]
+ ]);
+ async function run(code){
+  const calls=[];
+  const kv={async get(k){calls.push(['get',k]);return stored.get(k);},
+   async list({prefix}){calls.push(['list',prefix]);return {keys:[...stored.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};}};
+  const read=Function('kv','text','db','remember','dirty',base+code+';return cachedAdvertiserRelations104;')(
+   kv,v=>String(v??''),{queryEqual(){assert.fail('La base caliente no requiere Firestore');}},(_c,rows)=>rows,new Set());
+  return {rows:await read('A'),calls};
+ }
+ const before=await run(reader.replace("read(key,'initial')","read(key)"));
+ const after=await run(reader);
+ assert.deepEqual(after.rows,[{id:'A-2'},{id:'A-3'}]);
+ assert.deepEqual(after.rows,before.rows);
+ assert.deepEqual(before.calls,[['get',key+':revision'],...after.calls]);
+ assert.equal(after.calls.filter(([op])=>op==='list').length,1);
+});
+
 test('P4-0035-T08: Favoritos devuelve 401 ante una sesión denegada',async()=>{
  const a=worker.indexOf('async function sessionOrThrow(');
  const b=worker.indexOf('// Single private projection',a);
