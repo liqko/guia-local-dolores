@@ -3828,12 +3828,15 @@ async function duplicateVipV3({ db, cache, advertiserId, payload, max, advertise
 }
 
 // reconstruccion/worker/modules/actividades.js
-async function actividadesPanelData({ db, cache, advertiserId, categorias, lugares, featureAllowed, cupoMax }) {
+async function actividadesPanelData({ db, cache, advertiserId, featureAllowed, cupoMax }) {
   if(db.panelReadDb)db=db.panelReadDb();
   const master=await commerceMaster205({db,cache,advertiserId,includeCatalogs:false});
   const admin=master?.advertiser?.administracion;
   if (!admin || !featureAllowed(admin)) return { success: false, message: "No tenés habilitado el módulo Actividades." };
-  const actividades=await db.queryEqual("actividades", "anunciante_id", advertiserId,500);
+  const [catalogs,actividades]=await Promise.all([
+    getActividadesCatalogs(cache),
+    db.queryEqual("actividades", "anunciante_id", advertiserId,500)
+  ]);
   const sedes=master.advertiser.sedes||[],advertiser=master.advertiser.datos;
   const conHorarios = await Promise.all(actividades.map(async (a) => ({
     ...a,
@@ -3847,9 +3850,9 @@ async function actividadesPanelData({ db, cache, advertiserId, categorias, lugar
     advertiser:advertiser||{},
     permisos: { actividades: true, actividades_cant: max },
     cupo: { max, activas, total: conHorarios.length, totalMax: cupoGuardado(max) },
-    lugares: lugares || [],
+    lugares: catalogs.lugares || [],
     sedes,
-    categorias: categorias || [],
+    categorias: catalogs.categorias || [],
     actividades: conHorarios
   };
 }
@@ -4393,13 +4396,10 @@ async function routePanelV3({ path, request: request2, url, env, db, cache }) {
   if (path === "/actividades" && request2.method === "GET" && actionOf(url) === "getpaneldata") {
     const aid = aidOf(url), auth = await requirePanel(env, request2, aid, "actividades");
     if (auth.response) return auth.response;
-    const catalogs = await getActividadesCatalogs(cache);
     return json(await actividadesPanelData({
       db,
       cache,
       advertiserId: aid,
-      categorias: catalogs.categorias,
-      lugares: catalogs.lugares,
       featureAllowed: (a) => featureEnabled(a, "ACTIVIDADES"),
       cupoMax: (a) => cupo(a, "ACTIVIDADES")
     }));

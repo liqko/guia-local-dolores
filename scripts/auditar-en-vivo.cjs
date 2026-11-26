@@ -118,8 +118,8 @@ async function observeExternalImages(context,page,phase){
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|consultas|imagenes|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -140,7 +140,7 @@ async function main([action, name, sessionOption]) {
     if (!interactive) evidence = installMeasurement(context,domains,()=>phase);
     const page = await context.newPage();
     page.on('pageerror',error=>javascriptErrors.push(error.name));
-    if(action==='consultas'&&name==='usuario')externalImages=await observeExternalImages(context,page,()=>phase);
+    if(['consultas','imagenes'].includes(action)&&name==='usuario')externalImages=await observeExternalImages(context,page,()=>phase);
     if(action!=='infraestructura'){
       const target=new URL(interactive&&route.login?route.login:route.path,origin);
       if(fixture&&name==='usuario')target.searchParams.set('ciudad_id',fixture.ciudad);
@@ -153,6 +153,21 @@ async function main([action, name, sessionOption]) {
         finally {input.close();}
       }
       await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
+    }
+    if(action==='imagenes'){
+      await page.waitForLoadState('networkidle',{timeout:5000}).catch(()=>{});
+      for(const frame of page.frames()){
+        const images=await frame.evaluate(()=>[...document.images].filter(img=>img.currentSrc&&img.naturalWidth).map(img=>{
+          const rect=img.getBoundingClientRect();
+          return {url:img.currentSrc,intrinsic:[img.naturalWidth,img.naturalHeight],rendered:[Math.round(rect.width),Math.round(rect.height)],
+            usage:img.classList.contains('logo-comercio')?'logo':img.classList.contains('thumbnail')?'galer?a':'otro'};
+        })).catch(()=>[]);
+        for(const {url,...details} of images){
+          const resource=createHash('sha256').update(url).digest('hex').slice(0,16);
+          const entry=externalImages?.find(row=>row.resource===resource);
+          if(entry)entry.placement=details;
+        }
+      }
     }
     if(action==='consultas'){
       const options={timeout:15000};

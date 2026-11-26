@@ -27,9 +27,9 @@ async function run() {
       if (new URL(request.url()).pathname === '/') return route.fulfill({ contentType:'text/html; charset=utf-8', body:'<style>'+styles+'</style>'+controls+'<select id=ciuSelect><option value=DOL>Dolores</option></select><div id=ciudadDetalle></div>' });
       const path = new URL(request.url()).pathname;
       const { item } = request.postDataJSON();
-      posts.push({path,item});
+      posts.push({path,item,method:request.method()});
       const response = await worker.default.fetch(new Request(request.url(), {
-        method:'POST', headers:request.headers(), body:request.postData()
+        method:request.method(), headers:request.headers(), body:request.postData()
       }), backend.env);
       const raw=response.headers.get('X-GLD-Consumption');
       if(raw)posts.at(-1).consumption=JSON.parse(decodeURIComponent(raw));
@@ -160,6 +160,27 @@ async function run() {
       assert.equal(rename.status,200);
       assert.equal(rename.result.provincia.pais_id,country);
       assert.equal(backend.counts['firestore.PATCH'],2);
+    }
+    if(!ref){
+      const before=posts.length;
+      await page.getByRole('button',{name:'Editar país',exact:true}).click();
+      await form.locator('select').selectOption(country);
+      await save();
+      assert.equal(posts.length,before);
+      for(const [label,id,title,collection,field] of [
+        ['Editar país',country,'País actualizado','paises','pais_id'],
+        ['Editar provincia / estado',region,'Provincia actualizada','provincias','provincia_id']
+      ]){
+        await page.getByRole('button',{name:label,exact:true}).click();
+        await form.locator('select').selectOption(id);
+        await form.locator('input').fill(title);
+        await save();
+        assert.equal(posts.at(-1).method,'PATCH');
+        assert.equal(posts.at(-1).item[field],id);
+        assert.equal(backend.packet('admin')[collection].find(row=>row[field]===id).nombre,title);
+        assert.equal(backend.packet('public')[collection].find(row=>row[field]===id).nombre,title);
+      }
+      assert.equal(posts.length,before+2);
     }
     const now=Math.floor((Date.now()-4*3600000)/86400000);
     const actor=backend.env.GLD_PUBLIC_CACHE.get(backend.env.GLD_PUBLIC_CACHE.idFromName('city-book-shared-v1'));

@@ -1,5 +1,7 @@
 # Worker único — continuidad verificada, 15/11/2026
 
+- En cada commit de esta auditoría, hacer push automáticamente a `audit/transversal-consumos-20261115`. No pedir otra autorización para ese destino. Mantener sesiones, credenciales, tokens e información privada fuera de Git. La autorización de push se limita a la rama de auditoría; producción requiere autorización expresa.
+
 - Consultar primero `auditorias/ESTADO_ACTUAL.md`.
 - ÚNICO archivo de Worker en el árbol vigente: `worker/worker206.txt`. Su nombre permanece fijo; la versión interna se actualiza DENTRO del mismo archivo.
 - El antiguo `worker/worker200.txt` es una referencia histórica desactualizada. No trabajar sobre ese archivo ni generar copias numeradas. Confirmar por separado la versión realmente instalada en Cloudflare, porque el encabezado del archivo en GitHub no acredita despliegue.
