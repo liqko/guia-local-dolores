@@ -24,7 +24,7 @@ async function githubIdentity(read) {
   return data.value;
 }
 
-export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,
+export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,
   identity=githubIdentity}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,
@@ -37,7 +37,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     if (result.private_daily?.status === 'pending') throw Error('El corte público quedó confirmado, pero falta preparar Gran Hermano. Reintentá el mismo publicador; no hace falta volver a publicar desde el panel.');
     return {cutoff};
   }
-  if (!['cut','preserve'].includes(mode) || !stage) throw Error('Modo de publicación inválido');
+  if (!['cut','preserve','urgent'].includes(mode) || !stage) throw Error('Modo de publicación inválido');
   const previous = await readJson(read,new URL('plataforma/paquetes-ciudad/publicacion.json',hosting),{allowMissing:true});
   if (mode === 'preserve' && !previous) return {changed:false};
   const manifest = previous?.manifest ?? {};
@@ -46,6 +46,17 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     return aplicarCorte({previous,
       source:{after:previous.cutoff,cutoff:previous.cutoff,complete:true,cities:[]},
       readPublished,stage,forceStage:true});
+  }
+  if (mode === 'urgent') {
+    if (!previous || !Array.isArray(urgentScope) || !urgentScope.length) throw Error('Falta la edición o el alcance urgente');
+    const scope = urgentScope.map(entry=>{
+      const city = entry?.city;
+      if (!Object.hasOwn(manifest,city)) throw Error('La ciudad urgente no tiene una edición publicada');
+      return {city,module:entry.module,ids:entry.ids,from:manifest[city].revision};
+    });
+    const source = await call({op:'urgent',cutoff,scope});
+    if (source.urgent !== true || source.cutoff !== cutoff || source.after !== cutoff) throw Error('Respuesta urgente inválida');
+    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage});
   }
 
   const source = await call({op:'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
@@ -58,7 +69,9 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [mode,stage,cutoff] = process.argv.slice(2);
   const result = await publicarPaquetes({mode,stage,
-    ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1'});
+    ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',
+    ...(mode==='urgent'?{urgentScope:JSON.parse(process.env.GLD_URGENT_SCOPE??'null')}:{}),
+  });
   if (process.env.GITHUB_OUTPUT && mode !== 'commit') {
     await appendFile(process.env.GITHUB_OUTPUT,'changed='+result.changed+'\ncutoff='+(result.cutoff??'')+'\n');
   }

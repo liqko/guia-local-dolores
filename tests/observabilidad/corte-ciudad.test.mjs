@@ -247,7 +247,7 @@ test('un solo lote por ciudad combina las seis familias y conserva la separació
   assert.deepEqual(bookTools.applyDelta(originalBook,restoredDelta),restoredBook);
 });
 
-test('el publicador recibe la salida real del Worker aislado, filtra y prepara Hosting', async t => {
+test('el publicador procesa el corte ordinario y la diferencia urgente con el Worker aislado', async t => {
   const { default:worker, exportCityBookCut, cityBookIdentity } = await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
   const { publicarPaquetes } = await import('../../scripts/publicar-paquetes-ciudad.mjs');
   const { generateKeyPairSync, sign } = await import('node:crypto');
@@ -302,12 +302,15 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
   }
   const publicRow={anunciante_id:'publico',nombre:'Visible',redes_web_comunes:{habilitado:true,instagram:'perfil'},sedes:[{sede_id:'sede'}]};
   const adult={anunciante_id:'adulto',nombre:'Texto reservado',contenido_adulto:true,revision_adulto:'APROBADO'};
-  await set('guide:city:v1:DOL','anunciantes',[publicRow,adult]);
+  const retired={anunciante_id:'retirar',nombre:'Retiro urgente'};
+  const normal={anunciante_id:'normal',nombre:'Edición ordinaria anterior'};
+  await set('guide:city:v1:DOL','anunciantes',[publicRow,adult,retired,normal]);
   await set('events:city:v2:VIRTUAL','events',[{evento_id:'virtual',nombre_evento:'Virtual',ciudad_id:'VIRTUAL',alcance_publicacion:{modo:'CIUDAD',ciudad_id:'BAL'}}]);
   await set('activities:city:v2:DOL','actividades',[{actividad_id:'vence',nombre:'Actividad temporal',activo:true,aprobado:true,vigente_hasta:'2026-11-11'}]);
   await set('promos:city:v1:BAL','promos',[{promo_id:'promo',promo:'Descuento',estado_moderacion:'PENDIENTE'}]);
   clock=cutoff+30000;
-  await set('guide:city:v1:DOL','anunciantes',[{...publicRow,nombre:'Después del corte'},adult]);
+  await set('guide:city:v1:DOL','anunciantes',[{...publicRow,nombre:'Después del corte'},adult,
+    {anunciante_id:'alta',nombre:'Alta urgente'},{...normal,nombre:'Edición ordinaria posterior'}]);
   calls.length=0;
   const cache={get:async key=>raw.get(key)??null};
   const report={};
@@ -321,7 +324,7 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
   assert.deepEqual(cut.cities.find(x=>x.city==='BAL').changes.promos.upsert,[]);
   assert.equal(cut.cities.find(x=>x.city==='DOL').changes.activities.upsert[0].actividad_id,'vence');
   assert.equal(calls.filter(x=>x.key==='events:city:v2:VIRTUAL'&&x.op==='city-book-changes').length,1);
-  assert.ok(calls.some(x=>x.key==='guide:city:v1:DOL'&&x.op==='city-book-read'&&x.ids.length===2));
+  assert.ok(calls.some(x=>x.key==='guide:city:v1:DOL'&&x.op==='city-book-read'&&x.ids.length===4));
 
   const stage=await mkdtemp(join(tmpdir(),'corte-hosting-'));
   t.after(()=>rm(stage,{recursive:true,force:true}));
@@ -351,9 +354,63 @@ test('el publicador recibe la salida real del Worker aislado, filtra y prepara H
   assert.equal(retry.status,200);
   assert.deepEqual((await retry.json()).cities,[]);
 
+  const urgentStage=await mkdtemp(join(tmpdir(),'urgente-hosting-'));
+  t.after(()=>rm(urgentStage,{recursive:true,force:true}));
+  await mkdir(join(urgentStage,'plataforma'));
+  await writeFile(join(urgentStage,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
+  const scope=[{city:'DOL',module:'guide',ids:['publico','alta','retirar','adulto']}];
+  const urgentIdentity=token({...claims,event_name:'workflow_dispatch'});
+  assert.equal((await worker.fetch(new Request('https://worker.invalid/internal/city-books',{
+    method:'POST',body:JSON.stringify({op:'urgent',cutoff,scope}),
+  }),env)).status,401);
+  calls.length=0;
+  const hostingReads=[];
+  let urgentConsumption;
+  const urgent=await publicarPaquetes({mode:'urgent',stage:urgentStage,cutoff,urgentScope:scope,
+    identity:async()=>urgentIdentity,read:async (input,options)=>{
+      const url=new URL(input);
+      if(url.hostname.endsWith('workers.dev')){
+        const response=await worker.fetch(new Request(url,options),env);
+        urgentConsumption=JSON.parse(decodeURIComponent(response.headers.get('x-gld-consumption')));
+        return response;
+      }
+      const body=await readFile(join(stage,url.pathname.slice(1)));
+      hostingReads.push(body.byteLength);
+      return new Response(body);
+    },
+  });
+  assert.equal(urgent.changed,true);
+  assert.deepEqual(urgent.manifest.BAL,staged.manifest.BAL);
+  assert.equal(urgent.manifest.DOL.revision,staged.manifest.DOL.revision+1);
+  const {key,revision}=urgent.manifest.DOL;
+  const {modules}=JSON.parse(await readFile(join(urgentStage,'plataforma','paquetes-ciudad',key,'completo-'+revision+'.json')));
+  assert.deepEqual(Object.fromEntries(modules.guide.results.map(row=>[row.anunciante_id,row.nombre])),{
+    adulto:'Contenido +18',alta:'Alta urgente',normal:'Edición ordinaria anterior',publico:'Después del corte',
+  });
+  assert.equal(JSON.stringify(modules).includes('Texto reservado'),false);
+  const scoped=calls.filter(call=>call.op==='city-book-read');
+  assert.deepEqual(scoped.map(call=>[call.key,call.current,call.ids]),[
+    ['guide:city:v1:DOL',true,['adulto','alta','publico','retirar']],
+  ]);
+  assert.equal(urgentConsumption.firestore.read_calls,0);
+  assert.equal(urgentConsumption.firestore.write_calls,0);
+  assert.equal(urgentConsumption.firestore.delete_calls,0);
+  t.diagnostic(JSON.stringify({
+    hostingRequests:hostingReads.length,hostingBodyBytes:hostingReads.reduce((sum,size)=>sum+size,0),
+    workerRequests:urgentConsumption.cloudflare.worker_requests,kv:urgentConsumption.cloudflare.kv,
+    publicStore:urgentConsumption.cloudflare.public_store,
+  }));
+  const installed={cutoff,manifest:urgent.manifest};
+  const response=await callWorker({op:'urgent',cutoff,scope:[{...scope[0],from:revision-1}]});
+  assert.equal(response.status,200);
+  await assert.rejects(aplicarCorte({previous:installed,source:await response.json(),stage:urgentStage,
+    readPublished:()=>assert.fail('Una revisión vieja no requiere descargas')}),/revisión publicada/);
+
+
   clock=cutoff+86400000+1000;
   const expiry=await exportCityBookCut({env,cache,after:cutoff,cutoff:cutoff+86400000,known:['DOL','BAL'],report:{}});
   assert.deepEqual(expiry.cities.find(x=>x.city==='DOL').replacements.activities.actividades,[]);
+  assert.equal(expiry.cities.find(x=>x.city==='DOL').changes.guide.upsert.find(row=>row.anunciante_id==='normal').nombre,'Edición ordinaria posterior');
 
 });
 

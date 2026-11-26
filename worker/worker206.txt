@@ -11949,10 +11949,10 @@ class GldPublicCache119 {
   // This operation is available only through the internal DO binding.
   return {key,from,to,changes};
  }
- async cityBookRead(key,def,to,ids){
+ async cityBookRead(key,def,to,ids,live=false){
   const now=cityBookDay(Date.now());
   if(!cityBookCaptureEnabled(this.env)||!cityBookTracked191(def)||
-     !Number.isSafeInteger(to)||to>now||to<now-CITY_BOOK_HORIZON)throw Error('Invalid publication cutoff');
+     !Number.isSafeInteger(to)||to>now||to<now-CITY_BOOK_HORIZON||(live&&(!ids?.length||to!==now)))throw Error('Invalid publication cutoff');
   this.ensureCityBookColumns();
   const atCut=(history,value)=>{
    const later=JSON.parse(history||'[]').find(([day])=>day>=to);
@@ -11965,13 +11965,15 @@ class GldPublicCache119 {
    for(const id of ids){
     const row=this.query('SELECT value,book_history FROM entities WHERE id=?',id)[0];
     if(row){
-     const value=atCut(row.book_history,row.value?JSON.parse(row.value):null);
+     const stored=row.value?JSON.parse(row.value):null;
+     const value=live?stored:atCut(row.book_history,stored);
      if(value)rows.push(value);
     }
    }
    if(!this.query('SELECT slot FROM packet WHERE slot=1').length){
     // A city that was only in legacy storage has no journal until its first put.
     const old=await this.read(key,def),wanted=new Set(ids);
+    if(live&&!old&&!key.endsWith(':VIRTUAL'))throw Error('Falta la proyección pública vigente para preparar la diferencia urgente.');
     return {value:{[def.field]:(old?.[def.field]||[]).filter(row=>wanted.has(String(row[def.id]||row.id||'')))}};
    }
    return {value:{[def.field]:sortPublicCity119(key,rows)}};
@@ -12105,7 +12107,7 @@ class GldPublicCache119 {
  async handle(body){
   const {key,op}=body,def=cityDefinition119(key);if(!def)throw Error('Invalid public cache key');
   if(op==='city-book-changes')return this.cityBookChanges(key,def,body.from,body.to);
-  if(op==='city-book-read')return this.cityBookRead(key,def,body.to,body.ids);
+  if(op==='city-book-read')return this.cityBookRead(key,def,body.to,body.ids,body.current===true);
   if(op==='get')return {value:await this.read(key,def)};
   if(!['put','delete'].includes(op))throw Error('Invalid public cache operation');
   const bookTracked=cityBookCaptureEnabled(this.env)&&cityBookTracked191(def);
@@ -12266,6 +12268,59 @@ async function cityBookActor(env,key,op,params,report){
  return result;
 }
 
+async function projectCityBookRows(spec,city,cutoff,ids,internal){
+  const url=new URL(spec.path||'/projection','https://public-cache.internal');
+  for(const [key,value] of Object.entries({ciudad_id:city,...spec.query}))url.searchParams.set(key,value);
+  const response=spec.project?Response.json(await spec.project({cache:internal,city,cutoff,ids})):await routePublicV12({path:spec.path,request:new Request(url),url,cache:internal,cityBookCutoff:cutoff});
+  if(spec.emptyStatus&&response?.status===spec.emptyStatus&&!ids){
+   // The normal API treats a city without any cycle as unavailable.
+   return {success:true,ciudad_id:city,version:139,[spec.field]:[]};
+  }
+  if(!response?.ok)throw httpError('No se pudo preparar un módulo público del corte.',503);
+  const safe=adultPublic(await response.json(),false);
+  if(safe?.success!==true||!Array.isArray(safe[spec.field]))throw httpError('Proyección pública inválida.',503);
+  return {success:true,[spec.field]:safe[spec.field],...Object.fromEntries((spec.metadata||[]).filter(key=>safe[key]!==undefined).map(key=>[key,safe[key]])),...(spec.emptyStatus?{ciudad_id:city,version:safe.version??139}:{})};
+}
+
+async function exportUrgentCityRows({env,cache,cutoff,scope,report}){
+ const validString=(value,size)=>typeof value==='string'&&value.length>0&&value.length<=size&&value.trim()===value;
+ if(!Array.isArray(scope)||scope.length<1||scope.length>20||scope.some(entry=>
+   !validString(entry?.city,160)||!validString(entry.module,64)||!Number.isSafeInteger(entry.from)||entry.from<1||
+   !Array.isArray(entry.ids)||entry.ids.length<1||entry.ids.length>25||entry.ids.some(id=>!validString(id,180)))){
+  throw httpError('Alcance urgente inválido.',400);
+ }
+ const features=await publicFeatures191(cache);
+ const territorial=await cache.get(PUBLIC_KEY);
+ if(!territorial)throw httpError('Falta el catálogo territorial publicado.',503);
+ const active=new Set(packet(territorial).ciudades.filter(row=>row.activa!==false).map(row=>String(row.ciudad_id)));
+ const cities=new Map(), sourceReads=new Map();
+ const now=Date.now(),to=cityBookDay(cutoff);
+ for(const entry of scope){
+  const {city,module,from}=entry,ids=[...new Set(entry.ids)].sort();
+  if(!active.has(city)||!Object.hasOwn(features,module))throw httpError('Ciudad o módulo urgente inválido.',400);
+  const batch=cities.get(city)??{city,from,changes:Object.create(null)};
+  if(batch.from!==from)throw httpError('Revisión urgente incompatible.',409);
+  const modules=module==='ads'?Object.keys(features).filter(name=>features[name].family==='ads'):[module];
+  const wanted=new Set(ids);
+  for(const name of modules){
+   if(Object.hasOwn(batch.changes,name))throw httpError('Módulo urgente duplicado.',400);
+   const spec=features[name];
+   const scoped={get(key){
+    const def=cityDefinition119(key);
+    if(!def||def.module!==spec.store.module)return cache.get(key);
+    const ref=JSON.stringify([key,ids]);
+    if(!sourceReads.has(ref))sourceReads.set(ref,cityBookActor(env,key,'city-book-read',{to,ids,current:true},report).then(result=>result.value));
+    return sourceReads.get(ref).then(value=>structuredClone(value));
+   }};
+   const upsert=(await projectCityBookRows(spec,city,now,ids,scoped))[spec.field].filter(row=>wanted.has(String(row[spec.id]||row.id||'')));
+   const included=new Set(upsert.map(row=>String(row[spec.id]||row.id||'')));
+   batch.changes[name]={upsert,remove:ids.filter(id=>!included.has(id))};
+  }
+  cities.set(city,batch);
+ }
+ return {urgent:true,after:cutoff,cutoff,complete:true,cities:[...cities.values()]};
+}
+
 async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report}){
  const features=await publicFeatures191(cache),schema=publicSchema191(features);
  const from=cityBookDay(after),to=cityBookDay(cutoff),now=cityBookDay(Date.now());
@@ -12306,8 +12361,6 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
  }
  async function projection(name,city,ids){
   const spec=features[name],key=city=>spec.store.prefix+city,ownKey=key(city),virtualKey=spec.virtual?key('VIRTUAL'):null;
-  const url=new URL(spec.path||'/projection','https://public-cache.internal');
-  for(const [key,value] of Object.entries({ciudad_id:city,...spec.query}))url.searchParams.set(key,value);
   const internal={
    async get(key){
     const definition=cityDefinition119(key);
@@ -12326,15 +12379,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
     return value;
    },
   };
-  const response=spec.project?Response.json(await spec.project({cache:internal,city,cutoff,ids})):await routePublicV12({path:spec.path,request:new Request(url),url,cache:internal,cityBookCutoff:cutoff});
-  if(spec.emptyStatus&&response?.status===spec.emptyStatus&&!ids){
-   // The normal API treats a city without any cycle as unavailable.
-   return {success:true,ciudad_id:city,version:139,[spec.field]:[]};
-  }
-  if(!response?.ok)throw httpError('No se pudo preparar un módulo público del corte.',503);
-  const safe=adultPublic(await response.json(),false);
-  if(safe?.success!==true||!Array.isArray(safe[spec.field]))throw httpError('Proyección pública inválida.',503);
-  return {success:true,[spec.field]:safe[spec.field],...Object.fromEntries((spec.metadata||[]).filter(key=>safe[key]!==undefined).map(key=>[key,safe[key]])),...(spec.emptyStatus?{ciudad_id:city,version:safe.version??139}:{})};
+  return projectCityBookRows(spec,city,cutoff,ids,internal);
  }
  const cities=[],initial=[];
  for(const city of active){
@@ -12432,6 +12477,11 @@ async function routeCityBookCut({request,env,report}){
   try{await dailySubscribers195(env,'commit',cutoff);report.private_daily195={status:'committed',cutoff};}
   catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_COMMIT_FAILED'};}
   return json({success:true,private_daily:report.private_daily195},200,{'Cache-Control':'no-store'});
+ }
+ if(data.op==='urgent'){
+  const state=await cityBookSharedState(env,{op:'city-book-checkpoint'});
+  if(state.cutoff!==cutoff)throw httpError('Primero completá el corte ordinario vigente.',409);
+  return json(await exportUrgentCityRows({env,cache:createCache(env),cutoff,scope:data.scope,report}),200,{'Cache-Control':'no-store'});
  }
  if(data.op!=='read'||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
  const installed=data.publishedCutoff;

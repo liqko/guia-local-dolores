@@ -104,6 +104,10 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   const files = new Map();
   const unchangedBooks = new Map();
   const initial = source.initial ?? [], retired = source.retired ?? [];
+  const urgent = source.urgent === true;
+  if (urgent && (source.cutoff !== source.after || initial.length || retired.length || source.schema)) {
+    throw Error('Una publicación urgente sólo aplica diferencias de registros a la edición vigente');
+  }
   if (!Array.isArray(initial)||!Array.isArray(retired)||(source.cutoff===source.after&&(initial.length||retired.length))) {
     throw Error('Altas o bajas de ciudades inválidas');
   }
@@ -124,11 +128,14 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   }
   for (const input of source.cities) {
     const city = input?.city;
-    if (typeof city !== 'string' || !Object.hasOwn(manifest,city) || seen.has(city) || source.cutoff === source.after) {
+    if (typeof city !== 'string' || !Object.hasOwn(manifest,city) || seen.has(city) || (!urgent && source.cutoff === source.after)) {
       throw Error('Ciudad o secuencia inválida en el corte');
     }
     seen.add(city);
     const old = manifest[city];
+    if (urgent && (input.from !== old.revision || Object.keys(input.replacements ?? {}).length)) {
+      throw Error('La diferencia urgente no corresponde a la revisión publicada');
+    }
     const prefix = publicPath + '/' + old.key + '/';
     const completePath = prefix + 'completo-' + old.revision + '.json';
     const book = await readPublished(completePath);

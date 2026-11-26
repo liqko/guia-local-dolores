@@ -240,28 +240,43 @@
     if(!response.ok)throw Error('HTTP '+response.status);
     return response.json();
   }
-  let published;
+  let published, observed;
+  function newerEdition(city) {
+    if (!observed || !Object.hasOwn(observed.manifest,city)) return null;
+    const current=observed.manifest[city],previous=embedded(city);
+    return validRevision(current?.revision)&&current.revision>(previous?.revision??0)?current:null;
+  }
   const checks=new Map();
   const books=client({
     manifest:city=>published
       ? (Object.hasOwn(published.manifest,city)?published.manifest[city]:null)
-      : embedded(city),
+      : newerEdition(city)??embedded(city),
     storage,
     fetchJson,
   });
   const verification=verifySince?fetchJson('/plataforma/paquetes-ciudad/publicacion.json',{cache:'no-store'}).then(data=>{
-    if(Number.isSafeInteger(data?.cutoff)&&data.cutoff>=verifySince&&
-      data.manifest&&typeof data.manifest==='object'&&!Array.isArray(data.manifest))published=data;
+    if(Number.isSafeInteger(data?.cutoff)&&data.manifest&&typeof data.manifest==='object'&&!Array.isArray(data.manifest)){
+      observed=data;
+      if(data.cutoff>=verifySince)published=data;
+    }
   }).catch(()=>{}):null;
   async function getVerified(city){
     await verification;
-    if(published){
-      const book=await books.get(city);
-      if(book&&!book.stale)return book;
-    }
+    const advanced=newerEdition(city);
     let previous;
-    try { previous=await storage.get(city); } catch (_) {}
-    if(!previous&&!published){
+    if(published||advanced){
+      const book=await books.get(city);
+      if(book&&!book.stale){
+        if(published)return book;
+        // A newer revision within the same cutoff carries edits and additions,
+        // but the live authority check still governs visibility on reconnect.
+        previous=book;
+      }
+    }
+    if(!previous){
+      try { previous=await storage.get(city); } catch (_) {}
+    }
+    if(!previous&&!published&&!advanced){
       if(!embedded(city))return null;
       previous=await books.get(city);
     }

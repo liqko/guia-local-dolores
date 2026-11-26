@@ -5,6 +5,7 @@ const { join } = require('node:path');
 const assert = require('node:assert/strict');
 const { tmpdir } = require('node:os');
 const { lists } = require('../../plataforma/paquete-ciudad.js');
+const {installMeasurement} = require('../../scripts/auditar-en-vivo.cjs');
 
 (async () => {
   const { prepareCityBooks } = await import('../../scripts/preparar-paquete-ciudad.mjs');
@@ -47,6 +48,9 @@ const { lists } = require('../../plataforma/paquete-ciudad.js');
   const browser = await chromium.launch({executablePath:process.env.GLD_CHROME,headless:true,args:['--no-sandbox']});
   try {
     const ctx = await browser.newContext({serviceWorkers:'block'});
+    const measurement = installMeasurement(ctx,new Map([
+      ['127.0.0.1','hosting'],['login.liqkoargentina.workers.dev','worker'],
+    ]));
     const attempts = [];
     const packages = [];
     let guideOnline;
@@ -58,7 +62,9 @@ const { lists } = require('../../plataforma/paquete-ciudad.js');
       }
       if (url.hostname.endsWith('workers.dev')) {
         attempts.push(url.pathname);
-        if(url.pathname==='/guide'&&guideOnline)return route.fulfill({json:guideOnline});
+        if(url.pathname==='/guide'&&guideOnline)return route.fulfill({json:guideOnline,headers:{
+          'x-gld-consumption':encodeURIComponent(JSON.stringify({firestore:{read_calls:0},cloudflare:{worker_requests:1}})),
+        }});
         return route.fulfill({json:{success:true,version:169}});
       }
       return route.abort();
@@ -130,6 +136,37 @@ const { lists } = require('../../plataforma/paquete-ciudad.js');
     assert(!await staleRow.isVisible());
     assert.deepEqual(packages,['/plataforma/paquetes-ciudad/publicacion.json']);
     console.log('Restaurar el manifiesto anterior con el lector vigente conserva la exclusión.');
+
+    const oldCatalog=await readFile(catalog,'utf8');
+    const edited={...retained,nombre:'Edición urgente'};
+    const added={...next,nombre:'Alta urgente'};
+    await publish([
+      {city,from:1,revision:2,changes:{guide:{upsert:[{...book.modules.guide.results[0],nombre:'Comercio actualizado'}],remove:[]}}},
+      {city,from:2,revision:3,changes:{guide:{upsert:[edited,added],remove:['test']}}},
+    ]);
+    await writeFile(catalog,oldCatalog);
+    const previousIndex=published;
+    published={...published,manifest:{[city]:{...published.manifest[city],revision:3,deltas:[2]}}};
+    guideOnline={success:true,results:[retained,next]};
+    packages.length=0;
+    await page.reload();
+    await rendered(edited.nombre);
+    await rendered(added.nombre);
+    assert(!await staleRow.isVisible());
+    assert.deepEqual(packages,[
+      '/plataforma/paquetes-ciudad/publicacion.json',
+      '/plataforma/paquetes-ciudad/'+published.manifest[city].key+'/cambios-2-3.json',
+    ]);
+    published=previousIndex;
+    await page.reload();
+    await rendered(edited.nombre);
+    await rendered(added.nombre);
+    assert(!await staleRow.isVisible());
+    const evidence=await measurement();
+    assert(evidence.hosting.requests>0&&evidence.hosting.bodyBytes>0);
+    assert(evidence.requests.some(row=>row.path==='/guide'&&row.status===200&&row.bodyBytes>0&&row.consumption?.firestore?.read_calls===0));
+    assert(evidence.requests.every(row=>!row.path.includes('?')));
+    console.log('Revisión urgente del mismo corte: alta, edición, baja y reversión del índice comprobadas.');
   } finally {
     await browser.close();
     server.close();

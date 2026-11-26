@@ -68,3 +68,17 @@ test('P4-0006: push sin cambio territorial prepara copia pero no exige despliegu
  assert.equal(fallback.changed,false);assert.equal(calls.length,2);
  assert.equal(await readFile(file,'utf8'),published);
 });
+
+test('la publicación urgente conserva el catálogo instalado con una lectura de Hosting',async t=>{
+ const dir=await mkdtemp(join(tmpdir(),'gld-territory-urgent-'));t.after(()=>rm(dir,{recursive:true,force:true}));
+ const file=join(dir,'territorio-cache.js');await writeFile(file,template);
+ const {revision}=await preparePublicTerritory({file,read:async()=>Response.json(packet)});
+ const installed=await readFile(file,'utf8');
+ await writeFile(file,template);
+ const calls=[];
+ const result=await preparePublicTerritory({file,preserve:true,read:async url=>{calls.push(url);return new Response(installed);}});
+ assert.equal(calls.length,1);
+ assert.equal(new URL(calls[0]).hostname,'anunciantes-guialocal.web.app');
+ assert.deepEqual(result,{changed:false,revision});
+ assert.equal(await readFile(file,'utf8'),installed);
+});

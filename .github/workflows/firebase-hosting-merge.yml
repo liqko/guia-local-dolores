@@ -13,6 +13,11 @@ on:
       - ".github/workflows/firebase-hosting-cleanup.yml"
       - "**/*.md"
   workflow_dispatch:
+    inputs:
+      urgentes:
+        description: 'JSON de registros autorizados para publicar ahora (ciudad, módulo e IDs). Vacío ejecuta el corte diario.'
+        required: false
+        type: string
   schedule:
     - cron: "0 4 * * *"
 concurrency:
@@ -31,8 +36,10 @@ jobs:
         with:
           node-version: '24'
       - name: Preparar navegador de pruebas
+        if: inputs.urgentes == ''
         run: npm install --no-save --package-lock=false playwright@1.55.0
       - name: Comprobar Usuario, Anunciante, Gran Hermano, recursos y navegador
+        if: inputs.urgentes == ''
         env:
           GLD_CHROME: /usr/bin/google-chrome
           CHROME_PATH: /usr/bin/google-chrome
@@ -41,6 +48,9 @@ jobs:
           for area in usuario anunciante administrador compartido navegador; do
             node scripts/control-integral.cjs "$area"
           done
+      - name: Comprobar el recorrido de publicación urgente
+        if: inputs.urgentes != ''
+        run: node --test --test-name-pattern='urgente' tests/observabilidad/corte-ciudad.test.mjs
       - name: Conservar resultados si falla
         if: always()
         uses: actions/upload-artifact@v4
@@ -55,6 +65,8 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      GLD_URGENT_SCOPE: ${{ inputs.urgentes }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -66,7 +78,9 @@ jobs:
       - name: Verificar integridad de las páginas antes de publicar
         run: |
           node tests/publication-integrity.mjs
-          node --test tests/public-territory.test.mjs tests/paquete-ciudad.test.mjs tests/observabilidad/corte-ciudad.test.mjs tests/publicacion-generica.test.mjs tests/empleo-publico-local.test.cjs
+          if [ -z "$GLD_URGENT_SCOPE" ]; then
+            node --test tests/public-territory.test.mjs tests/paquete-ciudad.test.mjs tests/observabilidad/corte-ciudad.test.mjs tests/publicacion-generica.test.mjs tests/empleo-publico-local.test.cjs
+          fi
       - name: Preparar exclusivamente archivos de plataforma para Hosting
         run: |
           set -euo pipefail
@@ -91,7 +105,9 @@ jobs:
       - name: Preparar el catálogo público
         id: catalogo
         run: |
-          if [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+          if [ -n "$GLD_URGENT_SCOPE" ]; then
+            node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --preserve
+          elif [ "$GITHUB_EVENT_NAME" = schedule ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js --scheduled --stage-unchanged
           else
             node scripts/prepare-public-territory.mjs hosting-public/plataforma/territorio-cache.js
@@ -101,7 +117,9 @@ jobs:
         env:
           GLD_STAGE_UNCHANGED: ${{ steps.catalogo.outputs.changed == 'true' && '1' || '0' }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" = push ]; then
+          if [ -n "$GLD_URGENT_SCOPE" ]; then
+            node scripts/publicar-paquetes-ciudad.mjs urgent hosting-public
+          elif [ "$GITHUB_EVENT_NAME" = push ]; then
             node scripts/publicar-paquetes-ciudad.mjs preserve hosting-public
           else
             node scripts/publicar-paquetes-ciudad.mjs cut hosting-public
@@ -109,7 +127,7 @@ jobs:
       - name: Versionar recursos de Carcasa y sus módulos públicos
         run: node scripts/versionar-recursos-publicos.mjs hosting-public
       - uses: FirebaseExtended/action-hosting-deploy@v0
-        if: steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true'
+        if: steps.paquetes.outputs.changed == 'true' || (env.GLD_URGENT_SCOPE == '' && (steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true'))
         with:
           repoToken: ${{ secrets.GITHUB_TOKEN }}
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
@@ -131,7 +149,7 @@ jobs:
           path: test-results/carcasa-eventos-public.json
           retention-days: 7
       - name: Confirmar el corte publicado
-        if: github.event_name != 'push' && steps.paquetes.outputs.cutoff != ''
+        if: github.event_name != 'push' && env.GLD_URGENT_SCOPE == '' && steps.paquetes.outputs.cutoff != ''
         env:
           CORTE: ${{ steps.paquetes.outputs.cutoff }}
         run: node scripts/publicar-paquetes-ciudad.mjs commit hosting-public "$CORTE"

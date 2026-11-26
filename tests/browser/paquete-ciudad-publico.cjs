@@ -14,7 +14,8 @@ const {validBook} = require('../../plataforma/paquete-ciudad.js');
   const published = await get('publicacion.json');
   const staged = JSON.parse(await readFile('hosting-public' + root + 'publicacion.json','utf8'));
   assert.deepEqual(published,staged,'La versión alojada debe coincidir con el corte preparado');
-  const cities = Object.entries(published.manifest);
+  const scope = process.env.GLD_URGENT_SCOPE ? new Set(JSON.parse(process.env.GLD_URGENT_SCOPE).map(entry=>entry.city)) : null;
+  const cities = Object.entries(published.manifest).filter(([city])=>!scope||scope.has(city));
   assert(cities.length > 0);
   const browser = await chromium.launch({executablePath:process.env.GLD_CHROME,headless:true,args:['--no-sandbox']});
   try {
