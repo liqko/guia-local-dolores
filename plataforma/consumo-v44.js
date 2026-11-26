@@ -5,6 +5,7 @@
   window.__gldConsumoV44=true;
   const script=document.currentScript;
   const showPanel=script&&script.hasAttribute('data-gld-consumo-panel');
+  const headless=script&&script.hasAttribute('data-gld-consumo-headless');
   const key='gld_consumo_admin_v87';
   const origin='https://login.liqkoargentina.workers.dev';
   const allowed=new Set(['login','session','favoritos','anunciantes_autorizados','publicas','turnos','efemerides','perfil','crear','actualizar_perfil','actualizar_ciudad','cambiar_clave','eliminar_cuenta','agregar_favorito','quitar_favorito']);
@@ -108,7 +109,7 @@
     }catch(error){try{save({...row,estado:'Error de red',version:null,consultas:null,documentos:null,escrituras:null,eliminaciones:null})}catch(_){}throw error}
   };
   function mount(){
-    if(!document.body||!authorized()||container)return;
+    if(headless||!document.body||!authorized()||container)return;
     const details=document.createElement('details');container=details;details.style.cssText='margin:16px 8px;padding:10px;background:#fff;color:#111;border:1px solid #aaa;border-radius:6px;font:14px sans-serif;position:relative;z-index:2';
     const summary=document.createElement('summary');summary.textContent='🔒 Medición actual · consumos';summary.style.cursor='pointer';details.appendChild(summary);
     view=document.createElement('div');view.style.overflowX='auto';details.appendChild(view);
@@ -188,6 +189,7 @@
     if(!adminToken){adminExpires=0;clearView();toolbar?.remove();toolbar=null;return;}
     let p;try{p=JSON.parse(atob(adminToken.split('.')[0].replace(/-/g,'+').replace(/_/g,'/')))}catch{return;}
     if(p.rol!=='SUPERADMIN_PRINCIPAL')return;
+    if(headless){return;}
     if(!toolbar){toolbar=document.createElement('div');toolbar.className='card';const b=document.createElement('button');b.id='gld-diagnostics-toggle';b.type='button';b.onclick=toggle;toolbar.appendChild(b);const message=document.createElement('p');message.id='gld-diagnostics-message';message.textContent='Activá las pruebas privadas para medir la guía y los paneles. El público no verá estas mediciones.';toolbar.appendChild(message);const choices=document.createElement('div');choices.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
       const frame=document.createElement('iframe');frame.title='Simulación privada de Guía Local';frame.style.cssText='width:100%;height:760px;border:1px solid #ccc;background:#fff';frame.hidden=true;
       for(const [label,page] of [['Probar visitante','carcasa.html'],['Probar Mi Guía','suscriptores.html'],['Probar anunciante','login.html']]){const choice=document.createElement('button');choice.type='button';choice.textContent=label;choice.onclick=()=>{if(!authorized()){message.textContent='Activá primero las pruebas privadas.';return;}frame.hidden=false;frame.src='/plataforma/'+page;};choices.appendChild(choice);}
