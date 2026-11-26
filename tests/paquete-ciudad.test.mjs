@@ -250,6 +250,45 @@ test('reconexión: un fallo de índice se reintenta bajo demanda sin contaminar 
  assert.equal(await loader.get('DOL'),fresh);
  assert.deepEqual(calls,Array.from({length:2},()=>['/plataforma/paquetes-ciudad/publicacion.json','no-store']));
 });
+test('reconexión: un fallo del paquete se recupera sin volver a leer el índice',async()=>{
+ const {runInNewContext}=await import('node:vm');
+ const source=await readFile(new URL('../plataforma/paquete-ciudad.js',import.meta.url),'utf8');
+ const start=source.indexOf("  const verificationKey='gld-publicaciones-revalidar-desde'");
+ const end=source.lastIndexOf('})(globalThis);');
+ assert(start>=0&&end>start);
+ let time=1000,respond=false;
+ const calls=[];
+ let packageReads=0;
+ const old={city:'DOL',revision:1,modules:{}};
+ const fresh={city:'DOL',revision:2,modules:{}};
+ const root={sessionStorage:{getItem:()=>1000},navigator:{onLine:true},addEventListener(){},
+  fetch:async(path,options)=>{
+   calls.push([path,options.cache]);
+   return Response.json({cutoff:1000,manifest:{DOL:{revision:2}}});
+  }};
+ runInNewContext(source.slice(start,end),{
+  root,Date:{now:()=>time},AbortSignal,Map,validRevision:Number.isSafeInteger,
+  localBooks:()=>({get:async()=>old}),
+  client:({manifest})=>({get:async city=>{
+   packageReads++;
+   assert.equal(manifest(city).revision,2);
+   return respond?fresh:{...old,stale:true};
+  }}),
+  validBook:()=>true,withoutStalePublications:book=>({city:book.city,stale:true,modules:{}}),
+  replaceWithVerifiedRows:()=>null,moduleFrom:()=>null
+ });
+ const loader=root.GLD_PAQUETE_CIUDAD;
+ assert.equal((await loader.get('DOL')).needsVerification,old);
+ assert.equal((await loader.get('DOL')).needsVerification,old);
+ assert.equal(calls.length,1);
+ assert.equal(packageReads,1);
+ time+=15000;respond=true;
+ const [a,b]=await Promise.all([loader.get('DOL'),loader.get('DOL')]);
+ assert.equal(a,fresh);assert.equal(b,fresh);
+ assert.equal(await loader.get('DOL'),fresh);
+ assert.deepEqual(calls,[['/plataforma/paquetes-ciudad/publicacion.json','no-store']]);
+ assert.equal(packageReads,2);
+});
 test('P4-0006: fallo de transporte de delta evita descargar el paquete completo',async()=>{
  const previous=initial('dolores'),next={...initial('dolores'),revision:2};
  const requests=[];

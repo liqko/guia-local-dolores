@@ -257,6 +257,7 @@
     storage,
     fetchJson,
   });
+  const retryDelay=15000;
   let verification, verified=false, retryAfter=0;
   function verify(){
     if(verified||verification)return verification;
@@ -269,15 +270,18 @@
       if(data.cutoff>=verifySince)published=data;
       verified=true;
       checks.clear();
-    }).catch(()=>{retryAfter=Date.now()+15000;}).finally(()=>{verification=null;});
+    }).catch(()=>{retryAfter=Date.now()+retryDelay;}).finally(()=>{verification=null;});
     return verification;
   }
-  async function getVerified(city){
+  async function getVerified(city,entry){
     await verify();
     const advanced=newerEdition(city);
     let previous;
     if(published||advanced){
       const book=await books.get(city);
+      if((!book||book.stale)&&(advanced||Object.hasOwn(published?.manifest??{},city))){
+        entry.retryAfter=Date.now()+retryDelay;
+      }
       if(book&&!book.stale){
         if(published)return book;
         // A newer revision within the same cutoff carries edits and additions,
@@ -301,8 +305,13 @@
       await verify();
       if(!verifySince)return books.get(cityId);
       const city=String(cityId??'').trim();
-      if(!checks.has(city))checks.set(city,getVerified(city));
-      return checks.get(city);
+      let entry=checks.get(city);
+      if(!entry||(entry.retryAfter&&Date.now()>=entry.retryAfter&&root.navigator.onLine!==false)){
+        entry={retryAfter:0};
+        entry.request=getVerified(city,entry);
+        checks.set(city,entry);
+      }
+      return entry.request;
     },
     async module(cityId,family,context){
       return moduleFrom(await this.get(cityId),family,context);
