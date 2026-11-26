@@ -45,6 +45,7 @@ function installMeasurement(context, services=domains, phase=()=>null) {
     if(row.service==='hosting'){row.cacheControl=headers['cache-control']??null;row.age=headers.age??null;}
     if(row.service!=='worker')return;
     row.requestId=headers['x-gld-request-id']??null;
+    row.cloudflareRay=headers['cf-ray']??null;
     row.workerVersion=headers['x-gld-worker-version']??null;
     row.action=headers['x-gld-action']||null;
     row.source=headers['x-gld-source']||null;
@@ -54,12 +55,13 @@ function installMeasurement(context, services=domains, phase=()=>null) {
       catch{row[field]=null;}
     }
     const header=headers['x-gld-consumption'];
-    if(!header)return;
+    if(!header){row.consumptionStatus='encabezado_ausente';return;}
     try {
       const {schema,request_id,version,firestore,cloudflare,coverage}=JSON.parse(decodeURIComponent(header));
       row.requestId??=request_id??null;
       row.workerVersion??=version??null;
       row.consumption={schema,firestore,cloudflare,coverage};
+      row.consumptionStatus=firestore&&cloudflare?'recibido':'encabezado_incompleto';
     } catch {row.consumptionStatus='encabezado_invalido';}
   });
   context.on('requestfailed',request=>{
