@@ -28,6 +28,8 @@ async function run() {
       const response = await worker.default.fetch(new Request(request.url(), {
         method:'POST', headers:request.headers(), body:request.postData()
       }), backend.env);
+      const raw=response.headers.get('X-GLD-Consumption');
+      if(raw)posts.at(-1).consumption=JSON.parse(decodeURIComponent(raw));
       return route.fulfill({ status:response.status, json:await response.json() });
     });
     await page.goto('https://fixture.invalid');
@@ -66,6 +68,7 @@ async function run() {
     await save();
     assert.deepEqual(posts.map(post=>post.path), ['/superadmin/countries/create','/superadmin/provinces/create','/superadmin/cities/create']);
     assert.equal(posts[2].item.pais_id,country);
+    for(const post of posts)assert.equal(post.consumption.cloudflare.action_store.shared_marker_calls,1);
     for(const [collection,id] of [['paises',country],['provincias',region],['ciudades',posts[2].item.ciudad_id]]) {
       assert(backend.docs.has(collection+'/'+id));
       for(const scope of ['admin','public']) assert(backend.packet(scope)[collection].some(row=>Object.values(row).includes(id)));
@@ -97,6 +100,18 @@ async function run() {
     assert.equal(admin.status,200);
     assert(admin.result.paises.some(row=>row.pais_id===country));
     assert(admin.result.provincias.some(row=>row.provincia_id===region));
+    backend.reset();
+    const noop=await backend.call(worker.default,posts[0].path,{method:'POST',body:{item:posts[0].item}});
+    assert.equal(noop.result.updated,false);
+    assert.equal(backend.counts['firestore.PATCH']||0,0);
+    assert.equal(backend.counts['kv.put']||0,0);
+    backend.reset();
+    const draft=await backend.call(worker.default,'/superadmin/countries/create',{method:'POST',body:{item:{pais_id:'DRAFT',nombre:'Borrador',activo:false}}});
+    assert.equal(draft.status,200);
+    assert.equal(backend.counts['firestore.PATCH'],1);
+    assert.deepEqual(backend.all.filter(call=>call.service==='kv'&&call.operation==='put').map(call=>call.detail),['territorio:admin:v1']);
+    assert(backend.packet('admin').paises.some(row=>row.pais_id==='DRAFT'));
+    assert(!backend.packet('public').paises.some(row=>row.pais_id==='DRAFT'));
     const now=Math.floor((Date.now()-4*3600000)/86400000);
     const actor=backend.env.GLD_PUBLIC_CACHE.get(backend.env.GLD_PUBLIC_CACHE.idFromName('city-book-shared-v1'));
     async function changes(from,to){
