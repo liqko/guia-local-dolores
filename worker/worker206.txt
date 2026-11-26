@@ -4528,7 +4528,7 @@ return {publicidadPanelDataV2};
 })();
 
 // reconstruccion/worker/modules/farmacias-panel-v3.js
-var {farmaciasPanelDataV3} = (() => {
+var {farmaciasPanelDataV3,pharmacyCatalog} = (() => {
 /**
  * FARMACIAS PANEL V3
  * Sin scans globales: ciclos se consultan por anunciante_id.
@@ -4594,7 +4594,7 @@ async function farmaciasPanelDataV3({db,cache,advertiserId,featureAllowed,allowe
   };
 }
 
-return {farmaciasPanelDataV3};
+return {farmaciasPanelDataV3,pharmacyCatalog};
 })();
 
 var text40 = (v) => String(v ?? "").trim();
@@ -7159,20 +7159,21 @@ var {farmSaveCycleV3} = (() => {
 
 const text=v=>String(v??"").trim();
 
-async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[]}){
+async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[],adminAuth=null}){
+  const administrative=isTopAdmin2(adminAuth);
   const payload=body&&body.payload&&typeof body.payload==="object"?body.payload:body||{};
   let id=text(payload.ciclo_id);
   const current=id?await db.get("farmacias_ciclos",id):null;
   if(id&&!current)throw new Error("Ciclo no encontrado.");
 
-  if(current&&text(current.anunciante_id)&&text(current.anunciante_id)!==text(advertiserId)){
+  if(!administrative&&current&&text(current.anunciante_id)&&text(current.anunciante_id)!==text(advertiserId)){
     throw new Error("El ciclo no pertenece al anunciante.");
   }
 
   const merged={...(current||{}),...payload};
   const city=text(merged.ciudad_id);
   if(!city)throw new Error("Falta ciudad.");
-  if(allowedCityIds.length&&!allowedCityIds.includes(city))throw new Error("La ciudad no está habilitada para esta cuenta.");
+  if((administrative||allowedCityIds.length)&&!allowedCityIds.includes(city))throw new Error("La ciudad no está habilitada para esta cuenta.");
   if(!text(merged.fecha_inicio))throw new Error("Falta fecha de inicio.");
   if(!text(merged.hora_inicio))throw new Error("Falta hora de inicio.");
 
@@ -7245,7 +7246,8 @@ async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[]}){
 
   const doc={
     ciclo_id:id,
-    anunciante_id:advertiserId,
+    anunciante_id:administrative?(current?.anunciante_id||""):advertiserId,
+    ...(administrative?{administrado_por:adminAuth.sid}:{}),
     ciudad_id:city,
     fecha_inicio:text(merged.fecha_inicio),
     hora_inicio:text(merged.hora_inicio),
@@ -11519,12 +11521,43 @@ async function birthdaySummaryV83(env,cache,now=new Date()){
 }
 async function routeCalendarV83(ctx){
  const {path,request,env,db,cache,url}=ctx;
- if(!['/superadmin/birthdays','/superadmin/birthdays/prepare','/superadmin/ephemerides/upcoming'].includes(path))return null;
+ if(!['/superadmin/birthdays','/superadmin/birthdays/prepare','/superadmin/ephemerides/upcoming','/superadmin/ephemerides/manage','/superadmin/farmacias/manage'].includes(path))return null;
  const auth=await requireAdmin(env,request);if(!auth)return json({success:false,message:'Acceso administrativo requerido'},401);
  if(!isTopAdmin2(auth))return json({success:false,message:'Disponible para superadministración.'},403);
  if(path==='/superadmin/birthdays'&&request.method==='GET')return json({success:true,...await birthdaySummaryV83(env,cache)});
  if(path==='/superadmin/birthdays/prepare'&&request.method==='POST'){
   return json(await prepareBirthdaysV91(env,db,cache,request));
+ }
+ if(path==='/superadmin/ephemerides/manage'||path==='/superadmin/farmacias/manage'){
+  const territory=await cache.get('territorio:public:v1');
+  if(!Array.isArray(territory?.ciudades))return json({success:false,message:'Catálogo territorial no disponible.'},503);
+  const cities=territory.ciudades.filter(c=>c.activo===undefined||truthy4(c.activo));
+  const ids=cities.map(c=>String(c.ciudad_id||c.id));
+  const provinces=[...new Set(cities.map(c=>String(c.provincia_id||'')).filter(Boolean))];
+  if(path==='/superadmin/farmacias/manage'){
+   if(request.method==='GET'){
+    const city=String(url.searchParams.get('ciudad_id')||'');
+    if(!ids.includes(city))return json({success:false,message:'Ciudad inválida.'},400);
+    const packet=await cache.get(farmCityKeyV2(city));
+    if(!packet)return json({success:false,message:'Copia de ciclos no disponible.'},503);
+    const ciclos=packet.ciclos||[];
+    return json({success:true,ciclos,farmacias:await pharmacyCatalog(cache,[city],ciclos)});
+   }
+   if(request.method==='POST'){
+    const body=await GLD_ACTIONS138.readJson(request);
+    if(body.action!=='guardar_ciclo')return json({success:false,message:'Acción inválida.'},400);
+    return json(await farmSaveCycleV3({db,cache,advertiserId:'',body,allowedCityIds:ids,adminAuth:auth}));
+   }
+  }else{
+   const permisos={efemerides_grl:true,efemerides_provincial:true,efemerides_local:true,todas_provincias:false,todas_ciudades:false,provincias,ciudades:ids};
+   if(request.method==='POST'){
+    const body=await GLD_ACTIONS138.readJson(request),action=String(body.action||'');
+    if(action==='guardar')return json(await efemSaveV3({db,cache,advertiserId:auth.sid,body,permisos}));
+    if(action==='eliminar')return json(await efemDeleteV3({db,cache,id:String(body.efemeride_id||''),permisos}));
+    return json({success:false,message:'Acción inválida.'},400);
+   }
+  }
+  return json({success:false,message:'Método inválido.'},405);
  }
  if(path==='/superadmin/ephemerides/upcoming'&&request.method==='GET'){
   const territory=await cache.get('territorio:public:v1')||{},city=String(url.searchParams.get('ciudad_id')||'').trim();
@@ -11535,7 +11568,7 @@ async function routeCalendarV83(ctx){
    for(const row of packet.efemerides||[]){if(row.activo!==undefined&&!truthy4(row.activo))continue;
     for(const fecha of days){if(!matches2(row,new Date(fecha+'T12:00:00Z')))continue;
      const key=fecha+':'+String(row.efemeride_id||row.id||JSON.stringify(row));
-     if(!unique.has(key))unique.set(key,{fecha,efemeride_id:String(row.efemeride_id||row.id||''),nombre:String(row.nombre||''),descripcion:String(row.descripcion||''),tipo:String(row.tipo||''),provincia_id:String(row.provincia_id||''),ciudad_id:String(row.ciudad_id||'')});
+     if(!unique.has(key))unique.set(key,{tipo_fecha:row.tipo_fecha,mes:row.mes,dia:row.dia,semana_mes:row.semana_mes,dia_semana:row.dia_semana,imagen:row.imagen,activo:row.activo,fecha,efemeride_id:String(row.efemeride_id||row.id||''),nombre:String(row.nombre||''),descripcion:String(row.descripcion||''),tipo:String(row.tipo||''),provincia_id:String(row.provincia_id||''),ciudad_id:String(row.ciudad_id||'')});
     }
    }
   }
