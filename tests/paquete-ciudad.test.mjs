@@ -329,12 +329,12 @@ test('P4-0006: una lista vacía no necesita verificación de bajas al reconectar
  assert(flow.length>0);
  async function requestsFor(edition){
   const calls=[];
-  const run=Function('gldPaquetePublico','verificarPublicacion','obtenerModuloCiudad',
+  const run=Function('gldPaquetePublico','verificarPublicacion','obtenerModuloCiudad','visibilidadAgrupada',
     'EVENTS_WEBAPP_URL','GLD_EVENTOS_CACHE_PREFIX','PROMOS_ENDPOINT','GLD_PROMOS_CACHE_PREFIX',
     'ACTIVIDADES_ENDPOINT','GLD_ACTIVIDADES_CACHE_PREFIX',flow+
     ';return Promise.all([obtenerEventosPromise("dolores"),obtenerPromosPromise("dolores"),obtenerActividadesPromise("dolores")]);');
   await run(async()=>edition,(_book,_family,value)=>value,async endpoint=>{calls.push(endpoint);return {success:true};},
-   '/events-new','events','/promos','promos','/actividades','activities');
+   async()=>null,'/events-new','events','/promos','promos','/actividades','activities');
   return calls;
  }
  assert.deepEqual(await requestsFor({...book,modules:{pharmacy:book.modules.pharmacy}}),['/events-new','/promos','/actividades']);

@@ -10679,6 +10679,25 @@ async function adultPublicResponse(response,env,request,visibility=null){
  headers.set('Cache-Control','private, no-store');headers.set('Vary','X-GLD-Adult-Token');
  return new Response(JSON.stringify(visibility?compactPublicVisibility(safe,visibility):safe),{status:response.status,headers});
 }
+async function publicVisibilityBatch(ctx){
+ const city=ctx.url.searchParams.get('ciudad_id')?.trim();
+ const requested=new Set(ctx.url.searchParams.getAll('modulo'));
+ const names=['guide','events','promos','activities','ads'];
+ if(!city||!requested.size||[...requested].some(name=>!names.includes(name)))return json({success:false},400);
+ const authorized=await adultGrant(ctx.env,ctx.request);
+ const results=await Promise.allSettled(names.filter(name=>requested.has(name)).map(async name=>{
+  const spec=PUBLIC_FEATURES191[name];
+  const url=new URL(spec.path,ctx.url);
+  url.search=new URLSearchParams({...spec.query,ciudad_id:city});
+  const response=await routePublicV12({...ctx,path:spec.path,url,request:new Request(url,ctx.request)});
+  if(response?.status!==200)return null;
+  const body=await response.json();
+  if(body?.success!==true||!Array.isArray(body[spec.field]))return null;
+  return [name,compactPublicVisibility(adultPublic(body,authorized),spec)];
+ }));
+ const modules=Object.fromEntries(results.flatMap(result=>result.status==='fulfilled'&&result.value?[result.value]:[]));
+ return json({success:true,ciudad_id:city,modules},200,{'Cache-Control':'private, no-store','Vary':'X-GLD-Adult-Token'});
+}
 async function routeAdult(ctx){
  const {path,request,env,db,cache}=ctx;
  if(path==='/adult/access'&&request.method==='POST'){
@@ -13600,6 +13619,10 @@ var app_main_v35_default = {
       const conversation=await routeSupportConversationV74(ctx);if(conversation)return await traced(conversation);
       const support=await routeSupportV73(ctx);if(support)return await traced(support);
       const adult=await routeAdult(ctx);if(adult)return await traced(adult);
+      if(path==='/guide'&&request.method==='GET'&&url.searchParams.get('vista')==='visibilidad-lote'){
+       report.source='public-kv';
+       return await traced(await publicVisibilityBatch({...ctx,env,db:publicDbGuardV44(report)}));
+      }
       const pub=await routePublicV12({...ctx,db:publicDbGuardV44(report)});if(pub){
        report.source='public-kv';
        const visibility=request.method==='GET'&&url.searchParams.get('vista')==='visibilidad'?

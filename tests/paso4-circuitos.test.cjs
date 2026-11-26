@@ -667,6 +667,44 @@ test('E2: autenticación compartida por petición, entorno y rol sin contaminar 
  assert.equal(admin,3);assert.equal(subscriber,2);
  assert.match(worker,/verifySubscriberSessionRaw143,'subscriber'/);
 });
+test('P4-0006: un lote comparte la autorización y conserva la contingencia parcial',async ()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
+ const client=source.slice(source.indexOf('    const verificacionesAgrupadas='),source.indexOf('    async function jsonpApi('));
+ const batch=worker.slice(worker.indexOf('function compactPublicVisibility('),worker.indexOf('async function routeAdult('));
+ const fields={guide:'results',events:'events',promos:'promos',activities:'actividades',ads:'publicidades'};
+ const specs=Object.fromEntries(Object.entries(fields).map(([name,field])=>[name,{path:'/'+name,field,id:'id',query:{action:'publicas'}}]));
+ let grants=0,requests=0;
+ const reads=[];
+ const run=Function('PUBLIC_FEATURES191','adultGrant','adultPublic','routePublicV12','json',batch+';return publicVisibilityBatch;')(
+  specs,async()=>{grants++;return false;},(body,grant)=>{assert.equal(grant,false);return body;},
+  async ({url,request,cache})=>{
+   assert.equal(request.url,url.href);
+   assert.equal(url.searchParams.get('ciudad_id'),'DOL');
+   assert.equal(cache,'compartida');
+   const name=url.pathname.slice(1);
+   reads.push(name);
+   if(name==='promos')throw Error('fallo parcial');
+   return Response.json({success:true,[fields[name]]:[{id:'42',detalle:{bloqueado18:true},texto:'omitido'}]});
+  },(body,status,headers)=>Response.json(body,{status,headers}));
+ const verify=Function('gldFetchJson','GLD_WORKER_ORIGIN','verificarPublicacion',client+';return visibilidadAgrupada;')(
+  async input=>{
+   requests++;
+   const url=new URL(input);
+   const response=await run({url,request:new Request(url),cache:'compartida'});
+   assert.equal(response.headers.get('Cache-Control'),'private, no-store');
+   return {data:await response.json()};
+  },'https://local.invalid',(_book,_family,data)=>data);
+ const book={needsVerification:{},modules:{activities:{success:true,actividades:[]}}};
+ const [guide,events,promos,ads]=await Promise.all(['guide','events','promos','ads'].map(name=>verify(book,'DOL',name)));
+ assert.deepEqual(guide.results,[{id:'42',bloqueado18:true}]);
+ assert.deepEqual(events.events,guide.results);
+ assert.deepEqual(ads.publicidades,guide.results);
+ assert.equal(promos,null);
+ assert.deepEqual(reads,['guide','events','promos','ads']);
+ assert.equal(grants,1);
+ assert.equal(requests,1);
+});
+
 test('P4-0006: Guía y Publicidad piden visibilidad sólo cuando verifican copia local',async t=>{
  const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
  const guide=source.slice(source.indexOf('    async function jsonpApi('),source.indexOf('    async function gldFetchJson('));
@@ -676,11 +714,11 @@ test('P4-0006: Guía y Publicidad piden visibilidad sólo cuando verifican copia
  const fetcher=async input=>{calls.push(new URL(input));return Response.json({success:true});};
  const lookup=async()=>edition;
  const verify=(_edition,_family,value)=>value;
- const load=Function('gldPaquetePublico','verificarPublicacion','fetch','GLD_WORKER_ORIGIN',guide+';return jsonpApi;')(
-  lookup,verify,fetcher,'https://local.invalid');
- const ads=Function('gldPaquetePublico','verificarPublicacion','window','ciudadSeleccionada','gldFetchJson','publicidadPublicaUrl','obtenerBannersRemotos',
+ const load=Function('gldPaquetePublico','verificarPublicacion','fetch','GLD_WORKER_ORIGIN','visibilidadAgrupada',guide+';return jsonpApi;')(
+  lookup,verify,fetcher,'https://local.invalid',async()=>null);
+ const ads=Function('gldPaquetePublico','verificarPublicacion','window','ciudadSeleccionada','gldFetchJson','publicidadPublicaUrl','obtenerBannersRemotos','visibilidadAgrupada',
   banners+';return obtenerBannersPromise;')(lookup,verify,{GLD_PAQUETE_CIUDAD:{module:async()=>null}},'DOL',
-   async input=>({data:await (await fetcher(input)).json()}),()=> 'https://local.invalid/publicidad?action=publicas',async()=>null);
+   async input=>({data:await (await fetcher(input)).json()}),()=> 'https://local.invalid/publicidad?action=publicas',async()=>null,async()=>null);
  await load({action:'guia',ciudad_id:'DOL'});
  await ads();
  edition={stale:true,modules:{}};
