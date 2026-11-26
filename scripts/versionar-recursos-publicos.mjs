@@ -22,7 +22,7 @@ export async function versionarRecursos(stage){
  for(const name of await readdir(join(stage,'plataforma'))){
   if(!name.endsWith('.html'))continue;
   const html=await readFile(join(stage,'plataforma',name),'utf8');
-  if(/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
+  if(name==='pie.html'||/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
  }
  for(const page of pages){
   const file=join(stage,'plataforma',page);

@@ -42,6 +42,7 @@ function installMeasurement(context, services=domains, phase=()=>null) {
     row.status = response.status();
     row.serviceWorker = response.fromServiceWorker();
     const headers = response.headers();
+    if(row.service==='hosting'){row.cacheControl=headers['cache-control']??null;row.age=headers.age??null;}
     if(row.service!=='worker')return;
     row.requestId=headers['x-gld-request-id']??null;
     row.workerVersion=headers['x-gld-worker-version']??null;
@@ -86,8 +87,8 @@ function installMeasurement(context, services=domains, phase=()=>null) {
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|infraestructura|hosting|seguimiento|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
   const module=Object.hasOwn(publications,action)?publications[action]:null;
   const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
@@ -100,7 +101,7 @@ async function main([action, name, sessionOption]) {
   const interactive = action==='sesion';
   const session = !interactive&&(Boolean(module)||name!=='usuario'||Boolean(sessionOption));
   let browser, evidence, failure, phase='apertura';
-  const javascriptErrors = [], steps = [];
+  const javascriptErrors = [], steps = [], hostingTimings = [];
   try {
     if (session) await access(state);
     browser = await chromium.launch({headless:!interactive,executablePath:process.env.GLD_CHROME});
@@ -121,29 +122,55 @@ async function main([action, name, sessionOption]) {
       }
       await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
     }
-    if(action==='ejecutar'&&name==='usuario'&&!session){
+    if(action==='hosting'){
+      for(const pass of ['apertura','recarga']){
+        phase=pass;
+        if(pass==='recarga')await page.reload({waitUntil:'load',timeout:25000});
+        await page.waitForLoadState('networkidle',{timeout:6000}).catch(()=>{});
+        for(const frame of page.frames()){
+          const timing=await frame.evaluate(()=>[...performance.getEntriesByType('navigation'),...performance.getEntriesByType('resource')].map(entry=>{
+            const url=new URL(entry.name,location.href);
+            return {host:url.hostname,path:url.pathname,transferBytes:entry.transferSize,encodedBytes:entry.encodedBodySize,
+              decodedBytes:entry.decodedBodySize,deliveryType:entry.deliveryType||null,workerStarted:entry.workerStart>0};
+          })).catch(()=>[]);
+          hostingTimings.push(...timing.filter(row=>domains.get(row.host)==='hosting').map(row=>({...row,phase:pass})));
+        }
+      }
+    }
+    if(['ejecutar','seguimiento'].includes(action)&&name==='usuario'&&!session){
       const menu=page.locator('.modulos-menu-trigger');
       const options={timeout:10000};
-      for(const entry of [...Object.values(publications),{key:'empleo',publicLink:'#moduloEmpleo'}]){
+      const protectedEntries=action==='seguimiento'?[publications.actividades]:Object.values(publications);
+      for(const entry of [...protectedEntries,{key:'empleo',publicLink:'#moduloEmpleo'}]){
         const publicRead=entry.key==='empleo';
         phase=entry.key+(publicRead?':consulta':':control-de-sesion');
+        let checkpoint='menu';
+        if(publicRead&&steps.some(step=>step.status!=='aprobado'))await page.goto(new URL(route.path,origin).href,{waitUntil:'load',timeout:25000});
         try{
           const link=page.locator(entry.publicLink);
           if(!await link.isVisible())await menu.click(options);
+          checkpoint='enlace';
+          if(!await link.isVisible()){
+            steps.push({phase,status:'no_disponible',reason:await link.count()?'enlace_oculto':'enlace_ausente'});
+            continue;
+          }
           await link.click(options);
+          checkpoint=publicRead?'listado':'solicitud_de_sesion';
           if(publicRead){
             const frame=page.frameLocator('#moduloCentralFrame');
-            await frame.locator('#public-list > *').first().waitFor(options);
+            const results=frame.locator('#public-list');
+            await results.locator(':scope > *').first().waitFor(options);
             await frame.locator('#public-tabs [data-public-type="BUSCO"]').click(options);
             if(await frame.locator('#public-tabs [data-public-type="BUSCO"]').getAttribute('aria-pressed')!=='true')throw Error('Filtro sin aplicar');
           }else{
             const overlay=page.locator('#gldSubscriberOverlay.activo');
             await overlay.waitFor(options);
-            await overlay.locator('#gldSubscriberClose').click(options);
+            checkpoint='cerrar_solicitud_de_sesion';
+            await page.keyboard.press('Escape');
             await overlay.waitFor({state:'hidden',...options});
           }
           steps.push({phase,status:'aprobado'});
-        }catch(error){steps.push({phase,status:'fallo',reason:error.name});}
+        }catch(error){steps.push({phase,status:'fallo',reason:error.name,checkpoint,controls:await page.evaluate(()=>({menu:!!document.querySelector('.modulos-menu-trigger'),dialog:document.querySelector('#gldSubscriberOverlay')?.className??null,active:document.querySelector('#modulosMenu a.activo')?.id??null})).catch(()=>null)});}
       }
     }
     if(action==='infraestructura'){
@@ -162,7 +189,7 @@ async function main([action, name, sessionOption]) {
         }catch(error){steps.push({phase,status:'fallo',reason:error.name});}
       }
     }
-    if(steps.some(step=>step.status==='fallo'))failure='MODULO_NO_DISPONIBLE';
+    if(steps.some(step=>step.status!=='aprobado'))failure='MODULO_NO_DISPONIBLE';
     if(module)await checkPublication(page,name,module,fixture,step=>{phase=step;});
     if (interactive) {
       const snapshot = await context.storageState({indexedDB:true});
@@ -175,7 +202,7 @@ async function main([action, name, sessionOption]) {
     try {
       if (!interactive) {
         const result = {evidenceType:'installed-browser-observation',date:new Date().toISOString(),interface:name,action,sessionRequested:session,result:failure?'fallo':'aprobado',
-          error:failure??null,javascriptErrors,steps,...(await evidence?.())};
+          error:failure??null,javascriptErrors,steps,hostingTimings,...(await evidence?.())};
         const output=join(base,name+'-'+randomUUID()+'.json');
         await writeFile(output,JSON.stringify(result,null,2),{mode:0o600});
         console.log(output);
