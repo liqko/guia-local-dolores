@@ -35,3 +35,17 @@ test('la verificación pendiente se reutiliza y una respuesta tardía no restaur
  calls[1](Response.json({success:true,suscriptor:{suscriptor_id:'B',ciudad_predeterminada_id:'Y'}}));
  assert.equal((await second).ciudad_id,'Y');
 });
+
+test('una denegación explícita o respuesta incoherente no reutiliza la ciudad local',async()=>{
+ const session=encode({persistent:true,exp:null});
+ for(const response of [
+  new Response('denegada',{status:401}),
+  Response.json({success:false}),
+  Response.json({success:true,suscriptor:{suscriptor_id:'B'}})
+ ]){
+  const h=browser(session,async()=>response);
+  assert.equal((await h.open()).recordada,false);
+ }
+ const offline=browser(session,async()=>{throw Error('sin conexión');});
+ assert.equal((await offline.open()).ciudad_id,'DOL');
+});

@@ -34,11 +34,15 @@
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
    try{
     const r=await fetch('https://login.liqkoargentina.workers.dev/suscriptores?action=perfil',{headers:{Authorization:'Bearer '+sent},signal:controller.signal});
-    const j=await r.json();
-    // Never apply a response after logout or an account switch.
-    if(identity(token())!==sid)return selector();
+    // Una denegación HTTP prevalece incluso cuando no llega un cuerpo JSON.
     if(r.status>=400&&r.status<500)return selector();
-    if(r.ok&&j.success&&String(j.suscriptor?.suscriptor_id)===sid){profile={...profile,...j.suscriptor};if(profile.activo===false)return selector();try{localStorage.setItem(SESSION,JSON.stringify(profile));}catch{}}
+    if(r.ok){
+     const j=await r.json().catch(()=>null);
+     if(identity(token())!==sid||!j?.success||String(j.suscriptor?.suscriptor_id)!==sid)return selector();
+     profile={...profile,...j.suscriptor};
+     if(profile.activo===false)return selector();
+     try{localStorage.setItem(SESSION,JSON.stringify(profile));}catch{}
+    }
    }catch{}finally{clearTimeout(timer);}
    if(identity(token())!==sid)return selector();
    const context=read(CONTEXT);
