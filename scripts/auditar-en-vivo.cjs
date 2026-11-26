@@ -17,6 +17,15 @@ const domains = new Map([
   ['login.liqkoargentina.workers.dev','worker'],
 ]);
 
+const publications={
+  promociones:{key:'promos',publicLink:'#moduloPromos',publicList:'#cards',privateList:'#promos-list',status:'#promos-status',
+    edit:'[data-promo-action="edit"]',input:'#promo-text',cancel:'#promo-cancel',directory:'promos',adminList:'#ghPromosList'},
+  eventos:{key:'eventos',publicLink:'#moduloEventos',publicList:'#events',privateList:'#eventos-list',status:'#eventos-status',
+    edit:'[data-ev-action="edit"]',input:'#ev-nombre_evento',cancel:'#ev-cancel',directory:'vip',adminList:'#eventosList, #eventosFreeList'},
+  actividades:{key:'actividades',publicLink:'#moduloActividades',publicList:'#activities',privateList:'#actividades-list',status:'#actividades-status',
+    edit:'[data-act-action="edit"]',input:'#act-nombre',cancel:'#act-cancelar',directory:'actividades',adminList:'#activitiesAll102'},
+};
+
 function installMeasurement(context, services=domains, phase=()=>null) {
   const rows = new Map(), pending = [];
   function observe(request) {
@@ -67,18 +76,19 @@ function installMeasurement(context, services=domains, phase=()=>null) {
 
 async function main([action, name, sessionOption]) {
   const route = routes[name];
-  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','promociones'].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
-    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|promociones> <usuario|anunciante|gran-hermano> [--con-sesion]');
+  if (!Object.hasOwn(routes,name)||!['sesion','ejecutar',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
+    throw Error('Uso: node scripts/auditar-en-vivo.cjs <sesion|ejecutar|promociones|eventos|actividades> <usuario|anunciante|gran-hermano> [--con-sesion]');
   }
-  const promo=action==='promociones'?JSON.parse(process.env.GLD_AUDIT_PROMO??'null'):null;
-  if(action==='promociones'&&(!promo?.titulo||!promo.ciudad||!['presente','ausente'].includes(promo.esperado)||
-      name==='anunciante'&&!promo.anunciante))throw Error('Definí titulo, ciudad, esperado y, en Anunciante, anunciante en GLD_AUDIT_PROMO.');
+  const module=Object.hasOwn(publications,action)?publications[action]:null;
+  const fixture=module?JSON.parse(process.env.GLD_AUDIT_PUBLICACION??process.env.GLD_AUDIT_PROMO??'null'):null;
+  if(module&&(!fixture?.titulo||!fixture.ciudad||!['presente','ausente'].includes(fixture.esperado)||
+      name==='anunciante'&&!fixture.anunciante))throw Error('Definí titulo, ciudad, esperado y, en Anunciante, anunciante en GLD_AUDIT_PUBLICACION.');
   const {chromium} = require('playwright');
   const base = process.env.GLD_AUDIT_DIR || join(homedir(),'.gld-auditoria');
   await mkdir(base,{recursive:true,mode:0o700});
   const state = join(base,name+'.session.json');
   const interactive = action==='sesion';
-  const session = !interactive&&(Boolean(promo)||name!=='usuario'||Boolean(sessionOption));
+  const session = !interactive&&(Boolean(module)||name!=='usuario'||Boolean(sessionOption));
   let browser, evidence, failure, phase='apertura';
   const javascriptErrors = [];
   try {
@@ -89,7 +99,7 @@ async function main([action, name, sessionOption]) {
     const page = await context.newPage();
     page.on('pageerror',error=>javascriptErrors.push(error.name));
     const target=new URL(interactive&&route.login?route.login:route.path,origin);
-    if(promo&&name==='usuario')target.searchParams.set('ciudad_id',promo.ciudad);
+    if(fixture&&name==='usuario')target.searchParams.set('ciudad_id',fixture.ciudad);
     const response = await page.goto(target.href,{waitUntil:'load',timeout:25000});
     if (!response?.ok()) throw Error('La interfaz no respondió correctamente.');
     if (interactive) {
@@ -99,10 +109,7 @@ async function main([action, name, sessionOption]) {
       finally {input.close();}
     }
     await page.locator(interactive&&route.loginReady?route.loginReady:route.ready).first().waitFor({state:'visible',timeout:15000});
-    if(promo){
-      phase='promociones';
-      await checkPromo(page,name,promo);
-    }
+    if(module)await checkPublication(page,name,module,fixture,step=>{phase=step;});
     if (interactive) {
       const snapshot = await context.storageState({indexedDB:true});
       await writeFile(state,JSON.stringify(snapshot),{mode:0o600});
@@ -127,52 +134,90 @@ async function main([action, name, sessionOption]) {
   }
 }
 
-async function checkPromo(page,name,promo){
+async function checkPublication(page,name,module,fixture,step=()=>{}){
   const options={timeout:15000};
-  let list;
+  let list, search;
+  step(module.key+':navegar');
   if(name==='usuario'){
     await page.locator('.modulos-menu-trigger').click(options);
-    await page.locator('#moduloPromos').click(options);
+    await page.locator(module.publicLink).click(options);
     const frame=page.frameLocator('#moduloCentralFrame');
-    await frame.locator('#promosTitle').waitFor(options);
-    list=frame.locator('#cards');
-    await list.locator('.promos-loading').waitFor({state:'hidden',...options});
-    if(/no se pudieron cargar/i.test(await list.innerText()))throw Error('Listado público no disponible.');
-    await frame.locator('#search').fill(promo.titulo,options);
+    list=frame.locator(module.publicList);
+    await list.locator(':scope > :not(.promos-loading)').first().waitFor(options);
+    if(/no se pudo|no se pudieron cargar|error al cargar/i.test(await list.innerText()))throw Error('Listado público no disponible.');
+    search=frame.locator('#search');
+    step(module.key+':filtrar');
+    await search.fill(fixture.titulo,options);
   }else if(name==='anunciante'){
-    const account=page.locator('#anunciantes-autorizados-lista button').filter({hasText:promo.anunciante});
+    const account=page.locator('#anunciantes-autorizados-lista button').filter({hasText:fixture.anunciante});
     if(await page.locator('#panel-seleccionar-anunciante').isVisible())await account.click(options);
-    else await page.locator('#panel-dashboard').getByText(promo.anunciante,{exact:false}).first().waitFor(options);
+    else await page.locator('#panel-dashboard').getByText(fixture.anunciante,{exact:false}).first().waitFor(options);
     if(await page.locator('#dashboard-navigation').getAttribute('open')===null)await page.locator('#dashboard-navigation-label').click(options);
-    await page.locator('#tab-promos').click(options);
-    list=page.locator('#promos-list');
-    await page.waitForFunction(()=>{
-      const status=document.querySelector('#promos-status')?.textContent?.trim();
+    await page.locator('#tab-'+module.key).click(options);
+    list=page.locator(module.privateList);
+    await page.waitForFunction(selector=>{
+      const status=document.querySelector(selector)?.textContent?.trim();
       return Boolean(status&&!status.includes('Cargando'));
-    },null,options);
+    },module.status,options);
   }else{
     const menu=page.locator('#ghTabs [data-gh-group="funcionalidades"].gh-main');
     if(await menu.getAttribute('aria-expanded')!=='true')await menu.click(options);
-    await page.locator('#ghTabs [data-view="promos"]').click(options);
-    const matches=response=>{
+    await page.locator('#ghTabs [data-view="'+module.key+'"]').click(options);
+    const classes=module.directory==='vip'?['VIP','FREE']:[''];
+    const results=classes.map(clase=>page.waitForResponse(response=>{
       const url=new URL(response.url());
-      return url.pathname==='/superadmin/listados'&&url.searchParams.get('tipo')==='promos'&&url.searchParams.get('q')===promo.titulo;
-    };
-    const [response]=await Promise.all([
-      page.waitForResponse(matches,options),page.locator('#dir-promos-q').fill(promo.titulo,options),
-    ]);
-    const result=await response.json();
-    if(!response.ok()||!result.preparado)throw Error('Listado administrativo no disponible.');
-    list=page.locator('#ghPromosList');
+      return url.pathname==='/superadmin/listados'&&url.searchParams.get('tipo')===module.key&&
+        url.searchParams.get('q')===fixture.titulo&&(url.searchParams.get('clase')??'')===clase;
+    },options));
+    step(module.key+':filtrar');
+    await page.locator('#dir-'+module.directory+'-q').fill(fixture.titulo,options);
+    for(const response of await Promise.all(results)){
+      const data=await response.json();
+      if(!response.ok()||!data.preparado||!Array.isArray(data.results))throw Error('Listado administrativo no disponible.');
+      if(fixture.esperado==='ausente'&&data.results.some(row=>row.titulo===fixture.titulo))throw Error('El listado administrativo aún devuelve la ficha.');
+    }
+    list=page.locator(module.adminList);
     await list.locator('details, nav').first().waitFor(options);
   }
-  const found=list.getByText(promo.titulo,{exact:name!=='gran-hermano'}).first();
-  if(promo.esperado==='presente')await found.waitFor(options);
-  else if(await found.count()||/no se pudieron cargar|cargando promos|error/i.test(await list.innerText()))throw Error('La ausencia de la promoción no quedó comprobada.');
+  const found=list.getByText(fixture.titulo,{exact:name!=='gran-hermano'}).first();
+  if(fixture.esperado==='ausente'){
+    if(await found.count()||/no se pudieron cargar|cargando|error/i.test((await list.allTextContents()).join(' ')))throw Error('La ausencia de la ficha no quedó comprobada.');
+    return;
+  }
+  await found.waitFor(options);
+  if(name==='usuario'){
+    await search.fill('gld-auditoria-'+randomUUID(),options);
+    await found.waitFor({state:'hidden',...options});
+    await search.fill(fixture.titulo,options);
+    await found.waitFor(options);
+  }else if(name==='anunciante'){
+    step(module.key+':editar-y-cancelar');
+    await found.click(options);
+    const record=list.locator('details[open]').filter({hasText:fixture.titulo});
+    await record.locator(module.edit).click(options);
+    const field=page.locator(module.input);
+    await field.waitFor(options);
+    if((await field.inputValue()).trim()!==fixture.titulo)throw Error('El formulario pertenece a otra ficha.');
+    await field.fill('Control local de cancelación',options);
+    await page.locator(module.cancel).click(options);
+    if(await field.inputValue()==='Control local de cancelación')throw Error('Cancelar no limpió la edición.');
+    await found.waitFor(options);
+  }else{
+    step(module.key+':abrir-y-cerrar-ficha');
+    await found.click(options);
+    const open=list.locator('details[open]').filter({hasText:fixture.titulo});
+    await open.first().waitFor(options);
+    await found.click(options);
+    await open.first().waitFor({state:'hidden',...options});
+  }
+}
+
+function checkPromo(page,name,fixture,step){
+  return checkPublication(page,name,publications.promociones,fixture,step);
 }
 
 if (require.main===module) main(process.argv.slice(2)).catch(error=>{
   console.error(error.code==='MODULE_NOT_FOUND'?'Instalá Playwright con npm install --no-save --package-lock=false playwright@1.55.0':error.message);
   process.exitCode=1;
 });
-module.exports = {installMeasurement,checkPromo};
+module.exports = {installMeasurement,checkPromo,checkPublication,publications};

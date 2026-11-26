@@ -47,17 +47,20 @@ test('Hosting conserva archivos y rutas ajenos al despacho urgente por sus hashe
     await writeFile(join(stage,path),JSON.stringify(value));
   }
   const calls=[];
+  let active=old, stagedFiles, etag='"base"';
   const api=async(url,options)=>{
     calls.push([url.pathname,options.method]);
+    if(options.method==='HEAD')return new Response(null,{headers:{etag}});
     const json=()=>JSON.parse(options.body);
-    if(options.method==='GET'&&url.pathname.endsWith('/releases'))return Response.json({releases:[{version:{name:old}}]});
-    if(url.pathname.endsWith('/files'))return Response.json({files:Object.entries(untouched).map(([path,hash])=>({path,hash}))});
+    if(options.method==='GET'&&url.pathname.endsWith('/releases'))return Response.json({releases:[{version:{name:active}}]});
+    if(url.pathname.endsWith('/files'))return Response.json({files:Object.entries(active===old?untouched:stagedFiles).map(([path,hash])=>({path,hash}))});
     if(options.method==='GET'&&url.pathname.endsWith('/base'))return Response.json({config});
     if(url.pathname.endsWith('/versions')){
       assert.deepEqual(json(),{config});
       return Response.json({name:version});
     }
     if(url.pathname.endsWith(':populateFiles')){
+      stagedFiles=json().files;
       for(const [path,hash] of Object.entries(untouched))assert.equal(json().files[path],hash);
       assert.equal(Object.keys(json().files).length,6);
       return Response.json({uploadRequiredHashes:[json().files[root+'publicacion.json']],uploadUrl:'https://upload-firebasehosting.googleapis.com/upload/fixture'});
@@ -67,14 +70,59 @@ test('Hosting conserva archivos y rutas ajenos al despacho urgente por sus hashe
       assert.deepEqual(json(),{status:'FINALIZED'});
       return Response.json({success:true});
     }
-    if(options.method==='POST'&&url.pathname.endsWith('/releases'))return Response.json({version:{name:version}});
+    if(options.method==='POST'&&url.pathname.endsWith('/releases')){
+      active=url.searchParams.get('versionName');
+      return Response.json({version:{name:active}});
+    }
     assert.fail(url.href);
   };
-  assert.deepEqual(await deployHosting({stage,mode:'urgent',token:'fixture',read:api}),{previous:old,version});
+  const steps=[];
+  const options={stage,mode:'urgent',token:'fixture',read:api,baseIndex:{status:200,etag}};
+  const result=await deployHosting({...options,observe:step=>steps.push(step)});
+  assert.equal(result.previous,old);
+  assert.equal(result.version,version);
+  assert.equal(result.metrics.requests,calls.length-1);
+  assert.equal(result.metrics.requestBodyBytes,steps.reduce((sum,step)=>sum+step.requestBodyBytes,0));
+  assert.equal(result.metrics.responseBodyBytes,steps.reduce((sum,step)=>sum+step.responseBodyBytes,0));
+  assert(result.metrics.uploadBytes>0);
+  t.diagnostic(JSON.stringify(result.metrics));
   assert.equal(calls.filter(([path,method])=>path.startsWith('/upload')&&method==='POST').length,1);
+  const same=await deployHosting(options);
+  assert.equal(same.metrics.requests,2);
+  assert.equal(same.metrics.uploadBytes,0);
+  etag='"otro"';
+  await assert.rejects(deployHosting(options),/Cambió el índice/);
+  etag='"base"';
   await writeFile(join(stage,'plataforma','carcasa.html'),'modificación ajena');
-  await assert.rejects(deployHosting({stage,mode:'urgent',token:'fixture',read:api}),/ajenos/);
+  await assert.rejects(deployHosting(options),/ajenos/);
   assert.equal(calls.filter(([path,method])=>path.endsWith('/releases')&&method==='POST').length,1);
+});
+
+test('inspección es de sólo lectura y la reversión exige preservar los paquetes vigentes',async()=>{
+  const base='sites/anunciantes-guialocal/versions/base';
+  const active='sites/anunciantes-guialocal/versions/actual';
+  let installed=active,olderHash='c'.repeat(64),writes=0;
+  const call=async(url,options)=>{
+    if(url.pathname.endsWith('/files'))return Response.json({files:[
+      {path:root+'publicacion.json',hash:url.pathname.includes('/base/')?olderHash:'a'.repeat(64)},
+      {path:'/plataforma/inicio.html',hash:'b'.repeat(64)},
+    ]});
+    if(options.method==='POST'){writes++;installed=url.searchParams.get('versionName');}
+    return Response.json({releases:[{version:{name:installed}}]});
+  };
+  const inspection=await deployHosting({mode:'inspect',token:'fixture',read:call});
+  assert.equal(inspection.metrics.requests,2);
+  assert.equal(inspection.version,active);
+  const options={mode:'rollback',target:base,expected:active,token:'fixture',read:call};
+  await assert.rejects(deployHosting(options),/restauraría/);
+  assert.equal(writes,0);
+  olderHash='a'.repeat(64);
+  const reverted=await deployHosting(options);
+  assert.equal(reverted.version,base);
+  assert.equal(reverted.metrics.uploadBytes,0);
+  assert.equal(writes,1);
+  await assert.rejects(deployHosting(options),/verificá cuál está activa/);
+  assert.equal(writes,1);
 });
 
 test('las rutas estáticas actuales se convierten al contrato de Firebase',async()=>{
