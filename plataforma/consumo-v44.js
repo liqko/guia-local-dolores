@@ -93,6 +93,7 @@
     let url;try{url=new URL(typeof input==='string'||input instanceof URL?String(input):input.url,location.href)}catch(_){return originalFetch(input,options)}
     if(url.origin!==origin)return originalFetch(input,options);
     await diagnosticReady;
+    if(headlessInit)await headlessInit;
     if(!authorized())return originalFetch(input,options);
     let action=url.searchParams.get('action')||'';
     try{if(options&&typeof options.body==='string'){const body=JSON.parse(options.body);action=body.action||body.accion||action}}catch(_){}
@@ -118,7 +119,7 @@
 
     host.appendChild(details);details.addEventListener('toggle',render);render();
   }
-  let adminToken='',toolbar=null;
+  let adminToken='',toolbar=null,headlessInit=null,headlessInitToken='';
   const capabilityKey='gld_diagnostic_capability_v87';
   const endpoint=origin+'/superadmin/diagnostics/session';
   const shareKey='gld_shared_diagnostics_v90';
@@ -186,10 +187,27 @@
   }
   window.gldConsumoAdminV68=function(token){
     adminToken=String(token||'');
-    if(!adminToken){adminExpires=0;clearView();toolbar?.remove();toolbar=null;return;}
+    if(!adminToken){headlessInit=null;headlessInitToken='';adminExpires=0;clearView();toolbar?.remove();toolbar=null;return;}
     let p;try{p=JSON.parse(atob(adminToken.split('.')[0].replace(/-/g,'+').replace(/_/g,'/')))}catch{return;}
-    if(p.rol!=='SUPERADMIN_PRINCIPAL')return;
-    if(headless){return;}
+    if(p.rol!=='SUPERADMIN_PRINCIPAL'){if(headless)stop();return;}
+    if(headless){
+      if(headlessInit&&headlessInitToken===adminToken)return headlessInit;
+      const tokenAtStart=adminToken;
+      headlessInitToken=tokenAtStart;
+      headlessInit=(async()=>{
+        await diagnosticReady;
+        if(adminToken!==tokenAtStart)return;
+        if(!authorized()){
+          const r=await originalFetch(endpoint,{method:'POST',headers:{Authorization:'Bearer '+tokenAtStart,'Content-Type':'application/json'},body:JSON.stringify({action:'create'})});
+          const j=await r.json();
+          if(adminToken!==tokenAtStart||!r.ok||j.success!==true||!j.capability||Number(j.expires_at)<=Date.now())return;
+          localStorage.setItem(capabilityKey,j.capability);
+          adminExpires=Number(j.expires_at);
+        }
+        if(!measurement()?.active)beginMeasurement();
+      })().catch(()=>{}).finally(()=>{if(headlessInitToken===tokenAtStart){headlessInit=null;headlessInitToken='';}});
+      return headlessInit;
+    }
     if(!toolbar){toolbar=document.createElement('div');toolbar.className='card';const b=document.createElement('button');b.id='gld-diagnostics-toggle';b.type='button';b.onclick=toggle;toolbar.appendChild(b);const message=document.createElement('p');message.id='gld-diagnostics-message';message.textContent='Activá las pruebas privadas para medir la guía y los paneles. El público no verá estas mediciones.';toolbar.appendChild(message);const choices=document.createElement('div');choices.style.cssText='display:flex;gap:8px;flex-wrap:wrap;margin:10px 0';
       const frame=document.createElement('iframe');frame.title='Simulación privada de Guía Local';frame.style.cssText='width:100%;height:760px;border:1px solid #ccc;background:#fff';frame.hidden=true;
       for(const [label,page] of [['Probar visitante','carcasa.html'],['Probar Mi Guía','suscriptores.html'],['Probar anunciante','login.html']]){const choice=document.createElement('button');choice.type='button';choice.textContent=label;choice.onclick=()=>{if(!authorized()){message.textContent='Activá primero las pruebas privadas.';return;}frame.hidden=false;frame.src='/plataforma/'+page;};choices.appendChild(choice);}
