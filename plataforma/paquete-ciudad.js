@@ -254,13 +254,21 @@
     storage,
     fetchJson,
   });
-  let verification;
-  const verify=()=>verification??=fetchJson('/plataforma/paquetes-ciudad/publicacion.json',{cache:verifySince?'no-store':'no-cache'}).then(data=>{
-    if(Number.isSafeInteger(data?.cutoff)&&data.manifest&&typeof data.manifest==='object'&&!Array.isArray(data.manifest)){
+  let verification, verified=false, retryAfter=0;
+  function verify(){
+    if(verified||verification)return verification;
+    if(root.navigator.onLine===false||Date.now()<retryAfter)return;
+    verification=fetchJson('/plataforma/paquetes-ciudad/publicacion.json',{cache:verifySince?'no-store':'no-cache'}).then(data=>{
+      if(!Number.isSafeInteger(data?.cutoff)||!data.manifest||typeof data.manifest!=='object'||Array.isArray(data.manifest)){
+        throw Error('Índice de publicaciones inválido');
+      }
       observed=data;
       if(data.cutoff>=verifySince)published=data;
-    }
-  }).catch(()=>{});
+      verified=true;
+      checks.clear();
+    }).catch(()=>{retryAfter=Date.now()+15000;}).finally(()=>{verification=null;});
+    return verification;
+  }
   async function getVerified(city){
     await verify();
     const advanced=newerEdition(city);
