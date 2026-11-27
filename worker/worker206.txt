@@ -13684,12 +13684,13 @@ async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],exp
  if(owners.length>1&&(!active||expectedRevision===undefined))throw httpError('Existen múltiples propietarios históricos; Gran Hermano debe asignar expresamente un titular.',409);
  const previous=rows.find(r=>String(r.suscriptor_id)===sid);
  if(!active&&(!previous||roleName159(previous.rol)!=='PROPIETARIO'))throw httpError('No existe titularidad para revocar.',409);
- const affected=active?owners.filter(r=>String(r.suscriptor_id)!==sid):[];
+ const changingOwner=active?(owners.length!==1||String(owners[0].suscriptor_id)!==sid):owners.some(r=>String(r.suscriptor_id)===sid);
+ const affected=changingOwner?rows.filter(r=>String(r.suscriptor_id)!==sid&&truthy(r.activo)&&['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(roleName159(r.rol))):[];
  const id=String(previous?.id||previous?.relacion_id||previous?.suscriptor_anunciante_id||sid+'__'+aid);
  const now=new Date().toISOString(),entries=[];
  for(const row of affected){
   const rid=String(row.id||row.relacion_id||'');const v=await db.getVersioned('suscriptor_anunciante',rid);
-  if(!v.doc||!v.updateTime||String(v.doc.suscriptor_id)!==String(row.suscriptor_id)||String(v.doc.anunciante_id)!==aid||roleName159(v.doc.rol)!=='PROPIETARIO'||!truthy(v.doc.activo))throw httpError('Cambió un permiso. Reintentá.',409);
+  if(!v.doc||!v.updateTime||String(v.doc.suscriptor_id)!==String(row.suscriptor_id)||String(v.doc.anunciante_id)!==aid||roleName159(v.doc.rol)!==roleName159(row.rol)||!truthy(v.doc.activo))throw httpError('Cambió un permiso. Reintentá.',409);
   entries.push({collection:'suscriptor_anunciante',id:rid,before:v.doc,patch:{activo:false,actualizado:now,actualizado_por:actor},options:{updateTime:v.updateTime}});
  }
  const v=await db.getVersioned('suscriptor_anunciante',id);
