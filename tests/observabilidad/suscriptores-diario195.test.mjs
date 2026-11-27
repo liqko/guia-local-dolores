@@ -194,3 +194,12 @@ test('ninguna preparación desde pantalla puede crear, publicar ni refrescar una
  await h.op('commit');const n=h.calls.length;const read=await w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid'));assert.equal(read.preparado,true);assert.equal(h.calls.length,n);
  h.setClock(day+86400000+1000);await assert.rejects(w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid')),/publicación diaria/);assert.equal(h.calls.length,n);
 });
+
+test('recuperación privada reemplaza la edición del día sin esperar el siguiente corte',async t=>{
+ const h=setup(t,people);await h.publish();
+ h.raw.set('admin:index:subscribers:v2',JSON.stringify({version:2,results:[...people,{id:'NUEVA',nombre:'Nueva',fecha_nacimiento:'1995-11-15'}]}));
+ await h.op('publish');assert.equal((await h.op('read')).results.length,4);
+ await h.op('recover');const fresh=await h.op('read');assert.equal(fresh.results.length,5);
+ assert.deepEqual(fresh.admin.resumen,{suscriptores:5,anunciantes:0,ciudades:0,eventos_vip:0,eventos_free:0,actividades:0,publicidad:0});
+ const n=h.calls.length;await h.op('read');assert.equal(h.calls.length,n);
+});

@@ -44,7 +44,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     body:JSON.stringify(body),
   });
   if(mode==='private'){
-    const result=await call({op:'private',cutoff});
+    const result=await call({op:recoverCurrent?'private-recovery':'private',cutoff});
     if(result?.success!==true||result.cutoff!==cutoff)throw Error('El corte privado no quedó confirmado');
     return {cutoff};
   }
