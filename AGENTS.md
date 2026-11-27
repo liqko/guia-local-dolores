@@ -33,6 +33,12 @@
 - La posible atención por WhatsApp no autoriza eliminar ni desviar flujos existentes del panel sin una definición expresa. Auditar el funcionamiento que existe y registrar decisiones de canal pendientes.
 - No confundir caché con consumo monetario total cero: registrar por separado Firestore, KV, Worker, Durable Objects, SQL, CPU y descargas. La preparación inicial o recuperación se mide aparte de la consulta repetida.
 
+## Vigencias de anunciantes — definición permanente del usuario, 27/11/2026
+
+- Nivel 1 (Gobierno) y 2 (ONG): sin vencimiento sin titular; con titular, renovación cada 90 días. Nivel 3: sin vencimiento sin titular; con titular, cada 30 días. Niveles 4, 5 y 6: 90 días desde la contratación, salvo excepciones expresamente autorizadas.
+- En 1–3, asignar titular inicia el período. La edición ordinaria no reinicia la vigencia. Vencer no elimina anunciante, datos, titularidad ni historial, ni bloquea el panel para renovar.
+- Un único mecanismo compartido (`ADVERTISER_VALIDITY155` en `worker/worker206.txt`); no crear circuitos por nivel. Los vencimientos se procesan en el corte ordinario de 01:00 con el publicador existente, sin consultas masivas ni reconstrucciones.
+
 # Contrato rector de ingeniería — Guía Local
 **Vigencia: 24/10/2026. Prioridad: estas reglas prevalecen sobre instrucciones técnicas antiguas de este archivo si hay contradicción.**
 **Estado de aplicación:** reglas documentadas, NO equivalen a pruebas automatizadas ni garantizan por sí mismas cumplimiento.

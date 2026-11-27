@@ -238,7 +238,7 @@ try{
    assert.equal(off.calls.filter(c=>c.op==='query'&&c.c==='anunciantes_sedes').length,0,'sin relectura de sedes');assert.equal(off.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes').length,0,'sin relectura del anunciante');
    assert.equal(off.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes_administracion').length,1,'una lectura con revisión');assert.equal(off.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,1,'una escritura');
    await assertStatus('owner','/commerce?action=anunciante&advertiserId='+aid,undefined,200);
-   await act('owner','renovar',400);await act('admin','desactivar');assert.equal(adm().inactivo_motivo,'ADMINISTRATIVA');
+   const ownRen=await act('owner','renovar');assert.ok(ownRen.j.vigencia_hasta>v0,'el titular renueva el nivel 3 desde su panel');await act('admin','desactivar');assert.equal(adm().inactivo_motivo,'ADMINISTRATIVA');
    await act('owner','activar',409);await act('owner','desactivar',409);
    await assertStatus('owner','/commerce?action=anunciante&advertiserId='+aid,undefined,200);
    await act('admin','activar');assert.equal(adm().inactivo_motivo,'');
@@ -254,9 +254,9 @@ try{
    const admB=()=>rows.get('anunciantes_administracion/'+bareId),today=new Date(Date.now()-3*3600e3).toISOString().slice(0,10);
    await assertStatus('admin','/superadmin/advertisers/'+bareId+'/activity',{accion_actividad:'desactivar'},200);admB().vigencia_hasta='2020-01-01';
    const close=await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0001',nivel:3,funcionalidades:{}},200);
-   assert.equal(close.j.importe,1000);assert.equal(admB().contratacion_actual.nivel,'3');assert.equal(admB().inactivo_motivo,'ADMINISTRATIVA','contratar no reactiva');assert.ok(admB().vigencia_hasta>=today,'contratar nivel 3 recupera la vigencia');
+   assert.equal(close.j.importe,1000);assert.equal(admB().contratacion_actual.nivel,'3');assert.equal(admB().inactivo_motivo,'ADMINISTRATIVA','contratar no reactiva');assert.equal(admB().vigencia_hasta,'2020-01-01','sin titular, contratar nivel 3 no inicia vigencia');assert.equal(close.calls.filter(c=>c.op==='query'&&c.c==='anunciantes_sedes').length,0,'contratar sin releer sedes');
    const retry=await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0001',nivel:3,funcionalidades:{}},200);assert.equal(retry.j.updated,false);assert.equal(retry.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0);
-   const v3=admB().vigencia_hasta;await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0002',nivel:5,funcionalidades:{}},200);assert.equal(admB().nivel,'5');assert.equal(admB().vigencia_hasta,v3);
+   const v3=admB().vigencia_hasta;await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0002',nivel:5,funcionalidades:{}},200);assert.equal(admB().nivel,'5');assert.ok(v3==='2020-01-01');assert.equal(admB().vigencia_desde,today,'nivel 5: 90 días desde la contratación');assert.ok(admB().vigencia_hasta>today);
    assert.equal([...rows.keys()].some(k=>k.startsWith('suscriptor_anunciante/')&&rows.get(k).anunciante_id===bareId),false,'contratar no crea titular');
    console.log('PASS Unidad 5: contratación sobre anunciante básico, sin titular, incompleto e inactivo; nivel y vigencia; idempotencia; calculadora existente.');
    const owners=()=>[...rows.entries()].filter(([k,v])=>k.startsWith('suscriptor_anunciante/')&&v.anunciante_id===bareId&&v.rol==='PROPIETARIO'&&v.activo===true).map(([,v])=>v.suscriptor_id);
@@ -268,6 +268,7 @@ try{
    rows.get('suscriptores/U6').email_verificado=true;await link('U6',200);assert.deepEqual(owners(),['U6']);
    await link('N',200);assert.deepEqual(owners(),['N'],'transferencia mantiene titular único');
    assert.equal(rows.get('anunciantes/'+bareId).nombre.startsWith('Básico'),true);assert.equal(admB().contratacion_actual.operacion_id,'CT_unidad5basico0002','conserva contratación');
+   assert.equal(typeof admB().con_titular,'boolean','el fence de titularidad registra si hay titular');assert.equal(admB().vigencia_desde,today,'asignar titular no reinicia la vigencia de nivel 5');
    console.log('PASS Unidad 6: vinculación directa de usuario verificado, rechazo de inexistente, inactivo y sin verificar, vinculación posterior a la verificación, transferencia con titular único, sin cuentas ficticias.');}
   console.log('PASS Unidad 4: alta desde GH con o sin titular, nivel 3 por defecto, ficha GH y Abrir panel inmediatos, permisos, validación e idempotencia.');}
  console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation suspension and ratification, zero owners, independent GH access and verified claim.');

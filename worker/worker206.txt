@@ -1366,11 +1366,13 @@ async function getGuideCity({ cache, cityId }) {
   return { success: true, ...packet2, anunciantes:(packet2.anunciantes||[]).map(tarjetaConRedesComunes) };
 }
 // reconstruccion/worker/modules/guide.js
-async function guidePublic({ url, cache }) {
+async function guidePublic({ url, cache, at = undefined }) {
   const cityId = String(url.searchParams.get("ciudad_id") || url.searchParams.get("ciudadId") || "").trim();
   const out2 = await getGuideCity({ cache, cityId });
   if (out2.status) return json(out2, out2.status);
-  const rows = Array.isArray(out2.anunciantes) ? out2.anunciantes : [];
+  const all = Array.isArray(out2.anunciantes) ? out2.anunciantes : [];
+  // En el corte, la vigencia se evalúa al instante del corte sin leer Firestore.
+  const rows = at === undefined ? all : all.filter((card) => guideCardVisible155(card, at));
   if(url.searchParams.get('compact')==='1'){const {anunciantes,...meta}=out2;return publicJson({...meta,results:rows});}
   return publicJson({ ...out2, results: rows, data: rows });
 }
@@ -1774,9 +1776,9 @@ async function getFarmCity({ cache, cityId }) {
 
 var text13 = (v) => String(v ?? "").trim();
 var out = (r) => r.status ? json(r, r.status) : publicJson(r);
-async function routePublicV4({ path, request: request2, url, cache }) {
+async function routePublicV4({ path, request: request2, url, cache, cityBookCutoff }) {
   if (path === "/territory/public" && request2.method === "GET") return territoryPublic({ cache });
-  if (path === "/guide" && request2.method === "GET") return guidePublic({ url, cache });
+  if (path === "/guide" && request2.method === "GET") return guidePublic({ url, cache, at: cityBookCutoff });
   const city = text13(url.searchParams.get("ciudad_id"));
   if (path === "/promos" && request2.method === "GET") {
     return out(await getPromosCity({ cache, cityId: city }));
@@ -4819,7 +4821,7 @@ function buildGuideCardBaseV2({ advertiser, admin, sedes, catalogs, territory, c
     contenido_adulto:adultFlag(advertiser.contenido_adulto),revision_adulto:advertiser.revision_adulto||"NO_APLICA",estado_moderacion:advertiser.estado_moderacion||"PUBLICADO",
     aprobado: admin && admin.aprobado !== void 0 ? bool15(admin.aprobado) : true,
     ...(admin && admin.inactivo_motivo ? { inactivo_motivo: text41(admin.inactivo_motivo) } : {}),
-    ...(admin && admin.vigencia_hasta ? { vigencia_hasta: text41(admin.vigencia_hasta) } : {}),
+    ...(publicValidity155(admin) ? { vigente_hasta: publicValidity155(admin) } : {}),
     nivel: text41(admin && admin.nivel),
     subnivel: text41(admin && admin.subnivel),
     verificado: bool15(admin && admin.verificado),
@@ -4971,7 +4973,7 @@ async function guideBaseForMutationInternal(cache,aid){
 
 async function patchGuideAdminFieldsV2({ cache, advertiserId, patch }) {
   const aid = text41(advertiserId);
-  const allowed = ["aprobado", "nivel", "subnivel", "verificado", "gold", "inactivo_motivo", "vigencia_hasta"];
+  const allowed = ["aprobado", "nivel", "subnivel", "verificado", "gold", "inactivo_motivo", "vigente_hasta"];
   const relevant = {};
   for (const key3 of allowed) if (Object.prototype.hasOwnProperty.call(patch || {}, key3)) relevant[key3] = patch[key3];
   if (!Object.keys(relevant).length) return { success: true, changed: false, firestore_reads: 0 };
@@ -4984,7 +4986,7 @@ async function patchGuideAdminFieldsV2({ cache, advertiserId, patch }) {
     if ("aprobado" in relevant) out2.aprobado = !!relevant.aprobado;
     if ("nivel" in relevant) out2.nivel = text41(relevant.nivel);
     if ("subnivel" in relevant) out2.subnivel = text41(relevant.subnivel);
-    for (const key3 of ["inactivo_motivo", "vigencia_hasta"]) if (key3 in relevant) { if (text41(relevant[key3])) out2[key3] = text41(relevant[key3]); else delete out2[key3]; }
+    for (const key3 of ["inactivo_motivo", "vigente_hasta"]) if (key3 in relevant) { if (text41(relevant[key3])) out2[key3] = text41(relevant[key3]); else delete out2[key3]; }
     if ("verificado" in relevant) out2.verificado = !!relevant.verificado;
     if ("gold" in relevant) out2.gold = !!relevant.gold;
     return out2;
@@ -8993,7 +8995,7 @@ async function gldCerrarContrato185(ctx){
  const patch={nivel:effectiveLevel,funcionalidades:enabled,funcionalidades_config:settings,
   asignaciones_administrativas:overrides,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
- if(renewalDays155(effectiveLevel)&&!(String(previous.vigencia_hasta||'')>=argentinaDay155()))Object.assign(patch,initialValidity155(effectiveLevel,contracted.cerrado_en));
+ Object.assign(patch,validityOnContract155({...previous,nivel:effectiveLevel},contracted.cerrado_en));
  // Las banderas históricas también son leídas por algunos módulos: mantenerlas
  // sincronizadas con la única configuración efectiva.
  const activeFeatures=new Set(enabled.map(canonicalFeatureId112));
@@ -9008,10 +9010,7 @@ async function gldCerrarContrato185(ctx){
  try{saved=await db.patch('anunciantes_administracion',aid,patch,{mustExist:true,updateTime:version.updateTime})}
  catch(e){return json({success:false,message:'No se confirmó la contratación. La ficha pudo cambiar: '+String(e.message||e)},409)}
  // Mantener proyecciones existentes: reutilizar el mismo registro efectivo.
- await Promise.all([
-  patchGuideAdminFieldsV2({cache,advertiserId:aid,patch}),
-  patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch})
- ]);
+ await projectAdvertiserAdmin155({db,cache,aid,doc:saved||{...previous,...patch},extra:patch});
  await cache.put('publicity:contract:v101:'+aid,
   {...publicityContractV101(saved),habilitada:featureEnabled2(saved,'PUBLICIDAD')});
  return json({success:true,updated:true,contratacion:contracted,importe:contracted.importe,
@@ -11167,7 +11166,7 @@ async function routePublicationsV77(ctx){
    activo:true,creado_en:now,actualizado_en:now
  }));
  const policy=publicationPolicyV77(body,ctx.publication.rules);
- const ownership=await commitOwnership155({env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,advertiserName:undefined,snapshot:undefined,db,aid,sid:s.sid,actor:s.sid,creation:{advertiser:advertiserPayload,admin:{id:aid,aprobado:true,nivel:newAdvertiserLevel155(),subnivel:'',funcionalidades:[],...initialValidity155(newAdvertiserLevel155(),now),creado_en:now,actualizado_en:now},sedes:sedeRows}});
+ const ownership=await commitOwnership155({env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,advertiserName:undefined,snapshot:undefined,db,aid,sid:s.sid,actor:s.sid,creation:{advertiser:advertiserPayload,admin:{id:aid,aprobado:true,nivel:newAdvertiserLevel155(),subnivel:'',funcionalidades:[],creado_en:now,actualizado_en:now},sedes:sedeRows}});
  const savedSedes=ownership.created.sedes;
  const createdDb={...db,queryEqual:(collection,field,value,limit)=>collection==='anunciantes_sedes'&&field==='anunciante_id'&&String(value)===aid?Promise.resolve(savedSedes):db.queryEqual(collection,field,value,limit)};
  await syncGuideAdvertiserV2({db:createdDb,cache,advertiserId:aid});
@@ -12211,7 +12210,7 @@ GldPublicCache119.prototype.privateFavoritesProjection=async function(body){
 // Cada funcionalidad declara su proyección pública y su almacén; no se añade un caso al transporte.
 /** @type {Record<string,any>} */
 const PUBLIC_FEATURES191 = {
- guide:{rebuild:rebuildGuideAllV2,store:{prefix:'guide:city:v1:',module:'guide',field:'anunciantes',id:'anunciante_id',collection:'anunciantes'},path:'/guide',query:{compact:'1'},field:'results',id:'anunciante_id',metadata:[]},
+ guide:{rebuild:rebuildGuideAllV2,validity:true,store:{prefix:'guide:city:v1:',module:'guide',field:'anunciantes',id:'anunciante_id',collection:'anunciantes'},path:'/guide',query:{compact:'1'},field:'results',id:'anunciante_id',metadata:[]},
  events:{rebuild:rebuildEventsAllV2,store:{prefix:'events:city:v2:',module:'events',field:'events',id:'evento_id',collection:'eventos'},path:'/events-new',field:'events',id:'evento_id',metadata:[],virtual:true,watchShared:['territory']},
  promos:{rebuild:rebuildPromosAll,store:{prefix:'promos:city:v1:',module:'promos',field:'promos',id:'promo_id',collection:'promos'},path:'/promos',field:'promos',id:'promo_id',metadata:[]},
  activities:{rebuild:rebuildActivitiesAllV2,store:{prefix:'activities:city:v2:',module:'activities',field:'actividades',id:'actividad_id',collection:'actividades'},path:'/actividades',query:{action:'publicas'},field:'actividades',id:'actividad_id',metadata:[],virtual:true,watchShared:['activities'],window:{from:'vigente_desde',until:'vigente_hasta'},sharedKeys:[{prefix:'guide:advertiser:v2:'},{prefix:'panel:record:v53:anunciantes:'}],validity:true},
@@ -12830,7 +12829,7 @@ async function routeAdvertiserActivity155(ctx){
   aid=String(body.advertiserId||body.advertiser_id||body.anunciante_id||url.searchParams.get('advertiserId')||'').trim();
   const gate=await requirePanel3(env,request,aid,true);if(gate.response)return gate.response;
   actor=String(gate.session?.sid||gate.s?.sid||'');
-  if(!['activar','desactivar'].includes(accion))throw httpError('Acción de estado inválida.',400);
+  if(!['activar','desactivar','renovar'].includes(accion))throw httpError('Acción de estado inválida.',400);
  }
  if(!aid||aid.includes('/'))throw httpError('Falta el anunciante.',400);
  const version=await db.getVersioned('anunciantes_administracion',aid),before=version.doc;
@@ -12843,19 +12842,18 @@ async function routeAdvertiserActivity155(ctx){
   if(fromGh){patch.inactivo_motivo='';if(before.aprobado===false)patch.aprobado=true;}
   else{if(before.inactivo_motivo!=='VOLUNTARIA')throw httpError(before.inactivo_motivo==='ADMINISTRATIVA'||before.aprobado===false?'El anuncio está bloqueado por Gran Hermano.':'El anuncio ya está activo.',409);patch.inactivo_motivo='';}
  }else{
-  const days=renewalDays155(before.nivel);if(!days)throw httpError('El nivel del anuncio no tiene renovación periódica configurada.',409);
+  const renewal=validityRenew155(before);if(!renewal)throw httpError('Este anuncio no vence: no tiene titular o su nivel no tiene vigencia.',409);
+  if(!validityRule155(before)?.titular)throw httpError('La vigencia de este nivel se renueva con una nueva contratación.',409);
   const op=String(body.operacion_id||'').trim().slice(0,80);if(op&&before.renovacion_operacion_id===op)return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),vigencia_hasta:before.vigencia_hasta||'',firestore_writes:0});if(op)patch.renovacion_operacion_id=op;
-  const today=argentinaDay155(),current=String(before.vigencia_hasta||'').trim(),base=current&&current>=today?current:today;
-  patch.vigencia_hasta=addDays155(base,days);if(!current||current<today)patch.vigencia_desde=today;
+  Object.assign(patch,renewal);
   patch.renovaciones=[...(Array.isArray(before.renovaciones)?before.renovaciones:[]).slice(-23),{en:now,por:actor,hasta:patch.vigencia_hasta}];
  }
  if(Object.entries(patch).every(([k,v])=>k!=='renovaciones'&&String(before[k]??'')===String(v)))return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),firestore_writes:0});
  Object.assign(patch,{actividad_actualizada_en:now,actividad_actualizada_por:actor,actualizado_en:now});
  const [saved]=await db.commitPatches([{collection:'anunciantes_administracion',id:aid,before,patch,options:{updateTime:version.updateTime}}]);
- const doc=saved||{...before,...patch},projection={inactivo_motivo:doc.inactivo_motivo||'',vigencia_hasta:doc.vigencia_hasta||'',...(Object.hasOwn(patch,'aprobado')?{aprobado:patch.aprobado}:{})};
- const [guide,index]=await Promise.all([patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:projection}),patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch:projection})]);
- if(guide?.needs_full_sync||index?.needs_rebuild)await Promise.all([guide?.needs_full_sync?syncGuideAdvertiserV2({db,cache,advertiserId:aid}):null,index?.needs_rebuild?syncAdvertiserIndexV2({db,cache,advertiserId:aid}):null]);
- return json({success:true,updated:true,anunciante_id:aid,estado:advertiserPublicState155(saved||{...before,...patch}),vigencia_hasta:(saved||patch).vigencia_hasta||before.vigencia_hasta||''});
+ const doc=saved||{...before,...patch};
+ await projectAdvertiserAdmin155({db,cache,aid,doc,extra:Object.hasOwn(patch,'aprobado')?{aprobado:patch.aprobado}:{}});
+ return json({success:true,updated:true,anunciante_id:aid,estado:advertiserPublicState155(saved||{...before,...patch}),vigencia_hasta:publicValidity155(doc)});
 }
 // Alta directa desde Gran Hermano (Unidad 4): titular y contratación opcionales; reutiliza el alta atómica.
 async function routeAdvertiserCreate155(ctx){
@@ -13754,27 +13752,41 @@ function ownershipPatch155({id,sid,aid,actor,active,advertiserName,now,before}){
  return {relacion_id:id,suscriptor_id:sid,anunciante_id:aid,rol:'PROPIETARIO',activo:active,...(advertiserName?{anunciante_nombre:advertiserName}:{}),permisos:'',permisos_definidos:false,actualizado:now,actualizado_por:actor,...(!before?{fecha_alta:now}:{})};
 }
 // Unidades 2 y 7: estado público del anunciante. Nunca interviene en el acceso al panel.
-const ADVERTISER_RENEWAL_DAYS155={'3':30};
-function argentinaDay155(at=Date.now()){return new Date(at-3*3600e3).toISOString().slice(0,10);}
+// Vigencias (definición permanente 27/11/2026): único mecanismo para los seis niveles.
+// 1-2: 90 días y 3: 30 días, sólo con titular (la asignación del titular inicia el período).
+// 4-6: 90 días desde la contratación. Editar el anuncio no reinicia la vigencia.
+const ADVERTISER_VALIDITY155={'1':{dias:90,titular:true},'2':{dias:90,titular:true},'3':{dias:30,titular:true},'4':{dias:90},'5':{dias:90},'6':{dias:90}};
+function argentinaDay155(at=Date.now()){return new Date((typeof at==='string'?Date.parse(at):at)-3*3600e3).toISOString().slice(0,10);}
 function addDays155(day,n){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
-function renewalDays155(level){return ADVERTISER_RENEWAL_DAYS155[String(level??'').trim()]||0;}
-function initialValidity155(level,now){const days=renewalDays155(level);return days?{vigencia_desde:argentinaDay155(Date.parse(now)),vigencia_hasta:addDays155(argentinaDay155(Date.parse(now)),days)}:{};}
+function validityRule155(admin){const r=ADVERTISER_VALIDITY155[String(admin?.nivel??'').trim()];return r&&(!r.titular||admin?.con_titular===true)?r:null;}
+function validityDays155(admin){return validityRule155(admin)?.dias||0;}
+function publicValidity155(admin){return validityDays155(admin)?String(admin?.vigencia_hasta||'').trim():'';}
+function validityPeriod155(at,dias){const today=argentinaDay155(at);return dias?{vigencia_desde:today,vigencia_hasta:addDays155(today,dias)}:{};}
+function validityStart155(admin,at=Date.now()){return validityDays155(admin)&&!(String(admin?.vigencia_hasta||'')>=argentinaDay155(at))?validityPeriod155(at,validityDays155(admin)):{};}
+function validityOnOwner155(admin,at=Date.now()){return validityRule155(admin)?.titular?validityStart155(admin,at):{};}
+function validityOnContract155(admin,at){const r=validityRule155(admin);return !r?{}:r.titular?validityStart155(admin,at):validityPeriod155(at,r.dias);}
+function validityRenew155(admin,at=Date.now()){const dias=validityDays155(admin);if(!dias)return null;const today=argentinaDay155(at),current=String(admin?.vigencia_hasta||'').trim(),base=current&&current>=today?current:today;return {vigencia_hasta:addDays155(base,dias),...(!current||current<today?{vigencia_desde:today}:{})};}
+async function projectAdvertiserAdmin155({db,cache,aid,doc=undefined,extra={},guidePatch=undefined,indexPatch=undefined}){
+ const motivo=doc?.inactivo_motivo||'';
+ const [guide,index]=await Promise.all([patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:guidePatch||{...extra,inactivo_motivo:motivo,vigente_hasta:publicValidity155(doc)}}),patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch:indexPatch||{...extra,inactivo_motivo:motivo,vigencia_hasta:doc?.vigencia_hasta||''}})]);
+ if(guide?.needs_full_sync||index?.needs_rebuild)await Promise.all([guide?.needs_full_sync?syncGuideAdvertiserV2({db,cache,advertiserId:aid}):null,index?.needs_rebuild?syncAdvertiserIndexV2({db,cache,advertiserId:aid}):null]);
+}
 function advertiserPublicState155(admin,advertiser=undefined,sedes=undefined,at=Date.now()){
- const a=admin||{},until=String(a.vigencia_hasta||'').trim(),expiring=!!(until&&renewalDays155(a.nivel));
+ const a=admin||{},until=publicValidity155(a),expiring=!!until;
  if(a.aprobado===false||a.inactivo_motivo==='ADMINISTRATIVA')return {estado:'INACTIVO',motivo:'BLOQUEO_ADMINISTRATIVO',visible:false};
  if(a.inactivo_motivo==='VOLUNTARIA')return {estado:'INACTIVO',motivo:'DESACTIVACION_VOLUNTARIA',visible:false};
  if(expiring&&until<argentinaDay155(at))return {estado:'INACTIVO',motivo:'VENCIDO',visible:false,vigencia_hasta:until};
  if(advertiser!==undefined&&(!String(advertiser?.nombre||'').trim()||Array.isArray(sedes)&&!sedes.some(r=>r&&String(r.ciudad_id||'').trim()&&r.activo!==false)))return {estado:'INACTIVO',motivo:'FICHA_INCOMPLETA',visible:false};
  return {estado:'ACTIVO',motivo:'',visible:true,...(expiring?{vigencia_hasta:until}:{})};
 }
-function guideCardVisible155(card,at=Date.now()){return !!card&&card.aprobado!==false&&!card.inactivo_motivo&&!(card.vigencia_hasta&&renewalDays155(card.nivel)&&String(card.vigencia_hasta)<argentinaDay155(at));}
+function guideCardVisible155(card,at=Date.now()){return !!card&&card.aprobado!==false&&!card.inactivo_motivo&&!(card.vigente_hasta&&String(card.vigente_hasta)<argentinaDay155(at));}
 // Todo anunciante nuevo recibe el nivel 3 salvo que Gran Hermano elija otro al aprobar.
 const DEFAULT_ADVERTISER_LEVEL155='3';
 function newAdvertiserLevel155(requested=undefined){return String(requested??'').trim()||DEFAULT_ADVERTISER_LEVEL155;}
 function moderatedCreation155(req,aid,level,now){
  const clean=v=>String(v??'').trim(),detail=req.detalle||{},city=clean(req.ciudad_id),sedeId='SED-'+aid+'-MAIN';
  return {advertiser:{id:aid,nombre:clean(req.nombre),actividad:clean(detail.actividad),descripcion:clean(detail.descripcion),whatsapp:clean(detail.whatsapp),mail:clean(detail.mail),web:clean(detail.web),creado_en:now,actualizado_en:now},
- admin:{id:aid,aprobado:true,nivel:level,subnivel:'0',verificado:false,gold:false,funcionalidades:[],...initialValidity155(level,now),creado_en:now,actualizado_en:now},
+ admin:{id:aid,aprobado:true,nivel:level,subnivel:'0',verificado:false,gold:false,funcionalidades:[],creado_en:now,actualizado_en:now},
  sedes:city?[{sede_id:sedeId,anunciante_id:aid,ciudad_id:city,nombre_sede:'Principal',direccion:clean(detail.direccion),whatsapp:clean(detail.whatsapp),mail:clean(detail.mail),web:clean(detail.web),activo:true,creado_en:now,actualizado_en:now}]:[]};
 }
 async function commitNewOwnership155({db,aid,sid,actor,creation,extra}){
@@ -13783,7 +13795,7 @@ async function commitNewOwnership155({db,aid,sid,actor,creation,extra}){
  if((await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,1)).length)throw httpError('El identificador ya tiene vínculos. Reintentá el alta.',409);
  const id=sid?sid+'__'+aid:'',now=new Date().toISOString();
  const entry=(collection,id,patch)=>({collection,id,before:null,patch,options:{newDocument:true,mustNotExist:true}});
- const initial=[entry('anunciantes',aid,advertiser),entry('anunciantes_administracion',aid,{...admin,revision_titularidad:crypto.randomUUID()}),...sedes.map(row=>entry('anunciantes_sedes',row.sede_id,row))];
+ const ownedAdmin={...admin,con_titular:!!sid},initial=[entry('anunciantes',aid,advertiser),entry('anunciantes_administracion',aid,{...ownedAdmin,...(sid?validityOnOwner155(ownedAdmin,now):{}),revision_titularidad:crypto.randomUUID()}),...sedes.map(row=>entry('anunciantes_sedes',row.sede_id,row))];
  const ownership=sid?[entry('suscriptor_anunciante',id,ownershipPatch155({id,sid,aid,actor,active:true,advertiserName:advertiser.nombre,now,before:null}))]:[];
  const saved=await db.commitPatches([...initial,...ownership,...extra]);
  if(db.prepareNewAdvertiserPanels116)await db.prepareNewAdvertiserPanels116(aid);else if(db.prepareNewPanelList)await db.prepareNewPanelList('anunciantes_sedes','anunciante_id',aid);
@@ -13823,10 +13835,12 @@ async function commitOwnership155({db,aid,sid,actor,env=undefined,active=true,ex
  const patch=ownershipPatch155({id,sid,aid,actor,active,advertiserName,now,before:v.doc});
  if(v.doc&&v.doc.activo===active&&roleName159(v.doc.rol)==='PROPIETARIO'&&!affected.length&&!extra.length)return {success:true,updated:false,relacion:publicRelation155(v.doc),revision:await wholeRevisionInternal(v.doc)};
  entries.push({collection:'suscriptor_anunciante',id,before:v.doc,patch,options:v.doc?{updateTime:v.updateTime}:{mustNotExist:true}});
- entries.push({collection:'anunciantes_administracion',id:aid,before:fence.doc,patch:{revision_titularidad:crypto.randomUUID()},options:{updateTime:fence.updateTime}});
+ const ownedAdmin={...(fence.doc||{}),con_titular:!!active},adminPatch={revision_titularidad:crypto.randomUUID(),con_titular:!!active,...(active?validityOnOwner155(ownedAdmin,now):{})},adminAfter={...ownedAdmin,...adminPatch};
+ entries.push({collection:'anunciantes_administracion',id:aid,before:fence.doc,patch:adminPatch,options:{updateTime:fence.updateTime}});
  entries.push(...extra);
  const saved=await db.commitPatches(entries);
- const row=saved[affected.length];return {success:true,updated:true,relacion:publicRelation155(row),revision:await wholeRevisionInternal(row)};
+ const vigencia=publicValidity155(adminAfter)!==publicValidity155(fence.doc)||adminAfter.vigencia_hasta!==fence.doc?.vigencia_hasta?{vigente_hasta:publicValidity155(adminAfter),vigencia_hasta:adminAfter.vigencia_hasta||''}:undefined;
+ const row=saved[affected.length];return {success:true,updated:true,relacion:publicRelation155(row),revision:await wholeRevisionInternal(row),...(vigencia?{vigencia}:{})};
 }
 async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  const sid=String(body.suscriptor_id||'').trim(),role=String(body.rol||'').trim().toUpperCase();
@@ -13889,7 +13903,12 @@ async function routeAdvertiserAccess155(ctx){
   if(request.method==='GET')return json(await findSubscriberForRelation155(cache,ctx.url.searchParams.get('q')));
   if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
   const body=await request.json();if(body.rol!=='PROPIETARIO')throw httpError('La delegación de funciones se realiza desde el panel del propietario.',403);
-  try{return json(await saveAdvertiserRelation155({db,env,auth,aid:id,body}));}
+  try{
+   const result=await saveAdvertiserRelation155({db,env,auth,aid:id,body});
+   // La asignación o revocación del titular cambia sólo la vigencia publicada.
+   if(result?.vigencia)await projectAdvertiserAdmin155({db,cache,aid:id,guidePatch:{vigente_hasta:result.vigencia.vigente_hasta},indexPatch:{vigencia_hasta:result.vigencia.vigencia_hasta}});
+   return json(result);
+  }
   catch(error){if(error?.status===404)return json({success:false,message:error.message},404);throw error;}
  }
  if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
