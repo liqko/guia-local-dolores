@@ -49,14 +49,14 @@ globalThis.fetch=async(url,options={})=>{
 seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
 let token='';
-async function call(path,body){calls.length=0;const r=await worker.fetch(new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})}),env);return {r,j:await r.json(),calls:[...calls]};}
+async function call(path,body){calls.length=0;const make=()=>new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})});let r=await worker.fetch(make(),env);if(!body&&r.status===503&&(await r.clone().json()).code==='COMMERCE_COPY_PREPARING'){assert.equal(calls.length,0);await env.GLD_PUBLIC_CACHE.runAlarms();r=await worker.fetch(make(),env);}return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
 const reports=[],measures=[],physical={get:0,put:0,delete:0,list:0};
 globalThis.__circuitCapture=r=>reports.push(structuredClone(r));
 for(const method of Object.keys(physical)){const original=env.GLD_CACHE_KV[method].bind(env.GLD_CACHE_KV);env.GLD_CACHE_KV[method]=async(...args)=>{physical[method]++;return original(...args);};}
 env.GLD_PUBLIC_CACHE_MIGRATION='source-bootstrap';
 const sign=p=>{const b=Buffer.from(JSON.stringify(p)).toString('base64url');return b+'.'+createHmac('sha256',env.SERVER_SECRET).update(b).digest('base64url');};
-const adminToken=sign({sid:'ADMIN',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});let ownerToken='';
+let adminToken=sign({sid:'ADMIN',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});let ownerToken='';
 const roles={admin:()=>adminToken,owner:()=>ownerToken,public:()=>''};
 async function as(role,path,body){token=roles[role]();return call(path,body);}
 async function ok(role,path,body){const x=await as(role,path,body);assert.equal(x.r.status,200,path+': '+JSON.stringify(x.j));assert.notEqual(x.j.success,false,path+': '+JSON.stringify(x.j));return x;}
@@ -109,7 +109,7 @@ try{
  // Expiry and admin revocation deny writes before mutating.
  const decoded=JSON.parse(Buffer.from(capability.split('.')[0],'base64url'));
  ownerToken=sign({...decoded,exp:Date.now()-1});await assertStatus('owner','/commerce?action=anunciante&advertiserId=A',undefined,401);
- values.set('admin:access:v72:ADMIN',JSON.stringify({activo:false,revision:'revoked'}));ownerToken=capability;await assertStatus('owner','/commerce?action=anunciante&advertiserId=A',undefined,401);values.delete('admin:access:v72:ADMIN');
+ const accessActor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('private-access-v201:ADMIN'));const revoked=await accessActor.fetch(new Request('https://access.internal/',{method:'POST',body:JSON.stringify({op:'private-access201',sid:'ADMIN',action:'revoke'})}));assert.equal(revoked.status,200);const revocation=(await revoked.json()).value;ownerToken=capability;await assertStatus('owner','/commerce?action=anunciante&advertiserId=A',undefined,401);adminToken=sign({sid:'ADMIN',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:revocation.state.version});
  // The proprietor delegates; GH only identifies the proprietor and opens the panel.
  let detail=(await ok('admin','/superadmin/advertisers/A')).j;
  assert.equal(detail.propietarios[0].nombre,'Propietario de prueba');assert.equal(detail.propietarios[0].mail,'persona@test.invalid');assert(!JSON.stringify(detail.propietarios).includes('test-password'));
@@ -171,6 +171,40 @@ try{
  assert.equal(rows.get('solicitudes_anunciante/'+claim.j.solicitud_id).estado,'APROBADA');
  assert(rows.get('solicitudes_anunciante/'+claim.j.solicitud_id).verificacion_titularidad);
  await assertStatus('owner','/commerce?action=anunciante&advertiserId=A',undefined,401);
+ // Ownership changes go through the complete Worker, source, KV, SQLite and renewed sessions.
+ seed('suscriptores','X',{mail:'next@test.invalid',nombre:'Siguiente titular',clave:'test-password',activo:true,email_verificado:true});
+ values.set('admin:index:subscribers:v2',JSON.stringify({results:[{suscriptor_id:'M',nombre:'Manager de prueba',mail:'manager@test.invalid',activo:true,clave:'NO_PUBLICAR'},{suscriptor_id:'X',nombre:'Siguiente titular',mail:'next@test.invalid',activo:true}]}));
+ ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'persona@test.invalid',clave:'test-password'})).j.token;
+ const oldOwnerToken=ownerToken;
+ let ownershipDetail=(await ok('admin','/superadmin/advertisers/A')).j;
+ assert.equal(ownershipDetail.propietarios.length,1);assert.equal(ownershipDetail.propietarios[0].suscriptor_id,'S');assert.equal(typeof ownershipDetail.revision_titularidad,'string');
+ const ownerMutation=(detail,sid,active)=>({suscriptor_id:sid,rol:'PROPIETARIO',activo:active,revision:detail.relaciones.find(r=>r.suscriptor_id===sid)?.revision||detail.revision_vinculo_nuevo,revision_titularidad:detail.revision_titularidad});
+ const staleTransfer=ownerMutation(ownershipDetail,'X',true);
+ const lookup=await ok('admin','/superadmin/advertisers/A/responsables?q=manager%40test.invalid');assert.equal(lookup.j.results[0].suscriptor_id,'M');assert.equal(lookup.calls.length,0);assert(!JSON.stringify(lookup.j).includes('NO_PUBLICAR'));
+ await assertStatus('owner','/superadmin/advertisers/A/responsables?q=manager%40test.invalid',undefined,401);
+ const preservedDelegate=structuredClone(rows.get('suscriptor_anunciante/N__A'));assert.equal(preservedDelegate.activo,true);
+ await ok('admin','/superadmin/advertisers/A/responsables',ownerMutation(ownershipDetail,'M',true));
+ assert.equal(rows.get('suscriptor_anunciante/R').activo,false);assert.equal(rows.get('suscriptor_anunciante/M__A').rol,'PROPIETARIO');assert.equal(rows.get('suscriptor_anunciante/M__A').activo,true);assert.deepEqual(rows.get('suscriptor_anunciante/N__A'),preservedDelegate);
+ ownerToken=oldOwnerToken;await assertStatus('owner','/commerce/team?advertiserId=A',undefined,401);
+ ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'persona@test.invalid',clave:'test-password'})).j.token;await assertStatus('owner','/commerce/team?advertiserId=A',undefined,403);
+ await assertStatus('admin','/superadmin/advertisers/A/responsables',staleTransfer,409);
+ ownershipDetail=(await ok('admin','/superadmin/advertisers/A')).j;assert.deepEqual(ownershipDetail.propietarios.map(x=>x.suscriptor_id),['M']);
+ assert.equal((await ok('admin','/superadmin/advertisers/A')).calls.length,0,'La ficha GH preparada se reutiliza sin lecturas Firestore');
+ ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'manager@test.invalid',clave:'test-password'})).j.token;
+ const newOwnerToken=ownerToken;assert.equal((await ok('owner','/commerce/team?advertiserId=A')).j.results.filter(x=>x.activo&&x.rol==='PROPIETARIO').length,1);
+ await ok('admin','/superadmin/advertisers/A/responsables',ownerMutation(ownershipDetail,'M',false));
+ ownershipDetail=(await ok('admin','/superadmin/advertisers/A')).j;assert.equal(ownershipDetail.propietarios.length,0);assert.deepEqual(rows.get('suscriptor_anunciante/N__A'),preservedDelegate);
+ ownerToken=newOwnerToken;await assertStatus('owner','/commerce/team?advertiserId=A',undefined,401);
+ assert.equal((await ok('admin','/superadmin/advertisers/A/panel-access',{})).j.relacion.rol,'ADMINISTRADOR');
+ const activeOwners=()=>[...rows.values()].filter(r=>r.anunciante_id==='A'&&r.rol==='PROPIETARIO'&&r.activo===true);
+ assert.equal(activeOwners().length,0);
+ ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'next@test.invalid',clave:'test-password'})).j.token;
+ const newClaim=await ok('owner','/suscriptores',{action:'solicitar_anunciante',modo:'RECLAMAR',anunciante_id:'A',motivo:'Soy titular y puedo acreditar documentación comercial',mail:'next@test.invalid'});
+ assert.equal(activeOwners().length,0,'Enviar el reclamo no concede titularidad');
+ await ok('admin','/superadmin/moderation/resolve',{tipo:'ANUNCIANTE',id:newClaim.j.solicitud_id,decision:'APROBAR',verificacion:'Titularidad confirmada mediante documentación comercial presentada'});
+ assert.deepEqual(activeOwners().map(x=>x.suscriptor_id),['X']);assert.equal(rows.get('solicitudes_anunciante/'+newClaim.j.solicitud_id).estado,'APROBADA');
+ assert.deepEqual((await ok('admin','/superadmin/advertisers/A')).j.propietarios.map(x=>x.suscriptor_id),['X']);
+ console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation preservation, zero owners, independent GH access and verified claim.');
  fs.mkdirSync('docs/evidencias',{recursive:true});fs.writeFileSync('docs/evidencias/roles159-local.json',JSON.stringify({entorno:'LOCAL_SIMULADO_NO_FACTURACION',version:'159',fecha:new Date().toISOString(),requests:reports.map(r=>({event:r.event,path:r.path,action:r.action,status:r.status,request_id:r.request_id,firestore:r.totals,kv:r.kv,sql:r.public_store119||null,consumption:r.consumption||null}))},null,2));
  console.log('PASS administrative panel: read/save web, advertiser scope, expiry, revocation, account isolation; owner-only delegation, exact-email lookup, manager restrictions, explicit empty admin permissions, revocation, protected proprietor, no GH password reset; verified claim context.');
 }finally{globalThis.fetch=original;}
