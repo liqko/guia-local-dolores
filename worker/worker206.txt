@@ -5252,7 +5252,7 @@ async function advertiserDetailV2({ db, advertiserId }) {
     db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual("suscriptor_anunciante", "anunciante_id", aid, 500)
   ]);
   if (!advertiser && !admin) return { success: false, message: "Anunciante no encontrado" };
-  return { success: true, publicidad_reglas_version:147, revision_comercial:await commercialRevisionInternal(admin||{}), revision_perfil:await fieldRevisionInternal(advertiser||{},PROFILE_REVISION_FIELDS_INTERNAL), revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await fieldRevisionInternal(row,SEDE_REVISION_FIELDS_INTERNAL)]))), anunciante: advertiser || {}, administracion: admin || {}, sedes, propietarios:await ownerSummaries159(db,relations), relaciones: await Promise.all(relations.map(async row=>({...publicRelation155(row),revision:await wholeRevisionInternal(row)}))), revision_vinculo_nuevo:await wholeRevisionInternal({}), uso_funcionalidades: await advertiserUsageV62(db,aid) };
+  return { success: true, publicidad_reglas_version:147, revision_comercial:await commercialRevisionInternal(admin||{}), revision_perfil:await fieldRevisionInternal(advertiser||{},PROFILE_REVISION_FIELDS_INTERNAL), revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await fieldRevisionInternal(row,SEDE_REVISION_FIELDS_INTERNAL)]))), anunciante: advertiser || {}, administracion: admin || {}, sedes, propietarios:await ownerSummaries159(db,relations), revision_titularidad:await ownershipRevision155(relations), relaciones: await Promise.all(relations.map(async row=>({...publicRelation155(row),revision:await wholeRevisionInternal(row)}))), revision_vinculo_nuevo:await wholeRevisionInternal({}), uso_funcionalidades: await advertiserUsageV62(db,aid) };
 }
 async function subscriberDetailV2({ db, subscriberId }) {
   const sid=text42(subscriberId);
@@ -13714,15 +13714,18 @@ async function verifyAdminPanel155(env,request,p){
  return {ok:true,sid:p.sid,admin_panel:true,admin_role:p.admin_role,aid:p.aid,exp:p.exp,auth:[{anunciante_id:p.aid,anunciante_nombre:p.nombre,rol:'ADMINISTRADOR',permisos:ADMIN_PANEL_PERMISSIONS155,activo:true}]};
 }
 function activeSessionRelation155(row){return row.activo===undefined||truthy(row.activo);}
+function activeOwners155(rows){return rows.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));}
+async function ownershipRevision155(rows){return wholeRevisionInternal({owners:activeOwners155(rows).map(r=>[String(r.suscriptor_id||''),String(r.id||r.relacion_id||r.suscriptor_anunciante_id||'')]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))});}
 function publicRelation155(row){return {id:String(row.id||row.relacion_id||row.suscriptor_anunciante_id||''),suscriptor_id:String(row.suscriptor_id||''),anunciante_id:String(row.anunciante_id||''),rol:String(row.rol||''),permisos:String(row.permisos||''),permisos_definidos:row.permisos_definidos===true,activo:truthy(row.activo)};}
 // Ownership changes share the existing administration document as a CAS fence.
-async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],expectedRevision,advertiserName}){
+async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],expectedRevision,expectedOwnershipRevision,advertiserName}){
  if(!aid||!sid||String(aid).includes('/')||String(sid).includes('/'))throw httpError('Identificador de titularidad inválido.',400);
  const fence=await db.getVersioned('anunciantes_administracion',aid);
  if(!fence.doc||!fence.updateTime)throw httpError('Falta la revisión administrativa del anuncio.',409);
  const rows=await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,501);
  if(rows.length>=501)throw httpError('Demasiados vínculos; requiere revisión.',409);
- const seen=new Set(),owners=rows.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));
+ if(expectedOwnershipRevision!==undefined&&expectedOwnershipRevision!==await ownershipRevision155(rows))throw httpError('La titularidad cambió. Volvé a abrir la ficha.',409);
+ const seen=new Set(),owners=activeOwners155(rows);
  for(const row of rows){const key=String(row.suscriptor_id||'');if(!key||seen.has(key))throw httpError('Vínculos duplicados: resolver antes de modificar titularidad.',409);seen.add(key);}
  if(owners.length>1&&(!active||expectedRevision===undefined))throw httpError('Existen múltiples propietarios históricos; Gran Hermano debe asignar expresamente un titular.',409);
  const previous=rows.find(r=>String(r.suscriptor_id)===sid);
@@ -13754,7 +13757,7 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(auth.owner&&(!delegationFence?.doc||!delegationFence.updateTime))throw httpError('Falta la revisión administrativa.',409);
  const [subscriber,advertiser,admin,relations]=await Promise.all([db.cachedSubscriberProjection(sid),db.get('anunciantes',aid),delegationFence?delegationFence.doc:db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid),db.queryEqual('suscriptor_anunciante','anunciante_id',aid,501)]);
  if(relations.length>=501)throw httpError('Demasiados vínculos; requiere revisión.',409);
- if(auth.owner){const owners=relations.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));if(owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
+ if(auth.owner){const owners=activeOwners155(relations);if(owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
  if(!subscriber||(subscriber.activo!==undefined&&subscriber.activo!==null&&subscriber.activo!==''&&!truthy(subscriber.activo)&&body.activo)||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
  const matches=relations.filter(r=>String(r.suscriptor_id)===sid);
  if(matches.length>1)throw httpError('Hay vínculos duplicados para este usuario. Requieren revisión antes de cambiar permisos.',409);
@@ -13773,7 +13776,7 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(role==='MANAGER'&&body.activo&&!perms.length)throw httpError('Seleccioná al menos una función para el manager.',400);
  if(perms.some(x=>!allowed.includes(x)))throw httpError('Solo se pueden delegar funciones disponibles para este anunciante.',400);
  const next={suscriptor_id:sid,anunciante_id:aid,anunciante_nombre:String(advertiser.nombre||aid),rol:role,permisos:perms.join(', '),permisos_definidos:role!=='PROPIETARIO',activo:body.activo};
- if(role==='PROPIETARIO'){if(!isTopAdmin(auth))throw httpError('Sin autorización de titularidad.',403);return commitOwnership155({db,env,aid,sid,actor:auth.sid,active:body.activo,advertiserName:advertiser.nombre,expectedRevision:body.revision});}
+ if(role==='PROPIETARIO'){if(!isTopAdmin(auth))throw httpError('Sin autorización de titularidad.',403);if(typeof body.revision_titularidad!=='string'||!body.revision_titularidad)throw httpError('Volvé a abrir la ficha para confirmar la titularidad actual.',409);return commitOwnership155({db,env,aid,sid,actor:auth.sid,active:body.activo,advertiserName:advertiser.nombre,expectedRevision:body.revision,expectedOwnershipRevision:body.revision_titularidad});}
  if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
  // The centralized relation mutation now revokes before and after its write.
  const [saved]=await db.commitPatches([{collection:'suscriptor_anunciante',id,before:current.doc,patch:{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},options:current.doc?{updateTime:current.updateTime,subscriberId:sid}:{newDocument:true,mustNotExist:true,subscriberId:sid}},...(delegationFence?[{collection:'anunciantes_administracion',id:aid,before:delegationFence.doc,patch:{revision_titularidad:crypto.randomUUID()},options:{updateTime:delegationFence.updateTime}}]:[])]);
@@ -13813,7 +13816,7 @@ async function routeAdvertiserAccess155(ctx){
 function roleName159(value){return String(value||'').trim().toUpperCase().replace('COADMINISTRADOR','ADMINISTRADOR');}
 function contactSummary159(row,sid){return {suscriptor_id:String(sid),nombre:String(row?.nombre||''),mail:String(row?.mail||''),whatsapp:String(row?.whatsapp||row?.telefono||'')};}
 async function ownerSummaries159(db,relations){
- const ids=[...new Set(relations.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)).map(r=>String(r.suscriptor_id||'')).filter(Boolean))];
+ const ids=[...new Set(activeOwners155(relations).map(r=>String(r.suscriptor_id||'')).filter(Boolean))];
  return Promise.all(ids.map(async sid=>contactSummary159(await db.cachedSubscriberProjection(sid),sid)));
 }
 async function ownerTeamRoute159(ctx){
