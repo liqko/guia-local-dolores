@@ -14,11 +14,34 @@ on:
       - "**/*.md"
   workflow_dispatch:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "21 4 * * *"
 concurrency:
   group: firebase-hosting-live
   cancel-in-progress: false
 jobs:
+  private_daily:
+    name: Actualizar y confirmar edición diaria de Gran Hermano
+    if: github.ref == 'refs/heads/main' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Confirmar la edición privada con recuperación acotada
+        run: |
+          set -euo pipefail
+          cutoff=$(node --input-type=module -e "import {ultimoCorte} from './scripts/aplicar-corte-paquetes-ciudad.mjs';console.log(ultimoCorte())")
+          for delay in 0 10 30; do
+            sleep "$delay"
+            if node scripts/publicar-paquetes-ciudad.mjs private '' "$cutoff"; then exit 0; fi
+          done
+          exit 1
   control_integral_previo:
     name: Control de seguridad antes de publicar
     runs-on: ubuntu-latest
@@ -78,7 +101,6 @@ jobs:
       - name: Verificar integridad de las páginas antes de publicar
         run: |
           node tests/publication-integrity.mjs
-          node --test tests/seo-publico.test.mjs
           node --test tests/public-territory.test.mjs tests/paquete-ciudad.test.mjs tests/observabilidad/corte-ciudad.test.mjs tests/publicacion-generica.test.mjs tests/empleo-publico-local.test.cjs
       - name: Preparar exclusivamente archivos de plataforma para Hosting
         run: |
@@ -115,7 +137,8 @@ jobs:
         id: paquetes
         env:
           GLD_STAGE_UNCHANGED: ${{ steps.catalogo.outputs.changed == 'true' && '1' || '0' }}
-          GLD_REUSE_PUBLISHED: ${{ steps.bloque.outputs.base != '' && '1' || '0' }}
+          GLD_REUSE_PUBLISHED: '1'
+          GLD_PRIVATE_DAILY_SEPARATE: '1'
         run: |
           export GLD_HOSTING_PLAN="$RUNNER_TEMP/gld-hosting-base.json"
           if [ "$GITHUB_EVENT_NAME" = push ]; then
@@ -123,18 +146,20 @@ jobs:
           else
             node scripts/publicar-paquetes-ciudad.mjs cut hosting-public
           fi
-      - name: Generar páginas SEO y sitemap desde las copias públicas
-        if: steps.bloque.outputs.base == ''
-        run: node plataforma/seo-generador.mjs hosting-public
       - name: Versionar recursos de Carcasa y sus módulos públicos
+        if: steps.bloque.outputs.base != '' || steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true'
         run: node scripts/versionar-recursos-publicos.mjs hosting-public
-      - uses: FirebaseExtended/action-hosting-deploy@v0
+      - name: Publicar la plataforma conservando el SEO instalado
+        id: publicar
         if: steps.bloque.outputs.base == '' && (steps.codigo.outputs.changed == 'true' || steps.catalogo.outputs.changed == 'true' || steps.paquetes.outputs.changed == 'true')
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
-          channelId: live
-          projectId: anunciantes-guialocal
+        env:
+          GLD_HOSTING_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/gld-hosting" --no-save --package-lock=false --ignore-scripts google-auth-library@9.15.1
+          export NODE_PATH="$RUNNER_TEMP/gld-hosting/node_modules"
+          export GLD_HOSTING_PLAN="$RUNNER_TEMP/gld-hosting-base.json"
+          node scripts/desplegar-hosting.mjs hosting-public code
       - name: Publicar el bloque aislado conservando los hashes activos
         if: steps.bloque.outputs.base != ''
         env:
@@ -153,6 +178,33 @@ jobs:
             install -D "hosting-public$path" "$stage$path"
           done
           node scripts/desplegar-hosting.mjs "$stage" overlay '' "$GLD_HOSTING_EXPECTED"
+      - name: Publicar sólo el índice de vigencia si los paquetes siguen iguales
+        if: steps.paquetes.outputs.watermark == 'true'
+        env:
+          GLD_HOSTING_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/gld-hosting" --no-save --package-lock=false --ignore-scripts google-auth-library@9.15.1
+          export NODE_PATH="$RUNNER_TEMP/gld-hosting/node_modules"
+          export GLD_HOSTING_PLAN="$RUNNER_TEMP/gld-hosting-base.json"
+          stage="$RUNNER_TEMP/gld-hosting-watermark"
+          index=plataforma/paquetes-ciudad/publicacion.json
+          install -D "hosting-public/$index" "$stage/$index"
+          node scripts/desplegar-hosting.mjs "$stage" watermark
+      - name: Confirmar el corte publicado
+        id: confirmar
+        if: github.event_name != 'push' && steps.paquetes.outputs.cutoff != ''
+        env:
+          CORTE: ${{ steps.paquetes.outputs.cutoff }}
+          GLD_PRIVATE_DAILY_SEPARATE: '1'
+          GLD_VERIFY_PUBLISHED: ${{ (steps.paquetes.outputs.changed == 'true' || steps.paquetes.outputs.watermark == 'true' || steps.catalogo.outputs.changed == 'true') && '1' || '0' }}
+        run: |
+          set -euo pipefail
+          for delay in 0 10 30; do
+            sleep "$delay"
+            if node scripts/publicar-paquetes-ciudad.mjs commit hosting-public "$CORTE"; then exit 0; fi
+          done
+          exit 1
       - name: Preparar comprobación real del navegador
         if: steps.paquetes.outputs.changed == 'true' || github.event_name == 'push'
         run: npm install --no-save --package-lock=false playwright@1.55.0
@@ -168,8 +220,36 @@ jobs:
           name: carcasa-eventos-publico
           path: test-results/carcasa-eventos-public.json
           retention-days: 7
-      - name: Confirmar el corte publicado
-        if: github.event_name != 'push' && steps.paquetes.outputs.cutoff != ''
+      - name: Regenerar y recuperar SEO desde la edición instalada
+        id: seo
+        if: ${{ !cancelled() && steps.bloque.outputs.base == '' && (steps.confirmar.outcome == 'success' || steps.publicar.outcome == 'success' && github.event_name == 'push') }}
         env:
-          CORTE: ${{ steps.paquetes.outputs.cutoff }}
-        run: node scripts/publicar-paquetes-ciudad.mjs commit hosting-public "$CORTE"
+          GLD_HOSTING_CREDENTIALS: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_ANUNCIANTES_GUIALOCAL }}
+        run: |
+          set -euo pipefail
+          if ! node --test tests/seo-publico.test.mjs; then
+            echo 'SEO pendiente: falló la comprobación del generador. Se conservan la edición SEO activa y el corte confirmado.' >> "$GITHUB_STEP_SUMMARY"
+            echo "::error title=SEO pendiente::No aprobaron las pruebas del generador."
+            exit 1
+          fi
+          export NODE_PATH="$RUNNER_TEMP/gld-hosting/node_modules"
+          for delay in 0 5 15; do
+            stage=$(mktemp -d "$RUNNER_TEMP/gld-seo-XXXXXX")
+            export GLD_HOSTING_PLAN="$stage.plan.json"
+            sleep "$delay"
+            if node plataforma/seo-generador.mjs "$stage" --live; then
+              if [[ ! -f "$GLD_HOSTING_PLAN" ]]; then
+                echo 'SEO vigente. Se conservan los archivos activos.' >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              if npm install --prefix "$RUNNER_TEMP/gld-hosting" --no-save --package-lock=false --ignore-scripts google-auth-library@9.15.1 &&
+                 node scripts/desplegar-hosting.mjs "$stage" seo; then
+                echo 'SEO confirmado sobre la edición pública instalada.' >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            echo "::warning title=SEO pendiente::Se mantienen las páginas vigentes. Se reintentará la generación."
+          done
+          echo 'SEO pendiente tras tres intentos. El corte confirmado y la edición privada se conservan. El próximo corte volverá a intentarlo.' >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=SEO pendiente::La edición SEO no pudo confirmarse. Revisá el paso SEO."
+          exit 1

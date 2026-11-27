@@ -3,7 +3,47 @@ import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {generarSeoPublico} from '../plataforma/seo-generador.mjs';
+import {generarSeoPublico,prepararSeoInstalado} from '../plataforma/seo-generador.mjs';
+
+test('la verificación SEO ocurre después de confirmar el corte y conserva un aviso recuperable',async()=>{
+  const workflow=await readFile(new URL('../.github/workflows/firebase-hosting-merge.yml',import.meta.url),'utf8');
+  const verify=workflow.indexOf('node --test tests/seo-publico.test.mjs');
+  assert(verify>workflow.indexOf('name: Confirmar el corte publicado'));
+  assert(verify>workflow.indexOf('name: Comprobar carcasa y Eventos publicados'));
+  const step=workflow.slice(workflow.indexOf('id: seo'));
+  assert(step.includes("steps.confirmar.outcome == 'success'"));
+  assert.match(step,/for delay in 0 5 15/);
+  assert.match(step,/GITHUB_STEP_SUMMARY/);
+  assert.match(step,/::error title=SEO pendiente::/);
+});
+test('SEO conserva la edición activa ante un paquete ausente y reintenta sobre la misma revisión',async t=>{
+  const root=await mkdtemp(join(tmpdir(),'gld-seo-recovery-'));t.after(()=>rm(root,{recursive:true,force:true}));
+  const cities=[{ciudad_id:'A',ciudad_visible:'Dolores',provincia_id:'BUE',pais_id:'ARG'}];
+  const stage=join(root,'stage'),planPath=join(root,'seo.plan.json'),calls=[];
+  let sitemap='',missing=true,cutoff=1;
+  const read=async input=>{
+    const path=new URL(input).pathname;calls.push(path);
+    if(path==='/sitemap.xml')return new Response(sitemap,{status:sitemap?200:404});
+    if(path.endsWith('/territorio-cache.js'))return new Response('const published = '+JSON.stringify({data:{ciudades:cities}})+';',{headers:{etag:'"territory"'}});
+    if(path.endsWith('/publicacion.json'))return Response.json({cutoff,manifest:{A:{key:'QQ',revision:7,deltas:[]}}},{headers:{etag:'"index"'}});
+    if(missing)return new Response(null,{status:404});
+    return Response.json({city:'A',revision:7,modules:{events:{success:true,events:[{nombre_evento:'Visible'},{nombre_evento:'Restringido',bloqueado18:true}]}}});
+  };
+  await assert.rejects(prepararSeoInstalado(stage,{planPath,read}),/HTTP 404/);
+  await assert.rejects(readFile(planPath),{code:'ENOENT'});
+  missing=false;
+  assert.equal((await prepararSeoInstalado(stage,{planPath,read})).changed,true);
+  assert.deepEqual(JSON.parse(await readFile(planPath,'utf8')),{status:200,etag:'"index"',territoryEtag:'"territory"'});
+  const events=await readFile(join(stage,'seo/dolores-bue-arg/eventos/index.html'),'utf8');
+  assert.match(events,/Visible/);
+  assert.doesNotMatch(events,/Restringido/);
+  sitemap=await readFile(join(stage,'sitemap.xml'),'utf8');
+  cutoff++;
+  calls.length=0;
+  assert.deepEqual(await prepararSeoInstalado(join(root,'none'),{planPath,read}),{changed:false});
+  assert.equal(calls.length,3);
+  assert(!calls.some(path=>path.includes('/completo-')));
+});
 
 test('genera SEO y sitemap por ciudad desde copia pública sin consultar APIs', async()=>{
   const root=await mkdtemp(join(tmpdir(),'gld-seo-'));

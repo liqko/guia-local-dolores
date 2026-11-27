@@ -1,15 +1,17 @@
-import {readFile, writeFile, mkdir} from 'node:fs/promises';
+import {readFile, writeFile, mkdir, appendFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 
 // Solo utiliza copias públicas preparadas para Hosting. No consulta servicios privados.
 const ORIGIN='https://guialocal.ar';
+const HOSTING='https://anunciantes-guialocal.web.app';
 const escapeHtml = v => String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const slug = v => String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
   .replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,85);
 const unique = a => [...new Set(a.filter(Boolean))];
-const readable = row => row && typeof row==='object' && !row.contenido_adulto && row.estado_moderacion!=='RECHAZADO';
+const readable = row => row && typeof row==='object' && !row.contenido_adulto && !row.bloqueado18 && row.estado_moderacion!=='RECHAZADO';
 const list = (book,name) => {
   const item=book?.modules?.[name];
   if(!item || item.success!==true)return [];
@@ -59,19 +61,21 @@ const publicacionesHtml=(rows,family)=>{
     return '<li><strong>'+escapeHtml(title)+'</strong>'+(details?': '+escapeHtml(details):'')+'</li>';
   }).join('')+'</ul>';
 };
-const parsePublished = source => {
+const parseCities = source => {
   const match=source.match(/^const published = (.+);$/m);
   if(!match)throw Error('No se encuentra el catálogo territorial publicado');
   const published=JSON.parse(match[1].replace(/^\s*\/\* GLD_TERRITORY_SNAPSHOT \*\/\s*/,''));
+  return published.data.ciudades.filter(c=>c.activa!==false);
+};
+const parsePublished = source => {
   const cityMatch=source.match(/^const paquetes = .*?JSON\.parse\(("(?:\\.|[^"\\])*")\);$/m);
   if(!cityMatch)throw Error('No se encuentra el manifiesto de paquetes de ciudad');
-  return {cities:published.data.ciudades.filter(c=>c.activa!==false), manifest:JSON.parse(JSON.parse(cityMatch[1]))};
+  return {cities:parseCities(source), manifest:JSON.parse(JSON.parse(cityMatch[1]))};
 };
 
-export async function generarSeoPublico(hostingDir){
+export async function generarSeoPublico(hostingDir,options={}){
   const root=join(hostingDir,'plataforma');
-  const source=await readFile(join(root,'territorio-cache.js'),'utf8');
-  const {cities,manifest}=parsePublished(source);
+  const {cities,manifest}=options.edition??parsePublished(await readFile(join(root,'territorio-cache.js'),'utf8'));
   const urls=[];
   const write=async (path,content) => {
     const absolute=join(hostingDir,path);
@@ -83,10 +87,10 @@ export async function generarSeoPublico(hostingDir){
   for(const city of cities){
     const info=manifest[city.ciudad_id];
     if(!info)continue;
-    let book;
-    try{book=JSON.parse(await readFile(join(root,'paquetes-ciudad',info.key,'completo-'+info.revision+'.json'),'utf8'));}
-    catch{continue;} // Nunca incluir rutas sin contenido disponible.
-    if(book.city!==city.ciudad_id||book.revision!==info.revision)continue;
+    const path='plataforma/paquetes-ciudad/'+info.key+'/completo-'+info.revision+'.json';
+    if(!/^[A-Za-z0-9_-]+$/.test(info.key)||!Number.isSafeInteger(info.revision))throw Error('Referencia SEO de paquete inválida');
+    const book=JSON.parse(await (options.readBook?.(path)??readFile(join(hostingDir,path),'utf8')));
+    if(book.city!==city.ciudad_id||book.revision!==info.revision||!book.modules)throw Error('El paquete público no corresponde a la edición SEO');
     const town=String(city.ciudad_visible||'').trim();
     const province=String(city.provincia_visible||'').trim();
     const place=[town,province].filter(Boolean).join(', ');
@@ -204,15 +208,42 @@ export async function generarSeoPublico(hostingDir){
         structured:{'@context':'https://schema.org','@type':'CollectionPage',name:cityTitle,url:canonical},destination:appLink(city)}));
     }
   }
-  const xml='<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+
+  const xml='<?xml version="1.0" encoding="UTF-8"?>\n'+(options.fingerprint?'<!-- gld-seo-sha256 '+options.fingerprint+' -->\n':'')+
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'+
     unique([ORIGIN+'/',ORIGIN+'/descubrir',...urls]).sort().map(url=>'  <url><loc>'+escapeHtml(url)+'</loc></url>').join('\n')+'\n</urlset>\n';
   await writeFile(join(hostingDir,'sitemap.xml'),xml,'utf8');
   await writeFile(join(hostingDir,'robots.txt'),'User-agent: *\nAllow: /\nSitemap: '+ORIGIN+'/sitemap.xml\n','utf8');
   return {cities:used.size,pages:urls.length};
 }
 
+export async function prepararSeoInstalado(stage,{read=fetch,planPath}={}){
+  const get=async(path,optional=false)=>{
+    const response=await read(HOSTING+path,{cache:'no-store',redirect:'error',signal:AbortSignal.timeout(20000),headers:{'Accept-Encoding':'identity'}});
+    if(optional&&response.status===404)return {response,text:''};
+    if(!response.ok)throw Error('SEO no pudo leer '+path+' (HTTP '+response.status+')');
+    return {response,text:await response.text()};
+  };
+  const [index,territory,sitemap]=await Promise.all([
+    get('/plataforma/paquetes-ciudad/publicacion.json'),get('/plataforma/territorio-cache.js'),get('/sitemap.xml',true),
+  ]);
+  const {manifest,schema}=JSON.parse(index.text);
+  if(!manifest||typeof manifest!=='object'||Array.isArray(manifest))throw Error('Índice SEO inválido');
+  const cities=parseCities(territory.text);
+  const fingerprint=createHash('sha256').update(await readFile(new URL(import.meta.url))).update(JSON.stringify({cities,manifest,schema})).digest('hex');
+  if(sitemap.text.includes('<!-- gld-seo-sha256 '+fingerprint+' -->'))return {changed:false};
+  const etag=index.response.headers.get('etag');
+  const territoryEtag=territory.response.headers.get('etag');
+  if(!planPath||!etag||!territoryEtag)throw Error('Falta la huella de la edición vigente para publicar SEO');
+  await mkdir(stage,{recursive:true});
+  const result=await generarSeoPublico(stage,{edition:{cities,manifest},fingerprint,readBook:async path=>(await get('/'+path)).text});
+  await writeFile(planPath,JSON.stringify({status:index.response.status,etag,territoryEtag}));
+  return {changed:true,...result};
+}
+
 if(process.argv[1]&&pathToFileURL(resolve(process.argv[1])).href===import.meta.url){
   const dir=process.argv[2];
-  if(!dir)throw Error('Uso: node scripts/generar-seo-publico.mjs <hosting-public>');
-  console.log(await generarSeoPublico(dir));
+  if(!dir)throw Error('Uso: node plataforma/seo-generador.mjs <hosting-public> [--live]');
+  const result=process.argv.includes('--live')?await prepararSeoInstalado(dir,{planPath:process.env.GLD_HOSTING_PLAN}):await generarSeoPublico(dir);
+  if(process.env.GITHUB_OUTPUT)await appendFile(process.env.GITHUB_OUTPUT,'changed='+Boolean(result.changed)+'\n');
+  console.log(result);
 }
