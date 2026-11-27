@@ -48,6 +48,7 @@ globalThis.fetch=async(url,options={})=>{
 
 seed('anunciantes','A',{anunciante_id:'A',nombre:'Comercio',ciudad_ids:['D']});
 values.set('catalogs:publicidad:v1',JSON.stringify({categorias:[{categoria_id:'CAT',ubicacion_id:'U',nombre:'Deportes'}],ubicaciones:[{ubicacion_id:'U',modulo:'GUIA',nombre:'Guía'}]}));
+values.set('catalogs:commerce:v1',JSON.stringify({niveles_anunciante:[{nivel_id:'CONFIG_GENERAL_ANUNCIANTES'}]}));
 let token='';
 async function call(path,body){calls.length=0;const make=()=>new Request('https://test.invalid'+path,{method:body?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify({...body,declaracion_publicacion:{aceptada:true,version:'2026-10-11'}})}:{})});let r=await worker.fetch(make(),env);if(!body&&r.status===503&&(await r.clone().json()).code==='COMMERCE_COPY_PREPARING'){assert.equal(calls.length,0);await env.GLD_PUBLIC_CACHE.runAlarms();r=await worker.fetch(make(),env);}return {r,j:await r.json(),calls:[...calls]};}
 env.GLD_PUBLIC_CACHE=sqliteNamespace(env,GldPublicCache119);
@@ -184,7 +185,7 @@ try{
  await assertStatus('owner','/superadmin/advertisers/A/responsables?q=manager%40test.invalid',undefined,401);
  const preservedDelegate=structuredClone(rows.get('suscriptor_anunciante/N__A'));assert.equal(preservedDelegate.activo,true);
  await ok('admin','/superadmin/advertisers/A/responsables',ownerMutation(ownershipDetail,'M',true));
- assert.equal(rows.get('suscriptor_anunciante/R').activo,false);assert.equal(rows.get('suscriptor_anunciante/M__A').rol,'PROPIETARIO');assert.equal(rows.get('suscriptor_anunciante/M__A').activo,true);assert.deepEqual(rows.get('suscriptor_anunciante/N__A'),preservedDelegate);
+ assert.equal(rows.get('suscriptor_anunciante/R').activo,false);assert.equal(rows.get('suscriptor_anunciante/M__A').rol,'PROPIETARIO');assert.equal(rows.get('suscriptor_anunciante/M__A').activo,true);assert.equal(rows.get('suscriptor_anunciante/N__A').activo,false);assert.equal(rows.get('suscriptor_anunciante/N__A').permisos,preservedDelegate.permisos);
  ownerToken=oldOwnerToken;await assertStatus('owner','/commerce/team?advertiserId=A',undefined,401);
  ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'persona@test.invalid',clave:'test-password'})).j.token;await assertStatus('owner','/commerce/team?advertiserId=A',undefined,403);
  await assertStatus('admin','/superadmin/advertisers/A/responsables',staleTransfer,409);
@@ -192,8 +193,12 @@ try{
  assert.equal((await ok('admin','/superadmin/advertisers/A')).calls.length,0,'La ficha GH preparada se reutiliza sin lecturas Firestore');
  ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'manager@test.invalid',clave:'test-password'})).j.token;
  const newOwnerToken=ownerToken;assert.equal((await ok('owner','/commerce/team?advertiserId=A')).j.results.filter(x=>x.activo&&x.rol==='PROPIETARIO').length,1);
+ const suspended=(await ok('owner','/commerce/team?advertiserId=A')).j.results.find(x=>x.suscriptor_id==='N');assert.equal(suspended.activo,false);
+ await ok('owner','/commerce/team/responsables',{advertiserId:'A',suscriptor_id:'N',rol:suspended.rol,activo:true,permisos:suspended.permisos.split(',').map(x=>x.trim()).filter(Boolean),revision:suspended.revision});
+ assert.equal(rows.get('suscriptor_anunciante/N__A').activo,true);
+ ownershipDetail=(await ok('admin','/superadmin/advertisers/A')).j;
  await ok('admin','/superadmin/advertisers/A/responsables',ownerMutation(ownershipDetail,'M',false));
- ownershipDetail=(await ok('admin','/superadmin/advertisers/A')).j;assert.equal(ownershipDetail.propietarios.length,0);assert.deepEqual(rows.get('suscriptor_anunciante/N__A'),preservedDelegate);
+ ownershipDetail=(await ok('admin','/superadmin/advertisers/A')).j;assert.equal(ownershipDetail.propietarios.length,0);assert.equal(rows.get('suscriptor_anunciante/N__A').activo,false);assert.equal(rows.get('suscriptor_anunciante/N__A').permisos,preservedDelegate.permisos);
  ownerToken=newOwnerToken;await assertStatus('owner','/commerce/team?advertiserId=A',undefined,401);
  assert.equal((await ok('admin','/superadmin/advertisers/A/panel-access',{})).j.relacion.rol,'ADMINISTRADOR');
  const activeOwners=()=>[...rows.values()].filter(r=>r.anunciante_id==='A'&&r.rol==='PROPIETARIO'&&r.activo===true);
@@ -204,7 +209,7 @@ try{
  await ok('admin','/superadmin/moderation/resolve',{tipo:'ANUNCIANTE',id:newClaim.j.solicitud_id,decision:'APROBAR',verificacion:'Titularidad confirmada mediante documentación comercial presentada'});
  assert.deepEqual(activeOwners().map(x=>x.suscriptor_id),['X']);assert.equal(rows.get('solicitudes_anunciante/'+newClaim.j.solicitud_id).estado,'APROBADA');
  assert.deepEqual((await ok('admin','/superadmin/advertisers/A')).j.propietarios.map(x=>x.suscriptor_id),['X']);
- console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation preservation, zero owners, independent GH access and verified claim.');
+ console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation suspension and ratification, zero owners, independent GH access and verified claim.');
  fs.mkdirSync('docs/evidencias',{recursive:true});fs.writeFileSync('docs/evidencias/roles159-local.json',JSON.stringify({entorno:'LOCAL_SIMULADO_NO_FACTURACION',version:'159',fecha:new Date().toISOString(),requests:reports.map(r=>({event:r.event,path:r.path,action:r.action,status:r.status,request_id:r.request_id,firestore:r.totals,kv:r.kv,sql:r.public_store119||null,consumption:r.consumption||null}))},null,2));
  console.log('PASS administrative panel: read/save web, advertiser scope, expiry, revocation, account isolation; owner-only delegation, exact-email lookup, manager restrictions, explicit empty admin permissions, revocation, protected proprietor, no GH password reset; verified claim context.');
 }finally{globalThis.fetch=original;}
