@@ -1,10 +1,10 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 216             ║
-// ║          VERSIÓN 216 · ENTREGA DEL PASO 4                 ║
+// ║                GUÍA LOCAL DOLORES · WORKER 217             ║
+// ║          VERSIÓN 217 · ENTREGA DEL PASO 4                 ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
-const WORKER_VERSION = '216';
+const WORKER_VERSION = '217';
 (function(root){
  'use strict';
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -216,14 +216,8 @@ var GLD_ACTIONS138 = (() => {
     // Only recovery checks an ambiguous publication; ordinary saves do not add reads.
     if(!recovering||!equal(await res.cache.get(key),value)){
      if(key===PUBLIC_KEY&&cityBookCaptureEnabled(res.env)&&res.env.GLD_PUBLIC_CACHE){
-      const day=cityBookDay(Date.now());
-      if(this.territoryMarkedDay===day){
-       this.metrics.shared_marker_reused=(this.metrics.shared_marker_reused||0)+1;
-      }else{
-       this.metrics.shared_marker_calls=(this.metrics.shared_marker_calls||0)+1;
-       await cityBookMarkShared(res.env,key);
-       this.territoryMarkedDay=day;
-      }
+      this.metrics.shared_marker_calls=(this.metrics.shared_marker_calls||0)+1;
+      await cityBookMarkShared(res.env,key);
      }
      await res.cache.put(key,value);
     }
@@ -11982,10 +11976,14 @@ class GldPublicCache119 {
   this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_shared (day INTEGER NOT NULL,kind TEXT NOT NULL,PRIMARY KEY(day,kind))');
   this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_due (day INTEGER NOT NULL,kind TEXT NOT NULL,city TEXT NOT NULL,PRIMARY KEY(day,kind,city))');
   this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_state (slot INTEGER PRIMARY KEY,cutoff INTEGER NOT NULL)');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_shared_revision (slot INTEGER PRIMARY KEY,revision INTEGER NOT NULL)');
   if(input.op==='city-book-mark-shared'){
    if(typeof input.kind!=='string'||!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(input.kind))throw Error('Invalid shared kind');
    const day=cityBookDay(Date.now());
-   this.query('INSERT OR IGNORE INTO city_book_shared(day,kind) VALUES(?,?)',day,input.kind);
+   this.state.storage.transactionSync(()=>{
+    this.query('INSERT OR IGNORE INTO city_book_shared(day,kind) VALUES(?,?)',day,input.kind);
+    this.query('INSERT INTO city_book_shared_revision(slot,revision) VALUES(1,1) ON CONFLICT(slot) DO UPDATE SET revision=revision+1');
+   });
    return {ok:true};
   }
   if(input.op==='city-book-add-due'){
@@ -11996,7 +11994,7 @@ class GldPublicCache119 {
   }
   if(input.op==='city-book-shared-changes'){
    const rows=this.query('SELECT day,kind FROM city_book_shared WHERE day>=?',input.from);
-   return {kinds:[...new Set(rows.filter(row=>row.day<input.to).map(row=>row.kind))],later:rows.some(row=>row.day>=input.to),due:this.query('SELECT kind,city FROM city_book_due WHERE day>=? AND day<?',input.from,input.to)};
+   return {kinds:[...new Set(rows.filter(row=>row.day<input.to).map(row=>row.kind))],later:rows.some(row=>row.day>=input.to),generation:this.query('SELECT revision FROM city_book_shared_revision WHERE slot=1')[0]?.revision??0,due:this.query('SELECT kind,city FROM city_book_due WHERE day>=? AND day<?',input.from,input.to)};
   }
   if(input.op==='city-book-recovery-track'||input.op==='city-book-recovery-list'){
    this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_recovery (aid TEXT PRIMARY KEY, since INTEGER NOT NULL)');
@@ -12310,8 +12308,7 @@ async function exportUrgentCityRows({env,cache,cutoff,scope,report}){
  return {urgent:true,after:cutoff,cutoff,complete:true,cities:[...cities.values()]};
 }
 
-async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report}){
- const features=await publicFeatures191(cache),schema=publicSchema191(features);
+async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report,recoverCurrent=false}){
  const from=cityBookDay(after),to=cityBookDay(cutoff),now=cityBookDay(Date.now());
  if(!Number.isSafeInteger(after)||!Number.isSafeInteger(cutoff)||after!==cityBookBoundary(from)||
     cutoff!==cityBookBoundary(to)||to<=from||to>now||from<now-CITY_BOOK_HORIZON||
@@ -12319,7 +12316,12 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   throw httpError('Ventana del corte inválida.',400);
  }
  const before=await cityBookSharedState(env,{op:'city-book-shared-changes',from,to});
- if(before.later)throw httpError('Cambió una regla pública después del cierre del corte.',503);
+ if(before.later&&!recoverCurrent)throw httpError('Cambió una regla pública después del cierre del corte.',503);
+ if(recoverCurrent&&!before.later)throw httpError('La recuperación excepcional requiere un corte bloqueado por reglas posteriores.',409);
+ // The historical shared rules were not recorded by earlier Workers. Only an
+ // explicitly requested authenticated recovery can use today's public state.
+ const recoveredAt=recoverCurrent?Date.now():null;
+ const features=await publicFeatures191(cache),schema=publicSchema191(features);
  const dirty=new Set(before.kinds),due=new Set(before.due.map(row=>row.kind+'\0'+row.city)),future=new Map();
  const territorial=await cache.get(PUBLIC_KEY);
  if(!territorial)throw httpError('Falta el catálogo territorial publicado.',503);
@@ -12330,7 +12332,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   return reads.get(key);
  };
  const snapshots=new Map();
- const atCut=(key,ids)=>{const ref=JSON.stringify([key,ids||null]);if(!snapshots.has(ref))snapshots.set(ref,cityBookActor(env,key,'city-book-read',{to,...(ids?{ids}: {})},report).then(result=>result.value));return snapshots.get(ref).then(value=>structuredClone(value));};
+ const atCut=(key,ids)=>{const ref=JSON.stringify([key,ids||null]);if(!snapshots.has(ref))snapshots.set(ref,cityBookActor(env,key,recoverCurrent?'get':'city-book-read',recoverCurrent?{}:{to,...(ids?{ids}: {})},report).then(result=>result.value));return snapshots.get(ref).then(value=>structuredClone(value));};
  const stored=key=>{
   if(!shared.has(key))shared.set(key,key===PUBLIC_KEY?Promise.resolve(territorial):cache.get(key));
   return shared.get(key);
@@ -12368,7 +12370,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
     return value;
    },
   };
-  return projectCityBookRows(spec,city,cutoff,ids,internal);
+  return projectCityBookRows(spec,city,recoveredAt??cutoff,ids,internal);
  }
  const cities=[],initial=[];
  for(const city of active){
@@ -12380,6 +12382,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   }
   const changes={},replacements={};
   for(const [name,spec] of Object.entries(features)){
+   if(recoverCurrent){replacements[name]=await projection(name,city,null);continue;}
    const delta=await journal(spec.store.prefix+city);
    const virtual=spec.virtual?await journal(spec.store.prefix+'VIRTUAL'):null;
    const ids=[...new Set([...delta.changes,...(virtual?.changes||[])].map(row=>row.id))];
@@ -12398,9 +12401,9 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   if(Object.keys(changes).length||Object.keys(replacements).length)cities.push({city,changes,replacements});
  }
  const afterRead=await cityBookSharedState(env,{op:'city-book-shared-changes',from,to});
- if(afterRead.later||afterRead.kinds.length!==before.kinds.length)throw httpError('Cambió una regla pública durante el corte.',503);
+ if((!recoverCurrent&&afterRead.later)||afterRead.generation!==before.generation||!samePublicValueInternal(afterRead.kinds,before.kinds))throw httpError('Cambió una regla pública durante el corte.',503);
  if(future.size)await cityBookSharedState(env,{op:'city-book-add-due',due:[...future.values()]});
- return {complete:true,after,cutoff,schema,cities,initial,retired:known.filter(city=>!active.has(city))};
+ return {complete:true,after,cutoff,schema,cities,initial,retired:known.filter(city=>!active.has(city)),...(recoveredAt===null?{}:{recoveredAt})};
 }
 const CITY_BOOK_ISSUER='https://token.actions.githubusercontent.com';
 const CITY_BOOK_AUDIENCE='guialocal:publicacion-ciudades';
@@ -12478,7 +12481,7 @@ async function routeCityBookCut({request,env,report}){
   if(state.cutoff!==cutoff)throw httpError('Primero completá el corte ordinario vigente.',409);
   return json(await exportUrgentCityRows({env,cache:createCache(env),cutoff,scope:data.scope,report}),200,{'Cache-Control':'no-store'});
  }
- if(!['read','read-public'].includes(data.op)||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
+ if(!['read','read-public','read-public-recovery'].includes(data.op)||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
  const installed=data.publishedCutoff;
  if(installed!==null&&(!Number.isSafeInteger(installed)||installed>cutoff||
     installed!==cityBookBoundary(cityBookDay(installed))))throw httpError('Referencia publicada inválida.',400);
@@ -12487,7 +12490,7 @@ async function routeCityBookCut({request,env,report}){
  const after=Math.max(installed??(cutoff-CITY_BOOK_DAY_MS),state.cutoff??0);
  await recoverCityBookPublications(env,report,after<cutoff?cutoff:null);
  const output=after===cutoff?{complete:true,after,cutoff,cities:[],initial:[],retired:[]}:
-  await exportCityBookCut({env,cache:createCache(env),after,cutoff,known:data.known,knownSchema:data.schema,report});
+  await exportCityBookCut({env,cache:createCache(env),after,cutoff,known:data.known,knownSchema:data.schema,report,recoverCurrent:data.op==='read-public-recovery'});
  if(data.op==='read'){
   try{const prepared=await dailySubscribers195(env,'stage',cutoff);report.private_daily195={status:prepared?.preparado?'staged':'pending',cutoff};}
   catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_PREPARE_FAILED'};}
