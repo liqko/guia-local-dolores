@@ -10,6 +10,37 @@
 - Las versiones anteriores se consultan en el historial Git, sin restituir copias al árbol de trabajo. Preparar y probar un cambio no autoriza instalarlo en Cloudflare.
 
 
+## Referencia de incorporación y ejecución — 27/11/2026
+
+**Leer esta sección al iniciar una sesión de desarrollo.** Es la entrada única a las fuentes existentes, no una nueva auditoría ni un estado paralelo. Aplicable a cualquier agente (Devin, Codex, ChatGPT). No releer todo el repositorio ni regenerar inventarios para adquirir contexto.
+
+### Plataforma y contrato técnico
+
+Guía Local es una plataforma territorial escalable por país, provincia y ciudad, con tres interfaces: Usuario (consulta pública, búsqueda, filtros y funciones de cuenta), Anunciante (ficha, sedes, equipo, publicaciones y condiciones comerciales) y Gran Hermano (administración, configuración, moderación, permisos y listados generales). Funcionalidades: Guía comercial, Eventos, Actividades, Promociones, Publicidad, Farmacias, Efemérides, Empleo, Favoritos, Reclamos y Territorio, según cobertura y estado de implementación. Carcasa es un contenedor, no una interfaz adicional. No asumir que cada función está implementada o validada en las tres interfaces.
+
+Firestore es la fuente de registros modificables; un único Worker controla permisos, operaciones y proyecciones; KV y Durable Objects/SQL sirven almacenamiento derivado y coordinación; Firebase Hosting distribuye la aplicación y paquetes públicos versionados por ciudad/módulo; el navegador conserva datos autorizados y recupera diferencias. La publicación pública ordinaria se realiza al corte común 01:00 Argentina, sólo si hay cambios; urgencias autorizadas y revocaciones de seguridad son excepciones. Las mutaciones privadas confirmadas se reflejan en su circuito operativo sin esperar el corte público, con proyección diferencial y sin repetir lecturas; la edición diaria administrativa conserva sus reglas y no sustituye la vigencia de permisos. Los límites, niveles y cupos provienen de configuración real. Conservar identidades, datos, historial y reglas del producto. Estos son requisitos de arquitectura, no certificación de que cada recorrido ya los cumpla.
+
+### Dónde consultar, según la intervención
+
+| Fuente existente | Uso |
+| --- | --- |
+| [Estado actual](auditorias/ESTADO_ACTUAL.md) | Leer el bloque operativo vigente y las decisiones relacionadas: versión instalada/candidata, pruebas aprobadas, dependencias, bloqueos y siguiente acción. No recorrer todo el historial si no es necesario. |
+| [Arquitectura y control](auditorias/ARQUITECTURA_Y_CONTROL.md) | Contrato funcional/económico vigente del 26/11, E1–E7, reglas de ingreso, sincronización, publicación y costos. |
+| [Paso 1: mapa dinámico](auditorias/transversal/MAPA_DINAMICO_PUNTO_1.md) | Entradas de interfaz, controles, condiciones, acciones dinámicas y excepciones. Consultar la fila afectada. |
+| [Paso 2: catálogo maestro](auditorias/transversal/CATALOGO_MAESTRO.md), [recorridos](auditorias/transversal/RECORRIDOS-PUNTO-2.md) | Identificar IDs AUD y árboles de acciones. El catálogo de 987 es un corte histórico; el definitivo de 989 se documenta en el control del Paso 3. No renumerar ni reconstruir por rutina. |
+| [Paso 3: control de cobertura](auditorias/transversal/CONTROL_PASO_3.md), [cadenas](auditorias/transversal/CADENAS_DEPENDENCIAS_PASO_3.md) | Dependencias, funciones sin consumidor acreditado y excepciones. La clasificación documental no acredita funcionamiento real. Consultar la cadena afectada y sus anexos cuando corresponda. |
+| [Paso 4: inventario único](auditorias/PASO4_INTERVENCIONES.json) | Seleccionar ID P4, tarea y número en orden_ejecuciones; conservar correlativos, evidencia, estado y pruebas. Leer sólo la intervención y dependencias necesarias; calcular totales desde el inventario vigente, no desde cifras históricas. |
+| [Control de módulos](docs/CONTROL_MODULOS.md) | Criterios de cierre de cada recorrido y verificación económica. |
+
+E1: cobertura de recorridos; E2: operaciones comunes; E3: publicación pública; E4: copias privadas/sincronización; E5: integración de clientes y retiro de duplicaciones; E6: pruebas y consumos; E7: entrega integrada y reversión. Son entregables de ingeniería, no nuevas auditorías.
+
+### Forma de ejecutar sin repetir trabajo
+
+1. Tomar la intervención autorizada y su siguiente acción comprobada; si se trata de desarrollo nuevo, identificar el contrato funcional aplicable y enlazarlo al inventario existente cuando corresponda.
+2. Cotejar únicamente el código vigente y los árboles/dependencias afectados. Reutilizar diagnósticos, resultados aprobados, pruebas y mecanismos compartidos. Resolver causas comunes en un solo cambio funcional completo, no una sucesión de parches por archivo o interfaz.
+3. Implementar y probar en la misma intervención con la puerta preventiva de la sección 5.1. No dedicar una sesión a inventariar nuevamente el proyecto ni repetir pruebas sin cambio que las afecte; los controles automáticos obligatorios de integración/publicación permanecen vigentes.
+4. Registrar evidencia, consumos, estado y siguiente acción en el inventario y estado maestro existentes; no crear otro informe de avance ni declarar cierres sin comprobación. El usuario autoriza publicación; cuando falte acceso productivo, registrar el bloqueo y continuar únicamente sobre trabajo independiente autorizado. No pedir ni almacenar credenciales en texto o en el repositorio.
+
 ## Continuidad y comunicación — instrucción vigente del usuario, 12/11/2026
 
 - Informar resultados concretos y bloqueos verificables, sin disculpas ni promesas de trabajo en segundo plano al terminar la sesión.
@@ -84,6 +115,21 @@ Cubrir, según aplique, permisos por rol/ciudad, alta, consulta, modificación, 
 - Identificar cada afirmación con versión, entorno, acción, fecha/hora, resultado esperado, observado y evidencia. Distinguir lectura/escritura/eliminación por cada servicio. «Sin medir» nunca significa cero.
 - Una prueba que pasa NO garantiza ausencia total de errores; comunicar cobertura y límites concretos.
 - Si faltan pruebas esenciales, el estado debe seguir «no validado». No promover a producción.
+
+## 5.1. Puerta preventiva obligatoria por intervención — 27/11/2026
+
+Aplicar durante el desarrollo original y antes de integrar o presentar un candidato, no como una segunda auditoría posterior. Elegir casos por contrato y dependencias reales; reutilizar pruebas aprobadas no afectadas. Cuando un escenario no corresponda, indicar el motivo brevemente.
+
+- **Integridad de extremo a extremo:** comprobar entrada, autorización, validación, persistencia confirmada, respuesta, proyección privada/pública y lectura final. Las copias deben derivarse del registro confirmado, no de un borrador anterior al guardado. Probar el efecto en los consumidores afectados, no sólo HTTP 200 o presencia de un botón.
+- **Datos y estados:** comprobar datos completos, mínimos, ausentes e incompatibles; rechazo explícito de combinaciones inválidas sin limpiar el formulario ni perder datos; conservar identidad, historial y condiciones otorgadas. Una acción sin cambios o cancelada no debe producir escrituras ni consumo de cupo.
+- **Transiciones y reversibilidad funcional:** probar tanto el cambio como su inversa (alta/edición, activar/desactivar/reactivar, asignar/revocar, aplicar/retirar excepción, renovar/vencer) cuando apliquen; comprobar transición entre reglas, fechas límite, estados anteriores y efectos programados. No confundir quitar una excepción con sobrescribir la condición base.
+- **Concurrencia y permisos:** comprobar cambios de estado, revisión, sesión y permisos entre consulta, preparación, confirmación y guardado; validar con precondición vigente en servidor. Una simulación no autoriza ejecutar sobre datos cambiados. Probar respuestas tardías, solicitudes duplicadas y revocaciones.
+- **Recuperación:** comprobar interrupción antes/después de persistir y antes de actualizar proyecciones; reintento idempotente que repare sólo lo pendiente sin repetir escrituras confirmadas, perder datos ni publicar copias obsoletas. Verificar recuperación tras recarga o desde otro dispositivo cuando aplique.
+- **Economía:** contar operaciones de todos los servicios afectados, incluyendo dependencias y efectos diferidos; justificar incrementos y evitar duplicaciones. No eliminar permisos, validaciones o consistencia para reducir costos. Distinguir simulación de medición real.
+- **Integridad estática:** ejecutar los controles vigentes del Worker completo (`tests/worker/diagnosticos-editor.cjs`, cuando se modifica el Worker), de sintaxis y de los archivos cambiados. No agregar diagnósticos ni ocultarlos con supresiones, exclusiones o cambios de configuración injustificados. Si un verificador difiere del editor productivo, no afirmar equivalencia ni ausencia de errores históricos sin evidencia.
+- **Pruebas de regresión:** incluir prueba positiva, negativa y de cada transición o fallo relevante; para correcciones, acreditar que la prueba reproduce el defecto anterior y pasa con el arreglo cuando sea técnicamente posible. No cambiar expectativas para hacer pasar CI: justificar con el contrato aprobado, conservar las garantías y comprobar la diferencia funcional/económica. Los aumentos de operaciones no se aceptan por actualizar contadores sin explicación.
+- **Revisión antes de integrar:** revisar el diff propio y los resultados de revisión automática del PR antes de fusionar. Confirmar o refutar hallazgos con evidencia; corregir los fallos funcionales nuevos del alcance y volver a ejecutar las pruebas afectadas. No fusionar ni recomendar publicación con defectos nuevos confirmados sin resolver o sin una excepción expresa del usuario debidamente registrada. Los problemas ajenos no se corrigen por iniciativa propia: se vinculan al inventario existente y se conserva el objetivo.
+- **Entrega:** separar candidato implementado, pruebas aprobadas, instalación, verificación autenticada y consumo real. Una prueba verde o una publicación de archivos no demuestra funcionamiento integral. Mantener reversión, autorización expresa y pruebas finales en producción controlada, sin introducir un entorno QA separado.
 
 ## 6. Registro de continuidad obligatorio
 Para cada circuito mantener un documento o ficha versionada con:
