@@ -2926,6 +2926,7 @@ async function subscriberLogin({ env, db, body }) {
     auth: enriched.map((x) => ({
       anunciante_id: x.anunciante_id,
       rol: x.rol,
+      activo: true,
       permisos: x.permisos
     }))
   };
@@ -2959,9 +2960,10 @@ function sessionAllows(session2, advertiserId, moduleName, { write = false } = {
   const role = text27(rel.rol).toUpperCase().replace("COADMINISTRADOR","ADMINISTRADOR");
   if (!["PROPIETARIO", "ADMINISTRADOR", "MANAGER"].includes(role)) return false;
   if(session2.admin_panel)return text27(session2.aid)===aid;
+  if(!activeSessionRelation155(rel))return false;
   if (write && moduleName === "modificar_datos" && role === "MANAGER") return false;
   if (moduleName === "modificar_datos") return role === "PROPIETARIO" || role === "ADMINISTRADOR" && (rel.permisos_definidos!==true || text27(rel.permisos).split(/[;,|\n]/).some(x=>x.trim().toUpperCase()==="MODIFICAR_DATOS"));
-  if(role==="PROPIETARIO")return truthy(rel.activo);
+  if(role==="PROPIETARIO")return activeSessionRelation155(rel);
   if(moduleName==="empleo"&&rel.permisos_definidos!==true)return role==="ADMINISTRADOR";
   if(moduleName==="publicidad"&&role==="ADMINISTRADOR"&&rel.permisos_definidos!==true)return rel.activo!==false;
   const aliases = {
@@ -5781,6 +5783,7 @@ async function subscriberLoginV2({env,db,body}){
       anunciante_id:x.anunciante_id,
       anunciante_nombre:x.anunciante_nombre,
       rol:x.rol,
+      activo:true,
       permisos:x.permisos,
       permisos_definidos:x.permisos_definidos===true
     }))
@@ -13710,6 +13713,7 @@ async function verifyAdminPanel155(env,request,p){
  if(!adminPanelRoute155(request,{action}))throw httpError('Esta sesión solo permite gestionar el panel del anunciante.',401);
  return {ok:true,sid:p.sid,admin_panel:true,admin_role:p.admin_role,aid:p.aid,exp:p.exp,auth:[{anunciante_id:p.aid,anunciante_nombre:p.nombre,rol:'ADMINISTRADOR',permisos:ADMIN_PANEL_PERMISSIONS155,activo:true}]};
 }
+function activeSessionRelation155(row){return row.activo===undefined||truthy(row.activo);}
 function publicRelation155(row){return {id:String(row.id||row.relacion_id||row.suscriptor_anunciante_id||''),suscriptor_id:String(row.suscriptor_id||''),anunciante_id:String(row.anunciante_id||''),rol:String(row.rol||''),permisos:String(row.permisos||''),permisos_definidos:row.permisos_definidos===true,activo:truthy(row.activo)};}
 // Ownership changes share the existing administration document as a CAS fence.
 async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],expectedRevision,advertiserName}){
@@ -13720,21 +13724,20 @@ async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],exp
  if(rows.length>=501)throw httpError('Demasiados vínculos; requiere revisión.',409);
  const seen=new Set(),owners=rows.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));
  for(const row of rows){const key=String(row.suscriptor_id||'');if(!key||seen.has(key))throw httpError('Vínculos duplicados: resolver antes de modificar titularidad.',409);seen.add(key);}
- if(owners.length>1)throw httpError('Existen múltiples propietarios históricos; requiere resolución expresa.',409);
+ if(owners.length>1&&(!active||expectedRevision===undefined))throw httpError('Existen múltiples propietarios históricos; Gran Hermano debe asignar expresamente un titular.',409);
  const previous=rows.find(r=>String(r.suscriptor_id)===sid);
  if(!active&&(!previous||roleName159(previous.rol)!=='PROPIETARIO'))throw httpError('No existe titularidad para revocar.',409);
- const transfer=owners.length===1&&(String(owners[0].suscriptor_id)!==sid||!active);
- const affected=owners.filter(r=>String(r.suscriptor_id)!==sid&&transfer);
+ const affected=active?owners.filter(r=>String(r.suscriptor_id)!==sid):[];
  const id=String(previous?.id||previous?.relacion_id||previous?.suscriptor_anunciante_id||sid+'__'+aid);
  const now=new Date().toISOString(),entries=[];
  for(const row of affected){
   const rid=String(row.id||row.relacion_id||'');const v=await db.getVersioned('suscriptor_anunciante',rid);
-  if(!v.doc||!v.updateTime)throw httpError('Cambió un permiso. Reintentá.',409);
+  if(!v.doc||!v.updateTime||String(v.doc.suscriptor_id)!==String(row.suscriptor_id)||String(v.doc.anunciante_id)!==aid||roleName159(v.doc.rol)!=='PROPIETARIO'||!truthy(v.doc.activo))throw httpError('Cambió un permiso. Reintentá.',409);
   entries.push({collection:'suscriptor_anunciante',id:rid,before:v.doc,patch:{activo:false,actualizado:now,actualizado_por:actor},options:{updateTime:v.updateTime}});
  }
  const v=await db.getVersioned('suscriptor_anunciante',id);
  if(v.doc&&(String(v.doc.suscriptor_id)!==sid||String(v.doc.anunciante_id)!==aid))throw httpError('Vínculo inconsistente.',409);
- if(previous&&!v.doc)throw httpError('Cambió el vínculo. Reintentá.',409);
+ if((previous&&!v.doc)||(v.doc&&!v.updateTime))throw httpError('Cambió el vínculo. Reintentá.',409);
  if(expectedRevision!==undefined&&expectedRevision!==await wholeRevisionInternal(v.doc||{}))throw httpError('Los permisos cambiaron. Volvé a abrir la ficha.',409);
  const patch={relacion_id:id,suscriptor_id:sid,anunciante_id:aid,rol:'PROPIETARIO',activo:active,...(advertiserName?{anunciante_nombre:advertiserName}:{}),permisos:'',permisos_definidos:false,actualizado:now,actualizado_por:actor,...(!v.doc?{fecha_alta:now}:{})};
  if(v.doc&&v.doc.activo===active&&roleName159(v.doc.rol)==='PROPIETARIO'&&!affected.length&&!extra.length)return {success:true,updated:false,relacion:publicRelation155(v.doc),revision:await wholeRevisionInternal(v.doc)};
@@ -13749,18 +13752,19 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(!sid||sid.includes('/')||!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(role)||typeof body.activo!=='boolean')throw httpError('Indicá usuario, rol y estado válidos.',400);
  const delegationFence=auth.owner?await db.getVersioned('anunciantes_administracion',aid):null;
  if(auth.owner&&(!delegationFence?.doc||!delegationFence.updateTime))throw httpError('Falta la revisión administrativa.',409);
- if(auth.owner){const live=await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,501);const owners=live.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));if(live.length>=501||owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
- const [subscriber,advertiser,admin,relations]=await Promise.all([db.cachedSubscriberProjection(sid),db.get('anunciantes',aid),db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid),db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500)]);
- if(!subscriber||subscriber.activo===false||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
+ const [subscriber,advertiser,admin,relations]=await Promise.all([db.cachedSubscriberProjection(sid),db.get('anunciantes',aid),delegationFence?delegationFence.doc:db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid),db.queryEqual('suscriptor_anunciante','anunciante_id',aid,501)]);
+ if(relations.length>=501)throw httpError('Demasiados vínculos; requiere revisión.',409);
+ if(auth.owner){const owners=relations.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));if(owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
+ if(!subscriber||(subscriber.activo!==undefined&&subscriber.activo!==null&&subscriber.activo!==''&&!truthy(subscriber.activo)&&body.activo)||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
  const matches=relations.filter(r=>String(r.suscriptor_id)===sid);
  if(matches.length>1)throw httpError('Hay vínculos duplicados para este usuario. Requieren revisión antes de cambiar permisos.',409);
  const previous=matches[0];
- if(auth.owner&&((previous&&roleName159(previous.rol)==='PROPIETARIO')||role==='PROPIETARIO'))throw httpError('La delegación no permite modificar la titularidad del anuncio.',403);
+ if(auth.owner&&((previous&&roleName159(previous.rol)==='PROPIETARIO'&&truthy(previous.activo))||role==='PROPIETARIO'))throw httpError('La delegación no permite modificar la titularidad del anuncio.',403);
  const id=previous?String(previous.id||previous.relacion_id||previous.suscriptor_anunciante_id):sid+'__'+aid;
  if(!id||id.includes('/'))throw httpError('Referencia de vínculo inválida.',409);
  const current=await db.getVersioned('suscriptor_anunciante',id);
  if(current.doc&&(String(current.doc.suscriptor_id)!==sid||String(current.doc.anunciante_id)!==aid))throw httpError('El vínculo no corresponde a esta persona y anunciante.',409);
- if(auth.owner&&roleName159(current.doc?.rol)==='PROPIETARIO')throw httpError('No se puede modificar la titularidad desde la delegación.',403);
+ if(auth.owner&&roleName159(current.doc?.rol)==='PROPIETARIO'&&truthy(current.doc?.activo))throw httpError('No se puede modificar la titularidad desde la delegación.',403);
  if(body.revision!==await wholeRevisionInternal(current.doc||{}))throw httpError('Los permisos cambiaron. Volvé a abrir la ficha.',409);
  const normalize=v=>[...new Set((Array.isArray(v)?v:String(v||'').split(/[;,|\n]/)).map(x=>String(x).trim().toUpperCase()).filter(Boolean))].sort();
  const allowed=normalize(admin?.funcionalidades).concat(['PUBLICIDAD','EMPLEO']),perms=role==='PROPIETARIO'?[]:normalize(body.permisos);
@@ -13769,8 +13773,8 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(role==='MANAGER'&&body.activo&&!perms.length)throw httpError('Seleccioná al menos una función para el manager.',400);
  if(perms.some(x=>!allowed.includes(x)))throw httpError('Solo se pueden delegar funciones disponibles para este anunciante.',400);
  const next={suscriptor_id:sid,anunciante_id:aid,anunciante_nombre:String(advertiser.nombre||aid),rol:role,permisos:perms.join(', '),permisos_definidos:role!=='PROPIETARIO',activo:body.activo};
- if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
  if(role==='PROPIETARIO'){if(!isTopAdmin(auth))throw httpError('Sin autorización de titularidad.',403);return commitOwnership155({db,env,aid,sid,actor:auth.sid,active:body.activo,advertiserName:advertiser.nombre,expectedRevision:body.revision});}
+ if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
  // The centralized relation mutation now revokes before and after its write.
  const [saved]=await db.commitPatches([{collection:'suscriptor_anunciante',id,before:current.doc,patch:{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},options:current.doc?{updateTime:current.updateTime,subscriberId:sid}:{newDocument:true,mustNotExist:true,subscriberId:sid}},...(delegationFence?[{collection:'anunciantes_administracion',id:aid,before:delegationFence.doc,patch:{revision_titularidad:crypto.randomUUID()},options:{updateTime:delegationFence.updateTime}}]:[])]);
  return {success:true,updated:true,relacion:publicRelation155({...saved,id}),revision:await wholeRevisionInternal(saved),message:'Permisos guardados. El usuario debe volver a iniciar sesión.'};
@@ -13818,7 +13822,7 @@ async function ownerTeamRoute159(ctx){
  const body=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
  const aid=String(body.advertiserId||url.searchParams.get('advertiserId')||'').trim();if(!aid)throw httpError('Falta el anunciante.',400);
  const session=await verifySubscriberSession(env,request);if(!session.ok)throw httpError(session.message,401);
- const owner=(session.auth||[]).find(r=>String(r.anunciante_id)===aid&&roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));
+ const owner=(session.auth||[]).find(r=>String(r.anunciante_id)===aid&&roleName159(r.rol)==='PROPIETARIO'&&activeSessionRelation155(r));
  if(session.admin_panel||!owner)throw httpError('Solo el propietario puede delegar permisos desde su panel.',403);
  if(path==='/commerce/team/responsables'){
   if(request.method!=='POST')throw httpError('Método no permitido.',405);
