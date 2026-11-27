@@ -226,6 +226,7 @@ try{
   const chosen=await ok('admin','/superadmin/advertisers/create',{...body,operacion_id:'1c5c2a52-7f8e-4c1d-9a3b-1234567890ab',nivel:'5'});
   assert.equal(rows.get('anunciantes_administracion/'+chosen.j.anunciante_id).nivel,'5');
   const bare=await ok('admin','/superadmin/advertisers/create',{operacion_id:'2c5c2a52-7f8e-4c1d-9a3b-1234567890ab',nombre:'Básico sin titular'});
+  assert.equal(bare.calls.filter(c=>c.op==='query'&&c.c==='anunciantes_sedes').length,0,'alta sin releer sedes');assert.equal(bare.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes').length,1,'alta: sólo la comprobación de idempotencia');
   const bareId=bare.j.anunciante_id;assert.equal(bare.j.titular,null);assert.equal(rows.get('anunciantes_administracion/'+bareId).nivel,'3');
   assert.equal([...rows.values()].filter(r=>r.anunciante_id===bareId&&r.suscriptor_id).length,0,'Sin titular no se crean vínculos ficticios');
   assert.equal((await ok('admin','/superadmin/advertisers/'+bareId)).j.propietarios?.length||0,0);
@@ -233,7 +234,9 @@ try{
   {const adm=()=>rows.get('anunciantes_administracion/'+aid),act=(role,accion,status=200)=>role==='admin'?assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:accion},status):assertStatus('owner','/commerce',{action:'set_actividad',advertiserId:aid,accion_actividad:accion},status);
    ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'next@test.invalid',clave:'test-password'})).j.token;
    const v0=adm().vigencia_hasta;assert.match(v0,/^\d{4}-\d{2}-\d{2}$/,'nivel 3 nace con vigencia');
-   await act('owner','desactivar');assert.equal(adm().inactivo_motivo,'VOLUNTARIA');
+   const off=await act('owner','desactivar');assert.equal(adm().inactivo_motivo,'VOLUNTARIA');
+   assert.equal(off.calls.filter(c=>c.op==='query'&&c.c==='anunciantes_sedes').length,0,'sin relectura de sedes');assert.equal(off.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes').length,0,'sin relectura del anunciante');
+   assert.equal(off.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes_administracion').length,1,'una lectura con revisión');assert.equal(off.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,1,'una escritura');
    await assertStatus('owner','/commerce?action=anunciante&advertiserId='+aid,undefined,200);
    await act('owner','renovar',400);await act('admin','desactivar');assert.equal(adm().inactivo_motivo,'ADMINISTRATIVA');
    await act('owner','activar',409);await act('owner','desactivar',409);
@@ -241,6 +244,8 @@ try{
    await act('admin','activar');assert.equal(adm().inactivo_motivo,'');
    const again=await act('admin','activar');assert.equal(again.j.updated,false);assert.equal(again.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0);
    const renewed=await act('admin','renovar');assert.ok(renewed.j.vigencia_hasta>v0,'renovar suma 30 días a la vigencia vigente');
+   const r1=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'renovar',operacion_id:'REN-1'},200),r2=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'renovar',operacion_id:'REN-1'},200);
+   assert.equal(r1.j.updated,true);assert.equal(r2.j.updated,false,'reintento de renovación sin segunda escritura');assert.equal(r2.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0);assert.equal(adm().vigencia_hasta,r1.j.vigencia_hasta);
    adm().vigencia_hasta='2020-01-01';const expired=await assertStatus('admin','/superadmin/advertisers/'+aid,undefined,200);
    const rec=await act('admin','renovar');assert.equal(rec.j.estado.visible,true);assert.ok(adm().vigencia_hasta>'2026-01-01');assert.equal(rows.has('anunciantes/'+aid),true,'recupera el mismo identificador');
    await assertStatus('admin','/superadmin/advertisers/'+chosen.j.anunciante_id+'/activity',{accion_actividad:'renovar'},409);

@@ -2050,9 +2050,9 @@ function ghSedeEditor_(s,activities,actions,nodes,common,soloConsulta=false){
 let ANUNCIANTE_ACTUAL='';
 let ANUNCIANTE_CIUDADES=[];
 
-function ghEstadoAnuHtml155(id,adm){
-  const hoy=new Date(Date.now()-3*3600e3).toISOString().slice(0,10),hasta=String(adm.vigencia_hasta||'');
-  const motivo=adm.aprobado===false||adm.inactivo_motivo==='ADMINISTRATIVA'?'Bloqueado por Gran Hermano':adm.inactivo_motivo==='VOLUNTARIA'?'Desactivado por el anunciante':(hasta&&String(adm.nivel)==='3'&&hasta<hoy)?'Vencido':'Activo';
+const GH_ESTADO_ANU155={BLOQUEO_ADMINISTRATIVO:'Bloqueado por Gran Hermano',DESACTIVACION_VOLUNTARIA:'Desactivado por el anunciante',VENCIDO:'Vencido',FICHA_INCOMPLETA:'Ficha incompleta: no se publica'};
+function ghEstadoAnuHtml155(id,estado,hasta){
+  const motivo=estado?(GH_ESTADO_ANU155[estado.motivo]||'Activo'):'Sin dato';
   const q="'"+esc(id).replace(/'/g,'&#39;')+"'";
   return '<div class="card" id="anuEstado155"><b>Estado público:</b> '+esc(motivo)+(hasta?' · Vigencia hasta '+esc(hasta):'')+
    '<p class="muted">Desactivar o vencer no bloquea el panel del titular. Se conservan identificador, información, contratación y publicaciones.</p>'+
@@ -2062,11 +2062,16 @@ function ghEstadoAnuHtml155(id,adm){
 }
 async function ghActividadAnu155(id,accion){
   const out=document.getElementById('anuEstadoMsg155');if(out)out.textContent='Guardando...';
+  const botones=[...document.querySelectorAll('#anuEstado155 button')];botones.forEach(b=>b.disabled=true);
   try{
-    const r=await ghAdminRequest_('/advertisers/'+encodeURIComponent(id)+'/activity',{accion_actividad:accion},'POST');
+    const body={accion_actividad:accion};if(accion==='renovar')body.operacion_id=crypto.randomUUID();
+    const r=await ghAdminRequest_('/advertisers/'+encodeURIComponent(id)+'/activity',body,'POST');
     if(!r||r.success===false)throw new Error(r?.message||'No se pudo cambiar el estado.');
-    await detalleAnu(id);
-  }catch(e){if(out)out.textContent=e?.message||'No se pudo cambiar el estado.';}
+    const box=document.getElementById('anuEstado155');
+    if(box)box.outerHTML=ghEstadoAnuHtml155(id,r.estado,r.vigencia_hasta);
+    const aprobado=document.getElementById('anuAprobado');if(aprobado&&accion==='activar')aprobado.checked=true;
+    const msg=document.getElementById('anuEstadoMsg155');if(msg)msg.textContent=r.updated===false?'Sin cambios.':'Guardado.';
+  }catch(e){const msg=document.getElementById('anuEstadoMsg155');if(msg)msg.textContent=e?.message||'No se pudo cambiar el estado.';botones.forEach(b=>b.disabled=false);}
 }
 async function detalleAnu(id){
   document.getElementById('anuListado').classList.add('hidden');document.getElementById('anuFicha').classList.remove('hidden');
@@ -2122,7 +2127,7 @@ async function detalleAnu(id){
        origenHtml+contratoHtml+
        '<h3 style="margin-top:16px">Decisiones de la plataforma</h3>'+
        '<div class="checks"><label><input id="anuAprobado" type="checkbox" '+(adm.aprobado===true?'checked':'')+'> Publicado / aprobado</label></div>'+
-       ghEstadoAnuHtml155(id,adm)+
+       ghEstadoAnuHtml155(id,j.estado_publico||j.detail?.estado_publico,adm.vigencia_hasta)+
        '<div class="classification-stack"><div><label>Segmento</label><select id="anuSegmento">'+segOpts+'</select></div>'+
        '<div><label>Nivel asignado</label><select id="anuNivel">'+nivelOpts+'</select></div>'+
        '<div><label>Subnivel</label><input id="anuSubnivel" value="'+esc(adm.subnivel||'')+'"></div></div>'+
