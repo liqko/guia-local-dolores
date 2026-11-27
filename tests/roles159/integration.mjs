@@ -230,6 +230,21 @@ try{
   assert.equal([...rows.values()].filter(r=>r.anunciante_id===bareId&&r.suscriptor_id).length,0,'Sin titular no se crean vínculos ficticios');
   assert.equal((await ok('admin','/superadmin/advertisers/'+bareId)).j.propietarios?.length||0,0);
   await ok('admin','/superadmin/advertisers/'+bareId+'/panel-access',{});
+  {const adm=()=>rows.get('anunciantes_administracion/'+aid),act=(role,accion,status=200)=>role==='admin'?assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:accion},status):assertStatus('owner','/commerce',{action:'set_actividad',advertiserId:aid,accion_actividad:accion},status);
+   ownerToken=(await ok('public','/suscriptores',{action:'login',mail:'next@test.invalid',clave:'test-password'})).j.token;
+   const v0=adm().vigencia_hasta;assert.match(v0,/^\d{4}-\d{2}-\d{2}$/,'nivel 3 nace con vigencia');
+   await act('owner','desactivar');assert.equal(adm().inactivo_motivo,'VOLUNTARIA');
+   await assertStatus('owner','/commerce?action=anunciante&advertiserId='+aid,undefined,200);
+   await act('owner','renovar',400);await act('admin','desactivar');assert.equal(adm().inactivo_motivo,'ADMINISTRATIVA');
+   await act('owner','activar',409);await act('owner','desactivar',409);
+   await assertStatus('owner','/commerce?action=anunciante&advertiserId='+aid,undefined,200);
+   await act('admin','activar');assert.equal(adm().inactivo_motivo,'');
+   const again=await act('admin','activar');assert.equal(again.j.updated,false);assert.equal(again.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0);
+   const renewed=await act('admin','renovar');assert.ok(renewed.j.vigencia_hasta>v0,'renovar suma 30 días a la vigencia vigente');
+   adm().vigencia_hasta='2020-01-01';const expired=await assertStatus('admin','/superadmin/advertisers/'+aid,undefined,200);
+   const rec=await act('admin','renovar');assert.equal(rec.j.estado.visible,true);assert.ok(adm().vigencia_hasta>'2026-01-01');assert.equal(rows.has('anunciantes/'+aid),true,'recupera el mismo identificador');
+   await assertStatus('admin','/superadmin/advertisers/'+chosen.j.anunciante_id+'/activity',{accion_actividad:'renovar'},409);
+   console.log('PASS Unidades 2 y 7: desactivación voluntaria y administrativa, panel accesible, reactivación, renovación de 30 días y recuperación de vencidos con el mismo ID.');}
   console.log('PASS Unidad 4: alta desde GH con o sin titular, nivel 3 por defecto, ficha GH y Abrir panel inmediatos, permisos, validación e idempotencia.');}
  console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation suspension and ratification, zero owners, independent GH access and verified claim.');
  fs.mkdirSync('docs/evidencias',{recursive:true});fs.writeFileSync('docs/evidencias/roles159-local.json',JSON.stringify({entorno:'LOCAL_SIMULADO_NO_FACTURACION',version:'159',fecha:new Date().toISOString(),requests:reports.map(r=>({event:r.event,path:r.path,action:r.action,status:r.status,request_id:r.request_id,firestore:r.totals,kv:r.kv,sql:r.public_store119||null,consumption:r.consumption||null}))},null,2));

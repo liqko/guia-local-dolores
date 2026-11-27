@@ -1,7 +1,7 @@
 /* Unidad 3: asignación automática del nivel 3. Ejecuta las funciones del Worker único. */
 const fs=require('fs'),assert=require('node:assert/strict'),test=require('node:test');
 const src=fs.readFileSync(__dirname+'/../../worker/worker206.txt','utf8');
-const i=src.indexOf("const DEFAULT_ADVERTISER_LEVEL155"),j=src.indexOf('async function commitNewOwnership155');
+const i=src.indexOf('// Unidades 2 y 7: estado público del anunciante.'),j=src.indexOf('async function commitNewOwnership155');
 assert.ok(i>0&&j>i,'funciones de nivel en el Worker');
 const {newAdvertiserLevel155,moderatedCreation155}=new Function(src.slice(i,j)+'\nreturn {newAdvertiserLevel155,moderatedCreation155};')();
 test('nivel por defecto 3 y elección explícita de GH conservada',()=>{

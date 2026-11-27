@@ -4786,7 +4786,7 @@ function sortCards2(rows) {
 }
 function publicAllowed(card) {
   if (publicationAuthority(card)!=='LIBRE') return false;
-  return card && card.aprobado !== false;
+  return guideCardVisible155(card);
 }
 function upsertCard(rows, card) {
   const aid = text41(card && card.id);
@@ -4816,7 +4816,8 @@ function buildGuideCardBaseV2({ advertiser, admin, sedes, catalogs, territory, c
     ...Object.fromEntries(["pet","eco","gayfriendly"].filter(k=>Object.hasOwn(advertiser,k)).map(k=>[k,advertiser[k]])),
     ...(advertiser.administracion_publicacion?{administracion_publicacion:{estado:publicationAuthority(advertiser)}}:{}),
     contenido_adulto:adultFlag(advertiser.contenido_adulto),revision_adulto:advertiser.revision_adulto||"NO_APLICA",estado_moderacion:advertiser.estado_moderacion||"PUBLICADO",
-    aprobado: admin && admin.aprobado !== void 0 ? bool15(admin.aprobado) : true,
+    aprobado: (admin && admin.aprobado !== void 0 ? bool15(admin.aprobado) : true) && advertiserPublicState155(admin).visible,
+    ...(advertiserPublicState155(admin).vigencia_hasta ? { vigencia_hasta: advertiserPublicState155(admin).vigencia_hasta } : {}),
     nivel: text41(admin && admin.nivel),
     subnivel: text41(admin && admin.subnivel),
     verificado: bool15(admin && admin.verificado),
@@ -6322,7 +6323,7 @@ async function writeCityPacket(cache, cityId, aid, card) {
   const key3 = guideCityKey2(cityId);
   const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
   let rows = (packet2.anunciantes || []).filter((x) => text56(x.id) !== text56(aid));
-  if (card && card.aprobado !== false && publicationAuthority(card)==='LIBRE') rows.push(card);
+  if (guideCardVisible155(card) && publicationAuthority(card)==='LIBRE') rows.push(card);
   await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), anunciantes: sortCards3(rows) });
 }
 function updateIndexRow(row, patch) {
@@ -7462,7 +7463,7 @@ function sortCards4(rows) {
 function upsert3(rows, card) {
   const aid = text71(card.id);
   const out2 = (rows || []).filter((x) => text71(x.id) !== aid);
-  if (card.aprobado !== false && publicationAuthority(card)==='LIBRE') out2.push(card);
+  if (guideCardVisible155(card) && publicationAuthority(card)==='LIBRE') out2.push(card);
   return sortCards4(out2);
 }
 async function patchGuideSegmentV2({ cache, advertiserId, segmentoId }) {
@@ -11160,7 +11161,7 @@ async function routePublicationsV77(ctx){
    activo:true,creado_en:now,actualizado_en:now
  }));
  const policy=publicationPolicyV77(body,ctx.publication.rules);
- const ownership=await commitOwnership155({env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,advertiserName:undefined,snapshot:undefined,db,aid,sid:s.sid,actor:s.sid,creation:{advertiser:advertiserPayload,admin:{id:aid,aprobado:true,nivel:newAdvertiserLevel155(),subnivel:'',funcionalidades:[],creado_en:now,actualizado_en:now},sedes:sedeRows}});
+ const ownership=await commitOwnership155({env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,advertiserName:undefined,snapshot:undefined,db,aid,sid:s.sid,actor:s.sid,creation:{advertiser:advertiserPayload,admin:{id:aid,aprobado:true,nivel:newAdvertiserLevel155(),subnivel:'',funcionalidades:[],...initialValidity155(newAdvertiserLevel155(),now),creado_en:now,actualizado_en:now},sedes:sedeRows}});
  const savedSedes=ownership.created.sedes;
  const createdDb={...db,queryEqual:(collection,field,value,limit)=>collection==='anunciantes_sedes'&&field==='anunciante_id'&&String(value)===aid?Promise.resolve(savedSedes):db.queryEqual(collection,field,value,limit)};
  await syncGuideAdvertiserV2({db:createdDb,cache,advertiserId:aid});
@@ -12804,6 +12805,49 @@ async function stageAdvertiserSaveInternal(db,cache,operation){
  for(const [key,entry]of cacheChanges){if(entry.deleted)await cache.del(key);else await cache.put(key,entry.value,entry.options);}
  return {...result,firestore_writes:pending.size};
 }
+// Unidades 2 y 7: activar, desactivar y renovar sin tocar identificador, datos, contratación ni acceso al panel.
+async function routeAdvertiserActivity155(ctx){
+ const {path,request,db,cache,env,url}=ctx;
+ if(request.method!=='POST')return null;
+ const gh=path.match(/^\/superadmin\/advertisers\/([^/]+)\/activity$/);
+ let body=null;
+ if(!gh){if(path!=='/commerce')return null;body=await request.clone().json().catch(()=>({}));if(String(body.action||body.accion||'').toLowerCase()!=='set_actividad')return null;}
+ body??=await request.clone().json().catch(()=>({}));
+ const accion=String(body.accion_actividad||body.operacion||'').trim().toLowerCase();
+ let aid,actor,fromGh=!!gh;
+ if(gh){
+  const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+  if(!isTopAdmin(auth))throw httpError('No tenés permiso para cambiar el estado del anuncio.',403);
+  aid=decodeURIComponent(gh[1]);actor=String(auth.sid||'');
+  if(!['activar','desactivar','renovar'].includes(accion))throw httpError('Acción de estado inválida.',400);
+ }else{
+  aid=String(body.advertiserId||body.advertiser_id||body.anunciante_id||url.searchParams.get('advertiserId')||'').trim();
+  const gate=await requirePanel3(env,request,aid,true);if(gate.response)return gate.response;
+  actor=String(gate.session?.sid||gate.s?.sid||'');
+  if(!['activar','desactivar'].includes(accion))throw httpError('Acción de estado inválida.',400);
+ }
+ if(!aid||aid.includes('/'))throw httpError('Falta el anunciante.',400);
+ const version=await db.getVersioned('anunciantes_administracion',aid),before=version.doc;
+ if(!before||!version.updateTime)return json({success:false,message:'El anunciante no tiene ficha de administración.'},404);
+ const now=new Date().toISOString(),patch={};
+ if(accion==='desactivar'){
+  if(fromGh)patch.inactivo_motivo='ADMINISTRATIVA';
+  else{if(before.inactivo_motivo==='ADMINISTRATIVA'||before.aprobado===false)throw httpError('El anuncio está bloqueado por Gran Hermano.',409);patch.inactivo_motivo='VOLUNTARIA';}
+ }else if(accion==='activar'){
+  if(fromGh){patch.inactivo_motivo='';if(before.aprobado===false)patch.aprobado=true;}
+  else{if(before.inactivo_motivo!=='VOLUNTARIA')throw httpError(before.inactivo_motivo==='ADMINISTRATIVA'||before.aprobado===false?'El anuncio está bloqueado por Gran Hermano.':'El anuncio ya está activo.',409);patch.inactivo_motivo='';}
+ }else{
+  const days=renewalDays155(before.nivel);if(!days)throw httpError('El nivel del anuncio no tiene renovación periódica configurada.',409);
+  const today=argentinaDay155(),current=String(before.vigencia_hasta||'').trim(),base=current&&current>=today?current:today;
+  patch.vigencia_hasta=addDays155(base,days);if(!current||current<today)patch.vigencia_desde=today;
+  patch.renovaciones=[...(Array.isArray(before.renovaciones)?before.renovaciones:[]).slice(-23),{en:now,por:actor,hasta:patch.vigencia_hasta}];
+ }
+ if(Object.entries(patch).every(([k,v])=>k!=='renovaciones'&&String(before[k]??'')===String(v)))return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),firestore_writes:0});
+ Object.assign(patch,{actividad_actualizada_en:now,actividad_actualizada_por:actor,actualizado_en:now});
+ const [saved]=await db.commitPatches([{collection:'anunciantes_administracion',id:aid,before,patch,options:{updateTime:version.updateTime}}]);
+ await Promise.all([syncGuideAdvertiserV2({db,cache,advertiserId:aid}),syncAdvertiserIndexV2({db,cache,advertiserId:aid})]);
+ return json({success:true,updated:true,anunciante_id:aid,estado:advertiserPublicState155(saved||{...before,...patch}),vigencia_hasta:(saved||patch).vigencia_hasta||before.vigencia_hasta||''});
+}
 // Alta directa desde Gran Hermano (Unidad 4): titular y contratación opcionales; reutiliza el alta atómica.
 async function routeAdvertiserCreate155(ctx){
  const {path,request,db,cache,env}=ctx;
@@ -13607,6 +13651,7 @@ var app_main_v35_default = {
       const ctx={path,request,url,env,db,cache,report,request_id143:report.request_id};
       const advertiserAccess158=await routeAdvertiserAccess155(ctx);if(advertiserAccess158)return await traced(advertiserAccess158);
       const gate155=await roleGate155(ctx);if(gate155)return await traced(gate155);
+      const advertiserActivity155=await routeAdvertiserActivity155(ctx);if(advertiserActivity155)return await traced(advertiserActivity155);
       const territorialAction=await GLD_ACTIONS138.route(ctx,report);if(territorialAction)return await traced(territorialAction);
       const businessDispatch143=await GLD_BUSINESS143.dispatch(ctx);if(businessDispatch143){report.event='gld_business_dispatch143';report.source='business-dispatch';report.status=businessDispatch143.status;return businessDispatch143;}
       const guideDispatch=await routeGuideDispatch132(ctx);if(guideDispatch){report.event='gld_guide_dispatch';report.source='guide-dispatch';report.status=guideDispatch.status;return guideDispatch;}
@@ -13699,13 +13744,28 @@ function subscriberEligible155(row){return !!row&&(row.activo===undefined||row.a
 function ownershipPatch155({id,sid,aid,actor,active,advertiserName,now,before}){
  return {relacion_id:id,suscriptor_id:sid,anunciante_id:aid,rol:'PROPIETARIO',activo:active,...(advertiserName?{anunciante_nombre:advertiserName}:{}),permisos:'',permisos_definidos:false,actualizado:now,actualizado_por:actor,...(!before?{fecha_alta:now}:{})};
 }
+// Unidades 2 y 7: estado público del anunciante. Nunca interviene en el acceso al panel.
+const ADVERTISER_RENEWAL_DAYS155={'3':30};
+function argentinaDay155(at=Date.now()){return new Date(at-3*3600e3).toISOString().slice(0,10);}
+function addDays155(day,n){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function renewalDays155(level){return ADVERTISER_RENEWAL_DAYS155[String(level??'').trim()]||0;}
+function initialValidity155(level,now){const days=renewalDays155(level);return days?{vigencia_desde:argentinaDay155(Date.parse(now)),vigencia_hasta:addDays155(argentinaDay155(Date.parse(now)),days)}:{};}
+function advertiserPublicState155(admin,advertiser=undefined,sedes=undefined,at=Date.now()){
+ const a=admin||{},until=String(a.vigencia_hasta||'').trim(),expiring=!!(until&&renewalDays155(a.nivel));
+ if(a.aprobado===false||a.inactivo_motivo==='ADMINISTRATIVA')return {estado:'INACTIVO',motivo:'BLOQUEO_ADMINISTRATIVO',visible:false};
+ if(a.inactivo_motivo==='VOLUNTARIA')return {estado:'INACTIVO',motivo:'DESACTIVACION_VOLUNTARIA',visible:false};
+ if(expiring&&until<argentinaDay155(at))return {estado:'INACTIVO',motivo:'VENCIDO',visible:false,vigencia_hasta:until};
+ if(advertiser!==undefined&&(!String(advertiser?.nombre||'').trim()||Array.isArray(sedes)&&!sedes.some(r=>r&&String(r.ciudad_id||'').trim()&&r.activo!==false)))return {estado:'INACTIVO',motivo:'FICHA_INCOMPLETA',visible:false};
+ return {estado:'ACTIVO',motivo:'',visible:true,...(expiring?{vigencia_hasta:until}:{})};
+}
+function guideCardVisible155(card,at=Date.now()){return !!card&&card.aprobado!==false&&!(card.vigencia_hasta&&String(card.vigencia_hasta)<argentinaDay155(at));}
 // Todo anunciante nuevo recibe el nivel 3 salvo que Gran Hermano elija otro al aprobar.
 const DEFAULT_ADVERTISER_LEVEL155='3';
 function newAdvertiserLevel155(requested=undefined){return String(requested??'').trim()||DEFAULT_ADVERTISER_LEVEL155;}
 function moderatedCreation155(req,aid,level,now){
  const clean=v=>String(v??'').trim(),detail=req.detalle||{},city=clean(req.ciudad_id),sedeId='SED-'+aid+'-MAIN';
  return {advertiser:{id:aid,nombre:clean(req.nombre),actividad:clean(detail.actividad),descripcion:clean(detail.descripcion),whatsapp:clean(detail.whatsapp),mail:clean(detail.mail),web:clean(detail.web),creado_en:now,actualizado_en:now},
- admin:{id:aid,aprobado:true,nivel:level,subnivel:'0',verificado:false,gold:false,funcionalidades:[],creado_en:now,actualizado_en:now},
+ admin:{id:aid,aprobado:true,nivel:level,subnivel:'0',verificado:false,gold:false,funcionalidades:[],...initialValidity155(level,now),creado_en:now,actualizado_en:now},
  sedes:city?[{sede_id:sedeId,anunciante_id:aid,ciudad_id:city,nombre_sede:'Principal',direccion:clean(detail.direccion),whatsapp:clean(detail.whatsapp),mail:clean(detail.mail),web:clean(detail.web),activo:true,creado_en:now,actualizado_en:now}]:[]};
 }
 async function commitNewOwnership155({db,aid,sid,actor,creation,extra}){
