@@ -286,7 +286,7 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
           const rows=statement.all(...args);
           return Object.assign(rows,{rowsRead:rows.length});
         }
-        statement.run(...args);return [];
+        const result=statement.run(...args);return Object.assign([],{rowsRead:0,rowsWritten:result.changes});
       }},transactionSync(fn){
         db.exec('BEGIN');try{const x=fn();db.exec('COMMIT');return x;}
         catch(error){db.exec('ROLLBACK');throw error;}
@@ -357,6 +357,7 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   let commitConsumption;
   await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,verifyPublished:true,identity:async()=>good,read:publishRead,observe:o=>{if(o.service==='worker')commitConsumption=o.consumption;}});
   assert(commitConsumption);assert.equal(commitConsumption.firestore.read_calls,0);assert.equal(commitConsumption.firestore.write_calls,0);assert(commitConsumption.cloudflare.public_store.components.some(c=>c.operation==='city-book-commit'));
+  assert.equal(commitConsumption.cloudflare.public_store.rows_written,2);
   t.diagnostic(JSON.stringify({ghSummaryCommit:commitConsumption.cloudflare.public_store,firestore:commitConsumption.firestore,kv:commitConsumption.cloudflare.kv}));
   const invalid={...stagedSummary,revisions:{...stagedSummary.revisions,BAL:999},cities:{}};
   assert.equal((await callWorker({op:'commit-public',cutoff,gh_summary:invalid})).status,503);
@@ -366,7 +367,10 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   let downloads=0;
   await publicarPaquetes({mode:'cut',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,identity:async()=>good,read:async(input,options)=>{const url=new URL(input);if(url.hostname.endsWith('workers.dev'))return publishRead(input,options);if(!url.pathname.endsWith('publicacion.json'))downloads++;return publishRead(input,options);}});
   assert.equal(downloads,0);assert.deepEqual(JSON.parse(await readFile(summaryPath,'utf8')).cities,{});
-  await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,identity:async()=>good,read:publishRead});
+  let repeatConsumption;
+  await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,identity:async()=>good,read:publishRead,observe:o=>{if(o.service==='worker')repeatConsumption=o.consumption;}});
+  assert.equal(repeatConsumption.cloudflare.public_store.rows_written,0);
+  t.diagnostic(JSON.stringify({ghSummaryRepeat:repeatConsumption.cloudflare.public_store}));
   const retry=await callWorker({op:'read',cutoff,publishedCutoff:cutoff,known:['DOL','BAL']});
   assert.equal(retry.status,200);
   assert.deepEqual((await retry.json()).cities,[]);
