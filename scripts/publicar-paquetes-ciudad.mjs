@@ -59,7 +59,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     let gh_summary;
     if(ghSummaryPath){
       gh_summary=JSON.parse(await readFile(ghSummaryPath,'utf8'));
-      if(gh_summary.cutoff!==cutoff||!isDeepStrictEqual(Object.keys(gh_summary.cities).sort(),Object.keys(installed.manifest).sort())||Object.entries(installed.manifest).some(([city,entry])=>entry.revision!==gh_summary.cities[city]?.revision))throw Error('Resumen no corresponde a la edición instalada');
+      if(gh_summary.cutoff!==cutoff||!isDeepStrictEqual(Object.keys(gh_summary.revisions).sort(),Object.keys(installed.manifest).sort())||Object.entries(installed.manifest).some(([city,entry])=>entry.revision!==gh_summary.revisions[city]))throw Error('Resumen no corresponde a la edición instalada');
     }
     const result = await call({op:privateSeparate?'commit-public':'commit',cutoff,...(gh_summary?{gh_summary}:{})});
     if (result?.success !== true) throw Error('El último corte no quedó confirmado');
@@ -95,7 +95,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     });
     const source = await call({op:'urgent',cutoff,scope});
     if (source.urgent !== true || source.cutoff !== cutoff || source.after !== cutoff) throw Error('Respuesta urgente inválida');
-    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished});
+    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished,ghSummaryPath});
   }
 
   if(recoverCurrent&&(!privateSeparate||mode!=='cut'))throw Error('Recuperación excepcional fuera de alcance');

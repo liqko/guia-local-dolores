@@ -104,6 +104,6 @@ test('resumen GH reutiliza la edición sin cambios, deduplica contextos por ciud
  let reads=0;const source={after:cutoff,cutoff,complete:true,cities:[]};
  await aplicarCorte({previous:{cutoff,manifest},source,readPublished:async()=>{reads++;return book;},stage:root,ghSummaryPath:summaryPath});
  const prior=JSON.parse(await readFile(summaryPath,'utf8'));assert.equal(reads,1);assert.deepEqual(prior.cities.DOL.eventos_vip,['VIP1']);assert.deepEqual(prior.cities.DOL.eventos_free,['FREE1']);assert.deepEqual(prior.cities.DOL.publicidad,['P1']);
- await aplicarCorte({previous:{cutoff,manifest},source:{...source,gh_summary:prior},readPublished:async()=>{throw Error('No se debe descargar un paquete vigente');},stage:root,ghSummaryPath:summaryPath});
- assert.deepEqual(JSON.parse(await readFile(summaryPath,'utf8')),prior);assert.equal(reads,1);
+ await aplicarCorte({previous:{cutoff,manifest},source:{...source,gh_summary:{cutoff,revisions:prior.revisions}},readPublished:async()=>{throw Error('No se debe descargar un paquete vigente');},stage:root,ghSummaryPath:summaryPath});
+ assert.deepEqual(JSON.parse(await readFile(summaryPath,'utf8')),{cutoff,revisions:{DOL:1},cities:{}});assert.equal(reads,1);
 });

@@ -215,8 +215,7 @@ test('edición anterior se conserva tras fallar la preparación del nuevo corte,
 test('resumen de publicación confirmado se lee de la misma coordinación, sin volver a recorrer las ciudades',async t=>{
  const h=setup(t,people);await h.publish();
  const summary={cutoff:day,cities:{DOL:{revision:2,eventos_vip:['V1'],eventos_free:['F1'],actividades:['A1'],publicidad:['P1']},OTRA:{revision:3,eventos_vip:['V1','V2'],eventos_free:['F1'],actividades:['A1'],publicidad:['P1','P2']}}};
- h.sql.exec('CREATE TABLE IF NOT EXISTS city_book_gh_summary219 (slot INTEGER PRIMARY KEY,value TEXT NOT NULL)');
- h.sql.prepare('INSERT INTO city_book_gh_summary219 VALUES(1,?)').run(JSON.stringify(summary));
+ h.sql.prepare('INSERT INTO city_book_gh_summary219 VALUES(1,?,?,?)').run(JSON.stringify(summary),JSON.stringify({cutoff:day,revisions:{DOL:2,OTRA:3}}),JSON.stringify({cutoff:day,counts:{eventos_vip:2,eventos_free:1,actividades:1,publicidad:2}}));
  const n=h.calls.length,r=await w.dailyDashboard195(h.env,{ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}}),j=await r.json();
  assert.equal(r.status,200);assert.deepEqual([j.resumen.eventos_vip,j.resumen.eventos_free,j.resumen.actividades,j.resumen.publicidad],[2,1,1,2]);assert.equal(j.entrada.publicaciones_corte,day);assert.equal(h.calls.length,n);
 });

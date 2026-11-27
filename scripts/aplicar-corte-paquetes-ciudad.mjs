@@ -217,16 +217,17 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
     await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{}),...((source.recoveredAt??(source.cutoff===source.after?previous.recoveredAt:undefined))===undefined?{}:{recoveredAt:source.recoveredAt??previous.recoveredAt})}));
   }
   if(ghSummaryPath){
-    const cities=Object.create(null),prior=source.gh_summary?.cities??{};
+    const cities=Object.create(null),revisions=Object.create(null),prior=source.gh_summary?.revisions??{};
     for(const [city,{key,revision}] of Object.entries(manifest)){
       const path=publicPath+'/'+key+'/completo-'+revision+'.json';
       const book=files.get(path)??unchangedBooks.get(path);
-      if(!book&&Object.hasOwn(prior,city)&&prior[city].revision===revision){cities[city]=prior[city];continue;}
+      revisions[city]=revision;
+      if(Object.hasOwn(prior,city)&&prior[city]===revision)continue;
       const installed=book??await readPublished(path);
       if(!validBook(installed,city)||installed.revision!==revision)throw Error('Paquete del resumen publicado inválido');
       cities[city]=ghCityMembership219(installed);
     }
-    await writeFile(ghSummaryPath,JSON.stringify({cutoff:source.cutoff,cities}),{mode:0o600});
+    await writeFile(ghSummaryPath,JSON.stringify({cutoff:source.cutoff,revisions,cities}),{mode:0o600});
   }
   return {changed,cutoff:source.cutoff,manifest};
 }
