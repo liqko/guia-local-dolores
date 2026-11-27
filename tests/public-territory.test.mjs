@@ -96,7 +96,10 @@ test('el push conserva el catálogo instalado y el corte incorpora País y Provi
  const calls=[];
  const read=async url=>{calls.push(url);return url.endsWith('.js')?new Response(installed):Response.json(changed);};
  const workflow=await readFile(new URL('../.github/workflows/firebase-hosting-merge.yml',import.meta.url),'utf8');
- assert.match(workflow,/cron: "0 4 \* \* \*"/);
+ assert.match(workflow,/cron: "21 4 \* \* \*"/);
+ const {ultimoCorte}=await import('../scripts/aplicar-corte-paquetes-ciudad.mjs');
+ assert.equal(ultimoCorte(Date.parse('2026-11-27T04:21:00Z')),Date.parse('2026-11-27T04:00:00Z'));
+ assert.equal(ultimoCorte(Date.parse('2026-11-27T03:59:59Z')),Date.parse('2026-11-26T04:00:00Z'));
  assert.match(workflow,/territorio-cache\.js --scheduled --stage-unchanged[\s\S]*?else\s+node scripts\/prepare-public-territory\.mjs hosting-public\/plataforma\/territorio-cache\.js --preserve/);
  assert.equal((await preparePublicTerritory({file,read,preserve:true})).changed,false);
  assert.equal(await readFile(file,'utf8'),installed);
