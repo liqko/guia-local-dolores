@@ -354,7 +354,12 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   const stagedSummary=JSON.parse(await readFile(summaryPath,'utf8'));
   assert.deepEqual(stagedSummary.cities.BAL.eventos_vip,['virtual']);assert.deepEqual(stagedSummary.cities.DOL.actividades,['vence']);
   const publishRead=async(input,options)=>{const url=new URL(input);if(url.hostname.endsWith('workers.dev'))return worker.fetch(new Request(url,options),env);return new Response(await readFile(join(stage,url.pathname.slice(1))));};
-  await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,verifyPublished:true,identity:async()=>good,read:publishRead});
+  let commitConsumption;
+  await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,verifyPublished:true,identity:async()=>good,read:publishRead,observe:o=>{if(o.service==='worker')commitConsumption=o.consumption;}});
+  assert(commitConsumption);assert.equal(commitConsumption.firestore.read_calls,0);assert.equal(commitConsumption.firestore.write_calls,0);assert(commitConsumption.cloudflare.public_store.components.some(c=>c.operation==='city-book-commit'));
+  t.diagnostic(JSON.stringify({ghSummaryCommit:commitConsumption.cloudflare.public_store,firestore:commitConsumption.firestore,kv:commitConsumption.cloudflare.kv}));
+  const invalid={...stagedSummary,revisions:{...stagedSummary.revisions,BAL:999},cities:{}};
+  assert.equal((await callWorker({op:'commit-public',cutoff,gh_summary:invalid})).status,503);
   const confirmed=await (await callWorker({op:'read-public',cutoff,publishedCutoff:cutoff,known:['DOL','BAL']})).json();
   assert.deepEqual(confirmed.gh_summary.revisions,stagedSummary.revisions);assert.equal(confirmed.gh_summary.cities,undefined);
   // The same published revision requires no full-package downloads or ID transfer.

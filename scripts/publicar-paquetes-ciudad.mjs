@@ -12,9 +12,11 @@ const audience = 'guialocal:publicacion-ciudades';
 async function readJson(read, url, {allowMissing, observe=()=>{}, capture=()=>{}, ...options} = {}) {
   const response = await read(url, {...options,redirect:'error',signal:AbortSignal.timeout(90000)});
   const raw=await response.text(),target=new URL(url);
+  let consumption;
+  if(target.href===worker){try{const header=response.headers.get('X-GLD-Consumption');if(header)consumption=JSON.parse(decodeURIComponent(header));}catch{}}
   observe({service:target.origin===new URL(hosting).origin?'hosting':target.href===worker?'worker':'identidad',
     method:options.method??'GET',status:response.status,requestBodyBytes:Buffer.byteLength(options.body??''),
-    responseBodyBytes:Buffer.byteLength(raw)});
+    responseBodyBytes:Buffer.byteLength(raw),...(target.href===worker?{consumption:consumption??null}:{})});
   capture(response);
   if (response.status === 404 && allowMissing) return null;
   if (!response.ok) {
