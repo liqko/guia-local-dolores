@@ -4,9 +4,10 @@ const {readFileSync}=require('node:fs');
 const vm=require('node:vm');
 const f='plataforma/entrada-recordada.js';
 const encode=claims=>Buffer.from(JSON.stringify({typ:'GLD_SUBSCRIBER',sid:'A',...claims})).toString('base64url')+'.firma';
-function browser(initial,fetch){
+function browser(initial,fetch,profile){
  let token=initial;
  const store=new Map([['gld_ciudad_contexto','{"ciudad_id":"DOL"}']]);
+ if(profile)store.set('gld_suscriptor_session_v2',JSON.stringify(profile));
  const window={};
  vm.runInNewContext(readFileSync(f,'utf8'),{
   window,atob,fetch,AbortController,setTimeout,clearTimeout,
@@ -14,6 +15,22 @@ function browser(initial,fetch){
  });
  return {open:window.gldRecuperarEntradaV92,setToken:value=>{token=value;}};
 }
+test('una respuesta del token anterior no se aplica tras renovar el token de la misma cuenta',async()=>{
+ let complete;
+ const h=browser(encode({persistent:true,exp:null}),()=>new Promise(resolve=>{complete=resolve;}));
+ const previous=h.open();
+ h.setToken(encode({persistent:true,exp:null,version:2}));
+ complete(Response.json({success:true,suscriptor:{suscriptor_id:'A',ciudad_predeterminada_id:'X'}}));
+ assert.equal((await previous).recordada,false);
+});
+test('una cuenta rehabilitada recupera su ciudad solo después de confirmación del servidor',async()=>{
+ const session=encode({persistent:true,exp:null});
+ const inactive={suscriptor_id:'A',activo:false};
+ const online=browser(session,async()=>Response.json({success:true,suscriptor:{suscriptor_id:'A',activo:true,ciudad_predeterminada_id:'X'}}),inactive);
+ assert.equal((await online.open()).ciudad_id,'X');
+ const unavailable=browser(session,async()=>new Response(null,{status:503}),inactive);
+ assert.equal((await unavailable.open()).recordada,false);
+});
 test('sesión local vencida o mal formada mantiene selector sin consulta',async()=>{
  let calls=0;
  const h=browser(encode({exp:Date.now()-1}),async()=>{calls++;throw Error('sin red');});
