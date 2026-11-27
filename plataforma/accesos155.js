@@ -65,7 +65,7 @@ function ghOwnershipControls155(card,state){
   if(!q||!search.checkValidity()){status.textContent='Ingresá el correo completo del usuario.';return;}
   results.replaceChildren();status.textContent='Buscando…';
   try{
-   const data=await ghAdminRequest_('/subscribers/search',{q,limit:30});
+   const data=await ghAdminRequest_('/advertisers/'+encodeURIComponent(state.id)+'/responsables',{q});
    if(!live()||ticket!==seq)return;
    const rows=(data.results||[]).filter(p=>String(p.mail||'').trim().toLowerCase()===q&&p.activo!==false);
    if(rows.length!==1){status.textContent=rows.length?'El correo tiene varias coincidencias. Revisá el registro.':'No se encontró un usuario activo con ese correo.';return;}
