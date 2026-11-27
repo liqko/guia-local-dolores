@@ -276,3 +276,52 @@ test('overlay conserva la configuración y los hashes ajenos al bloque',async t=
   assert.equal(rollback.compatible,true);
   assert.equal(active,candidate);
 });
+
+test('Hosting conserva SEO al publicar datos y renueva sólo SEO tras validar ambas huellas',async t=>{
+  const dir=await mkdtemp(join(tmpdir(),'gld-seo-hosting-'));
+  t.after(()=>rm(dir,{recursive:true,force:true}));
+  const data=join(dir,'data'),seo=join(dir,'replacement');
+  await mkdir(join(data,root),{recursive:true});
+  await mkdir(seo);
+  const index=root+'publicacion.json',page='/seo/anterior/index.html';
+  const staticFiles={
+    '/plataforma/carcasa.html':'a'.repeat(64),'/__/firebase/init.js':'b'.repeat(64),
+    '/plataforma/assets/app/previo.js':'c'.repeat(64),
+  };
+  const hashes={...staticFiles,[index]:'d'.repeat(64),[page]:'e'.repeat(64)};
+  await writeFile(join(data,index),JSON.stringify({manifest:{}}));
+  await writeFile(join(data,'plataforma/carcasa.html'),'plataforma');
+  await writeFile(join(seo,'sitemap.xml'),'<urlset/>');
+  await writeFile(join(seo,'robots.txt'),'Sitemap');
+  const site='sites/anunciantes-guialocal/versions/';
+  let active=site+'prev',territory='"catalogue"',last={},creates=0;
+  const config=servingConfig(JSON.parse(await readFile('firebase.json','utf8')).hosting);
+  const read=async(url,{method,body})=>{
+    if(method==='HEAD')return new Response(null,{headers:{etag:url.pathname.endsWith('territorio-cache.js')?territory:'"index"'}});
+    if(method==='GET'&&url.pathname.endsWith('/releases'))return Response.json({releases:[{version:{name:active}}]});
+    if(url.pathname.endsWith('/files'))return Response.json({files:Object.entries(hashes).map(([path,hash])=>({path,hash}))});
+    if(url.pathname.endsWith('/versions'))return Response.json({name:site+String(++creates)});
+    if(url.pathname.endsWith(':populateFiles')){last=JSON.parse(body).files;return Response.json({});}
+    if(method==='PATCH')return Response.json({});
+    if(method==='POST'&&url.pathname.endsWith('/releases')){active=url.searchParams.get('versionName');return Response.json({});}
+    return Response.json({config});
+  };
+  const baseIndex={status:200,etag:'"index"',territoryEtag:'"catalogue"'};
+  await deployHosting({stage:data,mode:'code',read,token:'fixture',baseIndex});
+  assert.equal(last[page],hashes[page]);
+  assert.equal(last['/__/firebase/init.js'],staticFiles['/__/firebase/init.js']);
+  assert.equal(last['/plataforma/assets/app/previo.js'],staticFiles['/plataforma/assets/app/previo.js']);
+  Object.assign(hashes,last);
+  assert.equal((await deployHosting({stage:data,mode:'code',read,token:'fixture',baseIndex})).version,active);
+  assert.equal(creates,1);
+  territory='"other"';
+  const args={stage:seo,mode:'seo',read,token:'fixture',baseIndex};
+  await assert.rejects(deployHosting(args),/Cambió el catálogo/);
+  assert.equal(creates,1);
+  territory='"catalogue"';
+  await deployHosting(args);
+  const { [page]:removed, ...untouched }=hashes;
+  assert.deepEqual(Object.fromEntries(Object.entries(last).filter(([path])=>!['/sitemap.xml','/robots.txt'].includes(path))),untouched);
+  assert(last['/sitemap.xml']);
+  assert(last['/robots.txt']);
+});
