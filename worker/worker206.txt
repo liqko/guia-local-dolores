@@ -8988,6 +8988,7 @@ async function gldCerrarContrato185(ctx){
  const patch={nivel:effectiveLevel,funcionalidades:enabled,funcionalidades_config:settings,
   asignaciones_administrativas:overrides,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
+ if(renewalDays155(effectiveLevel)&&!(String(previous.vigencia_hasta||'')>=argentinaDay155()))Object.assign(patch,initialValidity155(effectiveLevel,contracted.cerrado_en));
  // Las banderas históricas también son leídas por algunos módulos: mantenerlas
  // sincronizadas con la única configuración efectiva.
  const activeFeatures=new Set(enabled.map(canonicalFeatureId112));
@@ -9004,7 +9005,8 @@ async function gldCerrarContrato185(ctx){
  // Mantener proyecciones existentes: reutilizar el mismo registro efectivo.
  await Promise.all([
   patchGuideAdminFieldsV2({cache,advertiserId:aid,patch}),
-  patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch})
+  patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch}),
+  ...(patch.vigencia_hasta?[syncGuideAdvertiserV2({db,cache,advertiserId:aid})]:[])
  ]);
  await cache.put('publicity:contract:v101:'+aid,
   {...publicityContractV101(saved),habilitada:featureEnabled2(saved,'PUBLICIDAD')});
@@ -12864,6 +12866,7 @@ async function routeAdvertiserCreate155(ctx){
  if(await db.get('anunciantes',aid))return json({success:true,updated:false,anunciante_id:aid,firestore_writes:0});
  const now=new Date().toISOString(),detalle={};
  for(const k of ['actividad','descripcion','whatsapp','mail','web','direccion'])detalle[k]=clean(body[k]).slice(0,k==='descripcion'?2000:300);
+ if(sid){const titular=await db.get('suscriptores',sid);if(!subscriberEligible155(titular))return json({success:false,message:'Usuario titular inexistente o inactivo.'},404);if(titular.email_verificado===false)return json({success:false,message:'El usuario todavía no verificó su correo. Creá el anuncio sin titular y vinculalo después.'},409);}
  const creation=moderatedCreation155({nombre:nombre.slice(0,200),ciudad_id:city,detalle},aid,level,now);
  creation.admin.creado_por=clean(auth.sid);
  try{if(sid)await commitOwnership155({env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,snapshot:undefined,db,aid,sid,actor:auth.sid,creation,advertiserName:creation.advertiser.nombre});
@@ -13825,6 +13828,7 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  const {fence:delegationFence,rows:relations}=snapshot,admin=delegationFence.doc;
  if(auth.owner){const owners=activeOwners155(relations);if(owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
  if((body.activo&&!subscriberEligible155(subscriber))||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
+ if(body.activo&&role==='PROPIETARIO'&&subscriber.email_verificado===false)throw httpError('El usuario todavía no verificó su correo. Vinculalo después de la verificación.',409);
  const matches=relations.filter(r=>String(r.suscriptor_id)===sid);
  if(matches.length>1)throw httpError('Hay vínculos duplicados para este usuario. Requieren revisión antes de cambiar permisos.',409);
  const previous=matches[0];
@@ -13878,7 +13882,8 @@ async function routeAdvertiserAccess155(ctx){
   if(request.method==='GET')return json(await findSubscriberForRelation155(cache,ctx.url.searchParams.get('q')));
   if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
   const body=await request.json();if(body.rol!=='PROPIETARIO')throw httpError('La delegación de funciones se realiza desde el panel del propietario.',403);
-  return json(await saveAdvertiserRelation155({db,env,auth,aid:id,body}));
+  try{return json(await saveAdvertiserRelation155({db,env,auth,aid:id,body}));}
+  catch(error){if(error?.status===404)return json({success:false,message:error.message},404);throw error;}
  }
  if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
  const [advertiser,admin,state]=await Promise.all([db.get('anunciantes',id),db.panelAdministration?db.panelAdministration(id):db.get('anunciantes_administracion',id),subscriberSessionState(env,auth.sid)]);

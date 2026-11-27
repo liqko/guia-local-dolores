@@ -245,6 +245,25 @@ try{
    const rec=await act('admin','renovar');assert.equal(rec.j.estado.visible,true);assert.ok(adm().vigencia_hasta>'2026-01-01');assert.equal(rows.has('anunciantes/'+aid),true,'recupera el mismo identificador');
    await assertStatus('admin','/superadmin/advertisers/'+chosen.j.anunciante_id+'/activity',{accion_actividad:'renovar'},409);
    console.log('PASS Unidades 2 y 7: desactivación voluntaria y administrativa, panel accesible, reactivación, renovación de 30 días y recuperación de vencidos con el mismo ID.');}
+  {rows.set('planes_precios/CATALOGO',{revision:1,precios:{niveles:{'3':{importe:1000,publico:true},'5':{importe:3000,publico:true}}}});
+   const admB=()=>rows.get('anunciantes_administracion/'+bareId),today=new Date(Date.now()-3*3600e3).toISOString().slice(0,10);
+   await assertStatus('admin','/superadmin/advertisers/'+bareId+'/activity',{accion_actividad:'desactivar'},200);admB().vigencia_hasta='2020-01-01';
+   const close=await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0001',nivel:3,funcionalidades:{}},200);
+   assert.equal(close.j.importe,1000);assert.equal(admB().contratacion_actual.nivel,'3');assert.equal(admB().inactivo_motivo,'ADMINISTRATIVA','contratar no reactiva');assert.ok(admB().vigencia_hasta>=today,'contratar nivel 3 recupera la vigencia');
+   const retry=await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0001',nivel:3,funcionalidades:{}},200);assert.equal(retry.j.updated,false);assert.equal(retry.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0);
+   const v3=admB().vigencia_hasta;await assertStatus('admin','/superadmin/sales/contracts/close',{anunciante_id:bareId,operacion_id:'CT_unidad5basico0002',nivel:5,funcionalidades:{}},200);assert.equal(admB().nivel,'5');assert.equal(admB().vigencia_hasta,v3);
+   assert.equal([...rows.keys()].some(k=>k.startsWith('suscriptor_anunciante/')&&rows.get(k).anunciante_id===bareId),false,'contratar no crea titular');
+   console.log('PASS Unidad 5: contratación sobre anunciante básico, sin titular, incompleto e inactivo; nivel y vigencia; idempotencia; calculadora existente.');
+   const owners=()=>[...rows.entries()].filter(([k,v])=>k.startsWith('suscriptor_anunciante/')&&v.anunciante_id===bareId&&v.rol==='PROPIETARIO'&&v.activo===true).map(([,v])=>v.suscriptor_id);
+   const base=rows.get('suscriptores/N');assert.ok(base,'usuario N de prueba');
+   rows.set('suscriptores/U6',{...base,id:'U6',suscriptor_id:'U6',mail:'u6@test.invalid',email_verificado:false});rows.set('suscriptores/U7',{...base,id:'U7',suscriptor_id:'U7',mail:'u7@test.invalid',activo:false});
+   const link=async(sid,status)=>{const d=(await ok('admin','/superadmin/advertisers/'+bareId)).j;return assertStatus('admin','/superadmin/advertisers/'+bareId+'/responsables',{suscriptor_id:sid,rol:'PROPIETARIO',activo:true,revision:d.revision_vinculo_nuevo,revision_titularidad:d.revision_titularidad},status);};
+   await link('NOEXISTE',404);await link('U7',404);await link('U6',409);assert.deepEqual(owners(),[]);
+   await assertStatus('admin','/superadmin/advertisers/create',{operacion_id:'3c5c2a52-7f8e-4c1d-9a3b-1234567890ab',nombre:'Sin verificar',suscriptor_id:'U6'},409);
+   rows.get('suscriptores/U6').email_verificado=true;await link('U6',200);assert.deepEqual(owners(),['U6']);
+   await link('N',200);assert.deepEqual(owners(),['N'],'transferencia mantiene titular único');
+   assert.equal(rows.get('anunciantes/'+bareId).nombre.startsWith('Básico'),true);assert.equal(admB().contratacion_actual.operacion_id,'CT_unidad5basico0002','conserva contratación');
+   console.log('PASS Unidad 6: vinculación directa de usuario verificado, rechazo de inexistente, inactivo y sin verificar, vinculación posterior a la verificación, transferencia con titular único, sin cuentas ficticias.');}
   console.log('PASS Unidad 4: alta desde GH con o sin titular, nivel 3 por defecto, ficha GH y Abrir panel inmediatos, permisos, validación e idempotencia.');}
  console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation suspension and ratification, zero owners, independent GH access and verified claim.');
  fs.mkdirSync('docs/evidencias',{recursive:true});fs.writeFileSync('docs/evidencias/roles159-local.json',JSON.stringify({entorno:'LOCAL_SIMULADO_NO_FACTURACION',version:'159',fecha:new Date().toISOString(),requests:reports.map(r=>({event:r.event,path:r.path,action:r.action,status:r.status,request_id:r.request_id,firestore:r.totals,kv:r.kv,sql:r.public_store119||null,consumption:r.consumption||null}))},null,2));
