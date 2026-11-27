@@ -41,11 +41,24 @@ jobs:
           const reconnectStarts=starts.filter(e=>e.file==='plataforma/promos.html'&&promoStartup.has(e.expression));
           if(reconnectStarts.length!==promoStartup.size||new Set(reconnectStarts.map(e=>e.expression)).size!==promoStartup.size)
             throw Error('Registros de inicio de reconexión incompletos o duplicados');
+          const claimStarts=starts.filter(e=>e.file==='plataforma/login.html'&&/^document\.getElementById\('alta-reclamo-(?:ciudad|buscar155)'\)/.test(e.expression));
+          const claimExpected=new Map([
+            ["document.getElementById('alta-reclamo-ciudad')",1],
+            ["document.getElementById('alta-reclamo-buscar155')",2],
+            ["document.getElementById('alta-reclamo-ciudad')?.addEventListener('change'",1],
+            ["document.getElementById('alta-reclamo-buscar155')?.addEventListener('input'",1],
+            ["document.getElementById('alta-reclamo-buscar155')?.addEventListener('change'",1],
+          ]);
+          for(const [expression,count] of claimExpected){
+            const matches=claimStarts.filter(e=>expression.endsWith(')')?e.expression===expression:e.expression.startsWith(expression));
+            if(matches.length!==count)throw Error('Inicio de reclamo ausente o duplicado: '+expression);
+          }
+          if(claimStarts.length!==6)throw Error('Raíces de reclamo sin cotejar');
           const key=e=>[e.kind,e.id,e.file,e.line].join('|');
           const treeRoots=map.trees.filter(t=>['startup_call','worker_entry'].includes(t.action.kind));
           const expected=new Set(roots.map(key)),actual=new Set(treeRoots.map(t=>key(t.action)));
           console.log('DIAGNOSTICO_RAICES',JSON.stringify({roots:roots.length,starts:starts.length,workers:workers.length,expectedUnique:expected.size,actualUnique:actual.size,treeRoots:treeRoots.length,uiTrees:map.trees.length-treeRoots.length,missing:[...expected].filter(k=>!actual.has(k)).slice(0,12),extra:[...actual].filter(k=>!expected.has(k)).slice(0,12),duplicates:treeRoots.map(t=>key(t.action)).filter((k,i,a)=>a.indexOf(k)!==i).slice(0,12)}));
-          if(roots.length-reconnectStarts.length!==280||starts.length-reconnectStarts.length!==272||workers.length!==8)
+          if(roots.length-reconnectStarts.length-claimStarts.length!==280||starts.length-reconnectStarts.length-claimStarts.length!==272||workers.length!==8)
             throw Error('Raices diferentes al inventario anterior: '+JSON.stringify({roots:roots.length,starts:starts.length,workers:workers.length}));
           if(expected.size!==roots.length||actual.size!==roots.length||treeRoots.length!==roots.length)throw Error('Raices duplicadas o faltantes');
           for(const k of expected)if(!actual.has(k))throw Error('Raiz ausente: '+k);

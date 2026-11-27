@@ -26,6 +26,21 @@ function setup(t,rows){
  return {env,raw,calls,sql,async publish(){await this.op('stage');await this.op('commit');return this.op('read');},setClock(n){clock=n;},restart(){actor=new w.PrivateDaily195(state,env);},async op(action,cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000){const r=await actor.fetch({action,cutoff});const j=await r.json();assert.equal(r.status,200,j.error);return j.value;}};
 }
 const people=[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12',activo:true},{id:'B',nombre:'Bea',fecha_nacimiento:'1980-11-18',activo:true},{id:'C',nombre:'Caro',fecha_nacimiento:'1970-11-19',activo:true},{id:'D',nombre:'Dani',fecha_nacimiento:'2000-11-13',activo:false}];
+test('confirmación privada independiente publica una vez y recupera una edición preparada',async t=>{
+ const h=setup(t,people);
+ assert.deepEqual(await h.op('publish'),{success:true,cutoff:day});
+ const calls=h.calls.length,changes=h.sql.prepare('SELECT total_changes() AS n').get().n;
+ h.restart();
+ assert.deepEqual(await h.op('publish'),{success:true,cutoff:day});
+ assert.equal(h.calls.length,calls);
+ assert.equal(h.sql.prepare('SELECT total_changes() AS n').get().n,changes);
+ assert.equal((await h.op('read')).results.length,4);
+ const next=day+86400000;h.setClock(next+21*60000);
+ await h.op('stage',next);
+ assert.equal((await h.op('read',next)).preparado,false);
+ assert.deepEqual(await h.op('publish',next),{success:true,cutoff:next});
+ assert.equal((await h.op('read',next)).corte,next);
+});
 test('cumpleaños es una lista de personas de hoy y los seis días siguientes, sin resúmenes de edad',()=>{
  const r=w.birthdayList195({preparado:true,results:people},new Date('2026-11-12T14:00:00Z'));
  assert.equal(r.periodo_dias,7);assert.equal(r.desde,'2026-11-12');assert.equal(r.hasta,'2026-11-18');assert.deepEqual(r.results.map(x=>x.nombre),['Ana','Bea']);assert(!JSON.stringify(r).includes('mayores18'));
@@ -83,6 +98,11 @@ test('el mismo protocolo diario read/commit prepara y activa el listado privado 
  const original=h.env.GLD_PUBLIC_CACHE;
  h.env.GLD_PUBLIC_CACHE={...original,get(name){const privateStub=original.get(name);return {fetch:async req=>{const b=await req.clone().json();if(b.op==='city-book-checkpoint')return Response.json({cutoff:day});if(b.op==='city-book-recovery-list')return Response.json({jobs:[]});if(b.op==='city-book-commit')return Response.json({success:true});return privateStub.fetch(req);}};}};
  const invoke=async body=>{const request=new Request('https://test.invalid/internal/city-books',{method:'POST',body:JSON.stringify(body)});const r=await w.routeCityBookCut({request,env:h.env,report:{}});assert.equal(r.status,200);return r.json();};
+ const before=h.calls.length;
+ assert.equal((await invoke({op:'read-public',cutoff:day,publishedCutoff:day,known:[]})).complete,true);
+ assert.deepEqual(await invoke({op:'commit-public',cutoff:day}),{success:true,cutoff:day});
+ assert.equal(h.calls.length,before);
+ assert.equal((await h.op('read')).preparado,false);
  const data=await invoke({op:'read',cutoff:day,publishedCutoff:day,known:[]});assert.equal(data.complete,true);assert(!JSON.stringify(data).includes('Ana'));assert(!JSON.stringify(data).includes('1990-11-12'));assert.equal((await h.op('read')).preparado,false);
  await invoke({op:'commit',cutoff:day});assert.equal((await h.op('read')).results.length,4);
 });

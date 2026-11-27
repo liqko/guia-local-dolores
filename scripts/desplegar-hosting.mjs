@@ -34,7 +34,7 @@ async function stagePaths(stage,dir=''){
 }
 
 export async function deployHosting({stage,mode,token,read=fetch,target,expected,baseIndex,overlayPaths,observe=()=>{}}){
-  if(!['code','urgent','inspect','rollback','rollback-check','overlay'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
+  if(!['code','urgent','watermark','inspect','rollback','rollback-check','overlay'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
   const rollback=mode==='rollback'||mode==='rollback-check';
   const overlay=mode==='overlay';
   const metrics={requests:0,requestBodyBytes:0,responseBodyBytes:0,uploadBytes:0};
@@ -106,8 +106,9 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
   }
   const staged=await stagePaths(stage);
   const changed=new Map(), result=new Map();
-  const urgent=mode==='urgent';
+  const watermark=mode==='watermark',urgent=mode==='urgent'||watermark;
   const files=staged;
+  if(watermark&&(!baseIndex?.etag||files.length!==1||files[0]!==manifestPath))throw Error('La confirmación sin cambios sólo admite el índice vinculado a la edición activa.');
   if(overlay){
     const allowed=new Set(overlayPaths);
     if(!files.length||allowed.size!==files.length||files.some(path=>!allowed.has(path)||path.startsWith(packageRoot)||path==='/plataforma/territorio-cache.js')){
@@ -116,12 +117,17 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
     for(const [path,hash] of previous)result.set(path,hash);
   }
   if(urgent&&files.some(path=>!path.startsWith(packageRoot)))throw Error('La publicación urgente incluye archivos ajenos a los paquetes.');
-  if (urgent) for(const [path,hash] of previous) if(!path.startsWith(packageRoot))result.set(path,hash);
+  if (urgent) for(const [path,hash] of previous) if(watermark||!path.startsWith(packageRoot))result.set(path,hash);
   if(!overlay&&!files.includes(manifestPath)){
     if(urgent)throw Error('Falta la edición urgente preparada.');
     if(previous.has(manifestPath))throw Error('El despliegue perdería el índice de paquetes vigente.');
   }else if(!overlay){
     const book=JSON.parse(await readFile(join(stage,manifestPath),'utf8'));
+    if(watermark){
+      const contentHash=createHash('sha256').update(JSON.stringify({manifest:book.manifest,schema:book.schema})).digest('hex');
+      if(contentHash!==baseIndex.contentHash||!Number.isSafeInteger(baseIndex.cutoff)||!Number.isSafeInteger(book.cutoff)||book.cutoff<=baseIndex.cutoff)
+        throw Error('El índice de vigencia cambió el contenido o no avanzó el corte.');
+    }
     const expected=new Set([manifestPath]);
     for(const {key,revision,deltas} of Object.values(book.manifest)){
       for(const path of [packageRoot+key+'/completo-'+revision+'.json',...deltas.map(from=>packageRoot+key+'/cambios-'+from+'-'+revision+'.json')]){

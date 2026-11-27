@@ -1,5 +1,8 @@
-import { appendFile, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { join } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
 import { aplicarCorte, ultimoCorte } from './aplicar-corte-paquetes-ciudad.mjs';
 
 const worker = 'https://login.liqkoargentina.workers.dev/internal/city-books';
@@ -29,28 +32,41 @@ async function githubIdentity(read,observe) {
   return data.value;
 }
 
-export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,reusePublished=false,
+export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,reusePublished=false,privateSeparate=false,verifyPublished=false,
   identity=githubIdentity,observe,planPath}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,observe,
     headers:{Authorization:'Bearer '+await identity(read,observe),'Content-Type':'application/json'},
     body:JSON.stringify(body),
   });
+  if(mode==='private'){
+    const result=await call({op:'private',cutoff});
+    if(result?.success!==true||result.cutoff!==cutoff)throw Error('El corte privado no quedó confirmado');
+    return {cutoff};
+  }
+  const indexPath='plataforma/paquetes-ciudad/publicacion.json';
   if (mode === 'commit') {
-    const result = await call({op:'commit',cutoff});
+    if(verifyPublished){
+      const expected=JSON.parse(await readFile(join(stage,indexPath),'utf8'));
+      const installed=await readJson(read,new URL(indexPath,hosting),{cache:'no-store',observe});
+      if(expected.cutoff!==cutoff||!isDeepStrictEqual(expected,installed))throw Error('Hosting todavía no confirma el índice del corte');
+    }
+    const result = await call({op:privateSeparate?'commit-public':'commit',cutoff});
     if (result?.success !== true) throw Error('El último corte no quedó confirmado');
+    if(privateSeparate&&result.cutoff!==cutoff)throw Error('El Worker no confirmó el corte público esperado');
     if (result.private_daily?.status === 'pending') throw Error('El corte público quedó confirmado, pero falta preparar Gran Hermano. Reintentá el mismo publicador; no hace falta volver a publicar desde el panel.');
     return {cutoff};
   }
   if (!['cut','preserve','urgent'].includes(mode) || !stage) throw Error('Modo de publicación inválido');
   let base;
-  const previous = await readJson(read,new URL('plataforma/paquetes-ciudad/publicacion.json',hosting),{
+  const previous = await readJson(read,new URL(indexPath,hosting),{
     allowMissing:true,observe,headers:{'Accept-Encoding':'identity'},
     capture:response=>{base={status:response.status,etag:response.headers.get('etag')};},
   });
   if(planPath){
     if(base.status!==404&&(!base.etag||!/^"[^"\r\n]+"$/.test(base.etag)))throw Error('Falta huella verificable del índice instalado.');
-    await writeFile(planPath,JSON.stringify(base),{mode:0o600});
+    const contentHash=previous&&createHash('sha256').update(JSON.stringify({manifest:previous.manifest,schema:previous.schema})).digest('hex');
+    await writeFile(planPath,JSON.stringify({...base,cutoff:previous?.cutoff,contentHash}),{mode:0o600});
   }
   if (mode === 'preserve' && !previous) return {changed:false};
   const manifest = previous?.manifest ?? {};
@@ -72,11 +88,17 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished});
   }
 
-  const source = await call({op:'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
+  const source = await call({op:privateSeparate?'read-public':'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
   if (!source) return {changed:false};
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');
-  return aplicarCorte({previous:{cutoff:source.after,manifest},source,readPublished,stage,forceStage,reusePublished});
+  const result=await aplicarCorte({previous:{cutoff:source.after,manifest},source,readPublished,stage,forceStage,reusePublished});
+  if(privateSeparate&&previous&&previous.cutoff<cutoff&&!result.changed&&!forceStage){
+    await mkdir(join(stage,'plataforma/paquetes-ciudad'),{recursive:true});
+    await writeFile(join(stage,indexPath),JSON.stringify({...previous,cutoff}));
+    return {...result,watermark:true};
+  }
+  return result;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
@@ -86,11 +108,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     observe:operation=>operations.push(operation),
     planPath:process.env.GLD_HOSTING_PLAN,
     ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',reusePublished:process.env.GLD_REUSE_PUBLISHED==='1',
+    privateSeparate:process.env.GLD_PRIVATE_DAILY_SEPARATE==='1',verifyPublished:process.env.GLD_VERIFY_PUBLISHED==='1',
     ...(mode==='urgent'?{urgentScope:JSON.parse(process.env.GLD_URGENT_SCOPE??'null')}:{}),
   });
   console.log(JSON.stringify({mode,operations}));
   if (process.env.GITHUB_OUTPUT && mode !== 'commit') {
-    await appendFile(process.env.GITHUB_OUTPUT,'changed='+result.changed+'\ncutoff='+(result.cutoff??'')+'\n');
+    await appendFile(process.env.GITHUB_OUTPUT,'changed='+result.changed+'\nwatermark='+(result.watermark===true)+'\ncutoff='+(result.cutoff??'')+'\n');
   }
   console.log(mode==='commit'?'Corte confirmado.':result.changed?'Paquetes listos para publicar.':'Paquetes sin cambios.');
 }
