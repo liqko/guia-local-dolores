@@ -139,6 +139,34 @@ async function observeExternalImages(context,page,phase){
   return rows;
 }
 
+function summarizeHostingTimings(rows) {
+  const files=new Map();
+  for(const row of rows){
+    const key=JSON.stringify([row.phase,row.host,row.path]);
+    if(!files.has(key))files.set(key,{phase:row.phase,host:row.host,path:row.path,
+      observations:0,network:0,revalidated:0,localReuse:0,serviceWorker:0,unknown:0,
+      transferBytes:0,encodedRepresentationBytes:0,encodedUnknown:0});
+    const file=files.get(key);
+    file.observations++;
+    if(row.workerStarted)file.serviceWorker++;
+    else if(row.responseStatus===304)file.revalidated++;
+    else if(row.transferBytes>0)file.network++;
+    else if(row.deliveryType==='cache'||row.transferBytes===0&&row.encodedBytes>0)file.localReuse++;
+    else file.unknown++;
+    if(Number.isFinite(row.transferBytes)&&row.transferBytes>0)file.transferBytes+=row.transferBytes;
+    if(Number.isFinite(row.encodedBytes)&&row.encodedBytes>0)file.encodedRepresentationBytes+=row.encodedBytes;
+    else file.encodedUnknown++;
+  }
+  return [...files.values()];
+}
+
+function sessionWasRejected(name,action,steps,requests){
+  if(name==='usuario')return action==='sesion-lecturas'&&steps.some(step=>
+    step.phase==='sesión:validación-post'&&step.httpStatus===401);
+  const [method,path]=name==='anunciante'?['POST','/suscriptores']:['GET','/superadmin/dashboard'];
+  return requests.some(row=>row.service==='worker'&&row.phase==='apertura'&&row.method===method&&row.path===path&&row.status===401);
+}
+
 async function main([action, name, sessionOption]) {
   const route = routes[name];
   if (!Object.hasOwn(routes,name)||!['sesion','ejecutar','infraestructura','hosting','seguimiento','consultas','imagenes','continuidad','sesion-lecturas','incidentes-gh','relaciones-gh',...Object.keys(publications)].includes(action)||sessionOption&&sessionOption!=='--con-sesion') {
@@ -365,7 +393,8 @@ async function main([action, name, sessionOption]) {
           const timing=await frame.evaluate(()=>[...performance.getEntriesByType('navigation'),...performance.getEntriesByType('resource')].map(entry=>{
             const url=new URL(entry.name,location.href);
             return {host:url.hostname,path:url.pathname,transferBytes:entry.transferSize,encodedBytes:entry.encodedBodySize,
-              decodedBytes:entry.decodedBodySize,deliveryType:entry.deliveryType||null,workerStarted:entry.workerStart>0};
+              decodedBytes:entry.decodedBodySize,deliveryType:entry.deliveryType||null,
+              responseStatus:entry.responseStatus||null,workerStarted:entry.workerStart>0};
           })).catch(()=>[]);
           hostingTimings.push(...timing.filter(row=>domains.get(row.host)==='hosting').map(row=>({...row,phase:pass})));
         }
@@ -435,8 +464,11 @@ async function main([action, name, sessionOption]) {
   } finally {
     try {
       if (!interactive) {
+        const measured=await evidence?.();
+        if(failure&&session&&sessionWasRejected(name,action,steps,measured?.requests??[]))failure='SESION_RECHAZADA';
         const result = {evidenceType:'installed-browser-observation',date:new Date().toISOString(),interface:name,action,sessionRequested:session,result:failure?'fallo':'aprobado',
-          error:failure??null,javascriptErrors,steps,hostingTimings,externalImages,...(await evidence?.())};
+          error:failure??null,javascriptErrors,steps,hostingTimings,
+          ...(action==='hosting'?{hostingFiles:summarizeHostingTimings(hostingTimings)}:{}),externalImages,...measured};
         const output=join(base,name+'-'+randomUUID()+'.json');
         await writeFile(output,JSON.stringify(result,null,2),{mode:0o600});
         console.log(output);
@@ -535,4 +567,4 @@ if (require.main===module) main(process.argv.slice(2)).catch(error=>{
   console.error(error.code==='MODULE_NOT_FOUND'?'Instalá Playwright con npm install --no-save --package-lock=false playwright@1.55.0':error.message);
   process.exitCode=1;
 });
-module.exports = {installMeasurement,checkPromo,checkPublication,publications};
+module.exports = {installMeasurement,checkPromo,checkPublication,publications,summarizeHostingTimings,sessionWasRejected};

@@ -27,7 +27,7 @@ export async function versionarRecursos(stage){
  for(const page of pages){
   const file=join(stage,'plataforma',page);
   let html=await readFile(file,'utf8');
-  if(page==='carcasa.html')html=html.replace("url:'./empleo.html'","url:'./empleo'");
+  if(page==='carcasa.html')html=html.replace(/url:'\.\/(anunciantes|empleo)\.html'/g,"url:'./$1'");
   const scripts=[...html.matchAll(/<script\b[^>]*\bsrc=["'](\/plataforma\/[^"'?]+\.js)(?:\?[^"']*)?["'][^>]*>/gi)];
   for(const [tag,source] of scripts){
    if(source.startsWith(prefix))continue;

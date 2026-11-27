@@ -6,6 +6,34 @@ const path=require('node:path');
 const login=fs.readFileSync(path.join(__dirname,'../plataforma/login.html'),'utf8');
 const worker=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
 
+test('Hosting agrupa transferencias, revalidaciones y reutilizaciones por archivo y fase',()=>{
+ const {summarizeHostingTimings}=require('../scripts/auditar-en-vivo.cjs');
+ const logo={host:'hosting.invalid',phase:'recarga',path:'/logo.png'};
+ const rows=[
+  {...logo,transferBytes:900,encodedBytes:600,responseStatus:200},
+  {...logo,transferBytes:300,encodedBytes:600,responseStatus:304},
+  {...logo,transferBytes:0,encodedBytes:600},
+  {...logo,transferBytes:0,encodedBytes:0},
+  {...logo,transferBytes:0,encodedBytes:600,workerStarted:true},
+  {...logo,phase:'apertura',transferBytes:900,encodedBytes:600},
+ ];
+ const [warm,cold]=summarizeHostingTimings(rows);
+ assert.deepEqual(warm,{...logo,observations:5,network:1,revalidated:1,localReuse:1,serviceWorker:1,unknown:1,
+  transferBytes:1200,encodedRepresentationBytes:2400,encodedUnknown:1});
+ assert.equal(cold.network,1);
+ assert.equal(cold.transferBytes,900);
+});
+
+test('el auditor distingue el rechazo de sesión de un fallo de módulo',()=>{
+ const {sessionWasRejected}=require('../scripts/auditar-en-vivo.cjs');
+ const opening={service:'worker',phase:'apertura',method:'GET',path:'/superadmin/dashboard',status:401};
+ assert.equal(sessionWasRejected('gran-hermano','relaciones-gh',[],[opening]),true);
+ assert.equal(sessionWasRejected('gran-hermano','relaciones-gh',[],[{...opening,status:503}]),false);
+ assert.equal(sessionWasRejected('anunciante','consultas',[],[{...opening,method:'POST',path:'/suscriptores'}]),true);
+ assert.equal(sessionWasRejected('usuario','sesion-lecturas',[{phase:'sesión:validación-post',httpStatus:401}],[]),true);
+ assert.equal(sessionWasRejected('usuario','ejecutar',[],[opening]),false);
+});
+
 test('P4-0002: respuesta incierta de baja de sede recarga por puente del mismo ámbito',async()=>{
   assert.match(login,/window\.gldLoadCommerceProfileForTags147\s*=\s*loadCommerceUI/);
   assert.match(login,/reload:\(\)=>window\.gldLoadCommerceProfileForTags147\(\)/);

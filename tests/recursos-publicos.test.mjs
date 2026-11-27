@@ -26,6 +26,14 @@ test('Recursos publicados: revisión por contenido, imágenes intactas y actuali
   assert(!brand.includes('/plataforma/assets/marca/'));
   assert(brand.includes("footer.src='/plataforma/pie'"));
   assert(html.includes("url:'./empleo'"));
+  assert(html.includes("url:'./anunciantes'"));
+  assert(!html.includes("url:'./anunciantes.html'"));
+  const from=html.indexOf('  function contextoUrl('),to=html.indexOf('  function guardarFiltroTarjeta_(',from);
+  const context=Function('window','localStorage',html.slice(from,to)+';return contextoUrl')(
+   {location:{origin:'https://fixture.invalid',search:'?ciudad_id=DOL&anunciante_id=A1&sede_id=S1'}},{getItem:()=>null});
+  assert.deepEqual(Object.fromEntries(new URL(context('./anunciantes')).searchParams),{ciudad_id:'DOL',anunciante_id:'A1',sede_id:'S1'});
+  assert.deepEqual(Object.fromEntries(new URL(context('./anunciantes.html')).searchParams),{ciudad_id:'DOL',anunciante_id:'A1',sede_id:'S1'});
+  assert.deepEqual(Object.fromEntries(new URL(context('./empleo')).searchParams),{ciudad_id:'DOL'});
   assert(JSON.parse(await readFile('firebase.json','utf8')).hosting.cleanUrls);
   await reset();
   const again=await versionarRecursos(stage);
