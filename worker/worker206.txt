@@ -12894,8 +12894,10 @@ async function routeAdvertiserActivity155(ctx){
 }
 // Alta directa desde Gran Hermano (Unidad 4): titular y contratación opcionales; reutiliza el alta atómica.
 // Regularización única de titulares existentes (definición del usuario 27/11/2026).
-// «simular» no escribe; «ejecutar» exige confirmación expresa, procesa lotes idempotentes y
-// omite los anunciantes ya regularizados. Una sola lectura de vínculos por llamada.
+// «simular» lee una sola vez los vínculos, no escribe en Firestore y guarda en KV el plan con la
+// regla vigente. «ejecutar» exige confirmación y el plan simulado: procesa lotes idempotentes sin
+// volver a leer los vínculos.
+const VALIDITY_REGULARIZATION_KEY155='admin:regularizacion155:plan';
 async function routeAdvertiserValidityRegularization155(ctx){
  const {path,request,db,cache,env}=ctx;
  if(path!=='/superadmin/advertisers/validity-regularization'||request.method!=='POST')return null;
@@ -12903,32 +12905,38 @@ async function routeAdvertiserValidityRegularization155(ctx){
  if(!isTopAdmin(auth))return json({success:false,message:'Sin autorización para regularizar vigencias.'},403);
  const body=await request.json().catch(()=>({})),modo=String(body.modo||'simular');
  if(!['simular','ejecutar'].includes(modo))return json({success:false,message:'Modo inválido.'},400);
- if(modo==='ejecutar'&&body.confirmacion!=='REGULARIZAR_TITULARES')return json({success:false,message:'Falta la confirmación expresa.'},400);
- const lote=Math.min(Math.max(Number.parseInt(body.lote,10)||50,1),100);
- const [relations,index,rules]=await Promise.all([db.listCollection('suscriptor_anunciante'),cache.get(ADMIN_ADVERTISERS_KEY),loadValidityRules155(cache)]);
- const owners=new Map(),rows=new Map((index?.results||[]).map(x=>[String(x.id),x])),now=new Date().toISOString();
- for(const r of relations||[])if(roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)&&r.anunciante_id)owners.set(String(r.anunciante_id),(owners.get(String(r.anunciante_id))||0)+1);
- const s={vinculos_leidos:(relations||[]).length,anunciantes_en_indice:rows.size,con_titular_unico:0,ya_regularizados:0,a_regularizar:0,inician_vigencia:0,conservan_vigencia:0,pasan_a_permanente:0,sin_cambio_de_vigencia:0,multiples_titulares:[],fuera_del_indice:[],ciudades_a_actualizar:0};
- const candidates=[];
- for(const [aid,count] of owners){
-  if(count>1){s.multiples_titulares.push(aid);continue;}
-  s.con_titular_unico++;const row=rows.get(aid);
-  if(row?.con_titular===true){s.ya_regularizados++;continue;}
-  if(!row)s.fuera_del_indice.push(aid);
-  candidates.push(aid);s.a_regularizar++;
-  const change=validityOnOwner155({nivel:row?.nivel,con_titular:true,vigencia_hasta:row?.vigencia_hasta||''},rules,now);
-  if(change.vigencia_hasta)s.inician_vigencia++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
-  else if(change.vigencia_hasta==='')s.pasan_a_permanente++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
-  else if(row?.vigencia_hasta)s.conservan_vigencia++;else s.sin_cambio_de_vigencia++;
+ const lote=Math.min(Math.max(Number.parseInt(body.lote,10)||50,1),100),now=new Date().toISOString();
+ if(modo==='simular'){
+  const [relations,index,rules]=await Promise.all([db.listCollection('suscriptor_anunciante'),cache.get(ADMIN_ADVERTISERS_KEY),loadValidityRules155(cache)]);
+  const owners=new Map(),rows=new Map((index?.results||[]).map(x=>[String(x.id),x]));
+  for(const r of relations||[])if(roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)&&r.anunciante_id)owners.set(String(r.anunciante_id),(owners.get(String(r.anunciante_id))||0)+1);
+  const s={vinculos_leidos:(relations||[]).length,anunciantes_en_indice:rows.size,con_titular_unico:0,ya_regularizados:0,a_regularizar:0,inician_vigencia:0,conservan_vigencia:0,pasan_a_permanente:0,sin_cambio_de_vigencia:0,multiples_titulares:[],fuera_del_indice:[],ciudades_a_actualizar:0};
+  const candidates=[];
+  for(const [aid,count] of owners){
+   if(count>1){s.multiples_titulares.push(aid);continue;}
+   s.con_titular_unico++;const row=rows.get(aid);
+   if(row?.con_titular===true){s.ya_regularizados++;continue;}
+   if(!row)s.fuera_del_indice.push(aid);
+   candidates.push(aid);s.a_regularizar++;
+   const change=validityOnOwner155({nivel:row?.nivel,con_titular:true,vigencia_hasta:row?.vigencia_hasta||''},rules,now);
+   if(change.vigencia_hasta)s.inician_vigencia++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
+   else if(change.vigencia_hasta==='')s.pasan_a_permanente++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
+   else if(row?.vigencia_hasta)s.conservan_vigencia++;else s.sin_cambio_de_vigencia++;
+  }
+  const lotes=Math.ceil(s.a_regularizar/lote),tarjetas=s.inician_vigencia+s.pasan_a_permanente;
+  s.consumo_estimado={firestore_lecturas:s.vinculos_leidos+s.a_regularizar,firestore_escrituras_max:s.a_regularizar,kv_lecturas:3+2*lotes+tarjetas,kv_escrituras:1+2*lotes+tarjetas,durable_objects_ciudades:s.ciudades_a_actualizar,llamadas_ejecutar:lotes,detalle:'Vínculos: una sola lectura en la simulación. Simulación: índice, catálogo y plan. Cada lote: plan e índice (lectura y escritura). Cada anuncio con vigencia nueva: su tarjeta pública.'};
+  const plan_id=crypto.randomUUID();
+  await cache.put(VALIDITY_REGULARIZATION_KEY155,{plan_id,creado:now,por:String(auth.sid||''),rules,candidates,cursor:0});
+  return json({success:true,modo,lote,plan_id,...s,firestore_writes:0});
  }
- s.consumo_estimado={firestore_lecturas:s.vinculos_leidos+s.a_regularizar,firestore_escrituras_max:s.a_regularizar,kv_lecturas:2+s.inician_vigencia+s.pasan_a_permanente+Math.ceil(s.a_regularizar/lote),kv_escrituras:s.inician_vigencia+s.pasan_a_permanente+Math.ceil(s.a_regularizar/lote),durable_objects_ciudades:s.ciudades_a_actualizar,llamadas_ejecutar:Math.ceil(s.a_regularizar/lote)};
- if(modo==='simular')return json({success:true,modo,lote,...s,firestore_writes:0});
- let procesados=0,escrituras=0,omitidos=0,sincronizaciones=0;const indexPatches=new Map();
- for(const aid of candidates){
-  if(procesados>=lote)break;
-  const v=await db.getVersioned('anunciantes_administracion',aid);
+ if(body.confirmacion!=='REGULARIZAR_TITULARES')return json({success:false,message:'Falta la confirmación expresa.'},400);
+ const plan=await cache.get(VALIDITY_REGULARIZATION_KEY155);
+ if(!plan||plan.plan_id!==String(body.plan_id||'')||Date.parse(now)-Date.parse(plan.creado)>86400000)return json({success:false,message:'Simulá nuevamente antes de ejecutar.'},409);
+ const rules=plan.rules,candidates=Array.isArray(plan.candidates)?plan.candidates:[];
+ let cursor=Number(plan.cursor)||0,escrituras=0,omitidos=0,sincronizaciones=0;const indexPatches=new Map(),inicio=cursor;
+ for(;cursor<candidates.length&&cursor-inicio<lote;cursor++){
+  const aid=candidates[cursor],v=await db.getVersioned('anunciantes_administracion',aid);
   if(!v.doc||!v.updateTime){omitidos++;continue;}
-  procesados++;
   if(v.doc.con_titular===true){indexPatches.set(aid,{con_titular:true});continue;}
   const patch={con_titular:true,...validityOnOwner155({...v.doc,con_titular:true},rules,now),actualizado_en:now,actualizado_por:String(auth.sid||'')};
   const [saved]=await db.commitPatches([{collection:'anunciantes_administracion',id:aid,before:v.doc,patch,options:{updateTime:v.updateTime}}]);
@@ -12937,7 +12945,8 @@ async function routeAdvertiserValidityRegularization155(ctx){
   if(Object.hasOwn(patch,'vigencia_hasta')){const g=await patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:{vigente_hasta:publicValidity155(doc)}});if(g?.needs_full_sync){await syncGuideAdvertiserV2({db,cache,advertiserId:aid});sincronizaciones++;}}
  }
  if(indexPatches.size)await patchAdvertiserIndexRowsV2({cache,patches:indexPatches});
- return json({success:true,modo,lote,procesados,escrituras,omitidos,sincronizaciones_completas:sincronizaciones,pendientes:Math.max(candidates.length-procesados-omitidos,0),...s,firestore_writes:escrituras});
+ if(cursor!==inicio)await cache.put(VALIDITY_REGULARIZATION_KEY155,{...plan,cursor});
+ return json({success:true,modo,lote,plan_id:plan.plan_id,procesados:cursor-inicio,escrituras,omitidos,sincronizaciones_completas:sincronizaciones,pendientes:candidates.length-cursor,firestore_writes:escrituras});
 }
 async function routeAdvertiserCreate155(ctx){
  const {path,request,db,cache,env}=ctx;
