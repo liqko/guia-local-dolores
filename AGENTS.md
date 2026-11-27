@@ -37,7 +37,8 @@
 
 - Nivel 1 (Gobierno) y 2 (ONG): sin vencimiento sin titular; con titular, renovación cada 90 días. Nivel 3: sin vencimiento sin titular; con titular, cada 30 días. Niveles 4, 5 y 6: 90 días desde la contratación, salvo excepciones expresamente autorizadas.
 - En 1–3, asignar titular inicia el período. La edición ordinaria no reinicia la vigencia. Vencer no elimina anunciante, datos, titularidad ni historial, ni bloquea el panel para renovar.
-- Un único mecanismo compartido (`ADVERTISER_VALIDITY155` en `worker/worker206.txt`); no crear circuitos por nivel. Los vencimientos se procesan en el corte ordinario de 01:00 con el publicador existente, sin consultas masivas ni reconstrucciones.
+- Fuente única: catálogo `niveles_anunciante`, editado en Gran Hermano → Configuración de plataforma → Niveles → «Vigencia y renovación de anuncios» (por nivel: con titular y sin titular = permanente, cantidad de días o determinada por contratación; y si admite excepciones). Los valores anteriores son sólo iniciales. Las excepciones individuales se administran únicamente desde la ficha del anunciante en GH y no modifican la regla del nivel.
+- Cada vigencia se otorga con la regla vigente al asignar/quitar titular, contratar o renovar, y queda guardada en el anunciante: cambiar una regla no altera vigencias ni contrataciones ya otorgadas. Un único mecanismo en el Worker resuelve las reglas para Worker, Anunciante, GH y publicador; no crear circuitos por nivel. Los vencimientos se procesan en el corte ordinario de 01:00 con el publicador existente, sin consultas masivas ni reconstrucciones.
 
 # Contrato rector de ingeniería — Guía Local
 **Vigencia: 24/10/2026. Prioridad: estas reglas prevalecen sobre instrucciones técnicas antiguas de este archivo si hay contradicción.**

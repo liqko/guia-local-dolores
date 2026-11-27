@@ -440,7 +440,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 <div class="cfgpane hidden" data-cfgpane="nodos"><div class="card"><h2>Nodos</h2><p class="muted">Creá o editá un nodo y elegí su ciudad en la misma ficha.</p><div class="toolbar"><select id="nodosFiltroCiudad" onchange="ghRenderNodos()"><option value="">Todas las ciudades</option></select><button onclick="ghNuevoNodo()">+ Agregar nodo</button><button class="sec" onclick="ghCargarNodos()">Actualizar</button></div><div id="nodosLista"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="segmentos"><div class="card"><h3>Segmentos</h3><div id="cfgSegmentos"></div></div></div>
       <div class="cfgpane hidden" data-cfgpane="niveles">
-<details class="card" open><summary><b>Administración de niveles</b> · Identidad, prioridad y estado</summary><div id="cfgNivelesAnunciante"></div></details>
+<details class="card" open><summary><b>Administración de niveles</b> · Identidad, prioridad y estado</summary><div id="cfgNivelesAnunciante"></div></details><details class="card" id="ghVigenciaNiveles155"><summary><b>Vigencia y renovación de anuncios</b> · Con titular y sin titular, por nivel</summary><p class="muted">Cada regla se aplica al asignar o quitar un titular, al cerrar una contratación y al renovar. Cambiarla no modifica vigencias ni contrataciones ya otorgadas. Las excepciones individuales se administran desde la ficha del anunciante.</p><div id="ghVigenciaNivelesBox155"></div><div class="data-form-actions" style="margin-top:12px"><button type="button" id="ghGuardarVigencias155" onclick="ghGuardarVigencias155()">Guardar vigencias</button></div><span id="ghVigenciasMsg155" role="status" aria-live="polite"></span></details>
 <details class="card"><summary><b>Origen de cada dato</b> · Anunciante o sede</summary><p class="muted">Clasificación general de los campos, independiente del nivel y de sus reglas de publicación.</p><div id="cfgAmbitoCamposAnunciante"></div></details>
 <details class="card" open id="ghReglasPublicacionNiveles"><summary><b>Reglas de publicación</b> · Institucionales y comerciales</summary>
 <details class="item" open><summary><b>Institucionales</b> · Niveles 1 y 2 · Reglas y parámetros generales</summary><div style="margin:20px 0 12px;padding:12px 14px;background:rgba(70,130,160,.09);border-left:4px solid #237899;border-radius:6px"><h3 style="margin:0 0 5px">REGLAS DE PUBLICACIÓN</h3><p class="muted" style="margin:0">Qué información se muestra en las tarjetas de cada nivel.</p></div><div id="cfgReglasInstitucionales"></div><hr style="margin:28px 0 18px;border:0;border-top:2px solid #999"><div style="margin:16px 0 12px;padding:12px 14px;background:rgba(70,130,160,.09);border-left:4px solid #237899;border-radius:6px"><h3 style="margin:0 0 5px">PARÁMETROS GENERALES DE CARGA</h3><p class="muted" style="margin:0">Cuánta información puede cargar y conservar el anunciante, aunque su nivel no permita publicarla.</p></div><div id="cfgCargaGeneralInstitucional"></div></details>
@@ -489,10 +489,56 @@ let GH_CATALOG_CACHE={};
 // El soporte se anuncia desde /superadmin/dashboard; Worker antiguo: sin solicitud extra.
 let GH_FIXED_SUPPORTED169=false,GH_FIXED_PACKET169=null,GH_FIXED_PROMISE169=null;
 let GH_DAILY_ENTRY195=null;
+let GH_VIGENCIAS155=null;
+const GH_VIG_MODOS155=[['PERMANENTE','Vigencia permanente'],['DIAS','Cantidad de días'],['CONTRATACION','Determinada por contratación']];
+function ghVigenciaNiveles155(){return (GH_CATALOG_CACHE.niveles_anunciante||[]).filter(x=>String(x.nivel_id||x.id||'')!==GH_CARGA_GENERAL_ID&&x.eliminado!==true&&x.activo!==false).sort((a,b)=>Number(a.numero??0)-Number(b.numero??0));}
+function ghVigenciaKey155(row){return String(row.numero??row.nivel_id??row.id??'').trim();}
+// La regla efectiva la resuelve el Worker (vigencia_reglas); acá sólo se muestra y se envía lo modificado.
+function ghVigenciaActual155(row,p){const m=row['vigencia_'+p+'_modo'];return m?{modo:m,dias:Number(row['vigencia_'+p+'_dias']||0)}:(GH_VIGENCIAS155?.[ghVigenciaKey155(row)]?.[p]||{modo:'PERMANENTE',dias:0});}
+function ghVigenciaExc155(row){return typeof row.vigencia_excepciones==='boolean'?row.vigencia_excepciones:!!GH_VIGENCIAS155?.[ghVigenciaKey155(row)]?.excepciones;}
+function ghVigenciasRender155(){
+ const box=document.getElementById('ghVigenciaNivelesBox155');if(!box)return;
+ const rows=ghVigenciaNiveles155();
+ if(!GH_VIGENCIAS155||!rows.length){box.innerHTML='<p class="muted">Cargando las reglas vigentes…</p>';return;}
+ box.innerHTML=rows.map(row=>{
+  const id=esc(String(row.nivel_id||row.id)),key=ghVigenciaKey155(row);
+  const grupo=(p,titulo)=>{const v=ghVigenciaActual155(row,p);return '<fieldset style="border:1px solid #d4d4d8;border-radius:9px;padding:10px;display:grid;gap:8px"><legend>'+titulo+'</legend><label>Condición<select data-vig-modo="'+p+'" data-vig-nivel="'+id+'">'+GH_VIG_MODOS155.map(([m,t])=>'<option value="'+m+'"'+(v.modo===m?' selected':'')+'>'+t+'</option>').join('')+'</select></label><label>Días (no se usa con vigencia permanente)<input type="number" min="1" max="3650" step="1" data-vig-dias="'+p+'" data-vig-nivel="'+id+'" value="'+(v.dias||'')+'"></label></fieldset>';};
+  return '<details class="item" open><summary><b>Nivel '+esc(key)+'</b>'+(row.nombre?' · '+esc(row.nombre):'')+'</summary><div style="display:grid;gap:10px">'+grupo('con_titular','Con titular')+grupo('sin_titular','Sin titular')+'<label><input type="checkbox" data-vig-exc="'+id+'"'+(ghVigenciaExc155(row)?' checked':'')+'> Admite excepciones individuales desde la ficha del anunciante</label></div></details>';
+ }).join('');
+}
+async function ghGuardarVigencias155(){
+ const msg=document.getElementById('ghVigenciasMsg155'),btn=document.getElementById('ghGuardarVigencias155');
+ try{
+  if(!GH_VIGENCIAS155)throw Error('Todavía no se cargaron las reglas vigentes.');
+  const cambios=[];
+  for(const row of ghVigenciaNiveles155()){
+   const id=String(row.nivel_id||row.id),q=CSS.escape(id),item={};
+   for(const p of ['con_titular','sin_titular']){
+    const actual=ghVigenciaActual155(row,p),modo=document.querySelector('[data-vig-modo="'+p+'"][data-vig-nivel="'+q+'"]').value;
+    const dias=Number(document.querySelector('[data-vig-dias="'+p+'"][data-vig-nivel="'+q+'"]').value.trim());
+    if(modo!=='PERMANENTE'&&(!Number.isSafeInteger(dias)||dias<1||dias>3650))throw Error('Nivel '+ghVigenciaKey155(row)+': indicá entre 1 y 3650 días.');
+    if(modo!==actual.modo||(modo!=='PERMANENTE'&&dias!==Number(actual.dias))){item['vigencia_'+p+'_modo']=modo;if(modo!=='PERMANENTE')item['vigencia_'+p+'_dias']=dias;}
+   }
+   const exc=document.querySelector('[data-vig-exc="'+q+'"]').checked;
+   if(exc!==ghVigenciaExc155(row))item.vigencia_excepciones=exc;
+   if(Object.keys(item).length)cambios.push([row,{nivel_id:id,...item}]);
+  }
+  if(!cambios.length){if(msg)msg.textContent='Sin cambios.';return;}
+  if(btn)btn.disabled=true;if(msg)msg.textContent='Guardando…';
+  for(const [row,item] of cambios){
+   const r=await api('guardar_catalogo',{tipo:'niveles_anunciante',item},'POST');
+   if(!r||!r.success)throw Error(r?.message||'No se confirmó el guardado.');
+   Object.assign(row,item);
+  }
+  if(msg)msg.textContent='Vigencias guardadas. Rigen para las próximas asignaciones de titular, contrataciones y renovaciones; no modifican vigencias ya otorgadas.';
+ }catch(e){if(msg)msg.textContent=e?.message||'No se pudo guardar.';}
+ finally{if(btn)btn.disabled=false;}
+}
 function ghFixedApply195(j){
  GH_FIXED_PACKET169=j;
  for(const [tipo,rows]of Object.entries(j.catalogos||{}))if(Array.isArray(rows))GH_CATALOG_CACHE[tipo]=rows;
  GH_FUNC_GLOBAL166=j.reglas;if(j.precios?.precios)GH_PRECIOS_ESTADO162=j.precios;
+ if(j.vigencias)GH_VIGENCIAS155=j.vigencias;
 }
 function ghDailyApply195(j){
  GH_DAILY_ENTRY195=j.entrada;
@@ -2051,24 +2097,35 @@ let ANUNCIANTE_ACTUAL='';
 let ANUNCIANTE_CIUDADES=[];
 
 const GH_ESTADO_ANU155={BLOQUEO_ADMINISTRATIVO:'Bloqueado por Gran Hermano',DESACTIVACION_VOLUNTARIA:'Desactivado por el anunciante',VENCIDO:'Vencido',FICHA_INCOMPLETA:'Ficha incompleta: no se publica'};
-function ghEstadoAnuHtml155(id,estado,hasta){
+function ghEstadoAnuHtml155(id,estado,hasta,adm={}){
   const motivo=estado?(GH_ESTADO_ANU155[estado.motivo]||'Activo'):'Sin dato';
-  const q="'"+esc(id).replace(/'/g,'&#39;')+"'";
-  return '<div class="card" id="anuEstado155"><b>Estado público:</b> '+esc(motivo)+(hasta?' · Vigencia hasta '+esc(hasta):'')+
+  const q="'"+esc(id).replace(/'/g,'&#39;')+"'",nivel=String(adm.nivel??'');
+  const exc=adm.vigencia_excepcion&&adm.vigencia_excepcion.modo?adm.vigencia_excepcion:null,admite=!!GH_VIGENCIAS155?.[nivel]?.excepciones;
+  const vig=exc&&exc.modo==='PERMANENTE'?' · Vigencia permanente por excepción':(hasta?' · Vigencia hasta '+esc(hasta):'');
+  const excHtml=(admite||exc)?'<details style="margin-top:10px"'+(exc?' open':'')+'><summary><b>Excepción de vigencia</b></summary>'+
+   (exc?'<p>Excepción vigente: '+(exc.modo==='PERMANENTE'?'vigencia permanente':'hasta '+esc(exc.hasta||''))+'. Motivo: '+esc(exc.motivo||'')+'</p>':'')+
+   (admite?'<div style="display:grid;gap:8px"><label>Tipo<select id="anuExcModo155"><option value="PERMANENTE">Vigencia permanente</option><option value="FECHA">Hasta una fecha</option></select></label><label>Fecha (sólo para «Hasta una fecha»)<input type="date" id="anuExcHasta155"></label><label>Motivo<textarea id="anuExcMotivo155" rows="4" style="resize:vertical"></textarea></label><div class="data-form-actions"><button type="button" onclick="ghExcepcionAnu155('+q+',false)">Guardar excepción</button></div></div>':'<p class="muted">El nivel actual no admite excepciones.</p>')+
+   (exc?'<div class="data-form-actions"><button type="button" onclick="ghExcepcionAnu155('+q+',true)">Quitar excepción</button></div>':'')+
+   '<p class="muted">La excepción se aplica sólo a este anuncio y no modifica la regla general del nivel.</p></details>':'';
+  return '<div class="card" id="anuEstado155" data-nivel="'+esc(nivel)+'"><b>Estado público:</b> '+esc(motivo)+vig+
    '<p class="muted">Desactivar o vencer no bloquea el panel del titular. Se conservan identificador, información, contratación y publicaciones.</p>'+
    '<div class="data-form-actions"><button type="button" onclick="ghActividadAnu155('+q+',\'activar\')">Activar</button> '+
    '<button type="button" onclick="ghActividadAnu155('+q+',\'desactivar\')">Desactivar</button> '+
-   '<button type="button" onclick="ghActividadAnu155('+q+',\'renovar\')">Renovar vigencia</button></div><div id="anuEstadoMsg155" class="muted"></div></div>';
+   '<button type="button" onclick="ghActividadAnu155('+q+',\'renovar\')">Renovar vigencia</button></div>'+excHtml+'<div id="anuEstadoMsg155" class="muted"></div></div>';
 }
-async function ghActividadAnu155(id,accion){
+function ghExcepcionAnu155(id,quitar){
+  if(quitar)return ghActividadAnu155(id,'quitar_excepcion');
+  return ghActividadAnu155(id,'excepcion',{excepcion_modo:document.getElementById('anuExcModo155')?.value||'',excepcion_hasta:document.getElementById('anuExcHasta155')?.value||'',excepcion_motivo:document.getElementById('anuExcMotivo155')?.value||''});
+}
+async function ghActividadAnu155(id,accion,extra={}){
   const out=document.getElementById('anuEstadoMsg155');if(out)out.textContent='Guardando...';
   const botones=[...document.querySelectorAll('#anuEstado155 button')];botones.forEach(b=>b.disabled=true);
   try{
-    const body={accion_actividad:accion};if(accion==='renovar')body.operacion_id=crypto.randomUUID();
+    const body={accion_actividad:accion,...extra};if(accion==='renovar')body.operacion_id=crypto.randomUUID();
     const r=await ghAdminRequest_('/advertisers/'+encodeURIComponent(id)+'/activity',body,'POST');
     if(!r||r.success===false)throw new Error(r?.message||'No se pudo cambiar el estado.');
     const box=document.getElementById('anuEstado155');
-    if(box)box.outerHTML=ghEstadoAnuHtml155(id,r.estado,r.vigencia_hasta);
+    if(box)box.outerHTML=ghEstadoAnuHtml155(id,r.estado,r.vigencia_hasta,{nivel:box.dataset.nivel||'',vigencia_excepcion:r.excepcion});
     const aprobado=document.getElementById('anuAprobado');if(aprobado&&accion==='activar')aprobado.checked=true;
     const msg=document.getElementById('anuEstadoMsg155');if(msg)msg.textContent=r.updated===false?'Sin cambios.':'Guardado.';
   }catch(e){const msg=document.getElementById('anuEstadoMsg155');if(msg)msg.textContent=e?.message||'No se pudo cambiar el estado.';botones.forEach(b=>b.disabled=false);}
@@ -2084,6 +2141,7 @@ async function detalleAnu(id){
     const catalogResults=await Promise.allSettled(catalogTypes.map(tipo=>api('listar_catalogo',{tipo})));
     const [nivJ,segJ,catJ,funJ,actJ,accJ,nodoJ]=catalogResults.map((r,i)=>r.status==='fulfilled'?r.value:{results:GH_CATALOG_CACHE[catalogTypes[i]]||[]});
     catalogResults.forEach((r,i)=>{if(r.status==='fulfilled')GH_CATALOG_CACHE[catalogTypes[i]]=r.value.results||[];});
+    if(catalogResults[0].status==='fulfilled'&&catalogResults[0].value.vigencia_reglas)GH_VIGENCIAS155=catalogResults[0].value.vigencia_reglas;
     const catalogFailures=catalogResults.some(r=>r.status==='rejected');
     ANUNCIANTE_ACTUAL=id; ANUNCIANTE_CIUDADES=[...new Set((j.sedes||[]).map(s=>String(s.ciudad_id||'').trim()).filter(Boolean))]; const a=j.anunciante||{},adm=j.administracion||{},nombre=a.nombre||adm.nombre||id,nivel=String(adm.nivel??'').trim();
     const nivelOpts=(nivJ.results||[]).filter(x=>x.activo!==false).sort((x,y)=>Number(x.orden??x.numero)-Number(y.orden??y.numero)).map(x=>{const v=GLD_CLASSIFICATION.ids(x).includes(nivel)?nivel:String(x.numero??x.nivel_id??x.id??'');return '<option value="'+esc(v)+'" '+(nivel===v?'selected':'')+'>'+esc(GLD_CLASSIFICATION.levelLabel(x))+'</option>';}).join('');
@@ -2127,7 +2185,7 @@ async function detalleAnu(id){
        origenHtml+contratoHtml+
        '<h3 style="margin-top:16px">Decisiones de la plataforma</h3>'+
        '<div class="checks"><label><input id="anuAprobado" type="checkbox" '+(adm.aprobado===true?'checked':'')+'> Publicado / aprobado</label></div>'+
-       ghEstadoAnuHtml155(id,j.estado_publico||j.detail?.estado_publico,adm.vigencia_hasta)+
+       ghEstadoAnuHtml155(id,j.estado_publico||j.detail?.estado_publico,adm.vigencia_hasta,adm)+
        '<div class="classification-stack"><div><label>Segmento</label><select id="anuSegmento">'+segOpts+'</select></div>'+
        '<div><label>Nivel asignado</label><select id="anuNivel">'+nivelOpts+'</select></div>'+
        '<div><label>Subnivel</label><input id="anuSubnivel" value="'+esc(adm.subnivel||'')+'"></div></div>'+
@@ -3150,12 +3208,13 @@ async function ghCargarCatalogo(def){
   if(!Array.isArray(GH_CATALOG_CACHE[def.tipo])){
    const j=await api('listar_catalogo',{tipo:def.tipo});
    GH_CATALOG_CACHE[def.tipo]=j.results||[];
+   if(j.vigencia_reglas)GH_VIGENCIAS155=j.vigencia_reglas;
   }
   if(def.tipo==='funcionalidades'&&!GH_FUNC_GLOBAL166){
    try{await ghCargarFuncionesGlobal166()}catch(e){GH_FUNC_GLOBAL166=null}
   }
   ghRenderCatalogo(def,GH_CATALOG_CACHE[def.tipo]);
-  if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(GH_CATALOG_CACHE[def.tipo]);ghRenderResumenNiveles108();}
+  if(def.tipo==='niveles_anunciante'){ghCargaGeneralRender(GH_CATALOG_CACHE[def.tipo]);ghRenderResumenNiveles108();ghVigenciasRender155();}
  }catch(e){box.innerHTML='<div class="error">'+esc(e.message)+'</div>';}
 }
 async function ghCargarCatalogos(){await Promise.all(GH_CATALOGOS.map(ghCargarCatalogo));informarAltura();}
