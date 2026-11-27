@@ -98,10 +98,11 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');
   if(source.recoveredAt!==undefined&&!recoverCurrent)throw Error('Recuperación no autorizada');
-  const result=await aplicarCorte({previous:{cutoff:source.after,manifest,schema:previous?.schema},source,readPublished,stage,forceStage,reusePublished});
+  const result=await aplicarCorte({previous:{cutoff:source.after,manifest,schema:previous?.schema,recoveredAt:previous?.recoveredAt},source,readPublished,stage,forceStage,reusePublished});
   if(privateSeparate&&previous&&previous.cutoff<cutoff&&!result.changed&&!forceStage){
     await mkdir(join(stage,'plataforma/paquetes-ciudad'),{recursive:true});
-    await writeFile(join(stage,indexPath),JSON.stringify({...previous,cutoff,...(source.recoveredAt===undefined?{}:{recoveredAt:source.recoveredAt})}));
+    const {recoveredAt:oldRecovery,...prior}=previous;
+    await writeFile(join(stage,indexPath),JSON.stringify({...prior,cutoff,...(source.recoveredAt===undefined?{}:{recoveredAt:source.recoveredAt})}));
     return {...result,watermark:true};
   }
   return result;

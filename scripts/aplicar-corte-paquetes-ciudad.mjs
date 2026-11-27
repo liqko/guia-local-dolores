@@ -201,7 +201,7 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
       }
     }
     await mkdir(join(stage,publicPath),{recursive:true});
-    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{}),...(source.recoveredAt===undefined?{}:{recoveredAt:source.recoveredAt})}));
+    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{}),...((source.recoveredAt??(source.cutoff===source.after?previous.recoveredAt:undefined))===undefined?{}:{recoveredAt:source.recoveredAt??previous.recoveredAt})}));
   }
   return {changed,cutoff:source.cutoff,manifest};
 }
