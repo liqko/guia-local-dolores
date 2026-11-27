@@ -37,7 +37,7 @@ async function githubIdentity(read,observe) {
 }
 
 export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,reusePublished=false,privateSeparate=false,verifyPublished=false,
-  identity=githubIdentity,observe,planPath,recoverCurrent=false}) {
+  identity=githubIdentity,observe,planPath,recoverCurrent=false,ghSummaryPath}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,observe,
     headers:{Authorization:'Bearer '+await identity(read,observe),'Content-Type':'application/json'},
@@ -50,12 +50,18 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
   }
   const indexPath='plataforma/paquetes-ciudad/publicacion.json';
   if (mode === 'commit') {
-    if(verifyPublished){
-      const expected=JSON.parse(await readFile(join(stage,indexPath),'utf8'));
-      const installed=await readJson(read,new URL(indexPath,hosting),{cache:'no-store',observe});
-      if(expected.cutoff!==cutoff||!isDeepStrictEqual(expected,installed))throw Error('Hosting todavía no confirma el índice del corte');
+    let installed;
+    if(verifyPublished||ghSummaryPath){
+      installed=await readJson(read,new URL(indexPath,hosting),{cache:'no-store',observe});
+      if(installed.cutoff!==cutoff)throw Error('Hosting todavía no confirma el índice del corte');
+      if(verifyPublished){const expected=JSON.parse(await readFile(join(stage,indexPath),'utf8'));if(!isDeepStrictEqual(expected,installed))throw Error('Hosting todavía no confirma el índice del corte');}
     }
-    const result = await call({op:privateSeparate?'commit-public':'commit',cutoff});
+    let gh_summary;
+    if(ghSummaryPath){
+      gh_summary=JSON.parse(await readFile(ghSummaryPath,'utf8'));
+      if(gh_summary.cutoff!==cutoff||!isDeepStrictEqual(Object.keys(gh_summary.cities).sort(),Object.keys(installed.manifest).sort())||Object.entries(installed.manifest).some(([city,entry])=>entry.revision!==gh_summary.cities[city]?.revision))throw Error('Resumen no corresponde a la edición instalada');
+    }
+    const result = await call({op:privateSeparate?'commit-public':'commit',cutoff,...(gh_summary?{gh_summary}:{})});
     if (result?.success !== true) throw Error('El último corte no quedó confirmado');
     if(privateSeparate&&result.cutoff!==cutoff)throw Error('El Worker no confirmó el corte público esperado');
     if (result.private_daily?.status === 'pending') throw Error('El corte público quedó confirmado, pero falta preparar Gran Hermano. Reintentá el mismo publicador; no hace falta volver a publicar desde el panel.');
@@ -98,7 +104,7 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');
   if(source.recoveredAt!==undefined&&!recoverCurrent)throw Error('Recuperación no autorizada');
-  const result=await aplicarCorte({previous:{cutoff:source.after,manifest,schema:previous?.schema,recoveredAt:previous?.recoveredAt},source,readPublished,stage,forceStage,reusePublished});
+  const result=await aplicarCorte({previous:{cutoff:source.after,manifest,schema:previous?.schema,recoveredAt:previous?.recoveredAt},source,readPublished,stage,forceStage,reusePublished,ghSummaryPath});
   if(privateSeparate&&previous&&previous.cutoff<cutoff&&!result.changed&&!forceStage){
     await mkdir(join(stage,'plataforma/paquetes-ciudad'),{recursive:true});
     const {recoveredAt:oldRecovery,...prior}=previous;
@@ -113,7 +119,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const operations=[];
   const result = await publicarPaquetes({mode,stage,
     observe:operation=>operations.push(operation),
-    planPath:process.env.GLD_HOSTING_PLAN,
+    planPath:process.env.GLD_HOSTING_PLAN,ghSummaryPath:process.env.GLD_GH_PUBLIC_SUMMARY,
     ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',reusePublished:process.env.GLD_REUSE_PUBLISHED==='1',
     privateSeparate:process.env.GLD_PRIVATE_DAILY_SEPARATE==='1',verifyPublished:process.env.GLD_VERIFY_PUBLISHED==='1',recoverCurrent:process.env.GLD_RECOVER_CURRENT==='1',
     ...(mode==='urgent'?{urgentScope:JSON.parse(process.env.GLD_URGENT_SCOPE??'null')}:{}),

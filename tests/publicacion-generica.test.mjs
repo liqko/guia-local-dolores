@@ -97,37 +97,13 @@ test('los anuncios vencen en la copia local respetando contrato, pieza y conteni
  assert.equal(bookTools.visibleAt({},undefined),true);
 });
 
-test('recuperación explícita: no inventa el corte histórico y reconstituye la edición pública desde las proyecciones vigentes',async t=>{
- const cutoff=Date.parse('2026-11-27T04:00:00Z');let now=cutoff-1000;t.mock.method(Date,'now',()=>now);
- const raw=new Map([['territorio:public:v1',{ciudades:[{ciudad_id:'DOL'}]}]]);
- const {env,set,cache}=actors(t,raw);
- const key='guide:city:v1:DOL';
- await set(key,'anunciantes',[{anunciante_id:'antes',nombre:'Antes'}]);
- now=cutoff+60000;
- await set(key,'anunciantes',[{anunciante_id:'despues',nombre:'Después'}]);
- const shared=env.GLD_PUBLIC_CACHE.get('city-book-shared-v1');
- const mark=()=>shared.fetch(new Request('https://test.invalid',{method:'POST',body:JSON.stringify({op:'city-book-mark-shared',kind:'ads'})}));
- assert.equal((await mark()).status,200);
- const args={env,cache,after:cutoff-86400000,cutoff,known:['DOL'],report:{}};
- await assert.rejects(worker.exportCityBookCut(args),/después del cierre/);
- const recovered=await worker.exportCityBookCut({...args,recoverCurrent:true});
- assert.equal(recovered.recoveredAt,now);
- assert.equal(recovered.cutoff,cutoff);
- assert.equal(recovered.cities.length,1);
- assert.equal(recovered.cities[0].replacements.guide.results[0].anunciante_id,'despues');
- assert(!JSON.stringify(recovered.cities[0].replacements.guide).includes('antes'));
- const root=await stage(t),book=oldBook('DOL');
- const result=await aplicarCorte({previous:{cutoff:args.after,manifest:{DOL:{key:'RE9M',revision:1,deltas:[]}}},source:recovered,readPublished:async()=>book,stage:root});
- const installed=await readAt(root)('plataforma/paquetes-ciudad/publicacion.json');
- assert.equal(installed.recoveredAt,now);assert.equal(installed.cutoff,cutoff);
- assert.equal(result.changed,true);
- // A second write to the same rule on the same day must be detected.
- let triggered=false;
- const racingCache={get:async key=>{if(!triggered){triggered=true;await mark();}return cache.get(key);}};
- await assert.rejects(worker.exportCityBookCut({...args,cache:racingCache,recoverCurrent:true}),/durante el corte/);
- now=cutoff+86400000+1000;
- const next=await worker.exportCityBookCut({env,cache,after:cutoff,cutoff:cutoff+86400000,known:['DOL'],knownSchema:recovered.schema,report:{}});
- assert.equal(next.recoveredAt,undefined);
- assert(next.cities[0].changes.guide.remove.includes('antes'));
- assert(next.cities[0].changes.guide.upsert.some(row=>row.anunciante_id==='despues'));
+test('resumen GH reutiliza la edición sin cambios, deduplica contextos por ciudad y sólo lee libros faltantes',async t=>{
+ const cutoff=Date.parse('2026-11-12T04:00:00Z'),root=await stage(t),summaryPath=join(root,'gh-summary.json'),book=oldBook('DOL');
+ book.modules.events.events=[{evento_id:'VIP1',nivel:'VIP'},{evento_id:'FREE1',nivel:'FREE'}];book.modules.ads.publicidades=[{publicidad_id:'P1'}];
+ const manifest={DOL:{key:Buffer.from('DOL').toString('base64url'),revision:1,deltas:[]}};
+ let reads=0;const source={after:cutoff,cutoff,complete:true,cities:[]};
+ await aplicarCorte({previous:{cutoff,manifest},source,readPublished:async()=>{reads++;return book;},stage:root,ghSummaryPath:summaryPath});
+ const prior=JSON.parse(await readFile(summaryPath,'utf8'));assert.equal(reads,1);assert.deepEqual(prior.cities.DOL.eventos_vip,['VIP1']);assert.deepEqual(prior.cities.DOL.eventos_free,['FREE1']);assert.deepEqual(prior.cities.DOL.publicidad,['P1']);
+ await aplicarCorte({previous:{cutoff,manifest},source:{...source,gh_summary:prior},readPublished:async()=>{throw Error('No se debe descargar un paquete vigente');},stage:root,ghSummaryPath:summaryPath});
+ assert.deepEqual(JSON.parse(await readFile(summaryPath,'utf8')),prior);assert.equal(reads,1);
 });

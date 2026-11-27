@@ -1,10 +1,10 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 218             ║
-// ║          VERSIÓN 218 · ENTREGA DEL PASO 4                 ║
+// ║                GUÍA LOCAL DOLORES · WORKER 219             ║
+// ║          VERSIÓN 219 · ENTREGA DEL PASO 4                 ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
-const WORKER_VERSION = '218';
+const WORKER_VERSION = '219';
 (function(root){
  'use strict';
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -11317,28 +11317,30 @@ async function routeAdminPromosV91(ctx){
  await syncPromo({cache,current,next:saved});return json({success:true,promo:{...saved,estado_panel:promoStateV91(saved)}});
 }
 
-// Count the same eligible public records as the public routes, once per daily
-// edition. Deduplicate across city coverage and advertising placements.
-async function dailyPublicCounts218(env,report,territory){
- const cities=[...new Set((territory?.ciudades||[]).filter(c=>c.activa!==false&&c.activo!==false).map(c=>String(c.ciudad_id||c.id||'')).filter(c=>c&&c!=='VIRTUAL'))];
- const scoped=requestCache121(observeKv117(env,report),report),cache=createCache(coordinatedCities119(scoped,report,true));
- const features=await publicFeatures191(cache),sets={eventos_vip:new Set(),eventos_free:new Set(),actividades:new Set(),publicidad:new Set()};
- const now=Date.now();
- for(const city of cities){
-  for(const [name,spec] of Object.entries(features)){
-   if(name!=='events'&&name!=='activities'&&spec.family!=='ads')continue;
-   const rows=(await projectCityBookRows(spec,city,now,null,cache))[spec.field];
-   for(const row of rows){
-    const id=String(row[spec.id]||row.id||'');if(!id)throw Error('Publicación sin identificador.');
-    const group=name==='events'?(String(row.nivel||'').toUpperCase()==='FREE'?'eventos_free':'eventos_vip'):name==='activities'?'actividades':'publicidad';
-    sets[group].add(id);
-   }
+const GH_PUBLISHED_GROUPS219=['eventos_vip','eventos_free','actividades','publicidad'];
+function ghPublishedSummary219(value,scope=null){
+ if(!value||!value.cities||typeof value.cities!=='object'||Array.isArray(value.cities))return null;
+ const sets=Object.fromEntries(GH_PUBLISHED_GROUPS219.map(k=>[k,new Set()]));
+ for(const [city,entry] of Object.entries(value.cities)){
+  if(scope&&!scope.includes(city))continue;
+  for(const key of GH_PUBLISHED_GROUPS219)for(const id of entry[key])sets[key].add(id);
+ }
+ return Object.fromEntries(GH_PUBLISHED_GROUPS219.map(k=>[k,sets[k].size]));
+}
+function validateGhPublished219(value,cutoff){
+ if(!value||value.cutoff!==cutoff||!value.cities||typeof value.cities!=='object'||Array.isArray(value.cities))throw Error('Resumen publicado inválido.');
+ for(const [city,entry] of Object.entries(value.cities)){
+  if(!city||city.length>160||!Number.isSafeInteger(entry?.revision)||entry.revision<1)throw Error('Revisión de resumen inválida.');
+  for(const key of GH_PUBLISHED_GROUPS219){
+   const ids=entry[key];if(!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||!id||id.length>240)||new Set(ids).size!==ids.length)throw Error('Identidades de resumen inválidas.');
   }
  }
- return Object.fromEntries(Object.entries(sets).map(([key,ids])=>[key,ids.size]));
+ if(new TextEncoder().encode(JSON.stringify(value)).length>1800000)throw Error('Resumen publicado supera capacidad segura.');
+ return value;
 }
+function ghPublishedTable219(sql){sql.exec('CREATE TABLE IF NOT EXISTS city_book_gh_summary219 (slot INTEGER PRIMARY KEY,value TEXT NOT NULL)');}
 async function prepareEntry195(env,report,subscribers,preparedSource=null){
- const scoped=requestCache121(observeKv117(env,report),report),cache=createCache(scoped);
+ const scoped=env,cache=createCache(scoped);
  // Source reads are permitted only in this daily producer, never on entry.
  const source=preparedSource||observeDbV41(createDb(scoped),report);
  const db=withPanelCacheV48(withPrivateCacheV46(source,scoped),scoped,report),top={ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}};
@@ -11362,8 +11364,7 @@ async function prepareEntry195(env,report,subscribers,preparedSource=null){
   row.scope195=cities===null?null:cities.filter(x=>x.activo!==false).map(x=>String(x.ciudad_id||''));
   if(row.tipo==='ANUNCIANTE'&&row.scope195&&row.scope195.length===0&&row.ciudad_id)row.scope195=[String(row.ciudad_id)];
  }
- const publicCounts=await dailyPublicCounts218(env,report,territory_public);
- return {resumen:{suscriptores:subscribers.length,anunciantes:advertisers.results.length,ciudades:territory.ciudades.length,...publicCounts},inbox,fixed,territory,territory_public};
+ return {resumen:{suscriptores:subscribers.length,anunciantes:advertisers.results.length,ciudades:territory.ciudades.length},inbox,fixed,territory,territory_public};
 }
 async function dailyInboxForAuth195(packet,auth){
  if(!canModerate2(auth))throw httpError('Acceso administrativo requerido.',403);
@@ -11381,14 +11382,16 @@ async function dailyInboxForAuth195(packet,auth){
 }
 async function dailyDashboard195(env,auth){
  if(!auth?.ok||!canModerate2(auth))return json({success:false,message:'Acceso administrativo requerido.'},403);
- const packet=await dailySubscribers195(env,'read');
+ const top=isTopAdmin2(auth),read=await dailySubscribers195(env,'read'),packet=read.preparado?read:top?read.ultimo:null;
  if(!packet?.preparado||!packet.admin)return json({success:false,entry_version:195,code:'GH_DAILY_NOT_PREPARED',message:'La copia diaria de Inicio todavía no está preparada.'},503);
- const top=isTopAdmin2(auth),inbox=await dailyInboxForAuth195(packet,auth);
+ const inbox=await dailyInboxForAuth195(packet,auth);
  if(!top&&!packet.admin.territory_public)throw httpError('La copia territorial pública todavía no está preparada.',503);
  const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
  if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
- const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:Number(WORKER_VERSION),event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
+ const counts=read.public_summary?ghPublishedSummary219(read.public_summary):null;
+ const {suscriptores,anunciantes,ciudades}=packet.admin.resumen;
+ const resumen=top?{suscriptores,anunciantes,ciudades,...(counts||{})}:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
+ return json({success:true,entry_version:195,worker_info:{version:Number(WORKER_VERSION),event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,pendiente_corte:!read.preparado,publicaciones_corte:top?read.public_summary?.cutoff??null:null,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
@@ -11401,7 +11404,12 @@ class PrivateDaily195 {
   const decode=row=>row?JSON.parse(row.value):{preparado:false,results:null};
   try{
    const cutoff=body.cutoff,latest=()=>query('SELECT value FROM private_subscribers_daily195 WHERE published=1 ORDER BY cutoff DESC LIMIT 1')[0];
-   if(body.action==='read'){const value=decode(latest());return Response.json({value:value.preparado&&value.corte===cutoff?value:{preparado:false,results:null,pendiente_corte:true},metrics});}
+   if(body.action==='read'){
+    const value=decode(latest());ghPublishedTable219(this.state.storage.sql);
+    const summary=query('SELECT value FROM city_book_gh_summary219 WHERE slot=1')[0];
+    const public_summary=summary?JSON.parse(summary.value):null;
+    return Response.json({value:{...(value.preparado&&value.corte===cutoff?value:{preparado:false,results:null,pendiente_corte:true,...(value.preparado?{ultimo:value}:{})}),public_summary},metrics});
+   }
    if(!Number.isSafeInteger(cutoff)||cutoff!==cityBookBoundary(cityBookDay(Date.now())))throw Error('El corte privado no corresponde a la publicación diaria vigente.');
    const exists=()=>query('SELECT 1 FROM private_subscribers_daily195 WHERE cutoff=?',cutoff).length>0;
    const publish=()=>{
@@ -11424,7 +11432,7 @@ class PrivateDaily195 {
     return Response.json({value:publishing?{success:true,cutoff}:prepared,metrics});
    }
    const published=latest();
-   const env=observeKv117(this.env,report),cache=createCache(env),nativeSource=observeDbV41(createDb(env),report),lists=new Map();
+   const env=requestCache121(observeKv117(this.env,report),report),cache=createCache(env),nativeSource=observeDbV41(createDb(env),report),lists=new Map();
    const source={...nativeSource,listCollection(c){if(!lists.has(c))lists.set(c,nativeSource.listCollection(c));return lists.get(c).then(rows=>structuredClone(rows));}};
    let index=await cache.get(ADMIN_SUBSCRIBERS_KEY);
    if(!Array.isArray(index?.results)){
@@ -11447,7 +11455,7 @@ class PrivateDaily195 {
     }
    }
    const results=index.results.map(row=>{const sid=String(row.suscriptor_id||row.id);return {...row,fecha_nacimiento:Object.hasOwn(row,'fecha_nacimiento')?birthDateOnly_(row.fecha_nacimiento)||'':previous.get(sid)?.fecha_nacimiento??legacy.get(sid)??''};});
-   const admin=await prepareEntry195(this.env,report,results,source);
+   const admin=await prepareEntry195(env,report,results,source);
    const value={preparado:true,version:195,corte:cutoff,preparado_en:new Date().toISOString(),results,admin};
    const encoded=JSON.stringify(value);if(new TextEncoder().encode(encoded).length>1800000)throw Error('El listado general supera el tamaño seguro. No se publicó una copia incompleta.');
    query('INSERT INTO private_subscribers_daily195(cutoff,value,published) VALUES(?,?,?) ON CONFLICT(cutoff) DO UPDATE SET value=excluded.value,published=excluded.published',cutoff,encoded,publishing?1:0);
@@ -12025,11 +12033,13 @@ class GldPublicCache119 {
    else this.query('DELETE FROM city_book_recovery WHERE aid=?',input.aid);
    return {ok:true};
   }
-  if(input.op==='city-book-checkpoint')return {cutoff:this.query('SELECT cutoff FROM city_book_state WHERE slot=1')[0]?.cutoff??null};
+  ghPublishedTable219(this.sql);
+  if(input.op==='city-book-checkpoint'){const row=this.query('SELECT value FROM city_book_gh_summary219 WHERE slot=1')[0];return {cutoff:this.query('SELECT cutoff FROM city_book_state WHERE slot=1')[0]?.cutoff??null,...(row?{gh_summary:JSON.parse(row.value)}:{})};}
   const {cutoff}=input;
   if(!Number.isSafeInteger(cutoff)||cutoff!==cityBookBoundary(cityBookDay(cutoff))||cutoff>Date.now())throw Error('Invalid checkpoint');
   this.state.storage.transactionSync(()=>{
    this.query('INSERT INTO city_book_state(slot,cutoff) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET cutoff=max(cutoff,excluded.cutoff)',cutoff);
+   if(input.gh_summary){const encoded=JSON.stringify(validateGhPublished219(input.gh_summary,cutoff));this.query('INSERT INTO city_book_gh_summary219(slot,value) VALUES(1,?) ON CONFLICT(slot) DO UPDATE SET value=excluded.value WHERE value<>excluded.value',encoded);}
    this.query('DELETE FROM city_book_shared WHERE day<?',cityBookDay(cutoff)-CITY_BOOK_HORIZON);
    this.query('DELETE FROM city_book_due WHERE day<?',cityBookDay(cutoff));
   });
@@ -12490,7 +12500,7 @@ async function routeCityBookCut({request,env,report}){
   return json({success:true,cutoff},200,{'Cache-Control':'no-store'});
  }
  if(data.op==='commit'||data.op==='commit-public'){
-  await cityBookSharedState(env,{op:'city-book-commit',cutoff});
+  await cityBookSharedState(env,{op:'city-book-commit',cutoff,...(data.gh_summary?{gh_summary:validateGhPublished219(data.gh_summary,cutoff)}:{})});
   if(data.op==='commit-public')return json({success:true,cutoff},200,{'Cache-Control':'no-store'});
   // A private edition failure must not interrupt or undo the public publication.
   try{await dailySubscribers195(env,'commit',cutoff);report.private_daily195={status:'committed',cutoff};}
@@ -12516,7 +12526,7 @@ async function routeCityBookCut({request,env,report}){
   try{const prepared=await dailySubscribers195(env,'stage',cutoff);report.private_daily195={status:prepared?.preparado?'staged':'pending',cutoff};}
   catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_PREPARE_FAILED'};}
  }
- return json(output,200,{'Cache-Control':'no-store'});
+ return json({...output,...(data.op!=='read'&&state.gh_summary?{gh_summary:state.gh_summary}:{})},200,{'Cache-Control':'no-store'});
 }
 function coordinatedCities119(env,report,shareReads=false){
  if(!env.GLD_PUBLIC_CACHE){report.public_cache_backend='legacy-kv';return env;}

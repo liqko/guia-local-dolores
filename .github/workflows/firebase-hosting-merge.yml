@@ -18,6 +18,10 @@ on:
         description: 'Recuperación excepcional con datos públicos actuales (no equivale al corte de las 01:00)'
         type: boolean
         default: false
+      recover_private:
+        description: 'Regenerar exclusivamente la copia privada de Gran Hermano'
+        type: boolean
+        default: false
   schedule:
     - cron: "21 4 * * *"
 concurrency:
@@ -40,7 +44,7 @@ jobs:
           node-version: '24'
       - name: Confirmar la edición privada con recuperación acotada
         env:
-          GLD_RECOVER_CURRENT: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_current && '1' || '0' }}
+          GLD_RECOVER_CURRENT: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_private && '1' || '0' }}
         run: |
           set -euo pipefail
           cutoff=$(node --input-type=module -e "import {ultimoCorte} from './scripts/aplicar-corte-paquetes-ciudad.mjs';console.log(ultimoCorte())")
@@ -51,6 +55,7 @@ jobs:
           exit 1
   control_integral_previo:
     name: Control de seguridad antes de publicar
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.recover_private) }}
     runs-on: ubuntu-latest
     timeout-minutes: 18
     steps:
@@ -149,6 +154,7 @@ jobs:
           GLD_RECOVER_CURRENT: ${{ github.event_name == 'workflow_dispatch' && inputs.recover_current && '1' || '0' }}
         run: |
           export GLD_HOSTING_PLAN="$RUNNER_TEMP/gld-hosting-base.json"
+          if [ "$GITHUB_EVENT_NAME" != push ]; then export GLD_GH_PUBLIC_SUMMARY="$RUNNER_TEMP/gld-gh-public-summary.json"; fi
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             node scripts/publicar-paquetes-ciudad.mjs preserve hosting-public
           else
@@ -208,6 +214,7 @@ jobs:
           GLD_VERIFY_PUBLISHED: ${{ (steps.paquetes.outputs.changed == 'true' || steps.paquetes.outputs.watermark == 'true' || steps.catalogo.outputs.changed == 'true') && '1' || '0' }}
         run: |
           set -euo pipefail
+          export GLD_GH_PUBLIC_SUMMARY="$RUNNER_TEMP/gld-gh-public-summary.json"
           for delay in 0 10 30; do
             sleep "$delay"
             if node scripts/publicar-paquetes-ciudad.mjs commit hosting-public "$CORTE"; then exit 0; fi

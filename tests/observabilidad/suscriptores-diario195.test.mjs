@@ -200,6 +200,23 @@ test('recuperación privada reemplaza la edición del día sin esperar el siguie
  h.raw.set('admin:index:subscribers:v2',JSON.stringify({version:2,results:[...people,{id:'NUEVA',nombre:'Nueva',fecha_nacimiento:'1995-11-15'}]}));
  await h.op('publish');assert.equal((await h.op('read')).results.length,4);
  await h.op('recover');const fresh=await h.op('read');assert.equal(fresh.results.length,5);
- assert.deepEqual(fresh.admin.resumen,{suscriptores:5,anunciantes:0,ciudades:0,eventos_vip:0,eventos_free:0,actividades:0,publicidad:0});
+ assert.deepEqual(fresh.admin.resumen,{suscriptores:5,anunciantes:0,ciudades:0});
  const n=h.calls.length;await h.op('read');assert.equal(h.calls.length,n);
+});
+
+test('edición anterior se conserva tras fallar la preparación del nuevo corte, sólo el principal puede usarla en Inicio',async t=>{
+ const h=setup(t,people);await h.publish();h.setClock(day+86400000+1000);h.raw.clear();
+ t.mock.method(globalThis,'fetch',async()=>{throw Error('Fuente no disponible');});
+ await assert.rejects(h.op('publish'));const r=await h.op('read');assert.equal(r.preparado,false);assert.equal(r.results,null);assert.equal(r.ultimo.results.length,4);
+ const top={ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}};
+ const panel=await w.dailyDashboard195(h.env,top);assert.equal(panel.status,200);const j=await panel.json();assert.equal(j.entrada.pendiente_corte,true);assert.equal(j.entrada.corte,day);
+ const local=await w.dailyDashboard195(h.env,{ok:true,rol:'ADMIN_LOCAL',ciudades:['DOL'],permisos:{moderacion:{EVENTO:true}}});assert.equal(local.status,503);
+});
+test('resumen de publicación confirmado se lee de la misma coordinación, sin volver a recorrer las ciudades',async t=>{
+ const h=setup(t,people);await h.publish();
+ const summary={cutoff:day,cities:{DOL:{revision:2,eventos_vip:['V1'],eventos_free:['F1'],actividades:['A1'],publicidad:['P1']},OTRA:{revision:3,eventos_vip:['V1','V2'],eventos_free:['F1'],actividades:['A1'],publicidad:['P1','P2']}}};
+ h.sql.exec('CREATE TABLE IF NOT EXISTS city_book_gh_summary219 (slot INTEGER PRIMARY KEY,value TEXT NOT NULL)');
+ h.sql.prepare('INSERT INTO city_book_gh_summary219 VALUES(1,?)').run(JSON.stringify(summary));
+ const n=h.calls.length,r=await w.dailyDashboard195(h.env,{ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}}),j=await r.json();
+ assert.equal(r.status,200);assert.deepEqual([j.resumen.eventos_vip,j.resumen.eventos_free,j.resumen.actividades,j.resumen.publicidad],[2,1,1,2]);assert.equal(j.entrada.publicaciones_corte,day);assert.equal(h.calls.length,n);
 });
