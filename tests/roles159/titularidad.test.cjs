@@ -59,12 +59,20 @@ async function run(source,crypto,Encoder,assert){
   const f=basic();const result=await gh(f,'OLD');assert.equal(result.relacion.rol,'PROPIETARIO');assert.deepEqual(active(f),['OLD']);assert.equal(f.commits.length,1);
   const first=f.trace.findIndex(x=>x[0]==='version'&&x[1]===ADM),query=f.trace.findIndex(x=>x[0]==='query'&&x[1]===C);assert.ok(first>=0&&first<query);assert.equal(f.trace.filter(x=>x[0]==='query'&&x[1]===C).length,1);
  });
- await check('Transferencia a manager existente: conserva otro administrador, cupos y datos comerciales',async()=>{
+ await check('Transferencia a manager existente: suspende administrador anterior y conserva cupos y datos comerciales',async()=>{
   const f=basic();f.rel('OLD');f.rel('NEW','MANAGER');f.rel('D','ADMINISTRADOR');const before=f.read(ADM,A).doc;await gh(f,'NEW');
-  assert.deepEqual(active(f),['NEW']);assert.equal(f.read(C,'OLD__A').doc.activo,false);assert.equal(f.read(C,'D__A').doc.activo,true);assert.equal(f.read(C,'D__A').doc.rol,'ADMINISTRADOR');assert.equal(f.read(ADM,A).doc.nivel,before.nivel);assert.equal(f.read(ADM,A).doc.funcionalidades,before.funcionalidades);assert.equal(f.commits[0].length,3);
+  assert.deepEqual(active(f),['NEW']);assert.equal(f.read(C,'OLD__A').doc.activo,false);assert.equal(f.read(C,'D__A').doc.activo,false);assert.equal(f.read(C,'D__A').doc.rol,'ADMINISTRADOR');assert.equal(f.read(ADM,A).doc.nivel,before.nivel);assert.equal(f.read(ADM,A).doc.funcionalidades,before.funcionalidades);assert.equal(f.commits[0].length,4);
  });
- await check('Revocación: cero propietarios sin eliminar el anunciante ni sus delegados',async()=>{
-  const f=basic();f.rel('OLD');f.rel('M','MANAGER');await gh(f,'OLD',false);assert.deepEqual(active(f),[]);assert.ok(f.read('anunciantes',A).doc);assert.equal(f.read(C,'M__A').doc.activo,true);
+ await check('Ratificación expresa por nuevo titular; reiterar titularidad no revoca delegaciones ratificadas',async()=>{
+  const f=basic();f.rel('OLD');f.rel('M','MANAGER');f.rel('D','ADMINISTRADOR');await gh(f,'NEW');
+  assert.equal(f.read(C,'M__A').doc.activo,false);assert.equal(f.read(C,'M__A').doc.permisos,'PROMOS');
+  await reject(save({db:f.db,aid:A,auth:{sid:'OLD',owner:true},body:await body(f,'M',true,'MANAGER',['PROMOS'])}),403);
+  await save({db:f.db,aid:A,auth:{sid:'NEW',owner:true},body:await body(f,'M',true,'MANAGER',['PROMOS'])});
+  assert.equal(f.read(C,'M__A').doc.activo,true);assert.equal(f.read(C,'D__A').doc.activo,false);
+  assert.equal((await gh(f,'NEW')).updated,false);assert.equal(f.read(C,'M__A').doc.activo,true);
+ });
+ await check('Revocación: cero propietarios sin eliminar el anunciante y con delegaciones suspendidas',async()=>{
+  const f=basic();f.rel('OLD');f.rel('M','MANAGER');await gh(f,'OLD',false);assert.deepEqual(active(f),[]);assert.ok(f.read('anunciantes',A).doc);assert.equal(f.read(C,'M__A').doc.activo,false);
  });
  await check('Revocar un antiguo titular inactivo no afecta al actual; operación sin cambios',async()=>{
   const f=basic();f.rel('OLD','PROPIETARIO',false);f.rel('NEW');const result=await gh(f,'OLD',false);assert.equal(result.updated,false);assert.deepEqual(active(f),['NEW']);assert.equal(f.commits.length,0);
@@ -96,7 +104,7 @@ async function run(source,crypto,Encoder,assert){
  });
  await check('Propietarios históricos múltiples: reclamo no los resuelve silenciosamente; GH elige uno',async()=>{
   const f=basic();f.rel('OLD');f.rel('NEW','PROPIETARIO','sí');f.rel('D','ADMINISTRADOR');await reject(change({db:f.db,aid:A,sid:'THIRD',actor:'GH'}),409);
-  await gh(f,'NEW');assert.deepEqual(active(f),['NEW']);assert.equal(f.read(C,'D__A').doc.activo,true);
+  await gh(f,'NEW');assert.deepEqual(active(f),['NEW']);assert.equal(f.read(C,'D__A').doc.activo,false);
  });
  await check('Vínculos duplicados o administración sin revisión: falla cerrada, sin escrituras',async()=>{
   const f=basic();f.rel('OLD');f.rel('OLD','PROPIETARIO',true,'legacy');await reject(gh(f,'NEW'),409);assert.equal(f.commits.length,0);
@@ -154,12 +162,12 @@ async function run(source,crypto,Encoder,assert){
   const db=cacheDb(f.db,env),fresh=await db.loginRelations('OLD',2);assert.equal(fresh[0].activo,false);const reads=f.trace.filter(x=>x[0]==='query').length;assert.equal((await db.loginRelations('OLD',2))[0].activo,false);assert.equal(f.trace.filter(x=>x[0]==='query').length,reads);
   store.set('auth:account-bundle:v161:OLD',JSON.stringify({version:161,sv:2,relations:[{rol:'PROPIETARIO'}]}));let builds=0;const build=async()=>{builds++;return [];};assert.deepEqual(await db.loginAuthorizationBundle161('OLD',2,build),[]);assert.deepEqual(await db.loginAuthorizationBundle161('OLD',2,build),[]);assert.equal(builds,1);
  });
- await check('Commit real de la capa de caché: deltas y revocación de sesiones solo para titular anterior y nuevo',async()=>{
+ await check('Commit real de la capa de caché: deltas y revocación de sesiones para titular anterior, nuevo y delegados suspendidos',async()=>{
   const f=basic();f.rel('OLD');f.rel('M','MANAGER');const store=new Map(),env={states:f.states,GLD_CACHE_KV:{async get(k){return store.get(k)??null;},async put(k,v){store.set(k,v);},async delete(k){store.delete(k);},async list({prefix}){return {keys:[...store.keys()].filter(k=>k.startsWith(prefix)).map(name=>({name})),list_complete:true};}}};
   const db=cacheDb(f.db,env);await change({db,aid:A,sid:'NEW',actor:'GH'});await db.flushLoginCache();
   assert.equal(JSON.parse(store.get('gh:advertiser-relations:v104:A:delta:OLD__A')).data.activo,false);
   assert.equal(JSON.parse(store.get('gh:advertiser-relations:v104:A:delta:NEW__A')).data.activo,true);
-  assert.equal(f.states.get('OLD'),2);assert.equal(f.states.get('NEW'),2);assert.equal(f.states.has('M'),false);
+  assert.equal(f.states.get('OLD'),2);assert.equal(f.states.get('NEW'),2);assert.equal(f.states.get('M'),2);assert.equal(JSON.parse(store.get('gh:advertiser-relations:v104:A:delta:M__A')).data.activo,false);
   assert.ok(store.get('login:relations:v45:OLD:revision'));assert.ok(store.get('login:relations:v45:NEW:revision'));
  });
  return passed;
