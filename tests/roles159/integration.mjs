@@ -263,6 +263,17 @@ try{
    const badDays=await as('admin',catUrl,{item:{nivel_id:'3',vigencia_con_titular_modo:'DIAS',vigencia_con_titular_dias:0}});assert.notEqual(badDays.r.status,200,'días inválidos rechazados');
    const okCat=await assertStatus('admin',catUrl,{item:{nivel_id:'3',vigencia_con_titular_modo:'DIAS',vigencia_con_titular_dias:45}},200);assert.equal(okCat.j.success,true);
    assert.equal(rows.get('niveles_anunciante/3').vigencia_con_titular_dias,45);
+   const hoy=new Date(Date.now()-3*3600e3).toISOString().slice(0,10),commercial=async(nivel,status=200)=>{const d=await assertStatus('admin','/superadmin/advertisers/'+aid,undefined,200);return assertStatus('admin','/superadmin/advertisers/'+aid+'/commercial',{revision_comercial:d.j.revision_comercial,nivel},status);};
+   cat([{nivel_id:'3',numero:3},{nivel_id:'5',numero:5}]);adm().vigencia_hasta='2027-01-15';
+   await commercial('5');assert.equal(adm().nivel,'5');assert.equal(adm().vigencia_hasta,'2027-01-15','nivel por contratación: conserva la vigencia otorgada');assert.equal(adm().contratacion_actual,undefined,'cambiar de nivel no crea contrataciones');
+   await commercial('3');assert.equal(adm().vigencia_desde,hoy);assert.equal(adm().vigencia_regla.origen,'CAMBIO_NIVEL');const vLevel=adm().vigencia_hasta;
+   const same=await commercial('3');assert.equal(same.calls.filter(c=>['PATCH','DELETE'].includes(c.op)&&c.c==='anunciantes_administracion').length,0,'guardar sin cambiar el nivel no escribe');assert.equal(adm().vigencia_hasta,vLevel);
+   delete adm().con_titular;adm().vigencia_hasta='';
+   const sim=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'simular'},200);assert.equal(sim.j.firestore_writes,0);assert.equal(sim.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0,'simular no escribe');assert.ok(sim.j.a_regularizar>=1);assert.ok(sim.j.consumo_estimado.firestore_lecturas>=sim.j.vinculos_leidos);
+   await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar'},400);await assertStatus('owner','/superadmin/advertisers/validity-regularization',{modo:'simular'},401);
+   const run=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',lote:100},200);assert.equal(adm().con_titular,true);assert.equal(adm().vigencia_desde,hoy,'nivel 3 con titular inicia su vigencia');assert.ok(run.j.escrituras>=1);
+   const rerun=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',lote:100},200);assert.equal(rerun.calls.filter(c=>['PATCH','DELETE'].includes(c.op)&&c.id===aid).length,0,'repetir no vuelve a escribir');
+   cat([]);
    adm().vigencia_hasta='2020-01-01';const expired=await assertStatus('admin','/superadmin/advertisers/'+aid,undefined,200);
    const rec=await act('admin','renovar');assert.equal(rec.j.estado.visible,true);assert.ok(adm().vigencia_hasta>'2026-01-01');assert.equal(rows.has('anunciantes/'+aid),true,'recupera el mismo identificador');
    await assertStatus('admin','/superadmin/advertisers/'+chosen.j.anunciante_id+'/activity',{accion_actividad:'renovar'},409);

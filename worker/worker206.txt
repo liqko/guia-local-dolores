@@ -1,10 +1,10 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 218             ║
-// ║          VERSIÓN 218 · ENTREGA DEL PASO 4                 ║
+// ║                GUÍA LOCAL DOLORES · WORKER 219             ║
+// ║          VERSIÓN 219 · ANUNCIANTES Y VIGENCIAS            ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
-const WORKER_VERSION = '218';
+const WORKER_VERSION = '219';
 (function(root){
  'use strict';
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -5097,6 +5097,7 @@ function advertiserRow({ advertiser, admin, sedes }) {
     gold: admin && admin.gold === true,
     inactivo_motivo: text42(admin && admin.inactivo_motivo),
     vigencia_hasta: text42(admin && admin.vigencia_hasta),
+    con_titular: admin && admin.con_titular === true,
     segmento_id: text42(advertiser && advertiser.segmento_id),
     ciudad_ids: cities,
     search: norm6([id4, nombre, advertiser && advertiser.actividad, advertiser && advertiser.descripcion].filter(Boolean).join(" "))
@@ -5170,23 +5171,31 @@ async function syncAdvertiserIndexV2({ db, cache, advertiserId, confirmed = unde
   });
   return { success: true, row };
 }
-async function patchAdvertiserIndexCommercialV2({ cache, advertiserId, patch }) {
-  const aid = text42(advertiserId), packet2 = await cache.get(ADMIN_ADVERTISERS_KEY);
+async function patchAdvertiserIndexRowsV2({ cache, patches }) {
+  const packet2 = await cache.get(ADMIN_ADVERTISERS_KEY);
   if (!packet2 || !Array.isArray(packet2.results)) return { success: true, changed: false, needs_rebuild: true };
-  const rows = [...packet2.results];
-  const i = rows.findIndex((x) => text42(x.id) === aid);
-  if (i < 0) return { success: true, changed: false, needs_rebuild: true };
-  const row = { ...rows[i] };
-  for (const key3 of ["nivel", "subnivel", "aprobado", "verificado", "gold", "inactivo_motivo", "vigencia_hasta"]) {
-    if (Object.prototype.hasOwnProperty.call(patch || {}, key3)) row[key3] = patch[key3];
-  }
-  rows[i] = row;
-  await cache.put(ADMIN_ADVERTISERS_KEY, {
+  let changed = false;
+  const found = new Set();
+  const rows = packet2.results.map((x) => {
+    const id = text42(x.id), patch = patches.get(id);
+    if (!patch) return x;
+    found.add(id); changed = true;
+    const row = { ...x };
+    for (const key3 of ["nivel", "subnivel", "aprobado", "verificado", "gold", "inactivo_motivo", "vigencia_hasta", "con_titular"]) {
+      if (Object.prototype.hasOwnProperty.call(patch || {}, key3)) row[key3] = patch[key3];
+    }
+    return row;
+  });
+  if (changed) await cache.put(ADMIN_ADVERTISERS_KEY, {
     ...packet2,
     updated_at: (/* @__PURE__ */ new Date()).toISOString(),
     results: sortByName(rows)
   });
-  return { success: true, changed: true };
+  const missing = [...patches.keys()].filter((id) => !found.has(id));
+  return { success: true, changed, ...(missing.length ? { needs_rebuild: true, missing } : {}) };
+}
+async function patchAdvertiserIndexCommercialV2({ cache, advertiserId, patch }) {
+  return patchAdvertiserIndexRowsV2({ cache, patches: new Map([[text42(advertiserId), patch || {}]]) });
 }
 async function searchAdvertisersV2({ cache, q = "", cityId = "", limit = 100, offset = null }) {
   const packet2 = await cache.get(ADMIN_ADVERTISERS_KEY);
@@ -7752,6 +7761,7 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
   }
   for(const key of Object.keys(adminPatch))if(!['actualizado_en','actualizado_por'].includes(key)&&GLD_BUSINESS143.equal(adminPatch[key],commercialSource.doc[key]))delete adminPatch[key];
   adminTouched=Object.keys(adminPatch).some(key=>!['actualizado_en','actualizado_por'].includes(key));
+  if(Object.hasOwn(adminPatch,'nivel'))Object.assign(adminPatch,validityOnLevelChange155({...commercialSource.doc,nivel:adminPatch.nivel},await loadValidityRules155(cache),adminPatch.actualizado_en));
   let firestoreWrites = 0;
   if (adminTouched) {
     const commercialChanged=['nivel','funcionalidades','funcionalidades_config']
@@ -7765,7 +7775,7 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
     if(!sameCacheData129(contractBefore132,contractAfter132))await cache.put("publicity:contract:v101:"+aid,contractAfter132);
     firestoreWrites++;
     await Promise.all([
-      patchGuideAdminFieldsV2({ cache, advertiserId: aid, patch: adminPatch }),
+      patchGuideAdminFieldsV2({ cache, advertiserId: aid, patch: Object.hasOwn(adminPatch,'vigencia_hasta')?{...adminPatch,vigente_hasta:publicValidity155(savedAdmin)}:adminPatch }),
       patchAdvertiserIndexCommercialV2({ cache, advertiserId: aid, patch: adminPatch })
     ]);
   }
@@ -12883,6 +12893,52 @@ async function routeAdvertiserActivity155(ctx){
  return json({success:true,updated:true,anunciante_id:aid,estado:advertiserPublicState155(saved||{...before,...patch}),vigencia_hasta:publicValidity155(doc),excepcion:doc.vigencia_excepcion||null});
 }
 // Alta directa desde Gran Hermano (Unidad 4): titular y contratación opcionales; reutiliza el alta atómica.
+// Regularización única de titulares existentes (definición del usuario 27/11/2026).
+// «simular» no escribe; «ejecutar» exige confirmación expresa, procesa lotes idempotentes y
+// omite los anunciantes ya regularizados. Una sola lectura de vínculos por llamada.
+async function routeAdvertiserValidityRegularization155(ctx){
+ const {path,request,db,cache,env}=ctx;
+ if(path!=='/superadmin/advertisers/validity-regularization'||request.method!=='POST')return null;
+ const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+ if(!isTopAdmin(auth))return json({success:false,message:'Sin autorización para regularizar vigencias.'},403);
+ const body=await request.json().catch(()=>({})),modo=String(body.modo||'simular');
+ if(!['simular','ejecutar'].includes(modo))return json({success:false,message:'Modo inválido.'},400);
+ if(modo==='ejecutar'&&body.confirmacion!=='REGULARIZAR_TITULARES')return json({success:false,message:'Falta la confirmación expresa.'},400);
+ const lote=Math.min(Math.max(Number.parseInt(body.lote,10)||50,1),100);
+ const [relations,index,rules]=await Promise.all([db.listCollection('suscriptor_anunciante'),cache.get(ADMIN_ADVERTISERS_KEY),loadValidityRules155(cache)]);
+ const owners=new Map(),rows=new Map((index?.results||[]).map(x=>[String(x.id),x])),now=new Date().toISOString();
+ for(const r of relations||[])if(roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)&&r.anunciante_id)owners.set(String(r.anunciante_id),(owners.get(String(r.anunciante_id))||0)+1);
+ const s={vinculos_leidos:(relations||[]).length,anunciantes_en_indice:rows.size,con_titular_unico:0,ya_regularizados:0,a_regularizar:0,inician_vigencia:0,conservan_vigencia:0,pasan_a_permanente:0,sin_cambio_de_vigencia:0,multiples_titulares:[],fuera_del_indice:[],ciudades_a_actualizar:0};
+ const candidates=[];
+ for(const [aid,count] of owners){
+  if(count>1){s.multiples_titulares.push(aid);continue;}
+  s.con_titular_unico++;const row=rows.get(aid);
+  if(row?.con_titular===true){s.ya_regularizados++;continue;}
+  if(!row)s.fuera_del_indice.push(aid);
+  candidates.push(aid);s.a_regularizar++;
+  const change=validityOnOwner155({nivel:row?.nivel,con_titular:true,vigencia_hasta:row?.vigencia_hasta||''},rules,now);
+  if(change.vigencia_hasta)s.inician_vigencia++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
+  else if(change.vigencia_hasta==='')s.pasan_a_permanente++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
+  else if(row?.vigencia_hasta)s.conservan_vigencia++;else s.sin_cambio_de_vigencia++;
+ }
+ s.consumo_estimado={firestore_lecturas:s.vinculos_leidos+s.a_regularizar,firestore_escrituras_max:s.a_regularizar,kv_lecturas:2+s.inician_vigencia+s.pasan_a_permanente+Math.ceil(s.a_regularizar/lote),kv_escrituras:s.inician_vigencia+s.pasan_a_permanente+Math.ceil(s.a_regularizar/lote),durable_objects_ciudades:s.ciudades_a_actualizar,llamadas_ejecutar:Math.ceil(s.a_regularizar/lote)};
+ if(modo==='simular')return json({success:true,modo,lote,...s,firestore_writes:0});
+ let procesados=0,escrituras=0,omitidos=0,sincronizaciones=0;const indexPatches=new Map();
+ for(const aid of candidates){
+  if(procesados>=lote)break;
+  const v=await db.getVersioned('anunciantes_administracion',aid);
+  if(!v.doc||!v.updateTime){omitidos++;continue;}
+  procesados++;
+  if(v.doc.con_titular===true){indexPatches.set(aid,{con_titular:true});continue;}
+  const patch={con_titular:true,...validityOnOwner155({...v.doc,con_titular:true},rules,now),actualizado_en:now,actualizado_por:String(auth.sid||'')};
+  const [saved]=await db.commitPatches([{collection:'anunciantes_administracion',id:aid,before:v.doc,patch,options:{updateTime:v.updateTime}}]);
+  escrituras++;const doc=saved||{...v.doc,...patch};
+  indexPatches.set(aid,{con_titular:true,...(Object.hasOwn(patch,'vigencia_hasta')?{vigencia_hasta:doc.vigencia_hasta||''}:{})});
+  if(Object.hasOwn(patch,'vigencia_hasta')){const g=await patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:{vigente_hasta:publicValidity155(doc)}});if(g?.needs_full_sync){await syncGuideAdvertiserV2({db,cache,advertiserId:aid});sincronizaciones++;}}
+ }
+ if(indexPatches.size)await patchAdvertiserIndexRowsV2({cache,patches:indexPatches});
+ return json({success:true,modo,lote,procesados,escrituras,omitidos,sincronizaciones_completas:sincronizaciones,pendientes:Math.max(candidates.length-procesados-omitidos,0),...s,firestore_writes:escrituras});
+}
 async function routeAdvertiserCreate155(ctx){
  const {path,request,db,cache,env}=ctx;
  if(path!=='/superadmin/advertisers/create'||request.method!=='POST')return null;
@@ -13698,6 +13754,7 @@ var app_main_v35_default = {
         }
       }
       const advertiserCreate155=await routeAdvertiserCreate155(ctx);if(advertiserCreate155)return await traced(advertiserCreate155);
+      const validityRegularization155=await routeAdvertiserValidityRegularization155(ctx);if(validityRegularization155)return await traced(validityRegularization155);
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
@@ -13812,6 +13869,15 @@ function validityOnOwner155(admin,rules,at=Date.now()){
  const r=validityRule155(admin,rules);
  if(r.modo==='DIAS')return validityCurrent155(admin,at)?{}:validityPeriod155(at,r,validityOrigin155(admin));
  if(r.modo==='PERMANENTE'&&admin?.vigencia_hasta)return {vigencia_desde:'',vigencia_hasta:'',vigencia_regla:{modo:'PERMANENTE',dias:0,origen:validityOrigin155(admin),en:isoAt155(at)}};
+ return {};
+}
+// Cambio efectivo de nivel desde GH: aplica la regla del nuevo nivel sin crear contrataciones.
+// Con regla por contratación se conserva la vigencia otorgada hasta la próxima contratación.
+function validityOnLevelChange155(admin,rules,at=Date.now()){
+ if(admin?.vigencia_excepcion?.modo)return {};
+ const r=validityRule155(admin,rules);
+ if(r.modo==='DIAS')return validityPeriod155(at,r,'CAMBIO_NIVEL');
+ if(r.modo==='PERMANENTE'&&admin?.vigencia_hasta)return {vigencia_desde:'',vigencia_hasta:'',vigencia_regla:{modo:'PERMANENTE',dias:0,origen:'CAMBIO_NIVEL',en:isoAt155(at)}};
  return {};
 }
 function validityOnContract155(admin,rules,at){

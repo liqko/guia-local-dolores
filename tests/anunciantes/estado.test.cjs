@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const src=fs.readFileSync(path.join(__dirname,'../../worker/worker206.txt'),'utf8');
 const block=src.slice(src.indexOf('// Unidades 2 y 7: estado público del anunciante.'),src.indexOf('// Todo anunciante nuevo recibe el nivel 3'));
-const f=new Function(block+';return {advertiserValidityRules155,validityRule155,publicValidity155,validityOnOwner155,validityOnContract155,validityRenew155,advertiserPublicState155,guideCardVisible155};')();
+const f=new Function(block+';return {advertiserValidityRules155,validityRule155,publicValidity155,validityOnOwner155,validityOnLevelChange155,validityOnContract155,validityRenew155,advertiserPublicState155,guideCardVisible155};')();
 const at=Date.parse('2026-11-27T15:00:00Z'),today='2026-11-27',R=f.advertiserValidityRules155([]);
 const strip=o=>{const {vigencia_regla,...rest}=o||{};return rest;};
 test('las reglas salen del catálogo de niveles; los valores iniciales sólo cubren niveles sin regla guardada',()=>{
@@ -20,6 +20,13 @@ test('titular: inicia el período de su regla, no reinicia uno en curso y sin ti
  assert.deepEqual(f.validityOnOwner155({nivel:'5',con_titular:true},R,at),{},'4-6: por contratación');
  assert.deepEqual(f.validityOnOwner155({nivel:'3',con_titular:true,vigencia_excepcion:{modo:'PERMANENTE'}},R,at),{},'la excepción prevalece');
  assert.equal(f.validityOnOwner155({nivel:'3',con_titular:true},R,at).vigencia_regla.origen,'TITULAR');
+});
+test('cambio efectivo de nivel: aplica la regla del nuevo nivel sin contratar',()=>{
+ assert.deepEqual(strip(f.validityOnLevelChange155({nivel:'3',con_titular:true,vigencia_hasta:'2027-01-10'},R,at)),{vigencia_desde:today,vigencia_hasta:'2026-12-27'});
+ assert.deepEqual(f.validityOnLevelChange155({nivel:'5',con_titular:true,vigencia_hasta:'2026-12-10'},R,at),{},'por contratación: conserva la vigencia otorgada');
+ assert.deepEqual(strip(f.validityOnLevelChange155({nivel:'2',con_titular:false,vigencia_hasta:'2026-12-10'},R,at)),{vigencia_desde:'',vigencia_hasta:''});
+ assert.deepEqual(f.validityOnLevelChange155({nivel:'3',con_titular:true,vigencia_excepcion:{modo:'FECHA'}},R,at),{});
+ assert.equal(f.validityOnLevelChange155({nivel:'1',con_titular:true},R,at).vigencia_regla.origen,'CAMBIO_NIVEL');
 });
 test('contratación y renovación usan la regla vigente al momento de otorgar',()=>{
  assert.deepEqual(strip(f.validityOnContract155({nivel:'5',vigencia_hasta:'2027-01-10'},R,at)),{vigencia_desde:today,vigencia_hasta:'2027-02-25'});
