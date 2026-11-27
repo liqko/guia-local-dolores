@@ -18,7 +18,7 @@
   const list=document.getElementById('equipo-lista159');list.replaceChildren();
   for(const row of rows){
    const card=el('div');card.className='card';const name=el('p',personText(row.persona));card.append(name,el('p',(role(row.rol)==='PROPIETARIO'?'Propietario':role(row.rol)==='ADMINISTRADOR'?'Administrador':'Manager')+' · '+(row.activo?'Habilitado':'Deshabilitado')));
-   if(role(row.rol)!=='PROPIETARIO'){const edit=el('button','Editar permisos');edit.type='button';edit.onclick=()=>select(row.persona,row);card.append(edit);}list.append(card);
+   if(role(row.rol)!=='PROPIETARIO'||!row.activo){const edit=el('button','Editar permisos');edit.type='button';edit.onclick=()=>select(row.persona,row);card.append(edit);}list.append(card);
   }
   if(!rows.length)list.append(el('p','No hay personas vinculadas.'));
  }
@@ -47,7 +47,7 @@
    const q=document.getElementById('equipo-buscar159').value.trim(),result=document.getElementById('equipo-busqueda159'),seq=++searchSeq,gen=generation;
    if(!q){result.textContent='Escribí el correo completo de la persona.';return;}result.textContent='Buscando…';
    try{const data=await request('/search',undefined,q);if(gen!==generation||seq!==searchSeq)return;result.replaceChildren();
-    for(const person of data.results||[]){const existing=rows.find(x=>x.suscriptor_id===person.suscriptor_id);if(role(existing?.rol)==='PROPIETARIO'){result.textContent='Esta persona es propietaria. Su titularidad no se modifica aquí.';continue;}const button=el('button',personText(person));button.type='button';button.onclick=()=>select(person,existing);result.append(button);}
+    for(const person of data.results||[]){const existing=rows.find(x=>x.suscriptor_id===person.suscriptor_id);if(role(existing?.rol)==='PROPIETARIO'&&existing.activo){result.textContent='Esta persona es propietaria. Su titularidad no se modifica aquí.';continue;}const button=el('button',personText(person));button.type='button';button.onclick=()=>select(person,existing);result.append(button);}
     if(!data.results?.length)result.textContent='No se encontró un usuario activo con ese correo.';
    }catch(error){if(gen===generation&&seq===searchSeq)result.textContent=error.message;}
   };
