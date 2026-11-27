@@ -96,6 +96,7 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
   requireCut(previous.cutoff);
   requireCut(source.cutoff);
   validateManifest(previous.manifest);
+  if(source.recoveredAt!==undefined&&(!Number.isSafeInteger(source.recoveredAt)||source.recoveredAt<source.cutoff||source.recoveredAt>=source.cutoff+dayMs||source.urgent||source.cutoff<=source.after))throw Error('Fecha de recuperación inválida');
   if (source.complete !== true || source.after !== previous.cutoff ||
       source.cutoff < source.after || !Array.isArray(source.cities)) throw Error('Corte incompleto o fuera de secuencia');
 
@@ -200,7 +201,7 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
       }
     }
     await mkdir(join(stage,publicPath),{recursive:true});
-    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{})}));
+    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{}),...((source.recoveredAt??(source.cutoff===source.after?previous.recoveredAt:undefined))===undefined?{}:{recoveredAt:source.recoveredAt??previous.recoveredAt})}));
   }
   return {changed,cutoff:source.cutoff,manifest};
 }

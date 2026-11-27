@@ -37,7 +37,7 @@ async function githubIdentity(read,observe) {
 }
 
 export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,reusePublished=false,privateSeparate=false,verifyPublished=false,
-  identity=githubIdentity,observe,planPath}) {
+  identity=githubIdentity,observe,planPath,recoverCurrent=false}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,observe,
     headers:{Authorization:'Bearer '+await identity(read,observe),'Content-Type':'application/json'},
@@ -92,14 +92,17 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished});
   }
 
-  const source = await call({op:privateSeparate?'read-public':'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
+  if(recoverCurrent&&(!privateSeparate||mode!=='cut'))throw Error('Recuperación excepcional fuera de alcance');
+  const source = await call({op:recoverCurrent?'read-public-recovery':privateSeparate?'read-public':'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
   if (!source) return {changed:false};
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');
-  const result=await aplicarCorte({previous:{cutoff:source.after,manifest},source,readPublished,stage,forceStage,reusePublished});
+  if(source.recoveredAt!==undefined&&!recoverCurrent)throw Error('Recuperación no autorizada');
+  const result=await aplicarCorte({previous:{cutoff:source.after,manifest,schema:previous?.schema,recoveredAt:previous?.recoveredAt},source,readPublished,stage,forceStage,reusePublished});
   if(privateSeparate&&previous&&previous.cutoff<cutoff&&!result.changed&&!forceStage){
     await mkdir(join(stage,'plataforma/paquetes-ciudad'),{recursive:true});
-    await writeFile(join(stage,indexPath),JSON.stringify({...previous,cutoff}));
+    const {recoveredAt:oldRecovery,...prior}=previous;
+    await writeFile(join(stage,indexPath),JSON.stringify({...prior,cutoff,...(source.recoveredAt===undefined?{}:{recoveredAt:source.recoveredAt})}));
     return {...result,watermark:true};
   }
   return result;
@@ -112,7 +115,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     observe:operation=>operations.push(operation),
     planPath:process.env.GLD_HOSTING_PLAN,
     ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',reusePublished:process.env.GLD_REUSE_PUBLISHED==='1',
-    privateSeparate:process.env.GLD_PRIVATE_DAILY_SEPARATE==='1',verifyPublished:process.env.GLD_VERIFY_PUBLISHED==='1',
+    privateSeparate:process.env.GLD_PRIVATE_DAILY_SEPARATE==='1',verifyPublished:process.env.GLD_VERIFY_PUBLISHED==='1',recoverCurrent:process.env.GLD_RECOVER_CURRENT==='1',
     ...(mode==='urgent'?{urgentScope:JSON.parse(process.env.GLD_URGENT_SCOPE??'null')}:{}),
   });
   console.log(JSON.stringify({mode,operations}));
