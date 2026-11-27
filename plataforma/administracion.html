@@ -1623,13 +1623,26 @@ async function ghGuardarTerritorio(tipo,id,current=null){
   finally{GH_TERRITORY_PENDING.delete(id);prior.forEach(({control,disabled,text})=>{control.disabled=disabled;if(control.matches('[data-terr-guardar]'))control.textContent=text;});}
 }
 
+let GH_SUS_SEARCH_SEQ=0;
+let GH_SUS_SEARCH_PENDING;
 async function buscarSus(){
+  const seq=++GH_SUS_SEARCH_SEQ,token=TOKEN;
   const box=document.getElementById('resSus');
   box.innerHTML='Buscando...';
   try{
     const tipo=document.getElementById('susTipo').value,city=document.getElementById('susCiudad').value;
     if(tipo&&!city){box.textContent='Elegí la ciudad para filtrar residentes o visitantes.';return;}
-    const j=await api('buscar_suscriptores',{q:document.getElementById('qSus').value,tipo,ciudad_id:city});
+    const q=document.getElementById('qSus').value;
+    const key=JSON.stringify([q,tipo,city]);
+    let pending=GH_SUS_SEARCH_PENDING;
+    if(pending?.key!==key||pending?.token!==token){
+      pending={key,token,request:api('buscar_suscriptores',{q,tipo,ciudad_id:city})};
+      GH_SUS_SEARCH_PENDING=pending;
+    }
+    let j;
+    try{j=await pending.request;}
+    finally{if(GH_SUS_SEARCH_PENDING===pending)GH_SUS_SEARCH_PENDING=null;}
+    if(seq!==GH_SUS_SEARCH_SEQ||token!==TOKEN)return;
     const lista=j.results||[];
     box.innerHTML=lista.map(s=>`
       <div class="result" data-sid="${esc(s.suscriptor_id)}">
@@ -1642,7 +1655,7 @@ async function buscarSus(){
     box.querySelectorAll('[data-sid]').forEach(el=>{
       el.onclick=()=>detalleSus(el.dataset.sid);
     });
-  }catch(e){box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
+  }catch(e){if(seq===GH_SUS_SEARCH_SEQ&&token===TOKEN)box.innerHTML='<p class="error">'+esc(e.message)+'</p>'}
 }
 
 let GH_ANU_SEARCH_SEQ=0;

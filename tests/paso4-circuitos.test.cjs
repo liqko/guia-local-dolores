@@ -6,6 +6,32 @@ const path=require('node:path');
 const login=fs.readFileSync(path.join(__dirname,'../plataforma/login.html'),'utf8');
 const worker=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
 
+test('P4-0035-T04: búsqueda de suscriptores comparte el GET y descarta resultados de una búsqueda o sesión anterior',async()=>{
+ const admin=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+ const start=admin.indexOf('let GH_SUS_SEARCH_SEQ'),end=admin.indexOf('let GH_ANU_SEARCH_SEQ',start);
+ assert.ok(start>=0&&end>start);
+ const requests=[],box={innerHTML:'',querySelectorAll:()=>[]},input={value:'primera'};
+ const context={TOKEN:'A',esc:String,document:{getElementById:id=>({resSus:box,qSus:input}[id]||{value:''})},
+  api:(_action,params)=>new Promise(resolve=>requests.push({params,resolve}))};
+ const search=require('node:vm').runInNewContext(admin.slice(start,end)+'\nbuscarSus',context);
+ const first=search(),duplicate=search();
+ assert.equal(requests.length,1);
+ input.value='segunda';
+ const second=search();
+ requests[1].resolve({results:[{nombre:'Nueva'}]});
+ await second;
+ requests[0].resolve({results:[{nombre:'Anterior'}]});
+ await Promise.all([first,duplicate]);
+ assert.match(box.innerHTML,/Nueva/);
+ assert.doesNotMatch(box.innerHTML,/Anterior/);
+ const stale=search();
+ context.TOKEN='B';
+ box.innerHTML='Panel nuevo';
+ requests[2].resolve({results:[{nombre:'Anterior'}]});
+ await stale;
+ assert.equal(box.innerHTML,'Panel nuevo');
+});
+
 test('Hosting agrupa transferencias, revalidaciones y reutilizaciones por archivo y fase',()=>{
  const {summarizeHostingTimings}=require('../scripts/auditar-en-vivo.cjs');
  const logo={host:'hosting.invalid',phase:'recarga',path:'/logo.png'};
