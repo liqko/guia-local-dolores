@@ -13707,7 +13707,7 @@ async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],exp
 async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  const sid=String(body.suscriptor_id||'').trim(),role=String(body.rol||'').trim().toUpperCase();
  if(!sid||sid.includes('/')||!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(role)||typeof body.activo!=='boolean')throw httpError('Indicá usuario, rol y estado válidos.',400);
- if(!auth.owner&&!isTopAdmin(auth))throw httpError('Sin autorización para modificar responsables.',403);
+ if(!auth.owner&&(!isTopAdmin(auth)||role!=='PROPIETARIO'))throw httpError('Gran Hermano administra titularidad; solo el propietario delega funciones.',403);
  const [subscriber,advertiser,snapshot]=await Promise.all([body.activo?db.get('suscriptores',sid):Promise.resolve(null),db.get('anunciantes',aid),ownershipSnapshot155(db,aid)]);
  const {fence:delegationFence,rows:relations}=snapshot,admin=delegationFence.doc;
  if(auth.owner){const owners=activeOwners155(relations);if(owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
@@ -13735,6 +13735,14 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  const [saved]=await db.commitPatches([{collection:'suscriptor_anunciante',id,before:current.doc,patch:{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},options:current.doc?{updateTime:current.updateTime,subscriberId:sid}:{newDocument:true,mustNotExist:true,subscriberId:sid}},...(delegationFence?[{collection:'anunciantes_administracion',id:aid,before:delegationFence.doc,patch:{revision_titularidad:crypto.randomUUID()},options:{updateTime:delegationFence.updateTime}}]:[])]);
  return {success:true,updated:true,relacion:publicRelation155({...saved,id}),revision:await wholeRevisionInternal(saved),message:'Permisos guardados. El usuario debe volver a iniciar sesión.'};
 }
+async function findSubscriberForRelation155(cache,query){
+ const q=String(query||'').trim().toLowerCase();
+ if(!q)throw httpError('Escribí el correo electrónico de la persona.',400);
+ const index=await cache.get(ADMIN_SUBSCRIBERS_KEY);if(!Array.isArray(index?.results))throw httpError('El catálogo de usuarios no está disponible.',503);
+ const matches=index.results.filter(r=>String(r.mail||'').trim().toLowerCase()===q&&subscriberEligible155(r)&&String(r.suscriptor_id||r.id||''));
+ if(matches.length>1)throw httpError('El correo corresponde a varios registros. Requiere revisión.',409);
+ return {success:true,results:matches.map(r=>({suscriptor_id:String(r.suscriptor_id||r.id),nombre:String(r.nombre||''),mail:String(r.mail||'')}))};
+}
 async function routeAdvertiserAccess155(ctx){
  const {path,request,env,db,cache}=ctx;
  const team=await ownerTeamRoute159(ctx);if(team)return team;
@@ -13754,6 +13762,7 @@ async function routeAdvertiserAccess155(ctx){
  const id=decodeURIComponent((match||reset)[1]);if(!id||id.includes('/'))throw httpError('Identificador inválido.',400);
  if(reset)return json({success:false,message:'La recuperación de contraseña se realiza desde la cuenta del titular.'},404);
  if(match[2]==='responsables'){
+  if(request.method==='GET')return json(await findSubscriberForRelation155(cache,ctx.url.searchParams.get('q')));
   if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
   const body=await request.json();if(body.rol!=='PROPIETARIO')throw httpError('La delegación de funciones se realiza desde el panel del propietario.',403);
   return json(await saveAdvertiserRelation155({db,env,auth,aid:id,body}));
@@ -13786,14 +13795,12 @@ async function ownerTeamRoute159(ctx){
   return json(await saveAdvertiserRelation155({db,env,auth:{sid:session.sid,owner:true},aid,body}));
  }
  if(request.method!=='GET')throw httpError('Método no permitido.',405);
- if(path==='/commerce/team/search'){
-  const q=String(url.searchParams.get('q')||'').trim().toLowerCase();if(!q)throw httpError('Escribí el correo electrónico de la persona.',400);
-  const index=await cache.get(ADMIN_SUBSCRIBERS_KEY);if(!Array.isArray(index?.results))throw httpError('El catálogo de usuarios no está disponible.',503);
-  return json({success:true,results:index.results.filter(r=>(String(r.mail||'').trim().toLowerCase()===q||String(r.suscriptor_id||r.id).toLowerCase()===q)&&r.activo!==false).slice(0,1).map(r=>({suscriptor_id:String(r.suscriptor_id||r.id),nombre:String(r.nombre||''),mail:String(r.mail||'')}))});
- }
- const relations=await (db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500));
+ if(path==='/commerce/team/search')return json(await findSubscriberForRelation155(cache,url.searchParams.get('q')));
+ const {fence,rows:relations}=await ownershipSnapshot155(db,aid);
+ const owners=activeOwners155(relations);
+ if(owners.length!==1||String(owners[0].suscriptor_id)!==String(session.sid))throw httpError('La titularidad no está vigente o requiere revisión.',409);
  const rows=await Promise.all(relations.map(async row=>({...publicRelation155(row),persona:contactSummary159(await db.cachedSubscriberProjection(row.suscriptor_id),row.suscriptor_id),revision:await wholeRevisionInternal(row)})));
- const admin=await (db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid));
+ const admin=fence.doc;
  return json({success:true,results:rows,revision_nueva:await wholeRevisionInternal({}),funcionalidades:[...new Set((Array.isArray(admin?.funcionalidades)?admin.funcionalidades:String(admin?.funcionalidades||'').split(/[;,|\n]/)).concat(['PUBLICIDAD','EMPLEO']).map(x=>String(x).trim().toUpperCase()).filter(Boolean))]});
 }
 export { publicFeatures191, publicSchema191, PUBLIC_FEATURES191, syncEmpleo109, publicityWindow191 };
