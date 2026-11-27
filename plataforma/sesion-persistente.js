@@ -26,6 +26,7 @@
   const p=payload(sent),requestKind=p?.typ==='GLD_SUBSCRIBER'?'subscriber':p?.rol?'admin':null;
   if(requestKind){const current=read(keys[requestKind]),live=payload(current);if(current&&live?.sid===p.sid){known.add(old);sent=current;}else if(known.has(old)){sent='';}}
   if(sent!==old){if(sent)headers.set('Authorization','Bearer '+sent);else headers.delete('Authorization');}
+  const sessionKey=requestKind&&sent&&read(keys[requestKind])===sent?keys[requestKind]:null;
   const method=String(options?.method||(input instanceof Request?input.method:'GET')).toUpperCase();
   let r;
   for(let attempt=0;;attempt++){
@@ -40,6 +41,7 @@
     const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},Math.min(5000,1000*2**attempt));
     signal?.addEventListener('abort',abort,{once:true});
    });
+   if(sessionKey&&read(sessionKey)!==sent)return r;
   }
   // Una concesión temporal del panel administrativo nunca debe renovar ni
   // sustituir el token de la sesión personal guardada en este navegador.
