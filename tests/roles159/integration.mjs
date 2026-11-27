@@ -211,7 +211,7 @@ try{
  assert.deepEqual((await ok('admin','/superadmin/advertisers/A')).j.propietarios.map(x=>x.suscriptor_id),['X']);
  {const op='0b5c2a52-7f8e-4c1d-9a3b-1234567890ab',aid='ADV-0B5C2A527F8E4C1D',body={operacion_id:op,nombre:'Alta GH',ciudad_id:'D',suscriptor_id:'X',actividad:'Ferretería'};
   await assertStatus('owner','/superadmin/advertisers/create',body,401);
-  await assertStatus('admin','/superadmin/advertisers/create',{...body,suscriptor_id:''},400);
+  await assertStatus('admin','/superadmin/advertisers/create',{...body,nombre:''},400);
   await assertStatus('admin','/superadmin/advertisers/create',{...body,operacion_id:'1'},400);
   await assertStatus('admin','/superadmin/advertisers/create',{...body,suscriptor_id:'NO-EXISTE'},404);
   assert.equal(rows.has('anunciantes/'+aid),false,'Un alta rechazada no deja registros');
@@ -225,7 +225,12 @@ try{
   assert.equal(retry.j.updated,false);assert.equal(retry.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0,'Reintento sin escrituras');
   const chosen=await ok('admin','/superadmin/advertisers/create',{...body,operacion_id:'1c5c2a52-7f8e-4c1d-9a3b-1234567890ab',nivel:'5'});
   assert.equal(rows.get('anunciantes_administracion/'+chosen.j.anunciante_id).nivel,'5');
-  console.log('PASS Unidad 4: alta desde GH con titular único, nivel 3 por defecto, permisos, validación e idempotencia.');}
+  const bare=await ok('admin','/superadmin/advertisers/create',{operacion_id:'2c5c2a52-7f8e-4c1d-9a3b-1234567890ab',nombre:'Básico sin titular'});
+  const bareId=bare.j.anunciante_id;assert.equal(bare.j.titular,null);assert.equal(rows.get('anunciantes_administracion/'+bareId).nivel,'3');
+  assert.equal([...rows.values()].filter(r=>r.anunciante_id===bareId&&r.suscriptor_id).length,0,'Sin titular no se crean vínculos ficticios');
+  assert.equal((await ok('admin','/superadmin/advertisers/'+bareId)).j.propietarios?.length||0,0);
+  await ok('admin','/superadmin/advertisers/'+bareId+'/panel-access',{});
+  console.log('PASS Unidad 4: alta desde GH con o sin titular, nivel 3 por defecto, ficha GH y Abrir panel inmediatos, permisos, validación e idempotencia.');}
  console.log('PASS Unidad 1 end-to-end: search, transfer, stale confirmation, sessions, durable GH detail, delegation suspension and ratification, zero owners, independent GH access and verified claim.');
  fs.mkdirSync('docs/evidencias',{recursive:true});fs.writeFileSync('docs/evidencias/roles159-local.json',JSON.stringify({entorno:'LOCAL_SIMULADO_NO_FACTURACION',version:'159',fecha:new Date().toISOString(),requests:reports.map(r=>({event:r.event,path:r.path,action:r.action,status:r.status,request_id:r.request_id,firestore:r.totals,kv:r.kv,sql:r.public_store119||null,consumption:r.consumption||null}))},null,2));
  console.log('PASS administrative panel: read/save web, advertiser scope, expiry, revocation, account isolation; owner-only delegation, exact-email lookup, manager restrictions, explicit empty admin permissions, revocation, protected proprietor, no GH password reset; verified claim context.');

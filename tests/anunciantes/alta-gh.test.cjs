@@ -6,6 +6,7 @@ test('GH crea con operación idempotente, titular por correo exacto y nivel 3 pr
  assert.ok(gh.includes("ghAdminRequest_('/advertisers/create',{operacion_id:GH_ALTA_OPERACION155"));
  assert.ok(gh.includes("GH_ALTA_OPERACION155||=crypto.randomUUID()"));
  assert.ok(gh.includes("String(p.mail||'').trim().toLowerCase()===mail&&p.activo!==false"));
+ assert.ok(gh.includes('<summary><b>Crear anuncio</b></summary>'));assert.ok(gh.includes('await detalleAnu(saved.anunciante_id);'));
  assert.match(gh,/rows="4"[^>]*id="ghAltaDescripcion"|id="ghAltaDescripcion" rows="4"/);
 });
 test('Worker: una sola ruta de alta, reutiliza commitOwnership155 y moderatedCreation155',()=>{
