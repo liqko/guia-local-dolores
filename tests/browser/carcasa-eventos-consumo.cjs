@@ -97,7 +97,10 @@ async function fromLive(p){
   const reload=await finish('carcasa: recarga con copia vigente');
   if(mode!=='baseline'){
    assert(!reload.workerPaths.includes('/'),'Sin consulta de versión al Worker');
-   assert(!reload.rows.some(r=>r.url.includes('/paquetes-ciudad/')),'Sin nuevo paquete');
+   const packageReads=reload.rows.filter(r=>new URL(r.url).pathname.startsWith('/plataforma/paquetes-ciudad/'));
+   assert(packageReads.every(r=>new URL(r.url).pathname==='/plataforma/paquetes-ciudad/publicacion.json'),
+    'La recarga puede verificar el índice; no descarga de nuevo paquetes completos ni deltas');
+   assert(packageReads.length<=1,'La recarga comparte una sola verificación del índice');
    assert(!reload.rows.some(r=>new URL(r.url).searchParams.has('_v')),'Sin URL aleatoria');
    assert(reload.timings.some(r=>r.url.includes('/plataforma/assets/app/')),'Recursos con revisión en URL');
    assert(reload.timings.filter(r=>r.url.includes('/plataforma/assets/app/')).every(r=>r.transfer===0),'Recursos inmutables reutilizados sin transferencia en la recarga');
@@ -144,12 +147,25 @@ async function fromLive(p){
   }
   // Apertura directa con almacenamiento vacío, fuera de la carcasa.
   await context.close();
-  const direct=await browser.newContext({serviceWorkers:'block'});const dp=await direct.newPage();let eventReads=0,books=0;
-  direct.on('request',r=>{const u=new URL(r.url());if(u.pathname==='/events-new')eventReads++;if(u.pathname.includes('/paquetes-ciudad/'))books++;});
+  const direct=await browser.newContext({serviceWorkers:'block'});const dp=await direct.newPage();let eventReads=0;
+  const packagePaths=[];
+  direct.on('request',r=>{
+   const {pathname}=new URL(r.url());
+   if(pathname==='/events-new')eventReads++;
+   if(pathname.startsWith('/plataforma/paquetes-ciudad/'))packagePaths.push(pathname);
+  });
   await dp.goto(origin+'/plataforma/eventos.html'+query,{waitUntil:'load'});
   await dp.waitForFunction(()=>!document.body.classList.contains('gld-modulo-preparando'));
-  if(mode!=='baseline'){assert.equal(eventReads,0);assert.equal(books,1);}
-  report.direct={eventReads,books,events:await dp.evaluate(()=>eventosData.length)};
+  const index='/plataforma/paquetes-ciudad/publicacion.json';
+  const indexes=packagePaths.filter(p=>p===index).length;
+  const books=packagePaths.filter(p=>p!==index);
+  if(mode!=='baseline'){
+   assert.equal(eventReads,0);
+   assert(indexes<=1,'La apertura directa consulta el índice a lo sumo una vez');
+   assert.equal(books.length,1);
+   assert.match(books[0],/\/completo-\d+\.json$/);
+  }
+  report.direct={eventReads,indexes,books:books.length,events:await dp.evaluate(()=>eventosData.length)};
   const historical=book.modules.events.events.find(e=>/^\d{4}-\d{2}-\d{2}$/.test(e.fecha_desde||''));
   if(historical){
    await dp.clock.setFixedTime(new Date(historical.fecha_desde+'T15:00:00Z'));
