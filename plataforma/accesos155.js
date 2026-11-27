@@ -46,7 +46,7 @@ function ghOwnershipControls155(card,state){
   const matches=state.data.relaciones.filter(r=>String(r.suscriptor_id)===String(sid));
   if(matches.length>1){status.textContent='Hay vínculos duplicados. Requieren revisión antes de modificar titularidad.';return;}
   const row=matches[0],owners=ownerRows();
-  const message=active?(owners.length?'Confirmá asignar la titularidad exclusiva a ':'Confirmá asignar la titularidad a ')+person+'. Se conservarán las delegaciones existentes.':'Confirmá revocar la titularidad de '+person+'. El anuncio conservará su información y permisos delegados.';
+  const message=active?(owners.length?'Confirmá asignar la titularidad exclusiva a ':'Confirmá asignar la titularidad a ')+person+'. Los permisos delegados quedarán revocados hasta que el nuevo propietario los ratifique expresamente.':'Confirmá revocar la titularidad de '+person+'. El anuncio conservará su información; los permisos delegados quedarán revocados hasta que un nuevo propietario los ratifique.';
   if(!window.confirm(message))return;
   busy=true;status.textContent='Guardando titularidad…';
   try{
