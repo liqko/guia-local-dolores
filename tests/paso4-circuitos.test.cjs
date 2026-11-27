@@ -667,6 +667,78 @@ test('E2: autenticación compartida por petición, entorno y rol sin contaminar 
  assert.equal(admin,3);assert.equal(subscriber,2);
  assert.match(worker,/verifySubscriberSessionRaw143,'subscriber'/);
 });
+test('P4-0006: Actividades omite fichas comerciales al verificar visibilidad',async ()=>{
+ const from=worker.indexOf('async function getActivitiesCityV2('),to=worker.indexOf('async function rebuildActivitiesAllV2(',from);
+ const load=Function('text16','activityCityKeyV2','isPublic3','sort5',worker.slice(from,to)+';return getActivitiesCityV2;')(
+  String,city=>'activities:'+city,row=>row.activa,rows=>rows);
+ const local={actividad_id:'local',anunciante_id:'A',activa:true};
+ const remote={actividad_id:'virtual',anunciante_id:'A',activa:true,horarios:[{id:'h',bloqueado18:true}]};
+ const calls=[];
+ let guide={template:{nombre:'Nombre vigente',logo:'logo'}};
+ const cache={get:async key=>{
+  calls.push(key);
+  if(key==='activities:DOL')return {actividades:[local]};
+  if(key==='activities:VIRTUAL')return {actividades:[remote,{actividad_id:'baja',activa:false}]};
+  if(key==='guide:advertiser:v2:A')return guide;
+  return {data:{nombre:'Respaldo'}};
+ }};
+ const compact=await load({cache,cityId:'DOL',visibilityOnly:true});
+ assert.deepEqual(calls.splice(0),['activities:DOL','activities:VIRTUAL']);
+ assert.deepEqual(compact.actividades,[local,remote]);
+ const full=await load({cache,cityId:'DOL'});
+ assert.deepEqual(calls.splice(0),['activities:DOL','activities:VIRTUAL','guide:advertiser:v2:A']);
+ assert.equal(full.actividades[1].anunciante_nombre,'Nombre vigente');
+ guide=null;
+ assert.equal((await load({cache,cityId:'DOL'})).actividades[0].anunciante_nombre,'Respaldo');
+ assert.deepEqual(calls.slice(-2),['guide:advertiser:v2:A','panel:record:v53:anunciantes:A']);
+});
+
+test('P4-0006: lecturas concurrentes de la misma clave conservan la recuperación',async t=>{
+ const from=worker.indexOf('function coordinatedCities119('),to=worker.indexOf('function requestCache121(',from);
+ const key='guide:city:v1:DOL';
+ const build=Function('cityDefinition119',worker.slice(from,to)+';return coordinatedCities119;')(
+  ()=>({module:'guide',field:'anunciantes',id:'id',collection:'anunciantes',sourceId:id=>id}));
+ let calls=0,fail=false;
+ const env={GLD_CACHE_KV:{},GLD_PUBLIC_CACHE:{idFromName:id=>id,get:()=>({async fetch(){
+  calls++;
+  if(fail){fail=false;throw Error('temporal');}
+  return Response.json({value:{anunciantes:[{id:'1'}]},metrics:{rows_read:2,rows_written:0,legacy_gets:1}});
+ }})}};
+ for(const shared of [false,true]){
+  const report={},before=calls,cache=build(env,report,shared).GLD_CACHE_KV;
+  const values=await Promise.all([cache.get(key),cache.get(key)]);
+  assert.equal(values[0],values[1]);
+  assert.equal(calls-before,shared?1:2);
+  assert.equal(report.public_store.rows_read,shared?2:4);
+ }
+ const report={},cache=build(env,report,true).GLD_CACHE_KV;
+ fail=true;
+ await assert.rejects(cache.get(key),/temporal/);
+ assert.equal(report.public_store.components[0].rows_read,null);
+ assert.equal(JSON.parse(await cache.get(key)).anunciantes[0].id,'1');
+ assert.equal(report.public_store.calls,2);
+ t.diagnostic('Consultas actor concurrentes: 2 → 1. Filas: 4 → 2. GET heredados: 2 → 1, simulados.');
+});
+
+test('E6: atribución separa ejecución, padre y anfitrión validado; KV omite claves privadas',async ()=>{
+ const extract=(from,to)=>worker.slice(worker.indexOf(from),worker.indexOf(to,worker.indexOf(from)));
+ const link=Function(extract('function observationUuid214(','function publicDbGuardV44(')+';return observationLink214;')();
+ const execution='a1b2c3d4-5678-4500-8000-123456789abc';
+ const report={request_id:'child'};
+ link(new Request('https://fixture.invalid',{headers:{'X-GLD-Aud':'AUD-00518','X-GLD-Execution-Id':execution,'CF-Ray':'0123456789abcdef-EZE'}}),
+  report,{origin_request_id:'parent',aid:'advertiser'});
+ assert.deepEqual(report,{request_id:'child',aud_claim:'AUD-00518',execution_id:execution,origin_request_id:'parent',advertiser_id:'advertiser',cloudflare_ray:'0123456789abcdef-EZE'});
+ const rejected={request_id:'fallback'};
+ link(new Request('https://fixture.invalid',{headers:{'X-GLD-Aud':'AUD-00988','X-GLD-Execution-Id':'unknown','X-GLD-Advertiser':'other'}}),rejected);
+ assert.deepEqual(rejected,{request_id:'fallback',execution_id:'fallback'});
+ const observe=Function(extract('function observeKv117(','const RECOVERABLE119=')+';return observeKv117;')();
+ const kv=observe({GLD_CACHE_KV:{get:async()=>null}},report).GLD_CACHE_KV;
+ await kv.get('guide:city:v1:secret-id');
+ await kv.get('unknown:secret-id');
+ assert.deepEqual(report.kv.read_groups,{'guide:city:v1':1,other:1});
+ assert(!JSON.stringify(report.kv).includes('secret-id'));
+});
+
 test('P4-0006: un lote comparte la autorización y conserva la contingencia parcial',async ()=>{
  const source=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
  const client=source.slice(source.indexOf('    const verificacionesAgrupadas='),source.indexOf('    async function jsonpApi('));

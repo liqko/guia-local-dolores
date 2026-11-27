@@ -57,10 +57,12 @@ function installMeasurement(context, services=domains, phase=()=>null) {
     const header=headers['x-gld-consumption'];
     if(!header){row.consumptionStatus='encabezado_ausente';return;}
     try {
-      const {schema,request_id,version,firestore,cloudflare,coverage}=JSON.parse(decodeURIComponent(header));
+      const {schema,request_id,execution_id,version,firestore,cloudflare,coverage}=JSON.parse(decodeURIComponent(header));
       row.requestId??=request_id??null;
+      row.executionId=execution_id??null;
       row.workerVersion??=version??null;
       row.consumption={schema,firestore,cloudflare,coverage};
+      row.cloudflareEquivalent=cloudflareEquivalent(cloudflare);
       row.consumptionStatus=firestore&&cloudflare?'recibido':'encabezado_incompleto';
     } catch {row.consumptionStatus='encabezado_invalido';}
   });
@@ -85,6 +87,25 @@ function installMeasurement(context, services=domains, phase=()=>null) {
       sizesMissing:hosting.filter(row=>row.bodyBytes===null).length},workerRequests:requests.filter(row=>row.service==='worker').length,
       externalRequests:requests.filter(row=>row.service==='externo').length};
   };
+}
+
+function cloudflareEquivalent(cloudflare){
+  if(!cloudflare)return null;
+  // Tarifas marginales por millón del plan Paid publicadas el 27/11/2026.
+  // Subconjunto medido, sin franquicia, duración DO, CPU, SQLite ni factura.
+  const dimensions=[
+    ['worker_requests',cloudflare.worker_requests,0.30],
+    ['kv_get',cloudflare.kv?.get_calls,0.50],
+    ['kv_put',cloudflare.kv?.put_calls,5.00],
+    ['kv_delete',cloudflare.kv?.delete_calls,5.00],
+    ['kv_list',cloudflare.kv?.list_calls,5.00],
+    ['public_store_requests',cloudflare.public_store?.calls,0.15],
+    ['public_store_legacy_kv_get',cloudflare.public_store?.legacy_gets,0.50],
+  ];
+  const items=dimensions.filter(([,count])=>Number.isSafeInteger(count)&&count>=0)
+    .map(([operation,count,usdPerMillion])=>({operation,count,usdPerMillion,usd:count*usdPerMillion/1e6}));
+  return items.length?{kind:'marginal_instrumentado_parcial',items,
+    usd:items.reduce((sum,item)=>sum+item.usd,0),billedUsd:null}:null;
 }
 
 async function observeExternalImages(context,page,phase){

@@ -18,6 +18,7 @@ async function run(){
     const context=await browser.newContext({serviceWorkers:'block'});
     let phase='inicio',errorMode='',row=null,published=null,writes=0;
     const calls=[];
+    const operationByPhase=new Map();
     const measure=installMeasurement(context,new Map([[api,'worker'],['fixture.invalid','hosting']]),()=>phase);
     await context.addInitScript(p=>{
       if(location.hostname!=='fixture.invalid')return;
@@ -37,6 +38,10 @@ async function run(){
       const method=route.request().method();
       if(method==='OPTIONS')return route.fulfill({status:204,headers});
       const body=route.request().postDataJSON()||{},action=String(body.action||url.searchParams.get('action')||'').toLowerCase();
+      if(['createpromo','updatepromo','deletepromo'].includes(action))operationByPhase.set(phase,body.operation_id);
+      if(action==='getpromos'&&operationByPhase.has(phase)){
+        assert.equal(route.request().headers()['x-gld-execution-id'],operationByPhase.get(phase));
+      }
       calls.push({path:url.pathname,action,phase});
       let data={success:true,rows:[],results:[],ciudades:[{ciudad_id:'DOL',ciudad_visible:'Dolores'}],paises:[],provincias:[]},status=200,written=0;
       if(url.pathname==='/')data={version:212,event_scope_version:1};
@@ -49,11 +54,17 @@ async function run(){
         if(action==='getpaneldata')data={success:true,advertiser:{id:'A',nombre:'Comercio de ensayo'},promos_cant:3,categorias:['General'],sedes:[sede],promos:row?[row]:[]};
         if(action==='getpromos')data=errorMode==='reload-error'?{success:false,message:'Proyección no disponible'}:{success:true,promos:row?[row]:[]};
         if(action==='createpromo'){
+          assert.equal(route.request().headers()['x-gld-aud'],'AUD-00518');
+          assert.match(body.operation_id,/^[a-f0-9-]{36}$/);
           assert.equal(row,null,'Un alta duplicada no debe crear dos fichas');
           row={...payload,promo_id:'ID-ENSAYO',pausado:false};written++;
           data={success:true,promo:row};
         }
         if(action==='updatepromo'||action==='deletepromo'){
+          if(action==='updatepromo'&&!Object.hasOwn(payload,'pausado')){
+            assert.equal(route.request().headers()['x-gld-aud'],'AUD-00518');
+            assert.match(body.operation_id,/^[a-f0-9-]{36}$/);
+          }
           assert.equal(payload.promo_id,'ID-ENSAYO');
           if(!['stale','reload-error'].includes(errorMode)){
             if(action==='updatepromo')row={...row,...payload};else row=null;
@@ -170,6 +181,9 @@ async function run(){
     }
     const evidence=await measure();
     assert(evidence.requests.some(item=>item.phase==='crear'&&item.bodyBytes>0));
+    const measured=evidence.requests.find(item=>item.phase==='crear'&&item.cloudflareEquivalent);
+    assert.equal(measured.cloudflareEquivalent.usd,0.30/1e6);
+    assert.equal(measured.cloudflareEquivalent.billedUsd,null);
     console.log(JSON.stringify({status:'PASS',durableWrites:writes,promoRequests:calls.filter(x=>x.path==='/promos').map(({action,phase})=>({action,phase}))}));
   }finally{await browser.close();}
 }

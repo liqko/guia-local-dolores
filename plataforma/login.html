@@ -3261,20 +3261,22 @@ async function loadEventosPanelData(){
 
 
 /* ====================== API helpers ====================== */
-async function postJson(url,body){
-  return window.GLD_PUBLICATION_REQUEST143?window.GLD_PUBLICATION_REQUEST143.run(url,body,next=>postJsonRaw143(url,next)):postJsonRaw143(url,body);
+async function postJson(url,body,aud,executionId){
+  const send=next=>postJsonRaw143(url,next,aud,executionId);
+  return window.GLD_PUBLICATION_REQUEST143?window.GLD_PUBLICATION_REQUEST143.run(url,body,send):send(body);
 }
-async function postJsonRaw143(url, body){
+async function postJsonRaw143(url, body, aud, executionId){
   const r = await fetch(url, {
     method:'POST',
-    headers:gldAuthHeaders_({'Content-Type':'application/json'}),
+    headers:gldAuthHeaders_({'Content-Type':'application/json',...(aud?{'X-GLD-Aud':aud}:{}),
+      ...(executionId?{'X-GLD-Execution-Id':executionId}:{})}),
     mode:'cors',
     body:JSON.stringify(body)
   });
   const text = await r.text();
   let json;
   try { json = text ? JSON.parse(text) : null; } catch(e){ json = { rawText:text }; }
-  return { status:r.status, json };
+  return { status:r.status, json, operationId:body.operation_id||body.request_key||null };
 }
 
 function isOperationUnconfirmed(res){
@@ -6197,11 +6199,11 @@ async function events_post(payload){
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
   return postJson(WORKER_EVENTS_URL, body);
 }
-async function promos_post(payload){
+async function promos_post(payload,aud,executionId){
   const body = Object.assign({}, payload || {});
   if(body.accion && !body.action){ body.action = body.accion; delete body.accion; }
   if(!body.advertiserId && sesion && sesion.id) body.advertiserId = String(sesion.id);
-  return postJson(WORKER_PROMOS_URL, body);
+  return postJson(WORKER_PROMOS_URL, body,aud,executionId);
 }
 let commerceRevisionsInternal={id:'',datos:'',sedes:{}};
 const commercePendingOperations132=new Map();
@@ -6894,7 +6896,7 @@ function bindPromosListActions(){
             promoUpsertLocal_(r.json.promo || Object.assign({},(window.__lastPromos||[]).find(x=>String(x.promo_id||'')===String(pid))||{}, {promo_id:pid,pausado:!isPaused}));
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
-            reload:()=>loadPromosUI(),
+            reload:()=>loadPromosUI(r.operationId),
             verify:()=>{
               const row=(window.__lastPromos||[]).find(x=>String(x.promo_id||'')===String(pid));
               if(!row) return false;
@@ -6921,7 +6923,7 @@ function bindPromosListActions(){
             promoRemoveLocal_(pid);
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
-            reload:()=>loadPromosUI(),
+            reload:()=>loadPromosUI(r.operationId),
             verify:()=>!(window.__lastPromos||[]).some(x=>String(x.promo_id||'')===String(pid)),
             successMessage:'Promo borrada.',
             unknownMessage:'No se pudo confirmar la eliminación. Revisá la lista actualizada antes de repetir.'
@@ -7062,7 +7064,7 @@ async function loadPromosPanelData(){
   }
 }
 
-async function loadPromosUI(){
+async function loadPromosUI(executionId,aud){
   const st = document.getElementById('promos-status');
   const list = document.getElementById('promos-list');
 
@@ -7076,7 +7078,7 @@ async function loadPromosUI(){
   list.innerHTML = 'Cargando promos...';
 
   try{
-    const res = await promos_post({ action: 'getPromos' });
+    const res = await promos_post({ action: 'getPromos' },aud,executionId);
     if(res.status !== 200 || res.json?.success!==true || (!Array.isArray(res.json.promos)&&!Array.isArray(res.json.rows))){
       st.textContent = 'Error cargando promos.';
       list.innerHTML='<div class="error">No se pudieron cargar las promos. Usá “Actualizar promos” para reintentar.</div>';
@@ -8996,7 +8998,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         if(!Object.keys(promoPatch).length){setMsg('promos-msg','ok','No hay cambios para guardar.');return;}
         await runDashboardAction('Guardando cambios de la promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Guardando cambios...');
-          const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:promoId},promoPatch) });
+          const r = await promos_post({ action: 'updatePromo', payload: Object.assign({promo_id:promoId},promoPatch) },'AUD-00518');
           if(r.status === 200 && r.json && r.json.success){
             setMsg('promos-msg', 'ok', 'Promo actualizada.');
             promoUpsertLocal_(r.json.promo);
@@ -9004,7 +9006,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
             promoClearForm();
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
-            reload:()=>loadPromosUI(),
+            reload:()=>loadPromosUI(r.operationId,'AUD-00518'),
             verify:()=>gldEditMatchesPatch_((window.__lastPromos||[]).find(x=>String(x.promo_id||'')===String(promoId)),promoPatch),
             successMessage:'Promo actualizada.',
             unknownMessage:'No se pudo confirmar la actualización. Revisá la promo antes de volver a guardar.'
@@ -9025,14 +9027,14 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
         await runDashboardAction('Creando promo...',async()=>{
           setMsg('promos-msg', 'ok', 'Creando promo...');
-          const r = await promos_post({ action: 'createPromo', payload: promoPayload });
+          const r = await promos_post({ action: 'createPromo', payload: promoPayload },'AUD-00518');
           if(r.status === 200 && r.json && (r.json.success || r.json.created)){
             setMsg('promos-msg', 'ok', 'Promo creada.');
             promoUpsertLocal_(r.json.promo);
             promoClearForm();
           } else if(await handleUnconfirmedOperation(r,{
             msgId:'promos-msg',
-            reload:()=>loadPromosUI(),
+            reload:()=>loadPromosUI(r.operationId,'AUD-00518'),
             unknownMessage:'La respuesta se perdió. La lista fue actualizada; verificá si la promo se creó antes de volver a crearla.'
           })){
             // verificación resuelta
