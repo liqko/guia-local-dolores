@@ -2,7 +2,7 @@
 <html>
 <head>
 <script src="/plataforma/panel-administrativo155.js?v=159"></script>
-<script defer src="/plataforma/equipo-anunciante159.js?v=159"></script>
+<script defer src="/plataforma/equipo-anunciante159.js?v=219"></script>
 <script src="/plataforma/publicidad-reglas147.js?v=147"></script>
 <script src="/plataforma/publicacion-pedidos.js?v=145"></script>
 <script src="/plataforma/territorio-cache.js?v=2"></script>
@@ -996,6 +996,17 @@ width:100%!important;max-width:100%!important;min-width:0;box-sizing:border-box}
             </div>
             <div id="msg-datos-comercio"></div>
           </form>
+          <details id="actividad-anuncio" style="margin-top:12px">
+            <summary><b>Estado del anuncio</b></summary>
+            <p class="muted">Desactivar oculta el anuncio en la Guía pública. Se conservan el identificador, la información, las condiciones comerciales y las publicaciones, y el acceso a este panel no se modifica.</p>
+            <div class="data-form-actions">
+              <button type="button" id="btnDesactivarAnuncio" onclick="commerceActividad155('desactivar')">Desactivar anuncio</button>
+              <button type="button" id="btnReactivarAnuncio" onclick="commerceActividad155('activar')">Reactivar anuncio</button>
+            <button type="button" id="btnRenovarAnuncio" onclick="commerceActividad155('renovar')">Renovar vigencia</button>
+            </div>
+            <div id="estado-anuncio-actual" class="muted"></div>
+            <div id="msg-actividad-anuncio"></div>
+          </details>
         </div>
 
         </div>
@@ -6205,6 +6216,22 @@ async function promos_post(payload){
 }
 let commerceRevisionsInternal={id:'',datos:'',sedes:{}};
 const commercePendingOperations132=new Map();
+const COMMERCE_ESTADO155={BLOQUEO_ADMINISTRATIVO:'Bloqueado por Gran Hermano: no podés reactivarlo desde este panel.',DESACTIVACION_VOLUNTARIA:'Desactivado por vos: no se muestra en la Guía.',VENCIDO:'Vencido: no se muestra en la Guía hasta su renovación.',FICHA_INCOMPLETA:'Ficha incompleta: completá la información para publicarlo.'};
+function commerceEstadoRender155(estado){
+  const box=document.getElementById('estado-anuncio-actual');if(!box)return;
+  box.textContent=estado?(COMMERCE_ESTADO155[estado.motivo]||'Activo.')+(estado.vigencia_hasta?' Vigencia hasta '+estado.vigencia_hasta+'.':''):'';
+}
+async function commerceActividad155(accion){
+  const msg='msg-actividad-anuncio';
+  setMsg(msg,'ok',accion==='desactivar'?'Desactivando...':accion==='renovar'?'Renovando...':'Reactivando...');
+  try{
+    const r=await commerce_post({action:'set_actividad',accion_actividad:accion,...(accion==='renovar'?{operacion_id:crypto.randomUUID()}:{})});
+    const j=r&&r.json&&typeof r.json==='object'?r.json:r;
+    if(!j||j.success===false)throw new Error(j?.message||'No se pudo cambiar el estado.');
+    if(j.estado){sesion.estado_publico=j.estado;commerceEstadoRender155(j.estado);}
+    setMsg(msg,'ok',j.updated===false?'El anuncio ya estaba en ese estado.':(accion==='desactivar'?'Anuncio desactivado. Podés reactivarlo cuando quieras.':accion==='renovar'?'Vigencia renovada.':'Anuncio reactivado.'));
+  }catch(e){setMsg(msg,'err',e?.message||'No se pudo cambiar el estado.');}
+}
 async function commerce_post(payload){
   const body=Object.assign({},payload||{});
   if(body.accion&&!body.action){body.action=body.accion;delete body.accion;}
@@ -9460,6 +9487,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       gldPanelStorage.setItem('eventos_cant', sesion.eventos_cant);
       gldPanelStorage.setItem('turnos_farma', sesion.turnos_farma);
       sesion.administracion=administracion;
+      sesion.estado_publico=rawDatos.estado_publico||null;commerceEstadoRender155(sesion.estado_publico);
       gldPanelStorage.setItem('dashboard_administracion',JSON.stringify(administracion||{}));
 
       if(typeof window.updateDashboardModulesFromData==='function'){

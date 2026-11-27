@@ -1,10 +1,10 @@
 // ╔════════════════════════════════════════════════════════════╗
-// ║                GUÍA LOCAL DOLORES · WORKER 214             ║
-// ║          VERSIÓN 214 · ENTREGA DEL PASO 4                 ║
+// ║                GUÍA LOCAL DOLORES · WORKER 219             ║
+// ║          VERSIÓN 219 · ANUNCIANTES Y VIGENCIAS            ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
-const WORKER_VERSION = '214';
+const WORKER_VERSION = '219';
 (function(root){
  'use strict';
  const normalize=v=>String(v??'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase();
@@ -216,14 +216,8 @@ var GLD_ACTIONS138 = (() => {
     // Only recovery checks an ambiguous publication; ordinary saves do not add reads.
     if(!recovering||!equal(await res.cache.get(key),value)){
      if(key===PUBLIC_KEY&&cityBookCaptureEnabled(res.env)&&res.env.GLD_PUBLIC_CACHE){
-      const day=cityBookDay(Date.now());
-      if(this.territoryMarkedDay===day){
-       this.metrics.shared_marker_reused=(this.metrics.shared_marker_reused||0)+1;
-      }else{
-       this.metrics.shared_marker_calls=(this.metrics.shared_marker_calls||0)+1;
-       await cityBookMarkShared(res.env,key);
-       this.territoryMarkedDay=day;
-      }
+      this.metrics.shared_marker_calls=(this.metrics.shared_marker_calls||0)+1;
+      await cityBookMarkShared(res.env,key);
      }
      await res.cache.put(key,value);
     }
@@ -1143,7 +1137,7 @@ function cors(){
   return {
     "Access-Control-Allow-Origin":"*",
     "Access-Control-Allow-Methods":"GET,POST,PATCH,DELETE,OPTIONS",
-    "Access-Control-Allow-Headers":"Content-Type,Authorization,X-GLD-Adult-Token,Idempotency-Key",
+    "Access-Control-Allow-Headers":"Content-Type,Authorization,X-GLD-Adult-Token,Idempotency-Key,X-GLD-Aud,X-GLD-Execution-Id",
     "Access-Control-Expose-Headers":"X-GLD-Request-Id,X-GLD-Worker-Version,X-GLD-Read-Calls,X-GLD-Documents-Returned,X-GLD-Write-Calls,X-GLD-Delete-Calls,X-GLD-Source,X-GLD-Public-Blocked,X-GLD-Action,X-GLD-Operations,X-GLD-Cache-Checks,X-GLD-Session-Token,X-GLD-Session-Kind,X-GLD-Consumption"
   };
 }
@@ -1372,11 +1366,13 @@ async function getGuideCity({ cache, cityId }) {
   return { success: true, ...packet2, anunciantes:(packet2.anunciantes||[]).map(tarjetaConRedesComunes) };
 }
 // reconstruccion/worker/modules/guide.js
-async function guidePublic({ url, cache }) {
+async function guidePublic({ url, cache, at = undefined }) {
   const cityId = String(url.searchParams.get("ciudad_id") || url.searchParams.get("ciudadId") || "").trim();
   const out2 = await getGuideCity({ cache, cityId });
   if (out2.status) return json(out2, out2.status);
-  const rows = Array.isArray(out2.anunciantes) ? out2.anunciantes : [];
+  const all = Array.isArray(out2.anunciantes) ? out2.anunciantes : [];
+  // En el corte, la vigencia se evalúa al instante del corte sin leer Firestore.
+  const rows = at === undefined ? all : all.filter((card) => guideCardVisible155(card, at));
   if(url.searchParams.get('compact')==='1'){const {anunciantes,...meta}=out2;return publicJson({...meta,results:rows});}
   return publicJson({ ...out2, results: rows, data: rows });
 }
@@ -1780,9 +1776,9 @@ async function getFarmCity({ cache, cityId }) {
 
 var text13 = (v) => String(v ?? "").trim();
 var out = (r) => r.status ? json(r, r.status) : publicJson(r);
-async function routePublicV4({ path, request: request2, url, cache }) {
+async function routePublicV4({ path, request: request2, url, cache, cityBookCutoff }) {
   if (path === "/territory/public" && request2.method === "GET") return territoryPublic({ cache });
-  if (path === "/guide" && request2.method === "GET") return guidePublic({ url, cache });
+  if (path === "/guide" && request2.method === "GET") return guidePublic({ url, cache, at: cityBookCutoff });
   const city = text13(url.searchParams.get("ciudad_id"));
   if (path === "/promos" && request2.method === "GET") {
     return out(await getPromosCity({ cache, cityId: city }));
@@ -2036,7 +2032,7 @@ async function syncActivityPreparedV2({ cache, activityId, current = null, next 
   await putPreparedRelationsV1({ cache, type: "activity", id: id4, next, data: horarios });
   return { success: true, ciudades_actualizadas: targets };
 }
-async function getActivitiesCityV2({ cache, cityId, at=Date.now() }) {
+async function getActivitiesCityV2({ cache, cityId, at=Date.now(),visibilityOnly=false }) {
   const city=text16(cityId);if(!city)return {success:false,message:'ciudad_id obligatorio',status:400};
   const [packet,virtual]=await Promise.all([cache.get(activityCityKeyV2(city)),city==='VIRTUAL'?Promise.resolve(null):cache.get(activityCityKeyV2('VIRTUAL'))]);
   const byId=new Map();
@@ -2046,12 +2042,16 @@ async function getActivitiesCityV2({ cache, cityId, at=Date.now() }) {
     if(previous){const schedules=new Map();for(const h of [...previous.horarios||[],...row.horarios||[]])schedules.set(text16(h.actividad_horario_id||h.id)||JSON.stringify(h),h);byId.set(id,{...previous,...row,horarios:[...schedules.values()]});}
     else byId.set(id,row);
   }
+  const available=[...byId.values()];
+  if(visibilityOnly)return {success:true,...packet,ciudad_id:city,actividades:available,cold:!packet&&!virtual};
   const publishers=new Map();
-  const activities=await Promise.all([...byId.values()].map(async row=>{
+  const activities=await Promise.all(available.map(async row=>{
     const aid=text16(row.anunciante_id||row.id_anunciante);if(!aid)return row;
-    if(!publishers.has(aid))publishers.set(aid,Promise.all([cache.get('guide:advertiser:v2:'+aid),cache.get('panel:record:v53:anunciantes:'+encodeURIComponent(aid))]));
-    const [guide,profile]=await publishers.get(aid);
-    const source=guide?.template||guide?.cards?.[0]||profile?.data;
+    if(!publishers.has(aid))publishers.set(aid,(async()=>{
+      const guide=await cache.get('guide:advertiser:v2:'+aid);
+      return guide?.template||guide?.cards?.[0]||(await cache.get('panel:record:v53:anunciantes:'+encodeURIComponent(aid)))?.data;
+    })());
+    const source=await publishers.get(aid);
     return source?{...row,anunciante_nombre:text16(source.nombre||row.anunciante_nombre),logo_anunciante:text16(source.logo||source.logo_url||'')}:row;
   }));
   return {success:true,...packet,ciudad_id:city,actividades:sort5(activities),cold:!packet&&!virtual};
@@ -2105,6 +2105,7 @@ async function routePublicV7(ctx) {
       const out2 = await getActivitiesCityV2({
         cache,
         at:ctx.cityBookCutoff,
+        visibilityOnly:ctx.publicVisibilityOnly||url.searchParams.get('vista')==='visibilidad',
         cityId: text17(url.searchParams.get("ciudad_id"))
       });
       return out2.status ? json(out2, out2.status) : publicJson(out2);
@@ -2921,6 +2922,7 @@ async function subscriberLogin({ env, db, body }) {
     auth: enriched.map((x) => ({
       anunciante_id: x.anunciante_id,
       rol: x.rol,
+      activo: true,
       permisos: x.permisos
     }))
   };
@@ -2954,9 +2956,10 @@ function sessionAllows(session2, advertiserId, moduleName, { write = false } = {
   const role = text27(rel.rol).toUpperCase().replace("COADMINISTRADOR","ADMINISTRADOR");
   if (!["PROPIETARIO", "ADMINISTRADOR", "MANAGER"].includes(role)) return false;
   if(session2.admin_panel)return text27(session2.aid)===aid;
+  if(!activeSessionRelation155(rel))return false;
   if (write && moduleName === "modificar_datos" && role === "MANAGER") return false;
   if (moduleName === "modificar_datos") return role === "PROPIETARIO" || role === "ADMINISTRADOR" && (rel.permisos_definidos!==true || text27(rel.permisos).split(/[;,|\n]/).some(x=>x.trim().toUpperCase()==="MODIFICAR_DATOS"));
-  if(role==="PROPIETARIO")return rel.activo!==false;
+  if(role==="PROPIETARIO")return activeSessionRelation155(rel);
   if(moduleName==="empleo"&&rel.permisos_definidos!==true)return role==="ADMINISTRADOR";
   if(moduleName==="publicidad"&&role==="ADMINISTRADOR"&&rel.permisos_definidos!==true)return rel.activo!==false;
   const aliases = {
@@ -2996,6 +2999,7 @@ async function commercePanelData({ db, advertiserId, catalogs }) {
     advertiser: {
       id: advertiserId,
       datos,
+      estado_publico: advertiserPublicState155(administracion, datos, sedes),
       administracion: administracion || {},
       sedes,
       segmentos: catalogs.segmentos || [],
@@ -4308,6 +4312,7 @@ async function requirePanel(env, request2, aid, moduleName, write = false) {
   if (aid && !sessionAllows(s, aid, moduleName, { write })) {
     return { response: json({ success: false, message: "No tenés permiso para esta operación." }, 403) };
   }
+  if(aid&&env.__gldRequestReport119)env.__gldRequestReport119.advertiser_id=aid;
   return { session: s };
 }
 function efemPermisos(admin){
@@ -4784,7 +4789,7 @@ function sortCards2(rows) {
 }
 function publicAllowed(card) {
   if (publicationAuthority(card)!=='LIBRE') return false;
-  return card && card.aprobado !== false;
+  return guideCardVisible155(card);
 }
 function upsertCard(rows, card) {
   const aid = text41(card && card.id);
@@ -4815,6 +4820,8 @@ function buildGuideCardBaseV2({ advertiser, admin, sedes, catalogs, territory, c
     ...(advertiser.administracion_publicacion?{administracion_publicacion:{estado:publicationAuthority(advertiser)}}:{}),
     contenido_adulto:adultFlag(advertiser.contenido_adulto),revision_adulto:advertiser.revision_adulto||"NO_APLICA",estado_moderacion:advertiser.estado_moderacion||"PUBLICADO",
     aprobado: admin && admin.aprobado !== void 0 ? bool15(admin.aprobado) : true,
+    ...(admin && admin.inactivo_motivo ? { inactivo_motivo: text41(admin.inactivo_motivo) } : {}),
+    ...(publicValidity155(admin) ? { vigente_hasta: publicValidity155(admin) } : {}),
     nivel: text41(admin && admin.nivel),
     subnivel: text41(admin && admin.subnivel),
     verificado: bool15(admin && admin.verificado),
@@ -4898,12 +4905,12 @@ function buildGuideCardBaseV2({ advertiser, admin, sedes, catalogs, territory, c
     }))
   };
 }
-async function syncGuideAdvertiserV2({ db, cache, advertiserId, affectedCityIds = [] }) {
+async function syncGuideAdvertiserV2({ db, cache, advertiserId, affectedCityIds = [], confirmed = undefined }) {
   const aid = text41(advertiserId);
   const [advertiser, admin, sedes, catalogs, territory, previousBase] = await Promise.all([
-    db.get("anunciantes", aid),
-    db.get("anunciantes_administracion", aid),
-    db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500),
+    confirmed ? confirmed.advertiser : db.get("anunciantes", aid),
+    confirmed ? confirmed.admin : db.get("anunciantes_administracion", aid),
+    confirmed ? confirmed.sedes : db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500),
     cache.get("catalogs:commerce:v1"),
     cache.get("territorio:public:v1"),
     cache.get(guideAdvertiserKey(aid))
@@ -4966,7 +4973,7 @@ async function guideBaseForMutationInternal(cache,aid){
 
 async function patchGuideAdminFieldsV2({ cache, advertiserId, patch }) {
   const aid = text41(advertiserId);
-  const allowed = ["aprobado", "nivel", "subnivel", "verificado", "gold"];
+  const allowed = ["aprobado", "nivel", "subnivel", "verificado", "gold", "inactivo_motivo", "vigente_hasta"];
   const relevant = {};
   for (const key3 of allowed) if (Object.prototype.hasOwnProperty.call(patch || {}, key3)) relevant[key3] = patch[key3];
   if (!Object.keys(relevant).length) return { success: true, changed: false, firestore_reads: 0 };
@@ -4979,6 +4986,7 @@ async function patchGuideAdminFieldsV2({ cache, advertiserId, patch }) {
     if ("aprobado" in relevant) out2.aprobado = !!relevant.aprobado;
     if ("nivel" in relevant) out2.nivel = text41(relevant.nivel);
     if ("subnivel" in relevant) out2.subnivel = text41(relevant.subnivel);
+    for (const key3 of ["inactivo_motivo", "vigente_hasta"]) if (key3 in relevant) { if (text41(relevant[key3])) out2[key3] = text41(relevant[key3]); else delete out2[key3]; }
     if ("verificado" in relevant) out2.verificado = !!relevant.verificado;
     if ("gold" in relevant) out2.gold = !!relevant.gold;
     return out2;
@@ -5087,6 +5095,9 @@ function advertiserRow({ advertiser, admin, sedes }) {
     aprobado: admin && admin.aprobado === true,
     verificado: admin && admin.verificado === true,
     gold: admin && admin.gold === true,
+    inactivo_motivo: text42(admin && admin.inactivo_motivo),
+    vigencia_hasta: text42(admin && admin.vigencia_hasta),
+    con_titular: admin && admin.con_titular === true,
     segmento_id: text42(advertiser && advertiser.segmento_id),
     ciudad_ids: cities,
     search: norm6([id4, nombre, advertiser && advertiser.actividad, advertiser && advertiser.descripcion].filter(Boolean).join(" "))
@@ -5142,12 +5153,12 @@ async function rebuildAdminIndexesV2({ db, cache }) {
   ]);
   return { success: true, anunciantes: advRows.length, suscriptores: subRows.length, updated_at: now };
 }
-async function syncAdvertiserIndexV2({ db, cache, advertiserId }) {
+async function syncAdvertiserIndexV2({ db, cache, advertiserId, confirmed = undefined }) {
   const aid = text42(advertiserId);
   const [advertiser, admin, sedes, packet2] = await Promise.all([
-    db.get("anunciantes", aid),
-    db.get("anunciantes_administracion", aid),
-    db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500),
+    confirmed ? confirmed.advertiser : db.get("anunciantes", aid),
+    confirmed ? confirmed.admin : db.get("anunciantes_administracion", aid),
+    confirmed ? confirmed.sedes : db.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500),
     cache.get(ADMIN_ADVERTISERS_KEY)
   ]);
   if (!advertiser && !admin) return { success: true, removed: false, missing: true };
@@ -5160,23 +5171,31 @@ async function syncAdvertiserIndexV2({ db, cache, advertiserId }) {
   });
   return { success: true, row };
 }
-async function patchAdvertiserIndexCommercialV2({ cache, advertiserId, patch }) {
-  const aid = text42(advertiserId), packet2 = await cache.get(ADMIN_ADVERTISERS_KEY);
+async function patchAdvertiserIndexRowsV2({ cache, patches }) {
+  const packet2 = await cache.get(ADMIN_ADVERTISERS_KEY);
   if (!packet2 || !Array.isArray(packet2.results)) return { success: true, changed: false, needs_rebuild: true };
-  const rows = [...packet2.results];
-  const i = rows.findIndex((x) => text42(x.id) === aid);
-  if (i < 0) return { success: true, changed: false, needs_rebuild: true };
-  const row = { ...rows[i] };
-  for (const key3 of ["nivel", "subnivel", "aprobado", "verificado", "gold"]) {
-    if (Object.prototype.hasOwnProperty.call(patch || {}, key3)) row[key3] = patch[key3];
-  }
-  rows[i] = row;
-  await cache.put(ADMIN_ADVERTISERS_KEY, {
+  let changed = false;
+  const found = new Set();
+  const rows = packet2.results.map((x) => {
+    const id = text42(x.id), patch = patches.get(id);
+    if (!patch) return x;
+    found.add(id); changed = true;
+    const row = { ...x };
+    for (const key3 of ["nivel", "subnivel", "aprobado", "verificado", "gold", "inactivo_motivo", "vigencia_hasta", "con_titular"]) {
+      if (Object.prototype.hasOwnProperty.call(patch || {}, key3)) row[key3] = patch[key3];
+    }
+    return row;
+  });
+  if (changed) await cache.put(ADMIN_ADVERTISERS_KEY, {
     ...packet2,
     updated_at: (/* @__PURE__ */ new Date()).toISOString(),
     results: sortByName(rows)
   });
-  return { success: true, changed: true };
+  const missing = [...patches.keys()].filter((id) => !found.has(id));
+  return { success: true, changed, ...(missing.length ? { needs_rebuild: true, missing } : {}) };
+}
+async function patchAdvertiserIndexCommercialV2({ cache, advertiserId, patch }) {
+  return patchAdvertiserIndexRowsV2({ cache, patches: new Map([[text42(advertiserId), patch || {}]]) });
 }
 async function searchAdvertisersV2({ cache, q = "", cityId = "", limit = 100, offset = null }) {
   const packet2 = await cache.get(ADMIN_ADVERTISERS_KEY);
@@ -5237,14 +5256,14 @@ async function commercialRevisionInternal(row){
 async function advertiserDetailV2({ db, advertiserId }) {
   const aid = text42(advertiserId);
   const read=db.panelReadDb?db.panelReadDb({advertiserId:aid}):db;
-  const [advertiser, admin, sedes, relations] = await Promise.all([
+  const [advertiser, ownership, sedes] = await Promise.all([
     read.get("anunciantes", aid),
-    read.get("anunciantes_administracion", aid),
-    read.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500),
-    db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual("suscriptor_anunciante", "anunciante_id", aid, 500)
+    ownershipSnapshot155(db,aid,{write:false}),
+    read.queryEqual("anunciantes_sedes", "anunciante_id", aid, 500)
   ]);
+  const admin=ownership.fence.doc,relations=ownership.rows;
   if (!advertiser && !admin) return { success: false, message: "Anunciante no encontrado" };
-  return { success: true, publicidad_reglas_version:147, revision_comercial:await commercialRevisionInternal(admin||{}), revision_perfil:await fieldRevisionInternal(advertiser||{},PROFILE_REVISION_FIELDS_INTERNAL), revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await fieldRevisionInternal(row,SEDE_REVISION_FIELDS_INTERNAL)]))), anunciante: advertiser || {}, administracion: admin || {}, sedes, propietarios:await ownerSummaries159(db,relations), relaciones: await Promise.all(relations.map(async row=>({...publicRelation155(row),revision:await wholeRevisionInternal(row)}))), revision_vinculo_nuevo:await wholeRevisionInternal({}), uso_funcionalidades: await advertiserUsageV62(db,aid) };
+  return { success: true, publicidad_reglas_version:147, estado_publico:advertiserPublicState155(admin,advertiser,sedes), revision_comercial:await commercialRevisionInternal(admin||{}), revision_perfil:await fieldRevisionInternal(advertiser||{},PROFILE_REVISION_FIELDS_INTERNAL), revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await fieldRevisionInternal(row,SEDE_REVISION_FIELDS_INTERNAL)]))), anunciante: advertiser || {}, administracion: admin || {}, sedes, propietarios:await ownerSummaries159(db,relations), revision_titularidad:admin&&ownership.fence.updateTime&&relations.length<501?await ownershipRevision155(relations,admin):null, relaciones: await Promise.all(relations.map(async row=>({...publicRelation155(row),revision:await wholeRevisionInternal(row)}))), revision_vinculo_nuevo:await wholeRevisionInternal({}), uso_funcionalidades: await advertiserUsageV62(db,aid) };
 }
 async function subscriberDetailV2({ db, subscriberId }) {
   const sid=text42(subscriberId);
@@ -5744,7 +5763,7 @@ async function subscriberLoginV2({env,db,body}){
   const state=await subscriberSessionState(env,sid);
   if(state.deleted)return{success:false,message:"Suscriptor no activo"};
   const buildRelations161=async()=>{
-    const relations=(await (db.loginRelations?db.loginRelations(sid):db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100)))
+    const relations=(await (db.loginRelations?db.loginRelations(sid,Number(state.version||0)):db.queryEqual("suscriptor_anunciante","suscriptor_id",sid,100)))
       .filter(r=>text(r.anunciante_id)&&truthy(r.activo));
   
     const enriched=await Promise.all(relations.map(async rel=>{
@@ -5775,6 +5794,7 @@ async function subscriberLoginV2({env,db,body}){
       anunciante_id:x.anunciante_id,
       anunciante_nombre:x.anunciante_nombre,
       rol:x.rol,
+      activo:true,
       permisos:x.permisos,
       permisos_definidos:x.permisos_definidos===true
     }))
@@ -6118,7 +6138,7 @@ async function commercePanelDataV3({db,advertiserId,catalogs}){
   ]);
   if(!datos)return{success:false,error:"anunciante_no_encontrado"};
   return{success:true,advertiser:{
-    id:advertiserId,datos,revision_datos:await wholeRevisionInternal(datos),revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await wholeRevisionInternal(row)]))),administracion:administracion||{},sedes,redes_web_comunes_disponible:true,
+    id:advertiserId,datos,revision_datos:await wholeRevisionInternal(datos),revision_sedes:Object.fromEntries(await Promise.all(sedes.map(async row=>[String(row.sede_id||row.id),await wholeRevisionInternal(row)]))),estado_publico:advertiserPublicState155(administracion,datos,sedes),administracion:administracion||{},sedes,redes_web_comunes_disponible:true,
     segmentos:catalogs.segmentos||[],categorias:catalogs.categorias||[],
     actividades_clave:catalogs.actividades_clave||[],acciones:catalogs.acciones||[],
     nodos:catalogs.nodos||[],funcionalidades:catalogs.funcionalidades||[],
@@ -6319,7 +6339,7 @@ async function writeCityPacket(cache, cityId, aid, card) {
   const key3 = guideCityKey2(cityId);
   const packet2 = await cache.get(key3) || { version: 2, ciudad_id: cityId, updated_at: "", anunciantes: [] };
   let rows = (packet2.anunciantes || []).filter((x) => text56(x.id) !== text56(aid));
-  if (card && card.aprobado !== false && publicationAuthority(card)==='LIBRE') rows.push(card);
+  if (guideCardVisible155(card) && publicationAuthority(card)==='LIBRE') rows.push(card);
   await cache.put(key3, { version: 2, ciudad_id: cityId, updated_at: (/* @__PURE__ */ new Date()).toISOString(), anunciantes: sortCards3(rows) });
 }
 function updateIndexRow(row, patch) {
@@ -7459,7 +7479,7 @@ function sortCards4(rows) {
 function upsert3(rows, card) {
   const aid = text71(card.id);
   const out2 = (rows || []).filter((x) => text71(x.id) !== aid);
-  if (card.aprobado !== false && publicationAuthority(card)==='LIBRE') out2.push(card);
+  if (guideCardVisible155(card) && publicationAuthority(card)==='LIBRE') out2.push(card);
   return sortCards4(out2);
 }
 async function patchGuideSegmentV2({ cache, advertiserId, segmentoId }) {
@@ -7741,6 +7761,7 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
   }
   for(const key of Object.keys(adminPatch))if(!['actualizado_en','actualizado_por'].includes(key)&&GLD_BUSINESS143.equal(adminPatch[key],commercialSource.doc[key]))delete adminPatch[key];
   adminTouched=Object.keys(adminPatch).some(key=>!['actualizado_en','actualizado_por'].includes(key));
+  if(Object.hasOwn(adminPatch,'nivel'))Object.assign(adminPatch,validityOnLevelChange155({...commercialSource.doc,nivel:adminPatch.nivel},await loadValidityRules155(cache),adminPatch.actualizado_en));
   let firestoreWrites = 0;
   if (adminTouched) {
     const commercialChanged=['nivel','funcionalidades','funcionalidades_config']
@@ -7754,7 +7775,7 @@ async function updateAdvertiserCommercialV2({ db, cache, auth, advertiserId, pay
     if(!sameCacheData129(contractBefore132,contractAfter132))await cache.put("publicity:contract:v101:"+aid,contractAfter132);
     firestoreWrites++;
     await Promise.all([
-      patchGuideAdminFieldsV2({ cache, advertiserId: aid, patch: adminPatch }),
+      patchGuideAdminFieldsV2({ cache, advertiserId: aid, patch: Object.hasOwn(adminPatch,'vigencia_hasta')?{...adminPatch,vigente_hasta:publicValidity155(savedAdmin)}:adminPatch }),
       patchAdvertiserIndexCommercialV2({ cache, advertiserId: aid, patch: adminPatch })
     ]);
   }
@@ -8023,11 +8044,13 @@ async function resolvePendingV2({ db, cache, auth, tipo, id: id4, decision, nive
     return { success: true, tipo: kind, id: itemId, decision: dec, estado: saved.estado };
   }
   if (kind === "ANUNCIANTE") {
-    const req = await db.get("solicitudes_anunciante", itemId);
+    const reqVersion = await db.getVersioned("solicitudes_anunciante", itemId);
+    const req = reqVersion.doc;
     if (!req) throw new Error("Solicitud de anunciante no encontrada.");
     if (text75(req.estado).toUpperCase() !== "PENDIENTE") throw new Error("La solicitud ya fue resuelta.");
     const now = (/* @__PURE__ */ new Date()).toISOString();
     const sid = text75(req.suscriptor_id), modo = text75(req.modo).toUpperCase();
+    if(modo==="RECLAMAR")throw httpError("Utilizá la revisión vigente de titularidad.",409);
     if (dec === "RECHAZAR") {
       await db.patch("solicitudes_anunciante", itemId, {
         estado: "RECHAZADA",
@@ -8037,73 +8060,22 @@ async function resolvePendingV2({ db, cache, auth, tipo, id: id4, decision, nive
       }, { mustExist: true });
       return { success: true, tipo: kind, id: itemId, decision: dec };
     }
-    let aid = text75(req.anunciante_id);
+    let aid = text75(req.anunciante_id),creation=null,advertiserName='';
     if (modo === "CREAR") {
-      const level = text75(nivel);
-      if (!level) throw new Error("Seleccioná el nivel del nuevo anunciante.");
+      const level = newAdvertiserLevel155(nivel);
       aid = newAdvertiserId();
-      const detail = req.detalle || {};
-      const city = text75(req.ciudad_id);
-      await db.patch("anunciantes", aid, {
-        id: aid,
-        nombre: text75(req.nombre),
-        actividad: text75(detail.actividad),
-        descripcion: text75(detail.descripcion),
-        whatsapp: text75(detail.whatsapp),
-        mail: text75(detail.mail),
-        web: text75(detail.web),
-        creado_en: now,
-        actualizado_en: now
-      });
-      await db.patch("anunciantes_administracion", aid, {
-        id: aid,
-        aprobado: true,
-        nivel: level,
-        subnivel: "0",
-        verificado: false,
-        gold: false,
-        funcionalidades: [],
-        creado_en: now,
-        actualizado_en: now
-      });
-      if (city) {
-        const sedeId = "SED-" + aid + "-MAIN";
-        await db.patch("anunciantes_sedes", sedeId, {
-          sede_id: sedeId,
-          anunciante_id: aid,
-          ciudad_id: city,
-          nombre_sede: "Principal",
-          direccion: text75(detail.direccion),
-          whatsapp: text75(detail.whatsapp),
-          mail: text75(detail.mail),
-          web: text75(detail.web),
-          activo: true,
-          creado_en: now,
-          actualizado_en: now
-        });
-      }
+      creation=moderatedCreation155(req,aid,level,now);
+      advertiserName=creation.advertiser.nombre;
     } else if (modo === "RECLAMAR") {
-      if (!aid || !await db.get("anunciantes", aid)) throw new Error("El anunciante reclamado ya no existe.");
+      const advertiser=aid?await db.get("anunciantes",aid):null;
+      if(!advertiser)throw new Error("El anunciante reclamado ya no existe.");
+      advertiserName=String(advertiser.nombre||aid);
     } else {
       throw new Error("Tipo de solicitud inválido.");
     }
-    const relId = sid + "__" + aid;
-    await db.patch("suscriptor_anunciante", relId, {
-      relacion_id: relId,
-      suscriptor_id: sid,
-      anunciante_id: aid,
-      rol: "PROPIETARIO",
-      activo: true,
-      fecha_alta: now,
-      actualizado: now
-    });
-    await db.patch("solicitudes_anunciante", itemId, {
-      estado: "APROBADA",
-      anunciante_id: aid,
-      moderado_por: text75(auth.sid),
-      moderado_en: now,
-      actualizado_en: now
-    }, { mustExist: true });
+    const approvalPatch = {estado:"APROBADA",anunciante_id:aid,moderado_por:text75(auth.sid),moderado_en:now,actualizado_en:now};
+    if(!reqVersion.updateTime)throw httpError("Falta la revisión de la solicitud.",409);
+    await commitOwnership155({cache,env:undefined,active:true,expectedRevision:undefined,expectedOwnershipRevision:undefined,snapshot:undefined,db,aid,sid,actor:auth.sid,creation,advertiserName,extra:[{collection:"solicitudes_anunciante",id:itemId,before:req,patch:approvalPatch,options:{updateTime:reqVersion.updateTime}}]});
     if (modo === "CREAR") {
       await Promise.all([
         syncGuideAdvertiserV2({ db, cache, advertiserId: aid }),
@@ -8386,7 +8358,7 @@ async function listAdminCatalogV2({ cache, tipo, cityId = "" }) {
   if (t === "nodos" && text79(cityId)) {
     rows = rows.filter((x) => text79(x.ciudad_id) === text79(cityId));
   }
-  return { success: true, tipo: t, results: sortRows(rows), source: "kv" };
+  return { success: true, tipo: t, results: sortRows(rows), source: "kv", ...(t === "niveles_anunciante" ? { vigencia_reglas: advertiserValidityRules155(rows) } : {}) };
 }
 async function saveAdminCatalogV2({ db, cache, tipo, item, cityId = "" }) {
   const t = text79(tipo).toLowerCase(), def = defs[t];
@@ -8408,6 +8380,16 @@ async function saveAdminCatalogV2({ db, cache, tipo, item, cityId = "" }) {
     const value=item[key];
     if(value===null&&key!=='numero')continue;
     if(typeof value!=='number'||!Number.isSafeInteger(value)||value<(key==='numero'?1:0)||(key==='imagenes_max'&&value>5))throw Error('Valor inválido en '+key+'.');
+  }
+  if(t==='niveles_anunciante'){
+    for(const p of ['vigencia_con_titular','vigencia_sin_titular']){
+      const m=item[p+'_modo'],d=item[p+'_dias'],mode=m??current?.[p+'_modo'];
+      if(m!==undefined&&!VALIDITY_MODES155.includes(m))throw Error('Condición de vigencia inválida en '+p+'.');
+      if(d!==undefined&&(!Number.isSafeInteger(d)||d<1||d>3650))throw Error('Cantidad de días inválida en '+p+'.');
+      if(m!==undefined&&m!=='PERMANENTE'&&!Number.isSafeInteger(d??current?.[p+'_dias']))throw Error('Indicá la cantidad de días en '+p+'.');
+      if(mode==='PERMANENTE'&&d!==undefined)throw Error('La vigencia permanente no admite cantidad de días.');
+    }
+    if(item.vigencia_excepciones!==undefined&&typeof item.vigencia_excepciones!=='boolean')throw Error('Valor inválido en vigencia_excepciones.');
   }
   const patch = changedFieldsV1(current, payload);
   if (!Object.keys(patch).length) return { success: true, updated: false, tipo: t, item: current, firestore_writes: 0, firestore_reads: 0 };
@@ -8758,7 +8740,7 @@ const GH_FIXED_PACKET_KEY169='admin:gh:fixed:v169';
 const GH_FIXED_CATALOGS169=['prestaciones','segmentos','niveles_anunciante','funcionalidades','categorias','actividades_clave','acciones','eventos_categorias','actividades_categorias','moderacion_18'];
 async function ghFixedPacket169({cache,db}){
  const hot=await cache.get(GH_FIXED_PACKET_KEY169);
- if(hot?.version===169&&hot.catalogos&&hot.reglas&&hot.precios)return hot;
+ if(hot?.version===169&&hot.catalogos&&hot.reglas&&hot.precios)return {...hot,vigencias:advertiserValidityRules155(hot.catalogos.niveles_anunciante)};
  const [entries,func,prices]=await Promise.all([
   Promise.all(GH_FIXED_CATALOGS169.map(async tipo=>[tipo,(await listAdminCatalogV2({cache,tipo})).results||[]])),
   gldFuncPacket166(cache,db,true),
@@ -8766,7 +8748,7 @@ async function ghFixedPacket169({cache,db}){
  ]);
  const packet={version:169,catalogos:Object.fromEntries(entries),reglas:{revision:func.revision,reglas:func.reglas},precios:{revision:prices.revision,precios:prices.precios}};
  await cache.put(GH_FIXED_PACKET_KEY169,packet);
- return packet;
+ return {...packet,vigencias:advertiserValidityRules155(packet.catalogos.niveles_anunciante)};
 }
 async function ghFixedEndpoint169(ctx){
  const {request,env,cache,db}=ctx;
@@ -9033,6 +9015,7 @@ async function gldCerrarContrato185(ctx){
  const patch={nivel:effectiveLevel,funcionalidades:enabled,funcionalidades_config:settings,
   asignaciones_administrativas:overrides,
   contratacion_actual:contracted,actualizado_en:contracted.cerrado_en,actualizado_por:auth.sid};
+ Object.assign(patch,validityOnContract155({...previous,nivel:effectiveLevel},await loadValidityRules155(cache),contracted.cerrado_en));
  // Las banderas históricas también son leídas por algunos módulos: mantenerlas
  // sincronizadas con la única configuración efectiva.
  const activeFeatures=new Set(enabled.map(canonicalFeatureId112));
@@ -9047,10 +9030,7 @@ async function gldCerrarContrato185(ctx){
  try{saved=await db.patch('anunciantes_administracion',aid,patch,{mustExist:true,updateTime:version.updateTime})}
  catch(e){return json({success:false,message:'No se confirmó la contratación. La ficha pudo cambiar: '+String(e.message||e)},409)}
  // Mantener proyecciones existentes: reutilizar el mismo registro efectivo.
- await Promise.all([
-  patchGuideAdminFieldsV2({cache,advertiserId:aid,patch}),
-  patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch})
- ]);
+ await projectAdvertiserAdmin155({db,cache,aid,doc:saved||{...previous,...patch},extra:patch});
  await cache.put('publicity:contract:v101:'+aid,
   {...publicityContractV101(saved),habilitada:featureEnabled2(saved,'PUBLICIDAD')});
  return json({success:true,updated:true,contratacion:contracted,importe:contracted.importe,
@@ -9678,7 +9658,8 @@ async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision,
     };
   }
   if (kind === "ANUNCIANTE") {
-    const req = await db.get("solicitudes_anunciante", itemId);
+    const reqVersion = await db.getVersioned("solicitudes_anunciante", itemId);
+    const req = reqVersion.doc;
     if (!req) throw new Error("Solicitud de anunciante no encontrada.");
     assertAdminCityV71(auth,req);
     if (text82(req.estado).toUpperCase() !== "PENDIENTE") throw new Error("La solicitud ya fue resuelta.");
@@ -9699,78 +9680,26 @@ async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision,
         moderado_por: text82(auth.sid),
         moderado_en: now,
         actualizado_en: now
-      }, { mustExist: true });
+      }, { updateTime: reqVersion.updateTime });
       return { success: true, tipo: kind, id: itemId, decision: dec, solicitud: savedReq2 };
     }
-    let aid = text82(req.anunciante_id);
+    let aid = text82(req.anunciante_id),creation=null,advertiserName='';
     if (modo === "CREAR") {
-      const level = text82(nivel);
-      if (!level) throw new Error("Seleccioná el nivel del nuevo anunciante.");
+      const level = newAdvertiserLevel155(nivel);
       aid = newAdvertiserId2();
-      const detail = req.detalle || {};
-      const city = text82(req.ciudad_id);
-      await db.patch("anunciantes", aid, {
-        id: aid,
-        nombre: text82(req.nombre),
-        actividad: text82(detail.actividad),
-        descripcion: text82(detail.descripcion),
-        whatsapp: text82(detail.whatsapp),
-        mail: text82(detail.mail),
-        web: text82(detail.web),
-        creado_en: now,
-        actualizado_en: now
-      });
-      await db.patch("anunciantes_administracion", aid, {
-        id: aid,
-        aprobado: true,
-        nivel: level,
-        subnivel: "0",
-        verificado: false,
-        gold: false,
-        funcionalidades: [],
-        creado_en: now,
-        actualizado_en: now
-      });
-      if (city) {
-        const sedeId = "SED-" + aid + "-MAIN";
-        await db.patch("anunciantes_sedes", sedeId, {
-          sede_id: sedeId,
-          anunciante_id: aid,
-          ciudad_id: city,
-          nombre_sede: "Principal",
-          direccion: text82(detail.direccion),
-          whatsapp: text82(detail.whatsapp),
-          mail: text82(detail.mail),
-          web: text82(detail.web),
-          activo: true,
-          creado_en: now,
-          actualizado_en: now
-        });
-      }
+      creation=moderatedCreation155(req,aid,level,now);
+      advertiserName=creation.advertiser.nombre;
     } else if (modo === "RECLAMAR") {
-      if (!aid || !await db.get("anunciantes", aid)) throw new Error("El anunciante reclamado ya no existe.");
+      const advertiser=aid?await db.get("anunciantes",aid):null;
+      if(!advertiser)throw new Error("El anunciante reclamado ya no existe.");
+      advertiserName=String(advertiser.nombre||aid);
     } else {
       throw new Error("Tipo de solicitud inválido.");
     }
-    const relId = sid + "__" + aid;
-    await db.patch("suscriptor_anunciante", relId, {
-      relacion_id: relId,
-      suscriptor_id: sid,
-      anunciante_id: aid,
-      rol: "PROPIETARIO",
-      activo: true,
-      fecha_alta: now,
-      actualizado: now
-    });
-    await revokeSubscriberSessions(env,sid);
-    const savedReq = await db.patch("solicitudes_anunciante", itemId, {
-      estado: "APROBADA",
-      anunciante_id: aid,
-      moderado_por: text82(auth.sid),
-      verificacion_titularidad:modo==="RECLAMAR"?String(verificacion).trim():"",
-      moderado_en: now,
-      actualizado_en: now
-    }, { mustExist: true });
+    const approvalPatch = {estado:"APROBADA",anunciante_id:aid,moderado_por:text82(auth.sid),verificacion_titularidad:modo==="RECLAMAR"?String(verificacion).trim():"",moderado_en:now,actualizado_en:now};
+    if(!reqVersion.updateTime)throw httpError("Falta la revisión de la solicitud.",409);
+    await commitOwnership155({cache,env:undefined,active:true,expectedRevision:undefined,expectedOwnershipRevision:undefined,snapshot:undefined,db,aid,sid,actor:auth.sid,creation,advertiserName,extra:[{collection:"solicitudes_anunciante",id:itemId,before:req,patch:approvalPatch,options:{updateTime:reqVersion.updateTime}}]});
+    const savedReq = {...req,...approvalPatch,id:itemId};
     if (modo === "CREAR") {
       await Promise.all([
         syncGuideAdvertiserV2({ db, cache, advertiserId: aid }),
@@ -10003,12 +9932,14 @@ function observeDbV41(db, report) {
 function observationPathV41(path) {
   return String(path).replace(/(\/diagnostics\/shared\/)[^/]+/g, "$1:token").replace(/(\/advertisers\/)(?!search(?:\/|$))[^/]+/g, "$1:id").replace(/(\/subscribers\/)(?!search(?:\/|$))[^/]+/g, "$1:id");
 }
-async function observationActionV43(request2, url) {
+async function observationActionV43(request2, url, report) {
   let action = url.searchParams.get("action") || "";
   if (request2.method === "POST") {
     try {
       const body = await GLD_ACTIONS138.readJson(request2);
       action = body?.action || body?.accion || action;
+      const operation=observationUuid214(body?.operation_id)||observationUuid214(body?.request_key);
+      if(report&&operation&&!observationUuid214(request2.headers.get('X-GLD-Execution-Id')))report.execution_id=operation;
     } catch (_) {
     }
   }
@@ -10053,6 +9984,21 @@ function finishObservationV42(report) {
   report.totals = totals;
   report.message = `GLD ${report.method} ${report.path}${report.action ? " action=" + report.action : ""} | HTTP ${report.status} | consultas ${totals.read_calls}, documentos ${totals.documents_returned}, escrituras ${totals.write_calls}, eliminaciones ${totals.delete_calls}, fallos ${totals.failures}`;
   return report;
+}
+
+function observationUuid214(value){
+  return typeof value==='string'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value)?value.toLowerCase():'';
+}
+function observationLink214(request,report,command){
+  const aud=request.headers.get('X-GLD-Aud')||'';
+  const execution=request.headers.get('X-GLD-Execution-Id')||command?.key||request.headers.get('Idempotency-Key')||'';
+  if(/^AUD-00(?:00[1-9]|0[1-9]\d|[1-9]\d{2})$/.test(aud)&&Number(aud.slice(4))<=987)report.aud_claim=aud;
+  if(observationUuid214(execution))report.execution_id=observationUuid214(execution);
+  else report.execution_id=command?.observation?.execution_id||command?.origin_request_id||report.request_id;
+  if(command?.origin_request_id)report.origin_request_id=command.origin_request_id;
+  if(command?.aid)report.advertiser_id=command.aid;
+  const ray=request.headers.get('CF-Ray')||'';
+  if(/^[a-f0-9]{16,32}(?:-[A-Z]{3})?$/i.test(ray))report.cloudflare_ray=ray;
 }
 
 function publicDbGuardV44(report){
@@ -10140,12 +10086,12 @@ function withPrivateCacheV46(db,env){
     if(!kv||typeof kv.put!=='function'||dirty.has(key))return;
     try{await kv.put(key+':'+rev,JSON.stringify({version:46,data,...meta}))}catch(_){}
   }
-  async function relationRows(sid,limit){
+  async function relationRows(sid,limit,authorizationVersion){
     const key=relationKey(sid),{packet:hit,rev}=await read(key),storedLimit=Number(hit?.relation_limit||100);
-    if(hit&&Array.isArray(hit.data)&&!dirty.has(key)&&(storedLimit>=limit||hit.data.length<storedLimit))return remember('suscriptor_anunciante',hit.data.slice(0,limit));
+    if(hit&&Array.isArray(hit.data)&&!dirty.has(key)&&(authorizationVersion===undefined||hit.authorization_version===authorizationVersion)&&(storedLimit>=limit||hit.data.length<storedLimit))return remember('suscriptor_anunciante',hit.data.slice(0,limit));
     const rows=remember('suscriptor_anunciante',await db.queryEqual('suscriptor_anunciante','suscriptor_id',sid,limit));
     const safe=rows.map(r=>({id:text(r.id||r.suscriptor_anunciante_id),suscriptor_id:text(r.suscriptor_id),anunciante_id:text(r.anunciante_id),anunciante_nombre:text(r.anunciante_nombre),rol:text(r.rol),permisos:text(r.permisos),permisos_definidos:r.permisos_definidos===true,activo:r.activo}));
-    await save(key,safe,rev,{relation_limit:limit});return safe;
+    await save(key,safe,rev,{relation_limit:limit,...(authorizationVersion===undefined?{}:{authorization_version:authorizationVersion})});return safe;
   }
   async function invalidate(key){
     if(loginRecords158)for(const slot of loginRecords158.keys())if(slot.startsWith(key+':'))loginRecords158.delete(slot);
@@ -10229,11 +10175,11 @@ function withPrivateCacheV46(db,env){
       const key=ACCOUNT_BUNDLE_PREFIX_V161+encodeURIComponent(sid);
       let packet=null;
       try{const raw=await kv.get(key,{cacheTtl:30});packet=raw?JSON.parse(raw):null;}catch(_){}
-      if(packet?.version===161&&packet?.sv===sv&&Array.isArray(packet.relations))return structuredClone(packet.relations);
+      if(packet?.version===162&&packet?.sv===sv&&Array.isArray(packet.relations))return structuredClone(packet.relations);
       const relations=await build();
       const state=await subscriberSessionState(env,sid);
       if(state.deleted||Number(state.version||0)!==sv)throw Error('Autorizaciones modificadas durante el ingreso. Reintentá.');
-      await kv.put(key,JSON.stringify({version:161,sv,relations}));
+      await kv.put(key,JSON.stringify({version:162,sv,relations}));
       return relations;
     },
     async repairPrivateGuide132(collection,id,row){
@@ -10257,7 +10203,7 @@ function withPrivateCacheV46(db,env){
       for(const sid of affected)await revokeAndInvalidateAccount161(sid);
       for(const e of entries)if(advertiserCollections.has(e.collection)&&(e.remove||loginFieldsChanged132(e.patch,e.before)))
         await invalidateAffectedAdvertiser161(e.id,{revoke:e.collection==='anunciantes_administracion'||!!e.remove});
-      for(let i=0;i<entries.length;i++){const e=entries[i],row=saved[i];if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}if(row)remember(e.collection,[row]);}
+      for(let i=0;i<entries.length;i++){const e=entries[i],row=saved[i];if(e.collection==='anunciantes_administracion'){if(row)administrationAfter104.set(panelAdminKey(e.id),row);else administrationAfter104.delete(panelAdminKey(e.id));}if(e.collection==='suscriptor_anunciante'){const oldAid=text(e.before?.anunciante_id||advertiserOwners104.get(e.collection+'/'+text(e.id))),nextAid=text(row?.anunciante_id);if(oldAid&&oldAid!==nextAid)await advertiserRelationDelta104(oldAid,text(e.id),null);if(nextAid)await advertiserRelationDelta104(nextAid,text(e.id),{...row,id:text(e.id)});}if(row)remember(e.collection,[row]);}
       return saved;
     },
     async patch(collection,id,patch,options={}){
@@ -10309,7 +10255,7 @@ function withPrivateCacheV46(db,env){
       await save(key,rows,rev);return remember('suscriptor_favoritos',await overlayFavorites(sid,rows,null,rev));
     },
     cachedAdvertiserRelations104,
-    loginRelations(sid){return relationRows(sid,100);},
+    loginRelations(sid,authorizationVersion){return relationRows(sid,100,authorizationVersion);},
     subscriberRelations(sid){return relationRows(sid,500);},
     async primePanelAdministration116(/** @type {any[]} */ rows){
       let prepared=0;
@@ -10688,8 +10634,8 @@ async function publicVisibilityBatch(ctx){
  const results=await Promise.allSettled(names.filter(name=>requested.has(name)).map(async name=>{
   const spec=PUBLIC_FEATURES191[name];
   const url=new URL(spec.path,ctx.url);
-  url.search=new URLSearchParams({...spec.query,ciudad_id:city});
-  const response=await routePublicV12({...ctx,path:spec.path,url,request:new Request(url,ctx.request)});
+  url.search=new URLSearchParams({...spec.query,ciudad_id:city}).toString();
+  const response=await routePublicV12({...ctx,path:spec.path,url,request:new Request(url,ctx.request),publicVisibilityOnly:true});
   if(response?.status!==200)return null;
   const body=await response.json();
   if(body?.success!==true||!Array.isArray(body[spec.field]))return null;
@@ -11239,14 +11185,9 @@ async function routePublicationsV77(ctx){
    ...sede,sede_id:'SED-'+crypto.randomUUID(),anunciante_id:aid,
    activo:true,creado_en:now,actualizado_en:now
  }));
- if(db.prepareNewAdvertiserPanels116)await db.prepareNewAdvertiserPanels116(aid);else if(db.prepareNewPanelList)await db.prepareNewPanelList('anunciantes_sedes','anunciante_id',aid);
  const policy=publicationPolicyV77(body,ctx.publication.rules);
- const advertiser=await db.patch('anunciantes',aid,advertiserPayload,{newDocument:true});
- const admin=await db.patch('anunciantes_administracion',aid,{id:aid,aprobado:true,nivel:'',subnivel:'',funcionalidades:[],creado_en:now,actualizado_en:now},{newDocument:true});
- const savedSedes=[];
- for(const sede of sedeRows)savedSedes.push(await db.patch('anunciantes_sedes',sede.sede_id,sede,{newDocument:true}));
- await db.patch('suscriptor_anunciante',s.sid+'__'+aid,{relacion_id:s.sid+'__'+aid,suscriptor_id:s.sid,anunciante_id:aid,anunciante_nombre:advertiser.nombre,rol:'PROPIETARIO',activo:true,fecha_alta:now},{newDocument:true});
- if(db.rememberPanelRows){db.rememberPanelRows('anunciantes',[advertiser]);db.rememberPanelRows('anunciantes_administracion',[admin]);db.rememberPanelRows('anunciantes_sedes',savedSedes);}
+ const ownership=await commitOwnership155({cache,env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,advertiserName:undefined,snapshot:undefined,db,aid,sid:s.sid,actor:s.sid,creation:{advertiser:advertiserPayload,admin:{id:aid,aprobado:true,nivel:newAdvertiserLevel155(),subnivel:'',funcionalidades:[],creado_en:now,actualizado_en:now},sedes:sedeRows}});
+ const savedSedes=ownership.created.sedes;
  const createdDb={...db,queryEqual:(collection,field,value,limit)=>collection==='anunciantes_sedes'&&field==='anunciante_id'&&String(value)===aid?Promise.resolve(savedSedes):db.queryEqual(collection,field,value,limit)};
  await syncGuideAdvertiserV2({db:createdDb,cache,advertiserId:aid});
  await syncAdvertiserIndexV2({db:createdDb,cache,advertiserId:aid});
@@ -11400,6 +11341,26 @@ async function routeAdminPromosV91(ctx){
  await syncPromo({cache,current,next:saved});return json({success:true,promo:{...saved,estado_panel:promoStateV91(saved)}});
 }
 
+// Count the same eligible public records as the public routes, once per daily
+// edition. Deduplicate across city coverage and advertising placements.
+async function dailyPublicCounts218(env,report,territory){
+ const cities=[...new Set((territory?.ciudades||[]).filter(c=>c.activa!==false&&c.activo!==false).map(c=>String(c.ciudad_id||c.id||'')).filter(c=>c&&c!=='VIRTUAL'))];
+ const scoped=requestCache121(observeKv117(env,report),report),cache=createCache(coordinatedCities119(scoped,report,true));
+ const features=await publicFeatures191(cache),sets={eventos_vip:new Set(),eventos_free:new Set(),actividades:new Set(),publicidad:new Set()};
+ const now=Date.now();
+ for(const city of cities){
+  for(const [name,spec] of Object.entries(features)){
+   if(name!=='events'&&name!=='activities'&&spec.family!=='ads')continue;
+   const rows=(await projectCityBookRows(spec,city,now,null,cache))[spec.field];
+   for(const row of rows){
+    const id=String(row[spec.id]||row.id||'');if(!id)throw Error('Publicación sin identificador.');
+    const group=name==='events'?(String(row.nivel||'').toUpperCase()==='FREE'?'eventos_free':'eventos_vip'):name==='activities'?'actividades':'publicidad';
+    sets[group].add(id);
+   }
+  }
+ }
+ return Object.fromEntries(Object.entries(sets).map(([key,ids])=>[key,ids.size]));
+}
 async function prepareEntry195(env,report,subscribers,preparedSource=null){
  const scoped=requestCache121(observeKv117(env,report),report),cache=createCache(scoped);
  // Source reads are permitted only in this daily producer, never on entry.
@@ -11425,7 +11386,8 @@ async function prepareEntry195(env,report,subscribers,preparedSource=null){
   row.scope195=cities===null?null:cities.filter(x=>x.activo!==false).map(x=>String(x.ciudad_id||''));
   if(row.tipo==='ANUNCIANTE'&&row.scope195&&row.scope195.length===0&&row.ciudad_id)row.scope195=[String(row.ciudad_id)];
  }
- return {resumen:{suscriptores:subscribers.length,anunciantes:advertisers.results.length,ciudades:territory.ciudades.length},inbox,fixed,territory,territory_public};
+ const publicCounts=await dailyPublicCounts218(env,report,territory_public);
+ return {resumen:{suscriptores:subscribers.length,anunciantes:advertisers.results.length,ciudades:territory.ciudades.length,...publicCounts},inbox,fixed,territory,territory_public};
 }
 async function dailyInboxForAuth195(packet,auth){
  if(!canModerate2(auth))throw httpError('Acceso administrativo requerido.',403);
@@ -11450,7 +11412,7 @@ async function dailyDashboard195(env,auth){
  const territory=structuredClone(top?packet.admin.territory:packet.admin.territory_public);
  if(!top)territory.ciudades=(territory.ciudades||[]).filter(c=>auth.ciudades.includes(String(c.ciudad_id||c.id)));
  const resumen=top?packet.admin.resumen:{suscriptores:'—',anunciantes:inbox.moderation.cantidades.anunciantes,ciudades:auth.ciudades.length};
- return json({success:true,entry_version:195,worker_info:{version:209,event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
+ return json({success:true,entry_version:195,worker_info:{version:Number(WORKER_VERSION),event_scope_version:1},resumen,gh_fixed_packet_version:top?169:null,functional_settings_version:top?170:null,...(top?{cumpleanos:birthdayList195(packet)}:{}),entrada:{corte:packet.corte,preparado_en:packet.preparado_en,inbox,territory,...(top?{fixed:packet.admin.fixed}:{})}});
 }
 // Private subscriber editions share the existing 01:00 publication coordinator.
 // Public city books never receive these rows, their names or dates of birth.
@@ -11466,16 +11428,25 @@ class PrivateDaily195 {
    if(body.action==='read'){const value=decode(latest());return Response.json({value:value.preparado&&value.corte===cutoff?value:{preparado:false,results:null,pendiente_corte:true},metrics});}
    if(!Number.isSafeInteger(cutoff)||cutoff!==cityBookBoundary(cityBookDay(Date.now())))throw Error('El corte privado no corresponde a la publicación diaria vigente.');
    const exists=()=>query('SELECT 1 FROM private_subscribers_daily195 WHERE cutoff=?',cutoff).length>0;
-   if(body.action==='commit'){
+   const publish=()=>{
     if(!exists())throw Error('Falta la edición privada preparada para confirmar este corte.');
     query('UPDATE private_subscribers_daily195 SET published=1 WHERE cutoff=? AND published=0',cutoff);
     // Retain two previous editions for recovery; neither is public.
     query('DELETE FROM private_subscribers_daily195 WHERE cutoff<?',cutoff-2*CITY_BOOK_DAY_MS);
+   };
+   if(body.action==='commit'){
+    publish();
     return Response.json({value:{success:true},metrics});
    }
-   if(body.action!=='stage')throw Error('La edición se prepara únicamente mediante el publicador diario.');
+   if(body.action==='publish'&&query('SELECT 1 FROM private_subscribers_daily195 WHERE cutoff=? AND published=1',cutoff).length)
+    return Response.json({value:{success:true,cutoff},metrics});
+   if(!['stage','publish','recover'].includes(body.action))throw Error('La edición se prepara únicamente mediante el publicador diario.');
+   const recovering=body.action==='recover',publishing=body.action==='publish'||recovering;
    const prepared={preparado:true,corte:cutoff};
-   if(exists())return Response.json({value:prepared,metrics});
+   if(exists()&&!recovering){
+    if(publishing)publish();
+    return Response.json({value:publishing?{success:true,cutoff}:prepared,metrics});
+   }
    const published=latest();
    const env=observeKv117(this.env,report),cache=createCache(env),nativeSource=observeDbV41(createDb(env),report),lists=new Map();
    const source={...nativeSource,listCollection(c){if(!lists.has(c))lists.set(c,nativeSource.listCollection(c));return lists.get(c).then(rows=>structuredClone(rows));}};
@@ -11503,8 +11474,9 @@ class PrivateDaily195 {
    const admin=await prepareEntry195(this.env,report,results,source);
    const value={preparado:true,version:195,corte:cutoff,preparado_en:new Date().toISOString(),results,admin};
    const encoded=JSON.stringify(value);if(new TextEncoder().encode(encoded).length>1800000)throw Error('El listado general supera el tamaño seguro. No se publicó una copia incompleta.');
-   query('INSERT INTO private_subscribers_daily195(cutoff,value,published) VALUES(?,?,?)',cutoff,encoded,0);
-   return Response.json({value:prepared,metrics,kv:report.kv,operations:report.operations});
+   query('INSERT INTO private_subscribers_daily195(cutoff,value,published) VALUES(?,?,?) ON CONFLICT(cutoff) DO UPDATE SET value=excluded.value,published=excluded.published',cutoff,encoded,publishing?1:0);
+   if(publishing)query('DELETE FROM private_subscribers_daily195 WHERE cutoff<?',cutoff-2*CITY_BOOK_DAY_MS);
+   return Response.json({value:publishing?{success:true,cutoff}:prepared,metrics,kv:report.kv,operations:report.operations});
   }catch(error){return Response.json({error:String(error.message||error),metrics,kv:report.kv,operations:report.operations},{status:503});}
   finally{release();}
  }
@@ -11903,13 +11875,19 @@ async function routeEmpleo109(/** @type {any} */ ctx){
 }
 function observeKv117(env,report){
  const original=env.GLD_CACHE_KV;if(!original)return env;
- const stats=report.kv={get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0,write_groups:{}};
+ const stats=report.kv={get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0,write_groups:{},read_groups:{}};
  const names={get:'get_calls',put:'put_calls',delete:'delete_calls',list:'list_calls'},methods=new Map();
  const binding=new Proxy(original,{get(target,property){
   const method=Reflect.get(target,property,target);if(typeof method!=='function')return method;
   if(!names[property])return method.bind(target);
   if(!methods.has(property))methods.set(property,async(...args)=>{
    stats[names[property]]++;
+   if(property==='get'){
+    // Versioned namespaces classify reads without logging document or account IDs.
+    const prefix=/^[a-z][a-z_-]*(?::[a-z][a-z_-]*){0,3}:v\d+(?=:|$)/.exec(String(args[0]||''))?.[0];
+    const group=prefix&&(Object.hasOwn(stats.read_groups,prefix)||Object.keys(stats.read_groups).length<24)?prefix:'other';
+    stats.read_groups[group]=(stats.read_groups[group]||0)+1;
+   }
    if(property==='put'){const group=String(args[0]||'').split(':').slice(0,3).join(':');stats.write_groups[group]=(stats.write_groups[group]||0)+1;}
    try{return await Reflect.apply(method,target,args);}catch(error){stats.failures++;throw error;}
   });return methods.get(property);
@@ -12043,10 +12021,14 @@ class GldPublicCache119 {
   this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_shared (day INTEGER NOT NULL,kind TEXT NOT NULL,PRIMARY KEY(day,kind))');
   this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_due (day INTEGER NOT NULL,kind TEXT NOT NULL,city TEXT NOT NULL,PRIMARY KEY(day,kind,city))');
   this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_state (slot INTEGER PRIMARY KEY,cutoff INTEGER NOT NULL)');
+  this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_shared_revision (slot INTEGER PRIMARY KEY,revision INTEGER NOT NULL)');
   if(input.op==='city-book-mark-shared'){
    if(typeof input.kind!=='string'||!/^[a-zA-Z][a-zA-Z0-9_]{0,63}$/.test(input.kind))throw Error('Invalid shared kind');
    const day=cityBookDay(Date.now());
-   this.query('INSERT OR IGNORE INTO city_book_shared(day,kind) VALUES(?,?)',day,input.kind);
+   this.state.storage.transactionSync(()=>{
+    this.query('INSERT OR IGNORE INTO city_book_shared(day,kind) VALUES(?,?)',day,input.kind);
+    this.query('INSERT INTO city_book_shared_revision(slot,revision) VALUES(1,1) ON CONFLICT(slot) DO UPDATE SET revision=revision+1');
+   });
    return {ok:true};
   }
   if(input.op==='city-book-add-due'){
@@ -12057,7 +12039,7 @@ class GldPublicCache119 {
   }
   if(input.op==='city-book-shared-changes'){
    const rows=this.query('SELECT day,kind FROM city_book_shared WHERE day>=?',input.from);
-   return {kinds:[...new Set(rows.filter(row=>row.day<input.to).map(row=>row.kind))],later:rows.some(row=>row.day>=input.to),due:this.query('SELECT kind,city FROM city_book_due WHERE day>=? AND day<?',input.from,input.to)};
+   return {kinds:[...new Set(rows.filter(row=>row.day<input.to).map(row=>row.kind))],later:rows.some(row=>row.day>=input.to),generation:this.query('SELECT revision FROM city_book_shared_revision WHERE slot=1')[0]?.revision??0,due:this.query('SELECT kind,city FROM city_book_due WHERE day>=? AND day<?',input.from,input.to)};
   }
   if(input.op==='city-book-recovery-track'||input.op==='city-book-recovery-list'){
    this.sql.exec('CREATE TABLE IF NOT EXISTS city_book_recovery (aid TEXT PRIMARY KEY, since INTEGER NOT NULL)');
@@ -12248,7 +12230,7 @@ GldPublicCache119.prototype.privateFavoritesProjection=async function(body){
 // Cada funcionalidad declara su proyección pública y su almacén; no se añade un caso al transporte.
 /** @type {Record<string,any>} */
 const PUBLIC_FEATURES191 = {
- guide:{rebuild:rebuildGuideAllV2,store:{prefix:'guide:city:v1:',module:'guide',field:'anunciantes',id:'anunciante_id',collection:'anunciantes'},path:'/guide',query:{compact:'1'},field:'results',id:'anunciante_id',metadata:[]},
+ guide:{rebuild:rebuildGuideAllV2,validity:true,store:{prefix:'guide:city:v1:',module:'guide',field:'anunciantes',id:'anunciante_id',collection:'anunciantes'},path:'/guide',query:{compact:'1'},field:'results',id:'anunciante_id',metadata:[]},
  events:{rebuild:rebuildEventsAllV2,store:{prefix:'events:city:v2:',module:'events',field:'events',id:'evento_id',collection:'eventos'},path:'/events-new',field:'events',id:'evento_id',metadata:[],virtual:true,watchShared:['territory']},
  promos:{rebuild:rebuildPromosAll,store:{prefix:'promos:city:v1:',module:'promos',field:'promos',id:'promo_id',collection:'promos'},path:'/promos',field:'promos',id:'promo_id',metadata:[]},
  activities:{rebuild:rebuildActivitiesAllV2,store:{prefix:'activities:city:v2:',module:'activities',field:'actividades',id:'actividad_id',collection:'actividades'},path:'/actividades',query:{action:'publicas'},field:'actividades',id:'actividad_id',metadata:[],virtual:true,watchShared:['activities'],window:{from:'vigente_desde',until:'vigente_hasta'},sharedKeys:[{prefix:'guide:advertiser:v2:'},{prefix:'panel:record:v53:anunciantes:'}],validity:true},
@@ -12371,8 +12353,7 @@ async function exportUrgentCityRows({env,cache,cutoff,scope,report}){
  return {urgent:true,after:cutoff,cutoff,complete:true,cities:[...cities.values()]};
 }
 
-async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report}){
- const features=await publicFeatures191(cache),schema=publicSchema191(features);
+async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,report,recoverCurrent=false}){
  const from=cityBookDay(after),to=cityBookDay(cutoff),now=cityBookDay(Date.now());
  if(!Number.isSafeInteger(after)||!Number.isSafeInteger(cutoff)||after!==cityBookBoundary(from)||
     cutoff!==cityBookBoundary(to)||to<=from||to>now||from<now-CITY_BOOK_HORIZON||
@@ -12380,7 +12361,12 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   throw httpError('Ventana del corte inválida.',400);
  }
  const before=await cityBookSharedState(env,{op:'city-book-shared-changes',from,to});
- if(before.later)throw httpError('Cambió una regla pública después del cierre del corte.',503);
+ if(before.later&&!recoverCurrent)throw httpError('Cambió una regla pública después del cierre del corte.',503);
+ if(recoverCurrent&&!before.later)throw httpError('La recuperación excepcional requiere un corte bloqueado por reglas posteriores.',409);
+ // The historical shared rules were not recorded by earlier Workers. Only an
+ // explicitly requested authenticated recovery can use today's public state.
+ const recoveredAt=recoverCurrent?Date.now():null;
+ const features=await publicFeatures191(cache),schema=publicSchema191(features);
  const dirty=new Set(before.kinds),due=new Set(before.due.map(row=>row.kind+'\0'+row.city)),future=new Map();
  const territorial=await cache.get(PUBLIC_KEY);
  if(!territorial)throw httpError('Falta el catálogo territorial publicado.',503);
@@ -12391,7 +12377,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   return reads.get(key);
  };
  const snapshots=new Map();
- const atCut=(key,ids)=>{const ref=JSON.stringify([key,ids||null]);if(!snapshots.has(ref))snapshots.set(ref,cityBookActor(env,key,'city-book-read',{to,...(ids?{ids}: {})},report).then(result=>result.value));return snapshots.get(ref).then(value=>structuredClone(value));};
+ const atCut=(key,ids)=>{const ref=JSON.stringify([key,ids||null]);if(!snapshots.has(ref))snapshots.set(ref,cityBookActor(env,key,recoverCurrent?'get':'city-book-read',recoverCurrent?{}:{to,...(ids?{ids}: {})},report).then(result=>result.value));return snapshots.get(ref).then(value=>structuredClone(value));};
  const stored=key=>{
   if(!shared.has(key))shared.set(key,key===PUBLIC_KEY?Promise.resolve(territorial):cache.get(key));
   return shared.get(key);
@@ -12429,7 +12415,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
     return value;
    },
   };
-  return projectCityBookRows(spec,city,cutoff,ids,internal);
+  return projectCityBookRows(spec,city,recoveredAt??cutoff,ids,internal);
  }
  const cities=[],initial=[];
  for(const city of active){
@@ -12441,6 +12427,7 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   }
   const changes={},replacements={};
   for(const [name,spec] of Object.entries(features)){
+   if(recoverCurrent){replacements[name]=await projection(name,city,null);continue;}
    const delta=await journal(spec.store.prefix+city);
    const virtual=spec.virtual?await journal(spec.store.prefix+'VIRTUAL'):null;
    const ids=[...new Set([...delta.changes,...(virtual?.changes||[])].map(row=>row.id))];
@@ -12459,9 +12446,9 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
   if(Object.keys(changes).length||Object.keys(replacements).length)cities.push({city,changes,replacements});
  }
  const afterRead=await cityBookSharedState(env,{op:'city-book-shared-changes',from,to});
- if(afterRead.later||afterRead.kinds.length!==before.kinds.length)throw httpError('Cambió una regla pública durante el corte.',503);
+ if((!recoverCurrent&&afterRead.later)||afterRead.generation!==before.generation||!samePublicValueInternal(afterRead.kinds,before.kinds))throw httpError('Cambió una regla pública durante el corte.',503);
  if(future.size)await cityBookSharedState(env,{op:'city-book-add-due',due:[...future.values()]});
- return {complete:true,after,cutoff,schema,cities,initial,retired:known.filter(city=>!active.has(city))};
+ return {complete:true,after,cutoff,schema,cities,initial,retired:known.filter(city=>!active.has(city)),...(recoveredAt===null?{}:{recoveredAt})};
 }
 const CITY_BOOK_ISSUER='https://token.actions.githubusercontent.com';
 const CITY_BOOK_AUDIENCE='guialocal:publicacion-ciudades';
@@ -12521,8 +12508,14 @@ async function routeCityBookCut({request,env,report}){
  if(!await cityBookIdentity(request))return json({success:false,message:'Identidad de publicación inválida.'},401,{'Cache-Control':'no-store'});
  const data=await request.json(),cutoff=data?.cutoff,now=cityBookBoundary(cityBookDay(Date.now()));
  if(!Number.isSafeInteger(cutoff)||cutoff!==now)throw httpError('El corte no corresponde a la última 01:00.',400);
- if(data.op==='commit'){
+ if(data.op==='private'||data.op==='private-recovery'){
+  const result=await dailySubscribers195(env,data.op==='private-recovery'?'recover':'publish',cutoff);
+  if(result?.success!==true||result.cutoff!==cutoff)throw httpError('El corte privado no quedó confirmado.',503);
+  return json({success:true,cutoff},200,{'Cache-Control':'no-store'});
+ }
+ if(data.op==='commit'||data.op==='commit-public'){
   await cityBookSharedState(env,{op:'city-book-commit',cutoff});
+  if(data.op==='commit-public')return json({success:true,cutoff},200,{'Cache-Control':'no-store'});
   // A private edition failure must not interrupt or undo the public publication.
   try{await dailySubscribers195(env,'commit',cutoff);report.private_daily195={status:'committed',cutoff};}
   catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_COMMIT_FAILED'};}
@@ -12533,7 +12526,7 @@ async function routeCityBookCut({request,env,report}){
   if(state.cutoff!==cutoff)throw httpError('Primero completá el corte ordinario vigente.',409);
   return json(await exportUrgentCityRows({env,cache:createCache(env),cutoff,scope:data.scope,report}),200,{'Cache-Control':'no-store'});
  }
- if(data.op!=='read'||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
+ if(!['read','read-public','read-public-recovery'].includes(data.op)||!Array.isArray(data.known))throw httpError('Solicitud de corte inválida.',400);
  const installed=data.publishedCutoff;
  if(installed!==null&&(!Number.isSafeInteger(installed)||installed>cutoff||
     installed!==cityBookBoundary(cityBookDay(installed))))throw httpError('Referencia publicada inválida.',400);
@@ -12542,15 +12535,24 @@ async function routeCityBookCut({request,env,report}){
  const after=Math.max(installed??(cutoff-CITY_BOOK_DAY_MS),state.cutoff??0);
  await recoverCityBookPublications(env,report,after<cutoff?cutoff:null);
  const output=after===cutoff?{complete:true,after,cutoff,cities:[],initial:[],retired:[]}:
-  await exportCityBookCut({env,cache:createCache(env),after,cutoff,known:data.known,knownSchema:data.schema,report});
- try{const prepared=await dailySubscribers195(env,'stage',cutoff);report.private_daily195={status:prepared?.preparado?'staged':'pending',cutoff};}
- catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_PREPARE_FAILED'};}
+  await exportCityBookCut({env,cache:createCache(env),after,cutoff,known:data.known,knownSchema:data.schema,report,recoverCurrent:data.op==='read-public-recovery'});
+ if(data.op==='read'){
+  try{const prepared=await dailySubscribers195(env,'stage',cutoff);report.private_daily195={status:prepared?.preparado?'staged':'pending',cutoff};}
+  catch{report.private_daily195={status:'pending',cutoff,reason:'PRIVATE_EDITION_PREPARE_FAILED'};}
+ }
  return json(output,200,{'Cache-Control':'no-store'});
 }
-function coordinatedCities119(env,report){
+function coordinatedCities119(env,report,shareReads=false){
  if(!env.GLD_PUBLIC_CACHE){report.public_cache_backend='legacy-kv';return env;}
  report.public_cache_backend='coordinated-sqlite';
- const kv=env.GLD_CACHE_KV,bases=new Map();
+ const kv=env.GLD_CACHE_KV,bases=new Map(),reads=shareReads?new Map():null;
+ function read(key){
+  if(!reads)return call(key,'get');
+  if(reads.has(key)){report.public_actor_reads_reused=(report.public_actor_reads_reused||0)+1;return reads.get(key);}
+  const pending=call(key,'get').catch(error=>{if(reads.get(key)===pending)reads.delete(key);throw error;});
+  reads.set(key,pending);
+  return pending;
+ }
  async function call(key,op,value){
   const def=cityDefinition119(key),stamps={},authorityCutoffs={};
   for(const row of [...(bases.get(key)?.[def.field]||[]),...(value?.[def.field]||[])]){
@@ -12559,16 +12561,21 @@ function coordinatedCities119(env,report){
    if(report.authorityCutoffs?.[sourceId])authorityCutoffs[id]=report.authorityCutoffs[sourceId];
   }
   const stub=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('public-city-v119:'+key));
+  const stats=report.public_store??={calls:0,rows_read:0,rows_written:0,legacy_gets:0,legacy_lists:0};
+  stats.calls++;
+  const component={module:def.module,operation:op,rows_read:null,rows_written:null,legacy_gets:null,reads:null,status:null};
+  (stats.components??=[]).push(component);
   const response=await stub.fetch(new Request('https://public-cache.internal/',{method:'POST',body:JSON.stringify({key,op,value,base:bases.get(key)||null,stamps,authorityCutoffs})}));
-  const result=await response.json(),stats=report.public_store??={calls:0,rows_read:0,rows_written:0,legacy_gets:0,legacy_lists:0};stats.calls++;
-  (stats.components??=[]).push({module:def.module,operation:op,rows_read:result.metrics?.rows_read??null,rows_written:result.metrics?.rows_written??null,legacy_gets:result.metrics?.legacy_gets??null,reads:result.metrics?.read_paths??null,status:response.status});
+  component.status=response.status;
+  const result=await response.json();
+  Object.assign(component,{rows_read:result.metrics?.rows_read??null,rows_written:result.metrics?.rows_written??null,legacy_gets:result.metrics?.legacy_gets??null,reads:result.metrics?.read_paths??null});
   for(const k of ['rows_read','rows_written','legacy_gets','legacy_lists'])stats[k]+=Number(result.metrics?.[k]||0);
   for(const [key,entry]of Object.entries(result.metrics?.source_operations||{})){const target=report.operations[key]??={operation:entry.operation,collection:entry.collection,field:entry.field||'',calls:0,documents_returned:0,failures:0};for(const field of ['calls','documents_returned','failures'])target[field]+=Number(entry[field]||0);}
   if(!response.ok)throw Object.assign(Error(result.error||'Public cache unavailable'),{cacheRecoverable:true});
   return result;
  }
  const binding=new Proxy(kv,{get(target,prop){
-  if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await call(key,'get');bases.set(key,value);return value?JSON.stringify(value):null;};
+  if(prop==='get')return async(key,options)=>{if(!cityDefinition119(key)||options?.type&&options.type!=='text')return target.get(key,options);const {value}=await read(key);bases.set(key,value);return value?JSON.stringify(value):null;};
   if(prop==='put')return async(key,value,options)=>{if(!cityDefinition119(key)){await cityBookMarkShared(env,key);return target.put(key,value,options);}if(options&&Object.keys(options).length)throw Error('Public cache TTL unsupported');const packet=JSON.parse(value);
    if(!bases.has(key)){
     // A full catalog rebuild has no preceding city read. Capture the current
@@ -12586,8 +12593,8 @@ function coordinatedCities119(env,report){
      if(fresh.doc){packet[def.field].push(row);ids.add(id);}
     }
    }
-   await call(key,'put',packet);bases.set(key,packet);};
-  if(prop==='delete')return async key=>{if(!cityDefinition119(key)){await cityBookMarkShared(env,key);return target.delete(key);}await call(key,'delete');bases.set(key,null);};
+   reads?.delete(key);await call(key,'put',packet);reads?.delete(key);bases.set(key,packet);};
+  if(prop==='delete')return async key=>{if(!cityDefinition119(key)){await cityBookMarkShared(env,key);return target.delete(key);}reads?.delete(key);await call(key,'delete');reads?.delete(key);bases.set(key,null);};
   const value=Reflect.get(target,prop,target);return typeof value==='function'?value.bind(target):value;
  }});
  return new Proxy(env,{get(target,prop){return prop==='GLD_CACHE_KV'?binding:Reflect.get(target,prop,target);}});
@@ -12823,6 +12830,147 @@ async function stageAdvertiserSaveInternal(db,cache,operation){
  for(const [key,entry]of cacheChanges){if(entry.deleted)await cache.del(key);else await cache.put(key,entry.value,entry.options);}
  return {...result,firestore_writes:pending.size};
 }
+// Unidades 2 y 7: activar, desactivar y renovar sin tocar identificador, datos, contratación ni acceso al panel.
+async function routeAdvertiserActivity155(ctx){
+ const {path,request,db,cache,env,url}=ctx;
+ if(request.method!=='POST')return null;
+ const gh=path.match(/^\/superadmin\/advertisers\/([^/]+)\/activity$/);
+ let body=null;
+ if(!gh){if(path!=='/commerce')return null;body=await request.clone().json().catch(()=>({}));if(String(body.action||body.accion||'').toLowerCase()!=='set_actividad')return null;}
+ body??=await request.clone().json().catch(()=>({}));
+ const accion=String(body.accion_actividad||body.operacion||'').trim().toLowerCase();
+ let aid,actor,fromGh=!!gh;
+ if(gh){
+  const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+  if(!isTopAdmin(auth))throw httpError('No tenés permiso para cambiar el estado del anuncio.',403);
+  aid=decodeURIComponent(gh[1]);actor=String(auth.sid||'');
+  if(!['activar','desactivar','renovar','excepcion','quitar_excepcion'].includes(accion))throw httpError('Acción de estado inválida.',400);
+ }else{
+  aid=String(body.advertiserId||body.advertiser_id||body.anunciante_id||url.searchParams.get('advertiserId')||'').trim();
+  const gate=await requirePanel3(env,request,aid,true);if(gate.response)return gate.response;
+  actor=String(gate.session?.sid||gate.s?.sid||'');
+  if(!['activar','desactivar','renovar'].includes(accion))throw httpError('Acción de estado inválida.',400);
+ }
+ if(!aid||aid.includes('/'))throw httpError('Falta el anunciante.',400);
+ const version=await db.getVersioned('anunciantes_administracion',aid),before=version.doc;
+ if(!before||!version.updateTime)return json({success:false,message:'El anunciante no tiene ficha de administración.'},404);
+ const now=new Date().toISOString(),patch={};
+ if(accion==='desactivar'){
+  if(fromGh)patch.inactivo_motivo='ADMINISTRATIVA';
+  else{if(before.inactivo_motivo==='ADMINISTRATIVA'||before.aprobado===false)throw httpError('El anuncio está bloqueado por Gran Hermano.',409);patch.inactivo_motivo='VOLUNTARIA';}
+ }else if(accion==='activar'){
+  if(fromGh){patch.inactivo_motivo='';if(before.aprobado===false)patch.aprobado=true;}
+  else{if(before.inactivo_motivo!=='VOLUNTARIA')throw httpError(before.inactivo_motivo==='ADMINISTRATIVA'||before.aprobado===false?'El anuncio está bloqueado por Gran Hermano.':'El anuncio ya está activo.',409);patch.inactivo_motivo='';}
+ }else if(accion==='quitar_excepcion'){
+  if(!before.vigencia_excepcion?.modo)return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),vigencia_hasta:publicValidity155(before),excepcion:null,firestore_writes:0});
+  patch.vigencia_excepcion=null;
+ }else if(accion==='excepcion'){
+  // Excepción individual: sólo Gran Hermano y niveles habilitados; la regla del nivel no cambia.
+  const rules=await loadValidityRules155(cache);
+  if(!rules[String(before.nivel??'').trim()]?.excepciones)throw httpError('El nivel de este anuncio no admite excepciones de vigencia. Se habilitan en Configuración de plataforma → Niveles.',409);
+  const modo=String(body.excepcion_modo||'').trim().toUpperCase(),hasta=String(body.excepcion_hasta||'').trim(),motivo=String(body.excepcion_motivo||'').trim();
+  if(!['PERMANENTE','FECHA'].includes(modo))throw httpError('Elegí vigencia permanente o una fecha.',400);
+  if(modo==='FECHA'&&(!/^\d{4}-\d{2}-\d{2}$/.test(hasta)||hasta<argentinaDay155()))throw httpError('Indicá una fecha de vigencia válida desde hoy.',400);
+  if(motivo.length<3||motivo.length>500)throw httpError('Indicá el motivo de la excepción.',400);
+  const prev=before.vigencia_excepcion||{};
+  if(prev.modo===modo&&String(prev.hasta||'')===(modo==='FECHA'?hasta:'')&&prev.motivo===motivo)return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),vigencia_hasta:publicValidity155(before),excepcion:prev,firestore_writes:0});
+  patch.vigencia_excepcion={modo,...(modo==='FECHA'?{hasta}:{}),motivo,por:actor,en:now};
+  if(modo==='FECHA')patch.vigencia_hasta=hasta;
+ }else{
+  const rules=await loadValidityRules155(cache),rule=validityRule155(before,rules);
+  if(before.vigencia_excepcion?.modo)throw httpError('Tiene una excepción de vigencia: se administra desde su ficha en Gran Hermano.',409);
+  if(rule.modo!=='DIAS')throw httpError(rule.modo==='CONTRATACION'?'La vigencia de este nivel se renueva con una nueva contratación.':'Este anuncio tiene vigencia permanente: no necesita renovación.',409);
+  const renewal=validityRenew155(before,rules);
+  const op=String(body.operacion_id||'').trim().slice(0,80);if(op&&before.renovacion_operacion_id===op)return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),vigencia_hasta:before.vigencia_hasta||'',firestore_writes:0});if(op)patch.renovacion_operacion_id=op;
+  Object.assign(patch,renewal);
+  patch.renovaciones=[...(Array.isArray(before.renovaciones)?before.renovaciones:[]).slice(-23),{en:now,por:actor,hasta:patch.vigencia_hasta}];
+ }
+ if(Object.entries(patch).every(([k,v])=>k!=='renovaciones'&&k!=='vigencia_excepcion'&&k!=='vigencia_regla'&&String(before[k]??'')===String(v)))return json({success:true,updated:false,anunciante_id:aid,estado:advertiserPublicState155(before),firestore_writes:0});
+ Object.assign(patch,{actividad_actualizada_en:now,actividad_actualizada_por:actor,actualizado_en:now});
+ const [saved]=await db.commitPatches([{collection:'anunciantes_administracion',id:aid,before,patch,options:{updateTime:version.updateTime}}]);
+ const doc=saved||{...before,...patch};
+ await projectAdvertiserAdmin155({db,cache,aid,doc,extra:Object.hasOwn(patch,'aprobado')?{aprobado:patch.aprobado}:{}});
+ return json({success:true,updated:true,anunciante_id:aid,estado:advertiserPublicState155(saved||{...before,...patch}),vigencia_hasta:publicValidity155(doc),excepcion:doc.vigencia_excepcion||null});
+}
+// Alta directa desde Gran Hermano (Unidad 4): titular y contratación opcionales; reutiliza el alta atómica.
+// Regularización única de titulares existentes (definición del usuario 27/11/2026).
+// «simular» lee una sola vez los vínculos, no escribe en Firestore y guarda en KV el plan con la
+// regla vigente. «ejecutar» exige confirmación y el plan simulado: procesa lotes idempotentes sin
+// volver a leer los vínculos.
+const VALIDITY_REGULARIZATION_KEY155='admin:regularizacion155:plan';
+async function routeAdvertiserValidityRegularization155(ctx){
+ const {path,request,db,cache,env}=ctx;
+ if(path!=='/superadmin/advertisers/validity-regularization'||request.method!=='POST')return null;
+ const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+ if(!isTopAdmin(auth))return json({success:false,message:'Sin autorización para regularizar vigencias.'},403);
+ const body=await request.json().catch(()=>({})),modo=String(body.modo||'simular');
+ if(!['simular','ejecutar'].includes(modo))return json({success:false,message:'Modo inválido.'},400);
+ const lote=Math.min(Math.max(Number.parseInt(body.lote,10)||50,1),100),now=new Date().toISOString();
+ if(modo==='simular'){
+  const [relations,index,rules]=await Promise.all([db.listCollection('suscriptor_anunciante'),cache.get(ADMIN_ADVERTISERS_KEY),loadValidityRules155(cache)]);
+  const owners=new Map(),rows=new Map((index?.results||[]).map(x=>[String(x.id),x]));
+  for(const r of relations||[])if(roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)&&r.anunciante_id)owners.set(String(r.anunciante_id),(owners.get(String(r.anunciante_id))||0)+1);
+  const s={vinculos_leidos:(relations||[]).length,anunciantes_en_indice:rows.size,con_titular_unico:0,ya_regularizados:0,a_regularizar:0,inician_vigencia:0,conservan_vigencia:0,pasan_a_permanente:0,sin_cambio_de_vigencia:0,multiples_titulares:[],fuera_del_indice:[],ciudades_a_actualizar:0};
+  const candidates=[];
+  for(const [aid,count] of owners){
+   if(count>1){s.multiples_titulares.push(aid);continue;}
+   s.con_titular_unico++;const row=rows.get(aid);
+   if(row?.con_titular===true){s.ya_regularizados++;continue;}
+   if(!row)s.fuera_del_indice.push(aid);
+   candidates.push(aid);s.a_regularizar++;
+   const change=validityOnOwner155({nivel:row?.nivel,con_titular:true,vigencia_hasta:row?.vigencia_hasta||''},rules,now);
+   if(change.vigencia_hasta)s.inician_vigencia++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
+   else if(change.vigencia_hasta==='')s.pasan_a_permanente++,s.ciudades_a_actualizar+=(row?.ciudad_ids||[]).length;
+   else if(row?.vigencia_hasta)s.conservan_vigencia++;else s.sin_cambio_de_vigencia++;
+  }
+  const lotes=Math.ceil(s.a_regularizar/lote),tarjetas=s.inician_vigencia+s.pasan_a_permanente;
+  s.consumo_estimado={firestore_lecturas:s.vinculos_leidos+s.a_regularizar,firestore_escrituras_max:s.a_regularizar,kv_lecturas:3+2*lotes+tarjetas,kv_escrituras:1+2*lotes+tarjetas,durable_objects_ciudades:s.ciudades_a_actualizar,llamadas_ejecutar:lotes,detalle:'Vínculos: una sola lectura en la simulación. Simulación: índice, catálogo y plan. Cada lote: plan e índice (lectura y escritura). Cada anuncio con vigencia nueva: su tarjeta pública.'};
+  const plan_id=crypto.randomUUID();
+  await cache.put(VALIDITY_REGULARIZATION_KEY155,{plan_id,creado:now,por:String(auth.sid||''),rules,candidates,cursor:0});
+  return json({success:true,modo,lote,plan_id,...s,firestore_writes:0});
+ }
+ if(body.confirmacion!=='REGULARIZAR_TITULARES')return json({success:false,message:'Falta la confirmación expresa.'},400);
+ const plan=await cache.get(VALIDITY_REGULARIZATION_KEY155);
+ if(!plan||plan.plan_id!==String(body.plan_id||'')||Date.parse(now)-Date.parse(plan.creado)>86400000)return json({success:false,message:'Simulá nuevamente antes de ejecutar.'},409);
+ const rules=plan.rules,candidates=Array.isArray(plan.candidates)?plan.candidates:[];
+ let cursor=Number(plan.cursor)||0,escrituras=0,omitidos=0,sincronizaciones=0;const indexPatches=new Map(),inicio=cursor;
+ for(;cursor<candidates.length&&cursor-inicio<lote;cursor++){
+  const aid=candidates[cursor],v=await db.getVersioned('anunciantes_administracion',aid);
+  if(!v.doc||!v.updateTime){omitidos++;continue;}
+  if(v.doc.con_titular===true){indexPatches.set(aid,{con_titular:true});continue;}
+  const patch={con_titular:true,...validityOnOwner155({...v.doc,con_titular:true},rules,now),actualizado_en:now,actualizado_por:String(auth.sid||'')};
+  const [saved]=await db.commitPatches([{collection:'anunciantes_administracion',id:aid,before:v.doc,patch,options:{updateTime:v.updateTime}}]);
+  escrituras++;const doc=saved||{...v.doc,...patch};
+  indexPatches.set(aid,{con_titular:true,...(Object.hasOwn(patch,'vigencia_hasta')?{vigencia_hasta:doc.vigencia_hasta||''}:{})});
+  if(Object.hasOwn(patch,'vigencia_hasta')){const g=await patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:{vigente_hasta:publicValidity155(doc)}});if(g?.needs_full_sync){await syncGuideAdvertiserV2({db,cache,advertiserId:aid});sincronizaciones++;}}
+ }
+ if(indexPatches.size)await patchAdvertiserIndexRowsV2({cache,patches:indexPatches});
+ if(cursor!==inicio)await cache.put(VALIDITY_REGULARIZATION_KEY155,{...plan,cursor});
+ return json({success:true,modo,lote,plan_id:plan.plan_id,procesados:cursor-inicio,escrituras,omitidos,sincronizaciones_completas:sincronizaciones,pendientes:candidates.length-cursor,firestore_writes:escrituras});
+}
+async function routeAdvertiserCreate155(ctx){
+ const {path,request,db,cache,env}=ctx;
+ if(path!=='/superadmin/advertisers/create'||request.method!=='POST')return null;
+ const auth=await verifyAdmin(env,request);if(!auth.ok)return json({success:false,message:auth.message},401);
+ if(!isTopAdmin(auth))throw httpError('No tenés permiso para crear anunciantes.',403);
+ const body=await request.clone().json().catch(()=>({})),clean=v=>String(v??'').trim();
+ const op=clean(body.operacion_id).toLowerCase(),sid=clean(body.suscriptor_id),nombre=clean(body.nombre),city=clean(body.ciudad_id);
+ if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(op))throw httpError('Falta el identificador de la operación.',400);
+ if(!nombre)throw httpError('Completá el nombre del anuncio.',400);
+ if(city.includes('/')||sid.includes('/'))throw httpError('Datos de alta inválidos.',400);
+ const level=newAdvertiserLevel155(body.nivel);if(!/^[0-9A-Za-z_-]{1,20}$/.test(level))throw httpError('Nivel inválido.',400);
+ const aid='ADV-'+op.replace(/-/g,'').slice(0,16).toUpperCase();
+ if(await db.get('anunciantes',aid))return json({success:true,updated:false,anunciante_id:aid,firestore_writes:0});
+ const now=new Date().toISOString(),detalle={};
+ for(const k of ['actividad','descripcion','whatsapp','mail','web','direccion'])detalle[k]=clean(body[k]).slice(0,k==='descripcion'?2000:300);
+ const creation=moderatedCreation155({nombre:nombre.slice(0,200),ciudad_id:city,detalle},aid,level,now);
+ creation.admin.creado_por=clean(auth.sid);
+ try{if(sid)await commitOwnership155({cache,env:undefined,active:true,extra:[],expectedRevision:undefined,expectedOwnershipRevision:undefined,snapshot:undefined,db,aid,sid,actor:auth.sid,creation,advertiserName:creation.advertiser.nombre});
+  else await commitNewOwnership155({db,aid,sid:'',actor:auth.sid,creation,extra:[],rules:await loadValidityRules155(cache)});}
+ catch(error){if(error?.status===404)return json({success:false,message:error.message},404);throw error;}
+ await Promise.all([syncGuideAdvertiserV2({db,cache,advertiserId:aid,confirmed:creation}),syncAdvertiserIndexV2({db,cache,advertiserId:aid,confirmed:creation})]);
+ return json({success:true,updated:true,anunciante_id:aid,nivel:level,titular:sid||null});
+}
 async function routeAtomicAdvertiserInternal(ctx){
  const {path,request,db,cache}=ctx;
  if(request.method!=='POST')return null;
@@ -12875,7 +13023,7 @@ GldPublicCache119.prototype.ghDetail204=async function(body){
  }
  if(body.op!=='gh-detail-read204')throw Error('Operación administrativa no admitida.');
  const stored=this.query('SELECT value FROM gh_advertiser_detail204 WHERE slot=1')[0];
- if(stored)return Response.json({detail:JSON.parse(stored.value),prepared:false,metrics:this.metrics});
+ if(stored){const detail=JSON.parse(stored.value);if(Object.hasOwn(detail,'revision_titularidad'))return Response.json({detail,prepared:false,metrics:this.metrics});}
  const report={event:'gld_gh_detail_prepare204',worker_version:WORKER_VERSION,path:'/internal/gh-detail/prepare',method:'PREPARE',started_at:new Date().toISOString(),request_id:crypto.randomUUID(),status:500,operations:{}};
  const scoped=requestCache121(observeKv117(this.env,report),report);
  const source=requestDb119(roleSourceDb192(observeDbV41(createDb(scoped),report),scoped),report);
@@ -13160,6 +13308,7 @@ GldPublicCache119.prototype.alarm=async function(){
 // Operation counters, not a bill. Missing provider metrics remain null.
 function consumption136(report){
  const result=consumptionBase136(report),action=report.action_store138;
+ if(report.execution_id)result.execution_id=report.execution_id;
  result.cloudflare.commerce_store=report.commerce_store209||{calls:0,rows_read:0,rows_written:0};
  result.cloudflare.gh_detail_store=report.gh_detail_store204||{calls:0,rows_read:0,rows_written:0,cache_misses:0};
  result.cloudflare.private_favorites_store=report.private_favorites_store||{calls:0,rows_read:0,rows_written:0,failures:0};
@@ -13184,7 +13333,7 @@ function consumptionBase136(report){
  const count=(obj,key)=>obj?obj[key]??null:0;
  return {schema:136,request_id:report.request_id,version:report.worker_version,
   firestore:{read_calls:totals.read_calls,documents_returned:totals.documents_returned,write_calls:totals.write_calls,delete_calls:totals.delete_calls,billed_reads:totals.read_calls?null:0,billed_writes:totals.write_calls?null:0,billed_deletes:totals.delete_calls?null:0,failures:totals.failures},
-  cloudflare:{worker_requests:1,kv:{get_calls:kv?.get_calls??null,put_calls:kv?.put_calls??null,delete_calls:kv?.delete_calls??null,list_calls:kv?.list_calls??null,failures:kv?.failures??null},public_store:{calls:count(publicStore,'calls'),rows_read:count(publicStore,'rows_read'),rows_written:count(publicStore,'rows_written'),legacy_gets:count(publicStore,'legacy_gets'),legacy_lists:count(publicStore,'legacy_lists'),components:publicStore?.components??[]},admin_store:{calls:count(adminStore,'calls'),rows_read:count(adminStore,'rows_read'),rows_written:count(adminStore,'rows_written')},auth_store:{calls:count(authStore,'calls'),rows_read:count(authStore,'rows_read'),rows_written:count(authStore,'rows_written'),failures:count(authStore,'failures')},cpu_ms:null,do_duration_gbs:null,storage_bytes:null},
+  cloudflare:{worker_requests:1,kv:{get_calls:kv?.get_calls??null,put_calls:kv?.put_calls??null,delete_calls:kv?.delete_calls??null,list_calls:kv?.list_calls??null,failures:kv?.failures??null},public_store:{calls:count(publicStore,'calls'),reads_reused:report.public_actor_reads_reused||0,rows_read:count(publicStore,'rows_read'),rows_written:count(publicStore,'rows_written'),legacy_gets:count(publicStore,'legacy_gets'),legacy_lists:count(publicStore,'legacy_lists'),components:publicStore?.components??[]},admin_store:{calls:count(adminStore,'calls'),rows_read:count(adminStore,'rows_read'),rows_written:count(adminStore,'rows_written')},auth_store:{calls:count(authStore,'calls'),rows_read:count(authStore,'rows_read'),rows_written:count(authStore,'rows_written'),failures:count(authStore,'failures')},cpu_ms:null,do_duration_gbs:null,storage_bytes:null},
   coverage:{status:'INCOMPLETO',missing:[...absent,'worker-cpu','durable-object-billed-duration','persistent-storage-size','browser-preflight-and-external-assets'],operation_counters:absent.length?'INCOMPLETO':'REGISTRADOS',scope:'This HTTP response; not the entire browser action or the account invoice.'}};
 }
 
@@ -13232,10 +13381,11 @@ var GLD_BUSINESS143=(()=>{
    const auth=await requirePanel(env,request,aid,promo?'promos':activity?'actividades':'publicidad',true);if(auth.response)return auth.response;identity={kind:'subscriber',value:auth.session};
   }
   if(!aid)return null;
+  if(ctx.report)ctx.report.advertiser_id=aid;
   const data=body.payload&&typeof body.payload==='object'?body.payload:body;
   const publishRecent=!admin&&(promo?(action==='createpromo'||action==='updatepromo'&&Object.keys(data).some(k=>!['promo_id','pausado','action','accion','advertiserId','advertiser_id','declaracion_publicacion','operation_id','request_key'].includes(k))):action==='guardar');
   const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
-  const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-save143',origin_request_id:ctx.request_id143,aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body,action:common?'publication-authority':review?'publication-review':action,identity,kind,publishRecent,key:uuid(body.operation_id)||uuid(body.request_key)||uuid(request.headers.get('Idempotency-Key'))})}));
+  const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify({op:'business-save143',origin_request_id:ctx.request_id143,observation:{execution_id:ctx.report?.execution_id,aud_claim:ctx.report?.aud_claim},aid,url:request.url,headers:[...request.headers].filter(([key])=>!['host','content-length'].includes(key.toLowerCase())),body,action:common?'publication-authority':review?'publication-review':action,identity,kind,publishRecent,key:uuid(body.operation_id)||uuid(body.request_key)||uuid(request.headers.get('Idempotency-Key'))})}));
   const renewal=SESSION_RENEWALS_V87.get(request);if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
   const headers=new Headers(response.headers);headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
  }
@@ -13279,7 +13429,7 @@ GldPublicCache119.prototype.storeBusiness143=async function(value){
 };
 GldPublicCache119.prototype.beginBusiness143=async function(entries){
  if(!entries.length)return;
- const state=await this.businessState143(),job=structuredClone(state.pending||{aid:this.businessCommand143.aid,publishRecent:!!this.businessCommand143.publishRecent,key:this.businessCommand143.key,fingerprint:this.businessFingerprint143,action:this.businessCommand143.action,kind:this.businessCommand143.kind,refs:[],attempts:0});
+ const state=await this.businessState143(),job=structuredClone(state.pending||{aid:this.businessCommand143.aid,publishRecent:!!this.businessCommand143.publishRecent,key:this.businessCommand143.key,fingerprint:this.businessFingerprint143,observation:{...this.businessCommand143.observation,origin_request_id:this.businessCommand143.origin_request_id},action:this.businessCommand143.action,kind:this.businessCommand143.kind,refs:[],attempts:0});
  for(const e of entries){
   const keys=Object.keys(e.patch||{}).filter(k=>k!=='_version'&&e.patch[k]!==undefined);
   const expectation=e.remove?{removed:true}:{keys,hash:await fieldRevisionInternal(e.patch||{},keys)};
@@ -13317,6 +13467,8 @@ GldPublicCache119.prototype.retryBusiness143=async function(error){
 GldPublicCache119.prototype.repairBusiness143=async function(cutoff=null){
  const state=await this.businessState143(),job=state.pending;if(!job)return;
  const report={event:'gld_business_recovery143',worker_version:WORKER_VERSION,started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'RECOVER',path:'/internal/business/recover',operations:{}};
+ Object.assign(report,job.observation);
+ report.advertiser_id=job.aid;
  const recovery={aid:job.aid,actor:this};
  const scoped=new Proxy(this.env,{get:(target,key)=>key==='__gldPublicationRecoveryOwner'?recovery:Reflect.get(target,key,target)});
  const env=coordinatedCities119(requestCache121(observeKv117(scoped,report),report),report),source=requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report);
@@ -13397,11 +13549,14 @@ GldPublicCache119.prototype.businessSave143=async function(command){
   existing.cloudflare??={};existing.cloudflare.business_store={calls:1,...counts,rows_read:null,rows_written:null};
   headers.set('X-GLD-Consumption',encodeURIComponent(JSON.stringify(existing)));
   return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
- }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:WORKER_VERSION,path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
+ }finally{this.state=original;delete this.businessCommand143;delete this.businessFingerprint143;console.log(JSON.stringify({event:'gld_business_storage143',worker_version:WORKER_VERSION,path:new URL(command.url).pathname,origin_request_id:command.origin_request_id||null,...command.observation,advertiser_id:command.aid,operation_id:command.key||null,status:response?.status||500,consumption:{cloudflare:{business_store:{calls:1,...counts,rows_read:null,rows_written:null}}}}));}
 };
 
 GldPublicCache119.prototype.replayBusiness143=async function(receipt,command){
  const report={event:'gld_business_replay143',worker_version:WORKER_VERSION,started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:'REPLAY',path:'/internal/business/replay',operations:{}};
+ Object.assign(report,command.observation);
+ report.advertiser_id=command.aid;
+ report.origin_request_id=command.origin_request_id;
  const db=observeDbV41(createDb(this.env),report),saved=[];
  try{
   for(const ref of receipt.refs){
@@ -13517,9 +13672,10 @@ var GLD_EVENTS145=(()=>{
    if(auth.rol==='ADMIN_LOCAL')for(const part of await getPreparedRelationsV1({cache:ctx.cache,type:'event',id:text(row.evento_id||row.id),current:row,load:()=>db.queryEqual('evento_programacion','evento_id',text(row.evento_id||row.id),500)}))assertAdminCityV71(auth,{...part,ciudad_id:part.ciudad_id||row.ciudad_id});
    aid=text(row.anunciante_id||row.id_anunciante);if(!aid)return null;identity={kind:'admin',value:auth};
   }
+  if(ctx.report)ctx.report.advertiser_id=aid;
   const actor=env.GLD_PUBLIC_CACHE.get(env.GLD_PUBLIC_CACHE.idFromName('guide-save-v132:'+aid));
   const validId=v=>/^[a-f0-9-]{36}$/i.test(text(v))?text(v):'';
-  const command={op:'business-save143',origin_request_id:ctx.request_id143,aid,url:request.url,headers:[...request.headers].filter(([k])=>!['host','content-length'].includes(k.toLowerCase())),body,action,identity,kind:'eventos',publishRecent:owner&&['createfreeevent','updatefreeevent','createvipevent','updatevipevent'].includes(action),key:validId(body.operation_id)||validId(body.request_key)||validId(request.headers.get('Idempotency-Key'))};
+  const command={op:'business-save143',origin_request_id:ctx.request_id143,observation:{execution_id:ctx.report?.execution_id,aud_claim:ctx.report?.aud_claim},aid,url:request.url,headers:[...request.headers].filter(([k])=>!['host','content-length'].includes(k.toLowerCase())),body,action,identity,kind:'eventos',publishRecent:owner&&['createfreeevent','updatefreeevent','createvipevent','updatevipevent'].includes(action),key:validId(body.operation_id)||validId(body.request_key)||validId(request.headers.get('Idempotency-Key'))};
   const response=await actor.fetch(new Request('https://business.internal/',{method:'POST',body:JSON.stringify(command)}));
   const renewal=SESSION_RENEWALS_V87.get(request);if(!renewal||response.headers.has('X-GLD-Session-Token'))return response;
   const headers=new Headers(response.headers);headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');return new Response(response.body,{status:response.status,headers});
@@ -13552,12 +13708,17 @@ var app_main_v35_default = {
   async fetch(request,env,execution){
     if(execution?.waitUntil&&!env.__gldGuideActor132&&!env.__gldBusinessActor143)commerceMigrationKick209(request,env,execution);
     const report={event:'gld_firestore_observation',worker_version:WORKER_VERSION,started_at:new Date().toISOString(),status:500,request_id:crypto.randomUUID(),method:request.method,path:observationPathV41(clean(new URL(request.url).pathname)),operations:{}};
-    env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report);
+    observationLink214(request,report,env.__gldBusinessActor143?.businessCommand143);
+    const endpoint=new URL(request.url);
+    const visibilityBatch=request.method==='GET'&&report.path==='/guide'&&endpoint.searchParams.get('vista')==='visibilidad-lote';
+    env=coordinatedCities119(requestCache121(observeKv117(env,report),report,request.method==="GET"),report,visibilityBatch);
     let db,cacheFlushed=false;
     const traced=async (/** @type {Response} */ response)=>{
       if(db&&db.flushLoginCache&&!cacheFlushed){cacheFlushed=true;await db.flushLoginCache();}
       report.status=response.status;
       const headers=new Headers(response.headers);
+      const child=observationUuid214(headers.get('X-GLD-Request-Id'));
+      if(child&&child!==report.request_id)report.child_request_id=child;
       const renewal=SESSION_RENEWALS_V87.get(request);
       if(renewal){headers.set('X-GLD-Session-Token',renewal.token);headers.set('X-GLD-Session-Kind',renewal.kind);headers.set('Cache-Control','no-store');}
       headers.set('X-GLD-Request-Id',report.request_id);
@@ -13583,12 +13744,13 @@ var app_main_v35_default = {
       db=withPanelCacheV48(withAuthCacheV58(withPrivateCacheV46(requestDb119(roleSourceDb192(observeDbV41(createDb(env),report),env),report),env),env),env,report);
       db=GLD_BUSINESS143.journal(guideJournalDb132(db,env),env);
       const cache=createCache(env);
-      const action=await observationActionV43(request,url);
+      const action=await observationActionV43(request,url,report);
       if(action)report.action=action;
       cache.ensureGuideBaseInternal=aid=>ensureGuideBaseFromPrivateInternal({db,cache,advertiserId:aid});
       const ctx={path,request,url,env,db,cache,report,request_id143:report.request_id};
       const advertiserAccess158=await routeAdvertiserAccess155(ctx);if(advertiserAccess158)return await traced(advertiserAccess158);
       const gate155=await roleGate155(ctx);if(gate155)return await traced(gate155);
+      const advertiserActivity155=await routeAdvertiserActivity155(ctx);if(advertiserActivity155)return await traced(advertiserActivity155);
       const territorialAction=await GLD_ACTIONS138.route(ctx,report);if(territorialAction)return await traced(territorialAction);
       const businessDispatch143=await GLD_BUSINESS143.dispatch(ctx);if(businessDispatch143){report.event='gld_business_dispatch143';report.source='business-dispatch';report.status=businessDispatch143.status;return businessDispatch143;}
       const guideDispatch=await routeGuideDispatch132(ctx);if(guideDispatch){report.event='gld_guide_dispatch';report.source='guide-dispatch';report.status=guideDispatch.status;return guideDispatch;}
@@ -13600,6 +13762,8 @@ var app_main_v35_default = {
           checkPublicationWrite({remove:actionOf4(url,body)==='delete_sede'},doc);
         }
       }
+      const advertiserCreate155=await routeAdvertiserCreate155(ctx);if(advertiserCreate155)return await traced(advertiserCreate155);
+      const validityRegularization155=await routeAdvertiserValidityRegularization155(ctx);if(validityRegularization155)return await traced(validityRegularization155);
       const atomicAdvertiser=await routeAtomicAdvertiserInternal(ctx);if(atomicAdvertiser)return await traced(atomicAdvertiser);
       await preparePublicationV77(ctx);
 
@@ -13664,21 +13828,176 @@ async function verifyAdminPanel155(env,request,p){
  if(!adminPanelRoute155(request,{action}))throw httpError('Esta sesión solo permite gestionar el panel del anunciante.',401);
  return {ok:true,sid:p.sid,admin_panel:true,admin_role:p.admin_role,aid:p.aid,exp:p.exp,auth:[{anunciante_id:p.aid,anunciante_nombre:p.nombre,rol:'ADMINISTRADOR',permisos:ADMIN_PANEL_PERMISSIONS155,activo:true}]};
 }
+function activeSessionRelation155(row){return row.activo===undefined||truthy(row.activo);}
+function activeOwners155(rows){return rows.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo));}
+async function ownershipRevision155(rows,admin){return wholeRevisionInternal({fence:String(admin?.revision_titularidad||''),owners:activeOwners155(rows).map(r=>[String(r.suscriptor_id||''),String(r.id||r.relacion_id||r.suscriptor_anunciante_id||'')]).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)))});}
+async function ownershipSnapshot155(db,aid,{write=true}={}){
+ // Read the fence BEFORE the source query. Never reuse a list loaded before this fence.
+ const fence=await db.getVersioned('anunciantes_administracion',aid);
+ if(write&&(!fence.doc||!fence.updateTime))throw httpError('Falta la revisión administrativa del anuncio.',409);
+ const rows=await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,501);
+ if(write&&rows.length>=501)throw httpError('Demasiados vínculos; requiere revisión.',409);
+ return {fence,rows};
+}
 function publicRelation155(row){return {id:String(row.id||row.relacion_id||row.suscriptor_anunciante_id||''),suscriptor_id:String(row.suscriptor_id||''),anunciante_id:String(row.anunciante_id||''),rol:String(row.rol||''),permisos:String(row.permisos||''),permisos_definidos:row.permisos_definidos===true,activo:truthy(row.activo)};}
-async function saveAdvertiserRelation155({db,env,auth,aid,body}){
+function subscriberEligible155(row){return !!row&&(row.activo===undefined||row.activo===null||row.activo===''||truthy(row.activo));}
+function ownershipPatch155({id,sid,aid,actor,active,advertiserName,now,before}){
+ return {relacion_id:id,suscriptor_id:sid,anunciante_id:aid,rol:'PROPIETARIO',activo:active,...(advertiserName?{anunciante_nombre:advertiserName}:{}),permisos:'',permisos_definidos:false,actualizado:now,actualizado_por:actor,...(!before?{fecha_alta:now}:{})};
+}
+// Unidades 2 y 7: estado público del anunciante. Nunca interviene en el acceso al panel.
+// Vigencias (definición permanente 27/11/2026). Fuente única: catálogo niveles_anunciante
+// (Gran Hermano → Configuración de plataforma → Niveles → Vigencia y renovación de anuncios).
+// Los valores iniciales rigen sólo para un nivel cuyo catálogo todavía no guardó su regla.
+// Cada vigencia se otorga con la regla del momento: cambiar una regla no altera las ya otorgadas.
+const ADVERTISER_VALIDITY_INITIAL155={'1':['DIAS',90,'PERMANENTE',0,false],'2':['DIAS',90,'PERMANENTE',0,false],'3':['DIAS',30,'PERMANENTE',0,false],'4':['CONTRATACION',90,'CONTRATACION',90,true],'5':['CONTRATACION',90,'CONTRATACION',90,true],'6':['CONTRATACION',90,'CONTRATACION',90,true]};
+const VALIDITY_MODES155=['PERMANENTE','DIAS','CONTRATACION'];
+/** @param {number|string} [at] */
+function argentinaDay155(at=Date.now()){return new Date((typeof at==='string'?Date.parse(at):at)-3*3600e3).toISOString().slice(0,10);}
+function addDays155(day,n){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function isoAt155(at){return new Date(typeof at==='string'?Date.parse(at):at).toISOString();}
+function validityLevelKey155(row){return String(row?.numero??row?.nivel_id??row?.id??'').trim();}
+function advertiserValidityRules155(levels){
+ const rule=(modo,dias)=>({modo,dias:modo==='PERMANENTE'?0:dias}),out={};
+ for(const [k,[cm,cd,sm,sd,ex]] of Object.entries(ADVERTISER_VALIDITY_INITIAL155))out[k]={con_titular:rule(cm,cd),sin_titular:rule(sm,sd),excepciones:ex};
+ for(const row of Array.isArray(levels)?levels:[]){
+  const key=validityLevelKey155(row);if(!key||key==='CONFIG_GENERAL_ANUNCIANTES')continue;
+  const base=out[key]||{con_titular:rule('PERMANENTE',0),sin_titular:rule('PERMANENTE',0),excepciones:false};
+  const pick=(p,b)=>{const m=String(row[p+'_modo']||'').toUpperCase();if(!VALIDITY_MODES155.includes(m))return b;const d=Number(row[p+'_dias']);return rule(m,Number.isSafeInteger(d)&&d>0?d:b.dias||0);};
+  out[key]={con_titular:pick('vigencia_con_titular',base.con_titular),sin_titular:pick('vigencia_sin_titular',base.sin_titular),excepciones:typeof row.vigencia_excepciones==='boolean'?row.vigencia_excepciones:base.excepciones};
+ }
+ return out;
+}
+async function loadValidityRules155(cache){return advertiserValidityRules155((await getCommerceCatalogs(cache))?.niveles_anunciante);}
+function validityRule155(admin,rules){const lv=rules?.[String(admin?.nivel??'').trim()];return lv?.[admin?.con_titular===true?'con_titular':'sin_titular']||{modo:'PERMANENTE',dias:0};}
+function publicValidity155(admin){return admin?.vigencia_excepcion?.modo==='PERMANENTE'?'':String(admin?.vigencia_hasta||'').trim();}
+function validityPeriod155(at,r,origen){const today=argentinaDay155(at);return {vigencia_desde:today,vigencia_hasta:addDays155(today,r.dias),vigencia_regla:{modo:r.modo,dias:r.dias,origen,en:isoAt155(at)}};}
+function validityCurrent155(admin,at){return String(admin?.vigencia_hasta||'')>=argentinaDay155(at);}
+function validityOrigin155(admin){return admin?.con_titular===true?'TITULAR':'SIN_TITULAR';}
+// Alta y cambio de titular: aplica la regla del nuevo estado sin reiniciar una vigencia en curso.
+/** @param {any} admin @param {any} rules @param {number|string} [at] */
+function validityOnOwner155(admin,rules,at=Date.now()){
+ if(admin?.vigencia_excepcion?.modo)return {};
+ const r=validityRule155(admin,rules);
+ if(r.modo==='DIAS')return validityCurrent155(admin,at)?{}:validityPeriod155(at,r,validityOrigin155(admin));
+ if(r.modo==='PERMANENTE'&&admin?.vigencia_hasta)return {vigencia_desde:'',vigencia_hasta:'',vigencia_regla:{modo:'PERMANENTE',dias:0,origen:validityOrigin155(admin),en:isoAt155(at)}};
+ return {};
+}
+// Cambio efectivo de nivel desde GH: aplica la regla del nuevo nivel sin crear contrataciones.
+// Con regla por contratación se conserva la vigencia otorgada hasta la próxima contratación.
+/** @param {any} admin @param {any} rules @param {number|string} [at] */
+function validityOnLevelChange155(admin,rules,at=Date.now()){
+ if(admin?.vigencia_excepcion?.modo)return {};
+ const r=validityRule155(admin,rules);
+ if(r.modo==='DIAS')return validityPeriod155(at,r,'CAMBIO_NIVEL');
+ if(r.modo==='PERMANENTE'&&admin?.vigencia_hasta)return {vigencia_desde:'',vigencia_hasta:'',vigencia_regla:{modo:'PERMANENTE',dias:0,origen:'CAMBIO_NIVEL',en:isoAt155(at)}};
+ return {};
+}
+function validityOnContract155(admin,rules,at){
+ if(admin?.vigencia_excepcion?.modo)return {};
+ const r=validityRule155(admin,rules);
+ if(r.modo==='CONTRATACION')return validityPeriod155(at,r,'CONTRATACION');
+ return r.modo==='DIAS'&&!validityCurrent155(admin,at)?validityPeriod155(at,r,validityOrigin155(admin)):{};
+}
+/** @param {any} admin @param {any} rules @param {number|string} [at] */
+function validityRenew155(admin,rules,at=Date.now()){
+ const r=validityRule155(admin,rules);if(r.modo!=='DIAS'||admin?.vigencia_excepcion?.modo)return null;
+ const today=argentinaDay155(at),current=String(admin?.vigencia_hasta||'').trim(),base=current&&current>=today?current:today;
+ return {vigencia_hasta:addDays155(base,r.dias),...(!current||current<today?{vigencia_desde:today}:{}),vigencia_regla:{modo:'DIAS',dias:r.dias,origen:'RENOVACION',en:isoAt155(at)}};
+}
+async function projectAdvertiserAdmin155({db,cache,aid,doc=undefined,extra={},guidePatch=undefined,indexPatch=undefined}){
+ const motivo=doc?.inactivo_motivo||'';
+ const [guide,index]=await Promise.all([patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:guidePatch||{...extra,inactivo_motivo:motivo,vigente_hasta:publicValidity155(doc)}}),patchAdvertiserIndexCommercialV2({cache,advertiserId:aid,patch:indexPatch||{...extra,inactivo_motivo:motivo,vigencia_hasta:doc?.vigencia_hasta||''}})]);
+ if(guide?.needs_full_sync||index?.needs_rebuild)await Promise.all([guide?.needs_full_sync?syncGuideAdvertiserV2({db,cache,advertiserId:aid}):null,index?.needs_rebuild?syncAdvertiserIndexV2({db,cache,advertiserId:aid}):null]);
+}
+function advertiserPublicState155(admin,advertiser=undefined,sedes=undefined,at=Date.now()){
+ const a=admin||{},until=publicValidity155(a),expiring=!!until;
+ if(a.aprobado===false||a.inactivo_motivo==='ADMINISTRATIVA')return {estado:'INACTIVO',motivo:'BLOQUEO_ADMINISTRATIVO',visible:false};
+ if(a.inactivo_motivo==='VOLUNTARIA')return {estado:'INACTIVO',motivo:'DESACTIVACION_VOLUNTARIA',visible:false};
+ if(expiring&&until<argentinaDay155(at))return {estado:'INACTIVO',motivo:'VENCIDO',visible:false,vigencia_hasta:until};
+ if(advertiser!==undefined&&(!String(advertiser?.nombre||'').trim()||Array.isArray(sedes)&&!sedes.some(r=>r&&String(r.ciudad_id||'').trim()&&r.activo!==false)))return {estado:'INACTIVO',motivo:'FICHA_INCOMPLETA',visible:false};
+ return {estado:'ACTIVO',motivo:'',visible:true,...(expiring?{vigencia_hasta:until}:{})};
+}
+function guideCardVisible155(card,at=Date.now()){return !!card&&card.aprobado!==false&&!card.inactivo_motivo&&!(card.vigente_hasta&&String(card.vigente_hasta)<argentinaDay155(at));}
+// Todo anunciante nuevo recibe el nivel 3 salvo que Gran Hermano elija otro al aprobar.
+const DEFAULT_ADVERTISER_LEVEL155='3';
+function newAdvertiserLevel155(requested=undefined){return String(requested??'').trim()||DEFAULT_ADVERTISER_LEVEL155;}
+function moderatedCreation155(req,aid,level,now){
+ const clean=v=>String(v??'').trim(),detail=req.detalle||{},city=clean(req.ciudad_id),sedeId='SED-'+aid+'-MAIN';
+ return {advertiser:{id:aid,nombre:clean(req.nombre),actividad:clean(detail.actividad),descripcion:clean(detail.descripcion),whatsapp:clean(detail.whatsapp),mail:clean(detail.mail),web:clean(detail.web),creado_en:now,actualizado_en:now},
+ admin:{id:aid,aprobado:true,nivel:level,subnivel:'0',verificado:false,gold:false,funcionalidades:[],creado_en:now,actualizado_en:now},
+ sedes:city?[{sede_id:sedeId,anunciante_id:aid,ciudad_id:city,nombre_sede:'Principal',direccion:clean(detail.direccion),whatsapp:clean(detail.whatsapp),mail:clean(detail.mail),web:clean(detail.web),activo:true,creado_en:now,actualizado_en:now}]:[]};
+}
+async function commitNewOwnership155({db,aid,sid,actor,creation,extra,rules=undefined}){
+ const {advertiser,admin,sedes=[]}=creation;
+ if(advertiser?.id!==aid||admin?.id!==aid||sedes.some(row=>row.anunciante_id!==aid||!row.sede_id))throw httpError('Alta de anunciante inconsistente.',400);
+ if((await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,1)).length)throw httpError('El identificador ya tiene vínculos. Reintentá el alta.',409);
+ const id=sid?sid+'__'+aid:'',now=new Date().toISOString();
+ const entry=(collection,id,patch)=>({collection,id,before:null,patch,options:{newDocument:true,mustNotExist:true}});
+ const ownedAdmin={...admin,con_titular:!!sid},initial=[entry('anunciantes',aid,advertiser),entry('anunciantes_administracion',aid,{...ownedAdmin,...(rules?validityOnOwner155(ownedAdmin,rules,now):{}),revision_titularidad:crypto.randomUUID()}),...sedes.map(row=>entry('anunciantes_sedes',row.sede_id,row))];
+ const ownership=sid?[entry('suscriptor_anunciante',id,ownershipPatch155({id,sid,aid,actor,active:true,advertiserName:advertiser.nombre,now,before:null}))]:[];
+ const saved=await db.commitPatches([...initial,...ownership,...extra]);
+ if(db.prepareNewAdvertiserPanels116)await db.prepareNewAdvertiserPanels116(aid);else if(db.prepareNewPanelList)await db.prepareNewPanelList('anunciantes_sedes','anunciante_id',aid);
+ const created={advertiser:saved[0],admin:saved[1],sedes:saved.slice(2,initial.length)};
+ if(db.rememberPanelRows){db.rememberPanelRows('anunciantes',[created.advertiser]);db.rememberPanelRows('anunciantes_administracion',[created.admin]);db.rememberPanelRows('anunciantes_sedes',created.sedes);}
+ if(!sid)return {success:true,updated:true,relacion:null,revision:null,created};
+ const row=saved[initial.length];
+ return {success:true,updated:true,relacion:publicRelation155(row),revision:await wholeRevisionInternal(row),created};
+}
+// Ownership changes share the existing administration document as a CAS fence.
+async function commitOwnership155({db,aid,sid,actor,env=undefined,active=true,extra=[],expectedRevision=undefined,expectedOwnershipRevision=undefined,advertiserName=undefined,snapshot=undefined,creation=undefined,cache=undefined}){
+ if(!aid||!sid||String(aid).includes('/')||String(sid).includes('/'))throw httpError('Identificador de titularidad inválido.',400);
+ const futureOwner=active?await db.get('suscriptores',sid):null;
+ if(active&&!subscriberEligible155(futureOwner))throw httpError('El futuro propietario no está registrado o está inactivo.',404);
+ if(active&&futureOwner.email_verificado===false)throw httpError('El usuario todavía no verificó su correo. Vinculalo después de la verificación.',409);
+ const rules=cache?await loadValidityRules155(cache):undefined;
+ if(creation){if(!active)throw httpError('El alta no admite titularidad inactiva.',400);return commitNewOwnership155({db,aid,sid,actor,creation,extra,rules});}
+ const {fence,rows}=snapshot||await ownershipSnapshot155(db,aid);
+ if(expectedOwnershipRevision!==undefined&&expectedOwnershipRevision!==await ownershipRevision155(rows,fence.doc))throw httpError('La titularidad cambió. Volvé a abrir la ficha.',409);
+ const seen=new Set(),owners=activeOwners155(rows);
+ for(const row of rows){const key=String(row.suscriptor_id||'');if(!key||seen.has(key))throw httpError('Vínculos duplicados: resolver antes de modificar titularidad.',409);seen.add(key);}
+ if(owners.length>1&&(!active||expectedRevision===undefined))throw httpError('Existen múltiples propietarios históricos; Gran Hermano debe asignar expresamente un titular.',409);
+ const previous=rows.find(r=>String(r.suscriptor_id)===sid);
+ if(!active&&(!previous||roleName159(previous.rol)!=='PROPIETARIO'))throw httpError('No existe titularidad para revocar.',409);
+ const changingOwner=active?(owners.length!==1||String(owners[0].suscriptor_id)!==sid):owners.some(r=>String(r.suscriptor_id)===sid);
+ const affected=changingOwner?rows.filter(r=>String(r.suscriptor_id)!==sid&&truthy(r.activo)&&['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(roleName159(r.rol))):[];
+ const id=String(previous?.id||previous?.relacion_id||previous?.suscriptor_anunciante_id||sid+'__'+aid);
+ const now=new Date().toISOString(),entries=[];
+ for(const row of affected){
+  const rid=String(row.id||row.relacion_id||'');const v=await db.getVersioned('suscriptor_anunciante',rid);
+  if(!v.doc||!v.updateTime||String(v.doc.suscriptor_id)!==String(row.suscriptor_id)||String(v.doc.anunciante_id)!==aid||roleName159(v.doc.rol)!==roleName159(row.rol)||!truthy(v.doc.activo))throw httpError('Cambió un permiso. Reintentá.',409);
+  entries.push({collection:'suscriptor_anunciante',id:rid,before:v.doc,patch:{activo:false,actualizado:now,actualizado_por:actor},options:{updateTime:v.updateTime}});
+ }
+ const v=await db.getVersioned('suscriptor_anunciante',id);
+ if(v.doc&&(String(v.doc.suscriptor_id)!==sid||String(v.doc.anunciante_id)!==aid))throw httpError('Vínculo inconsistente.',409);
+ if((previous&&!v.doc)||(v.doc&&!v.updateTime))throw httpError('Cambió el vínculo. Reintentá.',409);
+ if(expectedRevision!==undefined&&expectedRevision!==await wholeRevisionInternal(v.doc||{}))throw httpError('Los permisos cambiaron. Volvé a abrir la ficha.',409);
+ const patch=ownershipPatch155({id,sid,aid,actor,active,advertiserName,now,before:v.doc});
+ if(v.doc&&v.doc.activo===active&&roleName159(v.doc.rol)==='PROPIETARIO'&&!affected.length&&!extra.length)return {success:true,updated:false,relacion:publicRelation155(v.doc),revision:await wholeRevisionInternal(v.doc)};
+ entries.push({collection:'suscriptor_anunciante',id,before:v.doc,patch,options:v.doc?{updateTime:v.updateTime}:{mustNotExist:true}});
+ const ownedAdmin={...(fence.doc||{}),con_titular:!!active},adminPatch={revision_titularidad:crypto.randomUUID(),con_titular:!!active,...(rules?validityOnOwner155(ownedAdmin,rules,now):{})},adminAfter={...ownedAdmin,...adminPatch};
+ entries.push({collection:'anunciantes_administracion',id:aid,before:fence.doc,patch:adminPatch,options:{updateTime:fence.updateTime}});
+ entries.push(...extra);
+ const saved=await db.commitPatches(entries);
+ const vigencia=publicValidity155(adminAfter)!==publicValidity155(fence.doc)||adminAfter.vigencia_hasta!==fence.doc?.vigencia_hasta?{vigente_hasta:publicValidity155(adminAfter),vigencia_hasta:adminAfter.vigencia_hasta||''}:undefined;
+ const row=saved[affected.length];return {success:true,updated:true,relacion:publicRelation155(row),revision:await wholeRevisionInternal(row),vigencia};
+}
+async function saveAdvertiserRelation155({db,env,auth,aid,body,cache=undefined}){
  const sid=String(body.suscriptor_id||'').trim(),role=String(body.rol||'').trim().toUpperCase();
  if(!sid||sid.includes('/')||!['PROPIETARIO','ADMINISTRADOR','MANAGER'].includes(role)||typeof body.activo!=='boolean')throw httpError('Indicá usuario, rol y estado válidos.',400);
- const [subscriber,advertiser,admin,relations]=await Promise.all([db.cachedSubscriberProjection(sid),db.get('anunciantes',aid),db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid),db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500)]);
- if(!subscriber||subscriber.activo===false||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
+ if(!auth.owner&&(!isTopAdmin(auth)||role!=='PROPIETARIO'))throw httpError('Gran Hermano administra titularidad; solo el propietario delega funciones.',403);
+ const [subscriber,advertiser,snapshot]=await Promise.all([body.activo?db.get('suscriptores',sid):Promise.resolve(null),db.get('anunciantes',aid),ownershipSnapshot155(db,aid)]);
+ const {fence:delegationFence,rows:relations}=snapshot,admin=delegationFence.doc;
+ if(auth.owner){const owners=activeOwners155(relations);if(owners.length!==1||String(owners[0].suscriptor_id)!==String(auth.sid))throw httpError('La titularidad cambió. Volvé a iniciar sesión.',403);}
+ if((body.activo&&!subscriberEligible155(subscriber))||!advertiser)throw httpError('Usuario o anunciante inexistente o inactivo.',404);
  const matches=relations.filter(r=>String(r.suscriptor_id)===sid);
  if(matches.length>1)throw httpError('Hay vínculos duplicados para este usuario. Requieren revisión antes de cambiar permisos.',409);
  const previous=matches[0];
- if(auth.owner&&((previous&&roleName159(previous.rol)==='PROPIETARIO')||role==='PROPIETARIO'))throw httpError('La delegación no permite modificar la titularidad del anuncio.',403);
+ if(auth.owner&&((previous&&roleName159(previous.rol)==='PROPIETARIO'&&truthy(previous.activo))||role==='PROPIETARIO'))throw httpError('La delegación no permite modificar la titularidad del anuncio.',403);
  const id=previous?String(previous.id||previous.relacion_id||previous.suscriptor_anunciante_id):sid+'__'+aid;
  if(!id||id.includes('/'))throw httpError('Referencia de vínculo inválida.',409);
  const current=await db.getVersioned('suscriptor_anunciante',id);
  if(current.doc&&(String(current.doc.suscriptor_id)!==sid||String(current.doc.anunciante_id)!==aid))throw httpError('El vínculo no corresponde a esta persona y anunciante.',409);
- if(auth.owner&&roleName159(current.doc?.rol)==='PROPIETARIO')throw httpError('No se puede modificar la titularidad desde la delegación.',403);
+ if(auth.owner&&roleName159(current.doc?.rol)==='PROPIETARIO'&&truthy(current.doc?.activo))throw httpError('No se puede modificar la titularidad desde la delegación.',403);
  if(body.revision!==await wholeRevisionInternal(current.doc||{}))throw httpError('Los permisos cambiaron. Volvé a abrir la ficha.',409);
  const normalize=v=>[...new Set((Array.isArray(v)?v:String(v||'').split(/[;,|\n]/)).map(x=>String(x).trim().toUpperCase()).filter(Boolean))].sort();
  const allowed=normalize(admin?.funcionalidades).concat(['PUBLICIDAD','EMPLEO']),perms=role==='PROPIETARIO'?[]:normalize(body.permisos);
@@ -13687,10 +14006,19 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(role==='MANAGER'&&body.activo&&!perms.length)throw httpError('Seleccioná al menos una función para el manager.',400);
  if(perms.some(x=>!allowed.includes(x)))throw httpError('Solo se pueden delegar funciones disponibles para este anunciante.',400);
  const next={suscriptor_id:sid,anunciante_id:aid,anunciante_nombre:String(advertiser.nombre||aid),rol:role,permisos:perms.join(', '),permisos_definidos:role!=='PROPIETARIO',activo:body.activo};
+ if(role==='PROPIETARIO'){if(!isTopAdmin(auth))throw httpError('Sin autorización de titularidad.',403);if(typeof body.revision_titularidad!=='string'||!body.revision_titularidad)throw httpError('Volvé a abrir la ficha para confirmar la titularidad actual.',409);return commitOwnership155({cache,extra:[],creation:undefined,db,env,aid,sid,actor:auth.sid,active:body.activo,advertiserName:advertiser.nombre,expectedRevision:body.revision,expectedOwnershipRevision:body.revision_titularidad,snapshot});}
  if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
  // The centralized relation mutation now revokes before and after its write.
- const saved=await db.patch('suscriptor_anunciante',id,{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},{...(current.doc?{mustExist:true,updateTime:current.updateTime}:{newDocument:true,mustNotExist:true}),subscriberId:sid});
+ const [saved]=await db.commitPatches([{collection:'suscriptor_anunciante',id,before:current.doc,patch:{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},options:current.doc?{updateTime:current.updateTime,subscriberId:sid}:{newDocument:true,mustNotExist:true,subscriberId:sid}},...(delegationFence?[{collection:'anunciantes_administracion',id:aid,before:delegationFence.doc,patch:{revision_titularidad:crypto.randomUUID()},options:{updateTime:delegationFence.updateTime}}]:[])]);
  return {success:true,updated:true,relacion:publicRelation155({...saved,id}),revision:await wholeRevisionInternal(saved),message:'Permisos guardados. El usuario debe volver a iniciar sesión.'};
+}
+async function findSubscriberForRelation155(cache,query){
+ const q=String(query||'').trim().toLowerCase();
+ if(!q)throw httpError('Escribí el correo electrónico de la persona.',400);
+ const index=await cache.get(ADMIN_SUBSCRIBERS_KEY);if(!Array.isArray(index?.results))throw httpError('El catálogo de usuarios no está disponible.',503);
+ const matches=index.results.filter(r=>String(r.mail||'').trim().toLowerCase()===q&&subscriberEligible155(r)&&String(r.suscriptor_id||r.id||''));
+ if(matches.length>1)throw httpError('El correo corresponde a varios registros. Requiere revisión.',409);
+ return {success:true,results:matches.map(r=>({suscriptor_id:String(r.suscriptor_id||r.id),nombre:String(r.nombre||''),mail:String(r.mail||'')}))};
 }
 async function routeAdvertiserAccess155(ctx){
  const {path,request,env,db,cache}=ctx;
@@ -13711,9 +14039,16 @@ async function routeAdvertiserAccess155(ctx){
  const id=decodeURIComponent((match||reset)[1]);if(!id||id.includes('/'))throw httpError('Identificador inválido.',400);
  if(reset)return json({success:false,message:'La recuperación de contraseña se realiza desde la cuenta del titular.'},404);
  if(match[2]==='responsables'){
+  if(request.method==='GET')return json(await findSubscriberForRelation155(cache,ctx.url.searchParams.get('q')));
   if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
   const body=await request.json();if(body.rol!=='PROPIETARIO')throw httpError('La delegación de funciones se realiza desde el panel del propietario.',403);
-  return json(await saveAdvertiserRelation155({db,env,auth,aid:id,body}));
+  try{
+   const result=await saveAdvertiserRelation155({db,env,auth,aid:id,body,cache});
+   // La asignación o revocación del titular cambia sólo la vigencia publicada.
+   if(result?.vigencia)await projectAdvertiserAdmin155({db,cache,aid:id,guidePatch:{vigente_hasta:result.vigencia.vigente_hasta},indexPatch:{vigencia_hasta:result.vigencia.vigencia_hasta}});
+   return json(result);
+  }
+  catch(error){if(error?.status===404)return json({success:false,message:error.message},404);throw error;}
  }
  if(request.method!=='POST')return json({success:false,message:'Método no permitido.'},405);
  const [advertiser,admin,state]=await Promise.all([db.get('anunciantes',id),db.panelAdministration?db.panelAdministration(id):db.get('anunciantes_administracion',id),subscriberSessionState(env,auth.sid)]);
@@ -13726,7 +14061,7 @@ async function routeAdvertiserAccess155(ctx){
 function roleName159(value){return String(value||'').trim().toUpperCase().replace('COADMINISTRADOR','ADMINISTRADOR');}
 function contactSummary159(row,sid){return {suscriptor_id:String(sid),nombre:String(row?.nombre||''),mail:String(row?.mail||''),whatsapp:String(row?.whatsapp||row?.telefono||'')};}
 async function ownerSummaries159(db,relations){
- const ids=[...new Set(relations.filter(r=>roleName159(r.rol)==='PROPIETARIO'&&truthy(r.activo)).map(r=>String(r.suscriptor_id||'')).filter(Boolean))];
+ const ids=[...new Set(activeOwners155(relations).map(r=>String(r.suscriptor_id||'')).filter(Boolean))];
  return Promise.all(ids.map(async sid=>contactSummary159(await db.cachedSubscriberProjection(sid),sid)));
 }
 async function ownerTeamRoute159(ctx){
@@ -13735,7 +14070,7 @@ async function ownerTeamRoute159(ctx){
  const body=request.method==='POST'?await request.clone().json().catch(()=>({})):{};
  const aid=String(body.advertiserId||url.searchParams.get('advertiserId')||'').trim();if(!aid)throw httpError('Falta el anunciante.',400);
  const session=await verifySubscriberSession(env,request);if(!session.ok)throw httpError(session.message,401);
- const owner=(session.auth||[]).find(r=>String(r.anunciante_id)===aid&&roleName159(r.rol)==='PROPIETARIO'&&r.activo!==false);
+ const owner=(session.auth||[]).find(r=>String(r.anunciante_id)===aid&&roleName159(r.rol)==='PROPIETARIO'&&activeSessionRelation155(r));
  if(session.admin_panel||!owner)throw httpError('Solo el propietario puede delegar permisos desde su panel.',403);
  if(path==='/commerce/team/responsables'){
   if(request.method!=='POST')throw httpError('Método no permitido.',405);
@@ -13743,14 +14078,12 @@ async function ownerTeamRoute159(ctx){
   return json(await saveAdvertiserRelation155({db,env,auth:{sid:session.sid,owner:true},aid,body}));
  }
  if(request.method!=='GET')throw httpError('Método no permitido.',405);
- if(path==='/commerce/team/search'){
-  const q=String(url.searchParams.get('q')||'').trim().toLowerCase();if(!q)throw httpError('Escribí el correo electrónico de la persona.',400);
-  const index=await cache.get(ADMIN_SUBSCRIBERS_KEY);if(!Array.isArray(index?.results))throw httpError('El catálogo de usuarios no está disponible.',503);
-  return json({success:true,results:index.results.filter(r=>(String(r.mail||'').trim().toLowerCase()===q||String(r.suscriptor_id||r.id).toLowerCase()===q)&&r.activo!==false).slice(0,1).map(r=>({suscriptor_id:String(r.suscriptor_id||r.id),nombre:String(r.nombre||''),mail:String(r.mail||'')}))});
- }
- const relations=await (db.cachedAdvertiserRelations104?db.cachedAdvertiserRelations104(aid):db.queryEqual('suscriptor_anunciante','anunciante_id',aid,500));
+ if(path==='/commerce/team/search')return json(await findSubscriberForRelation155(cache,url.searchParams.get('q')));
+ const {fence,rows:relations}=await ownershipSnapshot155(db,aid);
+ const owners=activeOwners155(relations);
+ if(owners.length!==1||String(owners[0].suscriptor_id)!==String(session.sid))throw httpError('La titularidad no está vigente o requiere revisión.',409);
  const rows=await Promise.all(relations.map(async row=>({...publicRelation155(row),persona:contactSummary159(await db.cachedSubscriberProjection(row.suscriptor_id),row.suscriptor_id),revision:await wholeRevisionInternal(row)})));
- const admin=await (db.panelAdministration?db.panelAdministration(aid):db.get('anunciantes_administracion',aid));
+ const admin=fence.doc;
  return json({success:true,results:rows,revision_nueva:await wholeRevisionInternal({}),funcionalidades:[...new Set((Array.isArray(admin?.funcionalidades)?admin.funcionalidades:String(admin?.funcionalidades||'').split(/[;,|\n]/)).concat(['PUBLICIDAD','EMPLEO']).map(x=>String(x).trim().toUpperCase()).filter(Boolean))]});
 }
 export { publicFeatures191, publicSchema191, PUBLIC_FEATURES191, syncEmpleo109, publicityWindow191 };
