@@ -4,12 +4,14 @@ import {readdir,readFile,appendFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createRequire} from 'node:module';
+import {isDeepStrictEqual} from 'node:util';
 
 const site='sites/anunciantes-guialocal';
 const api='https://firebasehosting.googleapis.com/v1beta1/';
 const packageRoot='/plataforma/paquetes-ciudad/';
 const manifestPath=packageRoot+'publicacion.json';
 const isPublishedData=path=>path.startsWith(packageRoot)||path==='/plataforma/territorio-cache.js';
+const isSeo=path=>path.startsWith('/seo/')||path==='/sitemap.xml'||path==='/robots.txt';
 
 export function servingConfig({cleanUrls,headers=[],redirects=[],rewrites=[],...other}){
   if(Object.keys(other).some(key=>!['public','ignore'].includes(key)))throw Error('Configuración Hosting fuera del contrato del publicador.');
@@ -34,9 +36,10 @@ async function stagePaths(stage,dir=''){
 }
 
 export async function deployHosting({stage,mode,token,read=fetch,target,expected,baseIndex,overlayPaths,observe=()=>{}}){
-  if(!['code','urgent','inspect','rollback','rollback-check','overlay'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
+  if(!['code','seo','urgent','watermark','inspect','rollback','rollback-check','overlay'].includes(mode)||!token)throw Error('Falta modo o autorización de Hosting.');
   const rollback=mode==='rollback'||mode==='rollback-check';
   const overlay=mode==='overlay';
+  const seo=mode==='seo';
   const metrics={requests:0,requestBodyBytes:0,responseBodyBytes:0,uploadBytes:0};
   const call=async(path,{method='GET',body,bytes}={})=>{
     const url=new URL(path,api);
@@ -86,6 +89,13 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
       throw Error('Cambió el índice de Hosting. Prepará las diferencias sobre la edición vigente.');
     }
   }
+  if(seo){
+    const response=await read(new URL('https://anunciantes-guialocal.web.app/plataforma/territorio-cache.js'),{
+      method:'HEAD',redirect:'error',signal:AbortSignal.timeout(30000),headers:{'Cache-Control':'no-cache','Accept-Encoding':'identity'},
+    });
+    if(!baseIndex?.territoryEtag||!response.ok||response.headers.get('etag')!==baseIndex.territoryEtag)
+      throw Error('Cambió el catálogo territorial durante la preparación SEO.');
+  }
   const previous=await listFiles(active);
   if(mode==='inspect')return {version:active,files:previous.size,packages:[...previous.keys()].filter(path=>path.startsWith(packageRoot)).length,metrics};
   const activate=async version=>{
@@ -106,8 +116,15 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
   }
   const staged=await stagePaths(stage);
   const changed=new Map(), result=new Map();
-  const urgent=mode==='urgent';
+  const watermark=mode==='watermark',urgent=mode==='urgent'||watermark;
   const files=staged;
+  if(mode==='code'&&files.some(isSeo))throw Error('La publicación de plataforma no incluye archivos SEO.');
+  if(seo&&(!baseIndex?.etag||!files.includes('/sitemap.xml')||!files.includes('/robots.txt')||files.some(path=>!isSeo(path))))
+    throw Error('El bloque SEO no corresponde al índice publicado o incluye archivos ajenos.');
+  if(seo)for(const [path,hash] of previous)if(!isSeo(path))result.set(path,hash);
+  if(mode==='code')for(const [path,hash] of previous)
+    if(isSeo(path)||path.startsWith('/__/firebase/')||path.startsWith('/plataforma/assets/app/'))result.set(path,hash);
+  if(watermark&&(!baseIndex?.etag||files.length!==1||files[0]!==manifestPath))throw Error('La confirmación sin cambios sólo admite el índice vinculado a la edición activa.');
   if(overlay){
     const allowed=new Set(overlayPaths);
     if(!files.length||allowed.size!==files.length||files.some(path=>!allowed.has(path)||path.startsWith(packageRoot)||path==='/plataforma/territorio-cache.js')){
@@ -116,12 +133,17 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
     for(const [path,hash] of previous)result.set(path,hash);
   }
   if(urgent&&files.some(path=>!path.startsWith(packageRoot)))throw Error('La publicación urgente incluye archivos ajenos a los paquetes.');
-  if (urgent) for(const [path,hash] of previous) if(!path.startsWith(packageRoot))result.set(path,hash);
-  if(!overlay&&!files.includes(manifestPath)){
+  if (urgent) for(const [path,hash] of previous) if(watermark||!path.startsWith(packageRoot))result.set(path,hash);
+  if(!overlay&&!seo&&!files.includes(manifestPath)){
     if(urgent)throw Error('Falta la edición urgente preparada.');
     if(previous.has(manifestPath))throw Error('El despliegue perdería el índice de paquetes vigente.');
-  }else if(!overlay){
+  }else if(!overlay&&!seo){
     const book=JSON.parse(await readFile(join(stage,manifestPath),'utf8'));
+    if(watermark){
+      const contentHash=createHash('sha256').update(JSON.stringify({manifest:book.manifest,schema:book.schema})).digest('hex');
+      if(contentHash!==baseIndex.contentHash||!Number.isSafeInteger(baseIndex.cutoff)||!Number.isSafeInteger(book.cutoff)||book.cutoff<=baseIndex.cutoff)
+        throw Error('El índice de vigencia cambió el contenido o no avanzó el corte.');
+    }
     const expected=new Set([manifestPath]);
     for(const {key,revision,deltas} of Object.values(book.manifest)){
       for(const path of [packageRoot+key+'/completo-'+revision+'.json',...deltas.map(from=>packageRoot+key+'/cambios-'+from+'-'+revision+'.json')]){
@@ -139,11 +161,14 @@ export async function deployHosting({stage,mode,token,read=fetch,target,expected
     result.set(path,hash);
     changed.set(hash,bytes);
   }
-  if(urgent&&result.size===previous.size&&[...result].every(([path,hash])=>previous.get(path)===hash)){
+  const filesUnchanged=result.size===previous.size&&[...result].every(([path,hash])=>previous.get(path)===hash);
+  if((urgent||seo)&&filesUnchanged){
     return {previous:active,version:active,metrics};
   }
-  const config=urgent||overlay?(await call(active)).config:servingConfig(JSON.parse(await readFile('firebase.json','utf8')).hosting);
+  const config=urgent||overlay||seo?(await call(active)).config:servingConfig(JSON.parse(await readFile('firebase.json','utf8')).hosting);
   if(!config)throw Error('Falta la configuración de la edición activa.');
+  if(mode==='code'&&filesUnchanged&&isDeepStrictEqual(config,(await call(active)).config))
+    return {previous:active,version:active,metrics};
   const {name}=await call(site+'/versions',{method:'POST',body:{config}});
   if(!name?.startsWith(site+'/versions/'))throw Error('Firebase devolvió una versión inválida.');
   const entries=[...result];
