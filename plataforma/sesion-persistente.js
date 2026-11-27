@@ -28,9 +28,11 @@
   if(sent!==old){if(sent)headers.set('Authorization','Bearer '+sent);else headers.delete('Authorization');}
   const sessionKey=requestKind&&sent&&read(keys[requestKind])===sent?keys[requestKind]:null;
   const method=String(options?.method||(input instanceof Request?input.method:'GET')).toUpperCase();
+  const commerceProfile=method==='GET'&&url.pathname==='/commerce'&&url.searchParams.get('action')==='anunciante';
   let r;
   for(let attempt=0;;attempt++){
    r=await nativeFetch(input,{...options,headers});
+   if(commerceProfile&&sessionKey&&read(sessionKey)!==sent)throw new DOMException('Cambió la sesión','AbortError');
    if(method!=='GET'||r.status!==503||attempt>=5)break;
    const pending=await r.clone().json().catch(()=>null);
    if(pending?.code!=='COMMERCE_COPY_PREPARING')break;
@@ -41,7 +43,10 @@
     const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},Math.min(5000,1000*2**attempt));
     signal?.addEventListener('abort',abort,{once:true});
    });
-   if(sessionKey&&read(sessionKey)!==sent)return r;
+   if(sessionKey&&read(sessionKey)!==sent){
+    if(commerceProfile)throw new DOMException('Cambió la sesión','AbortError');
+    return r;
+   }
   }
   // Una concesión temporal del panel administrativo nunca debe renovar ni
   // sustituir el token de la sesión personal guardada en este navegador.

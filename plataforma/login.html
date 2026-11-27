@@ -9410,15 +9410,19 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
 
   async function loadCommerceUI(){
     if(!sesion || !sesion.id) return false;
+    const panelSession=sesion;
 
     const box=document.getElementById('campos-datos-comercio');
     if(box) box.innerHTML='<div class="small-muted">Cargando datos...</div>';
 
-    const url = `${WORKER_ORIGIN}/commerce?action=anunciante&id=${encodeURIComponent(sesion.id)}`;
+    const url = `${WORKER_ORIGIN}/commerce?action=anunciante&id=${encodeURIComponent(panelSession.id)}`;
 
     try{
       const r = await fetch(url, { method:'GET', mode:'cors', headers:gldAuthHeaders_() });
+      const responseToken=gldPanelStorage.getItem(SUSCRIPTOR_TOKEN_KEY);
+      const stillCurrent=()=>sesion===panelSession&&gldPanelStorage.getItem(SUSCRIPTOR_TOKEN_KEY)===responseToken;
       const rawResponse = await r.json().catch(()=>({ error:'Respuesta inválida'}));
+      if(!stillCurrent())return false;
 
       if(rawResponse.error || rawResponse.success===false){
         if(box) box.innerHTML = `<b>Error:</b> ${htmlEscape(rawResponse.error || rawResponse.message || 'No se pudieron cargar los datos')}`;
@@ -9429,12 +9433,13 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
         ? rawResponse.advertiser
         : rawResponse;
       const datos = rawDatos.datos || rawDatos.data || rawDatos;
-      commerceSharedNetworksAvailable=rawDatos.redes_web_comunes_disponible===true;
       const administracion = rawDatos.administracion || {};
       const clasificacion = rawDatos.clasificacion || {};
       const sedes = Array.isArray(rawDatos.sedes) ? rawDatos.sedes : [];
 
       const territorio=await gldTerritoryPublic_();
+      if(!stillCurrent())return false;
+      commerceSharedNetworksAvailable=rawDatos.redes_web_comunes_disponible===true;
       currentCommerceSedes = sedes;
       commerceRevisionsInternal={id:String(rawDatos.id||sesion?.id||''),datos:rawDatos.revision_datos||'',sedes:rawDatos.revision_sedes||{}};
       commerceCatalogs = {
@@ -9474,6 +9479,7 @@ document.getElementById('promo-refresh')?.addEventListener('click',async()=>{
       commerceBeginEditSession_();
       return true;
     }catch(err){
+      if(sesion!==panelSession||err?.name==='AbortError')return false;
       console.error('Error cargando Modificar datos:',err);
       if(box) box.innerHTML = '<b>Error al cargar los datos del anunciante.</b>';
       return false;
