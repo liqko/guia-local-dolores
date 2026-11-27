@@ -8029,7 +8029,8 @@ async function resolvePendingV2({ db, cache, auth, tipo, id: id4, decision, nive
     return { success: true, tipo: kind, id: itemId, decision: dec, estado: saved.estado };
   }
   if (kind === "ANUNCIANTE") {
-    const req = await db.get("solicitudes_anunciante", itemId);
+    const reqVersion = await db.getVersioned("solicitudes_anunciante", itemId);
+    const req = reqVersion.doc;
     if (!req) throw new Error("Solicitud de anunciante no encontrada.");
     if (text75(req.estado).toUpperCase() !== "PENDIENTE") throw new Error("La solicitud ya fue resuelta.");
     const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -8093,23 +8094,9 @@ async function resolvePendingV2({ db, cache, auth, tipo, id: id4, decision, nive
     } else {
       throw new Error("Tipo de solicitud inválido.");
     }
-    const relId = sid + "__" + aid;
-    await db.patch("suscriptor_anunciante", relId, {
-      relacion_id: relId,
-      suscriptor_id: sid,
-      anunciante_id: aid,
-      rol: "PROPIETARIO",
-      activo: true,
-      fecha_alta: now,
-      actualizado: now
-    });
-    await db.patch("solicitudes_anunciante", itemId, {
-      estado: "APROBADA",
-      anunciante_id: aid,
-      moderado_por: text75(auth.sid),
-      moderado_en: now,
-      actualizado_en: now
-    }, { mustExist: true });
+    const approvalPatch = {estado:"APROBADA",anunciante_id:aid,moderado_por:text75(auth.sid),moderado_en:now,actualizado_en:now};
+    if(!reqVersion.updateTime)throw httpError("Falta la revisión de la solicitud.",409);
+    await commitOwnership155({db,aid,sid,actor:auth.sid,extra:[{collection:"solicitudes_anunciante",id:itemId,before:req,patch:approvalPatch,options:{updateTime:reqVersion.updateTime}}]});
     if (modo === "CREAR") {
       await Promise.all([
         syncGuideAdvertiserV2({ db, cache, advertiserId: aid }),
@@ -9684,7 +9671,8 @@ async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision,
     };
   }
   if (kind === "ANUNCIANTE") {
-    const req = await db.get("solicitudes_anunciante", itemId);
+    const reqVersion = await db.getVersioned("solicitudes_anunciante", itemId);
+    const req = reqVersion.doc;
     if (!req) throw new Error("Solicitud de anunciante no encontrada.");
     assertAdminCityV71(auth,req);
     if (text82(req.estado).toUpperCase() !== "PENDIENTE") throw new Error("La solicitud ya fue resuelta.");
@@ -9758,25 +9746,10 @@ async function resolvePendingV3({ db, cache, env, auth, tipo, id: id4, decision,
     } else {
       throw new Error("Tipo de solicitud inválido.");
     }
-    const relId = sid + "__" + aid;
-    await db.patch("suscriptor_anunciante", relId, {
-      relacion_id: relId,
-      suscriptor_id: sid,
-      anunciante_id: aid,
-      rol: "PROPIETARIO",
-      activo: true,
-      fecha_alta: now,
-      actualizado: now
-    });
-    await revokeSubscriberSessions(env,sid);
-    const savedReq = await db.patch("solicitudes_anunciante", itemId, {
-      estado: "APROBADA",
-      anunciante_id: aid,
-      moderado_por: text82(auth.sid),
-      verificacion_titularidad:modo==="RECLAMAR"?String(verificacion).trim():"",
-      moderado_en: now,
-      actualizado_en: now
-    }, { mustExist: true });
+    const approvalPatch = {estado:"APROBADA",anunciante_id:aid,moderado_por:text82(auth.sid),verificacion_titularidad:modo==="RECLAMAR"?String(verificacion).trim():"",moderado_en:now,actualizado_en:now};
+    if(!reqVersion.updateTime)throw httpError("Falta la revisión de la solicitud.",409);
+    await commitOwnership155({db,aid,sid,actor:auth.sid,extra:[{collection:"solicitudes_anunciante",id:itemId,before:req,patch:approvalPatch,options:{updateTime:reqVersion.updateTime}}]});
+    const savedReq = {...req,...approvalPatch,id:itemId};
     if (modo === "CREAR") {
       await Promise.all([
         syncGuideAdvertiserV2({ db, cache, advertiserId: aid }),
@@ -11268,7 +11241,7 @@ async function routePublicationsV77(ctx){
  const admin=await db.patch('anunciantes_administracion',aid,{id:aid,aprobado:true,nivel:'',subnivel:'',funcionalidades:[],creado_en:now,actualizado_en:now},{newDocument:true});
  const savedSedes=[];
  for(const sede of sedeRows)savedSedes.push(await db.patch('anunciantes_sedes',sede.sede_id,sede,{newDocument:true}));
- await db.patch('suscriptor_anunciante',s.sid+'__'+aid,{relacion_id:s.sid+'__'+aid,suscriptor_id:s.sid,anunciante_id:aid,anunciante_nombre:advertiser.nombre,rol:'PROPIETARIO',activo:true,fecha_alta:now},{newDocument:true});
+ await commitOwnership155({db,aid,sid:s.sid,actor:s.sid,advertiserName:advertiser.nombre});
  if(db.rememberPanelRows){db.rememberPanelRows('anunciantes',[advertiser]);db.rememberPanelRows('anunciantes_administracion',[admin]);db.rememberPanelRows('anunciantes_sedes',savedSedes);}
  const createdDb={...db,queryEqual:(collection,field,value,limit)=>collection==='anunciantes_sedes'&&field==='anunciante_id'&&String(value)===aid?Promise.resolve(savedSedes):db.queryEqual(collection,field,value,limit)};
  await syncGuideAdvertiserV2({db:createdDb,cache,advertiserId:aid});
@@ -13738,7 +13711,7 @@ async function verifyAdminPanel155(env,request,p){
 }
 function publicRelation155(row){return {id:String(row.id||row.relacion_id||row.suscriptor_anunciante_id||''),suscriptor_id:String(row.suscriptor_id||''),anunciante_id:String(row.anunciante_id||''),rol:String(row.rol||''),permisos:String(row.permisos||''),permisos_definidos:row.permisos_definidos===true,activo:truthy(row.activo)};}
 // Ownership changes share the existing administration document as a CAS fence.
-async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],expectedRevision}){
+async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],expectedRevision,advertiserName}){
  const fence=await db.getVersioned('anunciantes_administracion',aid);
  if(!fence.doc||!fence.updateTime)throw httpError('Falta la revisión administrativa del anuncio.',409);
  const rows=await db.queryEqual('suscriptor_anunciante','anunciante_id',aid,501);
@@ -13761,7 +13734,7 @@ async function commitOwnership155({db,env,aid,sid,actor,active=true,extra=[],exp
  if(v.doc&&(String(v.doc.suscriptor_id)!==sid||String(v.doc.anunciante_id)!==aid))throw httpError('Vínculo inconsistente.',409);
  if(previous&&!v.doc)throw httpError('Cambió el vínculo. Reintentá.',409);
  if(expectedRevision!==undefined&&expectedRevision!==await wholeRevisionInternal(v.doc||{}))throw httpError('Los permisos cambiaron. Volvé a abrir la ficha.',409);
- const patch={relacion_id:id,suscriptor_id:sid,anunciante_id:aid,rol:'PROPIETARIO',activo:active,permisos:'',permisos_definidos:false,actualizado:now,actualizado_por:actor,...(!v.doc?{fecha_alta:now}:{})};
+ const patch={relacion_id:id,suscriptor_id:sid,anunciante_id:aid,rol:'PROPIETARIO',activo:active,...(advertiserName?{anunciante_nombre:advertiserName}:{}),permisos:'',permisos_definidos:false,actualizado:now,actualizado_por:actor,...(!v.doc?{fecha_alta:now}:{})};
  if(v.doc&&v.doc.activo===active&&roleName159(v.doc.rol)==='PROPIETARIO'&&!affected.length&&!extra.length)return {success:true,updated:false,relacion:publicRelation155(v.doc),revision:await wholeRevisionInternal(v.doc)};
  entries.push({collection:'suscriptor_anunciante',id,before:v.doc,patch,options:v.doc?{updateTime:v.updateTime}:{mustNotExist:true}});
  entries.push({collection:'anunciantes_administracion',id:aid,before:fence.doc,patch:{revision_titularidad:crypto.randomUUID()},options:{updateTime:fence.updateTime}});
@@ -13792,7 +13765,7 @@ async function saveAdvertiserRelation155({db,env,auth,aid,body}){
  if(perms.some(x=>!allowed.includes(x)))throw httpError('Solo se pueden delegar funciones disponibles para este anunciante.',400);
  const next={suscriptor_id:sid,anunciante_id:aid,anunciante_nombre:String(advertiser.nombre||aid),rol:role,permisos:perms.join(', '),permisos_definidos:role!=='PROPIETARIO',activo:body.activo};
  if(current.doc&&Object.entries(next).every(([k,v])=>current.doc[k]===v))return {success:true,updated:false,relacion:publicRelation155({...current.doc,id}),revision:await wholeRevisionInternal(current.doc)};
- if(role==='PROPIETARIO'){if(!isTopAdmin(auth))throw httpError('Sin autorización de titularidad.',403);return commitOwnership155({db,env,aid,sid,actor:auth.sid,active:body.activo,expectedRevision:body.revision});}
+ if(role==='PROPIETARIO'){if(!isTopAdmin(auth))throw httpError('Sin autorización de titularidad.',403);return commitOwnership155({db,env,aid,sid,actor:auth.sid,active:body.activo,advertiserName:advertiser.nombre,expectedRevision:body.revision});}
  // The centralized relation mutation now revokes before and after its write.
  const saved=await db.patch('suscriptor_anunciante',id,{...next,relacion_id:id,actualizado_en:new Date().toISOString(),actualizado_por:auth.sid},{...(current.doc?{mustExist:true,updateTime:current.updateTime}:{newDocument:true,mustNotExist:true}),subscriberId:sid});
  return {success:true,updated:true,relacion:publicRelation155({...saved,id}),revision:await wholeRevisionInternal(saved),message:'Permisos guardados. El usuario debe volver a iniciar sesión.'};
