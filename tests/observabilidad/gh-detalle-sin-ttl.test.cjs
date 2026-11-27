@@ -16,7 +16,7 @@ function setup(existingStore=null){
   withPrivateCacheV46:db=>db,withAuthCacheV58:db=>db,
   withPanelCacheV48:db=>({...db,flushLoginCache:async()=>{}}),
   consumption136:()=>({}),
-  advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build};}
+  advertiserDetailV2:async({advertiserId})=>{calls.build++;return {success:true,id:advertiserId,revision:calls.build,revision_titularidad:''};}
  };
  vm.createContext(ctx);
  const version=source.match(/^const WORKER_VERSION = .*;$/m)?.[0];
