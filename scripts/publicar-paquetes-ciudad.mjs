@@ -17,7 +17,11 @@ async function readJson(read, url, {allowMissing, observe=()=>{}, capture=()=>{}
     responseBodyBytes:Buffer.byteLength(raw)});
   capture(response);
   if (response.status === 404 && allowMissing) return null;
-  if (!response.ok) throw Error('No se pudo completar la publicación (' + response.status + ')');
+  if (!response.ok) {
+    let detail='';
+    try { const parsed=JSON.parse(raw); if(typeof parsed?.message==='string') detail=parsed.message.replace(/[\r\n]/g,' ').slice(0,300); } catch {}
+    throw Error('No se pudo completar la publicación ('+response.status+') en '+target.pathname+(detail?': '+detail:''));
+  }
   return JSON.parse(raw);
 }
 
