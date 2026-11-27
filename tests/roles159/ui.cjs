@@ -33,6 +33,26 @@ async function make(admin,deliver=true){
  const g=gh.window;g.eval('var GH_ADMIN_ACCESS={rol:"SUPERADMIN_PRINCIPAL"};'+fs.readFileSync(path.join(root,'plataforma/accesos155.js'),'utf8'));g.ghGoView=()=>{};g.detalleSus=()=>{};g.detalleAnu=async()=>{};g.ghAdminRequest_=async(path,body)=>{g.saved={path,body};return {success:true};};
  g.ghRenderAdvertiserAccess155({propietarios:[{nombre:'Diego',mail:'titular@test.invalid',whatsapp:'123'}],relaciones:[{suscriptor_id:'S',rol:'PROPIETARIO'}],revision_vinculo_nuevo:'new'},'A');
  assert(g.document.getElementById('ghOpenPanel155'));assert(g.document.getElementById('detalle').textContent.includes('Diego · titular@test.invalid'));assert(!g.document.querySelector('input,select,form'));assert(!g.document.getElementById('detalle').textContent.includes('Recuperar acceso'));assert(!g.document.getElementById('detalle').textContent.includes('coadministrador'));
+ // Current GH controls are offered only after the Worker advertises the ownership revision.
+ g.document.getElementById('detalle').replaceChildren();
+ const ownershipData={propietarios:[{suscriptor_id:'S',nombre:'Titular actual',mail:'titular@test.invalid'}],relaciones:[{suscriptor_id:'S',rol:'PROPIETARIO',activo:true,revision:'owner-rev'},{suscriptor_id:'M',rol:'MANAGER',activo:true,revision:'manager-rev'}],revision_vinculo_nuevo:'new-rev',revision_titularidad:'ownership-rev'};
+ let confirms=0,reloads=[],ownershipRequests=[];
+ g.confirm=()=>{confirms++;return true;};g.detalleAnu=async id=>{reloads.push(id);};
+ g.ghAdminRequest_=async(path,body,method)=>{ownershipRequests.push({path,body,method});if(method==='POST')return {success:true};return {success:true,results:[{suscriptor_id:'M',nombre:'Manager',mail:'manager@test.invalid'}]};};
+ g.ghRenderAdvertiserAccess155(ownershipData,'A');
+ const ownershipCard=g.document.querySelector('.gh-access155'),ownershipSearch=ownershipCard.querySelector('input[type=email]');
+ assert(ownershipSearch);assert(ownershipCard.textContent.includes('Administrar titularidad'));assert.equal(ownershipRequests.length,0,'no lookup before action');
+ ownershipSearch.value='manager@test.invalid';[...ownershipCard.querySelectorAll('button')].find(x=>x.textContent==='Buscar usuario').click();await wait(10);
+ const assign=[...ownershipCard.querySelectorAll('button')].find(x=>x.textContent.startsWith('Asignar titularidad a'));assert(assign);assign.click();await wait(10);
+ assert.equal(ownershipRequests[0].path,'/advertisers/A/responsables');assert.equal(ownershipRequests[0].body.q,'manager@test.invalid');
+ assert.equal(ownershipRequests[1].method,'POST');assert.deepEqual(JSON.parse(JSON.stringify(ownershipRequests[1].body)),{suscriptor_id:'M',rol:'PROPIETARIO',activo:true,revision:'manager-rev',revision_titularidad:'ownership-rev'});assert.deepEqual(reloads,['A']);assert.equal(confirms,1);
+ [...ownershipCard.querySelectorAll('button')].find(x=>x.textContent==='Revocar titularidad').click();await wait(10);
+ assert.equal(ownershipRequests.at(-1).body.activo,false);assert.equal(ownershipRequests.at(-1).body.suscriptor_id,'S');assert.equal(ownershipRequests.at(-1).body.revision,'owner-rev');
+ // Cancellation and stale view never write to a different advertiser.
+ const count=ownershipRequests.length;g.confirm=()=>false;assign.click();await wait(10);assert.equal(ownershipRequests.length,count);
+ g.document.getElementById('detalle').replaceChildren();g.ghRenderAdvertiserAccess155(ownershipData,'B');g.confirm=()=>true;assign.click();await wait(10);assert.equal(ownershipRequests.length,count);
+ g.document.getElementById('detalle').replaceChildren();g.eval("GH_ADMIN_ACCESS={rol:'ADMIN_LOCAL'}");g.ghRenderAdvertiserAccess155(ownershipData,'A');assert.equal(g.document.getElementById('detalle').children.length,0);
+ g.eval("GH_ADMIN_ACCESS={rol:'SUPERADMIN_PRINCIPAL'}");
  // Waiting for a GH handoff never offers or submits the personal password form.
  const pending=await make(true,false);assert(pending.dom.window.document.getElementById('panel-acceso-administrativo').classList.contains('active'));assert(!pending.dom.window.document.getElementById('panel-login').classList.contains('active'));
  const pendingBefore=pending.requests.length;pending.dom.window.document.getElementById('login-form').dispatchEvent(new pending.dom.window.Event('submit',{bubbles:true,cancelable:true}));await wait(10);assert.equal(pending.requests.length,pendingBefore);
