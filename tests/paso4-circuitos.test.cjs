@@ -77,15 +77,16 @@ test('P4-0009: no se reescribe KV público si Promociones no cambia; sí ante ca
 test('P4-0010: ficha de Guía apunta al módulo real de Actividades publicado por Hosting',()=>{
   const guide=fs.readFileSync(path.join(__dirname,'../plataforma/anunciantes.html'),'utf8');
   const hosting=JSON.parse(fs.readFileSync(path.join(__dirname,'../firebase.json'),'utf8'));
-  assert.match(guide,/const ACTIVIDADES_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/actividades\.html';/);
-  assert.match(guide,/const EVENTS_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/eventos\.html';/);
-  assert.match(guide,/const PROMOS_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/promos\.html';/);
+  assert.match(guide,/const ACTIVIDADES_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/actividades';/);
+  assert.match(guide,/const EVENTS_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/eventos';/);
+  assert.match(guide,/const PROMOS_PAGE_URL = 'https:\/\/guialocal\.ar\/plataforma\/promos';/);
   assert(fs.existsSync(path.join(__dirname,'../plataforma/eventos.html')));
   assert(fs.existsSync(path.join(__dirname,'../plataforma/promos.html')));
   assert(!hosting.hosting.rewrites.some(x=>['/eventos/','/promos/'].includes(x.source)));
   assert.match(guide,/renderActividadesActivasButton\(item\)/);
   assert.match(guide,/destino\.searchParams\.set\('anunciante_id',ids\[0\]\)/);
   assert(fs.existsSync(path.join(__dirname,'../plataforma/actividades.html')));
+  assert.equal(hosting.hosting.cleanUrls,true);
   assert.equal(hosting.hosting.public,'hosting-public');
   assert(!hosting.hosting.rewrites.some(x=>x.source==='/actividades/'),'No existe rewrite para el enlace antiguo');
 });
