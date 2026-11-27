@@ -30,7 +30,6 @@
   const request=(async()=>{
    let profile=read(SESSION);
    if(profile&&String(profile.suscriptor_id)!==sid)profile=null;
-   if(profile?.activo===false)return selector();
    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),8000);
    try{
     const r=await fetch('https://login.liqkoargentina.workers.dev/suscriptores?action=perfil',{headers:{Authorization:'Bearer '+sent},signal:controller.signal});
@@ -38,13 +37,13 @@
     if(r.status>=400&&r.status<500)return selector();
     if(r.ok){
      const j=await r.json().catch(()=>null);
-     if(identity(token())!==sid||!j?.success||String(j.suscriptor?.suscriptor_id)!==sid)return selector();
+     if(token()!==sent||identity(sent)!==sid||!j?.success||String(j.suscriptor?.suscriptor_id)!==sid)return selector();
      profile={...profile,...j.suscriptor};
      if(profile.activo===false)return selector();
      try{localStorage.setItem(SESSION,JSON.stringify(profile));}catch{}
     }
    }catch{}finally{clearTimeout(timer);}
-   if(identity(token())!==sid)return selector();
+   if(token()!==sent||identity(sent)!==sid||profile?.activo===false)return selector();
    const context=read(CONTEXT);
    const city=String(profile?.ciudad_predeterminada_id||context?.ciudad_id||'').trim();
    // A city from a different browsing context must not supply the preferred city's labels or parents.
