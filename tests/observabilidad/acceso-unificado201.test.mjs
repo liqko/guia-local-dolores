@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {source} from './worker-source.mjs';
 import {accessBinding201} from './access-fixture201.mjs';
-const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {accessRecord201,subscriberSessionState,revokeSubscriberSessions,verifyAdminUncached138,verifySubscriberSessionRaw143,withAuthCacheV58,superadminLoginV2,issue2,issueSession,verifyAdminPanel155,routeDiagnosticsV87,changeSubscriberPasswordV2};\n//# sourceURL=worker-access-test.js').toString('base64'));
+const w=await import('data:text/javascript;base64,'+Buffer.from(source+'\nexport {accessRecord201,subscriberSessionState,revokeSubscriberSessions,verifyAdminUncached138,verifySubscriberSessionRaw143,verifyAdmin,verifySubscriberSession,withAuthCacheV58,superadminLoginV2,issue2,issueSession,verifyAdminPanel155,routeDiagnosticsV87,changeSubscriberPasswordV2};\n//# sourceURL=worker-access-test.js').toString('base64'));
 function setup(t){
  const raw=new Map(),gets=[],report={operations:{},kv:{get_calls:0,put_calls:0,delete_calls:0,list_calls:0,failures:0}};
  const env={SERVER_SECRET:'local-only-access-test',__gldRequestReport119:report,GLD_CACHE_KV:{get:async key=>{gets.push(key);return raw.get(key)||null;},put:async(key,v)=>raw.set(key,v),delete:async key=>raw.delete(key)}};
@@ -68,6 +68,22 @@ test('mismo estado de revocación para Usuario y acceso delegado de Anunciante',
  const h=setup(t),token=await w.issueSession(h.env,{sid:'P',sv:0,auth:[]});assert.equal((await w.verifySubscriberSessionRaw143(h.env,h.request(token))).ok,true);
  const delegated={sid:'P',aid:'A',exp:Date.now()+60000,admin_role:'SUPERADMIN_PRINCIPAL',sv:0};const req=new Request('https://fixture.invalid/commerce?anunciante_id=A');assert.equal((await w.verifyAdminPanel155(h.env,req,delegated)).ok,true);
  await w.revokeSubscriberSessions(h.env,'P');assert.equal((await w.verifySubscriberSessionRaw143(h.env,h.request(token))).ok,false);assert.equal((await w.verifyAdminPanel155(h.env,req,delegated)).ok,false);
+});
+test('P4-0024: la deduplicación de acceso conserva la revocación entre peticiones',async t=>{
+ const h=setup(t);
+ const subscriber=await w.issueSession(h.env,{sid:'S',sv:0,auth:[]});
+ const admin=await w.issue2(h.env,{sid:'A',rol:'SUPERADMIN_PRINCIPAL',persistent:true,sv:0});
+ for(const [sid,token,verify] of [['S',subscriber,w.verifySubscriberSession],['A',admin,w.verifyAdmin]]){
+  const initial=h.request(token),before=h.report.auth_store201?.calls??0;
+  const accepted=await Promise.all([verify(h.env,initial),verify(h.env,initial)]);
+  assert(accepted.every(access=>access.ok));
+  assert.equal(h.report.auth_store201.calls-before,1,'Dos verificaciones de la misma petición comparten una lectura de acceso');
+  await w.revokeSubscriberSessions(h.env,sid);
+  const next=h.request(token),after=h.report.auth_store201.calls;
+  const rejected=await Promise.all([verify(h.env,next),verify(h.env,next)]);
+  assert(rejected.every(access=>!access.ok),'La siguiente petición debe leer y aplicar la revocación');
+  assert.equal(h.report.auth_store201.calls-after,1);
+ }
 });
 test('caída del almacén unificado no permite acceso por el mecanismo antiguo',async t=>{
  const h=setup(t),token=await h.token();h.env.GLD_PUBLIC_CACHE.get=()=>({fetch:async()=>Response.json({error:'down'},{status:503})});await assert.rejects(w.verifyAdminUncached138(h.env,h.request(token)));assert.equal(h.gets.length,0);assert.equal(h.report.auth_store201.failures,1);
