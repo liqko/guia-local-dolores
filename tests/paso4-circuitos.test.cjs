@@ -25,6 +25,9 @@ test('P4-0035-T03: Inicio advierte si la copia está atrasada y distingue cero d
  assert.equal(status.atrasada,false);
  assert.match(status.textContent,/Copia diaria:/);
  assert.doesNotMatch(status.textContent,/Publicaciones:/);
+ ghMostrarVigenciaInicio195({preparado_en:'2026-11-28T04:21:00Z',corte:Date.parse('2026-11-28T04:00:00Z'),publicaciones_corte:Date.parse('2026-11-27T04:00:00Z')},true);
+ assert.equal(status.atrasada,true);
+ assert.match(status.textContent,/Publicaciones atrasadas: 27\/11\/2026/);
  ghMostrarIndicadoresInicio195({suscriptores:0,anunciantes:-1,ciudades:4,eventos_vip:0,eventos_free:'0',actividades:null});
  assert.deepEqual(['stSus','stAnu','stCiu','stEvtPub','stEvtFreePub','stActPub','stPub'].map(id=>nodes.get(id).textContent),[0,'—',4,0,'—','—','—']);
 });

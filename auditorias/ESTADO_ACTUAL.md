@@ -1,6 +1,6 @@
 ## Gran Hermano — continuidad e indicadores del Worker 220
 
-El Worker 219 leído de Cloudflare coincide con la fuente de main 73a8a9b4 tras normalizar líneas, SHA-256 de Git `9f1ff374273e6c7be1f7c5406430d8775da1a3bc328f29c043147932f137d602`. La entrega conserva esa fuente y las rutas de recuperación de main. Los cuatro indicadores se deduplican por identidad desde los paquetes preparados; el publicador confirma que sus revisiones corresponden al índice instalado. El coordinador SQLite guarda diferencias y sirve el resumen en el mismo Durable Object de Inicio, sólo al rol superior. Vigencia privada y de publicaciones se muestran por separado; cero confirmado se distingue de ausencia.
+El Worker 219 leído de Cloudflare coincide con la fuente de main 73a8a9b4 tras normalizar líneas, SHA-256 de Git `9f1ff374273e6c7be1f7c5406430d8775da1a3bc328f29c043147932f137d602`. La entrega conserva esa fuente y las rutas de recuperación de main. Los cuatro indicadores se deduplican por identidad desde los paquetes preparados; el publicador confirma que sus revisiones corresponden al índice instalado. El coordinador SQLite guarda diferencias y sirve el resumen en el mismo Durable Object de Inicio, sólo al rol superior. Vigencia privada y de publicaciones se muestran por separado, con alerta si los totales están atrasados; cero confirmado se distingue de ausencia.
 
 **Pruebas y consumo instrumentado.** 44 pruebas de copia, corte, paquetes y reversión, más 60 de circuitos y contratos, aprobadas. Dos aserciones estructurales previas de alta comercial se cotejaron contra el Worker instalado: ahora verifican que el alta de sedes y titular se confirma conjuntamente a través de su operación existente. Inicio con cuatro indicadores usa 1 llamada al DO de datos y 2 filas leídas (una para copia y una para resumen), 0 escrituras, 0 lecturas KV/Firestore ni nuevas solicitudes de navegador para esos indicadores. Primera confirmación instrumentada del corte: 1 llamada al coordinador y 2 filas escritas (marcador y resumen), 0 operaciones KV/Firestore en esa confirmación. Repetir la misma edición lee 1 fila, escribe 0 y descarga 0 paquetes. Si aún no existe resumen, se deriva de los paquetes vigentes; esa recuperación inicial no se atribuye al ingreso. CPU, duración, tráfico real y facturación pendientes después de la instalación.
 
@@ -9,16 +9,16 @@ El Worker 219 leído de Cloudflare coincide con la fuente de main 73a8a9b4 tras 
 | Ruta | Huella Git del contenido |
 | --- | --- |
 | `worker/worker206.txt` | `1a9cb9725ff18c90e8f2dd1556dab4d692b0255158bffdbd8d5f9bbacffa4607` |
-| `plataforma/administracion.html` | `1f47cbdb4a56fc62fa924788facb1aa1b343730d896914219a4ba8d22d7038f4` |
+| `plataforma/administracion.html` | `af357b1cdc57dfe467f76a6543ba3f7639e40499f80595cc2fdf5b05e5c54ce7` |
 | `scripts/aplicar-corte-paquetes-ciudad.mjs` | `d5d4e71544d2119a81fbdaabc42632341e76b5b93ac684435292dfad53161fc1` |
 | `scripts/publicar-paquetes-ciudad.mjs` | `dc4b7e7054351f5238cf757c71fc38b4874051ba9fdc2b3796b06e1002aa37a6` |
 | `.github/workflows/firebase-hosting-merge.yml` | `3304ad9519a3e85fe22c1ba3c3d27f256a82f67282e45f6b6e8d49a2823052a3` |
 | `tests/observabilidad/corte-ciudad.test.mjs` | `70e4ed44f7723a027b10a8b3848c3c544c088a50da5280bba55ece77e92d8126` |
 | `tests/observabilidad/suscriptores-diario195.test.mjs` | `757d780fcef524912c528e789b56bff47709c436b95285862903e83cd3e3bbc3` |
-| `tests/paso4-circuitos.test.cjs` | `a2d65cf96aa1c9f0c3f453d4913b051c38148bc22e7fcad6e27a37baab4585af` |
+| `tests/paso4-circuitos.test.cjs` | `23a2d3081bea71fd13768dc3a5db1863938305b9ea775a69d361f006c5dbf72b` |
 | `tests/publicacion-reglas206.test.cjs` | `c7f94d68a35a5a62dc289eb98f034bed8ba0967d36a302f50018db6cda4b46f1` |
 
-**Overlay exacto de Hosting** sobre 997b1c28c49b3ce1: un archivo, `/plataforma/administracion.html`. SHA-256 anterior `81de69481030c013cce11c115030aec6e52644866e5f2b5b5d46e64866b6915d`, candidato `eea57ee55b086845334eb407fd9575a5ab2264674e4a81ce6023ec828ce9cfaa`. Se aplica sólo la alerta y representación de Inicio a la página servida; sus referencias a scripts y huellas se conservan. El SHA del archivo de fuente de audit puede diferir de este HTML ya empaquetado.
+**Overlay exacto de Hosting** sobre 997b1c28c49b3ce1: un archivo, `/plataforma/administracion.html`. SHA-256 anterior `81de69481030c013cce11c115030aec6e52644866e5f2b5b5d46e64866b6915d`, candidato `eff9b486a6a87b772ce4aad77cd20a21cca6318bfe079a42f83bb04e982c2a24`. Se aplica sólo la alerta y representación de Inicio a la página servida; sus referencias a scripts y huellas se conservan. El SHA del archivo de fuente de audit puede diferir de este HTML ya empaquetado.
 
 **Instalación y reversión.** Antes de instalar, cotejar nuevamente versiones activas y guardar identificador de despliegue de Cloudflare 219. Con autorización, instalar el Worker completo y comprobar permisos y copia privada, integrar en main únicamente la generación y confirmación del resumen y publicar el overlay aislado. Confirmar los cuatro totales contra la edición publicada con la ruta existente, sin modificar paquetes para esta prueba. Ante regresión, restaurar el HTML de Administración sobre la edición vigente y reactivar el despliegue Worker anterior; restaurar el publicador anterior si corresponde. La tabla de resumen es aditiva y se conserva. Permanece pendiente de autorización; no se cambió el programador.
 
