@@ -11,6 +11,7 @@
 > - P4-0003 diagnosticada: el paquete público de Eventos no retira eventos por fecha; falta regla aprobada de vencimiento.
 > - P4-0015 y P4-0016: el código vigente ya no presenta los defectos históricos (alta de prestación y cupo -1); falta prueba con sesión.
 > - P4-0018: el código vigente limita niveles a 1–6 en GH y Worker; falta prueba con sesión.
+> - P4-0019: altas independientes de país, provincia y ciudad presentes en GH y Worker vigentes; falta prueba con sesión. Siguiente: P4-0007 (decisión) y P4-0003 (regla de vencimiento de eventos).
 > - Pendientes: instalación del Worker y publicación de `administracion.html` sólo con autorización; simulación productiva y comprobación con sesión omitidas por el usuario; regularización real NO autorizada. **Siguiente acción:** restantes intervenciones del Paso 4 por prioridad (seguridad, integridad, funcionamiento, costo).
 
 > **DEFINICIONES VIGENTES DEL DESARROLLO DE ANUNCIANTES (recuperadas por el usuario, 27/11/2026).** Rama `feature/anunciantes-titularidad-20261127`.
