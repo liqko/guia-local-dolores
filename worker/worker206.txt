@@ -1571,6 +1571,27 @@ function eventCities(event, programacion = []) {
   if (programacion.length) return [...new Set(programacion.filter((p) => p.activo !== false).map((p) => text7(p.ciudad_id || event.ciudad_id)).filter(Boolean))];
   return [text7(event.ciudad_id)].filter(Boolean);
 }
+// P4-0003: fin público de un evento (hora Argentina) = fin de su última función activa.
+// Una función cuyo horario de fin no supera al de inicio termina al día siguiente (cruza la medianoche).
+function eventPublicEnd206(row){
+ const day=/^\d{4}-\d{2}-\d{2}$/,hhmm=v=>{const m=text7(v).match(/^(\d{2}):(\d{2})/);return m?m[1]+':'+m[2]:'';};
+ let end=null;
+ for(const p of Array.isArray(row?.programacion)?row.programacion:[]){
+  if(!p||p.activo===false||!day.test(text7(p.fecha)))continue;
+  const desde=hhmm(p.hora_desde),hasta=hhmm(p.hora_hasta);
+  let t=Date.parse(text7(p.fecha)+'T'+(hasta||'23:59')+':59.999-03:00');
+  if(hasta&&desde&&hasta<=desde)t+=86400000;
+  if(Number.isFinite(t)&&(end===null||t>end))end=t;
+ }
+ if(end===null){const f=text7(row?.fecha_hasta||row?.fecha_desde||row?.fecha);if(day.test(f))end=Date.parse(f+'T23:59:59.999-03:00');}
+ return Number.isFinite(end)?new Date(end).toISOString():'';
+}
+// En el corte de las 01:00 se retiran los eventos finalizados antes del corte; los paneles conservan el registro.
+function eventActiveAt206(row,at){
+ if(!Number.isFinite(at))return true;
+ const end=eventPublicEnd206(row);
+ return !end||Date.parse(end)>=at;
+}
 function cityEvent(event, programacion, city) {
   const local = programacion.filter((p) => p.activo !== false && text7(p.ciudad_id || event.ciudad_id) === city);
   const dates = local.map((p) => text7(p.fecha)).filter(Boolean).sort();
@@ -1605,13 +1626,13 @@ async function syncEventV2({ db, cache, current = null, next = null, previousPro
   await putPreparedRelationsV1({ cache, type: "event", id: id4, next, data: programacion });
   return { success: true, ciudades_actualizadas: cities };
 }
-async function getEventsCityV2({ cache, cityId }) {
+async function getEventsCityV2({ cache, cityId, at = null }) {
   const city=text7(cityId);
   if(!city)return {success:false,message:'ciudad_id obligatorio',status:400};
   const [packet,virtual]=await Promise.all([cache.get(eventsCityKey(city)),city==='VIRTUAL'?Promise.resolve(null):cache.get(eventsCityKey('VIRTUAL'))]);
   const byId=new Map();
   for(const row of [...(packet?.events||packet?.eventos||[]),...(virtual?.events||virtual?.eventos||[])])byId.set(text7(row.evento_id||row.id),row);
-  return {success:true,...packet,ciudad_id:city,events:sort2(await GLD_EVENTS145.publicRows([...byId.values()],city,cache)),cold:!packet&&!virtual};
+  return {success:true,...packet,ciudad_id:city,events:sort2((await GLD_EVENTS145.publicRows([...byId.values()],city,cache)).filter(row=>eventActiveAt206(row,at))),cold:!packet&&!virtual};
 }
 async function rebuildEventsAllV2({ db, cache }) {
   const [events, programas] = await Promise.all([
@@ -1827,7 +1848,7 @@ async function routePublicV4({ path, request: request2, url, cache, cityBookCuto
     return out(await getPromosCity({ cache, cityId: city }));
   }
   if (path === "/events-new" && request2.method === "GET") {
-    const r = await getEventsCityV2({ cache, cityId: city });
+    const r = await getEventsCityV2({ cache, cityId: city, at: cityBookCutoff });
     if (r.status) return json(r, r.status);
     return publicJson({ success: true, events: r.events || [], data: r.events || [], ...r });
   }
@@ -12445,6 +12466,8 @@ async function exportCityBookCut({env,cache,after,cutoff,known,knownSchema,repor
      }
      if(key.startsWith('publicity:contract:v101:'))rememberValidity(value,name,city);
     }
+    // El corte siguiente al fin de cada evento vuelve a proyectar la ciudad y lo retira.
+    if(name==='events'&&definition?.module==='events')for(const row of value?.[definition.field]||[])rememberDate(eventPublicEnd206(row),name,city,true);
     return value;
    },
   };
