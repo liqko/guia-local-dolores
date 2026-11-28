@@ -2,7 +2,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const src=fs.readFileSync(path.join(__dirname,'../../worker/worker206.txt'),'utf8');
 const block=src.slice(src.indexOf('// Unidades 2 y 7: estado público del anunciante.'),src.indexOf('// Todo anunciante nuevo recibe el nivel 3'));
-const f=new Function(block+';return {advertiserValidityRules155,validityRule155,publicValidity155,validityOnOwner155,validityOnLevelChange155,validityOnContract155,validityRenew155,advertiserPublicState155,guideCardVisible155};')();
+const f=new Function(block+';return {advertiserValidityRules155,validityRule155,publicValidity155,validityOnOwner155,validityOnLevelChange155,validityOnContract155,validityRenew155,validityBeforeException155,advertiserPublicState155,guideCardVisible155};')();
 const at=Date.parse('2026-11-27T15:00:00Z'),today='2026-11-27',R=f.advertiserValidityRules155([]);
 const strip=o=>{const {vigencia_regla,...rest}=o||{};return rest;};
 test('las reglas salen del catálogo de niveles; los valores iniciales sólo cubren niveles sin regla guardada',()=>{
@@ -59,4 +59,14 @@ test('Gran Hermano usa las reglas resueltas por el Worker, sin duplicar valores'
  assert.match(html,/GH_VIGENCIAS155=j\.vigencia_reglas/);assert.match(html,/if\(j\.vigencias\)GH_VIGENCIAS155=j\.vigencias/);
  assert.doesNotMatch(html,/'DIAS',90|dias:90|dias:30/);
  assert.match(src,/vigencia_reglas: advertiserValidityRules155\(rows\)/);assert.match(src,/vigencias:advertiserValidityRules155\(packet\.catalogos\.niveles_anunciante\)/);
+});
+test('excepción con fecha sin pisar la vigencia; regla permanente renovable; recuperación sólo con evidencia',()=>{
+ assert.equal(f.publicValidity155({vigencia_hasta:'2026-12-01',vigencia_excepcion:{modo:'FECHA',hasta:'2027-03-01'}}),'2027-03-01');
+ const P=f.advertiserValidityRules155([{numero:3,vigencia_con_titular_modo:'PERMANENTE'}]);
+ assert.deepEqual(strip(f.validityRenew155({nivel:'3',con_titular:true,vigencia_hasta:'2026-10-01'},P,at)),{vigencia_desde:'',vigencia_hasta:''});
+ assert.equal(f.validityRenew155({nivel:'3',con_titular:true},P,at),null);
+ const exc={modo:'FECHA',hasta:'2027-03-01',en:'2026-11-20T10:00:00.000Z'};
+ assert.equal(f.validityBeforeException155({vigencia_hasta:'2027-03-01',vigencia_excepcion:exc,renovaciones:[{en:'2026-11-10T00:00:00.000Z',hasta:'2026-12-10'},{en:'2026-11-25T00:00:00.000Z',hasta:'2027-01-01'}]}),'2026-12-10');
+ assert.equal(f.validityBeforeException155({vigencia_hasta:'2027-03-01',vigencia_desde:'2026-11-01',vigencia_regla:{modo:'DIAS',dias:30,origen:'TITULAR',en:'2026-11-01T12:00:00.000Z'},vigencia_excepcion:exc}),'2026-12-01');
+ assert.equal(f.validityBeforeException155({vigencia_hasta:'2027-03-01',vigencia_excepcion:exc}),null,'sin evidencia no se inventa una fecha');
 });

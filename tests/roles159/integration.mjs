@@ -214,11 +214,16 @@ try{
   await assertStatus('admin','/superadmin/advertisers/create',{...body,nombre:''},400);
   await assertStatus('admin','/superadmin/advertisers/create',{...body,operacion_id:'1'},400);
   await assertStatus('admin','/superadmin/advertisers/create',{...body,suscriptor_id:'NO-EXISTE'},404);
+  await assertStatus('admin','/superadmin/advertisers/create',{...body,ciudad_id:'',direccion:'Calle 1'},400);
   assert.equal(rows.has('anunciantes/'+aid),false,'Un alta rechazada no deja registros');
   const created=await ok('admin','/superadmin/advertisers/create',body);
   assert.equal(created.j.anunciante_id,aid);assert.equal(created.j.updated,true);assert.equal(created.j.nivel,'3');
   assert.equal(rows.get('anunciantes_administracion/'+aid).nivel,'3');assert.equal(rows.get('anunciantes_administracion/'+aid).creado_por,'ADMIN');
   assert.equal(rows.get('anunciantes/'+aid).nombre,'Alta GH');
+  {const kv=k=>{const x=values.get(k);return typeof x==='string'?JSON.parse(x):x;},hasta=rows.get('anunciantes_administracion/'+aid).vigencia_hasta;assert.match(hasta,/^\d{4}-\d{2}-\d{2}$/);
+   assert.equal(kv('admin:index:advertisers:v2').results.find(r=>r.id===aid).vigencia_hasta,hasta,'el listado GH recibe la vigencia del alta');
+   const g=kv('guide:advertiser:v2:'+aid);if(g)assert.ok(g.cards.length&&g.cards.every(c=>c.vigente_hasta===hasta),'la tarjeta de Guía recibe la vigencia del alta');
+   assert.equal(created.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes_administracion').length,0,'proyección sin releer la ficha');}
   const owners=[...rows.values()].filter(r=>r.anunciante_id===aid&&r.rol==='PROPIETARIO'&&r.activo===true);assert.deepEqual(owners.map(r=>r.suscriptor_id),['X']);
   assert.equal([...rows.values()].filter(r=>r.anunciante_id===aid&&r.ciudad_id==='D'&&r.sede_id).length,1);
   const retry=await ok('admin','/superadmin/advertisers/create',body);
@@ -257,6 +262,9 @@ try{
    await act('admin','renovar',409);await act('owner','renovar',409);
    await assertStatus('owner','/commerce',{action:'set_actividad',advertiserId:aid,accion_actividad:'excepcion',excepcion_modo:'PERMANENTE',excepcion_motivo:'yo mismo'},400);
    const unex=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'quitar_excepcion'},200);assert.ok(!adm().vigencia_excepcion?.modo);assert.equal(unex.j.vigencia_hasta,adm().vigencia_hasta);
+   {const vBase=adm().vigencia_hasta,exF=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'excepcion',excepcion_modo:'FECHA',excepcion_hasta:'2099-01-01',excepcion_motivo:'Prórroga acordada'},200);
+    assert.equal(exF.j.vigencia_hasta,'2099-01-01');assert.equal(adm().vigencia_hasta,vBase,'la excepción con fecha no pisa la vigencia otorgada');
+    const unF=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'quitar_excepcion'},200);assert.equal(unF.j.vigencia_hasta,vBase,'quitar la excepción restaura la vigencia otorgada');assert.equal(adm().vigencia_hasta,vBase);}
    cat([]);
    const catUrl='/superadmin/catalogs/niveles_anunciante';
    const badMode=await as('admin',catUrl,{item:{nivel_id:'3',vigencia_con_titular_modo:'SEMANAL'}});assert.notEqual(badMode.r.status,200,'modo inválido rechazado');
@@ -268,11 +276,22 @@ try{
    await commercial('5');assert.equal(adm().nivel,'5');assert.equal(adm().vigencia_hasta,'2027-01-15','nivel por contratación: conserva la vigencia otorgada');assert.equal(adm().contratacion_actual,undefined,'cambiar de nivel no crea contrataciones');
    await commercial('3');assert.equal(adm().vigencia_desde,hoy);assert.equal(adm().vigencia_regla.origen,'CAMBIO_NIVEL');const vLevel=adm().vigencia_hasta;
    const same=await commercial('3');assert.equal(same.calls.filter(c=>['PATCH','DELETE'].includes(c.op)&&c.c==='anunciantes_administracion').length,0,'guardar sin cambiar el nivel no escribe');assert.equal(adm().vigencia_hasta,vLevel);
-   delete adm().con_titular;adm().vigencia_hasta='';
+   delete adm().con_titular;adm().vigencia_hasta='';{const ix=JSON.parse(values.get('admin:index:advertisers:v2'));for(const r of ix.results)if(r.id===aid){delete r.con_titular;r.vigencia_hasta='';}values.set('admin:index:advertisers:v2',JSON.stringify(ix));}
    const sim=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'simular'},200);assert.equal(sim.j.firestore_writes,0);assert.equal(sim.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0,'simular no escribe');assert.ok(sim.j.a_regularizar>=1);assert.ok(sim.j.consumo_estimado.firestore_lecturas>=sim.j.vinculos_leidos);
    await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar'},400);assert.ok(sim.j.plan_id);await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES'},409);await assertStatus('owner','/superadmin/advertisers/validity-regularization',{modo:'simular'},401);
-   const run=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);assert.equal(run.calls.filter(c=>c.c==='suscriptor_anunciante').length,0,'ejecutar no relee los vínculos');assert.equal(run.j.pendientes,0);assert.equal(adm().con_titular,true);assert.equal(adm().vigencia_desde,hoy,'nivel 3 con titular inicia su vigencia');assert.ok(run.j.escrituras>=1);
+   const run=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);assert.equal(run.calls.filter(c=>c.c==='suscriptor_anunciante'&&(c.op==='query'||!c.id)).length,0,'ejecutar no relee los vínculos');assert.ok(run.calls.filter(c=>c.c==='suscriptor_anunciante').length<=sim.j.a_regularizar,'sólo el vínculo de cada candidato');assert.equal(run.j.pendientes,0);assert.equal(adm().con_titular,true);assert.equal(adm().vigencia_desde,hoy,'nivel 3 con titular inicia su vigencia');assert.ok(run.j.escrituras>=1);
    const rerun=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);assert.equal(rerun.j.procesados,0);assert.equal(rerun.calls.filter(c=>['PATCH','DELETE'].includes(c.op)&&c.id===aid).length,0,'repetir no vuelve a escribir');
+   {delete adm().con_titular;adm().vigencia_hasta='';{const ix=JSON.parse(values.get('admin:index:advertisers:v2'));for(const r of ix.results)if(r.id===aid){delete r.con_titular;r.vigencia_hasta='';}values.set('admin:index:advertisers:v2',JSON.stringify(ix));}
+    const sim2=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'simular'},200);assert.equal(sim2.j.consumo_estimado.firestore_lecturas,sim2.j.vinculos_leidos+2*sim2.j.a_regularizar);
+    const relKey=[...rows.keys()].find(k=>k.startsWith('suscriptor_anunciante/')&&rows.get(k).anunciante_id===aid&&rows.get(k).rol==='PROPIETARIO'&&rows.get(k).activo===true);assert.ok(relKey);rows.get(relKey).activo=false;
+    const run2=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim2.j.plan_id,lote:100},200);
+    assert.ok(run2.j.anunciantes_con_cambio.includes(aid),'titular revocado después de simular: se omite');assert.equal(adm().con_titular,undefined);assert.equal(adm().vigencia_hasta,'');
+    assert.equal(run2.calls.filter(c=>c.op==='query'||(c.c==='suscriptor_anunciante'&&!c.id)).length,0,'sin releer todos los vínculos');assert.equal(run2.calls.filter(c=>['PATCH','DELETE'].includes(c.op)&&c.id===aid).length,0);
+    rows.get(relKey).activo=true;adm().con_titular=true;}
+   {cat([{nivel_id:'3',numero:3,vigencia_con_titular_modo:'PERMANENTE',vigencia_sin_titular_modo:'PERMANENTE'}]);adm().vigencia_hasta='2020-01-01';
+    const perm=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'renovar',operacion_id:'REN-PERM'},200);assert.equal(perm.j.estado.visible,true,'regla permanente: el vencido se recupera');assert.equal(adm().vigencia_hasta,'');assert.equal(adm().vigencia_regla.modo,'PERMANENTE');
+    const permAgain=await assertStatus('admin','/superadmin/advertisers/'+aid+'/activity',{accion_actividad:'renovar',operacion_id:'REN-PERM'},200);assert.equal(permAgain.j.updated,false);assert.equal(permAgain.calls.filter(c=>['PATCH','DELETE'].includes(c.op)).length,0);
+    await act('admin','renovar',409);}
    cat([]);
    adm().vigencia_hasta='2020-01-01';const expired=await assertStatus('admin','/superadmin/advertisers/'+aid,undefined,200);
    const rec=await act('admin','renovar');assert.equal(rec.j.estado.visible,true);assert.ok(adm().vigencia_hasta>'2026-01-01');assert.equal(rows.has('anunciantes/'+aid),true,'recupera el mismo identificador');
