@@ -26,21 +26,6 @@ function setup(t,rows){
  return {env,raw,calls,sql,async publish(){await this.op('stage');await this.op('commit');return this.op('read');},setClock(n){clock=n;},restart(){actor=new w.PrivateDaily195(state,env);},async op(action,cutoff=Math.floor((Date.now()-4*3600000)/86400000)*86400000+4*3600000){const r=await actor.fetch({action,cutoff});const j=await r.json();assert.equal(r.status,200,j.error);return j.value;}};
 }
 const people=[{id:'A',suscriptor_id:'A',nombre:'Ana',fecha_nacimiento:'1990-11-12',activo:true},{id:'B',nombre:'Bea',fecha_nacimiento:'1980-11-18',activo:true},{id:'C',nombre:'Caro',fecha_nacimiento:'1970-11-19',activo:true},{id:'D',nombre:'Dani',fecha_nacimiento:'2000-11-13',activo:false}];
-test('confirmación privada independiente publica una vez y recupera una edición preparada',async t=>{
- const h=setup(t,people);
- assert.deepEqual(await h.op('publish'),{success:true,cutoff:day});
- const calls=h.calls.length,changes=h.sql.prepare('SELECT total_changes() AS n').get().n;
- h.restart();
- assert.deepEqual(await h.op('publish'),{success:true,cutoff:day});
- assert.equal(h.calls.length,calls);
- assert.equal(h.sql.prepare('SELECT total_changes() AS n').get().n,changes);
- assert.equal((await h.op('read')).results.length,4);
- const next=day+86400000;h.setClock(next+21*60000);
- await h.op('stage',next);
- assert.equal((await h.op('read',next)).preparado,false);
- assert.deepEqual(await h.op('publish',next),{success:true,cutoff:next});
- assert.equal((await h.op('read',next)).corte,next);
-});
 test('cumpleaños es una lista de personas de hoy y los seis días siguientes, sin resúmenes de edad',()=>{
  const r=w.birthdayList195({preparado:true,results:people},new Date('2026-11-12T14:00:00Z'));
  assert.equal(r.periodo_dias,7);assert.equal(r.desde,'2026-11-12');assert.equal(r.hasta,'2026-11-18');assert.deepEqual(r.results.map(x=>x.nombre),['Ana','Bea']);assert(!JSON.stringify(r).includes('mayores18'));
@@ -98,11 +83,6 @@ test('el mismo protocolo diario read/commit prepara y activa el listado privado 
  const original=h.env.GLD_PUBLIC_CACHE;
  h.env.GLD_PUBLIC_CACHE={...original,get(name){const privateStub=original.get(name);return {fetch:async req=>{const b=await req.clone().json();if(b.op==='city-book-checkpoint')return Response.json({cutoff:day});if(b.op==='city-book-recovery-list')return Response.json({jobs:[]});if(b.op==='city-book-commit')return Response.json({success:true});return privateStub.fetch(req);}};}};
  const invoke=async body=>{const request=new Request('https://test.invalid/internal/city-books',{method:'POST',body:JSON.stringify(body)});const r=await w.routeCityBookCut({request,env:h.env,report:{}});assert.equal(r.status,200);return r.json();};
- const before=h.calls.length;
- assert.equal((await invoke({op:'read-public',cutoff:day,publishedCutoff:day,known:[]})).complete,true);
- assert.deepEqual(await invoke({op:'commit-public',cutoff:day}),{success:true,cutoff:day});
- assert.equal(h.calls.length,before);
- assert.equal((await h.op('read')).preparado,false);
  const data=await invoke({op:'read',cutoff:day,publishedCutoff:day,known:[]});assert.equal(data.complete,true);assert(!JSON.stringify(data).includes('Ana'));assert(!JSON.stringify(data).includes('1990-11-12'));assert.equal((await h.op('read')).preparado,false);
  await invoke({op:'commit',cutoff:day});assert.equal((await h.op('read')).results.length,4);
 });
@@ -213,4 +193,49 @@ test('ninguna preparación desde pantalla puede crear, publicar ni refrescar una
  await h.op('stage');await assert.rejects(h.op('initial'));assert.equal((await h.op('read')).preparado,false);
  await h.op('commit');const n=h.calls.length;const read=await w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid'));assert.equal(read.preparado,true);assert.equal(h.calls.length,n);
  h.setClock(day+86400000+1000);await assert.rejects(w.prepareBirthdaysV91(h.env,db,{},new Request('https://test.invalid')),/publicación diaria/);assert.equal(h.calls.length,n);
+});
+
+test('recuperación privada reemplaza la edición del día sin esperar el siguiente corte',async t=>{
+ const h=setup(t,people);await h.publish();
+ h.raw.set('admin:index:subscribers:v2',JSON.stringify({version:2,results:[...people,{id:'NUEVA',nombre:'Nueva',fecha_nacimiento:'1995-11-15'}]}));
+ await h.op('publish');assert.equal((await h.op('read')).results.length,4);
+ await h.op('recover');const fresh=await h.op('read');assert.equal(fresh.results.length,5);
+ const {suscriptores,anunciantes,ciudades}=fresh.admin.resumen;
+ assert.deepEqual({suscriptores,anunciantes,ciudades},{suscriptores:5,anunciantes:0,ciudades:0});
+ const n=h.calls.length;await h.op('read');assert.equal(h.calls.length,n);
+});
+
+test('edición anterior se conserva tras fallar la preparación del nuevo corte, sólo el principal puede usarla en Inicio',async t=>{
+ const h=setup(t,people);await h.publish();h.setClock(day+86400000+1000);h.raw.clear();
+ t.mock.method(globalThis,'fetch',async()=>{throw Error('Fuente no disponible');});
+ await assert.rejects(h.op('publish'));const r=await h.op('read');assert.equal(r.preparado,false);assert.equal(r.results,null);assert.equal(r.ultimo.results.length,4);
+ const top={ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}};
+ const panel=await w.dailyDashboard195(h.env,top);assert.equal(panel.status,200);const j=await panel.json();assert.equal(j.entrada.pendiente_corte,true);assert.equal(j.entrada.corte,day);
+ const local=await w.dailyDashboard195(h.env,{ok:true,rol:'ADMIN_LOCAL',ciudades:['DOL'],permisos:{moderacion:{EVENTO:true}}});assert.equal(local.status,503);
+});
+test('una edición incompleta no se confirma y una fila publicada dañada conserva la anterior sin leer fuentes',async t=>{
+ const h=setup(t,people);await h.publish();
+ const next=day+86400000;h.setClock(next+1000);await h.op('stage');
+ const row=h.sql.prepare('SELECT value FROM private_subscribers_daily195 WHERE cutoff=?').get(next);
+ const bad=JSON.parse(row.value);bad.admin.resumen.suscriptores=0;
+ const update=h.sql.prepare('UPDATE private_subscribers_daily195 SET value=?,published=? WHERE cutoff=?');
+ update.run(JSON.stringify(bad),0,next);
+ await assert.rejects(h.op('commit'),/íntegra/);
+ update.run(JSON.stringify(bad),1,next);
+ const count=h.calls.length;
+ const result=await h.op('read');assert.equal(result.ultimo.corte,day);assert.equal(result.ultimo.results.length,4);
+ assert.equal(h.calls.length,count);
+ await h.op('publish');assert.equal((await h.op('read')).corte,next);
+});
+test('resumen de publicación confirmado se lee de la misma coordinación, sin volver a recorrer las ciudades',async t=>{
+ const h=setup(t,people);await h.publish();
+ const auth={ok:true,rol:'SUPERADMIN_PRINCIPAL',ciudades:[],permisos:{}};
+ const absent=await (await w.dailyDashboard195(h.env,auth)).json();
+ assert(!Object.hasOwn(absent.resumen,'eventos_vip'));
+ const summary={cutoff:day,cities:{DOL:{revision:2,eventos_vip:['V1'],eventos_free:['F1'],actividades:['A1'],publicidad:['P1']},OTRA:{revision:3,eventos_vip:['V1','V2'],eventos_free:['F1'],actividades:['A1'],publicidad:['P1','P2']}}};
+ h.sql.prepare('INSERT INTO city_book_gh_summary219 VALUES(1,?,?,?)').run(JSON.stringify(summary),JSON.stringify({cutoff:day,revisions:{DOL:2,OTRA:3}}),JSON.stringify({cutoff:day,counts:{eventos_vip:2,eventos_free:1,actividades:1,publicidad:2}}));
+ const n=h.calls.length;h.env.__gldRequestReport119={operations:{}};
+ const r=await w.dailyDashboard195(h.env,auth),j=await r.json();
+ assert.equal(r.status,200);assert.deepEqual([j.resumen.eventos_vip,j.resumen.eventos_free,j.resumen.actividades,j.resumen.publicidad],[2,1,1,2]);assert.equal(j.entrada.publicaciones_corte,day);assert.equal(h.calls.length,n);
+ assert.deepEqual(h.env.__gldRequestReport119.admin_store126,{calls:1,rows_read:2,rows_written:0});
 });

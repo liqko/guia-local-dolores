@@ -12,12 +12,21 @@ const audience = 'guialocal:publicacion-ciudades';
 async function readJson(read, url, {allowMissing, observe=()=>{}, capture=()=>{}, ...options} = {}) {
   const response = await read(url, {...options,redirect:'error',signal:AbortSignal.timeout(90000)});
   const raw=await response.text(),target=new URL(url);
+  let consumption=null;
+  if(target.href===worker){
+    const header=response.headers.get('X-GLD-Consumption');
+    if(header)try{consumption=JSON.parse(decodeURIComponent(header));}catch{}
+  }
   observe({service:target.origin===new URL(hosting).origin?'hosting':target.href===worker?'worker':'identidad',
     method:options.method??'GET',status:response.status,requestBodyBytes:Buffer.byteLength(options.body??''),
-    responseBodyBytes:Buffer.byteLength(raw)});
+    responseBodyBytes:Buffer.byteLength(raw),...(target.href===worker?{consumption}:{})});
   capture(response);
   if (response.status === 404 && allowMissing) return null;
-  if (!response.ok) throw Error('No se pudo completar la publicación (' + response.status + ')');
+  if (!response.ok) {
+    let detail='';
+    try { const parsed=JSON.parse(raw); if(typeof parsed?.message==='string') detail=parsed.message.replace(/[\r\n]/g,' ').slice(0,300); } catch {}
+    throw Error('No se pudo completar la publicación ('+response.status+') en '+target.pathname+(detail?': '+detail:''));
+  }
   return JSON.parse(raw);
 }
 
@@ -33,25 +42,31 @@ async function githubIdentity(read,observe) {
 }
 
 export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultimoCorte(),read=fetch,urgentScope,reusePublished=false,privateSeparate=false,verifyPublished=false,
-  identity=githubIdentity,observe,planPath}) {
+  identity=githubIdentity,observe,planPath,recoverCurrent=false,ghSummaryPath}) {
   const call = async (body,allowMissing=false) => readJson(read,worker,{
     method:'POST',allowMissing,observe,
     headers:{Authorization:'Bearer '+await identity(read,observe),'Content-Type':'application/json'},
     body:JSON.stringify(body),
   });
   if(mode==='private'){
-    const result=await call({op:'private',cutoff});
+    const result=await call({op:recoverCurrent?'private-recovery':'private',cutoff});
     if(result?.success!==true||result.cutoff!==cutoff)throw Error('El corte privado no quedó confirmado');
     return {cutoff};
   }
   const indexPath='plataforma/paquetes-ciudad/publicacion.json';
   if (mode === 'commit') {
-    if(verifyPublished){
-      const expected=JSON.parse(await readFile(join(stage,indexPath),'utf8'));
-      const installed=await readJson(read,new URL(indexPath,hosting),{cache:'no-store',observe});
-      if(expected.cutoff!==cutoff||!isDeepStrictEqual(expected,installed))throw Error('Hosting todavía no confirma el índice del corte');
+    let installed;
+    if(verifyPublished||ghSummaryPath){
+      installed=await readJson(read,new URL(indexPath,hosting),{cache:'no-store',observe});
+      if(installed.cutoff!==cutoff)throw Error('Hosting todavía no confirma el índice del corte');
+      if(verifyPublished){const expected=JSON.parse(await readFile(join(stage,indexPath),'utf8'));if(!isDeepStrictEqual(expected,installed))throw Error('Hosting todavía no confirma el índice del corte');}
     }
-    const result = await call({op:privateSeparate?'commit-public':'commit',cutoff});
+    let gh_summary;
+    if(ghSummaryPath){
+      gh_summary=JSON.parse(await readFile(ghSummaryPath,'utf8'));
+      if(gh_summary.cutoff!==cutoff||!isDeepStrictEqual(Object.keys(gh_summary.revisions).sort(),Object.keys(installed.manifest).sort())||Object.entries(installed.manifest).some(([city,entry])=>entry.revision!==gh_summary.revisions[city]))throw Error('Resumen no corresponde a la edición instalada');
+    }
+    const result = await call({op:privateSeparate?'commit-public':'commit',cutoff,...(gh_summary?{gh_summary}:{})});
     if (result?.success !== true) throw Error('El último corte no quedó confirmado');
     if(privateSeparate&&result.cutoff!==cutoff)throw Error('El Worker no confirmó el corte público esperado');
     if (result.private_daily?.status === 'pending') throw Error('El corte público quedó confirmado, pero falta preparar Gran Hermano. Reintentá el mismo publicador; no hace falta volver a publicar desde el panel.');
@@ -85,17 +100,20 @@ export async function publicarPaquetes({mode,stage,forceStage=false,cutoff=ultim
     });
     const source = await call({op:'urgent',cutoff,scope});
     if (source.urgent !== true || source.cutoff !== cutoff || source.after !== cutoff) throw Error('Respuesta urgente inválida');
-    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished});
+    return aplicarCorte({previous:{...previous,cutoff},source,readPublished,stage,reusePublished,ghSummaryPath});
   }
 
-  const source = await call({op:privateSeparate?'read-public':'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
+  if(recoverCurrent&&(!privateSeparate||mode!=='cut'))throw Error('Recuperación excepcional fuera de alcance');
+  const source = await call({op:recoverCurrent?'read-public-recovery':privateSeparate?'read-public':'read',cutoff,publishedCutoff:previous?.cutoff??null,known:Object.keys(manifest),...(previous?.schema?{schema:previous.schema}:{})},!previous);
   if (!source) return {changed:false};
   if (source.cutoff !== cutoff || !Number.isSafeInteger(source.after) ||
       (previous && source.after < previous.cutoff)) throw Error('El Worker devolvió otro corte');
-  const result=await aplicarCorte({previous:{cutoff:source.after,manifest},source,readPublished,stage,forceStage,reusePublished});
+  if(source.recoveredAt!==undefined&&!recoverCurrent)throw Error('Recuperación no autorizada');
+  const result=await aplicarCorte({previous:{cutoff:source.after,manifest,schema:previous?.schema,recoveredAt:previous?.recoveredAt},source,readPublished,stage,forceStage,reusePublished,ghSummaryPath});
   if(privateSeparate&&previous&&previous.cutoff<cutoff&&!result.changed&&!forceStage){
     await mkdir(join(stage,'plataforma/paquetes-ciudad'),{recursive:true});
-    await writeFile(join(stage,indexPath),JSON.stringify({...previous,cutoff}));
+    const {recoveredAt:oldRecovery,...prior}=previous;
+    await writeFile(join(stage,indexPath),JSON.stringify({...prior,cutoff,...(source.recoveredAt===undefined?{}:{recoveredAt:source.recoveredAt})}));
     return {...result,watermark:true};
   }
   return result;
@@ -106,9 +124,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const operations=[];
   const result = await publicarPaquetes({mode,stage,
     observe:operation=>operations.push(operation),
-    planPath:process.env.GLD_HOSTING_PLAN,
+    planPath:process.env.GLD_HOSTING_PLAN,ghSummaryPath:process.env.GLD_GH_PUBLIC_SUMMARY,
     ...(cutoff?{cutoff:Number(cutoff)}:{}),forceStage:process.env.GLD_STAGE_UNCHANGED==='1',reusePublished:process.env.GLD_REUSE_PUBLISHED==='1',
-    privateSeparate:process.env.GLD_PRIVATE_DAILY_SEPARATE==='1',verifyPublished:process.env.GLD_VERIFY_PUBLISHED==='1',
+    privateSeparate:process.env.GLD_PRIVATE_DAILY_SEPARATE==='1',verifyPublished:process.env.GLD_VERIFY_PUBLISHED==='1',recoverCurrent:process.env.GLD_RECOVER_CURRENT==='1',
     ...(mode==='urgent'?{urgentScope:JSON.parse(process.env.GLD_URGENT_SCOPE??'null')}:{}),
   });
   console.log(JSON.stringify({mode,operations}));

@@ -271,6 +271,7 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   assert.equal(await cityBookIdentity(request(good),async()=>Response.json({keys:[jwk]}),cutoff),true);
   assert.equal(await cityBookIdentity(request(token({...claims,ref:'refs/heads/otro'})),async()=>assert.fail('No debe pedir llaves'),cutoff),false);
   assert.equal(await cityBookIdentity(request(good+'x'),async()=>assert.fail('No debe pedir llaves'),cutoff),false);
+  assert.equal(await cityBookIdentity(request(token({...claims,event_name:'push'})),async()=>assert.fail('No debe pedir llaves'),cutoff),false);
 
   const raw = new Map([['territorio:public:v1',{ciudades:[{ciudad_id:'DOL'},{ciudad_id:'BAL'}]}]]);
   const actors = new Map(),calls=[];
@@ -285,7 +286,7 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
           const rows=statement.all(...args);
           return Object.assign(rows,{rowsRead:rows.length});
         }
-        statement.run(...args);return [];
+        const result=statement.run(...args);return Object.assign([],{rowsRead:0,rowsWritten:result.changes});
       }},transactionSync(fn){
         db.exec('BEGIN');try{const x=fn();db.exec('COMMIT');return x;}
         catch(error){db.exec('ROLLBACK');throw error;}
@@ -331,11 +332,12 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   await mkdir(join(stage,'plataforma'));
   await writeFile(join(stage,'plataforma','territorio-cache.js'),'const paquetes = /* GLD_CITY_BOOKS */ {};');
   const count={worker:0};
-  const staged=await publicarPaquetes({mode:'cut',stage,cutoff,identity:async()=>good,read:async (input,options)=>{
+  const summaryPath=join(stage,'gh-summary.json');
+  const staged=await publicarPaquetes({mode:'cut',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,identity:async()=>good,read:async (input,options)=>{
     const url=new URL(input);
     if(url.hostname.endsWith('workers.dev')){
       count.worker++;
-      assert.equal(JSON.parse(options.body).op,'read');
+      assert.equal(JSON.parse(options.body).op,'read-public');
       return worker.fetch(new Request(url,options),env);
     }
     assert.match(url.pathname,/publicacion\.json$/);
@@ -349,7 +351,26 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   const callWorker=body=>worker.fetch(new Request('https://login.liqkoargentina.workers.dev/internal/city-books',{
     method:'POST',headers:{Authorization:'Bearer '+good,'Content-Type':'application/json'},body:JSON.stringify(body),
   }),env);
-  assert.equal((await callWorker({op:'commit',cutoff})).status,200);
+  const stagedSummary=JSON.parse(await readFile(summaryPath,'utf8'));
+  assert.deepEqual(stagedSummary.cities.BAL.eventos_vip,['virtual']);assert.deepEqual(stagedSummary.cities.DOL.actividades,['vence']);
+  const publishRead=async(input,options)=>{const url=new URL(input);if(url.hostname.endsWith('workers.dev'))return worker.fetch(new Request(url,options),env);return new Response(await readFile(join(stage,url.pathname.slice(1))));};
+  let commitConsumption;
+  await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,verifyPublished:true,identity:async()=>good,read:publishRead,observe:o=>{if(o.service==='worker')commitConsumption=o.consumption;}});
+  assert(commitConsumption);assert.equal(commitConsumption.firestore.read_calls,0);assert.equal(commitConsumption.firestore.write_calls,0);assert(commitConsumption.cloudflare.public_store.components.some(c=>c.operation==='city-book-commit'));
+  assert.equal(commitConsumption.cloudflare.public_store.rows_written,2);
+  t.diagnostic(JSON.stringify({ghSummaryCommit:commitConsumption.cloudflare.public_store,firestore:commitConsumption.firestore,kv:commitConsumption.cloudflare.kv}));
+  const invalid={...stagedSummary,revisions:{...stagedSummary.revisions,BAL:999},cities:{}};
+  assert.equal((await callWorker({op:'commit-public',cutoff,gh_summary:invalid})).status,503);
+  const confirmed=await (await callWorker({op:'read-public',cutoff,publishedCutoff:cutoff,known:['DOL','BAL']})).json();
+  assert.deepEqual(confirmed.gh_summary.revisions,stagedSummary.revisions);assert.equal(confirmed.gh_summary.cities,undefined);
+  // The same published revision requires no full-package downloads or ID transfer.
+  let downloads=0;
+  await publicarPaquetes({mode:'cut',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,identity:async()=>good,read:async(input,options)=>{const url=new URL(input);if(url.hostname.endsWith('workers.dev'))return publishRead(input,options);if(!url.pathname.endsWith('publicacion.json'))downloads++;return publishRead(input,options);}});
+  assert.equal(downloads,0);assert.deepEqual(JSON.parse(await readFile(summaryPath,'utf8')).cities,{});
+  let repeatConsumption;
+  await publicarPaquetes({mode:'commit',stage,cutoff,privateSeparate:true,ghSummaryPath:summaryPath,identity:async()=>good,read:publishRead,observe:o=>{if(o.service==='worker')repeatConsumption=o.consumption;}});
+  assert.equal(repeatConsumption.cloudflare.public_store.rows_written,0);
+  t.diagnostic(JSON.stringify({ghSummaryRepeat:repeatConsumption.cloudflare.public_store}));
   const retry=await callWorker({op:'read',cutoff,publishedCutoff:cutoff,known:['DOL','BAL']});
   assert.equal(retry.status,200);
   assert.deepEqual((await retry.json()).cities,[]);
@@ -366,7 +387,8 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   calls.length=0;
   const hostingReads=[];
   let urgentConsumption;
-  const urgent=await publicarPaquetes({mode:'urgent',stage:urgentStage,cutoff,urgentScope:scope,reusePublished:true,
+  const urgentSummary=join(urgentStage,'gh-summary.json');
+  const urgent=await publicarPaquetes({mode:'urgent',stage:urgentStage,cutoff,urgentScope:scope,reusePublished:true,ghSummaryPath:urgentSummary,
     identity:async()=>urgentIdentity,read:async (input,options)=>{
       const url=new URL(input);
       if(url.hostname.endsWith('workers.dev')){
@@ -396,7 +418,7 @@ test('el publicador procesa el corte ordinario y la diferencia urgente con el Wo
   assert.equal(urgentConsumption.firestore.write_calls,0);
   assert.equal(urgentConsumption.firestore.delete_calls,0);
   assert.equal(urgentConsumption.cloudflare.kv.get_calls,1);
-  assert.equal(hostingReads.length,2);
+  assert.equal(hostingReads.length,2);assert.deepEqual(Object.keys(JSON.parse(await readFile(urgentSummary,'utf8')).cities),['DOL']);
   t.diagnostic(JSON.stringify({
     hostingRequests:hostingReads.length,hostingBodyBytes:hostingReads.reduce((sum,size)=>sum+size,0),
     workerRequests:urgentConsumption.cloudflare.worker_requests,kv:urgentConsumption.cloudflare.kv,

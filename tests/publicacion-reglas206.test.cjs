@@ -169,7 +169,10 @@ test('alta completa conserva el circuito previo de reclamo y alta básica',()=>{
  assert.match(route,/solicitudes_anunciante/);
  assert.match(route,/const submitted=Array\.isArray\(body\.sedes\)\?body\.sedes:null/);
  assert.match(route,/submitted\|\|\[\{ciudad_id:body\.ciudad/);
- assert.match(route,/await db\.patch\('suscriptor_anunciante'/);
+ assert.match(route,/await commitOwnership155\(\{[^\n]*sid:s\.sid[^\n]*creation:/);
+ const creation=worker.slice(worker.indexOf('async function commitNewOwnership155'),worker.indexOf('async function commitOwnership155'));
+ assert.match(creation,/entry\('suscriptor_anunciante',id,ownershipPatch155/);
+ assert.match(creation,/db\.commitPatches\(\[\.\.\.initial,\.\.\.ownership,\.\.\.extra\]\)/);
  assert.match(route,/syncGuideAdvertiserV2/);
  assert.match(route,/syncAdvertiserIndexV2/);
 });
@@ -180,7 +183,11 @@ test('alta completa valida catálogo, ciudades y persiste cada sede sin reemplaz
  assert.match(route,/Seleccioná un segmento y categorías válidas/);
  assert.match(route,/Seleccioná una ciudad válida para la sede/);
  assert.match(route,/const sedeRows=validSedes\.map/);
- assert.match(route,/for\(const sede of sedeRows\)savedSedes\.push\(await db\.patch\('anunciantes_sedes'/);
+ assert.match(route,/creation:\{advertiser:advertiserPayload,[^\n]*sedes:sedeRows/);
+ const creation=worker.slice(worker.indexOf('async function commitNewOwnership155'),worker.indexOf('async function commitOwnership155'));
+ assert.match(creation,/sedes\.map\(row=>entry\('anunciantes_sedes',row\.sede_id,row\)\)/);
+ assert.match(creation,/db\.commitPatches\(\[\.\.\.initial,\.\.\.ownership,\.\.\.extra\]\)/);
+ assert.match(route,/const savedSedes=ownership\.created\.sedes/);
  assert.match(route,/redes_web_comunes/);
  assert.match(worker,/alta_anunciante_completa:\s*true/);
  assert.match(worker,/if \(path === "\/catalogs\/public\/guide" && request2\.method === "GET"\)/);

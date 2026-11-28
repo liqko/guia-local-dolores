@@ -92,10 +92,24 @@ function combineChanges(earlier, latest, schema) {
 
 // source is produced by the public projection export. A missing or partial cut
 // must fail instead of treating an unavailable city as a day with no changes.
-export async function aplicarCorte({ previous, source, readPublished, stage, forceStage = false, reusePublished = false }) {
+export function ghCityMembership219(book){
+ const groups={revision:book.revision,eventos_vip:[],eventos_free:[],actividades:[],publicidad:[]};
+ const sets=Object.fromEntries(Object.keys(groups).filter(k=>k!=='revision').map(k=>[k,new Set()]));
+ for(const [name,spec] of Object.entries(schemaOf(book))){
+  if(name!=='events'&&name!=='activities'&&name!=='ads'&&spec.family!=='ads'&&!name.startsWith('ads_'))continue;
+  for(const row of book.modules[name]?.[spec.field]||[]){
+   const id=idOf(row,spec.id);if(!id)throw Error('Identidad de publicación inválida');
+   sets[name==='events'?(String(row.nivel||'').toUpperCase()==='FREE'?'eventos_free':'eventos_vip'):name==='activities'?'actividades':'publicidad'].add(id);
+  }
+ }
+ for(const [key,ids] of Object.entries(sets))groups[key]=[...ids].sort();
+ return groups;
+}
+export async function aplicarCorte({ previous, source, readPublished, stage, forceStage = false, reusePublished = false, ghSummaryPath }) {
   requireCut(previous.cutoff);
   requireCut(source.cutoff);
   validateManifest(previous.manifest);
+  if(source.recoveredAt!==undefined&&(!Number.isSafeInteger(source.recoveredAt)||source.recoveredAt<source.cutoff||source.recoveredAt>=source.cutoff+dayMs||source.urgent||source.cutoff<=source.after))throw Error('Fecha de recuperación inválida');
   if (source.complete !== true || source.after !== previous.cutoff ||
       source.cutoff < source.after || !Array.isArray(source.cities)) throw Error('Corte incompleto o fuera de secuencia');
 
@@ -200,7 +214,20 @@ export async function aplicarCorte({ previous, source, readPublished, stage, for
       }
     }
     await mkdir(join(stage,publicPath),{recursive:true});
-    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{})}));
+    await writeFile(join(stage,publicPath,'publicacion.json'),JSON.stringify({cutoff:source.cutoff,manifest,...((source.schema??previous.schema)?{schema:source.schema??previous.schema}:{}),...((source.recoveredAt??(source.cutoff===source.after?previous.recoveredAt:undefined))===undefined?{}:{recoveredAt:source.recoveredAt??previous.recoveredAt})}));
+  }
+  if(ghSummaryPath){
+    const cities=Object.create(null),revisions=Object.create(null),prior=source.gh_summary?.revisions??{};
+    for(const [city,{key,revision}] of Object.entries(manifest)){
+      const path=publicPath+'/'+key+'/completo-'+revision+'.json';
+      const book=files.get(path)??unchangedBooks.get(path);
+      revisions[city]=revision;
+      if(Object.hasOwn(prior,city)&&prior[city]===revision)continue;
+      const installed=book??await readPublished(path);
+      if(!validBook(installed,city)||installed.revision!==revision)throw Error('Paquete del resumen publicado inválido');
+      cities[city]=ghCityMembership219(installed);
+    }
+    await writeFile(ghSummaryPath,JSON.stringify({cutoff:source.cutoff,revisions,cities}),{mode:0o600});
   }
   return {changed,cutoff:source.cutoff,manifest};
 }
