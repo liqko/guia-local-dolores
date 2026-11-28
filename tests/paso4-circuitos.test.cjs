@@ -638,7 +638,8 @@ test('P4-0001: el manifiesto PWA de raiz entra en el artefacto de Firebase Hosti
   assert.equal(firebase.hosting.public,'hosting-public');
   assert.match(yaml,/cp manifest\.webmanifest hosting-public\/manifest\.webmanifest/);
   assert.match(yaml,/git diff --name-only "[^"]+" "\$GITHUB_SHA" -- plataforma\/ firebase\.json manifest\.webmanifest/);
-  assert.match(yaml,/cron: ["']0 4 \* \* \*["']/,'Corte a las 01:00 Argentina (UTC-3)');
+  assert.match(yaml,/cron: ["']21 4 \* \* \*["']/,'Ejecución 01:21 Argentina fuera del minuto cero (autorizada 27/11, commit 99d41576)');
+  assert.match(yaml,/corte de las 01:00/,'El límite de datos sigue siendo el corte de las 01:00');
   assert.equal(manifest.start_url,'/elegi-tu-ciudad');
   assert(manifest.icons.some(x=>x.src&&fs.existsSync(path.join(__dirname,'..',x.src.replace(/^\//,'')))));
   for(const page of ['inicio.html','carcasa.html','suscriptores.html','app-prueba.html']){
