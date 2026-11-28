@@ -240,15 +240,18 @@ async function fromLive(p){
      }),links:[...element.querySelectorAll('a')].map(link=>[link.getAttribute('href'),link.target,link.rel])};
     };
     const layoutPage=await institutional.newPage();
-    for(const width of [390,430,710,1280]){
+    for(const [width,theme] of [[390,'light'],[430,'dark'],[710,'dark'],[1280,'light']]){
      await layoutPage.setViewportSize({width,height:900});
      await visit(layoutPage,'inicio');
+     await layoutPage.addScriptTag({url:origin+report.assets.files['/plataforma/apariencia.js']});
+     await layoutPage.evaluate(value=>window.GLDApariencia.set(value),theme);
      const integrated=await layoutPage.locator('#gldPieGlobal .gld-footer').evaluate(layout);
      const frameWidth=await layoutPage.locator('#gldPieGlobal').evaluate(host=>host.clientWidth);
      await layoutPage.setViewportSize({width:frameWidth,height:900});
      await layoutPage.goto(origin+'/plataforma/pie',{waitUntil:'load'});
      const standalone=await layoutPage.locator('.gld-footer').evaluate(layout);
      assert.deepEqual(integrated,standalone,'El pie integrado conserva el diseño y enlaces a '+width+' px');
+     if(theme==='dark')assert.equal(integrated.panels[0][2],'rgb(32, 43, 53)','El pie hereda el modo oscuro vigente');
     }
    }finally{await institutional?.close();await rm(profile,{recursive:true,force:true});}
   }

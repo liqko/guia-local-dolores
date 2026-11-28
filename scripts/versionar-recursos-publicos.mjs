@@ -75,6 +75,17 @@ export async function versionarRecursos(stage){
   }
   await writeFile(file,html);
  }
+ // El mismo motor visual debe tener una única URL inmutable, también en
+ // interfaces privadas y páginas que no usan el paquete público de ciudad.
+ const appearance='/plataforma/apariencia.js';
+ if(!files.has(appearance))await publish(appearance);
+ for(const page of await readdir(join(stage,'plataforma'))){
+  if(!page.endsWith('.html')||pages.includes(page))continue;
+  const file=join(stage,'plataforma',page);
+  const html=await readFile(file,'utf8');
+  const next=html.replace(/(\bsrc=["'])\/plataforma\/apariencia\.js(?:\?[^"']*)?(["'])/gi,(_,a,b)=>a+files.get(appearance)+b);
+  if(next!==html)await writeFile(file,next);
+ }
  return {pages,resources:files.size,files:Object.fromEntries(files)};
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
