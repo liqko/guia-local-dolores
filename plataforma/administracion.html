@@ -179,6 +179,7 @@ body{background:#edf2f5;color:var(--ink)}.wrap{max-width:1400px;padding:28px}.ca
 
   <div id="app">
     <div id="ghSesionConexionEstado" role="status" class="muted"></div>
+    <style>#ghSesionConexionEstado[data-atrasada]{color:#8f1725;background:#fff0f2;border:1px solid #a3152b;border-radius:6px;padding:8px 12px;font-weight:700}</style>
     <div class="card admin-hero"><div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap"><div><h1>Panel de administración general</h1><div class="muted">Guía Local · Autorizaciones, anunciantes y cupos</div></div><button class="sec" id="btnSalir">Salir</button></div></div>
     <div class="card"><nav id="ghTabs" aria-label="Navegación de Gran Hermano">
       <div class="tabs gh-nav-principal">
@@ -1076,6 +1077,30 @@ async function login(){
   }
 }
 
+function ghMostrarVigenciaInicio195(entry,showPublications){
+  const status=document.getElementById('ghSesionConexionEstado');
+  const date=value=>{
+    const parsed=new Date(value??NaN);
+    return Number.isFinite(parsed.getTime())?parsed.toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}):'';
+  };
+  const effective=date(entry?.preparado_en);
+  const late=entry?.pendiente_corte===true;
+  status.toggleAttribute('data-atrasada',late);
+  status.textContent=late?'Actualización atrasada. Datos de la última copia válida: '+(effective||'fecha no disponible'):(effective?'Copia diaria: '+effective:'');
+  if(showPublications){
+    const cut=entry?.publicaciones_corte;
+    const publicDate=Number.isSafeInteger(cut)&&cut>0?date(cut):'';
+    status.textContent+=(status.textContent?' · ':'')+'Publicaciones: '+(publicDate||'resumen aún no confirmado');
+  }
+}
+
+function ghMostrarIndicadoresInicio195(resumen){
+  for(const [id,key] of Object.entries({stSus:'suscriptores',stAnu:'anunciantes',stCiu:'ciudades',stEvtPub:'eventos_vip',stEvtFreePub:'eventos_free',stActPub:'actividades',stPub:'publicidad'})){
+    const node=document.getElementById(id),value=resumen?.[key];
+    if(node)node.textContent=Number.isSafeInteger(value)&&value>=0?value:'—';
+  }
+}
+
 async function abrirApp(prefetched=null){
   try{
     const r=prefetched?{ok:prefetched.success===true,status:prefetched.success?200:503,json:async()=>prefetched}:await fetch(TERRITORY_API_ORIGIN+'/superadmin/dashboard',{
@@ -1090,23 +1115,19 @@ async function abrirApp(prefetched=null){
     GH_FIXED_SUPPORTED169=j.gh_fixed_packet_version===169;GH_FUNC_SAVE_READY170=Number(j.functional_settings_version)>=170;
     if(j.entry_version===195&&j.entrada)ghDailyApply195(j);
     else if(GH_FIXED_SUPPORTED169)ghFixedLoad169();
-    document.getElementById('ghSesionConexionEstado').textContent=GH_DAILY_ENTRY195?.preparado_en?'Copia diaria: '+new Date(GH_DAILY_ENTRY195.preparado_en).toLocaleString('es-AR',{timeZone:'America/Argentina/Buenos_Aires'}):'';
+    ghMostrarVigenciaInicio195(GH_DAILY_ENTRY195,Number(workerInfo.version)>=219&&['SUPERADMIN_PRINCIPAL','SUPERADMIN'].includes(GH_ADMIN_ACCESS?.rol));
     window.ghCalendarDashboardV83?.(j.cumpleanos);
     window.gldConsumoAdminV68?.(TOKEN);
     document.getElementById('login').style.display='none';
     document.getElementById('app').style.display='block';
-    document.getElementById('stSus').textContent=j.resumen.suscriptores??'—';
-    document.getElementById('stAnu').textContent=j.resumen.anunciantes;
-    document.getElementById('stCiu').textContent=j.resumen.ciudades ?? '-';
-    const vip=document.getElementById('stEvtPub'); if(vip) vip.textContent='-';
-    const free=document.getElementById('stEvtFreePub'); if(free) free.textContent='-';
-    const act=document.getElementById('stActPub'); if(act) act.textContent='-';
+    ghMostrarIndicadoresInicio195(j.resumen);
     GH_CITY_STATS={};
 
     ghRevisionUnificada(GH_DAILY_ENTRY195?.inbox||null).catch(e=>console.warn('Pendientes:',e));
     ghRenderTodo();
     ghRestaurarNavegacion();
   }catch(e){
+    document.getElementById('ghSesionConexionEstado').removeAttribute('data-atrasada');
     window.gldConsumoAdminV68?.('');
     if(e.status===401||e.status===403){
       TOKEN='';localStorage.removeItem('gld_superadmin_token');

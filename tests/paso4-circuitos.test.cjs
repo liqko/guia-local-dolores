@@ -6,6 +6,29 @@ const path=require('node:path');
 const login=fs.readFileSync(path.join(__dirname,'../plataforma/login.html'),'utf8');
 const worker=fs.readFileSync(path.join(__dirname,'../worker/worker206.txt'),'utf8');
 
+test('P4-0035-T03: Inicio advierte si la copia está atrasada y distingue cero de ausencia',()=>{
+ const admin=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
+ const start=admin.indexOf('function ghMostrarVigenciaInicio195'),end=admin.indexOf('async function abrirApp',start);
+ assert.ok(start>=0&&end>start);
+ const nodes=new Map();
+ const getElementById=id=>{
+  if(!nodes.has(id))nodes.set(id,{toggleAttribute(_name,value){this.atrasada=value;}});
+  return nodes.get(id);
+ };
+ const {ghMostrarVigenciaInicio195,ghMostrarIndicadoresInicio195}=require('node:vm').runInNewContext(
+  admin.slice(start,end)+'\n({ghMostrarVigenciaInicio195,ghMostrarIndicadoresInicio195})',{document:{getElementById}});
+ ghMostrarVigenciaInicio195({pendiente_corte:true,preparado_en:'2026-11-27T04:21:00Z',publicaciones_corte:NaN},true);
+ const status=nodes.get('ghSesionConexionEstado');
+ assert.equal(status.atrasada,true);
+ assert.match(status.textContent,/Actualización atrasada.*27\/11\/2026.*resumen aún no confirmado/);
+ ghMostrarVigenciaInicio195({preparado_en:'2026-11-28T04:21:00Z'},false);
+ assert.equal(status.atrasada,false);
+ assert.match(status.textContent,/Copia diaria:/);
+ assert.doesNotMatch(status.textContent,/Publicaciones:/);
+ ghMostrarIndicadoresInicio195({suscriptores:0,anunciantes:-1,ciudades:4,eventos_vip:0,eventos_free:'0',actividades:null});
+ assert.deepEqual(['stSus','stAnu','stCiu','stEvtPub','stEvtFreePub','stActPub','stPub'].map(id=>nodes.get(id).textContent),[0,'—',4,0,'—','—','—']);
+});
+
 test('P4-0035-T04: búsqueda de suscriptores comparte el GET y descarta resultados de una búsqueda o sesión anterior',async()=>{
  const admin=fs.readFileSync(path.join(__dirname,'../plataforma/administracion.html'),'utf8');
  const start=admin.indexOf('let GH_SUS_SEARCH_SEQ'),end=admin.indexOf('let GH_ANU_SEARCH_SEQ',start);

@@ -77,6 +77,12 @@
 
 **E2 — Núcleo común de operaciones.** Integrar permisos, transacciones/cambios idempotentes, relaciones, concurrencia y recuperación. Migrar las rutas actuales al contrato común conservando funcionamiento y datos históricos. Validar primero operaciones críticas y no romper los otros recorridos.
 
+### Continuidad del corte diario
+
+La copia privada anterior sólo se usa dentro de los permisos vigentes y presenta su fecha efectiva y su atraso. Cero significa un conteo confirmado; datos ausentes se distinguen de cero. Una edición incompleta no puede sustituir a la válida. Las operaciones sensibles siguen usando el estado autorizado actual. El ingreso no recompone copias atrasadas desde Firestore.
+
+La carga de información continúa durante el corte. La distribución ordinaria de las 01:00 ART tiene confirmaciones pública y privada independientes; una recuperación conserva su fecha efectiva. La publicación de software comparte coordinación de revisiones con las publicaciones de datos y no es su programador. GitHub conserva la programación vigente hasta comprobar reemplazo y reversión.
+
 **E3 — Paquetes públicos y publicador.** Completar producción efectiva de índices y paquetes por ciudad/módulo, versiones, deltas, calendario 01:00 y excepciones urgentes; comprobar paquete servido y recuperado sin consultas innecesarias, no solo que existe código o cron.
 
 **E4 — Paquetes privados y sincronización.** Integrar datos de suscriptores, anunciantes y administración con lectura bajo demanda, cambios visibles, agrupación segura de operaciones y recuperaciones entre dispositivos. Favoritos y sus correcciones existentes son un caso de prueba, **no** un proyecto separado ni la arquitectura general.
