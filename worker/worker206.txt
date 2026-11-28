@@ -1481,6 +1481,10 @@ async function deleteCity146({ env, request: request2, db, cache, idFromPath = "
   job={plan_id:plan.plan_id,ciudad_id:id,nombre,iniciada_en:new Date().toISOString(),fase:0,hechos:{},afectados:[],ultimos:[],procesados:0};
   await cache.put(jobKey,job);
  }else if(job.plan_id!==text3(body.plan_id))return json({success:false,code:"CITY_DELETION_IN_PROGRESS",message:"Hay una eliminación en curso con otro plan.",plan_id:job.plan_id},409);
+ // Protección frente a ejecuciones simultáneas: una sola llamada por vez sobre el avance registrado.
+ if(saved&&Number(saved.lease_hasta)>Date.now())return json({success:false,code:"CITY_DELETION_BUSY",pendiente:true,message:"Otra ejecución de esta eliminación está en curso; reintentá en un minuto."},409);
+ job.lease_hasta=Date.now()+6e4;await cache.put(jobKey,job);
+ const done=async(/** @type {Response} */ response)=>{job.lease_hasta=0;await cache.put(jobKey,job);return response;};
  const x={db,cache,env,city:id};
  let budget=CITY_PURGE146.batch;
  try{
@@ -1488,14 +1492,14 @@ async function deleteCity146({ env, request: request2, db, cache, idFromPath = "
    const [source,field,kind,parent]=CITY_PURGE146.phases[job.fase],phaseKey=job.fase+":"+source;
    /** @type {{id:string,row?:any}[]} */ let units=[];
    if(source.startsWith("@")){
-    const done=new Set(job.hechos[phaseKey]||[]),ids=source==="@afectados"?job.afectados:await cityPurgePacketIds146(cache,source,id);
-    units=[...new Set(ids.map(text3).filter((/** @type {string} */ v)=>v&&!done.has(v)))].slice(0,budget).map(uid=>({id:String(uid)}));
+    const finished=new Set(job.hechos[phaseKey]||[]),ids=source==="@afectados"?job.afectados:await cityPurgePacketIds146(cache,source,id);
+    units=[...new Set(ids.map(text3).filter((/** @type {string} */ v)=>v&&!finished.has(v)))].slice(0,budget).map(uid=>({id:String(uid)}));
    }else{
     const rows=(await db.queryEqual(source,field,id,budget)).filter((/** @type {any} */ r)=>text3(r[field])===id);
     units=rows.map((/** @type {any} */ r)=>({id:text3(parent?r[parent]:r[CITY_PURGE146.ids[source]]||r.id),row:r}));
-    if(units.some(u=>!u.id))return json({success:false,message:"Registro sin ID en "+source+". Se detuvo la eliminación; la ciudad queda suspendida."},409);
+    if(units.some(u=>!u.id))return done(json({success:false,message:"Registro sin ID en "+source+". Se detuvo la eliminación; la ciudad queda suspendida."},409));
     units=[...new Map(units.map(u=>[u.id,u])).values()];
-    if(units.some(u=>job.ultimos.includes(source+"/"+u.id)))return json({success:false,message:"La eliminación no avanza en "+source+"; se detuvo para revisar. La ciudad queda suspendida."},500);
+    if(units.some(u=>job.ultimos.includes(source+"/"+u.id)))return done(json({success:false,message:"La eliminación no avanza en "+source+"; se detuvo para revisar. La ciudad queda suspendida."},500));
    }
    if(!units.length){job.fase++;job.ultimos=[];await cache.put(jobKey,job);continue;}
    if(kind==="sede"){job.afectados=[...new Set([...job.afectados,...units.map(u=>text3(u.row?.anunciante_id)).filter(Boolean)])];await cache.put(jobKey,job);}
@@ -1503,16 +1507,26 @@ async function deleteCity146({ env, request: request2, db, cache, idFromPath = "
    if(source.startsWith("@"))job.hechos[phaseKey]=[...(job.hechos[phaseKey]||[]),...units.map(u=>u.id)];else job.ultimos=units.map(u=>source+"/"+u.id);
    await cache.put(jobKey,job);
   }
+  if(job.fase>=CITY_PURGE146.phases.length&&!retired){
+   // Verificación final: si apareció un registro de la ciudad durante la eliminación, se vuelve a su fase antes de cerrar.
+   for(let i=0;i<CITY_PURGE146.phases.length;i++){
+    const [source,field]=CITY_PURGE146.phases[i];
+    if(source.startsWith("@"))continue;
+    if((await db.queryEqual(source,field,id,1)).some((/** @type {any} */ r)=>text3(r[field])===id)){job.fase=i;job.ultimos=[];break;}
+   }
+  }
  }catch(error){
-  return json({success:false,pendiente:true,ciudad_id:id,plan_id:job.plan_id,message:"La eliminación se interrumpió ("+(/** @type {any} */ (error)?.message||"error")+"). Reintentá: continúa desde el último lote confirmado."},503);
+  return done(json({success:false,pendiente:true,ciudad_id:id,plan_id:job.plan_id,message:"La eliminación se interrumpió ("+(/** @type {any} */ (error)?.message||"error")+"). Reintentá: continúa desde el último lote confirmado."},503));
  }
- if(job.fase<CITY_PURGE146.phases.length)return json({success:true,eliminada:false,pendiente:true,ciudad_id:id,plan_id:job.plan_id,fase:CITY_PURGE146.phases[job.fase][0],procesados:job.procesados});
+ if(job.fase<CITY_PURGE146.phases.length)return done(json({success:true,eliminada:false,pendiente:true,ciudad_id:id,plan_id:job.plan_id,fase:CITY_PURGE146.phases[job.fase][0],procesados:job.procesados}));
  if(!retired){
   await Promise.all(cityPurgeKeys146(id).map(key=>cache.del(key)));
   // Lápida: la ficha queda marcada y fuera de los catálogos; su ID no se reutiliza, así no revive permisos ni historiales que la nombran.
   await db.patch(C.ciudades,id,{eliminada:true,activa:false,eliminada_en:new Date().toISOString(),eliminada_por:text3(a.email||a.id||"")});
  }
- return finish(job);
+ job.lease_hasta=0;
+ const result=await finish(job);
+ return result.status===503?done(result):result;
 }
 async function rebuildTerritoryRaw138({ env, request: request2, db, cache }) {
   const a = await authOr401(env, request2);

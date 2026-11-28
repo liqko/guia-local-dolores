@@ -26,7 +26,7 @@ function seed(){return {
  solicitudes_soporte:[{solicitud_id:'SS1',ciudad_id:CITY}],solicitudes_anunciante:[{solicitud_id:'SA1',ciudad_id:CITY}]
 };}
 const IDF={ciudades:'ciudad_id',eventos:'evento_id',evento_programacion:'evento_programacion_id',actividades:'actividad_id',actividad_horarios:'actividad_horario_id',promos:'promo_id',publicidades:'publicidad_id',publicidad_segmentacion:'segmentacion_id',publicidad_media:'media_id',publicidad_estado:'anunciante_id',farmacias_ciclos:'ciclo_id',farmacias_ciclo_sedes:'id',efemerides_bis:'efemeride_id',empleos:'empleo_id',lugares:'lugar_id',anunciantes_sedes:'sede_id',anunciantes:'anunciante_id',suscriptores:'suscriptor_id',solicitudes_soporte:'solicitud_id',solicitudes_anunciante:'solicitud_id'};
-function setup({rol='SUPERADMIN_PRINCIPAL',data=seed(),rebuildOk=true,failOnce=null}={}){
+function setup({rol='SUPERADMIN_PRINCIPAL',data=seed(),rebuildOk=true,failOnce=null,onSync=null}={}){
  const store=new Map(Object.entries(data).map(([c,rows])=>[c,new Map(rows.map(r=>[r[IDF[c]],J(r)]))]));
  const col=c=>{if(!store.has(c))store.set(c,new Map());return store.get(c);};
  const log={writes:[],deletes:[],reads:0,synced:[],rebuilds:0};
@@ -40,7 +40,7 @@ function setup({rol='SUPERADMIN_PRINCIPAL',data=seed(),rebuildOk=true,failOnce=n
  ]);
  const drop=(key,field,idf,id)=>{const p=kv.get(key);if(p)kv.set(key,{...p,[field]:p[field].filter(r=>r[idf]!==id)});};
  let failed=false;
- const sync=(name,fn=()=>{})=>async a=>{if(failOnce&&!failed&&failOnce(name,a)){failed=true;throw Error('corte simulado');}log.synced.push([name,J(a.next===undefined?null:a.next)?.[Object.keys(a).find(k=>k.endsWith('Id'))]??a.advertiserId??a.cycleId??a.efemerideId??a.publicityId??a.activityId??(a.current?.evento_id||a.next?.evento_id||a.current?.promo_id||a.current?.empleo_id)]);fn(a);};
+ const sync=(name,fn=()=>{})=>async a=>{if(failOnce&&!failed&&failOnce(name,a)){failed=true;throw Error('corte simulado');}if(onSync)onSync(name,a,col);log.synced.push([name,J(a.next===undefined?null:a.next)?.[Object.keys(a).find(k=>k.endsWith('Id'))]??a.advertiserId??a.cycleId??a.efemerideId??a.publicityId??a.activityId??(a.current?.evento_id||a.next?.evento_id||a.current?.promo_id||a.current?.empleo_id)]);fn(a);};
  const ctx={json:(body,status=200)=>({status,ok:status<400,body:J(body)}),text3:v=>String(v??'').trim(),packet:v=>({ciudades:v?.ciudades||[]}),active:r=>r.activa!==false,ADMIN_KEY:'territorio:admin:v1',C:{ciudades:'ciudades'},
   guideCityKey2:c=>'guide:city:v1:'+c,promoCityKey:c=>'promos:city:v1:'+c,eventsCityKey:c=>'events:city:v2:'+c,activityCityKeyV2:c=>'activities:city:v2:'+c,publicityCityKey:c=>'publicity:city:v1:'+c,publicityCityKeyV2:c=>'publicity:city:v2:'+c,efemCityKey:c=>'efemerides:city:v1:'+c,efemCityKeyV2:c=>'efemerides:city:v2:'+c,farmCityKey:c=>'farmacias:city:v1:'+c,farmCityKeyV2:c=>'farmacias:city:v2:'+c,
   authOr401:async()=>({ok:true,rol,email:'admin@test'}),GLD_ACTIONS138:{readJson:async r=>J(r.body||{})},Response:class{},URL,crypto:globalThis.crypto,
@@ -121,6 +121,18 @@ test('interrupciones: el reintento continúa desde el último lote sin repetir e
  assert.equal(y.col('ciudades').get(CITY).eliminada,true);assert.ok(y.kv.has('territorio:baja146:'+CITY),'falló el catálogo: se conserva el avance');
  const writes=y.log.writes.length;y.setRebuild(true);const ok=await y.call({modo:'ejecutar',plan_id:s2.body.plan_id,confirmacion:'Ciudad X'});
  assert.equal(ok.body.eliminada,true);assert.equal(y.log.writes.length,writes,'completar el catálogo no reescribe datos');assert.equal(y.kv.has('territorio:baja146:'+CITY),false);
+});
+test('concurrencia: una ejecución por vez y verificación final de registros nuevos',async()=>{
+ const x=setup();const sim=await x.call({modo:'simular'});
+ await x.call({modo:'ejecutar',plan_id:sim.body.plan_id,confirmacion:'Ciudad X'});
+ const job=x.kv.get('territorio:baja146:'+CITY);assert.equal(job.lease_hasta,0,'cada lote libera la ejecución');
+ x.kv.set('territorio:baja146:'+CITY,{...job,lease_hasta:Date.now()+30000});const writes=x.log.writes.length;
+ const busy=await x.call({modo:'ejecutar',plan_id:sim.body.plan_id,confirmacion:'Ciudad X'});assert.equal(busy.body.code,'CITY_DELETION_BUSY');assert.equal(x.log.writes.length,writes);
+ let added=false;
+ const y=setup({onSync:(name,a,col)=>{if(!added&&name==='guide'){added=true;col('promos').set('PR9',{promo_id:'PR9',ciudad_id:CITY});}}});
+ const s2=await y.call({modo:'simular'});const r=await runAll(y,s2.body.plan_id);
+ assert.equal(r.body.eliminada,true);assert.ok(added);assert.deepEqual(y.ids('promos'),['PR2'],'el registro creado durante la eliminación también se trata');
+ assert.ok(y.log.synced.some(s=>s[0]==='promo'),'y se reproyecta');
 });
 test('ruta, lápida y catálogos',()=>{
  assert.match(w,/cityDeletion && request2\.method === "POST"\) return deleteCity146\(/);
