@@ -93,12 +93,18 @@ async function fromLive(p){
   const book=await guideReady();report.revision=book.revision;
   const first=await finish('carcasa: primera apertura sin copia');
   if(generic)assert.equal(first.workerRequests,0,'Carcasa obtiene Efemérides del libro');
-  await page.reload({waitUntil:'load'});await guideReady();
+  await page.reload({waitUntil:'load'});
+  const reloadedBook=await guideReady();
   const reload=await finish('carcasa: recarga con copia vigente');
   if(mode!=='baseline'){
    assert(!reload.workerPaths.includes('/'),'Sin consulta de versión al Worker');
    const packageReads=reload.rows.filter(r=>new URL(r.url).pathname.startsWith('/plataforma/paquetes-ciudad/'));
-   assert(packageReads.every(r=>new URL(r.url).pathname==='/plataforma/paquetes-ciudad/publicacion.json'),
+   const packageIndex='/plataforma/paquetes-ciudad/publicacion.json';
+   const repeatedBodies=packageReads.filter(r=>new URL(r.url).pathname!==packageIndex);
+   report.reloadPublication={initialRevision:book.revision,reloadRevision:reloadedBook.revision,
+    requests:packageReads.map(r=>({path:new URL(r.url).pathname,status:r.status,bodyBytes:r.bodyBytes}))};
+   assert.equal(reloadedBook.revision,book.revision,'La recarga con edición vigente conserva la revisión del libro');
+   assert.deepEqual(repeatedBodies.map(r=>new URL(r.url).pathname),[],
     'La recarga puede verificar el índice; no descarga de nuevo paquetes completos ni deltas');
    assert(packageReads.length<=1,'La recarga comparte una sola verificación del índice');
    assert(!reload.rows.some(r=>new URL(r.url).searchParams.has('_v')),'Sin URL aleatoria');
