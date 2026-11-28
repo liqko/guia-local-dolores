@@ -222,7 +222,7 @@ try{
   assert.equal(rows.get('anunciantes/'+aid).nombre,'Alta GH');
   {const kv=k=>{const x=values.get(k);return typeof x==='string'?JSON.parse(x):x;},hasta=rows.get('anunciantes_administracion/'+aid).vigencia_hasta;assert.match(hasta,/^\d{4}-\d{2}-\d{2}$/);
    assert.equal(kv('admin:index:advertisers:v2').results.find(r=>r.id===aid).vigencia_hasta,hasta,'el listado GH recibe la vigencia del alta');
-   const g=kv('guide:advertiser:v2:'+aid);if(g)assert.ok(g.cards.length&&g.cards.every(c=>c.vigente_hasta===hasta),'la tarjeta de Guía recibe la vigencia del alta');
+   const g=kv('guide:advertiser:v2:'+aid);assert.ok(g?.cards?.length,'el alta con ciudad crea la tarjeta de Guía');assert.ok(g.cards.every(c=>c.vigente_hasta===hasta),'la tarjeta de Guía recibe la vigencia del alta');
    assert.equal(created.calls.filter(c=>c.op==='GET'&&c.c==='anunciantes_administracion').length,0,'proyección sin releer la ficha');}
   const owners=[...rows.values()].filter(r=>r.anunciante_id===aid&&r.rol==='PROPIETARIO'&&r.activo===true);assert.deepEqual(owners.map(r=>r.suscriptor_id),['X']);
   assert.equal([...rows.values()].filter(r=>r.anunciante_id===aid&&r.ciudad_id==='D'&&r.sede_id).length,1);
@@ -281,6 +281,16 @@ try{
    await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar'},400);assert.ok(sim.j.plan_id);await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES'},409);await assertStatus('owner','/superadmin/advertisers/validity-regularization',{modo:'simular'},401);
    const run=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);assert.equal(run.calls.filter(c=>c.c==='suscriptor_anunciante'&&(c.op==='query'||!c.id)).length,0,'ejecutar no relee los vínculos');assert.ok(run.calls.filter(c=>c.c==='suscriptor_anunciante').length<=sim.j.a_regularizar,'sólo el vínculo de cada candidato');assert.equal(run.j.pendientes,0);assert.equal(adm().con_titular,true);assert.equal(adm().vigencia_desde,hoy,'nivel 3 con titular inicia su vigencia');assert.ok(run.j.escrituras>=1);
    const rerun=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);assert.equal(rerun.j.procesados,0);assert.equal(rerun.calls.filter(c=>['PATCH','DELETE'].includes(c.op)&&c.id===aid).length,0,'repetir no vuelve a escribir');
+   {// Interrupción después de guardar en Firestore y antes de proyectar: el reintento recupera las copias sin escribir de nuevo.
+    const rd=k=>{const x=values.get(k);return typeof x==='string'?JSON.parse(x):x;},wr=(k,v)=>values.set(k,JSON.stringify(v)),gk='guide:advertiser:v2:'+aid,hasta=adm().vigencia_hasta;
+    wr('admin:regularizacion155:plan',{...rd('admin:regularizacion155:plan'),cursor:0});
+    const ix=rd('admin:index:advertisers:v2');for(const r of ix.results)if(r.id===aid){r.vigencia_hasta='';delete r.con_titular;}wr('admin:index:advertisers:v2',ix);
+    const gb=rd(gk);assert.ok(gb?.cards?.length,'el anunciante regularizado tiene tarjeta de Guía');for(const c of gb.cards)delete c.vigente_hasta;wr(gk,gb);
+    const rec=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);
+    assert.equal(rec.j.escrituras,0);assert.equal(rec.calls.filter(c=>['PATCH','DELETE','commit'].includes(c.op)).length,0,'el reintento no repite escrituras confirmadas');
+    assert.equal(rec.j.proyecciones_recuperadas,1);const row=rd('admin:index:advertisers:v2').results.find(r=>r.id===aid);assert.equal(row.vigencia_hasta,hasta);assert.equal(row.con_titular,true);
+    assert.ok(rd(gk).cards.every(c=>c.vigente_hasta===hasta),'la tarjeta pública recupera la vigencia confirmada');
+    wr('admin:regularizacion155:plan',{...rd('admin:regularizacion155:plan'),cursor:0});const again=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'ejecutar',confirmacion:'REGULARIZAR_TITULARES',plan_id:sim.j.plan_id,lote:100},200);assert.equal(again.j.proyecciones_recuperadas,0,'sin copias desactualizadas no vuelve a escribir la tarjeta');}
    {delete adm().con_titular;adm().vigencia_hasta='';{const ix=JSON.parse(values.get('admin:index:advertisers:v2'));for(const r of ix.results)if(r.id===aid){delete r.con_titular;r.vigencia_hasta='';}values.set('admin:index:advertisers:v2',JSON.stringify(ix));}
     const sim2=await assertStatus('admin','/superadmin/advertisers/validity-regularization',{modo:'simular'},200);assert.equal(sim2.j.consumo_estimado.firestore_lecturas,sim2.j.vinculos_leidos+2*sim2.j.a_regularizar);
     const relKey=[...rows.keys()].find(k=>k.startsWith('suscriptor_anunciante/')&&rows.get(k).anunciante_id===aid&&rows.get(k).rol==='PROPIETARIO'&&rows.get(k).activo===true);assert.ok(relKey);rows.get(relKey).activo=false;

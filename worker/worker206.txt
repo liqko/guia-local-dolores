@@ -12925,12 +12925,18 @@ async function routeAdvertiserValidityRegularization155(ctx){
  if(!plan||plan.plan_id!==String(body.plan_id||'')||Date.parse(now)-Date.parse(plan.creado)>86400000)return json({success:false,message:'Simulá nuevamente antes de ejecutar.'},409);
  const rules=plan.rules,candidates=Array.isArray(plan.candidates)?plan.candidates:[];
  if(!candidates.every(c=>c&&typeof c==='object'&&c.aid&&c.rel))return json({success:false,message:'Simulá nuevamente antes de ejecutar.'},409);
- let cursor=Number(plan.cursor)||0,escrituras=0,omitidos=0,sincronizaciones=0;const cambios=[];const indexPatches=new Map(),inicio=cursor;
+ let cursor=Number(plan.cursor)||0,escrituras=0,omitidos=0,sincronizaciones=0,recuperadas=0;const cambios=[];const indexPatches=new Map(),inicio=cursor;
  for(;cursor<candidates.length&&cursor-inicio<lote;cursor++){
   const c=candidates[cursor],aid=String(c.aid);
   const [v,rel]=await Promise.all([db.getVersioned('anunciantes_administracion',aid),db.get('suscriptor_anunciante',String(c.rel))]);
   if(!v.doc||!v.updateTime){omitidos++;continue;}
-  if(v.doc.con_titular===true){indexPatches.set(aid,{con_titular:true});continue;}
+  if(v.doc.con_titular===true){
+   // Reintento tras una interrupción posterior al guardado: proyecta la ficha confirmada sin volver a escribir Firestore.
+   const hasta=publicValidity155(v.doc);indexPatches.set(aid,{con_titular:true,vigencia_hasta:String(v.doc.vigencia_hasta||'')});
+   const base=await guideBaseForMutationInternal(cache,aid);
+   if(base?.cards?.some(card=>String(card.vigente_hasta||'')!==hasta)){await patchGuideAdminFieldsV2({cache,advertiserId:aid,patch:{vigente_hasta:hasta}});recuperadas++;}
+   continue;
+  }
   // La titularidad pudo cambiar después de simular: se confirma el vínculo y la ficha actúa como cerrojo.
   if(!rel||String(rel.anunciante_id)!==aid||String(rel.suscriptor_id)!==String(c.sid)||roleName159(rel.rol)!=='PROPIETARIO'||!truthy(rel.activo)){cambios.push(aid);continue;}
   const patch={con_titular:true,...validityOnOwner155({...v.doc,con_titular:true},rules,now),actualizado_en:now,actualizado_por:String(auth.sid||'')};
@@ -12943,7 +12949,7 @@ async function routeAdvertiserValidityRegularization155(ctx){
  }
  if(indexPatches.size)await patchAdvertiserIndexRowsV2({cache,patches:indexPatches});
  if(cursor!==inicio)await cache.put(VALIDITY_REGULARIZATION_KEY155,{...plan,cursor});
- return json({success:true,modo,lote,plan_id:plan.plan_id,procesados:cursor-inicio,escrituras,omitidos,omitidos_por_cambio_titularidad:cambios.length,anunciantes_con_cambio:cambios,sincronizaciones_completas:sincronizaciones,pendientes:candidates.length-cursor,firestore_writes:escrituras});
+ return json({success:true,modo,lote,plan_id:plan.plan_id,procesados:cursor-inicio,escrituras,omitidos,omitidos_por_cambio_titularidad:cambios.length,anunciantes_con_cambio:cambios,sincronizaciones_completas:sincronizaciones,proyecciones_recuperadas:recuperadas,pendientes:candidates.length-cursor,firestore_writes:escrituras});
 }
 async function routeAdvertiserCreate155(ctx){
  const {path,request,db,cache,env}=ctx;
