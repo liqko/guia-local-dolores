@@ -195,13 +195,13 @@ async function fromLive(p){
    report.historical.filtersWithoutEventRequests=true;
   }
   await direct.close();
-  if(candidate&&!generic){
+  if((candidate||process.argv.includes('--institucional'))&&!generic){
    const profile=await mkdtemp(path.join(tmpdir(),'gld-institutional-profile-'));
    const openProfile=()=>chromium.launchPersistentContext(profile,{serviceWorkers:'block',executablePath:process.env.GLD_CHROME,headless:true,args:['--no-sandbox']});
    let institutional;
    try{
     async function visit(tab,name){
-     await tab.goto(origin+'/plataforma/'+name+'.html',{waitUntil:'load'});
+     await tab.goto(origin+'/plataforma/'+name,{waitUntil:'load'});
      await tab.locator('#gldPieGlobal').scrollIntoViewIfNeeded();
      await tab.waitForFunction(()=>{
       const root=document.querySelector('#gldPieGlobal')?.shadowRoot;
@@ -243,7 +243,7 @@ async function fromLive(p){
     for(const [width,theme] of [[390,'light'],[430,'dark'],[710,'dark'],[1280,'light']]){
      await layoutPage.setViewportSize({width,height:900});
      await visit(layoutPage,'inicio');
-     await layoutPage.addScriptTag({url:origin+report.assets.files['/plataforma/apariencia.js']});
+     if(candidate)await layoutPage.addScriptTag({url:origin+report.assets.files['/plataforma/apariencia.js']});
      await layoutPage.evaluate(value=>window.GLDApariencia.set(value),theme);
      const integrated=await layoutPage.locator('#gldPieGlobal .gld-footer').evaluate(layout);
      const frameWidth=await layoutPage.locator('#gldPieGlobal').evaluate(host=>host.clientWidth);
