@@ -1,6 +1,6 @@
 // ╔════════════════════════════════════════════════════════════╗
 // ║                GUÍA LOCAL DOLORES · WORKER 220             ║
-// ║          VERSIÓN 219 · ANUNCIANTES Y VIGENCIAS            ║
+// ║          VERSIÓN 220 · ANUNCIANTES Y VIGENCIAS            ║
 // ╚════════════════════════════════════════════════════════════╝
 // Comprobación sin Firestore ni KV: GET /__version
 // No se eliminan registros históricos de Firestore.
@@ -1326,53 +1326,193 @@ async function rebuildTerritory(ctx){
  if(!report)return json({success:false,message:'Falta contexto del coordinador territorial.'},503);
  return GLD_ACTIONS138.route({...ctx,path:'/superadmin/territory/rebuild-cache'},report);
 }
-// P4-0007: baja segura de ciudad. Sólo el administrador principal, con la ciudad suspendida y sin referencias compartidas.
-// Elimina únicamente las sedes y registros propios de esa ciudad; las sedes de otras ciudades se conservan.
-// Reintentable: la ficha territorial se borra al final y las tarjetas se recalculan desde la copia de Guía de la ciudad.
+// P4-0007 (definición del usuario, 28/11): eliminación territorial integral por el administrador principal, aunque la ciudad tenga contenido.
+// Tres instancias: 1) ciudad suspendida; 2) simulación con inventario y plan vigente 24 h; 3) confirmación con el nombre exacto.
+// Se borra el contenido exclusivo de la ciudad; lo que también pertenece a otras ciudades, las cuentas y el historial se conservan y se reproyectan.
+// El avance queda en KV por fases: cada llamada procesa un lote y el reintento continúa desde el último lote confirmado.
+const CITY_PURGE146={batch:15,planTtl:864e5,
+ phases:[["evento_programacion","ciudad_id","event","evento_id"],["eventos","ciudad_id","event"],["@events","","event"],
+  ["actividad_horarios","ciudad_id","activity","actividad_id"],["actividades","ciudad_id","activity"],["@activities","","activity"],
+  ["promos","ciudad_id","promo"],["publicidad_segmentacion","ciudad_id","publicity","publicidad_id"],["publicidades","ciudad_id","publicity"],["@publicity","","publicity"],
+  ["farmacias_ciclos","ciudad_id","farm"],["farmacias_ciclo_sedes","ciudad_id","farm_sede"],["farmacias_participantes","ciudad_id","row"],
+  ["efemerides_bis","ciudad_id","efem"],["empleos","ciudad_id","job"],["lugares","ciudad_id","row"],["anunciantes_sedes","ciudad_id","sede"],
+  ["anunciantes","ciudad_id","advertiser"],["@guide","","advertiser"],["@afectados","","advertiser"],
+  ["suscriptores","ciudad_origen_id","subscriber"],["suscriptores","ciudad_predeterminada_id","subscriber"]],
+ preserved:[["solicitudes_anunciante","ciudad_id"],["solicitudes_soporte","ciudad_id"],["publicidad_ubicaciones","ciudad_id"]],
+ ids:{evento_programacion:"evento_programacion_id",eventos:"evento_id",actividad_horarios:"actividad_horario_id",actividades:"actividad_id",promos:"promo_id",publicidad_segmentacion:"segmentacion_id",publicidades:"publicidad_id",farmacias_ciclos:"ciclo_id",farmacias_ciclo_sedes:"id",farmacias_participantes:"participante_id",efemerides_bis:"efemeride_id",empleos:"empleo_id",lugares:"lugar_id",anunciantes_sedes:"sede_id",anunciantes:"anunciante_id",suscriptores:"suscriptor_id"}
+};
+const cityPurgeKeys146=(/** @type {string} */ city)=>[guideCityKey2(city),promoCityKey(city),eventsCityKey(city),activityCityKeyV2(city),publicityCityKey(city),publicityCityKeyV2(city),efemCityKey(city),efemCityKeyV2(city),farmCityKey(city),farmCityKeyV2(city),"employment:city:v1:"+city];
+async function cityPurgePacketIds146(/** @type {any} */ cache,/** @type {string} */ source,/** @type {string} */ city){
+ /** @type {Record<string,[string,string,string]>} */
+ const map={"@events":[eventsCityKey(city),"events","evento_id"],"@activities":[activityCityKeyV2(city),"actividades","actividad_id"],"@publicity":[publicityCityKeyV2(city),"publicidades","publicidad_id"],"@guide":[guideCityKey2(city),"anunciantes","anunciante_id"]};
+ const [key,field,idField]=map[source];
+ return ((await cache.get(key))?.[field]||[]).map((/** @type {any} */ r)=>text3(r[idField]||r.id));
+}
+async function cityPurgeEvent146(/** @type {any} */ x,/** @type {string} */ id){
+ const {db,cache,city}=x,current=await db.get("eventos",id);
+ if(!current){await syncEventV2({db,cache,current:{evento_id:id,ciudad_id:city},next:null,previousProgramacion:[]});return;}
+ const embedded=Number(current.programacion_version)===2&&Array.isArray(current.programacion);
+ const prog=embedded?current.programacion:await db.queryEqual("evento_programacion","evento_id",id,500);
+ const local=(/** @type {any} */ p)=>text3(p.ciudad_id||current.ciudad_id)===city,rest=prog.filter((/** @type {any} */ p)=>!local(p));
+ const others=[...new Set(rest.map((/** @type {any} */ p)=>text3(p.ciudad_id||current.ciudad_id)).filter(Boolean))];
+ if(!embedded)for(const p of prog)if(!others.length||local(p)){const pid=text3(p.evento_programacion_id||p.id);if(pid)await db.delete("evento_programacion",pid);}
+ if(!others.length){await db.delete("eventos",id);await syncEventV2({db,cache,current,next:null,previousProgramacion:prog});return;}
+ const patch={...(text3(current.ciudad_id)===city?{ciudad_id:others[0]}:{}),...(embedded?{programacion:rest}:{})};
+ const next=Object.keys(patch).length?await db.patch("eventos",id,patch):current;
+ await syncEventV2({db,cache,current,next,previousProgramacion:prog,programacion:rest});
+}
+async function cityPurgeActivity146(/** @type {any} */ x,/** @type {string} */ id){
+ const {db,cache,city}=x,current=await db.get("actividades",id);
+ if(!current){await syncActivityPreparedV2({cache,activityId:id,current:null,next:null,horarios:[],previousCities:[city]});return;}
+ const embedded=Number(current.horarios_version)===2&&Array.isArray(current.horarios);
+ const hs=embedded?current.horarios:await db.queryEqual("actividad_horarios","actividad_id",id,500);
+ const local=(/** @type {any} */ h)=>text3(h.ciudad_id||current.ciudad_id)===city,rest=hs.filter((/** @type {any} */ h)=>!local(h));
+ const others=[...new Set(rest.map((/** @type {any} */ h)=>text3(h.ciudad_id||current.ciudad_id)).filter(Boolean))];
+ const previousCities=[...new Set([city,text3(current.ciudad_id),...hs.map((/** @type {any} */ h)=>text3(h.ciudad_id))].filter(Boolean))];
+ if(!embedded)for(const h of hs)if(!others.length||local(h)){const hid=text3(h.actividad_horario_id||h.id);if(hid)await db.delete("actividad_horarios",hid);}
+ if(!others.length){await db.delete("actividades",id);await syncActivityPreparedV2({cache,activityId:id,current,next:null,horarios:[],previousCities});return;}
+ const patch={...(text3(current.ciudad_id)===city?{ciudad_id:others[0]}:{}),...(embedded?{horarios:rest}:{})};
+ const next=Object.keys(patch).length?await db.patch("actividades",id,patch):current;
+ await syncActivityPreparedV2({cache,activityId:id,current,next,horarios:rest,previousCities});
+}
+async function cityPurgePublicity146(/** @type {any} */ x,/** @type {string} */ id){
+ const {db,cache,city}=x,version=await db.getVersioned("publicidades",id),current=version.doc;
+ if(!current){await syncPublicityPreparedV2({cache,publicityId:id,current:null,next:null,previousCities:[city]});return;}
+ const embedded=Number(current.relaciones_version)===2,legacy=!embedded||current.legacy_children===true;
+ const seg=embedded?current.segmentacion||[]:await db.queryEqual("publicidad_segmentacion","publicidad_id",id,500);
+ const media=embedded?current.media||[]:await db.queryEqual("publicidad_media","publicidad_id",id,500);
+ const rest=seg.filter((/** @type {any} */ s)=>text3(s.ciudad_id)!==city),others=[...new Set(rest.map((/** @type {any} */ s)=>text3(s.ciudad_id)).filter(Boolean))];
+ const previousCities=[...new Set([city,...seg.map((/** @type {any} */ s)=>text3(s.ciudad_id))].filter(Boolean))];
+ if(!others.length){
+  // Mismo mecanismo que la baja del anunciante: libera su cupo y borra sus relaciones en una sola confirmación.
+  const aid=text3(current.anunciante_id),{state,options}=await publicityStateV101(db,aid);
+  state.activas=(state.activas||[]).filter((/** @type {string} */ v)=>v!==id);state.guardadas=(state.guardadas||[]).filter((/** @type {string} */ v)=>v!==id);
+  const changes=[{collection:"publicidades",id,remove:true,before:current,options:{updateTime:version.updateTime}}];
+  if(legacy)for(const [collection,key] of [["publicidad_media","media_id"],["publicidad_segmentacion","segmentacion_id"]])for(const row of await db.queryEqual(collection,"publicidad_id",id,500))changes.push({collection,id:text3(row[key]||row.id),remove:true,before:row,options:{updateTime:undefined}});
+  await publicityCommitV101(db,cache,aid,state,options,changes);
+  await syncPublicityPreparedV2({cache,publicityId:id,current,next:null,previousCities});return;
+ }
+ if(legacy)for(const s of seg)if(text3(s.ciudad_id)===city){const sid=text3(s.segmentacion_id||s.id);if(sid)await db.delete("publicidad_segmentacion",sid);}
+ const patch={...(text3(current.ciudad_id)===city?{ciudad_id:others[0]}:{}),...(embedded?{segmentacion:rest}:{})};
+ const next=Object.keys(patch).length?await db.patch("publicidades",id,patch):current;
+ await syncPublicityPreparedV2({cache,publicityId:id,current,next,media,segmentacion:rest,previousCities});
+}
+async function cityPurgeFarm146(/** @type {any} */ x,/** @type {string} */ cycleId){
+ const {db,cache,city}=x,current=await db.get("farmacias_ciclos",cycleId);
+ if(current&&text3(current.ciudad_id)!==city)return false;
+ for(const p of await db.queryEqual("farmacias_ciclo_sedes","ciclo_id",cycleId,500)){const pid=text3(p.id||cycleId+"__"+text3(p.sede_id));if(pid)await db.delete("farmacias_ciclo_sedes",pid);}
+ if(current)await db.delete("farmacias_ciclos",cycleId);
+ await syncFarmCyclePreparedV2({cache,cycleId,current,next:null,previousCity:city});
+ return true;
+}
+async function cityPurgeAdvertiser146(/** @type {any} */ x,/** @type {string} */ aid){
+ const {db,cache,city}=x,doc=await db.get("anunciantes",aid);
+ if(doc){
+  const ids=Array.isArray(doc.ciudad_ids)?doc.ciudad_ids.map(text3).filter(Boolean):null;
+  /** @type {any} */ const patch={};
+  if(ids&&ids.includes(city))patch.ciudad_ids=ids.filter((/** @type {string} */ c)=>c!==city);
+  if(text3(doc.ciudad_id)===city){
+   const sedes=await db.queryEqual("anunciantes_sedes","anunciante_id",aid,500);
+   const others=[...new Set([...sedes.map((/** @type {any} */ s)=>text3(s.ciudad_id)),...(patch.ciudad_ids||ids||[])].filter(c=>c&&c!==city))];
+   // Sin otra ciudad, el anunciante, su titularidad y su historial se conservan sin ciudad publicada.
+   patch.ciudad_id=others[0]||"";if(!others.length)patch.ciudad_eliminada_id=city;
+  }
+  if(Object.keys(patch).length)await db.patch("anunciantes",aid,patch);
+ }
+ await Promise.all([syncGuideAdvertiserV2({db,cache,advertiserId:aid,affectedCityIds:[city]}),syncAdvertiserIndexV2({db,cache,advertiserId:aid})]);
+}
+async function cityPurgeUnit146(/** @type {any} */ x,/** @type {string} */ kind,/** @type {string} */ source,/** @type {string} */ field,/** @type {string} */ id,/** @type {any} */ row){
+ const {db,cache,env,city}=x;
+ if(kind==="event")return cityPurgeEvent146(x,id);
+ if(kind==="activity")return cityPurgeActivity146(x,id);
+ if(kind==="publicity")return cityPurgePublicity146(x,id);
+ if(kind==="farm")return cityPurgeFarm146(x,id);
+ if(kind==="advertiser")return cityPurgeAdvertiser146(x,id);
+ if(kind==="farm_sede"){const cid=text3(row.ciclo_id);if(cid&&await cityPurgeFarm146(x,cid))return;return db.delete(source,id);}
+ if(kind==="promo"){await db.delete(source,id);return syncPromo({cache,current:row,next:null});}
+ if(kind==="efem"){await db.delete(source,id);return syncEfemeridePreparedV2({cache,efemerideId:id,previous:row,next:null});}
+ if(kind==="job"){
+  const cities=[...new Set([...(Array.isArray(row.ciudad_ids)?row.ciudad_ids:[]),row.ciudad_id].map(text3).filter(Boolean))],rest=cities.filter(c=>c!==city);
+  let next=null;
+  if(rest.length)next=await db.patch(source,id,{ciudad_id:text3(row.ciudad_id)===city?rest[0]:text3(row.ciudad_id),ciudad_ids:rest});else await db.delete(source,id);
+  try{await syncEmpleo109({cache,current:row,next});}catch(error){if(/** @type {any} */ (error)?.status!==400)throw error;}
+  return;
+ }
+ if(kind==="subscriber"){const next=await db.patch(source,id,{[field]:""});return syncSubscriberDirectory195(env,row,next);}
+ return db.delete(source,id);
+}
 async function deleteCity146({ env, request: request2, db, cache, idFromPath = "" }) {
  const a=await authOr401(env,request2);
  if(a instanceof Response)return a;
  if(a.rol!=="SUPERADMIN_PRINCIPAL")return json({success:false,message:"Solo el administrador principal puede eliminar ciudades."},403);
  const id=text3(idFromPath);
  if(!id||id.includes("/"))return json({success:false,message:"Ciudad inválida."},400);
- // Registro de la baja en curso: si se interrumpe, el reintento recupera los anunciantes a reproyectar aunque sus sedes ya no existan.
- const journalKey="territorio:baja146:"+id;
- const [city,journal,adminPacket]=await Promise.all([db.get(C.ciudades,id),cache.get(journalKey),cache.get(ADMIN_KEY)]);
- const pending=!!city&&city.eliminada!==true;
- if(!pending&&!journal&&!packet(adminPacket).ciudades.some(r=>text3(r.ciudad_id||r.id)===id))
-  return json({success:true,eliminada:true,ciudad_id:id,registros_eliminados:0});
- let borrados=0;const afectados=new Set((Array.isArray(journal?.afectados)?journal.afectados:[]).map(text3).filter(Boolean));
- if(pending){
-  if(active(city))return json({success:false,code:"CITY_MUST_BE_SUSPENDED",message:"Primero debe suspenderse la ciudad; no se eliminó nada."},409);
-  const complex=[["anunciantes","ciudad_id"],["eventos","ciudad_id"],["evento_programacion","ciudad_id"],["actividades","ciudad_id"],["actividad_horarios","ciudad_id"],["promos","ciudad_id"],["publicidades","ciudad_id"],["publicidad_segmentacion","ciudad_id"],["publicidad_ubicaciones","ciudad_id"],["farmacias_ciclos","ciudad_id"],["farmacias_ciclo_sedes","ciudad_id"],["farmacias_participantes","ciudad_id"],["efemerides_bis","ciudad_id"],["empleos","ciudad_id"],["suscriptores","ciudad_origen_id"],["suscriptores","ciudad_predeterminada_id"]];
-  const blocked=[];
-  for(const [collection,field] of complex)if((await db.queryEqual(collection,field,id,1)).length)blocked.push(collection+"."+field);
-  if(blocked.length)return json({success:false,code:"CITY_HAS_COMPLEX_REFERENCES",message:"Hay publicaciones o referencias que requieren eliminación territorial específica. No se eliminó nada.",referencias:blocked},409);
-  // Las solicitudes de alta y soporte son historial: se conservan con su ciudad_id.
-  const planned=[];
-  for(const [collection,field,idField] of [["lugares","ciudad_id","lugar_id"],["anunciantes_sedes","ciudad_id","sede_id"]]){
-   const rows=await db.queryEqual(collection,field,id,500);
-   if(rows.length===500)return json({success:false,message:"Demasiados registros en "+collection+": se requiere eliminación por lotes. No se eliminó nada."},409);
-   for(const row of rows){
-    const rid=text3(row[idField]||row.id);
-    if(!rid)return json({success:false,message:"Registro sin ID en "+collection+". No se eliminó nada."},409);
-    if(text3(row.ciudad_id)!==id)continue;
-    planned.push({collection,id:rid});
-    if(collection==="anunciantes_sedes"&&text3(row.anunciante_id))afectados.add(text3(row.anunciante_id));
-   }
-  }
-  for(const card of (await cache.get(guideCityKey2(id)))?.anunciantes||[])if(text3(card.anunciante_id))afectados.add(text3(card.anunciante_id));
-  await cache.put(journalKey,{ciudad_id:id,afectados:[...afectados],iniciada_en:text3(journal?.iniciada_en)||new Date().toISOString()});
-  for(const row of planned){await db.delete(row.collection,row.id);borrados++;}
-  for(const aid of afectados)await Promise.all([syncGuideAdvertiserV2({db,cache,advertiserId:aid,affectedCityIds:[id]}),syncAdvertiserIndexV2({db,cache,advertiserId:aid})]);
-  // Lápida: la ficha queda marcada y fuera de los catálogos; su ID no se reutiliza, así no revive permisos ni historiales que la nombran.
-  await db.patch(C.ciudades,id,{eliminada:true,activa:false,eliminada_en:new Date().toISOString(),eliminada_por:text3(a.email||a.id||"")});borrados++;
+ /** @type {any} */ let body={};try{body=await GLD_ACTIONS138.readJson(request2)||{};}catch(_){}
+ const modo=text3(body.modo).toLowerCase(),jobKey="territorio:baja146:"+id,planKey="territorio:baja146:plan:"+id;
+ const [city,saved,adminPacket]=await Promise.all([db.get(C.ciudades,id),cache.get(jobKey),cache.get(ADMIN_KEY)]);
+ const retired=!city||city.eliminada===true,listed=packet(adminPacket).ciudades.some(r=>text3(r.ciudad_id||r.id)===id);
+ if(retired&&!saved&&!listed)return json({success:true,eliminada:true,ciudad_id:id,registros_procesados:0});
+ const finish=async(/** @type {any} */ job)=>{
+  const url=new URL(request2.url);url.pathname="/superadmin/territory/rebuild-cache";url.search="";
+  const rebuilt=await rebuildTerritory({env,request:new Request(url.toString(),{method:"POST",headers:{Authorization:request2.headers.get("Authorization")||""}}),db,cache});
+  if(!rebuilt.ok)return json({success:false,pendiente:true,message:"La ciudad se eliminó de la fuente, pero falta actualizar el catálogo territorial. Reintentá la eliminación."},503);
+  await Promise.all([cache.del(jobKey),cache.del(planKey)]);
+  return json({success:true,eliminada:true,ciudad_id:id,registros_procesados:Number(job?.procesados)||0,anunciantes_actualizados:(job?.afectados||[]).length,conservados:CITY_PURGE146.preserved.map(p=>p[0])});
+ };
+ if(retired&&!saved)return finish(null);
+ if(!retired&&active(city))return json({success:false,code:"CITY_MUST_BE_SUSPENDED",message:"Primero debe suspenderse la ciudad; no se eliminó nada."},409);
+ const nombre=text3(city?.ciudad_visible||city?.nombre||city?.ciudad||saved?.nombre);
+ if(modo==="simular"){
+  if(saved)return json({success:false,code:"CITY_DELETION_IN_PROGRESS",message:"Ya hay una eliminación en curso; continuala con su plan.",plan_id:saved.plan_id,confirmacion_requerida:nombre},409);
+  /** @type {Record<string,any>} */ const inventario={},conservados={};let lecturas=0,kvLecturas=1;
+  const count=async(/** @type {string} */ collection,/** @type {string} */ field,/** @type {Record<string,any>} */ target)=>{const n=(await db.queryEqual(collection,field,id,1000)).length;lecturas+=Math.max(n,1);if(n)target[collection+"."+field]=n>=1000?"1000+":n;};
+  for(const [source,field] of CITY_PURGE146.phases)if(source.startsWith("@")){if(source!=="@afectados"){kvLecturas++;const n=(await cityPurgePacketIds146(cache,source,id)).length;if(n)inventario["publicados:"+source.slice(1)]=n;}}else await count(source,field,inventario);
+  for(const [collection,field] of CITY_PURGE146.preserved)await count(collection,field,conservados);
+  const plan={plan_id:crypto.randomUUID(),ciudad_id:id,nombre,creado:Date.now(),inventario,conservados};
+  await cache.put(planKey,plan);
+  return json({success:true,modo:"simular",plan_id:plan.plan_id,ciudad_id:id,nombre,confirmacion_requerida:nombre,vence_en:new Date(plan.creado+CITY_PURGE146.planTtl).toISOString(),inventario,conservados,consumo:{firestore_lecturas:lecturas,firestore_escrituras:0,kv_lecturas:kvLecturas,kv_escrituras:1}});
  }
- const url=new URL(request2.url);url.pathname="/superadmin/territory/rebuild-cache";url.search="";
- const rebuilt=await rebuildTerritory({env,request:new Request(url.toString(),{method:"POST",headers:{Authorization:request2.headers.get("Authorization")||""}}),db,cache});
- if(!rebuilt.ok)return json({success:false,message:"La ciudad se eliminó de la fuente, pero falta actualizar el catálogo territorial. Reintentá la eliminación."},503);
- if(journal||pending)await cache.delete(journalKey);
- return json({success:true,eliminada:true,ciudad_id:id,registros_eliminados:borrados,anunciantes_actualizados:afectados.size,conservados:["solicitudes_anunciante","solicitudes_soporte"]});
+ if(modo!=="ejecutar")return json({success:false,message:"Indicá modo «simular» o «ejecutar». No se eliminó nada."},400);
+ /** @type {any} */ let job=saved;
+ if(!job){
+  const plan=await cache.get(planKey);
+  if(!plan||plan.plan_id!==text3(body.plan_id)||Date.now()-Number(plan.creado)>CITY_PURGE146.planTtl)return json({success:false,code:"CITY_PLAN_REQUIRED",message:"Simulá la eliminación y confirmá con el plan vigente (24 h). No se eliminó nada."},409);
+  if(!nombre||text3(body.confirmacion)!==nombre)return json({success:false,code:"CITY_CONFIRMATION_MISMATCH",message:"El nombre escrito no coincide con la ciudad. No se eliminó nada."},409);
+  job={plan_id:plan.plan_id,ciudad_id:id,nombre,iniciada_en:new Date().toISOString(),fase:0,hechos:{},afectados:[],ultimos:[],procesados:0};
+  await cache.put(jobKey,job);
+ }else if(job.plan_id!==text3(body.plan_id))return json({success:false,code:"CITY_DELETION_IN_PROGRESS",message:"Hay una eliminación en curso con otro plan.",plan_id:job.plan_id},409);
+ const x={db,cache,env,city:id};
+ let budget=CITY_PURGE146.batch;
+ try{
+  while(job.fase<CITY_PURGE146.phases.length&&budget>0){
+   const [source,field,kind,parent]=CITY_PURGE146.phases[job.fase],phaseKey=job.fase+":"+source;
+   /** @type {{id:string,row?:any}[]} */ let units=[];
+   if(source.startsWith("@")){
+    const done=new Set(job.hechos[phaseKey]||[]),ids=source==="@afectados"?job.afectados:await cityPurgePacketIds146(cache,source,id);
+    units=[...new Set(ids.map(text3).filter((/** @type {string} */ v)=>v&&!done.has(v)))].slice(0,budget).map(uid=>({id:String(uid)}));
+   }else{
+    const rows=(await db.queryEqual(source,field,id,budget)).filter((/** @type {any} */ r)=>text3(r[field])===id);
+    units=rows.map((/** @type {any} */ r)=>({id:text3(parent?r[parent]:r[CITY_PURGE146.ids[source]]||r.id),row:r}));
+    if(units.some(u=>!u.id))return json({success:false,message:"Registro sin ID en "+source+". Se detuvo la eliminación; la ciudad queda suspendida."},409);
+    units=[...new Map(units.map(u=>[u.id,u])).values()];
+    if(units.some(u=>job.ultimos.includes(source+"/"+u.id)))return json({success:false,message:"La eliminación no avanza en "+source+"; se detuvo para revisar. La ciudad queda suspendida."},500);
+   }
+   if(!units.length){job.fase++;job.ultimos=[];await cache.put(jobKey,job);continue;}
+   if(kind==="sede"){job.afectados=[...new Set([...job.afectados,...units.map(u=>text3(u.row?.anunciante_id)).filter(Boolean)])];await cache.put(jobKey,job);}
+   for(const u of units){await cityPurgeUnit146(x,kind,source,field,u.id,u.row);job.procesados++;budget--;}
+   if(source.startsWith("@"))job.hechos[phaseKey]=[...(job.hechos[phaseKey]||[]),...units.map(u=>u.id)];else job.ultimos=units.map(u=>source+"/"+u.id);
+   await cache.put(jobKey,job);
+  }
+ }catch(error){
+  return json({success:false,pendiente:true,ciudad_id:id,plan_id:job.plan_id,message:"La eliminación se interrumpió ("+(/** @type {any} */ (error)?.message||"error")+"). Reintentá: continúa desde el último lote confirmado."},503);
+ }
+ if(job.fase<CITY_PURGE146.phases.length)return json({success:true,eliminada:false,pendiente:true,ciudad_id:id,plan_id:job.plan_id,fase:CITY_PURGE146.phases[job.fase][0],procesados:job.procesados});
+ if(!retired){
+  await Promise.all(cityPurgeKeys146(id).map(key=>cache.del(key)));
+  // Lápida: la ficha queda marcada y fuera de los catálogos; su ID no se reutiliza, así no revive permisos ni historiales que la nombran.
+  await db.patch(C.ciudades,id,{eliminada:true,activa:false,eliminada_en:new Date().toISOString(),eliminada_por:text3(a.email||a.id||"")});
+ }
+ return finish(job);
 }
 async function rebuildTerritoryRaw138({ env, request: request2, db, cache }) {
   const a = await authOr401(env, request2);
@@ -7496,9 +7636,10 @@ async function routeAdminV3({ path, request: request2, env, db, cache }) {
   if (m && request2.method === "PATCH") return saveCountry({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
   m = path.match(/^\/superadmin\/provinces\/([^/]+)$/);
   if (m && request2.method === "PATCH") return saveProvince({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
+  const cityDeletion = path.match(/^\/superadmin\/cities\/([^/]+)\/eliminacion$/);
+  if (cityDeletion && request2.method === "POST") return deleteCity146({ env, request: request2, db, cache, idFromPath: decodeURIComponent(cityDeletion[1]) });
   m = path.match(/^\/superadmin\/cities\/([^/]+)$/);
   if (m && request2.method === "PATCH") return saveCity({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
-  if (m && request2.method === "DELETE") return deleteCity146({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
   const a = await requireAdmin(env, request2);
   if (!a) return json({ success: false, message: "Sesión de administrador requerida." }, 401);
   if (!["SUPERADMIN_PRINCIPAL", "SUPERADMIN"].includes(a.rol)) {
