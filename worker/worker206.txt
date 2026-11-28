@@ -4231,7 +4231,7 @@ async function farmSaveCycleV2({ db, cache, advertiserId, body, allowedCityIds =
   const merged = { ...current || {}, ...payload };
   const city = text35(merged.ciudad_id);
   if (!city) throw new Error("Falta ciudad.");
-  if (allowedCityIds.length && !allowedCityIds.includes(city)) throw new Error("La ciudad no está habilitada para esta cuenta.");
+  if (!allowedCityIds.includes(city)) throw new Error(allowedCityIds.length?"La ciudad no está habilitada para esta cuenta.":"Esta cuenta no tiene ciudades habilitadas para Farmacias de turno.");
   if (!text35(merged.fecha_inicio)) throw new Error("Falta fecha de inicio.");
   if (!text35(merged.hora_inicio)) throw new Error("Falta hora de inicio.");
   const dur = Math.max(1, Number(merged.duracion_horas || 24));
@@ -4444,9 +4444,7 @@ async function routePanelV3({ path, request: request2, url, env, db, cache }) {
       return json(await farmaciasPanelData({ db, advertiserId: aid, featureAllowed: (a) => featureEnabled(a, "TURNOS_FARMA") || truthy2(a && a.turnos_farma) }));
     }
     if (action === "guardar_ciclo") {
-      const admin = await db.get("anunciantes_administracion", aid);
-      const territory = await cache.get("territorio:public:v1") || {};
-      const allowed = Array.isArray(admin && admin.farmacias_ciudades) && admin.farmacias_ciudades.length ? admin.farmacias_ciudades.map(text36) : (territory.ciudades || []).map((c) => text36(c.ciudad_id || c.id)).filter(Boolean);
+      const allowed = await allowedFarmCities({ db, cache, aid });
       return json(await farmSaveCycleV2({ db, cache, advertiserId: aid, body, allowedCityIds: allowed }));
     }
     return null;
@@ -4606,9 +4604,7 @@ async function farmaciasPanelDataV3({db,cache,advertiserId,featureAllowed,allowe
     return{...c,participantes};
   }));
 
-  const ciudades=allowedCityIds.length
-    ? ((territorio&&territorio.ciudades)||[]).filter(c=>allowedCityIds.includes(text(c.ciudad_id||c.id)))
-    : ((territorio&&territorio.ciudades)||[]);
+  const ciudades=((territorio&&territorio.ciudades)||[]).filter(c=>allowedCityIds.includes(text(c.ciudad_id||c.id)));
 
   const farmacias=await pharmacyCatalog(cache,ciudades.map(c=>text(c.ciudad_id||c.id)).filter(Boolean),cicloData);
   return{
@@ -4669,16 +4665,19 @@ async function requirePanel2(env, request2, aid, moduleName, write = false) {
 }
 async function allowedFarmCities({ db, cache, aid }) {
   if(db.panelReadDb)db=db.panelReadDb();
-  const admin = await db.get("anunciantes_administracion", aid);
-  const territory = await cache.get("territorio:public:v1") || {};
-  const cfgRoot = admin && admin.funcionalidades_config && typeof admin.funcionalidades_config === "object" ? admin.funcionalidades_config : {};
+  return farmCitiesFromAdmin(await db.get("anunciantes_administracion", aid), cache);
+}
+// Ciudades de Farmacias de turno: «todas» sólo con configuración explícita; sin ciudades asignadas se niega.
+async function farmCitiesFromAdmin(admin, cache) {
+  if (!admin) return [];
+  const cfgRoot = admin.funcionalidades_config && typeof admin.funcionalidades_config === "object" ? admin.funcionalidades_config : {};
   const cfg = cfgRoot.TURNOS_FARMA || cfgRoot.FARMACIAS || cfgRoot.turnos_farma || {};
-  const all = truthy3(cfg.todas_ciudades) || text40(admin && admin.turnos_farma) === "*";
-  const ids6 = Array.isArray(cfg.ciudades) ? cfg.ciudades.map(text40).filter(Boolean) : text40(admin && admin.turnos_farma).split(/[;,|]+/).map(text40).filter((v) => v && v !== "*");
-  if (all || !ids6.length) {
+  if (truthy3(cfg.todas_ciudades) || text40(admin.turnos_farma) === "*") {
+    const territory = await cache.get("territorio:public:v1") || {};
     return (territory.ciudades || []).map((c) => text40(c.ciudad_id || c.id)).filter(Boolean);
   }
-  return [...new Set(ids6)];
+  const ids6 = Array.isArray(cfg.ciudades) ? cfg.ciudades : Array.isArray(admin.farmacias_ciudades) ? admin.farmacias_ciudades : text40(admin.turnos_farma).split(/[;,|]+/).filter((v) => v && v.trim() !== "*");
+  return [...new Set(ids6.map(text40).filter(Boolean))];
 }
 async function routePanelV4(ctx) {
   const { path, request: request2, url, env, cache } = ctx;
@@ -7213,7 +7212,7 @@ async function farmSaveCycleV3({db,cache,advertiserId,body,allowedCityIds=[]}){
   const merged={...(current||{}),...payload};
   const city=text(merged.ciudad_id);
   if(!city)throw new Error("Falta ciudad.");
-  if(allowedCityIds.length&&!allowedCityIds.includes(city))throw new Error("La ciudad no está habilitada para esta cuenta.");
+  if(!allowedCityIds.includes(city))throw new Error(allowedCityIds.length?"La ciudad no está habilitada para esta cuenta.":"Esta cuenta no tiene ciudades habilitadas para Farmacias de turno.");
   if(!text(merged.fecha_inicio))throw new Error("Falta fecha de inicio.");
   if(!text(merged.hora_inicio))throw new Error("Falta hora de inicio.");
 
@@ -7337,17 +7336,7 @@ function aidOf9(url, b = {}) {
 }
 var truthy7 = (v) => v === true || v === 1 || ["true", "1", "si", "sí", "x", "activo", "activa"].includes(text68(v).toLowerCase());
 async function allowedFarmCities2({ db, cache, aid }) {
-  const admin = await db.get("anunciantes_administracion", aid);
-  if (!admin) return [];
-  const root = admin.funcionalidades_config && typeof admin.funcionalidades_config === "object" ? admin.funcionalidades_config : {};
-  const cfg = root.TURNOS_FARMA || root.FARMACIAS || root.turnos_farma || {};
-  const all = truthy7(cfg.todas_ciudades) || text68(admin.turnos_farma) === "*";
-  if (all) {
-    const territory = await cache.get("territorio:public:v1");
-    return (territory && territory.ciudades || []).map((c) => text68(c.ciudad_id || c.id)).filter(Boolean);
-  }
-  const arr = Array.isArray(cfg.ciudades) ? cfg.ciudades : Array.isArray(admin.farmacias_ciudades) ? admin.farmacias_ciudades : text68(admin.turnos_farma).split(/[;,|]+/).map(text68).filter((v) => v && v !== "*");
-  return [...new Set(arr.map(text68).filter(Boolean))];
+  return allowedFarmCities({ db, cache, aid });
 }
 async function routePanelV15(ctx) {
   const { path, request: request2, url, env, db, cache } = ctx;
