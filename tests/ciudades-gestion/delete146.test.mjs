@@ -1,85 +1,43 @@
-import {readFileSync} from 'node:fs';
-import vm from 'node:vm';
-import assert from 'node:assert/strict';
-const code=readFileSync('worker/modules/city-delete146.js','utf8');
-async function run(role,linked){
- let deleted=0,puts=0,queries=0;
- const packet={version:1,paises:[{pais_id:'AR'}],provincias:[{provincia_id:'BA'}],ciudades:[{ciudad_id:'C-TEST',ciudad_visible:'Ciudad de prueba',activa:false}]};
- const context={
-  authOr401:async()=>({rol:role}),
-  json:(body,status=200)=>({status,...body}),
-  text3:v=>String(v??'').trim(),packet:v=>v,
-  ADMIN_KEY:'territorio:admin:v1',PUBLIC_KEY:'territorio:public:v1',
-  GLD_ACTIONS138:{isInternal:()=>true},C:{ciudades:'ciudades'},
-  remove:(rows,field,id)=>rows.filter(row=>row[field]!==id),Response:class{},
-  Date,Promise
- };
- vm.createContext(context);vm.runInContext(code,context);
- const result=await context.deleteCity146({
-  env:{},request:{},idFromPath:'C-TEST',
-  db:{
-   queryEqual:async()=>{queries++;return linked?[{id:'linked'}]:[]},
-   delete:async()=>{deleted++;return true}
-  },
-  cache:{get:async()=>packet,put:async()=>{puts++}}
- });
- return {result,deleted,puts,queries};
+// P4-0007: baja segura de ciudad sobre el Worker único vigente.
+import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';import vm from 'node:vm';
+const w=fs.readFileSync(new URL('../../worker/worker206.txt',import.meta.url),'utf8');
+const src=w.slice(w.indexOf('async function deleteCity146('),w.indexOf('async function rebuildTerritoryRaw138('));
+function setup({rol='SUPERADMIN_PRINCIPAL',city={ciudad_id:'C-TEST',activa:false},packetCities=[{ciudad_id:'C-TEST'}],rows={},guideCards=[],rebuildOk=true}={}){
+ const log={queries:[],deleted:[],synced:[],indexed:[],rebuilds:0};
+ const ctx={json:(body,status=200)=>({status,ok:status<400,body}),text3:v=>String(v??'').trim(),packet:v=>({ciudades:v?.ciudades||[]}),
+  active:r=>r.activa!==false,ADMIN_KEY:'territorio:admin:v1',C:{ciudades:'ciudades'},guideCityKey2:id=>'guide:city:v1:'+id,
+  authOr401:async()=>({ok:true,rol}),Response:class{},URL,Request:class{constructor(u,o){this.url=u;this.method=o.method;this.headers=new Map(Object.entries(o.headers));}},Promise,
+  syncGuideAdvertiserV2:async({advertiserId,affectedCityIds})=>{log.synced.push([advertiserId,affectedCityIds])},
+  syncAdvertiserIndexV2:async({advertiserId})=>{log.indexed.push(advertiserId)},
+  rebuildTerritory:async({request})=>{log.rebuilds++;assert.equal(request.method,'POST');assert.match(request.url,/\/superadmin\/territory\/rebuild-cache$/);return {ok:rebuildOk}}};
+ vm.createContext(ctx);vm.runInContext(src,ctx);
+ const db={get:async(c,id)=>c==='ciudades'?city:null,queryEqual:async(c,f,v,n)=>{log.queries.push(c+'.'+f);return (rows[c+'.'+f]||[]).filter(r=>r[f]===v).slice(0,n)},delete:async(c,id)=>{log.deleted.push(c+'/'+id)}};
+ const cache={get:async k=>k==='territorio:admin:v1'?{ciudades:packetCities}:k==='guide:city:v1:C-TEST'?{anunciantes:guideCards}:null};
+ const request={url:'https://w.test/superadmin/cities/C-TEST',headers:{get:()=>'Bearer t'}};
+ return {log,run:()=>ctx.deleteCity146({env:{},request,db,cache,idFromPath:'C-TEST'})};
 }
-let x=await run('SUPERADMIN_PRINCIPAL',false);
-assert.equal(x.result.status,200);assert.equal(x.deleted,1);assert.equal(x.puts,10);
-assert.equal(x.queries,19);
-x=await run('SUPERADMIN_PRINCIPAL',true);
-assert.equal(x.result.status,409);assert.equal(x.deleted,0);assert.equal(x.puts,0);
-x=await run('SUPERADMIN',false);
-assert.equal(x.result.status,403);assert.equal(x.deleted,0);assert.equal(x.queries,0);
-console.log('PASS borrado sin vínculos; bloqueo con vínculos; permisos exclusivos; sin borrado parcial.');
-
-const finalSedes=[
- {id:'SD-DOLORES',sede_id:'SD-DOLORES',anunciante_id:'ANU-1',ciudad_id:'C-TEST'},
- {id:'SD-BELGRANO',sede_id:'SD-BELGRANO',anunciante_id:'ANU-1',ciudad_id:'BELGRANO'},
- {id:'SD-OTRA',sede_id:'SD-OTRA',anunciante_id:'ANU-1',ciudad_id:'OTRA'}
-];
-const registrosBorrados=[];
-const noBorrados=finalSedes.map(s=>s.id);
-const context2={
- authOr401:async()=>({rol:'SUPERADMIN_PRINCIPAL'}),
- json:(body,status=200)=>({status,...body}),text3:v=>String(v??'').trim(),packet:v=>v,
- ADMIN_KEY:'territorio:admin:v1',PUBLIC_KEY:'territorio:public:v1',
- GLD_ACTIONS138:{isInternal:()=>true},C:{ciudades:'ciudades'},
- remove:(rows,field,id)=>rows.filter(row=>row[field]!==id),Response:class{},Date,Promise
-};
-vm.createContext(context2);vm.runInContext(code,context2);
-const result2=await context2.deleteCity146({
- env:{},request:{},idFromPath:'C-TEST',
- db:{
-  queryEqual:async(collection,field,value)=>collection==='anunciantes_sedes'?finalSedes.filter(s=>s.ciudad_id===value):[],
-  delete:async(collection,id)=>{registrosBorrados.push(collection+'/'+id);const i=noBorrados.indexOf(id);if(i>=0)noBorrados.splice(i,1);}
- },
- cache:{get:async()=>({ciudades:[{ciudad_id:'C-TEST',activa:false}],paises:[],provincias:[]}),put:async()=>{}}
+test('sólo el administrador principal, con ciudad suspendida y sin referencias compartidas',async()=>{
+ let x=setup({rol:'SUPERADMIN'});assert.equal((await x.run()).status,403);assert.equal(x.log.queries.length,0);
+ x=setup({city:{ciudad_id:'C-TEST',activa:true}});assert.equal((await x.run()).body.code,'CITY_MUST_BE_SUSPENDED');assert.equal(x.log.deleted.length,0);
+ x=setup({rows:{'eventos.ciudad_id':[{ciudad_id:'C-TEST'}],'anunciantes.ciudad_id':[{ciudad_id:'C-TEST'}]}});const r=await x.run();
+ assert.equal(r.status,409);assert.deepEqual([...r.body.referencias],['anunciantes.ciudad_id','eventos.ciudad_id']);assert.equal(x.log.deleted.length,0);assert.equal(x.log.rebuilds,0);
 });
-assert.equal(result2.status,200);
-assert.deepEqual(registrosBorrados,['anunciantes_sedes/SD-DOLORES','ciudades/C-TEST']);
-assert.deepEqual(noBorrados,['SD-BELGRANO','SD-OTRA']);
-console.log('PASS multisedes: elimina solo la sede de la ciudad seleccionada y mantiene las otras dos.');
-
-// Una ciudad activa no se puede borrar ni por una llamada directa al Worker.
-const ctxActiva={
- authOr401:async()=>({rol:'SUPERADMIN_PRINCIPAL'}),
- json:(body,status=200)=>({status,...body}),text3:v=>String(v??'').trim(),packet:v=>v,
- ADMIN_KEY:'territorio:admin:v1',PUBLIC_KEY:'territorio:public:v1',
- GLD_ACTIONS138:{isInternal:()=>true},C:{ciudades:'ciudades'},
- remove:(rows,field,id)=>rows.filter(row=>row[field]!==id),Response:class{},Date,Promise
-};
-vm.createContext(ctxActiva);vm.runInContext(code,ctxActiva);
-let accionesActivas=0;
-const activa=await ctxActiva.deleteCity146({
- env:{},request:{},idFromPath:'C-TEST',
- db:{queryEqual:async()=>{accionesActivas++;return []},delete:async()=>{accionesActivas++;}},
- cache:{get:async()=>({ciudades:[{ciudad_id:'C-TEST',activa:true}],paises:[],provincias:[]}),put:async()=>{accionesActivas++;}}
+test('multisede: borra sólo la sede de la ciudad, recalcula el anunciante y borra la ciudad al final',async()=>{
+ const sedes=[{sede_id:'SD-DOL',anunciante_id:'ANU-1',ciudad_id:'C-TEST'},{sede_id:'SD-BEL',anunciante_id:'ANU-1',ciudad_id:'BELGRANO'}];
+ const x=setup({rows:{'anunciantes_sedes.ciudad_id':sedes,'empleos.ciudad_id':[{empleo_id:'E1',ciudad_id:'C-TEST'}]}});const r=await x.run();
+ assert.equal(r.status,200);assert.equal(r.body.eliminada,true);
+ assert.deepEqual(x.log.deleted,['empleos/E1','anunciantes_sedes/SD-DOL','ciudades/C-TEST']);
+ assert.deepEqual(JSON.parse(JSON.stringify(x.log.synced)),[['ANU-1',['C-TEST']]]);assert.deepEqual(x.log.indexed,['ANU-1']);assert.equal(x.log.rebuilds,1);
 });
-assert.equal(activa.status,409);
-assert.equal(activa.code,'CITY_MUST_BE_SUSPENDED');
-assert.equal(accionesActivas,0);
-console.log('PASS fase 1 obligatoria: una ciudad activa no puede borrarse.');
-
-
+test('reintentos: sin duplicar borrados y recuperando proyecciones',async()=>{
+ let x=setup({guideCards:[{anunciante_id:'ANU-2'}]});assert.equal((await x.run()).status,200);
+ assert.deepEqual(x.log.deleted,['ciudades/C-TEST']);assert.deepEqual(JSON.parse(JSON.stringify(x.log.synced)),[['ANU-2',['C-TEST']]],'sedes ya borradas: recalcula desde la copia de Guía');
+ x=setup({city:null});assert.equal((await x.run()).status,200);assert.equal(x.log.deleted.length,0);assert.equal(x.log.rebuilds,1,'ficha ya borrada: sólo republica el territorio');
+ x=setup({city:null,packetCities:[]});const done=await x.run();assert.equal(done.status,200);assert.equal(x.log.rebuilds,0);assert.equal(done.body.registros_eliminados,0);
+ x=setup({rebuildOk:false});assert.equal((await x.run()).status,503);
+});
+test('la ruta DELETE está registrada en el Worker y GH usa suspensión previa',()=>{
+ assert.match(w,/request2\.method === "DELETE"\) return deleteCity146\(/);
+ const gh=fs.readFileSync(new URL('../../plataforma/administracion.html',import.meta.url),'utf8');
+ assert.match(gh,/method:'DELETE',headers:\{Authorization:'Bearer '\+TOKEN,'Idempotency-Key'/);
+});

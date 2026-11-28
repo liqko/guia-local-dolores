@@ -1325,6 +1325,49 @@ async function rebuildTerritory(ctx){
  if(!report)return json({success:false,message:'Falta contexto del coordinador territorial.'},503);
  return GLD_ACTIONS138.route({...ctx,path:'/superadmin/territory/rebuild-cache'},report);
 }
+// P4-0007: baja segura de ciudad. Sólo el administrador principal, con la ciudad suspendida y sin referencias compartidas.
+// Elimina únicamente las sedes y registros propios de esa ciudad; las sedes de otras ciudades se conservan.
+// Reintentable: la ficha territorial se borra al final y las tarjetas se recalculan desde la copia de Guía de la ciudad.
+async function deleteCity146({ env, request: request2, db, cache, idFromPath = "" }) {
+ const a=await authOr401(env,request2);
+ if(a instanceof Response)return a;
+ if(a.rol!=="SUPERADMIN_PRINCIPAL")return json({success:false,message:"Solo el administrador principal puede eliminar ciudades."},403);
+ const id=text3(idFromPath);
+ if(!id||id.includes("/"))return json({success:false,message:"Ciudad inválida."},400);
+ const city=await db.get(C.ciudades,id);
+ if(!city&&!packet(await cache.get(ADMIN_KEY)).ciudades.some(r=>text3(r.ciudad_id||r.id)===id))
+  return json({success:true,eliminada:true,ciudad_id:id,registros_eliminados:0});
+ let borrados=0;const afectados=new Set();
+ if(city){
+  if(active(city))return json({success:false,code:"CITY_MUST_BE_SUSPENDED",message:"Primero debe suspenderse la ciudad; no se eliminó nada."},409);
+  // Contenido que puede compartirse con otras ciudades o tiene historial propio: requiere tratamiento específico.
+  const complex=[["anunciantes","ciudad_id"],["eventos","ciudad_id"],["evento_programacion","ciudad_id"],["actividades","ciudad_id"],["actividad_horarios","ciudad_id"],["promos","ciudad_id"],["publicidades","ciudad_id"],["publicidad_segmentacion","ciudad_id"],["publicidad_ubicaciones","ciudad_id"],["farmacias_ciclos","ciudad_id"],["farmacias_ciclo_sedes","ciudad_id"],["farmacias_participantes","ciudad_id"],["efemerides_bis","ciudad_id"],["suscriptores","ciudad_origen_id"],["suscriptores","ciudad_predeterminada_id"]];
+  const blocked=[];
+  for(const [collection,field] of complex)if((await db.queryEqual(collection,field,id,1)).length)blocked.push(collection+"."+field);
+  if(blocked.length)return json({success:false,code:"CITY_HAS_COMPLEX_REFERENCES",message:"Hay publicaciones o referencias que requieren eliminación territorial específica. No se eliminó nada.",referencias:blocked},409);
+  const planned=[];
+  for(const [collection,field,idField] of [["empleos","ciudad_id","empleo_id"],["lugares","ciudad_id","lugar_id"],["solicitudes_anunciante","ciudad_id","solicitud_id"],["solicitudes_soporte","ciudad_id","solicitud_id"],["anunciantes_sedes","ciudad_id","sede_id"]]){
+   const rows=await db.queryEqual(collection,field,id,500);
+   if(rows.length===500)return json({success:false,message:"Demasiados registros en "+collection+": se requiere eliminación por lotes. No se eliminó nada."},409);
+   for(const row of rows){
+    const rid=text3(row[idField]||row.id);
+    if(!rid)return json({success:false,message:"Registro sin ID en "+collection+". No se eliminó nada."},409);
+    if(collection==="anunciantes_sedes"&&text3(row.ciudad_id)!==id)continue;
+    planned.push({collection,id:rid});
+    if(collection==="anunciantes_sedes"&&text3(row.anunciante_id))afectados.add(text3(row.anunciante_id));
+   }
+  }
+  for(const card of (await cache.get(guideCityKey2(id)))?.anunciantes||[])if(text3(card.anunciante_id))afectados.add(text3(card.anunciante_id));
+  for(const row of planned){await db.delete(row.collection,row.id);borrados++;}
+  for(const aid of afectados)await Promise.all([syncGuideAdvertiserV2({db,cache,advertiserId:aid,affectedCityIds:[id]}),syncAdvertiserIndexV2({db,cache,advertiserId:aid})]);
+  await db.delete(C.ciudades,id);borrados++;
+ }
+ // El catálogo territorial se republica por el coordinador existente, desde la fuente.
+ const url=new URL(request2.url);url.pathname="/superadmin/territory/rebuild-cache";url.search="";
+ const rebuilt=await rebuildTerritory({env,request:new Request(url.toString(),{method:"POST",headers:{Authorization:request2.headers.get("Authorization")||""}}),db,cache});
+ if(!rebuilt.ok)return json({success:false,message:"La ciudad se eliminó de la fuente, pero falta actualizar el catálogo territorial. Reintentá la eliminación."},503);
+ return json({success:true,eliminada:true,ciudad_id:id,registros_eliminados:borrados,anunciantes_actualizados:afectados.size});
+}
 async function rebuildTerritoryRaw138({ env, request: request2, db, cache }) {
   const a = await authOr401(env, request2);
   if (a instanceof Response) return a;
@@ -7428,6 +7471,7 @@ async function routeAdminV3({ path, request: request2, env, db, cache }) {
   if (m && request2.method === "PATCH") return saveProvince({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
   m = path.match(/^\/superadmin\/cities\/([^/]+)$/);
   if (m && request2.method === "PATCH") return saveCity({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
+  if (m && request2.method === "DELETE") return deleteCity146({ env, request: request2, db, cache, idFromPath: decodeURIComponent(m[1]) });
   const a = await requireAdmin(env, request2);
   if (!a) return json({ success: false, message: "Sesión de administrador requerida." }, 401);
   if (!["SUPERADMIN_PRINCIPAL", "SUPERADMIN"].includes(a.rol)) {
