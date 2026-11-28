@@ -9,6 +9,7 @@
 > - P4-0007 diagnosticada: «Eliminar ciudad» de GH llama a una ruta DELETE inexistente en el Worker 219; la ciudad queda suspendida y no se borra nada. Espera decisión: restituir baja segura o retirar el botón.
 > - P4-0030 diagnosticada: el 503 de preparación inicial tiene reintento automático acotado en lecturas; falta prueba con sesión real.
 > - P4-0003 diagnosticada: el paquete público de Eventos no retira eventos por fecha; falta regla aprobada de vencimiento.
+> - P4-0015 y P4-0016: el código vigente ya no presenta los defectos históricos (alta de prestación y cupo -1); falta prueba con sesión.
 > - Pendientes: instalación del Worker y publicación de `administracion.html` sólo con autorización; simulación productiva y comprobación con sesión omitidas por el usuario; regularización real NO autorizada. **Siguiente acción:** restantes intervenciones del Paso 4 por prioridad (seguridad, integridad, funcionamiento, costo).
 
 > **DEFINICIONES VIGENTES DEL DESARROLLO DE ANUNCIANTES (recuperadas por el usuario, 27/11/2026).** Rama `feature/anunciantes-titularidad-20261127`.
