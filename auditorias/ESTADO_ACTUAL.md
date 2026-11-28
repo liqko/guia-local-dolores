@@ -7,6 +7,7 @@
 > - Pruebas: `tests/roles159/integration.mjs` 6/6; `titularidad` + `tests/anunciantes/*` 14/14; `publicacion-reglas206` + `gh-detalle-sin-ttl` 29/29; `corte-ciudad` 7/7; `publication-integrity` y `verify-panel-roles` PASS; diagnósticos del editor del Worker completo = 0.
 > - Continuación P4 (seguridad): P4-0028-T01 Farmacias — resolvedor único de ciudades con denegación por defecto (lista vacía ya no habilita todas); prueba `tests/farmacias/autorizacion-ciudades.test.cjs`. Antes de instalar, confirmar en GH ciudades o «todas» de cada operador. P4-0001: prueba actualizada al cron 01:21 autorizado. P4-0024: código y prueba E2 presentes; falta verificación con sesión real.
 > - P4-0007 diagnosticada: «Eliminar ciudad» de GH llama a una ruta DELETE inexistente en el Worker 219; la ciudad queda suspendida y no se borra nada. Espera decisión: restituir baja segura o retirar el botón.
+> - P4-0030 diagnosticada: el 503 de preparación inicial tiene reintento automático acotado en lecturas; falta prueba con sesión real.
 > - Pendientes: instalación del Worker y publicación de `administracion.html` sólo con autorización; simulación productiva y comprobación con sesión omitidas por el usuario; regularización real NO autorizada. **Siguiente acción:** restantes intervenciones del Paso 4 por prioridad (seguridad, integridad, funcionamiento, costo).
 
 > **DEFINICIONES VIGENTES DEL DESARROLLO DE ANUNCIANTES (recuperadas por el usuario, 27/11/2026).** Rama `feature/anunciantes-titularidad-20261127`.
