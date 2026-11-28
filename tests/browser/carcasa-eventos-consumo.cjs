@@ -196,11 +196,11 @@ async function fromLive(p){
   }
   await direct.close();
   if(candidate&&!generic){
-   const institutional=await browser.newContext({serviceWorkers:'block'});
+   const profile=await mkdtemp(path.join(tmpdir(),'gld-institutional-profile-'));
+   const openProfile=()=>chromium.launchPersistentContext(profile,{serviceWorkers:'block',executablePath:process.env.GLD_CHROME,headless:true,args:['--no-sandbox']});
+   let institutional;
    try{
-    const tab=await institutional.newPage();
-    report.institutional=[];
-    for(const name of ['inicio','login','administracion','suscriptores']){
+    async function visit(tab,name){
      await tab.goto(origin+'/plataforma/'+name+'.html',{waitUntil:'load'});
      await tab.locator('#gldPieGlobal').scrollIntoViewIfNeeded();
      await tab.waitForFunction(()=>{
@@ -209,9 +209,15 @@ async function fromLive(p){
      });
      assert.equal(await tab.locator('#gldPieGlobal iframe').count(),0);
      assert.equal(await tab.locator('#gldPieGlobal .gld-footer-socials a').count(),5);
-     const assets=await tab.evaluate(()=>performance.getEntriesByType('resource').filter(entry=>
+     return tab.evaluate(()=>performance.getEntriesByType('resource').filter(entry=>
       /\/assets\/app\/[^/]+-(?:marca-global|pie[-.]|logo-guia-local|fondo-ciudad)/.test(entry.name)
      ).map(entry=>({file:new URL(entry.name).pathname,bytes:entry.transferSize})));
+    }
+    institutional=await openProfile();
+    const tab=institutional.pages()[0];
+    report.institutional=[];
+    for(const name of ['inicio','login','administracion','suscriptores']){
+     const assets=await visit(tab,name);
      assert.equal(new Set(assets.map(entry=>entry.file)).size,13,'Marca, estilos, fragmento y gráficos compartidos');
      if(report.institutional.length){
       assert.deepEqual(assets.map(entry=>entry.file).sort(),report.institutional[0].assets.map(entry=>entry.file).sort());
@@ -219,7 +225,32 @@ async function fromLive(p){
      }else assert(assets.every(entry=>entry.bytes>0),'La primera visita transfiere el contenido institucional');
      report.institutional.push({page:name,assets});
     }
-   }finally{await institutional.close();}
+    await institutional.close();
+    institutional=await openProfile();
+    const reopened=await visit(institutional.pages()[0],'inicio');
+    assert.deepEqual(reopened.map(entry=>entry.file).sort(),report.institutional[0].assets.map(entry=>entry.file).sort());
+    assert(reopened.every(entry=>entry.bytes===0),'El perfil reabierto conserva los cuerpos institucionales');
+    report.institutionalAfterRestart=reopened;
+
+    const layout=element=>{
+     const panels=[...element.querySelectorAll('.gld-footer-info,.gld-footer-production,.gld-footer-socials')];
+     return {panels:panels.map(panel=>{
+      const bounds=panel.getBoundingClientRect(),css=getComputedStyle(panel);
+      return [Math.round(bounds.width),Math.round(bounds.height),css.backgroundColor,css.fontFamily];
+     }),links:[...element.querySelectorAll('a')].map(link=>[link.getAttribute('href'),link.target,link.rel])};
+    };
+    const layoutPage=await institutional.newPage();
+    for(const width of [390,430,710,1280]){
+     await layoutPage.setViewportSize({width,height:900});
+     await visit(layoutPage,'inicio');
+     const integrated=await layoutPage.locator('#gldPieGlobal .gld-footer').evaluate(layout);
+     const frameWidth=await layoutPage.locator('#gldPieGlobal').evaluate(host=>host.clientWidth);
+     await layoutPage.setViewportSize({width:frameWidth,height:900});
+     await layoutPage.goto(origin+'/plataforma/pie',{waitUntil:'load'});
+     const standalone=await layoutPage.locator('.gld-footer').evaluate(layout);
+     assert.deepEqual(integrated,standalone,'El pie integrado conserva el diseño y enlaces a '+width+' px');
+    }
+   }finally{await institutional?.close();await rm(profile,{recursive:true,force:true});}
   }
   if(generic){
    const upgrade=await browser.newContext({serviceWorkers:'block'}),up=await upgrade.newPage();let fetched=[];
