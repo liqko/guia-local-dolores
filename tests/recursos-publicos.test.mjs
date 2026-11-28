@@ -17,7 +17,7 @@ test('Recursos publicados: revisión individual, variantes de marca y reutilizac
   const footer=await readFile(join(stage,'plataforma/pie.html'),'utf8');
   const telemetry=first.files['/plataforma/telemetria.js'];
   assert(html.includes('src="'+telemetry+'"'));
-  assert(footer.includes('src="'+telemetry+'"'));
+  assert(!footer.includes('telemetria.js'),'El pie no inicializa telemetría desactivada');
   const empleo=await readFile(join(stage,'plataforma/empleo.html'),'utf8');
   assert(empleo.includes('href="'+first.files['/plataforma/empleo.css']+'"'));
   assert.deepEqual(await readFile(join(stage,first.files['/plataforma/empleo.css'])),await readFile(join(stage,'plataforma/empleo.css')));
@@ -34,8 +34,16 @@ test('Recursos publicados: revisión individual, variantes de marca y reutilizac
    assert.match(first.files[original],/\.webp$/);
   }
   const brand=await readFile(join(stage,first.files['/plataforma/marca-global.js']),'utf8');
-  assert(!brand.includes('/plataforma/assets/marca/'));
-  assert(brand.includes("footer.src='/plataforma/pie'"));
+  assert(!brand.includes("createElement('iframe')"));
+  const fragment=first.files['/plataforma/pie-componente.txt'];
+  for(const name of ['inicio.html','login.html','administracion.html','carcasa.html']){
+   const page=await readFile(join(stage,'plataforma',name),'utf8');
+   assert(page.includes('data-gld-pie="'+fragment+'"'),name);
+   assert(page.includes('data-gld-logo="'+first.files['/plataforma/assets/marca/logo-guia-local.png']+'"'),name);
+  }
+  const markup=await readFile(join(stage,fragment),'utf8');
+  assert(!/<script\b|<iframe\b|src="https?:/i.test(markup));
+  assert(markup.includes('href="mailto:hola@guialocal.ar"'));
   assert(html.includes("url:'./empleo'"));
   assert(html.includes("url:'./anunciantes'"));
   assert(!html.includes("url:'./anunciantes.html'"));
@@ -49,6 +57,15 @@ test('Recursos publicados: revisión individual, variantes de marca y reutilizac
   await reset();
   const again=await versionarRecursos(stage);
   assert.deepEqual(again.files,first.files);
+  await reset();
+  const cssPath=join(stage,'plataforma/pie.css');
+  const css=await readFile(cssPath,'utf8');
+  await writeFile(cssPath,css+'\n/* cambio de estilo */');
+  const footerStyle=await versionarRecursos(stage);
+  assert.notEqual(footerStyle.files['/plataforma/pie.css'],first.files['/plataforma/pie.css']);
+  assert.equal(footerStyle.files['/plataforma/pie-componente.txt'],fragment);
+  assert.equal(footerStyle.files['/plataforma/marca-global.js'],first.files['/plataforma/marca-global.js']);
+  await writeFile(cssPath,css);
   await reset();
   await writeFile(join(stage,'plataforma/territorio-cache.js'),'window.GLD_CATALOGO_TERRITORIAL={revision:2};');
   const changed=await versionarRecursos(stage);

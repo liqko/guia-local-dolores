@@ -22,27 +22,48 @@ export async function versionarRecursos(stage){
   files.delete(brand+optimized);
   files.set(brand+original,target);
  }
+ const pie='/plataforma/pie.html',marcaCss='/plataforma/marca-global.css',pieCss='/plataforma/pie.css';
+ const pieSource=await readFile(join(stage,pie),'utf8');
+ const pieMarkup=pieSource.match(/<footer\b[\s\S]*?<\/footer>/i)?.[0];
+ if(!pieMarkup)throw Error('Falta el componente institucional del pie.');
+ let footer=pieMarkup;
+ for(const name of await readdir(join(stage,brand))){
+  if(!name.startsWith('pie-'))continue;
+  const source=brand+name;
+  footer=footer.replaceAll(source,await publish(source));
+ }
+ const institutional={
+  'marca-css':await publish(marcaCss),
+  'pie-css':await publish(pieCss),
+  pie:await publish('/plataforma/pie-componente.txt',footer),
+  logo:files.get(brand+'logo-guia-local.png'),
+  fondo:files.get(brand+'fondo-ciudad.jpg'),
+ };
+ const brandAttributes=Object.entries(institutional).map(([key,url])=>` data-gld-${key}="${url}"`).join('');
  const sharedPages=new Set(['inicio.html','login.html','administracion.html','suscriptores.html','empleo.html','pie.html']);
  const pages=[];
  for(const name of await readdir(join(stage,'plataforma'))){
   if(!name.endsWith('.html'))continue;
   const html=await readFile(join(stage,'plataforma',name),'utf8');
-  if(sharedPages.has(name)||/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
+  if(sharedPages.has(name)||/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?(?:paquete-ciudad|marca-global)\.js/.test(html))pages.push(name);
  }
  for(const page of pages){
   const file=join(stage,'plataforma',page);
   let html=await readFile(file,'utf8');
+  if(page==='pie.html')html=html.replace(pieMarkup,footer).replace(`href="${pieCss}"`,`href="${institutional['pie-css']}"`);
   if(page==='carcasa.html')html=html.replace(/url:'\.\/(anunciantes|empleo)\.html'/g,"url:'./$1'");
   const scripts=[...html.matchAll(/<script\b[^>]*\bsrc=["'](\/plataforma\/[^"'?]+\.js)(?:\?[^"']*)?["'][^>]*>/gi)];
   for(const [tag,source] of scripts){
    if(source.startsWith(prefix))continue;
    if(!files.has(source)){
     let script=await readFile(join(stage,source),'utf8');
-    if(source==='/plataforma/marca-global.js')script=script.replace("footer.src='/plataforma/pie.html'","footer.src='/plataforma/pie'");
-    for(const [original,replacement] of files)if(!original.endsWith('.js'))script=script.replaceAll(original,replacement);
+    if(source!=='/plataforma/marca-global.js'){
+     for(const [original,replacement] of files)if(!original.endsWith('.js'))script=script.replaceAll(original,replacement);
+    }
     await publish(source,script);
    }
-   html=html.replace(tag,tag.replace(/\bsrc=(["'])[^"']+\1/,'src="'+files.get(source)+'"'));
+   const attributes=source==='/plataforma/marca-global.js'?brandAttributes:'';
+   html=html.replace(tag,tag.replace(/\bsrc=(["'])[^"']+\1/,'src="'+files.get(source)+'"'+attributes));
   }
   // Hoja autónoma: los recursos relativos se resolverían desde otra ruta al moverla.
   const stylesheet='/plataforma/empleo.css';

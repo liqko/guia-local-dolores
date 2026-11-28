@@ -43,7 +43,7 @@ async function fromLive(p){
      ({body,type}=await fromLive(p));
     }else{
      body=await readFile(path.join(stage,p));
-     type=({'html':'text/html','js':'text/javascript','json':'application/json','css':'text/css','webp':'image/webp'})[p.split('.').at(-1)]||'application/octet-stream';
+     type=({'html':'text/html','js':'text/javascript','json':'application/json','css':'text/css','webp':'image/webp','svg':'image/svg+xml','png':'image/png','txt':'text/plain; charset=utf-8'})[p.split('.').at(-1)]||'application/octet-stream';
     }
     const etag='"'+createHash('sha256').update(body).digest('hex')+'"';
     const headers={'Content-Type':type,'ETag':etag,'Cache-Control':p.startsWith('/plataforma/assets/app/')?'public, max-age=31536000, immutable':'no-cache, max-age=0, must-revalidate'};
@@ -195,6 +195,32 @@ async function fromLive(p){
    report.historical.filtersWithoutEventRequests=true;
   }
   await direct.close();
+  if(candidate&&!generic){
+   const institutional=await browser.newContext({serviceWorkers:'block'});
+   try{
+    const tab=await institutional.newPage();
+    report.institutional=[];
+    for(const name of ['inicio','login','administracion','suscriptores']){
+     await tab.goto(origin+'/plataforma/'+name+'.html',{waitUntil:'load'});
+     await tab.locator('#gldPieGlobal').scrollIntoViewIfNeeded();
+     await tab.waitForFunction(()=>{
+      const root=document.querySelector('#gldPieGlobal')?.shadowRoot;
+      return root?.querySelector('link')?.sheet&&Array.from(root.querySelectorAll('img')).every(img=>img.complete&&img.naturalWidth);
+     });
+     assert.equal(await tab.locator('#gldPieGlobal iframe').count(),0);
+     assert.equal(await tab.locator('#gldPieGlobal .gld-footer-socials a').count(),5);
+     const assets=await tab.evaluate(()=>performance.getEntriesByType('resource').filter(entry=>
+      /\/assets\/app\/[^/]+-(?:marca-global|pie[-.]|logo-guia-local|fondo-ciudad)/.test(entry.name)
+     ).map(entry=>({file:new URL(entry.name).pathname,bytes:entry.transferSize})));
+     assert.equal(new Set(assets.map(entry=>entry.file)).size,13,'Marca, estilos, fragmento y gráficos compartidos');
+     if(report.institutional.length){
+      assert.deepEqual(assets.map(entry=>entry.file).sort(),report.institutional[0].assets.map(entry=>entry.file).sort());
+      assert(assets.every(entry=>entry.bytes===0),'Cruzar interfaces reutiliza los cuerpos institucionales');
+     }else assert(assets.every(entry=>entry.bytes>0),'La primera visita transfiere el contenido institucional');
+     report.institutional.push({page:name,assets});
+    }
+   }finally{await institutional.close();}
+  }
   if(generic){
    const upgrade=await browser.newContext({serviceWorkers:'block'}),up=await upgrade.newPage();let fetched=[];
    upgrade.on('request',r=>{if(r.url().includes('/paquetes-ciudad/'))fetched.push(r.url());});
