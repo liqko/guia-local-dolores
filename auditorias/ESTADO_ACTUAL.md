@@ -1,3 +1,71 @@
+## 28/11/2026 — Manifiesto exacto del bloque institucional de Hosting
+
+Candidato `f15d68d8` preparado sobre `9f8aa616`. Las huellas SHA-256 del candidato se calcularon sobre los bytes del paquete guardado en `candidato-lf`, enumerados por `alcance-lf.json`. Las huellas previas corresponden a los bytes de respuesta sin compresión servidos por Firebase Hosting con versión activa `ab6d661e404fabcb`. En HTML se consultó la URL canónica sin extensión. Son huellas del contenido, independientes de la representación comprimida de Hosting.
+
+**59 rutas: 47 altas y 12 reemplazos.** Las altas devolvieron HTTP 404 al cotejarlas con Hosting activo. El paquete sigue pendiente de instalación.
+
+| Ruta exacta | Operación | SHA-256 del paquete | SHA-256 previo en Hosting |
+| --- | --- | --- | --- |
+| `/plataforma/administracion.html` | Reemplazo | `81de69481030c013cce11c115030aec6e52644866e5f2b5b5d46e64866b6915d` | `738fdbf28682b6cd2e51adef61ffb88a3ff857f470e4d04bb3b0db8c1b67f110` |
+| `/plataforma/app-prueba.html` | Reemplazo | `199e6b87e4146a6ed985c7f71848bc6779ec41c00b0bb620e74195568c945921` | `544100ac832d88ed1427848ce6d3a30e0a28a0f4fb34649ae0e52f64446827ee` |
+| `/plataforma/carcasa.html` | Reemplazo | `4dc6b7b1ef00f3bd48390f32565a6e552930dfd2515248486dc9bd71f3ce7859` | `2453db4d7ac0f8e5d39fcc36c5c860cff1da7d3f0d55e17edb8e784f006a40d9` |
+| `/plataforma/empleo.html` | Reemplazo | `29ccefb447140e0f7bc76370e00eb4ddfe7f1b88405ade8abf337063f14f8a7c` | `e68491347254481fb99d7d2e4bc4d9ad2cbb185e7afd79fa3eb63b277bf48ed2` |
+| `/plataforma/inicio.html` | Reemplazo | `824d3df9b04014420cd900c91b3a36416d805d18bfe7e8f19f2cfdf09078177f` | `f41318578562d261f4943537e41751cd9deecb562e4cb1937d8ec2f4ee99410b` |
+| `/plataforma/login.html` | Reemplazo | `058474f7650887b9cc31b5d7b3877f2a7851aacb9e066180b4af5805226d3e94` | `2c9c65a5108339fd6f6adb53befc2120112b284ac332f5368c5fdf63ba164778` |
+| `/plataforma/marca-global.css` | Nuevo | `92e230a528100e254d087909c53e22e8cadb722408c6b67a90c3b1d3f23f5533` | — |
+| `/plataforma/marca-global.js` | Reemplazo | `9073ba56cba0f650fc274fa1528c4b41c6e58bd1ff72b7560d0d66c0c1eb004a` | `09cbcfdd716706528b9e886a3d39aa92cd0e686f82d776715c032f90ad851be1` |
+| `/plataforma/nosotros.html` | Reemplazo | `9ca12762cd4897bd537d926b653b5b4cf515bf294b76195609f7dd0af5198537` | `5511d5667b9fa3bb01dadfd450fb2ad84471a7ecfa0362212880d3b7f8ff645f` |
+| `/plataforma/pie.css` | Nuevo | `a01b17593828b9af5b122c00cef42fd2cfc761631cd469ba47e315b9bc50b927` | — |
+| `/plataforma/pie.html` | Reemplazo | `1063835d9017e418539da77f0c720c15098938469b1470c1ea0e889071e8a8a0` | `351e7aba2db3c2efe0135ae867542e51241de52c514191d56fdd26a36d1f2a0b` |
+| `/plataforma/planes-servicios.html` | Reemplazo | `23ce4567ccdf459306ac6399e9068156a4d7a61361c9276c2c9ac1ac5cf9a272` | `f691bec74460d6f961c8839af13e79b072a880cc1882853bd5ee40570ab8f0a9` |
+| `/plataforma/privacidad.html` | Reemplazo | `9a7ef1537b88cb8121ab6046e91b77de50eedb830b3cd36f4156ca704442e122` | `724f2f64c69b8b27e30f25aee9a0c9fb7c48bd874d949b338eb11236a4b63874` |
+| `/plataforma/suscriptores.html` | Reemplazo | `bc50b923886bdb8a2a3061cae3a83d60f5748190e72639a9cf588be71ac49d31` | `d121795bb1be1e5e6d562ecdb17d9979554a8f39b53aeafbeea25859d2e513a1` |
+| `/plataforma/assets/app/02abfb932388f4a33dab-empleo.css` | Nuevo | `02abfb932388f4a33dab29074f8e722a4f4c7c68d04a6383c9c2f98d6ed76eeb` | — |
+| `/plataforma/assets/app/0618478465c438fcc6fa-soporte-cuenta.js` | Nuevo | `0618478465c438fcc6fa73c09ac79ca4116829ec4074572cce6877000abae72d` | — |
+| `/plataforma/assets/app/0814926a3ebdf37fa1a9-planes-simulador.js` | Nuevo | `0814926a3ebdf37fa1a9d614a4167ef5d629863e05e4e00d1d30340c4d8d5cad` | — |
+| `/plataforma/assets/app/0841150ae4b2ba041bbe-pie-componente.txt` | Nuevo | `0841150ae4b2ba041bbe1c914ebec263e47f94be0867261460d8aad5484b263a` | — |
+| `/plataforma/assets/app/144475f39a89dbddbbbb-publicidad-reglas147.js` | Nuevo | `144475f39a89dbddbbbb8b0efd75fada24b195385109ccd9a11b26d882ebc15e` | — |
+| `/plataforma/assets/app/147fd8f8923e7e5f463f-pie-telegram.svg` | Nuevo | `147fd8f8923e7e5f463fe98c0eb9913bead6b2ae59935728cda141002ec8a7c9` | — |
+| `/plataforma/assets/app/1cd9221b4d8c4b9a2d1d-planes-resumen.js` | Nuevo | `1cd9221b4d8c4b9a2d1d2b3ddbdc3f2691c99b3bf6f958b3ebab4dd23d610eb2` | — |
+| `/plataforma/assets/app/24f800ecf4cc56653fbf-cupos.js` | Nuevo | `24f800ecf4cc56653fbfdcb5528353bb833f622568e947fcba27ac40dd31d959` | — |
+| `/plataforma/assets/app/2a89af2de4244e21af67-notificaciones.js` | Nuevo | `2a89af2de4244e21af6748a9a7df2c92283d874779b2825f46756e479faf2cb5` | — |
+| `/plataforma/assets/app/3008bf1306612667f3b5-publicacion-pedidos.js` | Nuevo | `3008bf1306612667f3b516fe31e38d1cf706b98b811775296db7a6508ee60620` | — |
+| `/plataforma/assets/app/386c9e7e1f773c367a46-panel-administrativo155.js` | Nuevo | `386c9e7e1f773c367a466fc2a4ce81c2971cc6c35ac9b0d4118ac923587f9975` | — |
+| `/plataforma/assets/app/3be58f09064473dfb8ad-contadores-caracteres.js` | Nuevo | `3be58f09064473dfb8ad4e1d7db06c0e703482da36d92bc36b9336e934e690db` | — |
+| `/plataforma/assets/app/40f833fdc54e4367af96-gh-calendario.js` | Nuevo | `40f833fdc54e4367af96629fc127b579aba5cb2723775a7028c9f30e3ec93fad` | — |
+| `/plataforma/assets/app/411a16b217a8cdf7e69f-equipo-anunciante159.js` | Nuevo | `411a16b217a8cdf7e69f7b478fa6221bb6f9d1987f90ca25fdbca16a8e591b27` | — |
+| `/plataforma/assets/app/45ea86fcc745a43d60e3-planes-funcionalidades.js` | Nuevo | `45ea86fcc745a43d60e3e6cd9c01b7e706c197c39adcda54303a7a462ed0e1f4` | — |
+| `/plataforma/assets/app/5e9c61b5aedbc6d3e9c4-gh-listados.js` | Nuevo | `5e9c61b5aedbc6d3e9c4e1defc502dda3b1ca791631c22d1a88b5de12b6c5ad9` | — |
+| `/plataforma/assets/app/601af6ad1be5a777ad57-fondo-ciudad.webp` | Nuevo | `601af6ad1be5a777ad57ebc71fa5e3563a68ab873f18f8a9b7a89cd25cc79ed2` | — |
+| `/plataforma/assets/app/6aec2ce0e28784e8778e-pie-maildotru.svg` | Nuevo | `6aec2ce0e28784e8778e5da2dc222152d8b1858a477e6ff417ac1249494ec1f3` | — |
+| `/plataforma/assets/app/72901262651f9aef86d6-publicacion.js` | Nuevo | `72901262651f9aef86d6c552264cb7388d9256c69f48effe2d3ebd016c98b17e` | — |
+| `/plataforma/assets/app/7a0aceb9b0813d233678-empleo-enlaces.js` | Nuevo | `7a0aceb9b0813d23367820dc2e29d5fb646f266a7ab6ed442d56eb79855cf2fa` | — |
+| `/plataforma/assets/app/81ead18040a2ad9b5272-gh-terminos.js` | Nuevo | `81ead18040a2ad9b5272d81c90bb3f98f162452e26d9a31b16dfe01da7b1ac1e` | — |
+| `/plataforma/assets/app/8fb209a53a61618c3483-pie-whatsapp.svg` | Nuevo | `8fb209a53a61618c3483594b3e070481a35575d6aaecbe00a6fe386670c8fb1c` | — |
+| `/plataforma/assets/app/9073ba56cba0f650fc27-marca-global.js` | Nuevo | `9073ba56cba0f650fc274fa1528c4b41c6e58bd1ff72b7560d0d66c0c1eb004a` | — |
+| `/plataforma/assets/app/92e230a528100e254d08-marca-global.css` | Nuevo | `92e230a528100e254d087909c53e22e8cadb722408c6b67a90c3b1d3f23f5533` | — |
+| `/plataforma/assets/app/98721a6e18b2c2741eb5-pie-guia-local.png` | Nuevo | `98721a6e18b2c2741eb5a69f4a1c734c42fd7252aef032b776c4c2e6037dc49e` | — |
+| `/plataforma/assets/app/a01b17593828b9af5b12-pie.css` | Nuevo | `a01b17593828b9af5b122c00cef42fd2cfc761631cd469ba47e315b9bc50b927` | — |
+| `/plataforma/assets/app/b06d18d844ed621b89fa-pie-facebook.svg` | Nuevo | `b06d18d844ed621b89faffb1a33440cc0ec4f1ffea9f36191f50db19a47c59a6` | — |
+| `/plataforma/assets/app/b19b85b262b55b3229cc-gh-publicidad.js` | Nuevo | `b19b85b262b55b3229cc38a663540d35cbcb62993fb6613788652f84ec3266e5` | — |
+| `/plataforma/assets/app/c82ca0245146fc145bec-pie-acp-media.png` | Nuevo | `c82ca0245146fc145bec0700387a9426c8337020a935721d470b332a93258fae` | — |
+| `/plataforma/assets/app/ca90ade56142d6a5d8b9-logo-guia-local.webp` | Nuevo | `ca90ade56142d6a5d8b9f87623772f4e558ca5ca43f5f992b0baea51972239c4` | — |
+| `/plataforma/assets/app/cb2db61699a7e8117168-planes-publicos.js` | Nuevo | `cb2db61699a7e8117168075341adedb350ff17cd55e5eead0384fba0fce19aad` | — |
+| `/plataforma/assets/app/d6a3c9cf13a0ee989533-gh-promos.js` | Nuevo | `d6a3c9cf13a0ee989533f1537512241098a6e3c7c9f2311987950cc82a111198` | — |
+| `/plataforma/assets/app/e4aee633c926aa4d2991-accesos155.js` | Nuevo | `e4aee633c926aa4d2991547885f287c0151b05d906f00d52875790b91c7e6264` | — |
+| `/plataforma/assets/app/f3f64625f7a754386151-terminos-anunciantes.js` | Nuevo | `f3f64625f7a7543861515e11327442df9420f9702bf7fcef2709339e4866468e` | — |
+| `/plataforma/assets/app/f53af2d1fc5292ba1433-pie-instagram.svg` | Nuevo | `f53af2d1fc5292ba1433b5c1faf50005ce6a997fa302d1816989929f379a59dc` | — |
+| `/plataforma/assets/app/f8f6fc7b9f20dc5279b8-publicidad-panel147.js` | Nuevo | `f8f6fc7b9f20dc5279b88d3e6960655277de6d11d09704c0388d77c26f904bd9` | — |
+| `/plataforma/assets/marca/fondo-ciudad.webp` | Nuevo | `601af6ad1be5a777ad57ebc71fa5e3563a68ab873f18f8a9b7a89cd25cc79ed2` | — |
+| `/plataforma/assets/marca/logo-guia-local.webp` | Nuevo | `ca90ade56142d6a5d8b9f87623772f4e558ca5ca43f5f992b0baea51972239c4` | — |
+| `/plataforma/assets/marca/pie-acp-media.png` | Nuevo | `c82ca0245146fc145bec0700387a9426c8337020a935721d470b332a93258fae` | — |
+| `/plataforma/assets/marca/pie-facebook.svg` | Nuevo | `b06d18d844ed621b89faffb1a33440cc0ec4f1ffea9f36191f50db19a47c59a6` | — |
+| `/plataforma/assets/marca/pie-guia-local.png` | Nuevo | `98721a6e18b2c2741eb5a69f4a1c734c42fd7252aef032b776c4c2e6037dc49e` | — |
+| `/plataforma/assets/marca/pie-instagram.svg` | Nuevo | `f53af2d1fc5292ba1433b5c1faf50005ce6a997fa302d1816989929f379a59dc` | — |
+| `/plataforma/assets/marca/pie-maildotru.svg` | Nuevo | `6aec2ce0e28784e8778e5da2dc222152d8b1858a477e6ff417ac1249494ec1f3` | — |
+| `/plataforma/assets/marca/pie-telegram.svg` | Nuevo | `147fd8f8923e7e5f463fe98c0eb9913bead6b2ae59935728cda141002ec8a7c9` | — |
+| `/plataforma/assets/marca/pie-whatsapp.svg` | Nuevo | `8fb209a53a61618c3483594b3e070481a35575d6aaecbe00a6fe386670c8fb1c` | — |
+
 > **Preinstalación institucional de f15d68d8.** Firebase activo: versión `ab6d661e404fabcb`, release `1795871460617000`, 226 archivos. Main sigue en `9f8aa616`. Los 11 documentos instalados coinciden con su base de main al normalizar las referencias de recursos. Cincuenta referencias ajenas a la marca cuyos destinos cambian conservan el mismo cuerpo funcional. Se regeneró el paquete con finales LF de GitHub Actions para evitar huellas locales no disponibles en Firebase. Verificado el alcance exacto de 59 rutas: 54 dependencias con hash, 36 incluidas y las 18 restantes con HTTP 200 en Hosting activo. Reversión: reactivar la versión anterior sólo si coinciden las huellas de índice y paquetes; de lo contrario, reponer únicamente los archivos del bloque sobre la edición pública vigente. Pendiente autorización expresa, instalación y comprobación autenticada. P4-0006 y P4-0036 siguen abiertas.
 
 > **Entrega institucional sobre main 9f8aa616.** El cotejo encontró un cambio concurrente de modo oscuro. El pie conserva sus colores mediante las variables de apariencia de main y mantiene la versión autónoma. Chromium aprobó claro y oscuro con la geometría y enlaces de referencia; cero bytes en los 13 recursos al reabrir el perfil. Recorridos: se valida la baja de un receptor de altura y la incorporación de los cuatro recorridos de apariencia de main (998 en total, sin duplicados ni ausencias). El empaquetado aislado sobre main delimitó 59 rutas de plataforma, 11 documentos. Quedan fuera Worker, configuración, paquetes de ciudad y SEO. Reversión de archivos por overlay con los hashes de la versión activa; base observada ab6d661e404fabcb, a cotejar al instalar.
