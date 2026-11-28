@@ -16,13 +16,18 @@ export async function versionarRecursos(stage){
   files.set(source,target);
   return target;
  }
- // Estos archivos forman la identidad de la carcasa. El contenido no se altera.
- for(const asset of ['/plataforma/assets/marca/logo-guia-local.png','/plataforma/assets/marca/fondo-ciudad.jpg'])await publish(asset);
+ const brand='/plataforma/assets/marca/';
+ for(const [original,optimized] of [['logo-guia-local.png','logo-guia-local.webp'],['fondo-ciudad.jpg','fondo-ciudad.webp']]){
+  const target=await publish(brand+optimized);
+  files.delete(brand+optimized);
+  files.set(brand+original,target);
+ }
+ const sharedPages=new Set(['inicio.html','login.html','administracion.html','suscriptores.html','empleo.html','pie.html']);
  const pages=[];
  for(const name of await readdir(join(stage,'plataforma'))){
   if(!name.endsWith('.html'))continue;
   const html=await readFile(join(stage,'plataforma',name),'utf8');
-  if(name==='pie.html'||/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
+  if(sharedPages.has(name)||/\/plataforma\/(?:assets\/app\/[a-f0-9]+-)?paquete-ciudad\.js/.test(html))pages.push(name);
  }
  for(const page of pages){
   const file=join(stage,'plataforma',page);
@@ -38,6 +43,14 @@ export async function versionarRecursos(stage){
     await publish(source,script);
    }
    html=html.replace(tag,tag.replace(/\bsrc=(["'])[^"']+\1/,'src="'+files.get(source)+'"'));
+  }
+  // Hoja autónoma: los recursos relativos se resolverían desde otra ruta al moverla.
+  const stylesheet='/plataforma/empleo.css';
+  if(page==='empleo.html'&&html.includes(stylesheet)){
+   const css=await readFile(join(stage,stylesheet),'utf8');
+   if(/\burl\s*\(|@import\b/i.test(css))throw Error('Revisar dependencias de empleo.css antes de versionarla.');
+   const target=await publish(stylesheet,css);
+   html=html.replace(/\bhref=(['"])\/plataforma\/empleo\.css(?:\?[^'"]*)?\1/g,'href="'+target+'"');
   }
   await writeFile(file,html);
  }

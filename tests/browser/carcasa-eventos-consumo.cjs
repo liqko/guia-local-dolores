@@ -37,12 +37,13 @@ async function fromLive(p){
    try{
     let p=new URL(req.url,'http://localhost').pathname;
     if(p==='/descubrir')p='/plataforma/carcasa.html';
+    if(p.startsWith('/plataforma/')&&!path.posix.extname(p))p+='.html';
     let body,type;
     if(!generic&&(p==='/plataforma/territorio-cache.js'||p.startsWith('/plataforma/paquetes-ciudad/'))){
      ({body,type}=await fromLive(p));
     }else{
      body=await readFile(path.join(stage,p));
-     type=({'html':'text/html','js':'text/javascript','json':'application/json','css':'text/css'})[p.split('.').at(-1)]||'application/octet-stream';
+     type=({'html':'text/html','js':'text/javascript','json':'application/json','css':'text/css','webp':'image/webp'})[p.split('.').at(-1)]||'application/octet-stream';
     }
     const etag='"'+createHash('sha256').update(body).digest('hex')+'"';
     const headers={'Content-Type':type,'ETag':etag,'Cache-Control':p.startsWith('/plataforma/assets/app/')?'public, max-age=31536000, immutable':'no-cache, max-age=0, must-revalidate'};
